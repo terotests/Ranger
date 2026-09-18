@@ -2483,21 +2483,54 @@ class ComponentEngine {
     }
 
     fn collectCallArgs:[EvHandle] (node:TSNode) {
+        return (this.collectArgNodeValues(node.children))
+    }
+
+    ; The argument VALUES of a call, spread expanded. Taken as a node list
+    ; rather than a call node so the built-in constructor doors -- `Array(...xs)`,
+    ; `Function(...xs)` -- read their arguments by the same rules as an ordinary
+    ; call instead of evaluating a SpreadElement as if it were an expression.
+    fn collectArgNodeValues:[EvHandle] (argNodes:[TSNode]) {
         def args:[EvHandle]
         def i:int 0
-        while (i < (array_length node.children)) {
-            def argNode:TSNode (itemAt node.children i)
-            ; Spread a call argument: f(...xs) expands the array's elements.
+        while (i < (array_length argNodes)) {
+            def argNode:TSNode (itemAt argNodes i)
+            ; Spread a call argument: f(...xs) expands the ITERABLE, not just an
+            ; array. §12.3.6.1 ArgumentListEvaluation is defined over
+            ; GetIterator, so `f(...aSet)`, `f(...aGenerator)` and `f(..."ab")`
+            ; all spread -- and a non-iterable is a TypeError rather than an
+            ; argument silently dropped. The array fast path stays because it
+            ; is the common case and skips minting an iterator.
             if ((this.nodeKindOf(argNode)) == 47) {
                 def sv:EvHandle (EvValueBridge.taggedNull())
                 if argNode.left {
                     sv = (this.evaluateExpr((unwrap argNode.left)))
                 }
+                if scriptThrew {
+                    return args
+                }
                 if (sv.isArrayValue()) {
                     def k:int 0
                     while (k < (sv.denseLen())) {
-                        push args (sv.arrayItemAt(k))
+                        ; §7.4.6: iterating an array yields undefined for a
+                        ; HOLE, and the result has no holes of its own --
+                        ; `[...[,,]]` is two present undefineds, not two gaps.
+                        def hv:EvHandle (sv.arrayItemAt(k))
+                        if (hv.isHole()) {
+                            hv = (EvValueBridge.taggedUndefined())
+                        }
+                        push args hv
                         k = (k + 1)
+                    }
+                } {
+                    def spItems:[EvHandle] (this.forOfItemList(sv))
+                    if scriptThrew {
+                        return args
+                    }
+                    def spi:int 0
+                    while (spi < (array_length spItems)) {
+                        push args (itemAt spItems spi)
+                        spi = (spi + 1)
                     }
                 }
             } {
@@ -2786,6 +2819,22 @@ class ComponentEngine {
     fn buildArrayFromArgs:EvHandle (argNodes:[TSNode]) {
         def items:[EvHandle]
         def n:int (array_length argNodes)
+        ; §22.1.1: `Array(...xs)` is the same call as `Array(x0, x1, ...)`. The
+        ; nodes were evaluated one for one, so a spread argument evaluated as a
+        ; SpreadElement expression and the whole call answered `[null]`.
+        def hasSpreadArg:boolean false
+        def hsi:int 0
+        while (hsi < n) {
+            if ((this.nodeKindOf((itemAt argNodes hsi))) == 47) { hasSpreadArg = true }
+            hsi = (hsi + 1)
+        }
+        if hasSpreadArg {
+            def spreadVals:[EvHandle] (this.collectArgNodeValues(argNodes))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+            return (this.buildArrayFromValues(spreadVals))
+        }
         if (n == 1) {
             def only:EvHandle (this.evaluateExpr((itemAt argNodes 0)))
             if (only.isNumber()) {
@@ -4592,6 +4641,37 @@ class ComponentEngine {
     }
 
     fn assignArrayTarget:void (target:TSNode value:EvHandle) {
+        ; §12.15.5.2: the ASSIGNMENT form of an array pattern destructures an
+        ; iterable by exactly the rules the declaration form uses. It read the
+        ; right-hand side by index instead, so `[a, b] = iter` -- a generator, a
+        ; Set, a string's code points -- assigned undefined to everything.
+        if ((value.isNull()) || (value.isUndefined())) {
+            def _nia:EvHandle (this.throwSpecError("TypeError" ((this.typeofTag(value)) + " is not iterable")))
+            return
+        }
+        def srcItems:[EvHandle]
+        def useItems:boolean false
+        if (false == (value.isArrayValue())) {
+            def need:int 0
+            def wantAll:boolean false
+            def ni:int 0
+            while (ni < (array_length target.children)) {
+                def nEl:TSNode (itemAt target.children ni)
+                def nn:string nEl.nodeType
+                if ((nn == "RestElement") || (nn == "SpreadElement")) {
+                    wantAll = true
+                } {
+                    need = (need + 1)
+                }
+                ni = (ni + 1)
+            }
+            if wantAll { need = 0 - 1 }
+            srcItems = (this.iterableTakeItems(value need))
+            if scriptThrew {
+                return
+            }
+            useItems = true
+        }
         def idx:int 0
         def ci:int 0
         while (ci < (array_length target.children)) {
@@ -4605,8 +4685,19 @@ class ComponentEngine {
                     if (value.isArrayValue()) {
                         def k:int idx
                         while (k < (value.denseLen())) {
-                            push items (value.arrayItemAt(k))
+                            def rhv:EvHandle (value.arrayItemAt(k))
+                            if (rhv.isHole()) {
+                                rhv = (EvValueBridge.taggedUndefined())
+                            }
+                            push items rhv
                             k = (k + 1)
+                        }
+                    }
+                    if useItems {
+                        def ri:int idx
+                        while (ri < (array_length srcItems)) {
+                            push items (itemAt srcItems ri)
+                            ri = (ri + 1)
                         }
                     }
                     if el.left {
@@ -4617,9 +4708,14 @@ class ComponentEngine {
                     if (value.isArrayValue()) {
                         if (idx < (value.denseLen())) {
                             elemVal = (value.arrayItemAt(idx))
+                            if (elemVal.isHole()) {
+                                elemVal = (EvValueBridge.taggedUndefined())
+                            }
                         }
                     } {
-                        elemVal = (value.getIndex(idx))
+                        if (idx < (array_length srcItems)) {
+                            elemVal = (itemAt srcItems idx)
+                        }
                     }
                     this.assignToTarget(el elemVal)
                     idx = (idx + 1)
@@ -4630,27 +4726,116 @@ class ComponentEngine {
     }
 
     fn assignObjectTarget:void (target:TSNode value:EvHandle) {
+        ; §12.15.5.2 RequireObjectCoercible: `({} = null)` is a TypeError even
+        ; with nothing to assign.
+        if ((value.isNull()) || (value.isUndefined())) {
+            def _rco:EvHandle (this.throwSpecError("TypeError" "Cannot destructure a null or undefined value"))
+            return
+        }
+        ; ToObject, as in the declaration form: `({toFixed} = 2)` reads through
+        ; the boxed Number, not off the bare primitive.
+        def srcO:EvHandle (this.toObjectValue(value))
+        value = srcO
+        ; D-DSTR: TWO node shapes reach here and they disagree about every slot.
+        ; When the parser knew a pattern was coming it built an ObjectPattern --
+        ; key on `name`, TARGET on `right`, default on `init`, computed key on
+        ; `body`. When the `{...}` was read as a literal and only the `=` made it
+        ; a pattern, it is an ObjectExpression, whose property holds its value
+        ; node on `left` and its computed key on `right`. Only the literal shape
+        ; was read, so every `({a} = o)` that parsed as a pattern assigned
+        ; nothing at all and the statement silently did nothing.
+        def isPat:boolean (target.nodeType == "ObjectPattern")
+        def usedKeys:[string]
         def ci:int 0
         while (ci < (array_length target.children)) {
             def prop:TSNode (itemAt target.children ci)
-            if (prop.nodeType == "Property") {
-                def srcKey:string prop.name
-                if prop.computed {
-                    if prop.right {
-                        def keyNode:TSNode (unwrap prop.right)
-                        ; Two `this.` calls nested in one expression is two
-                        ; mutable borrows of self on Rust (E0499). The engine
-                        ; is written once and compiled to every target, so the
-                        ; local is not a style choice.
-                        def keyVal:EvHandle (this.evaluateExpr(keyNode))
-                        srcKey = (this.toPropertyKey(keyVal))
+            if (prop.nodeType == "RestElement") {
+                def rkeys:[string]
+                def rvals:[EvHandle]
+                if (value.isObject()) {
+                    def ks:[string] (this.objectKeys(value))
+                    def ki:int 0
+                    while (ki < (array_length ks)) {
+                        def kk:string (itemAt ks ki)
+                        if ((this.isInList(kk usedKeys)) == false) {
+                            push rkeys kk
+                            push rvals (this.getPropertyValue(value kk))
+                            if scriptThrew {
+                                return
+                            }
+                        }
+                        ki = (ki + 1)
                     }
                 }
-                def v:EvHandle (value.getMember(srcKey))
-                ; `{a = 1} = o` -- the default lives on the VALUE slot here,
-                ; the same place a rename would.
+                def restObj:EvHandle (EvValueBridge.taggedObject(rkeys rvals))
                 if prop.left {
-                    this.assignToTarget((unwrap prop.left) v)
+                    this.assignToTarget((unwrap prop.left) restObj)
+                }
+            } {
+                if (prop.nodeType == "Property") {
+                    def srcKey:string prop.name
+                    if prop.computed {
+                        if isPat {
+                            if prop.body {
+                                def kn1:TSNode (unwrap prop.body)
+                                def kv1:EvHandle (this.evaluateExpr(kn1))
+                                if scriptThrew {
+                                    return
+                                }
+                                srcKey = (this.toPropertyKey(kv1))
+                            }
+                        } {
+                            if prop.right {
+                                def kn2:TSNode (unwrap prop.right)
+                                ; Two `this.` calls nested in one expression is
+                                ; two mutable borrows of self on Rust (E0499).
+                                ; The engine is written once and compiled to
+                                ; every target, so the local is not a style
+                                ; choice.
+                                def kv2:EvHandle (this.evaluateExpr(kn2))
+                                if scriptThrew {
+                                    return
+                                }
+                                srcKey = (this.toPropertyKey(kv2))
+                            }
+                        }
+                        if scriptThrew {
+                            return
+                        }
+                    }
+                    push usedKeys srcKey
+                    ; Through the property path, not the raw map: a getter runs,
+                    ; a proxy trap fires and an inherited property is found.
+                    def v:EvHandle (this.getPropertyValue(value srcKey))
+                    if scriptThrew {
+                        return
+                    }
+                    if isPat {
+                        ; `({a = 1} = o)` -- in the pattern shape the default
+                        ; hangs off the property, not off the target node.
+                        if ((v.isNull()) || (v.isUndefined())) {
+                            if prop.init {
+                                v = (this.evaluateExpr((unwrap prop.init)))
+                                if scriptThrew {
+                                    return
+                                }
+                            }
+                        }
+                        if prop.right {
+                            this.assignToTarget((unwrap prop.right) v)
+                        } {
+                            ; Shorthand: the key IS the target name.
+                            context.assign(prop.name v)
+                            this.syncGlobalVar(prop.name v)
+                        }
+                    } {
+                        ; `{a = 1} = o` -- the default lives on the VALUE slot
+                        ; here, the same place a rename would, and
+                        ; assignToTarget unwraps it.
+                        if prop.left {
+                            this.assignToTarget((unwrap prop.left) v)
+                        }
+                    }
                 }
             }
             ci = (ci + 1)
@@ -4661,6 +4846,33 @@ class ComponentEngine {
         if ((value.isNull()) || (value.isUndefined())) {
             def _ni:EvHandle (this.throwSpecError("TypeError" ((this.typeofTag(value)) + " is not iterable")))
             return
+        }
+        ; §13.3.3.6 IteratorBindingInitialization: an array pattern destructures
+        ; an ITERABLE, not only an array. A generic iterable was read by INDEX,
+        ; which answers undefined for a generator, a Set, a string's code points
+        ; and every hand-written iterable -- so `var [a, b] = iter` bound two
+        ; undefineds instead of failing loudly or working.
+        def srcItems:[EvHandle]
+        def useItems:boolean false
+        if (false == (value.isArrayValue())) {
+            def need:int 0
+            def wantAll:boolean false
+            def ni:int 0
+            while (ni < (array_length pattern.children)) {
+                def nEl:TSNode (itemAt pattern.children ni)
+                if (nEl.nodeType == "RestElement") {
+                    wantAll = true
+                } {
+                    need = (need + 1)
+                }
+                ni = (ni + 1)
+            }
+            if wantAll { need = 0 - 1 }
+            srcItems = (this.iterableTakeItems(value need))
+            if scriptThrew {
+                return
+            }
+            useItems = true
         }
         def idx:int 0
         def ci:int 0
@@ -4674,8 +4886,19 @@ class ComponentEngine {
                     if (value.isArrayValue()) {
                         def k:int idx
                         while (k < (value.denseLen())) {
-                            push items (value.arrayItemAt(k))
+                            def rhv:EvHandle (value.arrayItemAt(k))
+                            if (rhv.isHole()) {
+                                rhv = (EvValueBridge.taggedUndefined())
+                            }
+                            push items rhv
                             k = (k + 1)
+                        }
+                    }
+                    if useItems {
+                        def ri:int idx
+                        while (ri < (array_length srcItems)) {
+                            push items (itemAt srcItems ri)
+                            ri = (ri + 1)
                         }
                     }
                     def restVal:EvHandle (EvValueBridge.taggedArray(items))
@@ -4693,9 +4916,16 @@ class ComponentEngine {
                     if (value.isArrayValue()) {
                         if (idx < (value.denseLen())) {
                             elemVal = (value.arrayItemAt(idx))
+                            ; A HOLE binds as undefined, which is also what lets
+                            ; a default (`[a = 1] = [,]`) fire for it.
+                            if (elemVal.isHole()) {
+                                elemVal = (EvValueBridge.taggedUndefined())
+                            }
                         }
                     } {
-                        elemVal = (value.getIndex(idx))
+                        if (idx < (array_length srcItems)) {
+                            elemVal = (itemAt srcItems idx)
+                        }
                     }
                     this.bindPattern(el elemVal)
                     idx = (idx + 1)
@@ -4712,6 +4942,11 @@ class ComponentEngine {
             def _rc:EvHandle (this.throwSpecError("TypeError" "Cannot destructure a null or undefined value"))
             return
         }
+        ; §13.3.3.7 step 2 is ToObject: `var {toFixed} = 2` reads
+        ; Number.prototype.toFixed through the boxed receiver. The raw primitive
+        ; has no properties at all here, so every such pattern bound undefined.
+        def src:EvHandle (this.toObjectValue(value))
+        value = src
         def usedKeys:[string]
         def ci:int 0
         while (ci < (array_length pattern.children)) {
@@ -4740,6 +4975,24 @@ class ComponentEngine {
                 context.define(prop.name (EvValueBridge.taggedObject(rkeys rvals)))
             } {
                 def srcKey:string prop.name
+                ; §13.3.3.7: a COMPUTED key in a pattern -- `var {[k]: v} = o` --
+                ; names the property its expression evaluates to. The parser
+                ; leaves `name` empty and puts the expression on `body`; reading
+                ; `name` regardless looked up the empty string and bound
+                ; undefined every time.
+                if prop.computed {
+                    if prop.body {
+                        def pkNode:TSNode (unwrap prop.body)
+                        def pkVal:EvHandle (this.evaluateExpr(pkNode))
+                        if scriptThrew {
+                            return
+                        }
+                        srcKey = (this.toPropertyKey(pkVal))
+                        if scriptThrew {
+                            return
+                        }
+                    }
+                }
                 push usedKeys srcKey
                 ; D-PROXY: `var {a} = p` is a GET of `a`, so it goes through the
                 ; property path and reaches the trap. Reading the map directly
@@ -7377,6 +7630,15 @@ class ComponentEngine {
                     context.isBlockScope = true
                     if ((strlen catchNode.name) > 0) {
                         context.define(catchNode.name thrown)
+                    } {
+                        ; §13.15.7: the catch parameter is a full binding
+                        ; TARGET, so `catch ([i, j])` and `catch ({k})` bind
+                        ; through the pattern. Only the plain-name form was
+                        ; handled, and a destructuring parameter bound nothing
+                        ; -- the handler then read its own names as undeclared.
+                        if catchNode.left {
+                            this.bindPattern((unwrap catchNode.left) thrown)
+                        }
                     }
                     if catchNode.body {
                         this.runBlockOrStatement((unwrap catchNode.body))
@@ -10825,7 +11087,34 @@ class ComponentEngine {
     ; constructor was not callable at all and answered a plain object or a
     ; "not a function" TypeError. `asNew` picks the construct form where the two
     ; differ.
+    ; §27.1.1 and friends: the constructors that have no [[Call]] at all. Called
+    ; without `new` they are a TypeError, not a quiet construction -- which is
+    ; how a guest tells a real constructor from a factory function, and what
+    ; `Promise()`, `Set()` and `Int8Array(buf)` each answered wrongly.
+    ; The ES5 wrappers (Number, String, Boolean, Array, Object, Function,
+    ; RegExp, Date, Error) and Symbol/BigInt are callable by design and stay out.
+    fn builtinRequiresNew:boolean (name:string) {
+        if (name == "Map") { return true }
+        if (name == "Set") { return true }
+        if (name == "WeakMap") { return true }
+        if (name == "WeakSet") { return true }
+        if (name == "WeakRef") { return true }
+        if (name == "FinalizationRegistry") { return true }
+        if (name == "Promise") { return true }
+        if (name == "Proxy") { return true }
+        if (name == "ArrayBuffer") { return true }
+        if (name == "SharedArrayBuffer") { return true }
+        if (name == "DataView") { return true }
+        if (this.isTypedArrayCtorName(name)) { return true }
+        return false
+    }
+
     fn callBuiltinCtorValues:EvHandle (name:string args:[EvHandle] asNew:boolean) {
+        if (false == asNew) {
+            if (this.builtinRequiresNew(name)) {
+                return (this.throwSpecError("TypeError" ("Constructor " + (name + " requires 'new'"))))
+            }
+        }
         if (this.isTypedArrayCtorName(name)) {
             return (this.constructTypedArray(name args))
         }
@@ -11772,6 +12061,14 @@ class ComponentEngine {
                     return false
                 }
                 hasCatch = true
+                ; A DESTRUCTURING catch parameter -- `catch ([i, j])` -- has no
+                ; name to give a slot, and the compiled form would bind nothing
+                ; at all. It stays walked, where the pattern path binds it.
+                if ((strlen catchNode.name) == 0) {
+                    if catchNode.left {
+                        return false
+                    }
+                }
                 if ((strlen catchNode.name) > 0) {
                     if (null? prog.rootBody) {
                         return false
@@ -17573,6 +17870,80 @@ class ComponentEngine {
         }
         return out
     }
+    ; §13.3.3.6 IteratorBindingInitialization: an array PATTERN pulls only as
+    ; many values as it binds, and then closes the iterator -- so a hand-written
+    ; iterable sees its `return` called and a generator's `finally` runs.
+    ; Draining it instead is observable in both directions: the extra `next`
+    ; calls happen and the close does not.
+    ; `limit` below zero means "take everything", which is what a rest element
+    ; asks for; there is nothing left to close after that.
+    fn iterableTakeItems:[EvHandle] (src:EvHandle limit:int) {
+        if (limit < 0) {
+            return (this.forOfItemList(src))
+        }
+        ; The built-in kinds answer from their storage and have no guest-visible
+        ; iterator object to close, so the whole-list form is equivalent there.
+        def viaProtocol:boolean false
+        if (this.isDescriptorObject(src)) {
+            viaProtocol = true
+            if (src.isArrayValue()) { viaProtocol = false }
+            if (src.isMap()) { viaProtocol = false }
+            if (src.isSet()) { viaProtocol = false }
+            if (this.isGeneratorValue(src)) { viaProtocol = false }
+            if (src.hasOwnData("__arguments__")) { viaProtocol = false }
+        }
+        if (false == viaProtocol) {
+            return (this.forOfItemList(src))
+        }
+        def out:[EvHandle]
+        def itFn:EvHandle (this.getPropertyValue(src "@@iterator"))
+        if scriptThrew { return out }
+        if (false == (itFn.isFunction())) {
+            return (this.forOfItemList(src))
+        }
+        def noArgs:[EvHandle]
+        def iter:EvHandle (this.callFnValueWithValues((itFn.withThisForCall(src)) noArgs))
+        if scriptThrew { return out }
+        if (false == (this.isDescriptorObject(iter))) {
+            def _eIt:EvHandle (this.throwSpecError("TypeError" "Result of the Symbol.iterator method is not an object"))
+            return out
+        }
+        def exhausted:boolean false
+        def taken:int 0
+        while ((taken < limit) && (false == exhausted)) {
+            def stepArgs:[EvHandle]
+            def step:EvHandle (this.callMethodOnValue(iter "next" stepArgs))
+            if scriptThrew { return out }
+            if (false == (this.isDescriptorObject(step))) {
+                def _eSt:EvHandle (this.throwSpecError("TypeError" "Iterator result is not an object"))
+                return out
+            }
+            def doneV:EvHandle (this.getPropertyValue(step "done"))
+            if scriptThrew { return out }
+            if (doneV.toBool()) {
+                exhausted = true
+            } {
+                push out (this.getPropertyValue(step "value"))
+                if scriptThrew { return out }
+                taken = (taken + 1)
+            }
+        }
+        ; §7.4.6 IteratorClose: only when the walk stopped EARLY. An iterator
+        ; that reported done is already finished and must not be returned into.
+        if (false == exhausted) {
+            def retFn:EvHandle (this.getPropertyValue(iter "return"))
+            if scriptThrew { return out }
+            if (retFn.isFunction()) {
+                def retArgs:[EvHandle]
+                def _rv:EvHandle (this.callFnValueWithValues((retFn.withThisForCall(iter)) retArgs))
+                ; A throw from `return` is swallowed when the walk itself
+                ; completed normally -- the values are the answer.
+                scriptThrew = false
+            }
+        }
+        return out
+    }
+
     ; The tier-facing forms: the same lists as VALUE ARRAYS for the
     ; forin_keys / forof_items ops.
     fn bcForInKeys:EvHandle (target:EvHandle) {
@@ -22020,6 +22391,49 @@ class ComponentEngine {
         return false
     }
 
+    ; §23.2.3: the method surface of %TypedArray%.prototype. Every one of them
+    ; dispatches through the ARRAY registry -- a typed array IS an array value
+    ; inside this realm -- so this list only decides what is PUBLISHED, and a
+    ; name the registry does not know is skipped rather than handed out dead.
+    ; Array-only methods (push, pop, concat, splice, flat) are deliberately
+    ; absent: a typed array has a fixed length and does not have them.
+    fn typedArrayProtoNames:[string] () {
+        def out:[string]
+        push out "@@iterator"
+        push out "at"
+        push out "copyWithin"
+        push out "entries"
+        push out "every"
+        push out "fill"
+        push out "filter"
+        push out "find"
+        push out "findIndex"
+        push out "findLast"
+        push out "findLastIndex"
+        push out "forEach"
+        push out "includes"
+        push out "indexOf"
+        push out "join"
+        push out "keys"
+        push out "lastIndexOf"
+        push out "map"
+        push out "reduce"
+        push out "reduceRight"
+        push out "reverse"
+        push out "set"
+        push out "slice"
+        push out "some"
+        push out "sort"
+        push out "subarray"
+        push out "toLocaleString"
+        push out "toReversed"
+        push out "toSorted"
+        push out "toString"
+        push out "values"
+        push out "with"
+        return out
+    }
+
     fn typedArrayBrandOf:string (v:EvHandle) {
         if (false == (v.isArrayValue())) { return "" }
         def b:EvHandle (v.getMember("__tabrand__"))
@@ -26317,6 +26731,19 @@ class ComponentEngine {
             g.setAttrs("@@toStringTag" false false true)
         }
         if (nsName == "Intl") { g.setMember("__nsbrand__" (EvValueBridge.taggedString("Intl"))) }
+        ; §21.3.1 / §25.5 / §27.1 / §8.1: the namespace objects are ORDINARY
+        ; objects whose [[Prototype]] is Object.prototype. With no link at all
+        ; the chain ended at the namespace itself, so `Intl.constructor` and
+        ; `Math.hasOwnProperty` were undefined.
+        def nsPlain:boolean false
+        if (nsName == "Math") { nsPlain = true }
+        if (nsName == "JSON") { nsPlain = true }
+        if (nsName == "Reflect") { nsPlain = true }
+        if (nsName == "Atomics") { nsPlain = true }
+        if (nsName == "Intl") { nsPlain = true }
+        if nsPlain {
+            g.setProto((this.builtinPrototype("Object")))
+        }
         ; Math and JSON also brand through Symbol.toStringTag, which is what
         ; `Object.prototype.toString.call(Math)` reads. The __nsbrand__ slot
         ; above is internal and answered nothing to guest code.
@@ -26332,6 +26759,10 @@ class ComponentEngine {
         if (nsName == "Set") { hasSpecies = true }
         if (nsName == "RegExp") { hasSpecies = true }
         if (nsName == "Promise") { hasSpecies = true }
+        ; §25.1.4.3 / §25.2.4.2: the buffer constructors publish it too, and
+        ; `ArrayBuffer[Symbol.species]` was undefined.
+        if (nsName == "ArrayBuffer") { hasSpecies = true }
+        if (nsName == "SharedArrayBuffer") { hasSpecies = true }
         if hasSpecies {
             g.defineGetter("@@species" (this.sharedNativeMethod("speciesget" "get")))
             g.setAttrs("@@species" false false true)
@@ -26423,6 +26854,16 @@ class ComponentEngine {
             ; tell which constructor was asked.
             if (nsName == "Intl") {
                 if (this.intlIsCtorName(sn)) {
+                    ; D-INTL: each of them is a real constructor, so it carries
+                    ; a `prototype` whose `constructor` points back. Without the
+                    ; pair, `new Intl.NumberFormat() instanceof Intl.NumberFormat`
+                    ; was not merely false -- OrdinaryHasInstance reports a
+                    ; TypeError for a constructor whose prototype is undefined.
+                    def iproto:EvHandle (this.builtinPrototype(("Intl." + sn)))
+                    stv.setMember("prototype" iproto)
+                    stv.setAttrs("prototype" false false false)
+                    iproto.setMember("constructor" stv)
+                    iproto.setAttrs("constructor" true false true)
                     def slo:EvHandle (EvValueBridge.taggedNativeStatic("Intl" (sn + ".supportedLocalesOf")))
                     slo.setMember("length" (EvHandle.fromInt(1)))
                     slo.setAttrs("length" false false true)
@@ -26489,6 +26930,14 @@ class ComponentEngine {
     }
 
     fn kindForCtorName:string (nsName:string) {
+        ; D-INTL: the Intl constructors live on a namespace, so their prototype
+        ; is keyed by the dotted name -- `Intl.NumberFormat` -- and serves the
+        ; same receiver kind the instances dispatch on.
+        if (nsName == "Intl.Collator") { return "intlcollator" }
+        if (nsName == "Intl.NumberFormat") { return "intlnumberformat" }
+        if (nsName == "Intl.DateTimeFormat") { return "intldatetimeformat" }
+        if (nsName == "Intl.PluralRules") { return "intlpluralrules" }
+        if (nsName == "Intl.ListFormat") { return "intllistformat" }
         if (nsName == "Array") { return "array" }
         if (nsName == "String") { return "string" }
         if (nsName == "Number") { return "number" }
@@ -26967,6 +27416,16 @@ class ComponentEngine {
         if (nsName != "Object") {
             p.setProto((this.builtinPrototype("Object")))
         }
+        ; §23.2.7: a CONCRETE typed array's prototype inherits from
+        ; %TypedArray%.prototype, where every method lives, and carries its own
+        ; BYTES_PER_ELEMENT. Chained to Object.prototype instead, the whole
+        ; method surface was invisible: `Int8Array.prototype.map` was undefined
+        ; on an engine whose instances answer `map` perfectly well.
+        if (this.isTypedArrayCtorName(nsName)) {
+            p.setProto((this.builtinPrototype("TypedArray")))
+            p.setMember("BYTES_PER_ELEMENT" (EvHandle.fromInt((this.typedArrayWidth(nsName)))))
+            p.setAttrs("BYTES_PER_ELEMENT" false false false)
+        }
         ; %AsyncFunction.prototype% sits BELOW Function.prototype, not beside
         ; it: an async function is a function, so everything on Function
         ; .prototype still reaches it.
@@ -27002,11 +27461,20 @@ class ComponentEngine {
         ; D-PROTOCTOR: every prototype carries `constructor` back to its global.
         ; Safe against the cycle (global sets prototype, prototype sets
         ; constructor) because both cache their object BEFORE populating it.
+        ; D-INTL: an `Intl.<Ctor>` prototype has no global of its own -- its
+        ; constructor is a property of the Intl namespace, and the link is made
+        ; where that property is minted. Asking builtinGlobalObject for it here
+        ; would invent a namespace named "Intl.NumberFormat".
+        if (this.isIntlProtoName(nsName)) {
+            p.setMember("@@toStringTag" (EvValueBridge.taggedString(nsName)))
+            p.setAttrs("@@toStringTag" false false true)
+        } {
         def ctorG:EvHandle (this.builtinGlobalObject(nsName))
         if (false == (ctorG.isNull())) {
             p.setMember("constructor" ctorG)
             ; Non-enumerable, like every other property of a built-in prototype.
             p.setAttrs("constructor" true false true)
+        }
         }
         ; D-CLASSOF: Number.prototype, String.prototype and Boolean.prototype are
         ; themselves boxed primitives holding +0, "" and false. That is not a
@@ -27105,6 +27573,23 @@ class ComponentEngine {
                 p.defineGetter(rgn (this.sharedNativeMethod("regexpget" rgn)))
                 p.setAttrs(rgn false false true)
                 rgi = (rgi + 1)
+            }
+        }
+        ; %TypedArray%.prototype itself: the shared method surface the concrete
+        ; prototypes inherit. It is not reachable from kindForCtorName because
+        ; the kind it serves ("array") is Array.prototype's, and publishing the
+        ; whole array list here would give a typed array `push` and `concat`.
+        if (nsName == "TypedArray") {
+            p.setMember("__protokind__" (EvValueBridge.taggedString("array")))
+            def taNames:[string] (this.typedArrayProtoNames())
+            def tai:int 0
+            while (tai < (array_length taNames)) {
+                def tanm:string (itemAt taNames tai)
+                if (this.hasBuiltin("array" tanm)) {
+                    p.setMember(tanm (this.sharedNativeMethod("array" tanm)))
+                    p.setAttrs(tanm true false true)
+                }
+                tai = (tai + 1)
             }
         }
         def kind:string (this.kindForCtorName(nsName))
@@ -39510,6 +39995,80 @@ class ComponentEngine {
         return (this.toStringOf((itemAt list 0)))
     }
 
+    ; §6.2.2 IsStructurallyValidLanguageTag, to the depth this realm needs: the
+    ; language subtag is 2-3 or 5-8 ALPHABETIC characters and every subtag after
+    ; it is 1-8 alphanumerics. That single rule is what rejects a grandfathered
+    ; tag (`i-klingon`) and a private-use one (`x-en-US-12345`) alike -- both
+    ; open with a one-character subtag, which no language tag may.
+    fn intlTagIsWellFormed:boolean (tag:string) {
+        if ((this.cuLen(tag)) == 0) { return false }
+        def parts:[string] (strsplit tag "-")
+        def i:int 0
+        while (i < (array_length parts)) {
+            def p:string (itemAt parts i)
+            def np:int (this.cuLen(p))
+            if (np == 0) { return false }
+            if (np > 8) { return false }
+            def alpha:boolean true
+            def alnum:boolean true
+            def c:int 0
+            while (c < np) {
+                def ch:int (this.cuUnitAt(p c))
+                def isAl:boolean false
+                if ((ch >= 65) && (ch <= 90)) { isAl = true }
+                if ((ch >= 97) && (ch <= 122)) { isAl = true }
+                def isDi:boolean false
+                if ((ch >= 48) && (ch <= 57)) { isDi = true }
+                if (false == isAl) { alpha = false }
+                if (false == (isAl || isDi)) { alnum = false }
+                c = (c + 1)
+            }
+            if (false == alnum) { return false }
+            if (i == 0) {
+                if (false == alpha) { return false }
+                if (np < 2) { return false }
+                if (np == 4) { return false }
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; §9.2.1 CanonicalizeLocaleList: every requested tag is checked BEFORE
+    ; anything is resolved, and the first malformed one is a RangeError. An
+    ; absent locales argument requests nothing and so cannot be malformed.
+    fn intlCheckTags:boolean (v:EvHandle) {
+        def list:[EvHandle] (this.intlRequestedTag(v))
+        def i:int 0
+        while (i < (array_length list)) {
+            def s:string (this.toStringOf((itemAt list i)))
+            if scriptThrew { return false }
+            if (false == (this.intlTagIsWellFormed(s))) {
+                def _bad:EvHandle (this.throwSpecError("RangeError" ("Incorrect locale information provided: " + s)))
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; The constructor a resolved Intl kind belongs to. Inverse of the
+    ; kind-for-name table, and what names the prototype an instance is given.
+    fn intlCtorNameForKind:string (kind:string) {
+        if (kind == "collator") { return "Collator" }
+        if (kind == "numberformat") { return "NumberFormat" }
+        if (kind == "datetimeformat") { return "DateTimeFormat" }
+        if (kind == "pluralrules") { return "PluralRules" }
+        if (kind == "listformat") { return "ListFormat" }
+        return ""
+    }
+
+    ; An `Intl.<Ctor>` prototype key, the form builtinPrototype is asked for.
+    fn isIntlProtoName:boolean (nsName:string) {
+        if ((strlen nsName) < 6) { return false }
+        return ((substring nsName 0 5) == "Intl.")
+    }
+
     ; §6.2.3 CanonicalizeUnicodeLocaleId, to the extent this realm models it:
     ; the language subtag lowercases, a script subtag title-cases, a region
     ; subtag uppercases. `EN-latn-us` canonicalises to `en-Latn-US`.
@@ -40380,12 +40939,18 @@ class ComponentEngine {
         def optV:EvHandle (EvValueBridge.taggedUndefined())
         if ((array_length args) > 0) { locV = (itemAt args 0) }
         if ((array_length args) > 1) { optV = (itemAt args 1) }
+        def _tagsOk:boolean (this.intlCheckTags(locV))
+        if scriptThrew { return (EvValueBridge.taggedUndefined()) }
         def tag:string (this.intlFirstTag(locV))
         if scriptThrew { return (EvValueBridge.taggedUndefined()) }
         def idx:int (this.localeIndexOf(tag))
         def keys:[string]
         def vals:[EvHandle]
         def o:EvHandle (EvValueBridge.taggedObject(keys vals))
+        ; D-INTL: an instance inherits from its constructor's prototype, which
+        ; is what `instanceof` walks and where `format`/`resolvedOptions` are
+        ; read from as values. The hidden slots below still drive dispatch.
+        def ictor:string (this.intlCtorNameForKind(kind))
         o.setMember("__intlkind__" (EvValueBridge.taggedString(kind)))
         o.setMember("__intllocale__" (EvHandle.fromInt(idx)))
         ; The tailorings are keyed by tag, not by the data table, so a locale
@@ -40481,7 +41046,14 @@ class ComponentEngine {
             if (tStyle == "full") { hourW = 0 }
             o.setMember("__intlhourw__" (EvHandle.fromInt(hourW)))
         }
-        o.setProto((this.builtinPrototype("Object")))
+        ; The prototype is set LAST: the option arms above rebuild nothing, but
+        ; an earlier link here was overwritten by the Object.prototype one this
+        ; replaces, which is why every `instanceof Intl.NumberFormat` was false.
+        if ((strlen ictor) > 0) {
+            o.setProto((this.builtinPrototype(("Intl." + ictor))))
+        } {
+            o.setProto((this.builtinPrototype("Object")))
+        }
         return o
     }
 
@@ -43174,11 +43746,23 @@ class ComponentEngine {
                 if an.left {
                     sv = (this.evaluateExpr((unwrap an.left)))
                 }
+                ; §12.3.6.1: the spread argument is ITERATED. An array is taken
+                ; directly; anything else goes through the iteration protocol,
+                ; and a non-iterable throws rather than expanding to nothing.
                 if (sv.isArrayValue()) {
                     def k:int 0
                     while (k < (sv.denseLen())) {
                         push argVals (sv.arrayItemAt(k))
                         k = (k + 1)
+                    }
+                } {
+                    if (false == scriptThrew) {
+                        def spItems:[EvHandle] (this.forOfItemList(sv))
+                        def spi:int 0
+                        while (spi < (array_length spItems)) {
+                            push argVals (itemAt spItems spi)
+                            spi = (spi + 1)
+                        }
                     }
                 }
             } {
@@ -44743,7 +45327,13 @@ class ComponentEngine {
                 if (sv.isArrayValue()) {
                     def k:int 0
                     while (k < (sv.denseLen())) {
-                        push items (sv.arrayItemAt(k))
+                        ; §7.4.6: a HOLE iterates as a present undefined, so
+                        ; `[...[,,]]` has two elements and `0 in it` is true.
+                        def hv:EvHandle (sv.arrayItemAt(k))
+                        if (hv.isHole()) {
+                            hv = (EvValueBridge.taggedUndefined())
+                        }
+                        push items hv
                         k = (k + 1)
                     }
                 } {
