@@ -254,6 +254,23 @@ class CodeGraphPages {
         return ""
     }
 
+    ; The box behind the rows: a shade lighter than the row tint, because
+    ; every other row is painted with the alternate fill and the rest show
+    ; the box through — with the row colour on the box, an untouched row
+    ; of a changed class read as changed.
+    sfn diffBoxFill:string (status:string) {
+        if (status == "added") {
+            return "#f0fdf4"
+        }
+        if (status == "removed") {
+            return "#fef2f2"
+        }
+        if (status == "changed") {
+            return "#fffdf5"
+        }
+        return ""
+    }
+
     ; Paint a class box by its status; an untouched class keeps what the
     ; page gave it. Removed classes are drawn muted so the eye lands on
     ; what is still in the program.
@@ -265,7 +282,7 @@ class CodeGraphPages {
         def stroke:string (CodeGraphPages.diffStroke(st))
         if ((strlen stroke) > 0) {
             it.stroke = stroke
-            it.fill = (CodeGraphPages.diffFill(st))
+            it.fill = (CodeGraphPages.diffBoxFill(st))
         }
     }
 

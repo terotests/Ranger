@@ -700,20 +700,41 @@ class CodeGraphDiff {
                 best = (first + 1)
             }
         }
-        ; The span ends at the member's last non-blank line, not at the
-        ; line before the next member: a method inserted after this one
-        ; lands in the blank lines between, and would otherwise count as
-        ; a change to this one.
+        ; The span ends at the member's last line of code, not at the line
+        ; before the next member: a method inserted after this one lands in
+        ; the blank lines between, with its own comment above it, and both
+        ; would otherwise count as a change to this one.
         def last:int (best - 1)
         while (last > first) {
             if (last < (array_length lines)) {
-                if ((strlen (CodeGraphDiff.trimBlank((itemAt lines last)))) > 0) {
+                if ((CodeGraphDiff.isBlankOrComment((itemAt lines last))) == false) {
                     return last
                 }
             }
             last = (last - 1)
         }
         return last
+    }
+
+    ; Ranger `;`, C++ / TypeScript `//` and the lines of a `/* */` block.
+    sfn isBlankOrComment:boolean (line:string) {
+        def t:string (CodeGraphDiff.trimBlank(line))
+        if ((strlen t) == 0) {
+            return true
+        }
+        if ((indexOf t ";") == 0) {
+            return true
+        }
+        if ((indexOf t "//") == 0) {
+            return true
+        }
+        if ((indexOf t "/*") == 0) {
+            return true
+        }
+        if ((indexOf t "*") == 0) {
+            return true
+        }
+        return false
     }
 
     sfn trimBlank:string (s:string) {
