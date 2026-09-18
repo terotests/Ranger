@@ -31,6 +31,7 @@ class ErazerTest {
         test.testMenu(t)
         test.testIcon(t)
         test.testChipRow(t)
+        test.testChipStrip(t)
         test.testSlider(t)
         test.testSliders(t)
         test.testJson(t)
@@ -160,7 +161,20 @@ class ErazerTest {
         t.ok("chip Sick" ((null? sick) == false))
         def ready@(optional):ErazerNode (doc.root.findText("Ready"))
         t.ok("wide chip Ready" ((null? ready) == false))
+        t.ok("wide chips are not tabs" ((doc.root.roleCount("tab")) == 0))
         if ((buttons < 3) || (null? rest) || (null? sick) || (null? ready)) {
+            print doc.outline
+        }
+    }
+
+    fn testChipStrip:void (t:RgTest) {
+        def img:ImageBuffer (ErazerPaint.chipStrip())
+        def doc:ErazerDoc (Erazer.analyze(img))
+        def buttons:int (doc.root.roleCount("button"))
+        def tabs:int (doc.root.roleCount("tab"))
+        t.ok("uneven chips are buttons" (buttons >= 3))
+        t.ok("uneven chips are not tabs" (tabs == 0))
+        if ((buttons < 3) || (tabs > 0)) {
             print doc.outline
         }
     }

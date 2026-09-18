@@ -1346,8 +1346,8 @@ class Erazer {
                 wj = (wj + 1)
             }
             ; Unequal-width chips on a form (Rest / Sick / a long label) are
-            ; buttons, not a tab strip.
-            if (maxW > ((minW * 2) + 40)) {
+            ; buttons, not a tab strip. Equal File/Edit/View bars still match.
+            if (maxW > ((idiv (minW * 3) 2) + 24)) {
                 return
             }
             def t:int 0

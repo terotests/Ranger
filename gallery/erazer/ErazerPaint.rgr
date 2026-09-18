@@ -113,6 +113,22 @@ class ErazerPaint {
         return img
     }
 
+    ; Unequal chips like Lepopaiva / Sairas / Valmentaja paikalla: similar
+    ; height and fill, different widths — a tab heuristic must not steal them.
+    sfn chipStrip:ImageBuffer () {
+        def img:ImageBuffer (ErazerPaint.blank(540 80 232 236 240))
+        ErazerFont.fillRoundRect(img 12 22 150 36 6 243 244 246)
+        ErazerFont.strokeRect(img 12 22 150 36 1 156 163 175)
+        ErazerPaint.paintCentered(img 12 22 150 36 "Rest" 17 24 39)
+        ErazerFont.fillRoundRect(img 170 22 110 36 6 243 244 246)
+        ErazerFont.strokeRect(img 170 22 110 36 1 156 163 175)
+        ErazerPaint.paintCentered(img 170 22 110 36 "Sick" 17 24 39)
+        ErazerFont.fillRoundRect(img 288 22 236 36 6 243 244 246)
+        ErazerFont.strokeRect(img 288 22 236 36 1 156 163 175)
+        ErazerPaint.paintCentered(img 288 22 236 36 "Ready" 17 24 39)
+        return img
+    }
+
     sfn paintSliderRow:void (img:ImageBuffer x:int y:int trackW:int fillW:int) {
         ErazerFont.fillRoundRect(img x (y + 10) trackW 8 4 209 213 219)
         def fw:int fillW
