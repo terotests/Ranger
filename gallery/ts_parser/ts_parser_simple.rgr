@@ -3522,7 +3522,9 @@ class TSParserSimple {
       }
       
       if (nextVal == "in") {
-        if ((strlen varNameStr) > 0) {
+        ; B.3.5: `catch (e) { for (var e in o) {} }` is allowed -- only the
+        ; for-of form keeps the early error.
+        if (((strlen varNameStr) > 0) && (kind != "var")) {
           if (this.isParameterInScope(varNameStr)) {
             this.syntaxError("Parse error: '" + varNameStr + "' shadows a parameter in a for-in head")
           }

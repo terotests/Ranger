@@ -1819,6 +1819,9 @@ class TSLexer {
             if (ch == "\\") {
                 def esc:string (substring body (i + 1) (i + 2))
                 if (esc == "u") {
+                    if (unicodeMode && ((substring body (i + 2) (i + 3)) != "{")) {
+                        if (false == (this.uModeEscapeOk(body i inClass))) { return false }
+                    }
                     if ((substring body (i + 2) (i + 3)) == "{") {
                         def cp:int 0
                         def j:int (i + 3)
@@ -1835,6 +1838,8 @@ class TSLexer {
                         if (digits > 0) {
                             if (cp > 1114111) { return false }
                         }
+                        ; `\\u{}` has no digits: not a code point escape.
+                        if (unicodeMode && (digits == 0)) { return false }
                         ; Skip the whole escape, closing brace included, so the `}`
                         ; is not read as a stray one.
                         if ((substring body j (j + 1)) == "}") {
@@ -1869,6 +1874,18 @@ class TSLexer {
                             if (escCode <= 57) {
                                 def refNum:int (escCode - 48)
                                 if (refNum > maxBackRef) { maxBackRef = refNum }
+                                ; A decimal escape inside a class is never a
+                                ; back-reference.
+                                if (unicodeMode && inClass) { return false }
+                            }
+                        }
+                        if unicodeMode {
+                            if (false == (this.uModeEscapeOk(body i inClass))) { return false }
+                            ; `[\\d-a]`: a class escape cannot start a range.
+                            if (inClass && (this.isClassEscapeChar(esc))) {
+                                if ((substring body (i + 2) (i + 3)) == "-") {
+                                    if ((substring body (i + 3) (i + 4)) != "]") { return false }
+                                }
                             }
                         }
                     }
@@ -1882,6 +1899,15 @@ class TSLexer {
             } {
                 if (inClass) {
                     if (ch == "]") { inClass = false }
+                    ; `[a-\d]`: a class escape cannot end a range in u-mode.
+                    if (unicodeMode && (ch == "-")) {
+                        if ((substring body (i + 1) (i + 2)) == "\\") {
+                            def rEsc:string (substring body (i + 2) (i + 3))
+                            if (this.isClassEscapeChar(rEsc)) {
+                                if ((substring body (i - 1) i) != "[") { return false }
+                            }
+                        }
+                    }
                     i = (i + 1)
                 } {
                     if (ch == "[") {
@@ -1892,8 +1918,16 @@ class TSLexer {
                         if (ch == "(") {
                             def after:string (substring body (i + 1) (i + 3))
                             if ((after == "?=") || (after == "?!")) {
-                                ; Remember where this assertion group ends.
+                                ; In u-mode a lookahead may not be quantified:
+                                ; find its closing paren and look past it.
                                 prevWasAssertion = false
+                                if unicodeMode {
+                                    def endP:int (this.regexGroupEnd(body (i + 3)))
+                                    if (endP > 0) {
+                                        def afterQ:string (substring body (endP + 1) (endP + 2))
+                                        if ((afterQ == "*") || ((afterQ == "+") || ((afterQ == "?") || (afterQ == "{")))) { return false }
+                                    }
+                                }
                             } {
                                 if ((substring body (i + 1) (i + 2)) != "?") {
                                     groups = (groups + 1)
@@ -1949,8 +1983,102 @@ class TSLexer {
                 }
             }
         }
-        if (maxBackRef > groups) { return false }
+        if (unicodeMode) {
+            if (maxBackRef > groups) { return false }
+        }
         return true
+    }
+
+    fn isClassEscapeChar:boolean (c:string) {
+        if ((c == "d") || ((c == "D") || ((c == "s") || ((c == "S") || ((c == "w") || ((c == "W") || ((c == "p") || (c == "P")))))))) { return true }
+        return false
+    }
+
+    ; The index of the `)` closing the group whose body starts at `from`, or
+    ; -1. Escapes and classes are skipped so their parentheses do not count.
+    fn regexGroupEnd:int (body:string from:int) {
+        def n:int (strlen body)
+        def depth:int 1
+        def j:int from
+        def inCls:boolean false
+        while (j < n) {
+            def c:string (substring body j (j + 1))
+            if (c == "\\") {
+                j = (j + 2)
+            } {
+                if inCls {
+                    if (c == "]") { inCls = false }
+                } {
+                    if (c == "[") { inCls = true }
+                    if (c == "(") { depth = (depth + 1) }
+                    if (c == ")") {
+                        depth = (depth - 1)
+                        if (depth == 0) { return j }
+                    }
+                }
+                j = (j + 1)
+            }
+        }
+        return -1
+    }
+
+    ; §21.2.1 with the [U] parameter: what may follow `\` in unicode mode.
+    ; `i` is the index of the backslash.
+    fn uModeEscapeOk:boolean (body:string i:int inClass:boolean) {
+        def n:int (strlen body)
+        if ((i + 1) >= n) { return false }
+        def e:string (substring body (i + 1) (i + 2))
+        def ec:int (charAt e 0)
+        ; ControlEscape, CharacterClassEscape, \b \B, \k<name>
+        if ((e == "f") || ((e == "n") || ((e == "r") || ((e == "t") || ((e == "v") || (e == "b")))))) { return true }
+        ; `\\B` is an assertion, so it has no meaning inside a class.
+        if (e == "B") {
+            if inClass { return false }
+            return true
+        }
+        if (e == "k") {
+            if ((substring body (i + 2) (i + 3)) == "<") { return true }
+            return false
+        }
+        if (this.isClassEscapeChar(e)) { return true }
+        ; a decimal escape: \0 not followed by a digit, or a back-reference
+        if (e == "0") {
+            def d0:string (substring body (i + 2) (i + 3))
+            if (this.isDigit(d0)) { return false }
+            return true
+        }
+        if ((ec >= 49) && (ec <= 57)) { return true }
+        ; \cX with an ASCII letter
+        if (e == "c") {
+            def cx:string (substring body (i + 2) (i + 3))
+            if ((strlen cx) == 0) { return false }
+            def cxc:int (charAt cx 0)
+            if ((cxc >= 65) && (cxc <= 90)) { return true }
+            if ((cxc >= 97) && (cxc <= 122)) { return true }
+            return false
+        }
+        ; \xHH
+        if (e == "x") {
+            if ((i + 3) >= n) { return false }
+            if ((this.hexValue((substring body (i + 2) (i + 3)))) < 0) { return false }
+            if ((this.hexValue((substring body (i + 3) (i + 4)))) < 0) { return false }
+            return true
+        }
+        ; \uHHHH (the \u{...} form is handled by the caller)
+        if (e == "u") {
+            if ((i + 5) >= n) { return false }
+            def hk:int 0
+            while (hk < 4) {
+                if ((this.hexValue((substring body ((i + 2) + hk) ((i + 3) + hk)))) < 0) { return false }
+                hk = (hk + 1)
+            }
+            return true
+        }
+        ; IdentityEscape[U]: SyntaxCharacter or `/`, plus `-` inside a class
+        def syn:string "^$\\.*+?()[]{}|/"
+        if ((indexOf syn e) >= 0) { return true }
+        if (inClass && (e == "-")) { return true }
+        return false
     }
 
     fn stringContainsChar:boolean (haystack:string ch:string) {

@@ -27151,7 +27151,7 @@ class ComponentEngine {
                         if (qCur.isNull()) { qSame = true }
                         if (qCur.isUndefined()) { qSame = true }
                     } {
-                        if (qCur.isObject()) {
+                        if (this.isDescriptorObject(qCur)) {
                             if (qCur.equals(qRes)) { qSame = true }
                         }
                     }
@@ -29068,7 +29068,10 @@ class ComponentEngine {
             if (kind != "number") {
                 if (kind != "array") {
                     if (kind != "date") {
-                        return (EvValueBridge.taggedString((this.toStringOf(recv))))
+                        ; §19.1.3.5: Invoke(O, "toString") -- an override of
+                        ; Boolean.prototype.toString is what a boolean uses.
+                        def tlsNoArgs:[EvHandle]
+                        return (this.callMethodOnValue(recv "toString" tlsNoArgs))
                     }
                 }
             }
@@ -31715,9 +31718,21 @@ class ComponentEngine {
                         }
                     }
                 }
+                ; B.2.5.1 step 5: RegExpInitialize -- the flags and, under `u`,
+                ; the pattern are validated exactly as the constructor does.
+                def cFlagErr:string (this.regexFlagError(cFlg))
+                if ((strlen cFlagErr) > 0) {
+                    return (this.throwSpecError("SyntaxError" cFlagErr))
+                }
                 def cProg:RegexProgram (this.compileRegexOf((this.makeRegexValue(cPat cFlg))))
                 if (false == cProg.valid) {
                     return (this.throwSpecError("SyntaxError" ("Invalid regular expression: " + cProg.errorMessage)))
+                }
+                if ((indexOf cFlg "u") >= 0) {
+                    def cLex (new TSLexer(""))
+                    if (false == (cLex.regexBodyValid(cPat true))) {
+                        return (this.throwSpecError("SyntaxError" ("Invalid regular expression: /" + (cPat + "/u: invalid pattern in unicode mode"))))
+                    }
                 }
                 recv.setAttrs("__regex__" true false true)
                 recv.setMember("__regex__" (EvValueBridge.taggedString(cPat)))
@@ -31728,6 +31743,33 @@ class ComponentEngine {
                 recv.setAttrs("flags" true false true)
                 recv.setMember("flags" (EvValueBridge.taggedString(cFlg)))
                 recv.setAttrs("flags" false false false)
+                ; The flag booleans follow the new flags, and lastIndex is 0
+                ; (B.2.5.1 RegExpInitialize step 12).
+                def cFresh:EvHandle (this.makeRegexValue(cPat cFlg))
+                def cKeys:[string]
+                push cKeys "global"
+                push cKeys "ignoreCase"
+                push cKeys "multiline"
+                push cKeys "sticky"
+                push cKeys "unicode"
+                push cKeys "dotAll"
+                push cKeys "hasIndices"
+                push cKeys "unicodeSets"
+                def cki:int 0
+                while (cki < (array_length cKeys)) {
+                    def ck:string (itemAt cKeys cki)
+                    def ckv:EvHandle (cFresh.getMember(ck))
+                    if (ckv.isBoolean()) {
+                        recv.setAttrs(ck true false true)
+                        recv.putOwnData(ck ckv)
+                        recv.setAttrs(ck false false false)
+                    }
+                    cki = (cki + 1)
+                }
+                this.setLastIndexValueOrThrow(recv (EvHandle.fromInt(0)))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
                 recv.setAttrs("global" true false true)
                 recv.setMember("global" (EvValueBridge.taggedBoolean(((indexOf cFlg "g") >= 0))))
                 recv.setAttrs("global" false false false)
@@ -32990,7 +33032,7 @@ class ComponentEngine {
                 if scriptThrew {
                     return (EvValueBridge.taggedUndefined())
                 }
-                if (false == (this.isDescriptorObject(hiProto))) {
+                if ((false == (this.isDescriptorObject(hiProto))) || (this.isSymbolValue(hiProto))) {
                     return (this.throwSpecError("TypeError" "prototype is not an object"))
                 }
                 def hiWalk:EvHandle (this.protoOfValue(hiArg))
@@ -34308,6 +34350,14 @@ class ComponentEngine {
         if (false == prog2.valid) {
             return (this.throwSpecError("SyntaxError" ("Invalid regular expression: " + prog2.errorMessage)))
         }
+        ; §21.2.3.2.2 / B.1.4: with `u` the pattern grammar has no annex-B
+        ; leniency -- the same check a literal gets in the lexer.
+        if ((indexOf flags "u") >= 0) {
+            def uLex (new TSLexer(""))
+            if (false == (uLex.regexBodyValid(pattern true))) {
+                return (this.throwSpecError("SyntaxError" ("Invalid regular expression: /" + (pattern + "/u: invalid pattern in unicode mode"))))
+            }
+        }
         return (this.makeRegexValue(pattern flags))
     }
 
@@ -34604,11 +34654,14 @@ class ComponentEngine {
         if prog.global { usesLastIndex = true }
         if prog.sticky { usesLastIndex = true }
         def from:int 0
+        ; §21.2.5.2.2 step 4: ToLength(Get(R, "lastIndex")) runs for every
+        ; exec -- its valueOf is observable -- and is USED only by g/y.
+        def liRead:int (this.toIntegerOf((re.getMember("lastIndex"))))
+        if scriptThrew {
+            return (EvValueBridge.taggedUndefined())
+        }
         if usesLastIndex {
-            from = (this.toIntegerOf((re.getMember("lastIndex"))))
-            if scriptThrew {
-                return (EvValueBridge.taggedUndefined())
-            }
+            from = liRead
         }
         if ((from > (this.cuLen(subject))) || (from < 0)) {
             if usesLastIndex {
@@ -35623,7 +35676,7 @@ class ComponentEngine {
             return (EvValueBridge.taggedUndefined())
         }
         if (false == (ctorV.isUndefined())) {
-            if (false == (this.isDescriptorObject(ctorV))) {
+            if ((false == (this.isDescriptorObject(ctorV))) || (this.isSymbolValue(ctorV))) {
                 return (this.throwSpecError("TypeError" "constructor is not an object"))
             }
             def specV:EvHandle (this.getPropertyValue(ctorV "@@species"))
@@ -35631,7 +35684,7 @@ class ComponentEngine {
                 return (EvValueBridge.taggedUndefined())
             }
             if (false == ((specV.isUndefined()) || (specV.isNull()))) {
-                if (false == (specV.isFunction())) {
+                if (false == (this.isConstructorValue(specV))) {
                     return (this.throwSpecError("TypeError" "species is not a constructor"))
                 }
                 if (specV.hasFunctionNode()) {
@@ -35969,14 +36022,12 @@ class ComponentEngine {
                 if (eRes.isNull()) {
                     return eRes
                 }
-                ; A guest `return null` can arrive here as UNDEFINED -- the two
-                ; share a representation on the way out of a call -- and both
-                ; mean "no match", so only a real primitive is the error.
-                if (eRes.isUndefined()) {
-                    return (EvValueBridge.taggedNull())
-                }
+                ; §21.2.5.2.1 step 4.c: anything but an object or null -- and
+                ; undefined is neither -- is a TypeError.
                 if (this.isDescriptorObject(eRes)) {
-                    return eRes
+                    if (false == (this.isSymbolValue(eRes))) {
+                        return eRes
+                    }
                 }
                 return (this.throwSpecError("TypeError" "RegExp exec method returned something other than an Object or null"))
             }
