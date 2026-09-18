@@ -42545,6 +42545,25 @@ class ComponentEngine {
             push gnames "WeakRef"
             push gnames "FinalizationRegistry"
             push gnames "performance"
+            ; The keyed collections, Symbol and the typed arrays were missing,
+            ; so `'Int8Array' in globalThis` was false and `globalThis.Map` was
+            ; undefined for constructors the bare names resolve to perfectly
+            ; well -- which is how a feature test that reaches a constructor
+            ; through the global object concludes it does not exist.
+            push gnames "Map"
+            push gnames "Set"
+            push gnames "Symbol"
+            push gnames "Int8Array"
+            push gnames "Uint8Array"
+            push gnames "Uint8ClampedArray"
+            push gnames "Int16Array"
+            push gnames "Uint16Array"
+            push gnames "Int32Array"
+            push gnames "Uint32Array"
+            push gnames "Float32Array"
+            push gnames "Float64Array"
+            push gnames "BigInt64Array"
+            push gnames "BigUint64Array"
             ; The error constructors are globals too -- getOwnPropertyNames on
             ; the global object is expected to list every one of them.
             def enames:[string] (this.errorKindNames())
