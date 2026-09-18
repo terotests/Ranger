@@ -40,9 +40,9 @@
 ;   npm run pptx:web:test   (the strip is hit-tested by the browser selftests)
 ; ==============================================================================
 
-Import "../../evg/EVGToolbarView.rgr"
-Import "../../evg/EVGToolbar.rgr"
-Import "../../evg/EVGDisplayList.rgr"
+Import "pkg:evg_window/EVGToolbarView.rgr"
+Import "pkg:evg/EVGToolbar.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
 
 ; The chrome's surfaces, which the strip's theme does not cover.
 ;

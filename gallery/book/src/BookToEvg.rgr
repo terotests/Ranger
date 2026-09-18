@@ -12,7 +12,7 @@
 ;            |
 ;       BookToEvg              one page, in device pixels
 ;            |
-;     EVGDisplayList  ──┬──►  WebGL 2   (gallery/evg/gl)
+;     EVGDisplayList  ──┬──►  WebGL 2   (lib/evg/gl)
 ;                       ├──►  OpenGL / SDL
 ;                       └──►  SoftCanvas (headless, screenshots, tests)
 ;
@@ -28,9 +28,9 @@
 ; ==============================================================================
 
 Import "BookRender.rgr"
-Import "../../evg/EVGDisplayList.rgr"
-Import "../../evg/EVGColor.rgr"
-Import "../../evg/SVGPathParser.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGColor.rgr"
+Import "pkg:evg/SVGPathParser.rgr"
 
 class BookToEvg {
     ; Device pixels per page point.

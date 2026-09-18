@@ -7,7 +7,7 @@
 ; Uses gallery/zip Inflate. Kept at SoftCanvas ImageBuffer level (not OOXML).
 ; ==============================================================================
 
-Import "../../pdf_writer/src/jpeg/ImageBuffer.rgr"
+Import "pkg:image/ImageBuffer.rgr"
 Import "../../../lib/zip/Inflate.rgr"
 
 class DocxPng {

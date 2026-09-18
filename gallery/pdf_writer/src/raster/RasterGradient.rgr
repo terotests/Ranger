@@ -3,7 +3,7 @@
 ; RasterGradient - Gradient rendering for raster buffers
 ; Supports linear and radial gradients with multiple color stops
 
-Import "RasterBuffer.rgr"
+Import "pkg:image/RasterBuffer.rgr"
 
 ; A color stop in a gradient
 class GradientStop {

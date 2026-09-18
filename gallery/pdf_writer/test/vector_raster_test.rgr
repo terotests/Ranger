@@ -24,9 +24,9 @@
 ; ==============================================================================
 
 Import "../src/raster/VectorRasterizer.rgr"
-Import "../src/raster/RasterBuffer.rgr"
-Import "../../evg/SVGPathParser.rgr"
-Import "../../evg/VectorStroke.rgr"
+Import "pkg:image/RasterBuffer.rgr"
+Import "pkg:evg/SVGPathParser.rgr"
+Import "pkg:evg/VectorStroke.rgr"
 Import "../../game_engine/v2/tests/harness/RgTest.rgr"
 
 class VectorRasterTest {

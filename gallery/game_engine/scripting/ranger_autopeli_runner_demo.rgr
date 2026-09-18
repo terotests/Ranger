@@ -9,7 +9,7 @@
 ; the host cannot tell a Ranger RGW1 guest from the Rust one.
 ; ==============================================================================
 
-Import "./wasm_physics_runner.rgr"
+Import "wasm_physics_runner.rgr"
 
 class RangerAutopeliRunnerDemo {
     sfn m@(main):void () {

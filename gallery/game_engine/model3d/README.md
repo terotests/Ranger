@@ -101,8 +101,8 @@ Embedded glTF images are bytes inside the BIN chunk, not files on disk. The
 repo's existing native decoders were extended with an in-memory entry point
 (the file-based `decode(dir, file)` API is unchanged and still delegates to it):
 
-- `gallery/game_engine/lpc/src/png_decoder.rgr` → `decodeBytes(bytes:buffer)`
-- `gallery/pdf_writer/src/jpeg/JPEGDecoder.rgr` → `decodeBytes(bytes:buffer)`
+- `lib/image/PNGDecoder.rgr` → `decodeBytes(bytes:buffer)`
+- `lib/image/JPEGDecoder.rgr` → `decodeBytes(bytes:buffer)`
 
 ## Tests
 

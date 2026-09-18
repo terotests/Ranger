@@ -34,7 +34,7 @@
 ; files, which is a security boundary that gets its own pass.
 ; ============================================================================
 
-Import "./D2Parser.rgr"
+Import "D2Parser.rgr"
 
 ; ---------------------------------------------------------------------------
 ; D2's reserved vocabulary. The lists are the oracle's

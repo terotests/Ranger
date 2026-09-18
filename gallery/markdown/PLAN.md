@@ -306,7 +306,7 @@ which `Paragraph` can already express, with a `quoteDepth` for the nested case.
 The one honest cost of the reuse: `RichDocument` is measured in twips and
 speaks `styleId "Normal"`, because Word made it. `MdToRich` converts once at
 the boundary and nothing downstream sees a markdown concept. If that friction
-ever exceeds the value, the model moves to `gallery/evg/` and both viewers
+ever exceeds the value, the model moves to `lib/evg/` and both viewers
 import it from there — but not before it does.
 
 ---
@@ -775,5 +775,5 @@ hour until the fifth failing example.
 - [`gallery/rangerflow/README.md`](../rangerflow/README.md) — the Mermaid readers, and the parity harness this design copies
 - [`gallery/docx_viewer/README.md`](../docx_viewer/README.md) — `RichDocument`, pagination, and the WebGL page recipe
 - [`gallery/book/README.md`](../book/README.md) — the flow engine the break rules come from
-- [`gallery/evg/README.md`](../evg/README.md) — the layout engine, the text engine, and the display list
+- [`lib/evg/README.md`](../evg/README.md) — the layout engine, the text engine, and the display list
 - [`gallery/pdf_writer/README.md`](../pdf_writer/README.md) — `<Print>` / `<Page>`, font embedding, and `evg_pdf_tool`

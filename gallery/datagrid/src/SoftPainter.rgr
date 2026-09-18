@@ -24,8 +24,8 @@
 Import "GridImages.rgr"
 Import "../../game_engine/framebuffer.rgr"
 Import "../../game_engine/ui/UIContext.rgr"
-Import "../../evg/EVGColor.rgr"
-Import "../../evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGColor.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
 
 ; A rectangle and whether anything of it survived the clip. A class rather
 ; than four out-parameters because an object is a reference on every target

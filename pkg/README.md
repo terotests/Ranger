@@ -79,7 +79,7 @@ is empty (that directory is gitignored).
 
 ```bash
 node pkg/tools/clone.mjs https://github.com/terotests/Ranger.git \
-  HEAD /tmp/ranger-evg gallery/evg
+  HEAD /tmp/ranger-evg lib/evg
 ```
 
 ## What a package is
@@ -167,7 +167,7 @@ HTTP imports either: it GETs the files the module graph names. Here the graph
 is a Git tree. `clone.mjs` does two smart-HTTP rounds:
 
 1. `deepen 1` + `filter blob:none` — one commit and its trees (~280 KB on Ranger.git)
-2. `want` the subtree SHA (`allow-reachable-sha1-in-want`) — blobs under that path (~2.5 MB for `gallery/evg`)
+2. `want` the subtree SHA (`allow-reachable-sha1-in-want`) — blobs under that path (~2.5 MB for `lib/evg`)
 
 Protocol v2 `command=fetch` with the same deepen/filter is `pkg_tool want-v2`.
 GitHub still speaks v1 with `filter` / `shallow`; that is what `clone.mjs` posts

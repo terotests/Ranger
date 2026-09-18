@@ -86,7 +86,7 @@ cp "$WEB/index.html" "$OUT/index.html"
 cp "$WEB/standalone.mjs" "$OUT/standalone.mjs"
 
 mkdir -p "$OUT/gl" "$OUT/fonts" "$OUT/samples" "$OUT/host"
-cp gallery/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
+cp lib/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
 # The other two editors' browser halves — the SAME files the pptx and docx
 # pages load. The PPTX and DOCX tabs are those editors, so what a press or a
 # keystroke means there is their module's business, not this page's.

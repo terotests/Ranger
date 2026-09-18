@@ -39,8 +39,8 @@
 ; ==============================================================================
 
 Import "../src/PptxView.rgr"
-Import "../../evg/EVGDisplayList.rgr"
-Import "../../evg/EVGColor.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGColor.rgr"
 
 class SeamCheck {
     def passed:int 0

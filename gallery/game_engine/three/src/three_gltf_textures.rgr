@@ -19,9 +19,9 @@
 
 Import "three_gltf_file.rgr"
 Import "three_http.rgr"
-Import "../../../pdf_writer/src/jpeg/JPEGDecoder.rgr"
-Import "../../../pdf_writer/src/jpeg/ImageBuffer.rgr"
-Import "../../lpc/src/png_decoder.rgr"
+Import "pkg:image/JPEGDecoder.rgr"
+Import "pkg:image/ImageBuffer.rgr"
+Import "pkg:image/PNGDecoder.rgr"
 
 class ThreeGLTFTextures {
     ; true if uri ends with ".png" (case-insensitive on the extension letters).

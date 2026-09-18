@@ -12,7 +12,7 @@
  */
 import { renderDisplayList } from "./gl/evg-webgl.js";
 // The assets this page's head started fetching before the body was parsed —
-// see gallery/evg/web/tools/inline-assets.mjs, which writes that head.
+// see lib/evg/web/tools/inline-assets.mjs, which writes that head.
 import { bytesOf, asRangerBuffer } from "./evg/assets-client.mjs";
 
 // The page watches for this: if the import above fails, nothing below runs and

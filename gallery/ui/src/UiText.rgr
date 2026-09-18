@@ -6,7 +6,7 @@
 ; Two questions every page with a fixed column asks, and four places in the
 ; gallery answered for themselves: mfiles (`fitText`, `wrapText`), the DB
 ; viewer (`fitText`), the breadcrumb (its own collapse arithmetic) and
-; `gallery/evg/EVGTextFit` (over the game engine's text renderer, which the
+; `gallery/evg_window/EVGTextFit` (over the game engine's text renderer, which the
 ; kit does not use). Same binary search, same greedy wrap, written four times
 ; and slightly differently each time.
 ;
@@ -19,7 +19,7 @@
 ;
 ; Both take the ENGINE, because the answer depends on which measurer is in
 ; play: the advance table in a headless gate, the browser's `measureText`
-; on the page (`gallery/evg/gl/evg-measure.js` installs it into every
+; on the page (`lib/evg/gl/evg-measure.js` installs it into every
 ; module). A helper that made its own engine would measure in the wrong one.
 ; =============================================================================
 

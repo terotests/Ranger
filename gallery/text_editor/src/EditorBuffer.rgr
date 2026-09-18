@@ -12,7 +12,7 @@
 ; Every mutation goes through replaceRange so undo/redo is a single reverse op.
 ; ==============================================================================
 
-Import "../../evg/EVGCodepoint.rgr"
+Import "pkg:evg/EVGCodepoint.rgr"
 Import "../../office/text/OfficeCaretMotion.rgr"
 Import "EditorStyle.rgr"
 

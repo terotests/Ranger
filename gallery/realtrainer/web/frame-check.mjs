@@ -84,7 +84,7 @@ console.log("--- the page loads ---");
 // The desktop demo at its own size: without `page` the page is the window,
 // and this check measures the loader's card at 470px.
 // `--engine=worker` drives the page with the Ranger app in a Worker
-// (gallery/evg/gl/evg-engine.js) — same page, same painter, same checks —
+// (lib/evg/gl/evg-engine.js) — same page, same painter, same checks —
 // which is how that host is held to this one.
 const engineAt = args.indexOf("--engine");
 const engine = engineAt >= 0 ? args[engineAt + 1] : "main";

@@ -632,7 +632,7 @@ midpoint of the two fingers — so the point under it stays where it is
 instead of the page sliding toward the origin. A trackpad pinch arrives as
 a wheel with `ctrl` held and gets a rate of its own, or it would crawl where
 the wheel flies; a finger lifted out of a pinch leaves the other one
-panning. The gestures are `gallery/evg/gl/evg-gestures.js`, which any EVG
+panning. The gestures are `lib/evg/gl/evg-gestures.js`, which any EVG
 canvas can attach — it reads the view this page keeps and hands back
 another, and the page still decides when to paint one.
 
@@ -744,7 +744,7 @@ actually opens — went from 27 ms a frame to 12.
 
 **The frame crosses as typed arrays.** `EVGDisplayList.toBinary()` — three
 `Int32Array`s and a small string pool — instead of JSON. The picture is the
-same to the hundredth, which is what `gallery/evg/gl/list-binary-check.mjs`
+same to the hundredth, which is what `lib/evg/gl/list-binary-check.mjs`
 holds the two bridges to, and `scene()` still answers in JSON for anything
 that wants to read a frame. Writing it as text was 42% of a profile in
 `toJson` and the number formatting under it, and another 33% in the garbage

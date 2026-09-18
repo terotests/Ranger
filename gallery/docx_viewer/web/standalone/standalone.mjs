@@ -10,7 +10,7 @@
  */
 import { renderDisplayList, loadImages, setFontFallback } from "./gl/evg-webgl.js";
 // The assets this page's head started fetching before the body was parsed —
-// see gallery/evg/web/tools/inline-assets.mjs, which writes that head.
+// see lib/evg/web/tools/inline-assets.mjs, which writes that head.
 import { bytesOf, asRangerBuffer } from "./evg/assets-client.mjs";
 // What a press, a drag and a keystroke mean to the Word editor — shared with
 // the markdown page's DOCX tab, which runs the same engine and attaches the

@@ -4,7 +4,7 @@
 ; game_split_nav_demo — pane bridges keep independent pushGame/loadGame queues.
 ; ==============================================================================
 
-Import "./game_host_native.rgr"
+Import "game_host_native.rgr"
 
 class GameSplitNavDemo {
     sfn m@(main):void () {

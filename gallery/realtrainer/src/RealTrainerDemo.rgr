@@ -4,7 +4,7 @@
 ; RealTrainerDemo — a three-scene app on the GPU
 ; =============================================================================
 ; A loading screen, the page it hands over to, and the dashboard behind that.
-; Every scene is an EVG tree painted by the WebGL painter in `gallery/evg/gl`,
+; Every scene is an EVG tree painted by the WebGL painter in `lib/evg/gl`,
 ; and the controls on the last two are `gallery/ui`'s own components — the
 ; ones the conformance harness measures against Radix — rather than boxes
 ; drawn to look like them.
@@ -76,19 +76,19 @@ Import "../../ui/src/TableCtl.rgr"
 Import "../../ui/src/ToggleCtl.rgr"
 Import "../../ui/src/AccordionCtl.rgr"
 Import "../../ui/src/RadioGroupCtl.rgr"
-Import "../../evg/EvgApp.rgr"
-Import "../../evg/EVGElement.rgr"
-Import "../../evg/EVGUnit.rgr"
-Import "../../evg/EVGLayout.rgr"
-Import "../../evg/EVGDisplayList.rgr"
-Import "../../evg/EVGHostTree.rgr"
-Import "../../evg/EVGStyleSheet.rgr"
-Import "../../evg/EVGTransition.rgr"
-Import "../../evg/EVGA11yTree.rgr"
-Import "../../evg/EVGA11yFromTree.rgr"
-Import "../../evg/EVGHitTest.rgr"
-Import "../../evg/EVGFling.rgr"
-Import "../../evg/EVGFocus.rgr"
+Import "pkg:evg/EvgApp.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGUnit.rgr"
+Import "pkg:evg/EVGLayout.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGHostTree.rgr"
+Import "pkg:evg/EVGStyleSheet.rgr"
+Import "pkg:evg/EVGTransition.rgr"
+Import "pkg:evg/EVGA11yTree.rgr"
+Import "pkg:evg/EVGA11yFromTree.rgr"
+Import "pkg:evg/EVGHitTest.rgr"
+Import "pkg:evg/EVGFling.rgr"
+Import "pkg:evg/EVGFocus.rgr"
 Import "CompactRows.rgr"
 Import "AddWorkoutDialog.rgr"
 Import "PlanDialogHost.rgr"
@@ -666,7 +666,7 @@ treefactory Rt {
 ; One curve on the Tilastot tab: the values, the colour, and the id of the
 ; box the layout places for it.
 ; The app answers the conversation every EVG host has with every EVG app
-; (`gallery/evg/EvgApp.rgr`): a page size, a hit test, presses, scrolls, keys,
+; (`lib/evg/EvgApp.rgr`): a page size, a hit test, presses, scrolls, keys,
 ; a clock, a display list. Extending it is what lets one host — the browser
 ; page, the UIKit view, the Android View — drive this app without naming it.
 class RealTrainerDemo extends EvgApp {
@@ -1092,7 +1092,7 @@ class RealTrainerDemo extends EvgApp {
     def pageH:double 760.0
     ; A finger rather than a mouse — what the host's `(pointer: coarse)`
     ; says. Stated to the sheet with the viewport, so `@media (pointer:
-    ; coarse)` can make the targets bigger. See gallery/evg/web/responsive.
+    ; coarse)` can make the targets bigger. See lib/evg/web/responsive.
     def coarsePointer:boolean false
 
     Constructor () {
@@ -10636,7 +10636,7 @@ class RealTrainerDemo extends EvgApp {
 
     ; The host tree (`EVGHostTree`), kept across frames: what changed since
     ; the last time a host that keeps nodes asked. The retained DOM painter
-    ; (`gallery/evg/html/evg-dom.js`, `?painter=dom` on the page) reads it in
+    ; (`lib/evg/html/evg-dom.js`, `?painter=dom` on the page) reads it in
     ; place of the display list; the layout is the same `laidOut()`, so the
     ; hit test, the fields and the scroll are exactly what the WebGL page has.
     def hostTree:EVGHostTree (new EVGHostTree())

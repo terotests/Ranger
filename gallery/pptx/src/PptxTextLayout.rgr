@@ -20,7 +20,7 @@
 Import "PptxModel.rgr"
 Import "../../office/text/OfficeTextMeasure.rgr"
 Import "../../office/text/OfficeText.rgr"
-Import "../../evg/EVGCodepoint.rgr"
+Import "pkg:evg/EVGCodepoint.rgr"
 
 class PptxTextLine {
     def para:int 0

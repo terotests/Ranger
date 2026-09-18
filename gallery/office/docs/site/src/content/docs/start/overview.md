@@ -41,7 +41,7 @@ uses the same infrastructure and is not an OOXML application at all.
 | Document model | `gallery/docx_viewer`, `gallery/datagrid`, `gallery/pptx`, `gallery/rangerflow` | The format. Each application owns this. |
 | Package | [`gallery/ooxml`](https://github.com/terotests/Ranger/tree/master/gallery/ooxml) | OPC ZIP: parts, content types, relationships. |
 | Infrastructure | [`gallery/office`](https://github.com/terotests/Ranger/tree/master/gallery/office) | Fonts, text metrics, style flags, theme colour, preset geometry, undo rules. |
-| Paint | [`gallery/evg`](https://github.com/terotests/Ranger/tree/master/gallery/evg) | Layout, display list, windows, backends. |
+| Paint | [`lib/evg`](https://github.com/terotests/Ranger/tree/master/lib/evg) | Layout, display list, windows, backends. |
 
 EVG never sees a relationship id, a master slide, a formula or a `w:pStyle`.
 It sees resolved geometry, sRGB, fonts and draw commands. That cut is the

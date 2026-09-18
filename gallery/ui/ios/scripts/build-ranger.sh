@@ -9,7 +9,7 @@
 # Ranger; none of it is written twice for Apple.
 #
 # The generated file is NOT checked in. It is a compiler artefact of
-# `ranger/ui_ios.rgr` and the `gallery/ui` + `gallery/evg` trees, and a stale
+# `ranger/ui_ios.rgr` and the `gallery/ui` + `lib/evg` trees, and a stale
 # copy of it is the one way this port can silently drift from the demo
 # everything else runs.
 #

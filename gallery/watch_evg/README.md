@@ -41,7 +41,7 @@ The benchmark is [`bench/`](bench/README.md).
 
 ## The face the bench measures with
 
-The JVM harness installs `AwtTextMeasurer` (`gallery/evg/android`) before
+The JVM harness installs `AwtTextMeasurer` (`lib/evg/android`) before
 the scenes are built, so every layout in the numbers is measured with the
 Java2D face the surface paints with — the same thing a Wear OS host gets from
 `AndroidTextMeasurer` through Skia — rather than with EVG's advance table.
@@ -49,7 +49,7 @@ The `layout` column therefore includes real text measurement, which is what
 a watch pays. A Wear OS host on top of this module is the phone's
 `RealTrainerView` with a rotary event in place of a drag: `AndroidTextMeasurer`
 and `EvgEngineThread` are not phone-specific — see
-`gallery/evg/PLAN_NATIVE_HOSTS.md`, the section on watches.
+`lib/evg/PLAN_NATIVE_HOSTS.md`, the section on watches.
 
 ## Files
 

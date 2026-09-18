@@ -5,7 +5,7 @@
 #
 # What this proves, and it is most of the port:
 #
-#   * `ranger/ui_android.rgr` and the `gallery/ui` + `gallery/evg` trees behind
+#   * `ranger/ui_android.rgr` and the `gallery/ui` + `lib/evg` trees behind
 #     it compile to Kotlin and `kotlinc` accepts the result;
 #   * the compiled demo BUILDS the page on a JVM — the cascade, the layout, the
 #     virtualised table, the Vela chart — and answers with a display list;
@@ -43,8 +43,8 @@ mkdir -p "$CLASSES"
 echo "compiling the Kotlin (this takes a couple of minutes — it is 46k generated lines)"
 kotlinc -J-Xmx8g -nowarn \
   "$AND/generated/ui_android.kt" \
-  gallery/evg/android/src/main/kotlin \
-  gallery/evg/android/src/awt/kotlin \
+  lib/evg/android/src/main/kotlin \
+  lib/evg/android/src/awt/kotlin \
   "$AND/desktop/src/main/kotlin" \
   -d "$CLASSES"
 

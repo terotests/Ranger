@@ -18,8 +18,8 @@
 ; ==============================================================================
 
 Import "GridScriptEngine.rgr"
-Import "../../../evg/EVGDisplayList.rgr"
-Import "../../../evg/EVGColor.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGColor.rgr"
 
 class ScriptPreview {
     def active:boolean false

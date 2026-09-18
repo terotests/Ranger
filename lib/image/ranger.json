@@ -1,0 +1,9 @@
+{
+  "name": "image",
+  "version": "0.1.0",
+  "entry": "ImageBuffer.rgr",
+  "license": "MIT",
+  "dependencies": {
+    "zip": { "path": "../zip" }
+  }
+}

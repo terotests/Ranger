@@ -9,7 +9,7 @@
 ; Usage: ranger evg_component_tool.rgr <input.tsx> <output.pdf>
 
 Import "../../../ts_parser/ts_parser_simple.rgr"
-Import "../../../evg/EVGElement.rgr"
+Import "pkg:evg/EVGElement.rgr"
 Import "../core/EVGPDFRenderer.rgr"
 Import "../jsx/ComponentEngine.rgr"
 Import "../fonts/FontManager.rgr"

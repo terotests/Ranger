@@ -34,7 +34,7 @@
 
 Import "../src/PptxChrome.rgr"
 Import "../src/PptxApp.rgr"
-Import "../../evg/EVGStyleSheet.rgr"
+Import "pkg:evg/EVGStyleSheet.rgr"
 
 class ChromeCheck {
     def passed:int 0

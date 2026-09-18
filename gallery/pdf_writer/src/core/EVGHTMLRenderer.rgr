@@ -1,7 +1,7 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 
 Import "../fonts/FontManager.rgr"
-Import "../../../evg/EVGCodepoint.rgr"
+Import "pkg:evg/EVGCodepoint.rgr"
 ; EVGHTMLRenderer.rgr - Render EVG elements to HTML/CSS
 ; 
 ; Takes EVG element tree with calculated positions and renders to HTML.
@@ -10,15 +10,15 @@ Import "../../../evg/EVGCodepoint.rgr"
 ; - Fast preview (instant browser preview)
 ; - Development iteration (no PDF generation overhead)
 
-Import "../../../evg/EVGElement.rgr"
-Import "../../../evg/EVGLayout.rgr"
-Import "../../../evg/EVGTextMeasurer.rgr"
-Import "../../../evg/EVGTextEngine.rgr"
-Import "../../../evg/EVGUnit.rgr"
-Import "../../../evg/EVGColor.rgr"
-Import "../../../evg/SVGPathParser.rgr"
-Import "../../../evg/VectorViewBox.rgr"
-Import "../../../evg/SvgParser.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGLayout.rgr"
+Import "pkg:evg/EVGTextMeasurer.rgr"
+Import "pkg:evg/EVGTextEngine.rgr"
+Import "pkg:evg/EVGUnit.rgr"
+Import "pkg:evg/EVGColor.rgr"
+Import "pkg:evg/SVGPathParser.rgr"
+Import "pkg:evg/VectorViewBox.rgr"
+Import "pkg:evg/SvgParser.rgr"
 Import "EVGResourceLoader.rgr"
 
 ; Geometry a child needs from its laid-out parent while rendering.

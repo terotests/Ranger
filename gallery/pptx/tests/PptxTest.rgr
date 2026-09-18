@@ -12,8 +12,8 @@ Import "../src/PptxToEvg.rgr"
 Import "../../office/text/OfficeFont.rgr"
 Import "../src/PptxWriter.rgr"
 Import "../src/PptxModel.rgr"
-Import "../../evg/EVGElement.rgr"
-Import "../../evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
 
 class PptxTest {
     def passed:int 0

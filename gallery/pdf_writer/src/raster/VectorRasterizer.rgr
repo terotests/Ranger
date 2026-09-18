@@ -1,8 +1,8 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 
-Import "RasterBuffer.rgr"
+Import "pkg:image/RasterBuffer.rgr"
 Import "RasterCompositing.rgr"
-Import "../../../evg/VectorStroke.rgr"
+Import "pkg:evg/VectorStroke.rgr"
 
 ; ==============================================================================
 ; VectorRasterizer.rgr — one anti-aliased scanline fill, for every filled shape

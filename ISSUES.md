@@ -2046,7 +2046,7 @@ This prevents modular organization of code across directories. Currently all fil
 Add all needed directories to RANGER_LIB environment variable:
 
 ```
-RANGER_LIB=./compiler/Lang.rgr;./gallery/pdf_writer;./gallery/evg;./gallery/ts_parser
+RANGER_LIB=./compiler/Lang.rgr;./gallery/pdf_writer;./lib/evg;./gallery/ts_parser
 ```
 
 ### Proposed Fix

@@ -8,7 +8,7 @@
 ;
 ;   EditorView.buildDisplayList  →  EVGDisplayList (flat draw cmds)
 ;        ├─ paintSoftCanvas      →  SoftCanvas (tests / SDL present)
-;        └─ sceneJson            →  gallery/evg/gl/evg-webgl.js (WebGL 2)
+;        └─ sceneJson            →  lib/evg/gl/evg-webgl.js (WebGL 2)
 ;
 ; So the web demo's input layer (UIInput) and render layer (WebGL) are separate
 ; the same way SDL_TEXTINPUT and an SDL/GL present path would be.
@@ -20,8 +20,8 @@ Import "EditorStyle.rgr"
 Import "EditorLayout.rgr"
 Import "../../game_engine/framebuffer.rgr"
 Import "../../game_engine/ui/UIContext.rgr"
-Import "../../evg/EVGColor.rgr"
-Import "../../evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGColor.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
 
 class EditorTheme {
     def bg:EVGColor (EVGColor.rgb(18 20 28))
@@ -340,7 +340,7 @@ class EditorView {
         frame = (frame + 1)
     }
 
-    ; Wire format for gallery/evg/gl/evg-webgl.js — {width,height,list:{cmds:[…]}}.
+    ; Wire format for lib/evg/gl/evg-webgl.js — {width,height,list:{cmds:[…]}}.
     fn sceneJson:string (buf:EditorBuffer sel:EditorSelection layout:EditorLayout) {
         ctx.frame = frame
         def prev:boolean paintInteractive

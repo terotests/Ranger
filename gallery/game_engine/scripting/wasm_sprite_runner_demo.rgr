@@ -14,10 +14,10 @@
 ; whole catalog -> sheet -> frame/dir path is both checked and visible.
 
 Import "wasm_sprite_runner.rgr"
-Import "../lpc/src/png_decoder.rgr"
+Import "pkg:image/PNGDecoder.rgr"
 Import "../rgba_fast_blit.rgr"
-Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
-Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+Import "pkg:image/RasterBuffer.rgr"
+Import "pkg:image/PNGEncoder.rgr"
 
 class SpriteDemo {
     def failures:int 0

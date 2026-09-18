@@ -88,8 +88,8 @@ function runDocCommand(args) {
 
 const PNG_TOOL = path.join(ROOT, "gallery", "pdf_writer", "bin", "evg_png_tool.js");
 const PNG_SRC = path.join(ROOT, "gallery", "pdf_writer", "src", "tools", "evg_png_tool.rgr");
-const AGENT_JS = path.join(ROOT, "gallery", "evg", "bin", "evg_agent.js");
-const AGENT_SRC = path.join(ROOT, "gallery", "evg", "agent", "evg_agent.rgr");
+const AGENT_JS = path.join(ROOT, "lib", "evg", "bin", "evg_agent.js");
+const AGENT_SRC = path.join(ROOT, "lib", "evg", "agent", "evg_agent.rgr");
 
 function buildPngTool() {
   if (fs.existsSync(PNG_TOOL) && fs.statSync(PNG_TOOL).mtimeMs > fs.statSync(PNG_SRC).mtimeMs) return true;
@@ -108,7 +108,7 @@ function buildAgent() {
   fs.mkdirSync(path.dirname(AGENT_JS), { recursive: true });
   spawnSync(
     process.execPath,
-    ["bin/output.js", "-es6", "./gallery/evg/agent/evg_agent.rgr", "-d=./gallery/evg/bin", "-o=evg_agent.js", "-nodecli"],
+    ["bin/output.js", "-es6", "./lib/evg/agent/evg_agent.rgr", "-d=./lib/evg/bin", "-o=evg_agent.js", "-nodecli"],
     { cwd: ROOT, encoding: "utf8", env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr:./lib/stdops.rgr" } },
   );
   return fs.existsSync(AGENT_JS);

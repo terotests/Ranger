@@ -35,7 +35,7 @@
 
 Import "BookAutoLayout.rgr"
 Import "../../office/editor/OfficeHistory.rgr"
-Import "../../evg/EVGSelectChrome.rgr"
+Import "pkg:evg/EVGSelectChrome.rgr"
 
 class BookEditRect {
     def x:double 0.0

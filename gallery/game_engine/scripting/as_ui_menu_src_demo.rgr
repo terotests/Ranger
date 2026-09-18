@@ -16,8 +16,8 @@
 ; ==============================================================================
 
 Import "../ui/WasmUiSelect.rgr"
-Import "./as_source_runner.rgr"
-Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+Import "as_source_runner.rgr"
+Import "pkg:image/PNGEncoder.rgr"
 
 class AsUiCheck {
     def passed:int 0

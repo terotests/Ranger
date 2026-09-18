@@ -1,6 +1,6 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 
-Import "../../../evg/EVGCodepoint.rgr"
+Import "pkg:evg/EVGCodepoint.rgr"
 
 ; Utf8.rgr - Decode source files as UTF-8 instead of Latin-1
 ;

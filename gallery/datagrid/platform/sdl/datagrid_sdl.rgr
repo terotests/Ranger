@@ -6,7 +6,7 @@
 ;
 ; Same GridApp / UIInput contract as the WebGL host: this file only opens a
 ; window, maps SDL events into UIInput, and draws the EVG display list with
-; OpenGL (evg_gl_native — same seam as gallery/evg/gl/evg-webgl.js). SoftCanvas
+; OpenGL (evg_gl_native — same seam as lib/evg/gl/evg-webgl.js). SoftCanvas
 ; is used only to rasterize text runs into an atlas, not as the page framebuffer.
 ;
 ; Excel open/save is on disk already (`loadXlsx` / `saveXlsx` / Ctrl+S).

@@ -44,7 +44,7 @@ if (!fs.existsSync(modPath)) {
 
 const { PptxApp, UIInput, UIKey } = require(modPath);
 const fontDir = path.resolve(ROOT, "gallery/pdf_writer/assets/fonts");
-const evgGlDir = path.resolve(ROOT, "gallery/evg/gl");
+const evgGlDir = path.resolve(ROOT, "lib/evg/gl");
 const fixturesDir = path.join(PPTX, "fixtures");
 const manifestPath = path.join(PPTX, "harness/manifest.json");
 

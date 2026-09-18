@@ -17,18 +17,18 @@
 ; "passed=N failed=0" + "ALL PASS" summary on green.
 ; ==============================================================================
 
-Import "../../../evg/EVGUnit.rgr"
-Import "../../../evg/EVGColor.rgr"
-Import "../../../evg/EVGBox.rgr"
-Import "../../../evg/EVGElement.rgr"
-Import "../../../evg/EVGTextMeasurer.rgr"
-Import "../../../evg/EVGText.rgr"
-Import "../../../evg/EVGLayout.rgr"
-Import "../../../evg/SVGPathParser.rgr"
-Import "../../../evg/EVGStyleSheet.rgr"
-Import "../../../evg/EVGGrid.rgr"
-Import "../../../evg/EVGGrapheme.rgr"
-Import "../../../evg/EVGTextEngine.rgr"
+Import "pkg:evg/EVGUnit.rgr"
+Import "pkg:evg/EVGColor.rgr"
+Import "pkg:evg/EVGBox.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGTextMeasurer.rgr"
+Import "pkg:evg/EVGText.rgr"
+Import "pkg:evg/EVGLayout.rgr"
+Import "pkg:evg/SVGPathParser.rgr"
+Import "pkg:evg/EVGStyleSheet.rgr"
+Import "pkg:evg/EVGGrid.rgr"
+Import "pkg:evg/EVGGrapheme.rgr"
+Import "pkg:evg/EVGTextEngine.rgr"
 Import "../tests/harness/RgTest.rgr"
 
 ; A measurer that records which font family it was asked about, so the tests can

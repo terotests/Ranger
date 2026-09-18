@@ -4,7 +4,7 @@
 ; Compile: npm run -l=es6 ... 
 ; Run: node jpeg_decode_test.js
 
-Import "src/jpeg/JPEGDecoder.rgr"
+Import "pkg:image/JPEGDecoder.rgr"
 
 class Main {
     sfn m@(main):void () {

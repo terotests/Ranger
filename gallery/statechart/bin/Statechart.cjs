@@ -406,6 +406,7 @@ class ScValue  {
   constructor() {
     this.kind = "literal";
     this.name = "";
+    this.constant = undefined;
     this.parts = [];
   }
 }
@@ -456,12 +457,15 @@ class ScGuard  {
     this.name = "";     /* note: unused */
     this.field = "";
     this.number = 0.0;
+    this.operand = undefined;
     this.parts = [];
+    this.source = undefined;
   }
 }
 class ScAssign  {
   constructor() {
     this.key = "";
+    this.value = undefined;
   }
 }
 ScAssign.of = function(key, value) {
@@ -473,6 +477,7 @@ ScAssign.of = function(key, value) {
 class ScTransition  {
   constructor() {
     this.event = "";
+    this.guard = undefined;
     this.target = "";
     this.assigns = [];
     this.actions = [];
@@ -487,6 +492,7 @@ class ScState  {
     this.isFinal = false;
     this.transitions = [];
     this.always = [];
+    this.onDone = undefined;
   }
   on (event, target) {
     const t = new ScTransition();
@@ -564,6 +570,7 @@ class Statechart  {
 }
 class ScRunner  {
   constructor() {
+    this.chart = undefined;
     this.state = "";
     this.keys = [];
     this.values = [];

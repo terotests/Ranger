@@ -171,7 +171,7 @@ reached from the same scene:
 | tab | what draws it |
 | --- | --- |
 | **Chart** | Vela's own SVG renderer, `VlSvg.rgr` |
-| **WebGL** | the EVG page → `JSXToEVG` → stylesheet → `EVGLayout` → display list, drawn as GPU quads by `gallery/evg/gl/evg-webgl.js` |
+| **WebGL** | the EVG page → `JSXToEVG` → stylesheet → `EVGLayout` → display list, drawn as GPU quads by `lib/evg/gl/evg-webgl.js` |
 | **PNG** | the same layout, filled by `EVGRasterRenderer` and deflated by `PNGEncoder` — finished image bytes, computed in Ranger |
 | **PDF** | the same page through `EVGPDFRenderer`, faces embedded; the browser only displays it |
 

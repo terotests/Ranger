@@ -1,10 +1,10 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 
 ; Headless smoke: game persistence + native bridge APIs.
-Import "./game_runtime.rgr"
-Import "./game_persistence.rgr"
-Import "./game_host_native.rgr"
-Import "./game_audio.rgr"
+Import "game_runtime.rgr"
+Import "game_persistence.rgr"
+Import "game_host_native.rgr"
+Import "game_audio.rgr"
 
 class GameHostNativeDemo {
     sfn m@(main):void () {

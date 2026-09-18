@@ -9,9 +9,9 @@
 ; Run:  npm run engine:ui:game
 ; ==============================================================================
 
-Import "./game_ui_runner.rgr"
+Import "game_ui_runner.rgr"
 Import "../ui/RgUiWriter.rgr"
-Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+Import "pkg:image/PNGEncoder.rgr"
 
 class UiMenuRunnerDemo {
     sfn buildMenu:[int] () {

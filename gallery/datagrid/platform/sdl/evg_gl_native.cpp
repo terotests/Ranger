@@ -1,5 +1,5 @@
 // evg_gl_native.cpp — EVG display list → OpenGL (macOS / desktop).
-// Mirrors gallery/evg/gl/evg-webgl.js: SDF rounded rects, text atlas, path tris.
+// Mirrors lib/evg/gl/evg-webgl.js: SDF rounded rects, text atlas, path tris.
 
 #include "evg_gl_native.h"
 

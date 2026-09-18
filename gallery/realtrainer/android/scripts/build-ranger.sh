@@ -13,7 +13,7 @@
 # `ranger/rt_android.rgr` and the trees behind it, and a stale copy of it is
 # the one way this port can silently drift from the demo everything else runs.
 #
-# The package is `fi.ranger.rgr`, which is what `gallery/evg/android` imports:
+# The package is `fi.ranger.rgr`, which is what `lib/evg/android` imports:
 # the painter names `fi.ranger.rgr.EVGDisplayList`, every port compiles its own
 # generated file into that package, and the shared backend is then shared
 # rather than copied. See gallery/ui/android/scripts/build-ranger.sh.

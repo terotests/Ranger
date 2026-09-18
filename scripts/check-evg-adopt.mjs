@@ -23,7 +23,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const FILE = path.join(ROOT, "gallery/evg/EVGElement.rgr");
+const FILE = path.join(ROOT, "lib/evg/EVGElement.rgr");
 
 // Structure and in-flight state, which adoptFrom must NOT copy. Each is a
 // decision with a reason, so the reason lives here rather than in a bare list.

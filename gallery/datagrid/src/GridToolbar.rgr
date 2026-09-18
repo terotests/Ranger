@@ -5,7 +5,7 @@
 ; ==============================================================================
 ;
 ; The strip itself — adding, measuring, wrapping, hit testing, hover, and the
-; three hundred lines that draw the icons — is `gallery/evg/EVGToolbar.rgr` and
+; three hundred lines that draw the icons — is `lib/evg/EVGToolbar.rgr` and
 ; `EVGToolbarView.rgr` now, because Word wanted the same one and a second copy
 ; is how two toolbars start drifting apart.
 ;
@@ -19,7 +19,7 @@
 Import "SpreadsheetModel.rgr"
 Import "GridSelection.rgr"
 Import "GridFormat.rgr"
-Import "../../evg/EVGToolbar.rgr"
+Import "pkg:evg/EVGToolbar.rgr"
 
 class GridToolbar extends EVGToolbar {
     ; What the direction switch is showing. The strip needs it to draw the

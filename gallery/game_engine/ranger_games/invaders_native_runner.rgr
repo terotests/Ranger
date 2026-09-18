@@ -11,7 +11,7 @@
 ; For SDL window use: npm run engine:game-sdl-native:run:invaders
 ; ==============================================================================
 
-Import "./invaders_native_game.rgr"
+Import "invaders_native_game.rgr"
 
 class InvadersNativeRunnerDemo {
     sfn m@(main):void () {

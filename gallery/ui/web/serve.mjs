@@ -1,6 +1,6 @@
 /**
  * A static server for the playground, rooted at the repository so the page can
- * reach gallery/evg's painter by its real path. No dependencies.
+ * reach lib/evg's painter by its real path. No dependencies.
  *
  *   npm run ui:web            # build, serve, print the URL
  *   PORT=9000 npm run ui:web
@@ -15,7 +15,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..", "..", "..");
 const PORT = Number(process.env.PORT || 8173);
 // The page "/" lands on. The demo server reuses this file with a different
-// one, because both pages need the repository root for gallery/evg's painter.
+// one, because both pages need the repository root for lib/evg's painter.
 const PAGE = process.env.PAGE || "/gallery/ui/web/index.html";
 
 const TYPES = {

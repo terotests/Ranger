@@ -12,7 +12,7 @@
 import { prepareDisplayList } from "./gl/evg-webgl.js";
 import { createViewKeeper } from "./gl/evg-view.js";
 // The fixture this page's head started fetching before the body was parsed —
-// see gallery/evg/web/tools/inline-assets.mjs, which writes that head.
+// see lib/evg/web/tools/inline-assets.mjs, which writes that head.
 import { textOf } from "./evg/assets-client.mjs";
 
 // If the import above 404s, nothing below runs and the only evidence is a line
@@ -72,7 +72,7 @@ function engineClass() {
 // ---- what has to be built again ------------------------------------------
 //
 // The graph is built in ITS OWN coordinates now and the camera is a uniform
-// (`gallery/evg/PLAN_VIEW_TRANSFORM.md` S2), so a pan and a zoom inside the
+// (`lib/evg/PLAN_VIEW_TRANSFORM.md` S2), so a pan and a zoom inside the
 // band redraw the frame the GPU already holds: no walk over the diagram, no
 // atlas, no upload. What still needs a new frame is a change to the PICTURE —
 // a drag, a selection, a hover, a keystroke, a new document.

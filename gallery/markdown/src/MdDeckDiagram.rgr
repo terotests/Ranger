@@ -29,8 +29,8 @@ Import "MdDiagram.rgr"
 Import "MdEmbedKinds.rgr"
 Import "MdToPptx.rgr"
 Import "../../pptx/src/PptxFromEvg.rgr"
-Import "../../evg/EVGLayout.rgr"
-Import "../../evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGLayout.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
 
 class MdDeckDiagram {
     ; Is this shape a drawing something generated, rather than a group a

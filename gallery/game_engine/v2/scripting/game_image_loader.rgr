@@ -14,7 +14,7 @@
 
 Import "../framebuffer.rgr"
 Import "../lpc/src/png_decoder.rgr"
-Import "./ImageUtils.rgr"
+Import "ImageUtils.rgr"
 Import "../imaging/jpeg/ImageBuffer.rgr"
 Import "../imaging/jpeg/JPEGDecoder.rgr"
 

@@ -1141,7 +1141,7 @@ presence of opaque + transparent pixels. `lpc/` imports were also retargeted
 off `pdf_writer`/`zip` onto `v2/imaging/*` (with `ZipReader`/`ZipWriter` copied
 into `v2/imaging/zip`). Original checklist retained below for provenance.
 
-`lpc/src/png_decoder.rgr` decodes indexed (type 3) and RGB/RGBA sheets, and
+`lib/image/PNGDecoder.rgr` decodes indexed (type 3) and RGB/RGBA sheets, and
 real sample sheets already ship in-tree:
 
 | Sample | Path | Size |

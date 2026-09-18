@@ -156,7 +156,7 @@ function keptTree(mod, css, label, size) {
     // The invalidation decision. `layoutClean()` is true when nothing the
     // sheet wrote this pass can have moved a box — a hover that changes a
     // colour, a transform, an opacity. On a large page that is most of the
-    // frame; see gallery/evg/EVGInvalidateTest.rgr for what it is allowed to
+    // frame; see lib/evg/EVGInvalidateTest.rgr for what it is allowed to
     // mean and the one thing it cannot see (a bare `textContent` edit, which
     // nothing here does: text comes from a rebuild).
     if (!sheet.layoutClean()) lay.layout(root);

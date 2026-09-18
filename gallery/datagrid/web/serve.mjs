@@ -4,7 +4,7 @@
  *
  *   INPUT   browser events → POST /input → UIInput → GridApp (Node)
  *   RENDER  GridApp.sceneJson() → EVGDisplayList → GET /scene.json
- *           → gallery/evg/gl/evg-webgl.js (WebGL 2)
+ *           → lib/evg/gl/evg-webgl.js (WebGL 2)
  *
  *   node gallery/datagrid/web/serve.mjs [--port 8766] [--open] [--headless-smoke]
  *
@@ -60,7 +60,7 @@ process.env.RANGERDB_HOST =
 
 const { GridApp, UIInput, UIKey, GridDbLauncher } = require(modPath);
 const fontDir = path.resolve(ROOT, "gallery/pdf_writer/assets/fonts");
-const evgGlDir = path.resolve(ROOT, "gallery/evg/gl");
+const evgGlDir = path.resolve(ROOT, "lib/evg/gl");
 
 const app = new GridApp();
 app.init(fontDir);

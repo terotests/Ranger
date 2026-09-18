@@ -42,7 +42,7 @@ Import "../../vfs/src/Vfs.rgr"
 Import "MdCodeHighlight.rgr"
 Import "MdFrontMatter.rgr"
 Import "MdCss.rgr"
-Import "../../evg/EVGTextEngine.rgr"
+Import "pkg:evg/EVGTextEngine.rgr"
 
 ; ----------------------------------------------------------------------------
 ; What the document looks like. Not a stylesheet yet — the values a stylesheet

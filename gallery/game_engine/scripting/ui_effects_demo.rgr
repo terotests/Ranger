@@ -14,9 +14,9 @@
 ; Run:  npm run engine:ui:effects
 ; ==============================================================================
 
-Import "./game_ui_runner.rgr"
+Import "game_ui_runner.rgr"
 Import "../ui/RgUiWriter.rgr"
-Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+Import "pkg:image/PNGEncoder.rgr"
 
 class UiEffectsDemo {
     def passed:int 0

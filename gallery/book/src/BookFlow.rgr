@@ -33,7 +33,7 @@
 ; ==============================================================================
 
 Import "BookModel.rgr"
-Import "../../evg/EVGTextEngine.rgr"
+Import "pkg:evg/EVGTextEngine.rgr"
 
 ; One line, placed. Everything a renderer needs is here, so the renderer never
 ; has to look back at the document - it walks lines and draws them.

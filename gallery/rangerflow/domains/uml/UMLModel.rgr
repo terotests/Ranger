@@ -21,7 +21,7 @@
 ; ============================================================================
 
 Import "../../core/GraphModel.rgr"
-Import "../../../evg/EVGTextMeasurer.rgr"
+Import "pkg:evg/EVGTextMeasurer.rgr"
 
 class UMLMember {
     ; "+" public, "-" private, "#" protected, "~" package

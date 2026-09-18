@@ -1068,7 +1068,7 @@ class UiHost {
     }
 
     ; --- the accessibility tree ----------------------------------------------
-    ; The same tree `gallery/evg/gl/evg-a11y.js` mirrors into real DOM over the
+    ; The same tree `lib/evg/gl/evg-a11y.js` mirrors into real DOM over the
     ; canvas, which is how a screen reader — and axe-core — sees an EVG frame at
     ; all. A node the display tree no longer carries is left OUT: hidden content
     ; is not in a browser's accessibility tree either, and putting it in would

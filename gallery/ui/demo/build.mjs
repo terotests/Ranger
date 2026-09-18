@@ -66,7 +66,7 @@ fs.writeFileSync(
     'export { OtpDemo } from "../bin/OtpDemo.cjs";\n' +
     'export { MetadataDemo } from "../bin/MetadataDemo.cjs";\n' +
     // The whole modules too, as a list: the browser's text measurer is
-    // installed into every one of them (`gallery/evg/gl/evg-measure.js`),
+    // installed into every one of them (`lib/evg/gl/evg-measure.js`),
     // because two copies of a class are two classes and each compiled demo
     // has its own `EVGDefaultMeasurer`.
     // (`export * as` makes no local binding, so the list below could not

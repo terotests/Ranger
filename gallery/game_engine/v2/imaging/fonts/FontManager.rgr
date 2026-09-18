@@ -9,7 +9,7 @@
 ;   def width:double (fm.measureText("Hello" "Open Sans" 14.0))
 
 Import "TrueTypeFont.rgr"
-Import "../../../../evg/EVGTextMeasurer.rgr"
+Import "pkg:evg/EVGTextMeasurer.rgr"
 
 class FontManager {
     def fonts:[TrueTypeFont]

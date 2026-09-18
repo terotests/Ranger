@@ -1,34 +1,34 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 
-Import "../../../evg/EVGCodepoint.rgr"
+Import "pkg:evg/EVGCodepoint.rgr"
 ; EVGPDFRenderer.rgr - Render EVG elements to PDF
 ; 
 ; Takes EVG element tree with calculated positions and renders to PDF using PDFWriter.
 
 Import "PDFWriter.rgr"
-Import "../../../evg/EVGElement.rgr"
-Import "../../../evg/EVGDisplayList.rgr"
-Import "../../../evg/EVGLayout.rgr"
-Import "../../../evg/EVGTextMeasurer.rgr"
-Import "../../../evg/EVGTextEngine.rgr"
-Import "../../../evg/EVGImageMeasurer.rgr"
-Import "../../../evg/EVGUnit.rgr"
-Import "../../../evg/EVGColor.rgr"
-Import "../../../evg/SVGPathParser.rgr"
-Import "../../../evg/VectorViewBox.rgr"
-Import "../../../evg/VectorStroke.rgr"
-Import "../../../evg/SvgParser.rgr"
-Import "Buffer.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGLayout.rgr"
+Import "pkg:evg/EVGTextMeasurer.rgr"
+Import "pkg:evg/EVGTextEngine.rgr"
+Import "pkg:evg/EVGImageMeasurer.rgr"
+Import "pkg:evg/EVGUnit.rgr"
+Import "pkg:evg/EVGColor.rgr"
+Import "pkg:evg/SVGPathParser.rgr"
+Import "pkg:evg/VectorViewBox.rgr"
+Import "pkg:evg/VectorStroke.rgr"
+Import "pkg:evg/SvgParser.rgr"
+Import "pkg:image/Buffer.rgr"
 Import "Utf8.rgr"
 Import "../fonts/FontManager.rgr"
 Import "PdfFlate.rgr"
 Import "../fonts/TTFSubset.rgr"
-Import "../../../evg/EVGGrapheme.rgr"
+Import "pkg:evg/EVGGrapheme.rgr"
 Import "../jpeg/JPEGReader.rgr"
 Import "../jpeg/JPEGMetadata.rgr"
-Import "../jpeg/JPEGDecoder.rgr"
+Import "pkg:image/JPEGDecoder.rgr"
 Import "../jpeg/JPEGEncoder.rgr"
-Import "../jpeg/ImageBuffer.rgr"
+Import "pkg:image/ImageBuffer.rgr"
 
 ; Helper class to track embedded fonts
 class EmbeddedFont {

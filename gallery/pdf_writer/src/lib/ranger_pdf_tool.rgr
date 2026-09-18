@@ -13,7 +13,7 @@
 ; Core rendering
 Import "../core/EVGPDFRenderer.rgr"
 Import "../core/EVGHTMLRenderer.rgr"
-Import "../core/Buffer.rgr"
+Import "pkg:image/Buffer.rgr"
 Import "../core/ImageUtils.rgr"
 
 ; JSX/TSX parsing and evaluation
@@ -26,24 +26,24 @@ Import "../fonts/FontManager.rgr"
 Import "../fonts/TrueTypeFont.rgr"
 
 ; Image handling
-Import "../jpeg/JPEGDecoder.rgr"
+Import "pkg:image/JPEGDecoder.rgr"
 Import "../jpeg/JPEGEncoder.rgr"
-Import "../jpeg/ImageBuffer.rgr"
+Import "pkg:image/ImageBuffer.rgr"
 Import "../jpeg/JPEGMetadata.rgr"
 
 ; Raster rendering
 Import "../raster/EVGRasterRenderer.rgr"
-Import "../raster/PNGEncoder.rgr"
-Import "../raster/RasterBuffer.rgr"
+Import "pkg:image/PNGEncoder.rgr"
+Import "pkg:image/RasterBuffer.rgr"
 Import "../raster/RasterText.rgr"
 
 ; EVG Layout engine
-Import "../../../evg/EVGElement.rgr"
-Import "../../../evg/EVGLayout.rgr"
-Import "../../../evg/EVGColor.rgr"
-Import "../../../evg/EVGUnit.rgr"
-Import "../../../evg/EVGBox.rgr"
-Import "../../../evg/EVGGradient.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGLayout.rgr"
+Import "pkg:evg/EVGColor.rgr"
+Import "pkg:evg/EVGUnit.rgr"
+Import "pkg:evg/EVGBox.rgr"
+Import "pkg:evg/EVGGradient.rgr"
 
 ; =============================================================================
 ; PDFBuilder - High-level API for creating PDFs

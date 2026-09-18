@@ -43,7 +43,7 @@
 ; ==============================================================================
 
 Import "PptxModel.rgr"
-Import "../../evg/EVGA11yTree.rgr"
+Import "pkg:evg/EVGA11yTree.rgr"
 
 class PptxA11y {
 

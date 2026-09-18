@@ -4,7 +4,7 @@
 ; wasm_autopeli_runner_demo - headless integration test for WasmPhysicsRunner.
 ; ==============================================================================
 
-Import "./wasm_physics_runner.rgr"
+Import "wasm_physics_runner.rgr"
 
 class WasmAutopeliRunnerDemo {
     sfn m@(main):void () {

@@ -6,7 +6,7 @@
 ;     -d=gallery/game_engine/scripting -o=wasm_block_validator_demo.js -nodecli \
 ;   && node gallery/game_engine/scripting/wasm_block_validator_demo.js
 
-Import "./wasm_block_validator.rgr"
+Import "wasm_block_validator.rgr"
 
 class BlockValCheck {
     def passed:int 0

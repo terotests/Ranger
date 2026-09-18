@@ -29,7 +29,7 @@ Import "RaveImport.rgr"
 Import "RaveText.rgr"
 Import "RaveRuntime.rgr"
 Import "RavePatterns.rgr"
-Import "../../evg/EVGTreeJson.rgr"
+Import "pkg:evg/EVGTreeJson.rgr"
 
 class RaveCli {
 

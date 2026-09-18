@@ -10,8 +10,8 @@
 ; The theme is resolved as: -theme flag, else the `theme` attribute on the
 ; document root, else "" (only unscoped rules apply).
 
-Import "../../../evg/EVGElement.rgr"
-Import "../../../evg/EVGStyleSheet.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGStyleSheet.rgr"
 Import "Utf8.rgr"
 
 class EVGStyleLoader {

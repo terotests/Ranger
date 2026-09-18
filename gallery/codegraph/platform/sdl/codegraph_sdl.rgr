@@ -21,7 +21,7 @@
 ; ============================================================================
 
 Import "../../src/CodeGraphApp.rgr"
-Import "../../../evg/EVGTextMeasurer.rgr"
+Import "pkg:evg/EVGTextMeasurer.rgr"
 Import "../../../datagrid/platform/sdl/gfx_datagrid_sdl.rgr"
 Import "../../../datagrid/platform/sdl/EvgGlPainter.rgr"
 

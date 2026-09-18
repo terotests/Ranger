@@ -12,7 +12,7 @@ Import "EditorBuffer.rgr"
 Import "EditorSelection.rgr"
 Import "EditorStyle.rgr"
 Import "../../game_engine/ui/UITextRenderer.rgr"
-Import "../../evg/EVGCodepoint.rgr"
+Import "pkg:evg/EVGCodepoint.rgr"
 
 class EditorLayout {
     def x:int 0

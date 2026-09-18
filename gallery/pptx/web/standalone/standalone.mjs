@@ -13,7 +13,7 @@
 import { renderDisplayList, loadImages, markColoredSlots, verbatim, setFontFallback } from "./gl/evg-webgl.js";
 import { attachPointer, attachKeys, createMediaCache, decodeScene, sceneStamp } from "./host/pptx-host.mjs";
 // The assets this page's head started fetching before the body was parsed —
-// see gallery/evg/web/tools/inline-assets.mjs, which writes that head, and
+// see lib/evg/web/tools/inline-assets.mjs, which writes that head, and
 // assets-client.mjs, which is this half of it.
 import { responseFor, bytesOf, asRangerBuffer } from "./evg/assets-client.mjs";
 

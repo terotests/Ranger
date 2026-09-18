@@ -9,8 +9,8 @@
 ;     -d=gallery/game_engine/scripting -o=game_provider_demo.js -nodecli \
 ;   && node gallery/game_engine/scripting/game_provider_demo.js
 
-Import "./game_provider.rgr"
-Import "./wasm_cap_gate.rgr"
+Import "game_provider.rgr"
+Import "wasm_cap_gate.rgr"
 
 class ProviderCheck {
     def passed:int 0

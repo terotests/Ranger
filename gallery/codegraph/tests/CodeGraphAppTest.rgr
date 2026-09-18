@@ -373,7 +373,7 @@ class CodeGraphAppTest {
             print "  FAIL rewrite dropped a bare Import"
             failed = (failed + 1)
         }
-        if ((app.collapsePath("gallery/css/../evg/EVGColor.rgr")) != "gallery/evg/EVGColor.rgr") {
+        if ((app.collapsePath("gallery/css/../evg/EVGColor.rgr")) != "lib/evg/EVGColor.rgr") {
             print ("  FAIL collapsePath " + (app.collapsePath("gallery/css/../evg/EVGColor.rgr")))
             failed = (failed + 1)
         }

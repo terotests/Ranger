@@ -30,11 +30,11 @@
 ;   node .../game_icon_shots_demo.js [--force] [id ...]
 ; ==============================================================================
 
-Import "./game_runtime.rgr"
-Import "./as_sprite_runner.rgr"
-Import "./game_catalog.rgr"
-Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
-Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
+Import "game_runtime.rgr"
+Import "as_sprite_runner.rgr"
+Import "game_catalog.rgr"
+Import "pkg:image/PNGEncoder.rgr"
+Import "pkg:image/RasterBuffer.rgr"
 
 class GameIconShots {
     def IN_UP:int 1

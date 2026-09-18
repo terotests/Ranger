@@ -6,7 +6,7 @@
 #
 # What this proves, and it is most of the port:
 #
-#   * `ranger/rt_android.rgr` and the `gallery/realtrainer` + `gallery/evg`
+#   * `ranger/rt_android.rgr` and the `gallery/realtrainer` + `lib/evg`
 #     trees behind it compile to Kotlin and `kotlinc` accepts the result;
 #   * the compiled demo BUILDS the page on a JVM — the cascade, the layout,
 #     the diary, the Vela charts — and answers with a display list;
@@ -43,8 +43,8 @@ mkdir -p "$CLASSES"
 echo "compiling the Kotlin (this takes a few minutes — it is 87k generated lines)"
 kotlinc -J-Xmx8g -nowarn \
   "$AND/generated/rt_android.kt" \
-  gallery/evg/android/src/main/kotlin \
-  gallery/evg/android/src/awt/kotlin \
+  lib/evg/android/src/main/kotlin \
+  lib/evg/android/src/awt/kotlin \
   "$AND/desktop/src/main/kotlin" \
   -d "$CLASSES"
 

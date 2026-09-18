@@ -40,8 +40,8 @@
 ; ============================================================================
 
 Import "../engine/FormEngine.rgr"
-Import "../../evg/EVGDisplayList.rgr"
-Import "../../evg/EVGWindow.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
+Import "pkg:evg_window/EVGWindow.rgr"
 Import "../../game_engine/ui/UIContext.rgr"
 
 ; Where one question was drawn, so a click can find it again. Rebuilt every

@@ -4,9 +4,9 @@
 ; Usage: jpeg_to_ppm input.jpg outdir outname.ppm
 ; Diagnostic only: lets the decoder be scored without the encoder in the way.
 
-Import "../jpeg/JPEGDecoder.rgr"
-Import "../jpeg/ProgressiveJPEGDecoder.rgr"
-Import "../jpeg/PPMImage.rgr"
+Import "pkg:image/JPEGDecoder.rgr"
+Import "pkg:image/ProgressiveJPEGDecoder.rgr"
+Import "pkg:image/PPMImage.rgr"
 
 class JPEGToPPM {
 

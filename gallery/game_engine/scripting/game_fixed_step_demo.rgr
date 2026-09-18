@@ -6,7 +6,7 @@
 ;     -d=gallery/game_engine/scripting -o=game_fixed_step_demo.js -nodecli \
 ;   && node gallery/game_engine/scripting/game_fixed_step_demo.js
 
-Import "./game_fixed_step.rgr"
+Import "game_fixed_step.rgr"
 
 class StepCheck {
     def passed:int 0

@@ -122,7 +122,7 @@ class Pong  {
   };
   resolveHorizontal () {
     if ( this.ballX <= 2 ) {
-      const hitLeft = (this.ballY >= this.leftY) && (this.ballY < (this.leftY + this.PADDLE_H));
+      const hitLeft = this.ballY >= this.leftY && this.ballY < this.leftY + this.PADDLE_H;
       if ( hitLeft ) {
         this.ballX = 2;
         this.vxDir = 1;
@@ -135,7 +135,7 @@ class Pong  {
     }
     const rightCol = this.W - 3;
     if ( this.ballX >= rightCol ) {
-      const hitRight = (this.ballY >= this.rightY) && (this.ballY < (this.rightY + this.PADDLE_H));
+      const hitRight = this.ballY >= this.rightY && this.ballY < this.rightY + this.PADDLE_H;
       if ( hitRight ) {
         this.ballX = rightCol;
         this.vxDir = -1;
@@ -166,24 +166,24 @@ class Pong  {
     if ( y == 0 ) {
       return "=";
     }
-    if ( y == (this.H - 1) ) {
+    if ( y == this.H - 1 ) {
       return "=";
     }
-    if ( (x == this.ballX) && (y == this.ballY) ) {
+    if ( x == this.ballX && y == this.ballY ) {
       return "O";
     }
     if ( x == 1 ) {
-      if ( (y >= this.leftY) && (y < (this.leftY + this.PADDLE_H)) ) {
+      if ( y >= this.leftY && y < this.leftY + this.PADDLE_H ) {
         return "#";
       }
     }
-    if ( x == (this.W - 2) ) {
-      if ( (y >= this.rightY) && (y < (this.rightY + this.PADDLE_H)) ) {
+    if ( x == this.W - 2 ) {
+      if ( y >= this.rightY && y < this.rightY + this.PADDLE_H ) {
         return "#";
       }
     }
     if ( x == this.netX ) {
-      const even = (y % 2) == 0;
+      const even = y % 2 == 0;
       if ( even ) {
         return ":";
       }
@@ -193,7 +193,7 @@ class Pong  {
 }
 class Terminal  {
   constructor() {
-    this.firstFrame = true;     /** note: unused */
+    this.firstFrame = true;     /* note: unused */
     this.showDebug = false;
   }
   init () {

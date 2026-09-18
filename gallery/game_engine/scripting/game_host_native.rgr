@@ -14,7 +14,7 @@
 
 Import "../../pdf_writer/src/jsx/ComponentEngine.rgr"
 Import "../../pdf_writer/src/jsx/EvalValue.rgr"
-Import "./game_persistence.rgr"
+Import "game_persistence.rgr"
 
 class GameHostNativeBridge extends EvalNativeBridge {
     def gameDir:string ""

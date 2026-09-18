@@ -55,7 +55,7 @@ RENDER  EditorApp.sceneJson() → EVGDisplayList → evg-webgl.js (WebGL 2)
 
 SoftCanvas remains the CPU path for tests (`/frame.bin` still works). The web
 demo never blits framebuffer bytes — it draws the same display-list seam as
-`gallery/evg/gl/`.
+`lib/evg/gl/`.
 
 ## What works now
 

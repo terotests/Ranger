@@ -43,11 +43,11 @@ function localIsoDay(d) {
 }
 
 // THE SAME HOST THE PHONES USE. `RtHost` (gallery/realtrainer/src/RtHost.rgr,
-// on `gallery/evg/EvgHost.rgr`) is the viewport the UIKit view and the Android
+// on `lib/evg/EvgHost.rgr`) is the viewport the UIKit view and the Android
 // View put around this app: the window and the safe area, a window point to a
 // page point, the press a drag cancels, the fling timed against the host's own
 // clock, the keyboard's text. This page used to have its own copy of all of
-// that in JavaScript — see gallery/evg/HOSTS.md — and a rule fixed on a phone
+// that in JavaScript — see lib/evg/HOSTS.md — and a rule fixed on a phone
 // was a rule this page still had wrong.
 //
 // `app` is the same object it always was: the host holds it, and everything
@@ -197,7 +197,7 @@ sizeCanvas();
 // `?gl=noaa` turns multisampling off, for measuring what it costs on a GPU
 // that minds it; the paths' edges are what it smooths.
 // `?painter=dom` paints the page as DOM nodes that survive a frame —
-// `gallery/evg/html/evg-dom.js` on the host tree (`app.hostJson()`) — under a
+// `lib/evg/html/evg-dom.js` on the host tree (`app.hostJson()`) — under a
 // transparent canvas that still takes the pointer, so every handler below
 // is the same one the WebGL page uses. The default is the WebGL painter.
 const painterMode = params.get("painter") || "gl";
@@ -599,7 +599,7 @@ canvas.addEventListener("pointermove", (ev) => {
   if (host.hoverAt(x, y)) dirty = true;
   canvas.style.cursor = app.overScrollbar() ? "default" : "";
 });
-// The resize path, as gallery/evg/web/responsive has it: a ResizeObserver on
+// The resize path, as lib/evg/web/responsive has it: a ResizeObserver on
 // the stage rather than only a window listener, because the two differ where
 // it matters — a scrollbar takes ~15px off the width and only the element
 // knows — and a key of what the page was last laid out for, so nothing is

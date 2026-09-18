@@ -3538,7 +3538,7 @@ class FlowEditor {
     ;
     ; `viewFrameJson` is this WITHOUT the graph, which is what a pan needs: the
     ; camera and a caret's worth of chrome rather than every command in the
-    ; diagram (`gallery/evg/PLAN_VIEW_TRANSFORM.md` S2).
+    ; diagram (`lib/evg/PLAN_VIEW_TRANSFORM.md` S2).
     fn frameJson:string () {
         def sc:FlowScene (view.buildScene())
         def dl:EVGDisplayList (sc.toDisplayList())

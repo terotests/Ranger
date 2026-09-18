@@ -17,7 +17,7 @@
 
 Import "lpc_config.rgr"
 Import "lpc_compose.rgr"
-Import "../../../pdf_writer/src/raster/PNGEncoder.rgr"
+Import "pkg:image/PNGEncoder.rgr"
 
 class LpcComposeRunner {
     def outDir:string "gallery/game_engine/lpc/output"

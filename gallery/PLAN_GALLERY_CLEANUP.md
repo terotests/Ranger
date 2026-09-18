@@ -489,7 +489,7 @@ mv test_output test/
 #### Proposed Structure
 
 ```
-gallery/evg/
+lib/evg/
 ├── README.md
 ├── .gitignore
 │
@@ -516,7 +516,7 @@ gallery/evg/
 #### Migration Commands
 
 ```bash
-cd gallery/evg
+cd lib/evg
 
 # Create structure
 mkdir -p src docs
@@ -535,8 +535,8 @@ mv EVGTextMeasurer.rgr EVGImageMeasurer.rgr src/
 
 ```json
 {
-  "evg:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/evg/src/evg_test.rgr -d=./gallery/evg/bin -o=evg_test.js -nodecli",
-  "evg:run": "node ./gallery/evg/bin/evg_test.js"
+  "evg:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./lib/evg/src/evg_test.rgr -d=./lib/evg/bin -o=evg_test.js -nodecli",
+  "evg:run": "node ./lib/evg/bin/evg_test.js"
 }
 ```
 

@@ -21,8 +21,8 @@ Import "../gfx_sdl.rgr"
 Import "../model3d/ModelLoader.rgr"
 Import "../model3d/MeshBridge.rgr"
 Import "../../../lib/ranger-dir.rgr"
-Import "./wasm_ui_io.rgr"
-Import "./game_hud.rgr"
+Import "wasm_ui_io.rgr"
+Import "game_hud.rgr"
 
 class Wasm3dRunner {
     def handle:int 0

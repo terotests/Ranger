@@ -221,7 +221,7 @@ Two EVG limits the menubar exposed, neither of them about the syntax:
   full structure out in flow stacked all four dropdowns down the page, so the
   first version of the picture was composed by hand from a trigger bar and the
   panels that would be portalled. EVG has overlay surfaces now
-  (`gallery/evg/EVGLayout.rgr`, `npm run evg:overlay:test`): `Content` is
+  (`lib/evg/EVGLayout.rgr`, `npm run evg:overlay:test`): `Content` is
   still the `Menu`'s child, and layout takes it out of the parent's flow,
   finds its anchor among its own siblings and moves it and its subtree there.
   The hand composition is gone from `MenubarDemo.rgr` and a submenu is a `Menu`

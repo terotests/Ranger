@@ -5,7 +5,7 @@ import { View, Svg } from "./evg_types";
  *
  * It is not a background image: landing/tools/hero.mjs lays this out with EVG
  * and writes the display list, and the page draws that list on the GPU through
- * gallery/evg/gl/evg-webgl.js, once per frame, with `evg-surface-effect:
+ * lib/evg/gl/evg-webgl.js, once per frame, with `evg-surface-effect:
  * ripple` bending the finished surface around drops that fall on it.
  *
  * Which is why the composition is rules and a letter rather than a wash: a

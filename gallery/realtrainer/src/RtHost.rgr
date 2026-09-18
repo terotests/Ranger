@@ -4,7 +4,7 @@
 ; ==============================================================================
 ;
 ; What is left of a port once the viewport is shared. `EvgHost`
-; (`gallery/evg/EvgHost.rgr`) holds the window, the safe area, the point
+; (`lib/evg/EvgHost.rgr`) holds the window, the safe area, the point
 ; conversion, the press, the pan, the fling's clock and the keyboard; this
 ; adds the two things that are RealTrainer's own — how it is loaded, and the
 ; section its shell is showing — and names the app.
@@ -13,7 +13,7 @@
 ; line each (`ios/ranger/rt_ios.rgr`, `android/ranger/rt_android.rgr`), and
 ; both are this.
 
-Import "../../evg/EvgHost.rgr"
+Import "pkg:evg/EvgHost.rgr"
 Import "RealTrainerDemo.rgr"
 
 class RtHost extends EvgHost {

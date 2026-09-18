@@ -9,9 +9,9 @@
 
 Import "../src/CodeGraphApp.rgr"
 Import "../../datagrid/src/SoftPainter.rgr"
-Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
-Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
-Import "../../evg/EVGTextMeasurer.rgr"
+Import "pkg:image/PNGEncoder.rgr"
+Import "pkg:image/RasterBuffer.rgr"
+Import "pkg:evg/EVGTextMeasurer.rgr"
 Import "../../game_engine/ui/UITextRenderer.rgr"
 
 class DumpCodeGraph {

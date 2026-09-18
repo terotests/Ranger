@@ -1,0 +1,472 @@
+; SPDX-License-Identifier: MIT
+
+; ==============================================================================
+; EVGJsonTest — does a command survive being written down?
+; ==============================================================================
+;
+; A display list is drawn two ways: by the software canvas, which reads the
+; command objects, and by every other backend — WebGL, a canvas host, a remote
+; viewer — which reads `toJson`. Every test in this repository takes the first
+; route, so a field the serializer forgot was invisible: the pictures came out
+; right, the tests passed, and the browser drew something else.
+;
+; Three did. Paths were written only when `ringEnds` was set, so a command
+; built by hand — and several are, here and in the galleries — reached the
+; software canvas and nothing else: a bracket, an arrow head, the outline of a
+; rounded box, all simply absent on the GPU. Gradients were never serialized at
+; all, so a two-stop fill arrived as its first stop, flat.
+;
+; So this asks the question the picture tests cannot: given a command with a
+; field set, does that field appear in the JSON? It is deliberately crude —
+; substring checks against the text — because the failure it is guarding
+; against is a field that is not there at all.
+;
+;   npm run evg:json:test
+; ==============================================================================
+
+Import "EVGDisplayList.rgr"
+Import "EVGColor.rgr"
+Import "EVGElement.rgr"
+Import "EVGLayout.rgr"
+Import "EVGTextEngine.rgr"
+
+class EVGJsonTest {
+    def passed:int 0
+    def failed:int 0
+
+    sfn m@(main):void () {
+        def t (new EVGJsonTest())
+        t.run()
+    }
+
+    fn ok:void (what:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS  " + what)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + what)
+        }
+    }
+
+    fn has:void (what:string json:string needle:string) {
+        this.ok(what ((indexOf json needle) >= 0))
+    }
+
+
+    ; --- the two angle conventions -------------------------------------------
+    ;
+    ; `gd` is a direction code because that is all a GPU backend needs, but the
+    ; raster and PDF painters draw along an ANGLE and they do not agree about
+    ; what an angle is: the rasteriser builds a vector from (cos, sin) with 0
+    ; to the right, while the PDF renderer parses CSS where 0 is to the top.
+    ; One code, two right answers, and taking the wrong one turns every
+    ; gradient a quarter turn in one target and not the other.
+    ;
+    ; So this checks the inverses against the reduction just above, on the same
+    ; axes, rather than trusting two constants to stay in step.
+    fn testGradientAngleConventions:void () {
+        print "-- a direction code, back to an angle, in both conventions"
+
+        ; The axis a CSS angle reduces to, from the same rule the list uses.
+        def across:EVGElement (EVGJsonTest.boxWith("background" "linear-gradient(90deg, #102030, #c8d2dc)"))
+        this.has("90deg is the horizontal axis" (this.listOf(across)) "\"gd\":1")
+        def down:EVGElement (EVGJsonTest.boxWith("background" "linear-gradient(180deg, #102030, #c8d2dc)"))
+        this.has("180deg is the vertical one" (this.listOf(down)) "\"gd\":0")
+
+        ; Raster: 0 to the right, 90 down.
+        this.ok("horizontal rasterises at 0" ((EVGDisplayList.rasterAngleOfDir(1)) == 0.0))
+        this.ok("vertical rasterises at 90" ((EVGDisplayList.rasterAngleOfDir(0)) == 90.0))
+
+        ; CSS: the angle it came from. A round trip has to land on the axis it
+        ; started on, which is the property worth asserting — not the number.
+        this.ok("horizontal is 90deg in CSS" ((EVGDisplayList.cssAngleOfDir(1)) == 90.0))
+        this.ok("vertical is 180deg in CSS" ((EVGDisplayList.cssAngleOfDir(0)) == 180.0))
+
+        def backAcross:EVGElement (EVGJsonTest.boxWith("background" ("linear-gradient(" + ((EVGDisplayList.num((EVGDisplayList.cssAngleOfDir(1)))) + "deg, #102030, #c8d2dc)"))))
+        this.has("and reducing it again gives the same axis" (this.listOf(backAcross)) "\"gd\":1")
+        def backDown:EVGElement (EVGJsonTest.boxWith("background" ("linear-gradient(" + ((EVGDisplayList.num((EVGDisplayList.cssAngleOfDir(0)))) + "deg, #102030, #c8d2dc)"))))
+        this.has("for the other one too" (this.listOf(backDown)) "\"gd\":0")
+    }
+
+    ; The pair a Figma import speaks, which the list has always understood and
+    ; the raster and PDF painters had not.
+    fn testTwoStopPairReachesTheList:void () {
+        print "-- gradient-from / gradient-to"
+        def el:EVGElement (EVGElement.createDiv())
+        el.setAttribute("width" "100px")
+        el.setAttribute("height" "50px")
+        el.setAttribute("gradient-from" "#102030")
+        el.setAttribute("gradient-to" "#c8d2dc")
+        el.setAttribute("gradient-dir" "1")
+        el.markInline("width")
+        el.markInline("height")
+        this.ok("the element records it" el.gradientSet)
+        def j:string (this.listOf(el))
+        this.has("the near stop" j "\"c\":[16,32,48,1.00]")
+        this.has("the far one" j "\"c2\":[200,210,220,1.00]")
+        this.has("and the axis it was given" j "\"gd\":1")
+    }
+
+    fn run:void () {
+        print "=== EVGDisplayList.toJson ==="
+        this.testPolygonWithRings()
+        this.testPolygonBuiltByHand()
+        this.testGradient()
+        this.testElementGradient()
+        this.testGradientAngleConventions()
+        this.testTwoStopPairReachesTheList()
+        this.testFlatRectHasNoGradient()
+        this.testRectAndBorder()
+        this.testTextAndImage()
+        this.testEveryNumberIsANumber()
+        this.testLetterSpacing()
+        this.testParagraphSpacing()
+        print ""
+        print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
+        if (failed > 0) {
+            print "FAILURES"
+        } {
+            print "ALL PASS"
+        }
+    }
+
+    ; WHATEVER GOES IN, A JSON NUMBER COMES OUT.
+    ;
+    ; `num` writes every coordinate, size, radius and colour in the list, so a
+    ; value it cannot spell does not make one command wrong — it makes the
+    ; whole frame unparseable, and the page drawing it stops dead. That is what
+    ; it looked like from the outside: a ripple frozen mid-flight, with
+    ; `SyntaxError: Expected ',' or '}' after property` beside it.
+    ;
+    ; Two ways in, and neither one announced itself. A value that was not a
+    ; number came out as "0.NaN". And the integer divide truncated to 32 bits,
+    ; so a magnitude past 2^31 WRAPPED: 1e10 came out as
+    ; "1410065408.858993459200", which parses and is merely wrong, and past
+    ; about 1e19 the leftover went exponential and stopped being JSON at all.
+    ;
+    ; So the test is the contract rather than the arithmetic: hand it the worst
+    ; values there are and require something a parser will take.
+    fn testEveryNumberIsANumber:void () {
+        print "-- num writes a number for anything it is given"
+        ; The ordinary cases still have to be exactly right — a guard that
+        ; rounds real coordinates is worse than the fault it guards against.
+        this.ok("a plain value is unchanged" ((EVGDisplayList.num(1336.25)) == "1336.25"))
+        this.ok("and a negative one" ((EVGDisplayList.num(-45.0)) == "-45.00"))
+        this.ok("and zero" ((EVGDisplayList.num(0.0)) == "0.00"))
+        ; Everything up to the clamp keeps its value: the old code went wrong
+        ; at 2^31, which is inside this.
+        this.ok("and a value past 2^31, which used to wrap"
+            ((EVGDisplayList.num(3000000000.0)) == "10000000.00"))
+        ; Written as a product because the lexer takes no exponent literals,
+        ; and this is well past where the fraction used to go exponential.
+        def huge:double (1000000000.0 * 1000000000000.0)
+        this.ok("a huge value is pinned, not wrapped"
+            ((EVGDisplayList.num(huge)) == "10000000.00"))
+        this.ok("and a hugely negative one keeps its sign"
+            ((EVGDisplayList.num((0.0 - huge))) == "-10000000.00"))
+        ; A NaN fails every comparison, which is exactly how it is caught.
+        def nan:double (0.0 / 0.0)
+        this.ok("a value that is not a number becomes zero"
+            ((EVGDisplayList.num(nan)) == "0.00"))
+        def inf:double (1.0 / 0.0)
+        this.ok("an infinity is pinned at the limit"
+            ((EVGDisplayList.num(inf)) == "10000000.00"))
+        this.ok("and a negative infinity"
+            ((EVGDisplayList.num((0.0 - inf))) == "-10000000.00"))
+        ; And the point of all of it: a command carrying one of these still
+        ; produces a list something can read. The needle is what a parser would
+        ; choke on — a second dot inside one number.
+        def dl (new EVGDisplayList())
+        dl.addRect(nan inf huge 10.0 (EVGColor.rgb(1 2 3)))
+        def json:string (dl.toJson())
+        this.ok("and a command carrying them writes no second dot"
+            ((indexOf json ".0.") < 0))
+        this.ok("nor an exponent" ((indexOf json "e+") < 0))
+        this.ok("nor the word NaN" ((indexOf json "NaN") < 0))
+        this.ok("nor an Infinity" ((indexOf json "Infinity") < 0))
+    }
+
+    ; The sanctioned way to add a path. Points, one ring, and a box derived
+    ; from the points — the GL backend batches and scissors by that box, and
+    ; a path left at 0x0 is a path clipped away.
+    fn testPolygonWithRings:void () {
+        print "-- a polygon added through addPolygon"
+        def dl (new EVGDisplayList())
+        def pts:[double] ([] _:double ( 10.0 20.0 110.0 20.0 110.0 70.0 10.0 70.0 ))
+        dl.addPolygon(pts (EVGColor.rgb(255 0 0)))
+        def json:string (dl.toJson())
+        this.has("the points are written" json "\"pts\":[10.00,20.00,110.00,20.00,110.00,70.00,10.00,70.00]")
+        this.has("with a ring that closes them" json "\"ends\":[8]")
+        def c:EVGDrawCmd (dl.at(0))
+        this.ok("and a box derived from the points" ((c.w > 99.0) && (c.h > 49.0)))
+    }
+
+    ; The same path built the way a gallery builds one: points on the command
+    ; and nothing else. This is the case that was dropped.
+    fn testPolygonBuiltByHand:void () {
+        print "-- a polygon built by hand, with no ring list"
+        def dl (new EVGDisplayList())
+        def c (new EVGDrawCmd())
+        c.kind = 6
+        c.pts = ([] _:double ( 0.0 0.0 40.0 0.0 40.0 40.0 ))
+        c.r = 12
+        c.g = 34
+        c.b = 56
+        c.a = 1.0
+        push dl.cmds c
+        def json:string (dl.toJson())
+        this.has("its points reach the JSON" json "\"pts\":[0.00,0.00,40.00,0.00,40.00,40.00]")
+        this.has("as one ring covering all of them" json "\"ends\":[6]")
+        this.has("and it keeps its colour" json "\"c\":[12,34,56,1.00]")
+    }
+
+    fn testGradient:void () {
+        print "-- a two-stop gradient"
+        def dl (new EVGDisplayList())
+        def c (new EVGDrawCmd())
+        c.kind = 0
+        c.x = 0.0
+        c.y = 0.0
+        c.w = 100.0
+        c.h = 50.0
+        c.r = 10
+        c.g = 20
+        c.b = 30
+        c.a = 1.0
+        c.hasGrad = true
+        c.gradDir = 1
+        c.r2 = 200
+        c.g2 = 210
+        c.b2 = 220
+        c.a2 = 0.5
+        push dl.cmds c
+        def json:string (dl.toJson())
+        this.has("the near stop is the command's colour" json "\"c\":[10,20,30,1.00]")
+        this.has("the far stop is written too" json "\"c2\":[200,210,220,0.50]")
+        this.has("along with the direction" json "\"gd\":1")
+    }
+
+    ; --- and the half above the command --------------------------------------
+    ;
+    ; `testGradient` proves a command with `hasGrad` set is written down. It
+    ; cannot prove anything ever SETS it — and for a long time nothing did: the
+    ; walk from an element to a display list read `backgroundColor` and no
+    ; more, so `background: linear-gradient(...)` came out flat when there was
+    ; a colour beside it and emitted no rectangle at all when there was not.
+    ;
+    ; The two directions the list can carry are down the box and across it, so
+    ; an angle is snapped to the nearer axis and the stops are swapped when it
+    ; points the other way. Those are the four cases below.
+    fn listOf:string (el:EVGElement) {
+        def lay (new EVGLayout())
+        lay.setPageSize(200.0 100.0)
+        lay.layout(el)
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(el)
+        return (dl.toJson())
+    }
+
+    sfn boxWith:EVGElement (name:string value:string) {
+        def el (new EVGElement())
+        el.setAttribute("width" "100px")
+        el.setAttribute("height" "50px")
+        el.setAttribute(name value)
+        return el
+    }
+
+    fn testElementGradient:void () {
+        print "-- an element with a CSS gradient"
+        def down:EVGElement (EVGJsonTest.boxWith("background" "linear-gradient(180deg, #102030, #c8d2dc)"))
+        def j1:string (this.listOf(down))
+        this.has("to bottom keeps the stops in order" j1 "\"c\":[16,32,48,1.00]")
+        this.has("and names the far one" j1 "\"c2\":[200,210,220,1.00]")
+        this.has("running down the box" j1 "\"gd\":0")
+
+        def across:EVGElement (EVGJsonTest.boxWith("background" "linear-gradient(90deg, #102030, #c8d2dc)"))
+        this.has("to right runs across it" (this.listOf(across)) "\"gd\":1")
+
+        ; 0deg is "to top", which the list cannot say — so it is the same axis
+        ; with the stops the other way round.
+        def up:EVGElement (EVGJsonTest.boxWith("background" "linear-gradient(0deg, #102030, #c8d2dc)"))
+        def j3:string (this.listOf(up))
+        this.has("to top swaps them instead" j3 "\"c\":[200,210,220,1.00]")
+        this.has("and keeps the axis" j3 "\"gd\":0")
+
+        ; A radial gradient is not a direction, so it is not turned into one:
+        ; the box keeps whatever flat colour it had and a viewer sees a missing
+        ; effect rather than a wrong one.
+        def radial:EVGElement (EVGJsonTest.boxWith("background" "radial-gradient(circle, #102030, #c8d2dc)"))
+        radial.setAttribute("background-color" "#010203")
+        def j4:string (this.listOf(radial))
+        this.ok("a radial gradient is left flat" ((indexOf j4 "\"c2\"") < 0))
+        this.has("with the colour it had" j4 "\"c\":[1,2,3,1.00]")
+
+        ; The RGU1 pair, which is already the list's own vocabulary.
+        def pair (new EVGElement())
+        pair.setAttribute("width" "100px")
+        pair.setAttribute("height" "50px")
+        pair.setAttribute("gradient-from" "#102030")
+        pair.setAttribute("gradient-to" "#c8d2dc")
+        pair.setAttribute("gradient-dir" "1")
+        def j5:string (this.listOf(pair))
+        this.has("gradient-from/to needs no interpretation" j5 "\"c2\":[200,210,220,1.00]")
+        this.has("and carries its own direction" j5 "\"gd\":1")
+    }
+
+    ; The other half of the same rule: a flat fill must NOT claim a gradient,
+    ; or every rectangle on the page would be mixed against a colour nobody
+    ; asked for.
+    fn testFlatRectHasNoGradient:void () {
+        print "-- a flat fill"
+        def dl (new EVGDisplayList())
+        dl.addRect(0.0 0.0 10.0 10.0 (EVGColor.rgb(1 2 3)))
+        def json:string (dl.toJson())
+        this.ok("says nothing about a second stop" ((indexOf json "\"c2\"") < 0))
+        this.ok("and nothing about a direction" ((indexOf json "\"gd\"") < 0))
+    }
+
+    fn testRectAndBorder:void () {
+        print "-- a rounded rect and a border"
+        def dl (new EVGDisplayList())
+        def c (new EVGDrawCmd())
+        c.kind = 0
+        c.x = 5.0
+        c.y = 6.0
+        c.w = 70.0
+        c.h = 80.0
+        c.radius = 9.0
+        c.rotate = 45.0
+        c.r = 1
+        c.g = 2
+        c.b = 3
+        c.a = 1.0
+        push dl.cmds c
+        def b (new EVGDrawCmd())
+        b.kind = 1
+        b.x = 5.0
+        b.y = 6.0
+        b.w = 70.0
+        b.h = 80.0
+        b.thickness = 2.0
+        b.r = 4
+        b.g = 5
+        b.b = 6
+        b.a = 1.0
+        push dl.cmds b
+        def json:string (dl.toJson())
+        this.has("the corner radius is written" json "\"r\":9.00")
+        this.has("so is the rotation" json "\"rot\":45.00")
+        this.has("and the border's thickness" json "\"t\":2.00")
+    }
+
+    ; `letter-spacing` — a run is drawn as one string, so the painter is
+    ; the only party that can space it and the command has to carry it.
+    ; It rides in the JSON as `ls` and in the binary at slot 36, and the
+    ; wrap has to agree with the ink: a line measured without the tracking
+    ; is a line the box was sized too narrow for.
+    fn testLetterSpacing:void () {
+        print "-- letter-spacing"
+        def root (new EVGElement())
+        root.setAttribute("width" "400px")
+        root.setAttribute("height" "100px")
+        def span:EVGElement (EVGElement.createSpan())
+        span.textContent = "abcd"
+        span.setAttribute("font-size" "20px")
+        span.setAttribute("letter-spacing" "5px")
+        root.addChild(span)
+        def layout (new EVGLayout())
+        layout.layout(root)
+        def dl (new EVGDisplayList())
+        dl.build(root)
+        def js:string (dl.toJson())
+        this.has("the command carries it" js "\"ls\":5")
+
+        ; And the measurement grew by one space per character, the last
+        ; one included — which is what CSS says and what a canvas with
+        ; `letterSpacing` set measures back.
+        def eng (new EVGTextEngine())
+        def plain:double ((eng.measureRun("abcd" "Open Sans" 20.0)).width)
+        def spaced:double ((eng.measureRunSpaced("abcd" "Open Sans" 20.0 5.0)).width)
+        this.ok("and the measurement grew by four spaces" (((spaced - plain) > 19.9) && ((spaced - plain) < 20.1)))
+        def tight:double ((eng.measureRunSpaced("abcd" "Open Sans" 20.0 (0.0 - 1.0))).width)
+        this.ok("negative tracking narrows it" (((plain - tight) > 3.9) && ((plain - tight) < 4.1)))
+        this.ok("and zero is the run as it was" (((eng.measureRunSpaced("abcd" "Open Sans" 20.0 0.0)).width) == plain))
+    }
+
+    ; `paragraph-spacing`: the gap goes above every paragraph the author
+    ; typed and above none the box made by wrapping, and the layout has to
+    ; reserve it or the last line falls out of the box it was sized for.
+    fn testParagraphSpacing:void () {
+        print "-- paragraph-spacing"
+        def eng (new EVGTextEngine())
+        def lines:[EVGTextLine] (eng.breakLines("one\ntwo\nthree" "Open Sans" 12.0 0.0))
+        this.ok("three paragraphs, three lines" ((array_length lines) == 3))
+        def first:EVGTextLine (itemAt lines 0)
+        def second:EVGTextLine (itemAt lines 1)
+        this.ok("the first line opens nothing" (first.startsParagraph == false))
+        this.ok("the second opens a paragraph" second.startsParagraph)
+        def lead:double (eng.paragraphLeading("one\ntwo\nthree" "Open Sans" 12.0 0.0 0.0 10.0))
+        this.ok("two breaks reserve two gaps" ((lead > 19.9) && (lead < 20.1)))
+        ; A line the WRAP made is not a paragraph, so it gets no gap: this
+        ; is the difference between spacing paragraphs and double-spacing
+        ; the whole block.
+        def wrapped:double (eng.paragraphLeading("aaa bbb ccc ddd" "Open Sans" 12.0 12.0 0.0 10.0))
+        this.ok("a wrapped line is not a paragraph" (wrapped == 0.0))
+        this.ok("and no spacing reserves nothing" ((eng.paragraphLeading("one\ntwo" "Open Sans" 12.0 0.0 0.0 0.0)) == 0.0))
+
+        ; And the painter is told where the lines go.
+        def root (new EVGElement())
+        root.setAttribute("width" "400px")
+        root.setAttribute("height" "200px")
+        def span:EVGElement (EVGElement.createSpan())
+        span.textContent = "one\ntwo"
+        span.setAttribute("font-size" "20px")
+        span.setAttribute("line-height" "20px")
+        span.setAttribute("paragraph-spacing" "30px")
+        root.addChild(span)
+        def layout (new EVGLayout())
+        layout.layout(root)
+        def dl (new EVGDisplayList())
+        dl.build(root)
+        def js:string (dl.toJson())
+        ; Line one at y 0, line two a line box AND a gap below it.
+        this.has("the second line is pushed down by the gap" js "\"y\":50")
+    }
+
+    fn testTextAndImage:void () {
+        print "-- text and a picture"
+        def dl (new EVGDisplayList())
+        def t (new EVGDrawCmd())
+        t.kind = 3
+        t.x = 1.0
+        t.y = 2.0
+        t.text = "hei"
+        t.fontFamily = "Open Sans"
+        t.fontSize = 12.0
+        t.fontWeight = "bold"
+        t.textAlign = "italic"
+        t.r = 0
+        t.g = 0
+        t.b = 0
+        t.a = 1.0
+        push dl.cmds t
+        def im (new EVGDrawCmd())
+        im.kind = 2
+        im.src = "media/image1.png"
+        im.flipH = true
+        im.w = 10.0
+        im.h = 10.0
+        im.a = 1.0
+        push dl.cmds im
+        def json:string (dl.toJson())
+        this.has("the run's text" json "\"text\":\"hei\"")
+        this.has("its face" json "\"font\":\"Open Sans\"")
+        this.has("its size" json "\"size\":12.00")
+        this.has("its weight" json "\"weight\":\"bold\"")
+        this.has("its slant" json "\"italic\":true")
+        this.has("the picture's part" json "\"src\":\"media/image1.png\"")
+        this.has("and that it is mirrored" json "\"fx\":true")
+    }
+}

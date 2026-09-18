@@ -9,8 +9,8 @@
 ; ==============================================================================
 
 Import "PptxModel.rgr"
-Import "../../evg/EVGDisplayList.rgr"
-Import "../../evg/EVGColor.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGColor.rgr"
 Import "../../vela/src/VlJson.rgr"
 Import "../../vela/src/VlCompile.rgr"
 Import "../../vela/src/VlRuntime.rgr"

@@ -213,7 +213,7 @@ class FigWeb {
 
     ; The view as a camera on the list rather than a transform on the tree.
     ; A pan then costs three numbers and the painter's uniform instead of a
-    ; walk of the whole board. See gallery/evg/PLAN_VIEW_TRANSFORM.md.
+    ; walk of the whole board. See lib/evg/PLAN_VIEW_TRANSFORM.md.
     fn setCamera:void (on:boolean) {
         app.setCamera(on)
     }

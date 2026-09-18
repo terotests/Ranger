@@ -18,7 +18,7 @@
 
 Import "WasmUiSelect.rgr"
 Import "RgUiWriter.rgr"
-Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+Import "pkg:image/PNGEncoder.rgr"
 
 class DemoCheck {
     def passed:int 0

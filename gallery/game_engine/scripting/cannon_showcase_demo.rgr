@@ -9,7 +9,7 @@
 ;   Build + run:  npm run engine:physics:showcase
 ; ==============================================================================
 
-Import "./game_runtime.rgr"
+Import "game_runtime.rgr"
 
 class CannonShowcaseDemo {
     ; A 24x14 screen view (x in [0,480], y in [0,270]); balls are 'O', floor '='.

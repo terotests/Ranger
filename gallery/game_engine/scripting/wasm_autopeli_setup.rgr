@@ -4,8 +4,8 @@
 ; wasm_autopeli_setup — physics world for Rust WASM autopeli (road + vehicles).
 ; ==============================================================================
 
-Import "./game_physics.rgr"
-Import "./physics_core.rgr"
+Import "game_physics.rgr"
+Import "physics_core.rgr"
 
 class WasmAutopeliSetup {
     def roadCx:int 240

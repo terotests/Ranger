@@ -349,7 +349,7 @@ P-frame size: ~6KB instead of ~100KB = 94% reduction!
 
 ## Dependencies
 
-- `gallery/evg/*` - Layout engine (already implemented)
+- `lib/evg/*` - Layout engine (already implemented)
 - `gallery/pdf_writer/DCT.rgr` - DCT transform (reuse)
 - `gallery/pdf_writer/JPEGEncoder.rgr` - Quantization tables (reuse)
 - `gallery/pdf_writer/Buffer.rgr` - Buffer handling (reuse)

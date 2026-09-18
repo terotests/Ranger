@@ -22,7 +22,7 @@
 ; blitImage() composes RGBA ImageBuffer sprites via RgbaFastBlit (alpha-aware).
 ; ==============================================================================
 
-Import "./rgba_fast_blit.rgr"
+Import "rgba_fast_blit.rgr"
 Import "imaging/jpeg/ImageBuffer.rgr"
 Import "imaging/raster/RasterBuffer.rgr"
 

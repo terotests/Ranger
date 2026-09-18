@@ -4,7 +4,7 @@
 ; lpc_test_runner_demo - headless smoke: LPC sheet blit at fixed pose.
 ; ==============================================================================
 
-Import "./game_runtime.rgr"
+Import "game_runtime.rgr"
 
 class LpcTestRunnerDemo {
     sfn m@(main):void () {

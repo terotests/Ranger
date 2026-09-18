@@ -3,7 +3,7 @@
 ; jpeg_decoder_test.rgr - Test for JPEG decoder
 ; Reads a JPEG, scales it, and saves as PPM
 
-Import "../jpeg/JPEGDecoder.rgr"
+Import "pkg:image/JPEGDecoder.rgr"
 
 class JPEGDecoderTest {
     sfn m@(main):void () {

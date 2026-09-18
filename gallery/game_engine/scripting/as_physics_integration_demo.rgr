@@ -2,7 +2,7 @@
 
 ; Headless: drive WasmPhysicsRunner with an interpreted .as guest (no .wasm).
 ; Proves the swap — physics + resources + HUD all run off the .as ABI.
-Import "./wasm_physics_runner.rgr"
+Import "wasm_physics_runner.rgr"
 
 class AsPhysicsIntegrationDemo {
     sfn m@(main):void () {

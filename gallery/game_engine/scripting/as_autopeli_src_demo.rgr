@@ -2,7 +2,7 @@
 
 ; Headless proof: interpret the autopeli .as core and read back RGW1 controls
 ; + the RGU1 HUD (same ABI the WASM host reads).
-Import "./as_source_runner.rgr"
+Import "as_source_runner.rgr"
 
 class AsAutopeliSrcDemo {
     sfn textAt:string (runner:AsSourceRunner nodeIndex:int) {

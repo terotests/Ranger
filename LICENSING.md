@@ -4,7 +4,7 @@ This repository uses two licenses.
 
 | Path | License | SPDX |
 | --- | --- | --- |
-| Ranger-authored code outside `gallery/` | MIT, unless a file or subdirectory says otherwise | `MIT` |
+| Ranger-authored code outside `gallery/` — the compiler, the runtime, `lib/` including `lib/evg` and `lib/image` | MIT, unless a file or subdirectory says otherwise | `MIT` |
 | Ranger-authored code under `gallery/` | GNU Affero General Public License v3.0 or later, unless a file or subdirectory says otherwise | `AGPL-3.0-or-later` |
 
 The root [`LICENSE`](LICENSE) file is the overview, not a single license
@@ -26,12 +26,14 @@ text. GitHub may not show a single license badge; that is intentional.
         │                            │
        MIT                          AGPL
         │                            │
-  compiler                       EVG
-  runtime                        Office
-  std primitives                DataGrid
-  parser basics                 PDF / layout
-  generic utilities             advanced editors
-  package client                 Rave / Vela charts
+  compiler                       Office
+  runtime                        DataGrid
+  std primitives                 PDF / layout tools
+  parser basics                  advanced editors
+  generic utilities              Rave / Vela charts
+  package client                 evg_window (dialogs, toolbar, ruler
+  EVG layout engine  (lib/evg)     over the software rasteriser)
+  image codecs       (lib/image)
   examples/
 ```
 
@@ -51,18 +53,37 @@ published format and a generic utility, and the pack format needs it.
 that program. Compiling with Ranger does not put the AGPL on your source, any
 more than compiling with GCC or Clang does.
 
+**EVG, the layout engine, is MIT too.** `lib/evg` is the CSS-shaped box
+model, flex, grid, the stylesheet, text measurement, transitions, hit
+testing, the accessibility tree and the display list — the thing every
+program with a screen or a page draws through. A program that has a
+screen is still *your* program. EVG is therefore platform, with the
+compiler, not application IP: it moved from `gallery/evg` to `lib/evg`
+and from AGPL to MIT in September 2026. Layout engines are permissively
+licensed as a rule (Skia, Yoga, Taffy, the Flutter engine); the
+competitive work sits above them. So does Ranger's.
+
+`lib/image` — the JPEG and PNG decoders, the PNG encoder, the raster and
+byte buffers EVG and the PDF tools share — moved with it, on the same
+rule that already put DEFLATE in `lib/`: published formats, generic
+utilities.
+
 **Ranger Gallery technologies are AGPL.** `gallery/` is not a folder of Hello
-World samples. It is the application stack built in Ranger: the EVG rendering
-engine, display lists, text and layout, DataGrid / XLSX, DOCX, PPTX, PDF,
-editors, and the other large programs. Taking `gallery/evg` (or Office, or
-DataGrid) and building a product on it is using that application framework,
-not merely using the programming language.
+World samples. It is the application stack built in Ranger: DataGrid /
+XLSX, DOCX, PPTX, the PDF and layout tools, the Office text engine, the
+editors, Rave, Vela, RangerFlow, and the other large programs. Taking
+`gallery/datagrid` (or Office, or Rave) and building a product on it is
+using that application framework, not merely using the programming
+language.
 
-The competitive work is the whole stack, not only the Office-format parsers.
-EVG is therefore AGPL with the rest of `gallery/`, not MIT with the compiler.
+`gallery/evg_window` is the seam: the dialog layer, toolbar and ruler
+views and the host-side text measurer that paint EVG through the
+gallery's own software rasteriser and font engine. It depends on
+`gallery/game_engine`, `gallery/pdf_writer` and `gallery/office`, so it
+stays on their side of the line.
 
-A later commercial license for EVG or an Office engine is possible because
-those trees are not already given away under MIT. That would be an
+A later commercial license for an Office engine or DataGrid is possible
+because those trees are not given away under MIT. That would be an
 alternative license, not an exception to the AGPL. See
 [Commercial licensing](#commercial-licensing).
 
@@ -80,19 +101,20 @@ ship a proprietary product
 
 ```text
 Ranger compiler
-+ your own renderer
++ lib/evg (layout, display list)
++ your own painter
 + your own application
 ```
 
 This case is AGPL (or a separate commercial license, if one is offered):
 
 ```text
-gallery/evg
-+ your application built on EVG
+gallery/datagrid  (or Office, Rave, evg_window, …)
++ your application built on it
 ```
 
-The same rule applies to DataGrid, the Office readers and editors, the PDF
-and layout tools, and the other gallery programs.
+The same rule applies to the Office readers and editors, the PDF and
+layout tools, and the other gallery programs.
 
 ## Generated output
 
@@ -111,7 +133,7 @@ The compiler is a tool. Its MIT license does not attach to a program
 only because Ranger compiled that program.
 
 Compiled or transpiled forms of AGPL-licensed Gallery programs remain
-covered by the AGPL. `gallery/evg/EVGDisplayList.rgr` compiled to
+covered by the AGPL. `gallery/datagrid/src/GridApp.rgr` compiled to
 `.js`, `.cpp`, `.wasm` or an executable is still an AGPL-covered work.
 The compiler being MIT does not allow that output to be published as
 proprietary.
@@ -135,6 +157,7 @@ code. They use the MIT license.
 Ranger compiler       MIT
 Ranger runtime        MIT
 generated helpers     MIT
+lib/evg, lib/image    MIT
 
 Gallery source        AGPL
 ```
@@ -182,23 +205,31 @@ AGPL code may use MIT code. MIT code must not depend on AGPL code.
 ```text
 compiler/           MIT
 lib/                MIT
+lib/zip/            MIT   package "zip"
+lib/image/          MIT   package "image"   → pkg:zip
+lib/evg/            MIT   package "evg"     → pkg:image
 examples/           MIT
         ↑
-        │ imports
+        │ imports  (Import "pkg:evg/…", Import "pkg:image/…")
         │
-gallery/evg/        AGPL
+gallery/evg_window/ AGPL  package "evg_window" → pkg:evg, pkg:image, game_engine, pdf_writer
+gallery/ui/         AGPL
 gallery/datagrid/   AGPL
 gallery/pptx/       AGPL
 gallery/docx_viewer/ AGPL
 ```
 
 `gallery/` may import `lib/` and `compiler/`. `lib/` and `compiler/` never
-import `gallery/`.
+import `gallery/`. Every gallery package that draws through EVG carries a
+`ranger.json` naming `evg` (and `image`, `evg_window` where used) as a
+path dependency and imports them as `pkg:evg/…`; the relative
+`../evg/…` spelling is gone, so the engine can be fetched on its own with
+`rgrc install` and the same source compiles inside and outside this tree.
 
 Generic building blocks stay on the MIT side even when gallery programs use
 them. Examples: math helpers, XML, JSON, image decoders, and other files
-under `lib/`. They are language infrastructure. EVG and the editors are
-application innovation.
+under `lib/`. They are language infrastructure. The Office engines and the
+editors are application innovation.
 
 ## Copyright and relicensing
 
@@ -210,6 +241,11 @@ third-party files that already state their own license.
 automated agents working in this repository. No independent external
 human author appears in `git shortlog` for `gallery/`. Third-party
 trees are listed below and keep the license their authors gave them.
+
+The same holds for the move of EVG and the image codecs to MIT: every
+file under `lib/evg` and `lib/image` is Ranger-authored by the same
+copyright holder, which is what made the change possible. Their SPDX
+headers now read `MIT`.
 
 ## Third-party material
 
@@ -252,3 +288,10 @@ The published `ranger-compiler` package is the compiler only (`dist/`,
 Copies of this repository published before this split remain under the
 license those copies stated. From this tree forward, Ranger-authored
 code under `gallery/` is AGPL-3.0-or-later unless a file says otherwise.
+
+EVG was under `gallery/evg` and AGPL-3.0-or-later from the split until
+September 2026. Copies from that period stay under the AGPL they
+stated; from this tree forward `lib/evg` and `lib/image` are MIT. The
+window layer that was part of `gallery/evg` — `EVGWindow`, `EVGTextFit`,
+`EVGContextMeasurer`, `EVGRulerView`, `EVGToolbarView` and their tests —
+is `gallery/evg_window` and remains AGPL.

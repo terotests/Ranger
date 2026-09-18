@@ -17,7 +17,7 @@
 
 Import "../../../rangerdb/src/schema/DatabaseSchema.rgr"
 Import "../../core/GraphModel.rgr"
-Import "../../../evg/EVGTextMeasurer.rgr"
+Import "pkg:evg/EVGTextMeasurer.rgr"
 
 class SchemaToGraph {
     def measurer:EVGTextMeasurer (new EVGTextMeasurer)

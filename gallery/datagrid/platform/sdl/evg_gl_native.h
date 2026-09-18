@@ -1,7 +1,7 @@
 #pragma once
 #include <cstdint>
 
-// Native EVG display-list → OpenGL drawer (same seam as gallery/evg/gl/evg-webgl.js).
+// Native EVG display-list → OpenGL drawer (same seam as lib/evg/gl/evg-webgl.js).
 // Geometry is page pixels; the window drawable may be HiDPI — begin() takes both.
 
 #ifdef __cplusplus

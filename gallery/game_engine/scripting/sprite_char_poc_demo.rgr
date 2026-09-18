@@ -12,9 +12,9 @@
 ; dumps four frames (menu x2, walk, jump) to lpc/output/poc_*.png as visible
 ; proof that character-select + gamepad walk/turn/jump work end-to-end.
 
-Import "./sprite_char_poc.rgr"
-Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
-Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+Import "sprite_char_poc.rgr"
+Import "pkg:image/RasterBuffer.rgr"
+Import "pkg:image/PNGEncoder.rgr"
 
 class SpriteCharPocDemo {
     def failures:int 0

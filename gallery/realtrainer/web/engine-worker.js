@@ -3,7 +3,7 @@
 // The RealTrainer app, served from a Worker.
 //
 // This is the whole of what runs off the main thread: the Ranger app and the
-// generic `serveEngine` around it (gallery/evg/gl/evg-engine.js). The page
+// generic `serveEngine` around it (lib/evg/gl/evg-engine.js). The page
 // — `main-worker.js` — never touches `RealTrainerDemo`; it posts the calls it
 // used to make and paints the frames that come back.
 //

@@ -41,7 +41,7 @@ android {
         // This port's own input rules, shared with the desktop checks.
         "../common/src/main/kotlin",
         // The display-list painter, the surface interface and the
-        // `android.graphics` backend. Not this port's: `gallery/evg/android` is
+        // `android.graphics` backend. Not this port's: `lib/evg/android` is
         // EVG's Android/JVM backend and the ui port compiles the same files.
         "../../../evg/android/src/main/kotlin",
         "../../../evg/android/src/android/kotlin",

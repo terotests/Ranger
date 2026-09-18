@@ -79,8 +79,8 @@ cp "$WEB/main.js" "$OUT/main.js"
 cp "$WEB/r5.css" "$OUT/r5.css"
 
 mkdir -p "$OUT/gl" "$OUT/fonts" "$OUT/samples" "$OUT/host" "$OUT/themes"
-cp gallery/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
-cp gallery/evg/gl/evg-a11y.js "$OUT/gl/evg-a11y.js"
+cp lib/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
+cp lib/evg/gl/evg-a11y.js "$OUT/gl/evg-a11y.js"
 # The other two editors' browser halves — the SAME files the pptx and docx
 # pages load. The Slides and Word views are those editors.
 cp gallery/pptx/web/host/pptx-host.mjs "$OUT/host/pptx-host.mjs"

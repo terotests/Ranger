@@ -927,7 +927,7 @@ clear contract — and today it has three, plus a decoder gap.
 
 - **The decoder is split across two libraries, one format each.**
   [`game_image_loader.rgr`](./scripting/game_image_loader.rgr) *does* decode **both PNG
-  and JPEG** at runtime — it imports the LPC [`png_decoder.rgr`](./lpc/src/png_decoder.rgr)
+  and JPEG** at runtime — it imports the LPC [`PNGDecoder.rgr`](../../lib/image/PNGDecoder.rgr)
   (`isPngPath` → `pngDecoder.decode`) and falls back to `JPEGDecoder` — so the runtime
   path is not JPEG-only. The remaining gap is that PNG decode is borrowed from the LPC
   toolchain rather than owned by the runtime image path, and the `.as`/WASM paths do not

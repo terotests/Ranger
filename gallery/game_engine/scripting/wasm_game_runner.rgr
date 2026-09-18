@@ -11,8 +11,8 @@
 
 Import "../framebuffer.rgr"
 Import "../wasm_runtime.rgr"
-Import "./wasm_cap_gate.rgr"
-Import "./game_audio.rgr"
+Import "wasm_cap_gate.rgr"
+Import "game_audio.rgr"
 Import "../../ts_to_ranger/game_host.rgr"
 
 class WasmEntity {

@@ -45,13 +45,13 @@
 ; scale every other row by rather than a guess about clock speeds.
 ; ==============================================================================
 
-Import "../../evg/EVGElement.rgr"
-Import "../../evg/EVGUnit.rgr"
-Import "../../evg/EVGColor.rgr"
-Import "../../evg/EVGLayout.rgr"
-Import "../../evg/EVGDisplayList.rgr"
-Import "../../evg/EVGStyleSheet.rgr"
-Import "../../evg/EVGReconcile.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGUnit.rgr"
+Import "pkg:evg/EVGColor.rgr"
+Import "pkg:evg/EVGLayout.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGStyleSheet.rgr"
+Import "pkg:evg/EVGReconcile.rgr"
 
 treefactory Watch {
     child addChild

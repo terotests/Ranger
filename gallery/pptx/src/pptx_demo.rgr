@@ -11,8 +11,8 @@
 ; ==============================================================================
 
 Import "PptxApp.rgr"
-Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
-Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
+Import "pkg:image/PNGEncoder.rgr"
+Import "pkg:image/RasterBuffer.rgr"
 Import "../../game_engine/ui/UIInput.rgr"
 
 class PptxDemo {

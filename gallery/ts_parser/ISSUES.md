@@ -91,7 +91,7 @@ When text wraps across multiple lines, the vertical spacing between wrapped line
 ### Related Files
 
 - `gallery/pdf_writer/EVGPDFRenderer.rgr` - `renderText()` and `wrapText()` functions
-- `gallery/evg/EVGLayout.rgr` - Text height calculation
+- `lib/evg/EVGLayout.rgr` - Text height calculation
 
 ---
 

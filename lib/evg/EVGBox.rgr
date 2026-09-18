@@ -1,0 +1,267 @@
+; SPDX-License-Identifier: MIT
+
+; EVGBox.rgr - Box model for EVG layout (margin, padding, border)
+
+Import "EVGUnit.rgr"
+Import "EVGColor.rgr"
+
+class EVGBox {
+    ; Margins (outer spacing)
+    def marginTop:EVGUnit
+    def marginRight:EVGUnit
+    def marginBottom:EVGUnit
+    def marginLeft:EVGUnit
+    
+    ; Padding (inner spacing)
+    def paddingTop:EVGUnit
+    def paddingRight:EVGUnit
+    def paddingBottom:EVGUnit
+    def paddingLeft:EVGUnit
+    
+    ; Border
+    def borderWidth:EVGUnit
+    def borderColor:EVGColor
+    ; The shorthand's uniform value, kept because most boxes have one radius
+    ; and because every backend but the WebGL painter still reads it.
+    def borderRadius:EVGUnit
+    ; And the four corners, clockwise from the top left — which is the order
+    ; `border-radius` writes them in and not the order any other box shorthand
+    ; uses. A title bar that has to sit flush against what is under it cannot
+    ; be written with one number.
+    def borderRadiusTL:EVGUnit
+    def borderRadiusTR:EVGUnit
+    def borderRadiusBR:EVGUnit
+    def borderRadiusBL:EVGUnit
+    
+    ; Resolved pixel values
+    def marginTopPx:double 0.0
+    def marginRightPx:double 0.0
+    def marginBottomPx:double 0.0
+    def marginLeftPx:double 0.0
+    def paddingTopPx:double 0.0
+    def paddingRightPx:double 0.0
+    def paddingBottomPx:double 0.0
+    def paddingLeftPx:double 0.0
+    def borderWidthPx:double 0.0
+    def borderRadiusPx:double 0.0
+    def borderRadiusTLPx:double 0.0
+    def borderRadiusTRPx:double 0.0
+    def borderRadiusBRPx:double 0.0
+    def borderRadiusBLPx:double 0.0
+    
+    Constructor () {
+        marginTop = (EVGUnit.unset())
+        marginRight = (EVGUnit.unset())
+        marginBottom = (EVGUnit.unset())
+        marginLeft = (EVGUnit.unset())
+        paddingTop = (EVGUnit.unset())
+        paddingRight = (EVGUnit.unset())
+        paddingBottom = (EVGUnit.unset())
+        paddingLeft = (EVGUnit.unset())
+        borderWidth = (EVGUnit.unset())
+        borderColor = (EVGColor.noColor())
+        borderRadius = (EVGUnit.unset())
+        borderRadiusTL = (EVGUnit.unset())
+        borderRadiusTR = (EVGUnit.unset())
+        borderRadiusBR = (EVGUnit.unset())
+        borderRadiusBL = (EVGUnit.unset())
+    }
+    
+    fn setMargin:void (all:EVGUnit) {
+        marginTop = all
+        marginRight = all
+        marginBottom = all
+        marginLeft = all
+    }
+    
+    fn setMarginValues:void (top:EVGUnit right:EVGUnit bottom:EVGUnit left:EVGUnit) {
+        marginTop = top
+        marginRight = right
+        marginBottom = bottom
+        marginLeft = left
+    }
+    
+    fn setPadding:void (all:EVGUnit) {
+        paddingTop = all
+        paddingRight = all
+        paddingBottom = all
+        paddingLeft = all
+    }
+    
+    fn setPaddingValues:void (top:EVGUnit right:EVGUnit bottom:EVGUnit left:EVGUnit) {
+        paddingTop = top
+        paddingRight = right
+        paddingBottom = bottom
+        paddingLeft = left
+    }
+    
+    fn resolveUnits:void (parentWidth:double parentHeight:double fontSize:double rootFontSize:double viewportW:double viewportH:double) {
+        ; Resolve all units to pixel values
+        
+        ; `rem` resolves against the root's font size and `vw`/`vh` against the
+        ; layout's page size, neither of which a unit can reach on its own;
+        ; hand both to each unit before resolving.
+        marginTop.setContext(rootFontSize viewportW viewportH)
+        marginRight.setContext(rootFontSize viewportW viewportH)
+        marginBottom.setContext(rootFontSize viewportW viewportH)
+        marginLeft.setContext(rootFontSize viewportW viewportH)
+        paddingTop.setContext(rootFontSize viewportW viewportH)
+        paddingRight.setContext(rootFontSize viewportW viewportH)
+        paddingBottom.setContext(rootFontSize viewportW viewportH)
+        paddingLeft.setContext(rootFontSize viewportW viewportH)
+        borderWidth.setContext(rootFontSize viewportW viewportH)
+        borderRadius.setContext(rootFontSize viewportW viewportH)
+        borderRadiusTL.setContext(rootFontSize viewportW viewportH)
+        borderRadiusTR.setContext(rootFontSize viewportW viewportH)
+        borderRadiusBR.setContext(rootFontSize viewportW viewportH)
+        borderRadiusBL.setContext(rootFontSize viewportW viewportH)
+        
+        ; Percentage margins and padding resolve against the containing block's
+        ; WIDTH on all four sides — including top and bottom. That is genuinely
+        ; what CSS does (it is the rule the padding-bottom aspect-ratio trick
+        ; relies on), however unintuitive it reads. This used to resolve the
+        ; vertical ones against the height, under a comment claiming that was
+        ; "like CSS"; a browser comparison showed it was not.
+        marginTop.resolve(parentWidth fontSize)
+        marginTopPx = marginTop.pixels
+        
+        marginRight.resolve(parentWidth fontSize)
+        marginRightPx = marginRight.pixels
+        
+        marginBottom.resolve(parentWidth fontSize)
+        marginBottomPx = marginBottom.pixels
+        
+        marginLeft.resolve(parentWidth fontSize)
+        marginLeftPx = marginLeft.pixels
+        
+        ; Padding
+        paddingTop.resolve(parentWidth fontSize)
+        paddingTopPx = paddingTop.pixels
+        
+        paddingRight.resolve(parentWidth fontSize)
+        paddingRightPx = paddingRight.pixels
+        
+        paddingBottom.resolve(parentWidth fontSize)
+        paddingBottomPx = paddingBottom.pixels
+        
+        paddingLeft.resolve(parentWidth fontSize)
+        paddingLeftPx = paddingLeft.pixels
+        
+        ; Border
+        borderWidth.resolve(parentWidth fontSize)
+        borderWidthPx = borderWidth.pixels
+        
+        ; Border radius - percentage is relative to smaller dimension
+        def smallerDim:double parentWidth
+        if (parentHeight < parentWidth) {
+            smallerDim = parentHeight
+        }
+        borderRadius.resolve(smallerDim fontSize)
+        borderRadiusPx = borderRadius.pixels
+        ; Each corner, falling back to the uniform value when the shorthand
+        ; only gave one. The CSS scale-down — two radii on one side may not add
+        ; up to more than that side — is NOT applied here: it needs the box's
+        ; drawn width and height, and this runs before either is settled. It is
+        ; applied where the command is written, in EVGDisplayList.
+        borderRadiusTL.resolve(smallerDim fontSize)
+        borderRadiusTR.resolve(smallerDim fontSize)
+        borderRadiusBR.resolve(smallerDim fontSize)
+        borderRadiusBL.resolve(smallerDim fontSize)
+        borderRadiusTLPx = borderRadiusPx
+        borderRadiusTRPx = borderRadiusPx
+        borderRadiusBRPx = borderRadiusPx
+        borderRadiusBLPx = borderRadiusPx
+        if borderRadiusTL.isSet { borderRadiusTLPx = borderRadiusTL.pixels }
+        if borderRadiusTR.isSet { borderRadiusTRPx = borderRadiusTR.pixels }
+        if borderRadiusBR.isSet { borderRadiusBRPx = borderRadiusBR.pixels }
+        if borderRadiusBL.isSet { borderRadiusBLPx = borderRadiusBL.pixels }
+    }
+
+    ; True when the four corners are not all the same, so a caller can keep
+    ; emitting one number for the overwhelmingly common case.
+    fn hasPerCornerRadius:boolean () {
+        if (borderRadiusTLPx != borderRadiusTRPx) { return true }
+        if (borderRadiusTLPx != borderRadiusBRPx) { return true }
+        if (borderRadiusTLPx != borderRadiusBLPx) { return true }
+        return false
+    }
+    
+    ; Space the padding and border take on each axis. A border box can never be
+    ; smaller than this, so it is also the floor for the box itself.
+    fn getHorizontalChrome:double () {
+        return (paddingLeftPx + paddingRightPx + (borderWidthPx * 2.0))
+    }
+
+    fn getVerticalChrome:double () {
+        return (paddingTopPx + paddingBottomPx + (borderWidthPx * 2.0))
+    }
+
+    fn getInnerWidth:double (outerWidth:double) {
+        ; Calculate inner width after padding and border. Never negative: a
+        ; content box of -20px is not a thing, and letting it go negative made
+        ; children collapse to zero instead of simply having no room.
+        def inner:double (outerWidth - (this.getHorizontalChrome()))
+        if (inner < 0.0) {
+            return 0.0
+        }
+        return inner
+    }
+
+    fn getInnerHeight:double (outerHeight:double) {
+        def inner:double (outerHeight - (this.getVerticalChrome()))
+        if (inner < 0.0) {
+            return 0.0
+        }
+        return inner
+    }
+    
+    fn getTotalWidth:double (contentWidth:double) {
+        ; Calculate total width including margin, padding, border
+        return (contentWidth + marginLeftPx + marginRightPx + paddingLeftPx + paddingRightPx + (borderWidthPx * 2.0))
+    }
+    
+    fn getTotalHeight:double (contentHeight:double) {
+        ; Calculate total height including margin, padding, border
+        return (contentHeight + marginTopPx + marginBottomPx + paddingTopPx + paddingBottomPx + (borderWidthPx * 2.0))
+    }
+    
+    fn getContentX:double (elementX:double) {
+        ; Get X position for content area
+        return (elementX + marginLeftPx + borderWidthPx + paddingLeftPx)
+    }
+    
+    fn getContentY:double (elementY:double) {
+        ; Get Y position for content area
+        return (elementY + marginTopPx + borderWidthPx + paddingTopPx)
+    }
+    
+    fn getHorizontalSpace:double () {
+        ; Total horizontal space (margin + border + padding on both sides)
+        return (marginLeftPx + marginRightPx + paddingLeftPx + paddingRightPx + (borderWidthPx * 2.0))
+    }
+    
+    fn getVerticalSpace:double () {
+        ; Total vertical space (margin + border + padding on both sides)
+        return (marginTopPx + marginBottomPx + paddingTopPx + paddingBottomPx + (borderWidthPx * 2.0))
+    }
+    
+    fn getMarginHorizontal:double () {
+        return (marginLeftPx + marginRightPx)
+    }
+    
+    fn getMarginVertical:double () {
+        return (marginTopPx + marginBottomPx)
+    }
+    
+    fn getPaddingHorizontal:double () {
+        return (paddingLeftPx + paddingRightPx)
+    }
+    
+    fn getPaddingVertical:double () {
+        return (paddingTopPx + paddingBottomPx)
+    }
+    
+    fn toString:string () {
+        return ("Box[margin:" + (to_string marginTopPx) + "/" + (to_string marginRightPx) + "/" + (to_string marginBottomPx) + "/" + (to_string marginLeftPx) + " padding:" + (to_string paddingTopPx) + "/" + (to_string paddingRightPx) + "/" + (to_string paddingBottomPx) + "/" + (to_string paddingLeftPx) + " border:" + (to_string borderWidthPx) + "]")
+    }
+}

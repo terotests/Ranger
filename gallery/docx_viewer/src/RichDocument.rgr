@@ -11,8 +11,8 @@
 ; EVG never sees OOXML IDs — only resolved geometry + styles from layout.
 ; ==============================================================================
 
-Import "../../pdf_writer/src/jpeg/ImageBuffer.rgr"
-Import "../../evg/EVGElement.rgr"
+Import "pkg:image/ImageBuffer.rgr"
+Import "pkg:evg/EVGElement.rgr"
 
 class TextSpan {
     def start:int 0

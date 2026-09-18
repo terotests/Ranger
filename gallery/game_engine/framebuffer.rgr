@@ -22,9 +22,9 @@
 ; blitImage() composes RGBA ImageBuffer sprites via RgbaFastBlit (alpha-aware).
 ; ==============================================================================
 
-Import "./rgba_fast_blit.rgr"
-Import "../pdf_writer/src/jpeg/ImageBuffer.rgr"
-Import "../pdf_writer/src/raster/RasterBuffer.rgr"
+Import "rgba_fast_blit.rgr"
+Import "pkg:image/ImageBuffer.rgr"
+Import "pkg:image/RasterBuffer.rgr"
 
 class SoftCanvas {
     def w:int 0

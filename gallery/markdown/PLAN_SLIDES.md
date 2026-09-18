@@ -270,7 +270,7 @@ what a level-2 heading is, not where a box goes.
 
 ### …and there are two CSS engines, which is worth naming
 
-`gallery/css/CssCore.rgr` and `gallery/evg/EVGStyleSheet.rgr` both parse CSS,
+`gallery/css/CssCore.rgr` and `lib/evg/EVGStyleSheet.rgr` both parse CSS,
 written for different consumers — a general cascade with specificity, and a
 deliberately small print-safe subset with `@media`, `@vars` and themes. This
 plan adds a third CONSUMER and no third engine: **`MdCss` binds `CssCore`**,

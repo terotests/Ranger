@@ -13,7 +13,7 @@
 import { renderDisplayList, loadImages } from "./gl/evg-webgl.js";
 // The assets this page's head started fetching before the body was parsed,
 // with this page's own cache mode and its own `?v=` — see
-// gallery/evg/web/tools/inline-assets.mjs, which writes that head.
+// lib/evg/web/tools/inline-assets.mjs, which writes that head.
 import { bytesOf, textOf, asRangerBuffer, registerFaces } from "./evg/assets-client.mjs";
 
 /** The book's own images, fetched when the document names one. Not in the

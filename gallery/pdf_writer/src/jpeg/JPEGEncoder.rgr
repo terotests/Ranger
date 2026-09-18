@@ -3,8 +3,8 @@
 ; JPEGEncoder.rgr - JPEG encoder for Ranger
 ; Encodes ImageBuffer to baseline JPEG format
 
-Import "../core/Buffer.rgr"
-Import "ImageBuffer.rgr"
+Import "pkg:image/Buffer.rgr"
+Import "pkg:image/ImageBuffer.rgr"
 
 ; Forward DCT class for encoding
 class FDCT {

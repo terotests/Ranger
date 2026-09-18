@@ -15,7 +15,7 @@
 //
 // A Windows half would need three things this header does not have yet, all of
 // them small and none of them reaching back into the app (the analysis is in
-// gallery/evg/PLAN_ACCESSIBILITY.md §14):
+// lib/evg/PLAN_ACCESSIBILITY.md §14):
 //
 //   * an attach(SDL_Window*) call, because WM_GETOBJECT must be answered from
 //     the window procedure and SDL2's message hook returns void;

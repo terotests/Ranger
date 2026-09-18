@@ -37,8 +37,8 @@
 Import "../jsx/JSXToEVG.rgr"
 Import "../core/EVGHTMLRenderer.rgr"
 Import "../jsx/ComponentEngine.rgr"
-Import "../../../evg/EVGElement.rgr"
-Import "../../../evg/EVGLayout.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGLayout.rgr"
 
 class EVGTool {
     ; Input/Output

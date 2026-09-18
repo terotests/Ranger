@@ -9,7 +9,7 @@
 ; category ordering (Games first) and the per-category membership helpers.
 ; ==============================================================================
 
-Import "./game_catalog.rgr"
+Import "game_catalog.rgr"
 
 class CatalogCategoryCheck {
     def passed:int 0

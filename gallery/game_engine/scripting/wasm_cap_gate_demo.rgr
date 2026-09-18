@@ -7,7 +7,7 @@
 ;     -d=gallery/game_engine/scripting -o=wasm_cap_gate_demo.js -nodecli \
 ;   && node gallery/game_engine/scripting/bin/wasm_cap_gate_demo.js
 
-Import "./wasm_cap_gate.rgr"
+Import "wasm_cap_gate.rgr"
 
 class CapGateCheck {
     def passed:int 0

@@ -15,7 +15,7 @@
 ;   └──────────────────────────────────────────────────────────┘
 ;
 ; It draws nothing itself in the sense that matters. The strip is
-; `gallery/evg/EVGToolbar`, the same one the document, deck and spreadsheet
+; `lib/evg/EVGToolbar`, the same one the document, deck and spreadsheet
 ; editors grew. The diagram is RangerFlow's. And the two table panels — the
 ; columns of a table, and a page of its rows — are `gallery/datagrid`'s
 ; `GridPane`: the spreadsheet with its own chrome switched off, drawn into
@@ -43,7 +43,7 @@ Import "../query/QuerySheet.rgr"
 Import "../../rangerforms/render/FormView.rgr"
 Import "../../rangerdb/src/schema/SchemaDiff.rgr"
 Import "../../rangerdb/src/schema/MigrationPlan.rgr"
-Import "../../evg/EVGToolbarView.rgr"
+Import "pkg:evg_window/EVGToolbarView.rgr"
 Import "../../rangerflow/core/FlowEditor.rgr"
 Import "../../rangerdb/src/schema/DdlToSchema.rgr"
 Import "../../rangerdb/src/schema/SchemaToDdl.rgr"

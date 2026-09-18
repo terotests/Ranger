@@ -4,7 +4,7 @@
 ; FlowScene.rgr — one description of the picture, four ways to draw it.
 ; ============================================================================
 ;
-; The EVG display-list note in `gallery/evg/gl/README.md` makes the case
+; The EVG display-list note in `lib/evg/gl/README.md` makes the case
 ; better than this file can: when five painters each walk the tree and decide
 ; again what a box means, border-radius comes to work in PDF and silently not
 ; in PNG. A graph editor is exactly the shape that goes wrong that way — the
@@ -24,10 +24,10 @@
 ; polyline and the PDF's curve cannot describe different lines.
 ; ============================================================================
 
-Import "../../evg/EVGDisplayList.rgr"
-Import "../../evg/EVGElement.rgr"
-Import "../../evg/EVGColor.rgr"
-Import "../../evg/EVGUnit.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGColor.rgr"
+Import "pkg:evg/EVGUnit.rgr"
 Import "FlowTheme.rgr"
 
 ; kind: 0 rect, 1 text, 2 path, 3 push clip, 4 pop clip

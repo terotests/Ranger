@@ -1,0 +1,16 @@
+{
+  "name": "datagrid",
+  "version": "0.1.0",
+  "license": "AGPL-3.0-or-later",
+  "dependencies": {
+    "evg": {
+      "path": "../../lib/evg"
+    },
+    "evg_window": {
+      "path": "../evg_window"
+    },
+    "image": {
+      "path": "../../lib/image"
+    }
+  }
+}

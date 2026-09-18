@@ -1,6 +1,6 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 
-Import "../../../evg/EVGCodepoint.rgr"
+Import "pkg:evg/EVGCodepoint.rgr"
 ; TrueTypeFont.rgr - Parse TrueType font files for metrics and embedding
 ;
 ; TrueType file structure:
@@ -14,8 +14,8 @@ Import "../../../evg/EVGCodepoint.rgr"
 ; - hhea: horizontal header (ascender, descender)
 ; - head: font header (units per em)
 
-Import "../core/Buffer.rgr"
-Import "../../../evg/EVGGrapheme.rgr"
+Import "pkg:image/Buffer.rgr"
+Import "pkg:evg/EVGGrapheme.rgr"
 
 class TTFTableRecord {
     def tag:string ""

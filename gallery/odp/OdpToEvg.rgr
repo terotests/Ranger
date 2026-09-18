@@ -53,8 +53,8 @@
 Import "OdpModel.rgr"
 Import "../office/text/OfficeTextMeasure.rgr"
 Import "../office/geom/OfficePresetShapes.rgr"
-Import "../evg/EVGDisplayList.rgr"
-Import "../evg/EVGColor.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGColor.rgr"
 
 ; One stretch of text on one line: what it says, how wide it is, and how it is
 ; drawn. A view built for one paragraph and thrown away.

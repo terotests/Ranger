@@ -11,8 +11,8 @@
 ; GameSdlRunner's menu loop consumes. Runs headless (SoftCanvas, no SDL window).
 ; ==============================================================================
 
-Import "./game_ui_runner.rgr"
-Import "./game_catalog.rgr"
+Import "game_ui_runner.rgr"
+Import "game_catalog.rgr"
 
 class TsxUiCheck {
     def passed:int 0

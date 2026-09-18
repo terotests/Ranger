@@ -31,13 +31,13 @@
 
 Import "../core/EVGDocSource.rgr"
 Import "../core/EVGStyleLoader.rgr"
-Import "../../../evg/EVGElement.rgr"
-Import "../../../evg/EVGTreeJson.rgr"
-Import "../../../evg/EVGPatch.rgr"
-Import "../../../evg/EVGLayout.rgr"
-Import "../../../evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGTreeJson.rgr"
+Import "pkg:evg/EVGPatch.rgr"
+Import "pkg:evg/EVGLayout.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
 Import "../fonts/EVGFontSetup.rgr"
-Import "../../../evg/EVGTextEngine.rgr"
+Import "pkg:evg/EVGTextEngine.rgr"
 
 class EVGJsonTool {
     def inputFile:string ""

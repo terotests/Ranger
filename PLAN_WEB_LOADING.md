@@ -571,7 +571,7 @@ The same things are re-derived in each: WebGL 2 acquisition and the
 "WebGL 2 not available" path; device pixel ratio and resize; pointer, wheel,
 keys; an error surface; a cache-busting stamp (`?v=…`, computed per app over
 all of its files, so a one-line app change also invalidates that app's copy of
-the painter); and a copy of `gallery/evg/gl/evg-webgl.js` staged into each
+the painter); and a copy of `lib/evg/gl/evg-webgl.js` staged into each
 app's `dist/gl/`. Seven copies of one painter at seven URLs, so a visitor who
 loads two of these pages downloads and compiles it twice.
 
@@ -618,13 +618,13 @@ stamp changes its URL again on every deploy.
 
 ### 8.4 What a shared host layer should own
 
-One module — `gallery/evg/host/` — that every browser application mounts,
+One module — `lib/evg/host/` — that every browser application mounts,
 owning exactly what is not application-specific:
 
 1. **the mount**: canvas, DPR, resize, WebGL 2 acquisition, and *one* failure
    path when there is no WebGL 2 (today: seven wordings of the same sentence);
 2. **the input**: pointer, wheel, keys, touch, the text-input bridge, the a11y
-   mirror — all of which exist already in `gallery/evg/gl/` and are wired up
+   mirror — all of which exist already in `lib/evg/gl/` and are wired up
    by hand per app;
 3. **the frame loop**: dirty tracking, the `shift` vs. rebuild distinction, and
    the worker option (§6) as a flag rather than as a second host program;

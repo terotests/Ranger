@@ -81,16 +81,16 @@ cp "$WEB/../host/docx-host.mjs" "$OUT/host/docx-host.mjs"
 
 # Minified when there is a minifier — see the tool for what that is worth and
 # why `DocxWeb` is the string it checks survived.
-node gallery/evg/web/tools/minify.mjs --file "$OUT/docx_web.js" --keep DocxWeb || exit 1
+node lib/evg/web/tools/minify.mjs --file "$OUT/docx_web.js" --keep DocxWeb || exit 1
 
 mkdir -p "$OUT/gl" "$OUT/fonts"
-cp gallery/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
+cp lib/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
 # ASSETS is what the page's head will be told to start fetching, collected as
 # the files are copied so the list and the copy cannot disagree — see
-# gallery/evg/web/tools/inline-assets.mjs. The module half is shared too.
+# lib/evg/web/tools/inline-assets.mjs. The module half is shared too.
 ASSETS=""
 mkdir -p "$OUT/evg"
-cp gallery/evg/web/tools/assets-client.mjs "$OUT/evg/assets-client.mjs"
+cp lib/evg/web/tools/assets-client.mjs "$OUT/evg/assets-client.mjs"
 for face in OpenSans-Regular OpenSans-Bold OpenSans-Italic OpenSans-BoldItalic; do
   cp "gallery/pdf_writer/assets/fonts/Open_Sans/$face.ttf" "$OUT/fonts/$face.ttf"
   ASSETS="$ASSETS,fonts/$face.ttf"
@@ -161,7 +161,7 @@ node -e "
       .replace('./host/docx-host.mjs', './host/docx-host.mjs?v=' + stamp));
 " || exit 1
 # The head that starts every asset before the body is parsed.
-node gallery/evg/web/tools/inline-assets.mjs \
+node lib/evg/web/tools/inline-assets.mjs \
   --html "$OUT/index.html" \
   --start "${ASSETS#,}" \
   --preload-stamped "standalone.mjs,gl/evg-webgl.js,host/docx-host.mjs" \

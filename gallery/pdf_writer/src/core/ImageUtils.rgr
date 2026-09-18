@@ -4,9 +4,9 @@
 ; This module provides common image operations to avoid code duplication.
 
 Import "../jpeg/JPEGReader.rgr"
-Import "../jpeg/JPEGDecoder.rgr"
+Import "pkg:image/JPEGDecoder.rgr"
 Import "../jpeg/JPEGMetadata.rgr"
-Import "../jpeg/ImageBuffer.rgr"
+Import "pkg:image/ImageBuffer.rgr"
 
 ; Result of objectFit calculation
 class ObjectFitResult {

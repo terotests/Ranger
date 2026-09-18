@@ -105,7 +105,7 @@ paint loop) and the only line that differs is the one that acts on the id.
 The window body is one content region the picker paints itself rather than a
 grid of `EVGControl`s: a picker is a lot of little pictures, `EVGControl` has
 no picture kind, and adding one would push shape drawing down into
-`gallery/evg`, which has no business knowing what a preset is.
+`lib/evg`, which has no business knowing what a preset is.
 
 `OfficeShapeCatalogTest.testSharedPicker` is the proof — the same command id
 opens it in both, the same press at the same place in the grid picks the same
@@ -219,7 +219,7 @@ written to end, still live in the painters underneath it.
 
 It lives in `UITextRenderer` rather than here because it is a fact about how
 this repository's FontManager names a face, not about OOXML — and because
-`gallery/evg` cannot reach into `gallery/office`. `OfficeFont.faceName`
+`lib/evg` cannot reach into `gallery/office`. `OfficeFont.faceName`
 delegates to it.
 
 ## What goes here next

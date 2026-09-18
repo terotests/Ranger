@@ -47,7 +47,7 @@ Import "DataGrid.rgr"
 Import "SheetView.rgr"
 Import "DataValidation.rgr"
 Import "CellRuleHost.rgr"
-Import "../../evg/EVGWindow.rgr"
+Import "pkg:evg_window/EVGWindow.rgr"
 
 class GridPane {
     def book:WorkbookModel (new WorkbookModel)

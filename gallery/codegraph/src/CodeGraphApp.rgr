@@ -18,10 +18,10 @@
 ; In-tab examples still compile through the VFS.
 ; ============================================================================
 
-Import "../../evg/EvgApp.rgr"
-Import "../../evg/EVGElement.rgr"
-Import "../../evg/EVGUnit.rgr"
-Import "../../evg/EVGDisplayList.rgr"
+Import "pkg:evg/EvgApp.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGUnit.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
 Import "../../ui/src/UiHost.rgr"
 Import "../../ui/src/ResizeCtl.rgr"
 Import "../../rangerflow/core/FlowEditor.rgr"
@@ -1224,7 +1224,7 @@ class CodeGraphApp extends EvgApp {
         def fs:InputFSFolder (new InputFSFolder)
         fs.name = ""
         env.filesystem = fs
-        env.setEnv("RANGER_LIB" "/;/lib/;/compiler/;/gallery/css/;/gallery/evg/;/gallery/zip/")
+        env.setEnv("RANGER_LIB" "/;/lib/;/compiler/;/gallery/css/;/lib/evg/;/gallery/zip/")
         def params:CmdParams (new CmdParams)
         push params.values fname
         set params.params "l" "es6"

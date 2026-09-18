@@ -10,7 +10,7 @@
 # `gallery/ui/android` and `gallery/pptx/android` put in their APKs.
 #
 # Neither output is checked in: both are compiler artefacts of WatchBench.rgr
-# and the gallery/evg tree, and a stale copy is how a benchmark starts
+# and the lib/evg tree, and a stale copy is how a benchmark starts
 # measuring last month's layout engine.
 set -e
 cd "$(dirname "$0")/../../../.."
@@ -40,7 +40,7 @@ if echo "$log" | grep -q "Compilation FAILED"; then
 fi
 
 # Ranger writes Kotlin into the default package and Kotlin cannot import from
-# it. The painter in gallery/evg/android names `fi.ranger.rgr.EVGDisplayList`,
+# it. The painter in lib/evg/android names `fi.ranger.rgr.EVGDisplayList`,
 # so every port puts its generated file in that package; this benchmark is a
 # port like any other.
 if ! head -1 "$BENCH/generated/watch_bench.kt" | grep -q "^package "; then

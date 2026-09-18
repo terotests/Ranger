@@ -1,7 +1,7 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 
 ; Simple test of cross-directory import
-Import "../../../evg/EVGElement.rgr"
+Import "pkg:evg/EVGElement.rgr"
 
 class SimpleTest {
     def element:EVGElement

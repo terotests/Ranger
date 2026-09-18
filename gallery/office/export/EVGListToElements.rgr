@@ -44,8 +44,8 @@
 ; rect are carried; a gradient under a polygon is drawn in its first colour.
 ; ==============================================================================
 
-Import "../../evg/EVGDisplayList.rgr"
-Import "../../evg/EVGElement.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGElement.rgr"
 
 class EVGListToElements {
     ; The page every command is placed on. `relative` is what makes the

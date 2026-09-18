@@ -28,13 +28,13 @@
 ; =============================================================================
 
 Import "../../src/FigApp.rgr"
-Import "../../../evg/EVGElement.rgr"
-Import "../../../evg/EVGLayout.rgr"
-Import "../../../evg/EVGDisplayList.rgr"
-Import "../../../evg/EVGStyleSheet.rgr"
-Import "../../../evg/EVGA11yTree.rgr"
-Import "../../../evg/EVGA11yFromTree.rgr"
-Import "../../../evg/EVGHitTest.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGLayout.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGStyleSheet.rgr"
+Import "pkg:evg/EVGA11yTree.rgr"
+Import "pkg:evg/EVGA11yFromTree.rgr"
+Import "pkg:evg/EVGHitTest.rgr"
 
 class RafiApp {
     def fig:FigApp (new FigApp())

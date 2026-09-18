@@ -12,7 +12,7 @@
 Import "UIAnimator.rgr"
 Import "WasmUiSelect.rgr"
 Import "RgUiWriter.rgr"
-Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+Import "pkg:image/PNGEncoder.rgr"
 
 class VisCheck {
     def passed:int 0

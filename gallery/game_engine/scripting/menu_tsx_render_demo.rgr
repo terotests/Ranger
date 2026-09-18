@@ -17,10 +17,10 @@
 ; ==============================================================================
 
 Import "../ui/WasmUiSelect.rgr"
-Import "./game_catalog.rgr"
+Import "game_catalog.rgr"
 Import "../../pdf_writer/src/jsx/ComponentEngine.rgr"
 Import "../../pdf_writer/src/jsx/EvalValue.rgr"
-Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
+Import "pkg:image/PNGEncoder.rgr"
 
 class TsxCheck {
     def passed:int 0

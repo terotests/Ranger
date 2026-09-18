@@ -1,7 +1,7 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 
-Import "../../evg/EVGElement.rgr"
-Import "../../evg/EVGColor.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGColor.rgr"
 
 class EVGSVGRenderer {
     def pathIdCounter:int 0

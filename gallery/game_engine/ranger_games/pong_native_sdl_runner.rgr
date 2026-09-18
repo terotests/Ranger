@@ -5,7 +5,7 @@
 ; ==============================================================================
 
 Import "../scripting/game_sdl_native_host.rgr"
-Import "./pong_native_game.rgr"
+Import "pong_native_game.rgr"
 
 class PongNativeSdlRunner {
     sfn m@(main):void () {

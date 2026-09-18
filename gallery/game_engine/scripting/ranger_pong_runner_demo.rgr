@@ -8,7 +8,7 @@
 ; the engine cannot tell a Ranger guest from the Rust one — same 8-function ABI.
 ; ==============================================================================
 
-Import "./wasm_game_runner.rgr"
+Import "wasm_game_runner.rgr"
 
 class RangerPongRunnerDemo {
     sfn m@(main):void () {

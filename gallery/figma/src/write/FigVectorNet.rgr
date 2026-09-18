@@ -33,7 +33,7 @@
 ; Little-endian throughout, as everything in a `.fig` is.
 ; ==============================================================================
 
-Import "../../../evg/SVGPathParser.rgr"
+Import "pkg:evg/SVGPathParser.rgr"
 Import "../KiwiBuffer.rgr"
 
 class FigVectorNet {

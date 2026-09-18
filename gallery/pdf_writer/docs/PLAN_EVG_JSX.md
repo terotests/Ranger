@@ -34,7 +34,7 @@ The TSX → EVG → PDF pipeline is now functional with the following features:
 Integrate three components to create a TypeScript-based PDF generation pipeline:
 
 1. **ts_parser** (gallery/ts_parser) - Parse TSX files with JSX support
-2. **EVG layout engine** (gallery/evg) - Calculate element positions
+2. **EVG layout engine** (lib/evg) - Calculate element positions
 3. **PDF renderer** (gallery/pdf_writer) - Output final PDF
 
 ## Workflow

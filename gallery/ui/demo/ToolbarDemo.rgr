@@ -31,18 +31,18 @@
 ; word, not 700) picks a different face.
 ; =============================================================================
 
-Import "../../evg/EVGElement.rgr"
-Import "../../evg/EVGUnit.rgr"
-Import "../../evg/EVGLayout.rgr"
-Import "../../evg/EVGDisplayList.rgr"
-Import "../../evg/EVGStyleSheet.rgr"
-Import "../../evg/EVGA11yTree.rgr"
-Import "../../evg/EVGA11yFromTree.rgr"
-Import "../../evg/EVGHitTest.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGUnit.rgr"
+Import "pkg:evg/EVGLayout.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGStyleSheet.rgr"
+Import "pkg:evg/EVGA11yTree.rgr"
+Import "pkg:evg/EVGA11yFromTree.rgr"
+Import "pkg:evg/EVGHitTest.rgr"
 ; Not used by the builders below — imported so the page can drive a
 ; transition over the tree they produce. Hover is a presentational state and
 ; belongs to the stylesheet; the demo just builds boxes with class names.
-Import "../../evg/EVGTransition.rgr"
+Import "pkg:evg/EVGTransition.rgr"
 ; The demo page keeps this tree across frames rather than rebuilding it, and
 ; `keptTree` in main.js reconciles it with `EVGReconcile` taken FROM THIS
 ; MODULE — it has to be this module's copy, because two copies of a class are
@@ -51,7 +51,7 @@ Import "../../evg/EVGTransition.rgr"
 ; It was never imported here, so `new mod.EVGReconcile()` threw the day that
 ; line was written and went on throwing: nothing loaded the page. It does now
 ; — see demo/page-check.mjs.
-Import "../../evg/EVGReconcile.rgr"
+Import "pkg:evg/EVGReconcile.rgr"
 
 treefactory Toolbar {
     child addChild

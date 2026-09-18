@@ -41,7 +41,7 @@
 ; ==============================================================================
 
 Import "OfficeGeomFormula.rgr"
-Import "../../evg/SVGPathParser.rgr"
+Import "pkg:evg/SVGPathParser.rgr"
 
 ; One path of a shape, flattened, in the unit box — plus how the file said to
 ; paint it. A preset may state several, and they are not all filled the same

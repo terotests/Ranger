@@ -18,7 +18,7 @@
 ;   data tables (road/traffic/oil/ramps) : 11264+   (filled once in init)
 ; ============================================================================
 
-Import "./ranger_game.rgr"
+Import "ranger_game.rgr"
 
 ; Game-defined body taxonomy (must match the host scene, wasm_autopeli_setup):
 ;   0     = player 1        1     = player 2

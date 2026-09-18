@@ -29,13 +29,13 @@
 ; DRAWN, NOT BUILT FROM CONTROLS. The whole body is one `addContentAt` region
 ; that this class paints itself, rather than a grid of `EVGWindow` buttons.
 ; A picker is a lot of little pictures and `EVGControl` has no picture kind;
-; adding one would push shape drawing down into `gallery/evg`, which has no
+; adding one would push shape drawing down into `lib/evg`, which has no
 ; business knowing what a preset is.
 ; ==============================================================================
 
 Import "../geom/OfficeShapeCatalog.rgr"
-Import "../../evg/EVGWindow.rgr"
-Import "../../evg/SVGPathParser.rgr"
+Import "pkg:evg_window/EVGWindow.rgr"
+Import "pkg:evg/SVGPathParser.rgr"
 
 class OfficeShapePicker {
     ; The catalogue is BORROWED. Each editor owns one, fills it with what it

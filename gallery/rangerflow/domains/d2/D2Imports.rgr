@@ -29,7 +29,7 @@
 ; the chain is sixteen deep.
 ; ============================================================================
 
-Import "./D2Model.rgr"
+Import "D2Model.rgr"
 
 class D2Imports {
     ; The board, with every import the file can legally reach already read.

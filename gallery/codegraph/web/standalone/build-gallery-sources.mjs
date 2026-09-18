@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Pack gallery/css, gallery/evg and gallery/zip for the in-tab CodeGraph
+ * Pack gallery/css, lib/evg and gallery/zip for the in-tab CodeGraph
  * samples. Follows Import "…" from each entry so the VFS has the closure
  * VirtualCompiler will ask for — tests, tools and unrelated EVG files stay out.
  *

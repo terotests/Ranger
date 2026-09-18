@@ -1,9 +1,9 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 
 ; Headless smoke: scan games dir + run menu game a few frames.
-Import "./game_runtime.rgr"
-Import "./game_catalog.rgr"
-Import "./game_audio.rgr"
+Import "game_runtime.rgr"
+Import "game_catalog.rgr"
+Import "game_audio.rgr"
 
 class GameCatalogDemo {
     sfn m@(main):void () {

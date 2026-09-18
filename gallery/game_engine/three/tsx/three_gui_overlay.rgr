@@ -19,9 +19,9 @@
 
 Import "../../framebuffer.rgr"
 Import "../../scripting/game_hud.rgr"
-Import "../../../evg/EVGElement.rgr"
-Import "../../../evg/EVGColor.rgr"
-Import "../../../evg/EVGUnit.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGColor.rgr"
+Import "pkg:evg/EVGUnit.rgr"
 
 class ThreeGuiOverlay {
     def panelW:int 210

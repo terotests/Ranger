@@ -4,7 +4,7 @@
 #   bash gallery/ui/ios/scripts/verify.sh
 #
 # Compiles `ranger/check_ios.rgr` — which imports `ranger/ui_ios.rgr` and the
-# whole `gallery/ui` + `gallery/evg` + `gallery/vela` tree behind it — to
+# whole `gallery/ui` + `lib/evg` + `gallery/vela` tree behind it — to
 # JavaScript and runs it. What it proves is in the file's own header; the short
 # version is that the page builds, every command kind the Swift surface has to
 # implement is reached, the viewport arithmetic and the safe area hold, a press

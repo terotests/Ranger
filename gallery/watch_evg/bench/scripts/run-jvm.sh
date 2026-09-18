@@ -32,8 +32,8 @@ if [ ! -f "$CLASSES/fi/ranger/watch/bench/WatchBenchMain.class" ] \
   echo "compiling the Kotlin (14k generated lines — a couple of minutes)"
   kotlinc -J-Xmx6g -nowarn \
     "$BENCH/generated/watch_bench.kt" \
-    gallery/evg/android/src/main/kotlin \
-    gallery/evg/android/src/awt/kotlin \
+    lib/evg/android/src/main/kotlin \
+    lib/evg/android/src/awt/kotlin \
     "$BENCH/desktop/src/main/kotlin" \
     -d "$CLASSES"
 fi

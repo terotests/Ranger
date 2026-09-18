@@ -65,7 +65,7 @@
         //
         // Safe because the engine says nothing until it is spoken to: the
         // worker replies to `init` and posts nothing unprompted
-        // (gallery/evg/gl/evg-engine.js), so there is no message to miss
+        // (lib/evg/gl/evg-engine.js), so there is no message to miss
         // between now and the moment the host attaches its listener.
         if (useWorker) {
           try {
@@ -213,7 +213,7 @@
     <div id="err"></div>
     <script type="module">
       // The Ranger app runs in a Worker and its frames are painted here
-      // (gallery/evg/gl/evg-engine.js). `?engine=main` keeps it on this
+      // (lib/evg/gl/evg-engine.js). `?engine=main` keeps it on this
       // thread, and `?painter=dom` requires that. Same app, same painter,
       // same checks — the head settled which, and preloaded it.
       import(window.__rtPage.worker ? "./bundle-worker.js" : "./bundle.js");

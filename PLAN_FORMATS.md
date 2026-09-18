@@ -140,7 +140,7 @@ repository plans work that is already done, and skips work that is not.
 | `gallery/pptx/src/PptxXml.rgr` | 527 | DOM | **yes** (`srcStart`/`srcEnd`) | prefixes stripped from element names |
 | `gallery/datagrid/src/xlsx/XmlLite.rgr` | 358 | scanner, reused tag instance | no | stripped |
 | `gallery/docx_viewer/src/WordXml.rgr` | 220 | string helpers, no tree | no | n/a |
-| `gallery/evg/SvgParser.rgr` | 1736 | importer straight to vector items | no | n/a |
+| `lib/evg/SvgParser.rgr` | 1736 | importer straight to vector items | no | n/a |
 | entity decoding | `gallery/ooxml/OoxmlText.rgr` | shared by the first three | — | — |
 
 Only `PptxXml` carries spans, and that is exactly why `.pptx` is the only
@@ -326,7 +326,7 @@ exists. That is Rule 2 satisfied at the moment the module is written rather
 than promised for later, and it is also the cheapest possible regression test —
 the deck reader has an oracle dump.
 
-*Not retired:* `gallery/evg/SvgParser.rgr`. `gallery/evg` may not import the
+*Not retired:* `lib/evg/SvgParser.rgr`. `lib/evg` may not import the
 office side of the gallery, and that boundary is worth more than removing one
 duplicate. If a consumer outside the office stack ever needs the core, that is
 the moment to move it to `lib/` under MIT — the moment to decide, not now.
@@ -517,7 +517,7 @@ screenshot did.
    never compares a file name, because `OdfPackage.sniffKind` reads the format
    out of the bytes.
 3. **Done.** `gallery/odp` imports `gallery/odf`, `gallery/xml`,
-   `gallery/office` and `gallery/evg`, and nothing from `gallery/pptx`. The
+   `gallery/office` and `lib/evg`, and nothing from `gallery/pptx`. The
    only place both models meet is `PptxApp`, which is the application.
 4. **Done** for the suites: `pptx:test`, `pptx:geom:test`, `pptx:a11y:test`,
    `pptx:writer:test`, `pptx:text:test` and `pptx:api:render:test` are
@@ -570,7 +570,7 @@ looks, because **PDF's three hardest decoders are already in this repository**:
 | PDF filter | what it needs | where it already is |
 | --- | --- | --- |
 | `FlateDecode` | raw DEFLATE | `gallery/zip/Inflate.rgr` |
-| `DCTDecode` | baseline + progressive JPEG | `gallery/pdf_writer/src/jpeg/JPEGDecoder.rgr` |
+| `DCTDecode` | baseline + progressive JPEG | `lib/image/JPEGDecoder.rgr` |
 | embedded fonts | TrueType outlines, `cmap`, metrics | `gallery/pdf_writer/src/fonts/TrueTypeFont.rgr` |
 
 What is new is the object layer and the interpreter:

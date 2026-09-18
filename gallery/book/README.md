@@ -129,7 +129,7 @@ flow engine, and Ranger already had a renderer.
 
 The frame around the canvas — the strip, the window layer, the command table —
 is the **shared** one the spreadsheet, the document and the deck all use
-(`gallery/evg`). A fourth toolbar in a fourth style would have been the wrong
+(`lib/evg`). A fourth toolbar in a fourth style would have been the wrong
 kind of new code. Two more pieces moved into that shared directory while this
 was built, because the book editor was the second caller:
 `EVGImageDecode` (PNG/JPEG bytes → pixels, which the deck viewer had been
@@ -600,7 +600,7 @@ convert; the model stores points.
 
 ## Targets
 
-The engine is plain Ranger with no host dependencies beyond `gallery/evg`, and
+The engine is plain Ranger with no host dependencies beyond `lib/evg`, and
 the full test suite passes on **JavaScript, Go and Python** — 220 assertions
 each. The demo additionally uses `gallery/pdf_writer`'s `FontManager` for real
 font metrics, which is why it lives in `src/book_demo.rgr` rather than in the

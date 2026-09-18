@@ -9,7 +9,7 @@ run, compiled to **Kotlin** and painted with `android.graphics.Canvas`.
 ```text
 gallery/ui/demo/DashboardDemo.rgr   the page: controllers, tree literals,
 gallery/ui/src/*.rgr                cascade, layout, table, sortable
-gallery/evg/*.rgr                   EVG: units, flex, clip, display list
+lib/evg/*.rgr                   EVG: units, flex, clip, display list
 gallery/vela/*.rgr                  the chart's runtime — all Ranger
       │
       │  node bin/output.js -l=kotlin       (scripts/build-ranger.sh)
@@ -18,7 +18,7 @@ generated/ui_android.kt             ~46k lines, one file, package fi.ranger.rgr
       │
       │  UiAndroid.frame() : EVGDisplayList
       ▼
-gallery/evg/android                 the shared painter and the two surfaces
+lib/evg/android                 the shared painter and the two surfaces
       │
       ├── AndroidEvgSurface         android.graphics.Canvas      ← the app
       └── AwtEvgSurface             java.awt.Graphics2D          ← the check
@@ -26,7 +26,7 @@ gallery/evg/android                 the shared painter and the two surfaces
 
 There is no dashboard code in this directory. The controllers, the stylesheet
 cascade, the flex layout, the scroll container, the virtualiser, the Vega
-runtime and the display list are all `gallery/ui` and `gallery/evg`, and this
+runtime and the display list are all `gallery/ui` and `lib/evg`, and this
 port does not fork a line of any of them.
 
 ## What is here
@@ -43,7 +43,7 @@ port does not fork a line of any of them.
 
 The painter, the surface interface, the `android.graphics` backend, the Java2D
 twin and the platform stubs are **not** here: they are
-[`gallery/evg/android`](../../evg/android/README.md), shared with the
+[`lib/evg/android`](../../evg/android/README.md), shared with the
 [pptx port](../../pptx/android/README.md).
 
 ## Build and run
@@ -154,7 +154,7 @@ and therefore what is worth checking.
 result is something to look at rather than a number.
 
 `ui:android:typecheck` covers most of what is left: `MainActivity` and
-`DashboardView` against `gallery/evg/android/androidstubs/`, which declares the
+`DashboardView` against `lib/evg/android/androidstubs/`, which declares the
 platform members the host calls with the signatures the SDK gives them. It is
 not evidence that the app *draws* correctly — a stub cannot draw — but an
 unchecked file is where a typo lives for a month.
@@ -325,7 +325,7 @@ is also what the browser draws with.
 
 Verified, off-device, on this repository's own demo:
 
-* `ranger/ui_android.rgr` and the whole `gallery/ui` + `gallery/evg` +
+* `ranger/ui_android.rgr` and the whole `gallery/ui` + `lib/evg` +
   `gallery/vela` tree behind it compile to Kotlin, and **`kotlinc` accepts the
   result with zero errors** (46k lines, one file).
 * The compiled page builds and lays itself out on a JVM — cascade, flex, scroll
@@ -368,7 +368,7 @@ Known gaps, in rough order of how much they would be missed:
 * [`gallery/ui`](../README.md) — the controllers, and what they are measured
   against
 * [`gallery/ui/demo`](../demo) — the same page in a browser
-* [`gallery/evg/android`](../../evg/android/README.md) — the painter and the two
+* [`lib/evg/android`](../../evg/android/README.md) — the painter and the two
   surfaces this port draws through
 * [`gallery/pptx/android`](../../pptx/android/README.md) — the first Android
   port, and the one this follows

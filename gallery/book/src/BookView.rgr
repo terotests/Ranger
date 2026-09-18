@@ -24,9 +24,9 @@
 Import "BookToEvg.rgr"
 Import "../../game_engine/framebuffer.rgr"
 Import "../../game_engine/ui/UIContext.rgr"
-Import "../../evg/EVGContextMeasurer.rgr"
-Import "../../evg/EVGImageDecode.rgr"
-Import "../../pdf_writer/src/jpeg/ImageBuffer.rgr"
+Import "pkg:evg_window/EVGContextMeasurer.rgr"
+Import "pkg:evg/EVGImageDecode.rgr"
+Import "pkg:image/ImageBuffer.rgr"
 
 class BookView {
     def canvas:SoftCanvas (new SoftCanvas)

@@ -20,8 +20,8 @@
 ; ==============================================================================
 
 Import "../src/PptxApp.rgr"
-Import "../../evg/EVGLayout.rgr"
-Import "../../evg/EVGInspect.rgr"
+Import "pkg:evg/EVGLayout.rgr"
+Import "pkg:evg/EVGInspect.rgr"
 
 class PptxWeb {
     def app:PptxApp (new PptxApp)
@@ -383,7 +383,7 @@ class PptxWeb {
 
     ; --- the inspector --------------------------------------------------------
     ;
-    ; The slide as an element tree, for `gallery/evg/inspect`. This is the
+    ; The slide as an element tree, for `lib/evg/inspect`. This is the
     ; export path's tree — the one the PDF and the HTML renderer are made from
     ; — laid out and then read, so what the panel shows is what a print of this
     ; slide would be made of, not a second description of the picture.

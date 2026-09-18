@@ -291,7 +291,7 @@ const html = `<!doctype html><meta charset="utf-8">
 <style>html,body{margin:0;background:#fff}canvas{display:block}</style>
 <canvas id="c"></canvas>
 <script type="module">
-import { renderDisplayList } from "/gallery/evg/gl/evg-webgl.js";
+import { renderDisplayList } from "/lib/evg/gl/evg-webgl.js";
 const doc = ${JSON.stringify(doc)};
 const c = document.getElementById("c");
 const dpr = 2;

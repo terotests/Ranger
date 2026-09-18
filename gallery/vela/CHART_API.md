@@ -245,7 +245,7 @@ bash gallery/vela/tests/run_cpp.sh              # the same, from a native binary
 ## A page that prints the calls that drew it
 
 `tools/vela_chart_page.rgr` writes
-[`gallery/evg/showcase/pages/chart_api.tsx`](../evg/showcase/pages/chart_api.tsx),
+[`lib/evg/showcase/pages/chart_api.tsx`](../evg/showcase/pages/chart_api.tsx),
 which the EVG showcase renders to PDF, PNG, HTML and WebGL under three themes
 like any other page — *Charts, called* on
 [the published gallery](https://terotests.github.io/Ranger/evg/). It is the
@@ -292,7 +292,7 @@ says nothing about whether the thing that drew it still runs where a reader is.
 bundle, and a page that dispatches what a reader types to it —
 
 ```
-gallery/evg/showcase/dist/chart-api/     →  published at /evg/chart-api/
+lib/evg/showcase/dist/chart-api/     →  published at /evg/chart-api/
 ```
 
 The page speaks **two languages**, and the primary one is JavaScript:
@@ -347,7 +347,7 @@ The third of those is the API's own check, running in the browser: the dataset
 is there, so it knows what is in it.
 
 ```bash
-npm run showcase        # build it into gallery/evg/showcase/dist/chart-api
+npm run showcase        # build it into lib/evg/showcase/dist/chart-api
 npm run showcase:api    # open it in a real browser and check that it RUNS
 ```
 

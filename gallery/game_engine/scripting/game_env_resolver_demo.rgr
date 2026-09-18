@@ -6,7 +6,7 @@
 ;     -d=gallery/game_engine/scripting -o=game_env_resolver_demo.js -nodecli \
 ;   && node gallery/game_engine/scripting/game_env_resolver_demo.js
 
-Import "./game_env_resolver.rgr"
+Import "game_env_resolver.rgr"
 
 class EnvCheck {
     def passed:int 0

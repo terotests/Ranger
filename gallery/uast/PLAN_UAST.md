@@ -828,7 +828,7 @@ The files live here as:
 gallery/statechart/src/Statechart.rgr
 gallery/ui/src/WindowCtl.rgr
 gallery/ui/src/SliderCtl.rgr
-gallery/evg/EVGElement.rgr
+lib/evg/EVGElement.rgr
 …
 ```
 
@@ -857,5 +857,5 @@ When M5 (workspace / imports) is built:
 - a repo that only has `.mjs` cannot be analysed as Ranger; say so, and
   analyse the JavaScript if a JS frontend exists
 
-Until then, analyse apps from **this** tree, where `gallery/evg` and
+Until then, analyse apps from **this** tree, where `lib/evg` and
 `gallery/ui` are the real files.

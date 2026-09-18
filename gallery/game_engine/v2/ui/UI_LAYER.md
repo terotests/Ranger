@@ -261,7 +261,7 @@ proving reader → EVG tree → layout → selection → highlight → activatio
 ## Roadmap / next
 
 * **SVG paths** — `EVGElement` already carries `svgPath` and there is a
-  `gallery/evg/SVGPathParser.rgr`; a `UIPath` widget can fill/stroke vector
+  `lib/evg/SVGPathParser.rgr`; a `UIPath` widget can fill/stroke vector
   icons once the raster path-fill lands (EVG SPEC §3.4, currently unchecked).
 * **Clipping** — `EVGElement.clipPath` + `overflow: hidden` exist in the model;
   add a scissor rect to `UIContext` (and later an SVG clip path) so scroll

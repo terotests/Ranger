@@ -1,8 +1,8 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 
-Import "../../evg/EVGElement.rgr"
-Import "../../evg/EVGUnit.rgr"
-Import "../../evg/EVGColor.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGUnit.rgr"
+Import "pkg:evg/EVGColor.rgr"
 Import "WatchExerciseRowInput.rgr"
 Import "WatchBezelSegmentMath.rgr"
 Import "WatchEVGHitRegion.rgr"

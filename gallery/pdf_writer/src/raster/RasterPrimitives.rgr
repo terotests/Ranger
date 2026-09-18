@@ -3,7 +3,7 @@
 ; RasterPrimitives - Shape drawing primitives for raster buffers
 ; Provides line, rectangle, rounded rectangle, circle drawing
 
-Import "RasterBuffer.rgr"
+Import "pkg:image/RasterBuffer.rgr"
 Import "RasterCompositing.rgr"
 
 ; Shape drawing class

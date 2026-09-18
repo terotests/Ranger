@@ -4,7 +4,7 @@
 ; audio_runner_demo - exercises built-in synth sounds via playSound events.
 ; ==============================================================================
 
-Import "./game_runtime.rgr"
+Import "game_runtime.rgr"
 
 class AudioRunnerDemo {
     sfn m@(main):void () {

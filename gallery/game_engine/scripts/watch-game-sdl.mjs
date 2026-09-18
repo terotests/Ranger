@@ -24,8 +24,8 @@ const HOST_SOURCES = [
   'gallery/game_engine/scripting/game_sdl_runner.rgr',
   'gallery/game_engine/scripting/game_runtime.rgr',
   'gallery/game_engine/scripting/game_hud.rgr',
-  'gallery/evg/EVGLayout.rgr',
-  'gallery/evg/EVGElement.rgr',
+  'lib/evg/EVGLayout.rgr',
+  'lib/evg/EVGElement.rgr',
 ];
 
 const GAMES = {

@@ -2,8 +2,8 @@
  * hero.js — draw the front page's backdrop on the GPU, and rain on it.
  *
  * The picture is not an image file. `hero.json` is an EVG display list: flat
- * draw commands that gallery/evg's layout engine produced from hero.tsx and
- * hero.css at build time. gallery/evg/gl/evg-webgl.js — the same WebGL 2
+ * draw commands that lib/evg's layout engine produced from hero.tsx and
+ * hero.css at build time. lib/evg/gl/evg-webgl.js — the same WebGL 2
  * painter the PowerPoint editor and the node-graph editor are drawn with —
  * turns those commands into geometry here, once, and then draws them every
  * frame through `evg-surface-effect: ripple`, which renders the finished

@@ -64,7 +64,7 @@ open a database, describe it, list it, page it, draw it, export it.
 | **Diagram** | RangerFlow's ERD editor, crow's foot, field-level ports |
 | **Export** | SVG, PDF, HTML, scene JSON |
 | **Subject areas** | a table and its neighbours, or tables without views |
-| **Toolbar** | the shared `gallery/evg` strip — named pages, labelled buttons, dropdowns |
+| **Toolbar** | the shared `lib/evg` strip — named pages, labelled buttons, dropdowns |
 | **Hosts** | a serverless web page on WebGL 2; the CLI; the frame is host-agnostic |
 
 | **Migrations** | read Flyway / golang-migrate / Prisma / Django, replay a history, diff any two versions, report drift, generate a plan |

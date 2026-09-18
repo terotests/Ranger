@@ -19,7 +19,7 @@ Import "../src/ChartDoc.rgr"
 Import "../src/GridChartView.rgr"
 Import "../../vela/src/VlEvgList.rgr"
 Import "../src/GridApp.rgr"
-Import "../../game_engine/lpc/src/png_decoder.rgr"
+Import "pkg:image/PNGDecoder.rgr"
 
 class ChartTest {
     def passed:int 0

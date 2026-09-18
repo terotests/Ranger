@@ -23,7 +23,7 @@ Import "../../vela/src/VlJson.rgr"
 Import "FlowDocument.rgr"
 Import "../../pdf_writer/src/core/EVGPDFRenderer.rgr"
 Import "../../pdf_writer/src/core/EVGHTMLRenderer.rgr"
-Import "../../evg/EVGTreeJson.rgr"
+Import "pkg:evg/EVGTreeJson.rgr"
 Import "../../pdf_writer/src/fonts/FontManager.rgr"
 
 class FlowExport {

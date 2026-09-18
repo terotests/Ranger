@@ -15,8 +15,8 @@ Import "../core/EVGHTMLRenderer.rgr"
 Import "../core/EVGStyleLoader.rgr"
 Import "../fonts/FontManager.rgr"
 Import "../fonts/EVGFontSetup.rgr"
-Import "../../../evg/EVGElement.rgr"
-Import "../../../evg/EVGGrapheme.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGGrapheme.rgr"
 
 class EVGHTMLTool {
     def inputFile:string ""

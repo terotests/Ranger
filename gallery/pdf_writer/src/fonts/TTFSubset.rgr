@@ -27,7 +27,7 @@
 ; to a glyph that is no longer there, and readers draw that as nothing.
 
 Import "TrueTypeFont.rgr"
-Import "../core/Buffer.rgr"
+Import "pkg:image/Buffer.rgr"
 
 class TTFSubset {
 

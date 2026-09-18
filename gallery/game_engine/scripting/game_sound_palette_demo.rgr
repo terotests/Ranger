@@ -6,7 +6,7 @@
 ;     -d=gallery/game_engine/scripting -o=game_sound_palette_demo.js -nodecli \
 ;   && node gallery/game_engine/scripting/game_sound_palette_demo.js
 
-Import "./game_audio.rgr"
+Import "game_audio.rgr"
 
 class PaletteCheck {
     def passed:int 0

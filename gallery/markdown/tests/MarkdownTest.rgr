@@ -27,9 +27,9 @@ Import "../src/MdToEvg.rgr"
 Import "../src/MdDiagram.rgr"
 Import "../src/MdCodeHighlight.rgr"
 Import "../src/MdFrontMatter.rgr"
-Import "../../evg/EVGTextEngine.rgr"
-Import "../../evg/EVGLayout.rgr"
-Import "../../evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGTextEngine.rgr"
+Import "pkg:evg/EVGLayout.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
 
 class MarkdownTest {
     def passed:int 0

@@ -100,7 +100,7 @@ gallery/pdf_writer/src/
 │   └── PNGEncoder.rgr           # PNG file encoder
 ├── tools/
 │   └── evg_png_tool.rgr         # CLI tool: TSX → PNG
-gallery/evg/
+lib/evg/
 ├── EVGGradient.rgr              # Shared gradient parsing (NEW)
 ```
 
@@ -127,7 +127,7 @@ gallery/pdf_writer/src/
 └── tests/
     └── (TODO: Unit tests)
 
-gallery/evg/
+lib/evg/
 ├── EVGElement.rgr               # ✅ Updated: gradient property
 ├── EVGGradient.rgr              # ✅ NEW: Shared gradient parsing
 └── EVGColor.rgr                 # Color with method accessors
@@ -438,7 +438,7 @@ For PDF, consider using the PNG renderer to generate shadow images, then embed.
 
 ### 📋 NEXT: PNG Renderer Completion
 1. **Image rendering** - Embed images in raster output
-2. ~~**SVG path rasterization** - Bezier curve rendering~~ - *DONE, see gallery/evg/PLAN_VECTOR_IR.md*
+2. ~~**SVG path rasterization** - Bezier curve rendering~~ - *DONE, see lib/evg/PLAN_VECTOR_IR.md*
 
 ---
 
@@ -569,8 +569,8 @@ When implementing new features, check these files for circular reference issues:
 
 | File | Location | Current Issue | Recommended Fix |
 |------|----------|---------------|-----------------|
-| `EVGElement.rgr` | `gallery/evg/` | `parent` is direct reference | Add `@(weak)` annotation |
-| `EVGLayout.rgr` | `gallery/evg/` | May store parent during layout | Use visitor pattern |
+| `EVGElement.rgr` | `lib/evg/` | `parent` is direct reference | Add `@(weak)` annotation |
+| `EVGLayout.rgr` | `lib/evg/` | May store parent during layout | Use visitor pattern |
 | `EVGPDFRenderer.rgr` | `gallery/pdf_writer/src/core/` | May store element refs | Use visitor pattern |
 | `EVGHTMLRenderer.rgr` | `gallery/pdf_writer/src/core/` | NEW - avoid circular refs | Use visitor pattern |
 | `JSXToEVG.rgr` | `gallery/pdf_writer/src/jsx/` | Builds element tree | Set parent with weak ref |

@@ -20,9 +20,9 @@ renderer** that produces an RGBA pixel buffer — i.e. exactly a game framebuffe
 | Linear & radial **gradients** | `src/raster/RasterGradient.rgr` (`EVGRasterRenderer.renderLinearGradientRect…`) | backgrounds, glows |
 | **Shadows** (gaussian blur + offset) | `src/raster/RasterBlur.rgr` (`RasterShadow`) | drop shadows, bloom |
 | **Transparency / alpha compositing** | `src/raster/RasterCompositing.rgr` (`RasterCompositor`) | HUD panels, fades |
-| **SVG path** parsing & fill | `gallery/evg/SVGPathParser.rgr` | vector sprites, icons |
+| **SVG path** parsing & fill | `lib/evg/SVGPathParser.rgr` | vector sprites, icons |
 | **TrueType font** rendering | `src/fonts/TrueTypeFont.rgr`, `FontManager.rgr`, `src/raster/RasterText.rgr` | real text, any TTF |
-| **Flexbox layout** | `gallery/evg/EVGLayout.rgr` | menus, HUD, dialogs |
+| **Flexbox layout** | `lib/evg/EVGLayout.rgr` | menus, HUD, dialogs |
 | **Declarative `l`/JSX** scene tree | `src/jsx/ComponentEngine.rgr`, `JSXToEVG.rgr`, `EvalValue.rgr` | describe UI as components |
 | Output backends (PDF/HTML/PNG/PPM) | `src/core/EVG*Renderer.rgr`, `src/raster/PNGEncoder.rgr` | tooling / screenshots |
 

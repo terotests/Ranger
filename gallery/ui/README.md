@@ -71,7 +71,7 @@ npm run ui:conformance:install   # once
 npm run ui:web                   # builds, serves, prints the URL
 ```
 
-Radix on the left, Ranger's EVG controllers painted by `gallery/evg/gl` on the
+Radix on the left, Ranger's EVG controllers painted by `lib/evg/gl` on the
 right, and the live trace below with every divergence highlighted. A tree down
 the left side groups the specs under the component they exercise, with a count
 per component and a dot that turns green or red once you have looked at one —
@@ -96,7 +96,7 @@ npm run ui:android:run      # …or build the APK and put it on an emulator
 [`android/`](android/README.md) is the **dashboard demo as an Android app** —
 the same `DashboardDemo.rgr`, compiled to Kotlin and painted with
 `android.graphics.Canvas` through the backend the pptx port already had
-([`gallery/evg/android`](../evg/android/README.md)). The port is a facade that
+([`lib/evg/android`](../evg/android/README.md)). The port is a facade that
 owns the viewport arithmetic and one `View`; nothing about the page is written
 twice.
 
@@ -115,7 +115,7 @@ npm run ui:ios:watch    # the same page on an Apple Watch
 
 [`ios/`](ios/README.md) is the **dashboard demo as an iPhone, iPad and Apple
 Watch app** — the same `DashboardDemo.rgr`, compiled to Swift and painted with
-CoreGraphics through [`gallery/evg/apple`](../evg/apple/README.md).
+CoreGraphics through [`lib/evg/apple`](../evg/apple/README.md).
 
 Two things make it different from the Android port. The facade owns a **safe
 area** and a **readable fit** as well as the viewport arithmetic, because an
@@ -386,10 +386,10 @@ utility-class theme needs compound and attribute selectors; `gallery/css`'s
 
 ## Related
 
-- [`gallery/evg/`](../evg/) — layout, display list, `EVGStyleSheet`, `EVGA11yTree`
-- [`gallery/evg/EVGWindow.rgr`](../evg/EVGWindow.rgr) — the controller shape this follows
+- [`lib/evg/`](../evg/) — layout, display list, `EVGStyleSheet`, `EVGA11yTree`
+- [`gallery/evg_window/EVGWindow.rgr`](../evg/EVGWindow.rgr) — the controller shape this follows
 - [`gallery/css/CssCore.rgr`](../css/CssCore.rgr) — selector specificity, for the theme work
 - [`gallery/game_engine/ui/`](../game_engine/ui/) — focus and keyboard, still SoftCanvas-bound
-- [`gallery/evg/android/`](../evg/android/README.md) — the Android/JVM display-list backend the dashboard port draws through
+- [`lib/evg/android/`](../evg/android/README.md) — the Android/JVM display-list backend the dashboard port draws through
 
 Roadmap: [`PLAN.md`](PLAN.md).

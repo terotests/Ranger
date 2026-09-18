@@ -63,9 +63,9 @@
 
 Import "PptxModel.rgr"
 Import "PptxShapeInk.rgr"
-Import "../../evg/EVGColor.rgr"
-Import "../../evg/PathBuilder.rgr"
-Import "../../evg/SVGPathParser.rgr"
+Import "pkg:evg/EVGColor.rgr"
+Import "pkg:evg/PathBuilder.rgr"
+Import "pkg:evg/SVGPathParser.rgr"
 Import "../../vela/src/VlJson.rgr"
 Import "../../vela/src/VlCompile.rgr"
 Import "../../vela/src/VlRuntime.rgr"

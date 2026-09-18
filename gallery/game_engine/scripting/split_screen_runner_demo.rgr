@@ -8,7 +8,7 @@
 ; composites the split framebuffer and prints entity positions.
 ; ==============================================================================
 
-Import "./game_split_screen.rgr"
+Import "game_split_screen.rgr"
 
 class SplitScreenRunnerDemo {
     sfn m@(main):void () {

@@ -5,7 +5,7 @@
 #
 # `SlideView.kt`, `MainActivity.kt` and the shared `AndroidEvgSurface.kt` are the
 # only part of this port that cannot be run here, and an unchecked file is where
-# a typo lives for a month. `gallery/evg/android/androidstubs/` declares the
+# a typo lives for a month. `lib/evg/android/androidstubs/` declares the
 # platform members the host calls — with the signatures the SDK gives them —
 # which is enough for `kotlinc` to say whether the host is well-formed, whether
 # its overrides match, and whether it calls anything that does not exist.
@@ -31,10 +31,10 @@ fi
 
 mkdir -p "$OUT"
 kotlinc -J-Xmx8g -nowarn \
-  gallery/evg/android/androidstubs \
+  lib/evg/android/androidstubs \
   "$AND/generated/pptx_android.kt" \
-  gallery/evg/android/src/main/kotlin \
-  gallery/evg/android/src/android/kotlin \
+  lib/evg/android/src/main/kotlin \
+  lib/evg/android/src/android/kotlin \
   "$AND/common/src/main/kotlin" \
   "$AND/app/src/main/kotlin" \
   -d "$OUT"

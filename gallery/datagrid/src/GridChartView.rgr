@@ -30,12 +30,12 @@ Import "../../vela/src/VlCompile.rgr"
 Import "../../vela/src/VlRuntime.rgr"
 Import "../../vela/src/VlCommand.rgr"
 Import "../../vela/src/VlEvgList.rgr"
-Import "../../evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
 ; ChartLayer puts each chart in one of these. Imported here rather than left
 ; to whoever imports this file — the DOCX editor uses the renderer without
 ; using the grid, and inherited imports are not a dependency list.
-Import "../../evg/EVGWindow.rgr"
-Import "../../evg/EVGColor.rgr"
+Import "pkg:evg_window/EVGWindow.rgr"
+Import "pkg:evg/EVGColor.rgr"
 Import "../../game_engine/ui/UITextRenderer.rgr"
 
 ; One chart's compiled scene, and what it took to fit it.

@@ -13,10 +13,10 @@
 ; ==============================================================================
 
 Import "../framebuffer.rgr"
-Import "../lpc/src/png_decoder.rgr"
+Import "pkg:image/PNGDecoder.rgr"
 Import "../../pdf_writer/src/core/ImageUtils.rgr"
-Import "../../pdf_writer/src/jpeg/ImageBuffer.rgr"
-Import "../../pdf_writer/src/jpeg/JPEGDecoder.rgr"
+Import "pkg:image/ImageBuffer.rgr"
+Import "pkg:image/JPEGDecoder.rgr"
 Import "../../ts_to_ranger/game_host.rgr"
 
 class GameImageLoader {

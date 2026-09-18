@@ -12,7 +12,7 @@ import android.widget.Toast
  * There is no dashboard code in this file, and none anywhere else in this
  * directory. The controllers, the stylesheet cascade, the flex layout, the
  * virtualised table, the Vega runtime that draws the chart and the page itself
- * are all `gallery/ui` and `gallery/evg`, compiled to Kotlin — the same source
+ * are all `gallery/ui` and `lib/evg`, compiled to Kotlin — the same source
  * the browser demo and the gates run.
  *
  * The one asset is the demo's own stylesheet. It is read rather than compiled

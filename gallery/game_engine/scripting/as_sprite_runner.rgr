@@ -19,8 +19,8 @@
 ; ==============================================================================
 
 Import "../framebuffer.rgr"
-Import "./as_source_runner.rgr"
-Import "./game_audio.rgr"
+Import "as_source_runner.rgr"
+Import "game_audio.rgr"
 
 class AsSpriteScene {
     def runner:AsSourceRunner (new AsSourceRunner)

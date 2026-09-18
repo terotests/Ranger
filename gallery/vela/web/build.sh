@@ -106,7 +106,7 @@ cp "$WEB/index.html" "$OUT/index.html"
 # The GPU viewer, and the faces it draws text with. Both are fetched by the
 # page at run time, so both have to sit beside it.
 mkdir -p "$OUT/gl/fonts"
-cp gallery/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
+cp lib/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
 for face in NotoSans-Regular NotoSans-Bold; do
   cp "gallery/pdf_writer/assets/fonts/Noto_Sans/$face.ttf" "$OUT/gl/fonts/$face.ttf"
 done

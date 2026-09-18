@@ -39,8 +39,8 @@ Import "GridChartView.rgr"
 Import "SoftPainter.rgr"
 Import "SpreadsheetModel.rgr"
 Import "../../vela/src/VlSvg.rgr"
-Import "../../pdf_writer/src/raster/PNGEncoder.rgr"
-Import "../../pdf_writer/src/raster/RasterBuffer.rgr"
+Import "pkg:image/PNGEncoder.rgr"
+Import "pkg:image/RasterBuffer.rgr"
 
 ; One chart, in every flavour the clipboard will carry.
 class ChartClip {

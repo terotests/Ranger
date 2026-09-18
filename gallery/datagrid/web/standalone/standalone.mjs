@@ -15,7 +15,7 @@
 import { renderDisplayList, loadImages, setFontFallback } from "./gl/evg-webgl.js";
 import { createA11yMirror, pressAtCentre } from "./gl/evg-a11y.js";
 // The assets this page's head started fetching before the body was parsed —
-// see gallery/evg/web/tools/inline-assets.mjs, which writes that head.
+// see lib/evg/web/tools/inline-assets.mjs, which writes that head.
 import { bytesOf, asRangerBuffer } from "./evg/assets-client.mjs";
 
 // The page watches for this: if the imports above fail, nothing below runs

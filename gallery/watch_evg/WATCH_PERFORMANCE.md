@@ -49,7 +49,7 @@ is not a device measurement and does not claim to be. What it is:
 
 Every one of them is the **same generated code** from the same
 `WatchBench.rgr`, and the Kotlin one paints through
-[`gallery/evg/android`](../evg/android/README.md) — the identical painter and
+[`lib/evg/android`](../evg/android/README.md) — the identical painter and
 surface interface the `gallery/ui` and `gallery/pptx` Android ports compile into
 their APKs.
 

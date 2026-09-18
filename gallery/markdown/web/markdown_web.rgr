@@ -58,8 +58,8 @@ Import "../src/MdToPptx.rgr"
 Import "../src/MdDeckSync.rgr"
 Import "../src/MdDocSync.rgr"
 Import "../../pptx/src/PptxModel.rgr"
-Import "../../evg/EVGLayout.rgr"
-Import "../../evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGLayout.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
 Import "../../pdf_writer/src/core/EVGPDFRenderer.rgr"
 Import "../../office/export/EVGListToElements.rgr"
 Import "../../pdf_writer/src/fonts/FontManager.rgr"
@@ -366,7 +366,7 @@ class MarkdownWeb {
     ; reader is looking is a camera on it — `setView(sheetLeft -scrollY 1)`,
     ; which the painter multiplies in the shader — so a scroll moves three
     ; numbers rather than every command in the list, and the host can draw the
-    ; frame it already built (`gallery/evg/PLAN_VIEW_TRANSFORM.md` S3). The list
+    ; frame it already built (`lib/evg/PLAN_VIEW_TRANSFORM.md` S3). The list
     ; used to be walked and rewritten on every scroll instead.
     ;
     ; A sheet narrower than the window sits in the MIDDLE of it, the way a page

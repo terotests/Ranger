@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
 // A static server rooted at the repository, so the page can reach
-// gallery/evg's painter by its real path. No dependencies.
+// lib/evg's painter by its real path. No dependencies.
 //
 //   npm run rt:web
 //   PORT=9000 npm run rt:web

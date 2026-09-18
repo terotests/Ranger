@@ -11,8 +11,8 @@
 ; Fills width/height and tightly packed RGBA8 into the asset. No file I/O.
 ; ==============================================================================
 
-Import "../lpc/src/png_decoder.rgr"
-Import "../../pdf_writer/src/jpeg/JPEGDecoder.rgr"
+Import "pkg:image/PNGDecoder.rgr"
+Import "pkg:image/JPEGDecoder.rgr"
 Import "AssetModel.rgr"
 
 class TextureDecode {

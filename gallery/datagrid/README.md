@@ -143,7 +143,7 @@ Nav is on — **← and → together** turns it off.) `?a11y=0` disables the mir
 Tested by `npm run evg:a11y:test`, `npm run datagrid:a11y:test` and the browser
 run in `npm run datagrid:web:test`, which asks the DOM what a reader would be
 handed. Design and the honest gaps — the cell editor is not a real `<input>`
-yet — are in [`gallery/evg/PLAN_ACCESSIBILITY.md`](../evg/PLAN_ACCESSIBILITY.md).
+yet — are in [`lib/evg/PLAN_ACCESSIBILITY.md`](../evg/PLAN_ACCESSIBILITY.md).
 
 **Is it really WebGL?** "backend: webgl2" is a label the page writes about
 itself, so the self test checks the facts under it: that the context really is a
@@ -404,7 +404,7 @@ edit refused, sorts (which re-runs the query) and leaves this behind:
 
 Every component that draws editable or truncated text asks the same three
 questions, and every component that answered them for itself got them slightly
-wrong. `gallery/evg/EVGTextFit.rgr` answers them once:
+wrong. `gallery/evg_window/EVGTextFit.rgr` answers them once:
 
 ```text
 field width
@@ -1265,7 +1265,7 @@ Copy, inflate the PNG that comes back — with no browser involved.
 > Two things came out of writing it. **Every PNG this repository has ever
 > written was uncompressed**: the encoder emitted deflate *stored* blocks, so a
 > 900x560 screenshot was 1.5 MB and a copied chart carried a megabyte of base64
-> into whatever document it was pasted into. [`Deflate.rgr`](../pdf_writer/src/raster/Deflate.rgr)
+> into whatever document it was pasted into. [`Deflate.rgr`](../../lib/image/Deflate.rgr)
 > is the fix — LZ77 against a three-byte hash, fixed Huffman — and the
 > artifacts here went from 1.5 MB each to 30-130 KB.
 > `tools/check_png.py` hands every one of them to Python's `zlib`, because our
@@ -1418,7 +1418,7 @@ whole of it: `actualBoundingBoxAscent` is the ink of *these particular
 letters* — "moon" has neither ascender nor descender, "Ãg" has both — and is
 what the atlas slot must be big enough to hold; `fontBoundingBoxAscent` is the
 **face's** ascent, the same number for every string in the font, and is what
-the baseline is measured from. `gallery/evg/gl/evg-webgl.js` now places the
+the baseline is measured from. `lib/evg/gl/evg-webgl.js` now places the
 baseline one face-ascent below the command's y, which is what
 `UITextRenderer.drawText` does on the software side. The two paths draw the
 same picture again.

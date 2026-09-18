@@ -78,15 +78,15 @@ fi
 cp "$WEB/index.html" "$OUT/index.html"
 cp "$WEB/standalone.mjs" "$OUT/standalone.mjs"
 mkdir -p "$OUT/gl" "$OUT/fonts"
-cp gallery/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
+cp lib/evg/gl/evg-webgl.js "$OUT/gl/evg-webgl.js"
 # The keep-or-build policy for a frame drawn at a view it was not built at:
 # the band and the region, as arithmetic on plain numbers. See
-# gallery/evg/PLAN_VIEW_TRANSFORM.md.
-cp gallery/evg/gl/evg-view.js "$OUT/gl/evg-view.js"
+# lib/evg/PLAN_VIEW_TRANSFORM.md.
+cp lib/evg/gl/evg-view.js "$OUT/gl/evg-view.js"
 # The module half of the head this build writes, shared with every other
 # gallery page: it picks up the responses the head started.
 mkdir -p "$OUT/evg"
-cp gallery/evg/web/tools/assets-client.mjs "$OUT/evg/assets-client.mjs"
+cp lib/evg/web/tools/assets-client.mjs "$OUT/evg/assets-client.mjs"
 FONT_SRC=gallery/pdf_writer/assets/fonts/Noto_Sans
 cp "$FONT_SRC/NotoSans-Regular.ttf" "$OUT/fonts/NotoSans-Regular.ttf"
 cp "$FONT_SRC/NotoSans-Bold.ttf" "$OUT/fonts/NotoSans-Bold.ttf"
@@ -120,8 +120,8 @@ node -e "
 # page cannot make for itself. The FONTS here are loaded by the browser through
 # `FontFace(url)` rather than by fetch, so they are not in this list: starting
 # them here would risk a second request rather than saving one.
-node gallery/evg/web/tools/minify.mjs --file "$OUT/rangerflow_web.js" --keep RangerFlowWeb || exit 1
-node gallery/evg/web/tools/inline-assets.mjs \
+node lib/evg/web/tools/minify.mjs --file "$OUT/rangerflow_web.js" --keep RangerFlowWeb || exit 1
+node lib/evg/web/tools/inline-assets.mjs \
   --html "$OUT/index.html" \
   --start "ecommerce.sql" \
   --preload-stamped "standalone.mjs,gl/evg-webgl.js,gl/evg-view.js" \

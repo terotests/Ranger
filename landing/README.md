@@ -40,7 +40,7 @@ Ranger's mark existed as a bitmap and nothing else: `assets/logo/ranger-mark.png
 is the project's avatar at 304 × 304, the same shield as
 `ranger-vscode-extension/icons/ranger-file-icon.svg`.
 
-`tools/logo.mjs` hands it to `gallery/evg/tools/evg_trace_cli.rgr` — the bitmap
+`tools/logo.mjs` hands it to `lib/evg/tools/evg_trace_cli.rgr` — the bitmap
 tracer — which posterises it into flat colour regions, walks each region's
 edges, finds the corners, fits cubics between them, and writes each layer back
 as one evenodd path. Three of its settings are what make the outline come out
@@ -83,7 +83,7 @@ time and writes the display list — flat draw commands in absolute pixels —
 including the `evg-surface-effect: ripple` block the stylesheet declares.
 
 `assets/hero/hero.js` then draws that list on the GPU every frame through
-`gallery/evg/gl/evg-webgl.js`, the same WebGL 2 painter the PowerPoint editor
+`lib/evg/gl/evg-webgl.js`, the same WebGL 2 painter the PowerPoint editor
 and the node-graph editor use, and pushes drops into `list.effect.drops` as
 the pointer moves. The painter is copied into the build rather than forked
 here, so the front page cannot drift from the renderer it is demonstrating.

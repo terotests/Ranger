@@ -8,7 +8,7 @@
 ; Compile ES6: npm run pdf:compile
 ; Run: npm run pdf:run
 
-Import "Buffer.rgr"
+Import "pkg:image/Buffer.rgr"
 Import "../jpeg/JPEGReader.rgr"
 Import "../jpeg/JPEGMetadata.rgr"
 

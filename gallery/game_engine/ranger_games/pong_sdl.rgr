@@ -20,9 +20,9 @@
 ;   ./gallery/game_engine/pong_sdl 120    ; headless-friendly: render 120 frames, exit
 ; ==============================================================================
 
-Import "./pong_core.rgr"
+Import "pong_core.rgr"
 Import "../framebuffer.rgr"
-Import "./pong_render.rgr"
+Import "pong_render.rgr"
 Import "../gfx_sdl.rgr"
 
 ; ------------------------------------------------------------------------------
