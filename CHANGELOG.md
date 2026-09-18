@@ -16,7 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   handed to that tracer as SVG. `npm run erazer:test` paints synthetic
   UI-library fixtures with a 5×7 face and checks the tree; `npm run
   erazer -- in.png out.evg.json` is the CLI; `npm run erazer:web:serve`
-  is the live page.
+  is the live page. `npm run erazer:shots` captures HTML/CSS widgets
+  (login, tabs, menu, toolbar, dialog, buttons, sidebar) and the live
+  page itself.
 - **CodeGraph diffs two git revisions.** `codegraph_cli … --diff=base..head`
   (or `--diff=base` against the working tree) and the desktop **Diff**
   button check each side out as a detached worktree, analyse it the way

@@ -26,15 +26,18 @@ const COMPONENTS = path.join(HERE, "components.html");
 const CLI = path.join(HERE, "../bin/erazer_cli.js");
 const NAMES = ["login", "settings", "tabs", "menu", "toolbar", "dialog", "buttons", "nav"];
 
+// Headless Chrome's --window-size is the outer window; a slice of that is
+// chrome UI even in headless=new. Short viewports clipped 36px tabs/buttons
+// down to a 13px strip. Leave generous slack around every fixture.
 const SIZES = {
-  login: [400, 340],
-  settings: [400, 220],
-  tabs: [400, 120],
-  menu: [280, 200],
-  toolbar: [420, 120],
-  dialog: [400, 260],
-  buttons: [400, 120],
-  nav: [280, 240],
+  login: [520, 520],
+  settings: [520, 420],
+  tabs: [520, 320],
+  menu: [420, 420],
+  toolbar: [640, 320],
+  dialog: [520, 480],
+  buttons: [560, 320],
+  nav: [420, 460],
 };
 
 function findChrome() {
@@ -199,6 +202,31 @@ for (const r of results) {
   fs.writeFileSync(path.join(SHOTS, `${r.name}.overlay.html`), html);
 }
 
+const gallery = `<!doctype html><html><head><meta charset="utf-8">
+<style>
+  body { margin: 0; background: #12151b; color: #e8ecf4; font: 14px/1.4 system-ui, sans-serif; }
+  h1 { font-size: 22px; margin: 0 0 6px; }
+  .lead { color: #97a1b4; margin: 0 0 16px; max-width: 80ch; }
+  .wrap { padding: 22px 22px 28px; }
+  .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+  .card { background: #171b23; border: 1px solid #2a3040; border-radius: 10px; overflow: hidden; }
+  .head { padding: 7px 10px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #97a1b4; border-bottom: 1px solid #2a3040; }
+  .stage { background: #e8ecf0; position: relative; }
+  .stage img { display: block; width: 100%; height: auto; }
+  .stage svg { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; }
+</style></head><body><div class="wrap">
+<h1>Erazer on HTML UI components</h1>
+<p class="lead">Real HTML/CSS widgets (form, tabs, menu, dialog, toolbar, buttons, nav). Coloured boxes are what Erazer guessed.</p>
+<div class="grid">
+${results.map((r) => {
+  const svg = fs.readFileSync(r.overlayPath, "utf8");
+  const png = path.basename(r.srcPng);
+  return `<div class="card"><div class="head">${r.name}</div>
+    <div class="stage"><img src="${png}" alt="${r.name}">${svg}</div></div>`;
+}).join("\n")}
+</div></div></body></html>`;
+fs.writeFileSync(path.join(SHOTS, "gallery.html"), gallery);
+
 const review = `<!doctype html><html><head><meta charset="utf-8">
 <style>
   body { margin: 0; background: #12151b; color: #e8ecf4; font: 14px/1.4 system-ui, sans-serif; }
@@ -237,16 +265,16 @@ try {
     await screenshot(
       `http://127.0.0.1:${rev.port}/${r.name}.overlay.html`,
       path.join(SHOTS, `${r.name}-overlay.png`),
-      size.w + 8,
-      size.h + 8,
+      Math.max(size.w + 80, 480),
+      Math.max(size.h + 120, 320),
       1500,
     );
   }
   await screenshot(
-    `http://127.0.0.1:${rev.port}/review.html`,
+    `http://127.0.0.1:${rev.port}/gallery.html`,
     path.join(SHOTS, "html-components.png"),
     1280,
-    2600,
+    860,
     3000,
   );
 } finally {

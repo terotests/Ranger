@@ -35,13 +35,34 @@ npm run erazer:test                 # synthetic UI fixtures (form, tabs, menu, i
 npm run erazer -- in.png out.evg.json
 npm run erazer -- in.png out.evg.json --overlay boxes.svg --outline
 npm run erazer:web:serve            # live page at http://localhost:8008/
+npm run erazer:shots                # HTML widgets + live-page PNGs
 ```
 
 `--ocr false` still reports where the text is and how tall and what colour;
 it skips the atlas. `--vectorizeIcons false` leaves icons as labelled boxes.
 
 The live page paints the same fixtures the tests use — a form, tabs, a menu,
-a plus icon — and also accepts a PNG/JPEG drop. Nothing is uploaded.
+a plus icon — and also accepts a PNG/JPEG drop or an HTML-widget screenshot
+(`?sample=form`, `?png=login.png`). Nothing is uploaded.
+
+## What it looks like
+
+Live page, synthetic 5×7 form (the same fixture the tests paint):
+
+![Erazer live demo, form](shots/demo-form.png)
+
+Three tabs, labelled File / Edit / View:
+
+![Erazer live demo, tabs](shots/demo-tabs.png)
+
+HTML/CSS widgets (login, settings, tabs, menu, toolbar, dialog, buttons, nav)
+with Erazer's overlay on top:
+
+![Erazer on HTML UI components](shots/html-components.png)
+
+A login form screenshot in the live page:
+
+![Erazer live demo, HTML login](shots/demo-html-login.png)
 
 ## Files
 
@@ -54,6 +75,8 @@ a plus icon — and also accepts a PNG/JPEG drop. Nothing is uploaded.
 | `erazer_cli.rgr` | PNG/JPEG in, `.evg.json` out |
 | `ErazerTest.rgr` | the fixtures, asserted |
 | `web/` | the live page |
+| `web/components.html` | HTML/CSS widgets for `erazer:shots` |
+| `shots/` | captured PNGs the live page can load |
 
 It is a heuristic. A photograph of a Mac settings panel will not come back as
 production TSX. The claim the tests make is narrower and checkable: when the
