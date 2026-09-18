@@ -137,7 +137,7 @@
   <div class="mark">RANGER · <span>EVG live build</span></div>
   <form class="ask" id="ask">
     <input id="prompt" name="prompt" autocomplete="off"
-      placeholder="The phone already has a screen — ask for a change, then Build">
+      placeholder="Follow-up: change this phone, then Build. Seed chips start over.">
     <button class="primary" id="go" type="submit">Build</button>
   </form>
   <div class="chips" id="chips"></div>
@@ -235,7 +235,7 @@ async function loadSeed(kind) {
   paintFrame(d);
   $("added").textContent = "seed";
   $("kindLabel").textContent = current;
-  $("think").innerHTML = '<span class="empty">The phone already has a screen. Type a change and press Build — you do not have to wait for a first draft.</span>';
+  $("think").innerHTML = '<span class="empty">This phone is the live document. Type a follow-up and press Build — it edits this screen. Dashboard / Empty start over.</span>';
   $("ops").innerHTML = '<span class="empty">Deltas land here as they apply.</span>';
   $("code").innerHTML = '<span class="empty">Source is streamed with the tree.</span>';
   $("ntok").textContent = "0";
@@ -272,11 +272,13 @@ function start(keepPicture) {
     fn(JSON.parse(ev.data));
   });
   on("session", (d) => {
-    $("kindLabel").textContent = (d.agent ? d.agent + " · " : "") + d.kind;
-    current = d.kind;
-    chips.querySelectorAll(".chip").forEach((c, i) => {
-      c.classList.toggle("active", kinds.kinds[i] && kinds.kinds[i].id === d.kind);
-    });
+    $("kindLabel").textContent = (d.agent ? d.agent + " · " : "") + (d.followUp ? "follow-up" : d.kind);
+    if (!d.followUp && d.kind) {
+      current = d.kind;
+      chips.querySelectorAll(".chip").forEach((c, i) => {
+        c.classList.toggle("active", kinds.kinds[i] && kinds.kinds[i].id === d.kind);
+      });
+    }
   });
   on("think", (d) => {
     if (thinkStarted) $("think").append("\n\n");

@@ -99,8 +99,6 @@ try {
   await page.fill("#prompt", "Build me a settings screen with notifications");
   await page.click("#go");
   await waitDone("prompt");
-  const kind = (await page.locator("#kindLabel").innerText()).trim().toLowerCase();
-  if (!kind.includes("settings")) throw new Error(`prompt mapped to ${kind}, want settings`);
 
   await page.getByRole("button", { name: "Dashboard", exact: true }).click();
   await page.waitForFunction(

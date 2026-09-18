@@ -15,7 +15,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { listAgents, runTask, frameFixture, seedDoc } from "./agents.mjs";
+import { listAgents, runTask, frameFixture, seedDoc, resetSession, readSessionDoc, writeSessionDoc } from "./agents.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "../../..");
@@ -27,6 +27,8 @@ const DEFAULT_AGENT = process.env.EVG_LIVEBUILD_DEFAULT_AGENT || "recipe";
 const KINDS = new Set(["dashboard", "settings", "invoices", "empty"]);
 let lastDoc = seedDoc("dashboard");
 let lastKind = "dashboard";
+resetSession("dashboard");
+lastDoc = readSessionDoc() || lastDoc;
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -91,7 +93,7 @@ function send(res, status, type, body) {
   res.end(body);
 }
 
-function streamBuild(res, { kind, agent, prompt, paceMs, seed }) {
+function streamBuild(res, { kind, agent, prompt, paceMs, seed, session }) {
   res.writeHead(200, {
     "content-type": "text/event-stream; charset=utf-8",
     "cache-control": "no-store",
@@ -119,9 +121,6 @@ function streamBuild(res, { kind, agent, prompt, paceMs, seed }) {
     try {
       const obj = JSON.parse(trimmed);
       if (obj && typeof obj.t === "string") t = obj.t;
-      if (t === "doc" && typeof obj.text === "string" && obj.text.trim().startsWith("{")) {
-        lastDoc = obj.text;
-      }
     } catch {
       t = "raw";
     }
@@ -129,7 +128,19 @@ function streamBuild(res, { kind, agent, prompt, paceMs, seed }) {
     res.write(`data: ${trimmed}\n\n`);
   };
 
+  const noteDoc = (line) => {
+    try {
+      const obj = JSON.parse(String(line).trim());
+      if (obj && obj.t === "doc" && typeof obj.text === "string" && writeSessionDoc(obj.text)) {
+        lastDoc = obj.text;
+      }
+    } catch {
+      /* not json */
+    }
+  };
+
   const pace = (line) => {
+    noteDoc(line);
     chain = chain.then(async () => {
       if (closed) return;
       emit(line);
@@ -148,6 +159,7 @@ function streamBuild(res, { kind, agent, prompt, paceMs, seed }) {
     kind,
     prompt,
     seed,
+    session,
     onLine: pace,
     signal: ac.signal,
   })
@@ -246,7 +258,8 @@ function main() {
         ? url.searchParams.get("kind")
         : "dashboard";
       const framed = frameFixture(kind);
-      lastDoc = framed.doc;
+      resetSession(kind);
+      lastDoc = readSessionDoc() || framed.doc;
       lastKind = kind;
       const frame = framed.events.find((e) => e && e.t === "frame") || {};
       send(
@@ -275,7 +288,8 @@ function main() {
         kind,
         agent,
         prompt,
-        seed: lastDoc,
+        seed: readSessionDoc() || lastDoc,
+        session: true,
         paceMs: Number.isFinite(pace) ? pace : 28,
       });
       return;
