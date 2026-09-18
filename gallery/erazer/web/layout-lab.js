@@ -175,54 +175,96 @@
     }
   };
 
-  function inlineClone(el) {
-    var clone = el.cloneNode(true);
+  function copyComputed(srcEl, dstEl) {
+    var cs = getComputedStyle(srcEl);
+    var parts = [];
+    for (var k = 0; k < COPY_KEYS.length; k++) {
+      parts.push(COPY_KEYS[k] + ":" + cs.getPropertyValue(COPY_KEYS[k]));
+    }
+    dstEl.setAttribute("style", parts.join(";") + ";" + (dstEl.getAttribute("style") || ""));
+  }
+
+  function inlineCloneXhtml(el) {
+    var xhtmlDoc = document.implementation.createDocument(
+      "http://www.w3.org/1999/xhtml", "div", null
+    );
+    var wrap = xhtmlDoc.documentElement;
+    wrap.setAttribute("xmlns", "http://www.w3.org/1999/xhtml");
+    var clone = xhtmlDoc.importNode(el, true);
+    wrap.appendChild(clone);
     var src = [el].concat(Array.prototype.slice.call(el.querySelectorAll("*")));
     var dst = [clone].concat(Array.prototype.slice.call(clone.querySelectorAll("*")));
-    for (var i = 0; i < src.length && i < dst.length; i++) {
-      var cs = getComputedStyle(src[i]);
-      var parts = [];
-      for (var k = 0; k < COPY_KEYS.length; k++) {
-        parts.push(COPY_KEYS[k] + ":" + cs.getPropertyValue(COPY_KEYS[k]));
-      }
-      dst[i].setAttribute("style", parts.join(";") + ";" + (dst[i].getAttribute("style") || ""));
-    }
-    return clone;
+    for (var i = 0; i < src.length && i < dst.length; i++) copyComputed(src[i], dst[i]);
+    return wrap;
   }
+
+  lab.paintRoleCanvas = function (group, boxes) {
+    var w = Math.max(1, Math.ceil(group && group.w ? group.w : 1));
+    var h = Math.max(1, Math.ceil(group && group.h ? group.h : 1));
+    var c = document.createElement("canvas");
+    c.width = w;
+    c.height = h;
+    var ctx = c.getContext("2d");
+    ctx.fillStyle = "#e8ecf0";
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(1, 1, Math.max(0, w - 2), Math.max(0, h - 2));
+    var fills = {
+      panel: "#f8fafc", button: "#2563eb", textfield: "#e5e7eb",
+      label: "#111827", checkbox: "#ffffff", icon: "#111827", tab: "#e5e7eb"
+    };
+    for (var i = 0; i < boxes.length; i++) {
+      var b = boxes[i];
+      ctx.fillStyle = fills[b.type] || "#cbd5e1";
+      ctx.fillRect(b.x, b.y, Math.max(1, b.w), Math.max(1, b.h));
+      ctx.strokeStyle = "#111827";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(b.x + 0.5, b.y + 0.5, Math.max(1, b.w), Math.max(1, b.h));
+    }
+    return c;
+  };
 
   lab.rasterizeElement = function (el, mime) {
     mime = mime || "image/png";
     var w = Math.max(1, Math.ceil(el.scrollWidth || el.offsetWidth));
     var h = Math.max(1, Math.ceil(el.scrollHeight || el.offsetHeight));
-    var clone = inlineClone(el);
-    var xhtml = '<div xmlns="http://www.w3.org/1999/xhtml" style="margin:0;width:' +
-      w + "px;height:" + h + 'px">' + clone.outerHTML + "</div>";
+    var wrap = inlineCloneXhtml(el);
+    wrap.setAttribute("style", "margin:0;width:" + w + "px;height:" + h + "px");
+    var xhtml = new XMLSerializer().serializeToString(wrap);
     var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + w + '" height="' + h + '">' +
       '<foreignObject width="100%" height="100%">' + xhtml + "</foreignObject></svg>";
-    var blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
-    var url = URL.createObjectURL(blob);
+    var url = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
     return new Promise(function (resolve, reject) {
+      var done = false;
       var img = new Image();
+      var timer = setTimeout(function () {
+        if (done) return;
+        done = true;
+        reject(new Error("SVG-foreignObject aikakatkaistiin"));
+      }, 8000);
+      function finish(err, result) {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        if (err) reject(err);
+        else resolve(result);
+      }
       img.onload = function () {
-        var c = document.createElement("canvas");
-        c.width = w;
-        c.height = h;
-        var ctx = c.getContext("2d");
-        ctx.fillStyle = "#e8ecf0";
-        ctx.fillRect(0, 0, w, h);
-        ctx.drawImage(img, 0, 0);
-        URL.revokeObjectURL(url);
-        c.toBlob(function (out) {
-          if (!out) {
-            reject(new Error("canvas.toBlob epäonnistui"));
-            return;
-          }
-          resolve({ canvas: c, blob: out, mime: mime, width: w, height: h });
-        }, mime, mime.indexOf("jpeg") >= 0 ? 0.92 : undefined);
+        try {
+          var c = document.createElement("canvas");
+          c.width = w;
+          c.height = h;
+          var ctx = c.getContext("2d");
+          ctx.fillStyle = "#e8ecf0";
+          ctx.fillRect(0, 0, w, h);
+          ctx.drawImage(img, 0, 0);
+          finish(null, { canvas: c, mime: mime, width: w, height: h });
+        } catch (err) {
+          finish(err);
+        }
       };
       img.onerror = function () {
-        URL.revokeObjectURL(url);
-        reject(new Error("SVG-foreignObject-rasterointi epäonnistui"));
+        finish(new Error("SVG-foreignObject-rasterointi epäonnistui"));
       };
       img.src = url;
     });
@@ -609,10 +651,14 @@
       try {
         log("   HTML → PNG");
         raster = await lab.rasterizeElement(node, "image/png");
+        log("   PNG " + raster.width + "×" + raster.height);
         if (showCanvas) showCanvas(raster.canvas, name);
         await waitFrame();
       } catch (err) {
-        log("   rasterointi epäonnistui: " + err.message);
+        log("   rasterointi epäonnistui (" + err.message + "), piirretään boksit");
+        var fallback = lab.paintRoleCanvas(measured.group, measured.boxes);
+        raster = { canvas: fallback, mime: "image/png", width: fallback.width, height: fallback.height, fallback: true };
+        if (showCanvas) showCanvas(fallback, name);
       }
       if (measured.boxes.length >= 2) {
         await lab.saveSample({
@@ -649,7 +695,8 @@
           added++;
         }
       }
-      await sleep(80);
+      if (hooks.progress) hooks.progress({ added: added, name: name, concept: concept });
+      await sleep(40);
     }
     host.innerHTML = "";
     var total = await lab.countSamples();
