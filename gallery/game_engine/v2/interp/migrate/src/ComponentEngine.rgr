@@ -1667,6 +1667,10 @@ class ComponentEngine {
     ; written through one reference invisible through the next -- a class was a
     ; different object every time it was mentioned.
     def classValues:[string:EvHandle]
+    ; The source position of the node each class value was built from: the
+    ; table is keyed by name, so a second `class A` elsewhere replaces the
+    ; node, and its value must be rebuilt rather than served from the memo.
+    def classValueStamps:[string:string]
 
     ; Parsed program AST kept for in-process hot reload (patchScript).
     def programAst@(optional):TSNode
@@ -8542,6 +8546,7 @@ class ComponentEngine {
     }
 
     fn assignMemberResolved:EvHandle (leftNode:TSNode opK:int rightValue:EvHandle baseIn:EvHandle hasBase:boolean keyIn:string hasKey:boolean) {
+        def superWrite:boolean false
         def obj:EvHandle (EvValueBridge.taggedNull())
         def objName:string ""
         if hasBase {
@@ -8556,6 +8561,7 @@ class ComponentEngine {
             ; landed on null.
             if (objNode.nodeType == "Super") {
                 obj = (context.lookup("this"))
+                superWrite = true
             } {
                 if ((this.nodeKindOf(objNode)) == 1) {
                     objName = objNode.name
@@ -8843,6 +8849,59 @@ class ComponentEngine {
                     ; elements, which no dense container can materialise.
                     this.setArrayLength(obj lenU)
                     return lenWant
+                }
+            }
+            ; D-SUPER: `super.x = v` is OrdinarySet on the home object's
+            ; PROTOTYPE with `this` as receiver (§12.3.5.3, §9.1.9): a setter
+            ; found up that chain runs against `this`; otherwise the value is
+            ; DEFINED on `this` directly -- never through a setter `this` itself
+            ; owns, which is what recursed on `set x(v) { super.x = v }`. A
+            ; receiver that refuses the definition (frozen) is a TypeError in
+            ; strict code.
+            if (superWrite && (opK == 1)) {
+                def swHome:string currentHomeClass
+                if ((strlen swHome) == 0) {
+                    swHome = (this.instanceClassName(obj))
+                }
+                def swStart:EvHandle (EvValueBridge.taggedNull())
+                if ((strlen swHome) > 0) {
+                    def swv:EvHandle (this.classValueFor(swHome))
+                    def swp:EvHandle (swv.getMember("prototype"))
+                    if (this.isDescriptorObject(swp)) {
+                        swStart = (this.protoOfValue(swp))
+                    }
+                }
+                if (this.isDescriptorObject(swStart)) {
+                    def swSet:EvHandle (this.resolveSetterOn(swStart key))
+                    if (swSet.isFunction()) {
+                        def swArgs:[EvHandle]
+                        push swArgs rightValue
+                        if (swSet.hasFunctionNode()) {
+                            def _sws:EvHandle (this.callFnValueWithValues((swSet.withThisForCall(obj)) swArgs))
+                        } {
+                            if (swSet.isBuiltinMethod()) {
+                                def _swb:EvHandle (this.invokeBuiltin((swSet.builtinKindOf()) (swSet.builtinNameOf()) obj swArgs))
+                            }
+                        }
+                        return rightValue
+                    }
+                }
+                if (this.isDescriptorObject(obj)) {
+                    if ((obj.hasOwnGetter(key)) || (obj.hasOwnSetter(key))) {
+                        if strictMode {
+                            return (this.throwSpecError("TypeError" ("Cannot redefine accessor property " + key)))
+                        }
+                        return rightValue
+                    }
+                    def swErr:string (this.writeRefusalError(obj key))
+                    if ((strlen swErr) > 0) {
+                        if strictMode {
+                            return (this.throwSpecError("TypeError" swErr))
+                        }
+                        return rightValue
+                    }
+                    obj.setMember(key rightValue)
+                    return rightValue
                 }
             }
             ; D-ACCESSORS: a setter takes the write instead of storing a data
@@ -9861,6 +9920,15 @@ class ComponentEngine {
                         }
                     }
                     def declared:boolean (context.has(varName))
+                    ; §14.5.14 step 6: the class's inner name binding is
+                    ; immutable, so `C = 1` inside C is a TypeError.
+                    if (false == declared) {
+                        if strictMode {
+                            if (has classes varName) {
+                                return (this.throwSpecError("TypeError" "Assignment to constant variable."))
+                            }
+                        }
+                    }
                     if (false == declared) {
                         if (this.isEngineGlobalName(varName)) {
                             declared = true
@@ -20253,7 +20321,11 @@ class ComponentEngine {
                     ; the base -- and THEN finds `this` already bound, which
                     ; is the ReferenceError. `this` is not available while the
                     ; arguments are evaluated: `super(this.x)` is that error too.
-                    def superAlready:boolean (superCallCount > 0)
+                    ; `this` already bound -- by an earlier super() in this
+                    ; constructor, or because the call comes from an arrow
+                    ; run after construction finished -- is the same error,
+                    ; found after the base has been constructed.
+                    def superAlready:boolean ((superCallCount > 0) || (false == derivedCtorPending))
                     superCallCount = (superCallCount + 1)
                     superCallResult = (EvValueBridge.taggedUndefined())
                     def selfV:EvHandle (context.lookup("this"))
@@ -21087,7 +21159,18 @@ class ComponentEngine {
                     if node.right {
                         def rvF:EvHandle (this.evaluateExpr((unwrap node.right)))
                         if (rvF.isFunction()) {
+                            ; §19.2.3.6 OrdinaryHasInstance step 4: Get(C,
+                            ; "prototype") -- an accessor named `prototype`
+                            ; runs, and its throw is the answer.
                             def protoF:EvHandle (rvF.getMember("prototype"))
+                            if (rvF.hasOwnGetter("prototype")) {
+                                def pGetter:EvHandle (rvF.getOwnGetter("prototype"))
+                                def pgArgs:[EvHandle]
+                                protoF = (this.callFnValueWithValues((pGetter.withThisForCall(rvF)) pgArgs))
+                                if scriptThrew {
+                                    return (EvValueBridge.taggedUndefined())
+                                }
+                            }
                             def protoIsObject:boolean false
                             if (protoF.isObject()) { protoIsObject = true }
                             if (protoF.isArrayValue()) { protoIsObject = true }
@@ -41609,6 +41692,11 @@ class ComponentEngine {
     ; CURRENT `this`, and with the class it was found on as the home
     ; register, so a further `super.m()` inside it keeps climbing.
     fn callSuperMethod:EvHandle (node:TSNode callee:TSNode) {
+        ; D-SUPERCALL: `super.m()` reads `this`, which a derived constructor
+        ; does not have until super() has run.
+        if derivedCtorPending {
+            return (this.throwSpecError("ReferenceError" "Must call super constructor in derived class before accessing 'this'"))
+        }
         def mName:string callee.name
         if ((strlen mName) == 0) {
             if callee.right {
@@ -41692,40 +41780,6 @@ class ComponentEngine {
     ; arguments were already evaluated. Only the builtin-base and
     ; implicit-forward cases can be reached that way -- a class with an explicit
     ; constructor runs its own body, which does its own super() call.
-    fn runSuperConstructorValues:void (cls:TSNode inst:EvHandle argVals:[EvHandle] depth:int) {
-        if (depth > 16) {
-            return
-        }
-        def supName:string (this.superClassNameOf(cls))
-        if ((strlen supName) == 0) {
-            return
-        }
-        def supCls:TSNode (this.classNodeByName(supName))
-        if ((this.nodeKindOf(supCls)) != 25) {
-            if (this.isBuiltinCtorName(supName)) {
-                this.initFromBuiltinBase(supName inst argVals)
-            }
-            return
-        }
-        def sCtor:TSNode (this.findConstructorOnClassNode(supCls))
-        if (sCtor.nodeType == "MethodDefinition") {
-            def savedHomeS:string currentHomeClass
-            currentHomeClass = supName
-            pendingNewTarget = currentNewTarget
-            hasPendingNewTarget = true
-            def savedRBv:EvHandle superReboundThis
-            superReboundThis = (EvValueBridge.taggedUndefined())
-            def _sr:EvHandle (this.callUserFunctionValues(sCtor argVals inst))
-            def gotRBv:EvHandle superReboundThis
-            superReboundThis = savedRBv
-            currentHomeClass = savedHomeS
-            this.noteSuperCtorResult(_sr gotRBv inst)
-            return
-        }
-        def nd:int (depth + 1)
-        this.runSuperConstructorValues(supCls inst argVals nd)
-    }
-
     ; §9.2.2 step 13: an object the base constructor RETURNED -- or the one
     ; its own super() rebound `this` to -- replaces the instance under
     ; construction. Reported through superCallResult to the super() site or
@@ -41744,7 +41798,10 @@ class ComponentEngine {
         }
     }
 
-    fn runSuperConstructor:void (cls:TSNode inst:EvHandle argNodes:[TSNode] depth:int) {
+    ; Run the base-class constructor against an instance under construction,
+    ; with the arguments already evaluated. Walks the chain so a three-deep
+    ; hierarchy initialises every level.
+    fn runSuperConstructorValues:void (cls:TSNode inst:EvHandle argVals:[EvHandle] depth:int) {
         if (depth > 16) {
             return
         }
@@ -41758,8 +41815,6 @@ class ComponentEngine {
             ; extends function Parent() {}`. It is constructed against the
             ; instance being built, with the derived class as new.target, and
             ; an object it returns becomes the derived constructor's `this`.
-            ; The chain walk used to stop at a non-class base, so the base
-            ; body never ran and its fields never arrived.
             if (false == (this.isBuiltinCtorName(supName))) {
                 def baseFnV:EvHandle (EvValueBridge.taggedUndefined())
                 def recordedBase@(optional):EvHandle (get classSuperValues cls.name)
@@ -41770,18 +41825,9 @@ class ComponentEngine {
                 }
                 if (baseFnV.isFunction()) {
                     if (baseFnV.hasFunctionNode()) {
-                        def fArgs:[EvHandle]
-                        def fi2:int 0
-                        while (fi2 < (array_length argNodes)) {
-                            push fArgs (this.evaluateExpr((itemAt argNodes fi2)))
-                            if scriptThrew {
-                                return
-                            }
-                            fi2 = (fi2 + 1)
-                        }
                         pendingNewTarget = currentNewTarget
                         hasPendingNewTarget = true
-                        def fRes:EvHandle (this.callFnValueWithValues((baseFnV.withThisForCall(inst)) fArgs))
+                        def fRes:EvHandle (this.callFnValueWithValues((baseFnV.withThisForCall(inst)) argVals))
                         hasPendingNewTarget = false
                         if (this.isDescriptorObject(fRes)) {
                             superCallResult = fRes
@@ -41791,24 +41837,14 @@ class ComponentEngine {
                 }
             }
             ; D-CLASSBUILTIN: `class E extends TypeError`. The base is a
-            ; BUILT-IN constructor, not a class node, so the chain walk stopped
-            ; and `super(msg)` did nothing at all -- the instance carried no
-            ; message and was not an Error by any test.
+            ; BUILT-IN constructor, not a class node, so the chain walk stops
+            ; here and the built-in gives the instance its internal state.
             if (this.isBuiltinCtorName(supName)) {
-                def bArgs:[EvHandle]
-                def bi2:int 0
-                while (bi2 < (array_length argNodes)) {
-                    push bArgs (this.evaluateExpr((itemAt argNodes bi2)))
-                    if scriptThrew {
-                        return
-                    }
-                    bi2 = (bi2 + 1)
-                }
-                this.initFromBuiltinBase(supName inst bArgs)
+                this.initFromBuiltinBase(supName inst argVals)
             }
             return
         }
-        ; Base field initialisers first, then its constructor — the same order
+        ; Base field initialisers first, then its constructor -- the same order
         ; `new` uses, so a field the base constructor overwrites ends up correct.
         if supCls.body {
             def sBody:TSNode (unwrap supCls.body)
@@ -41845,20 +41881,57 @@ class ComponentEngine {
             def savedDerivedS:boolean derivedCtorPending
             superCallCount = 0
             pendingDerivedCtor = (this.classIsDerived(supCls))
-            def savedRBn:EvHandle superReboundThis
+            def savedRBv:EvHandle superReboundThis
             superReboundThis = (EvValueBridge.taggedUndefined())
-            def _sr:EvHandle (this.callUserFunctionNode(sCtor argNodes inst true))
-            def gotRBn:EvHandle superReboundThis
-            superReboundThis = savedRBn
-            this.noteSuperCtorResult(_sr gotRBn inst)
+            def _sr:EvHandle (this.callUserFunctionValues(sCtor argVals inst))
+            def gotRBv:EvHandle superReboundThis
+            superReboundThis = savedRBv
+            this.noteSuperCtorResult(_sr gotRBv inst)
             superCallCount = savedSuperCnt
             derivedCtorPending = savedDerivedS
             currentHomeClass = savedHomeS
-        } {
-            ; No explicit constructor: an implicit one just forwards upward.
-            def nd:int (depth + 1)
-            this.runSuperConstructor(supCls inst argNodes nd)
+            return
         }
+        ; No explicit constructor: an implicit one just forwards upward.
+        def nd:int (depth + 1)
+        this.runSuperConstructorValues(supCls inst argVals nd)
+    }
+
+    ; super(...argNodes): §12.3.5.1 steps 2-4. The arguments are evaluated
+    ; first -- in order, with `this` still unbound and a throw from any of
+    ; them ending the call -- and only then is the base constructed. They are
+    ; evaluated even when the base has no constructor of its own, because the
+    ; implicit one forwards them.
+    fn runSuperConstructor:void (cls:TSNode inst:EvHandle argNodes:[TSNode] depth:int) {
+        def vals:[EvHandle]
+        def ai:int 0
+        while (ai < (array_length argNodes)) {
+            def argNode:TSNode (itemAt argNodes ai)
+            if (argNode.nodeType == "SpreadElement") {
+                if argNode.left {
+                    def spreadV:EvHandle (this.evaluateExpr((unwrap argNode.left)))
+                    if scriptThrew {
+                        return
+                    }
+                    def spreadItems:[EvHandle] (this.forOfItemList(spreadV))
+                    if scriptThrew {
+                        return
+                    }
+                    def spi:int 0
+                    while (spi < (array_length spreadItems)) {
+                        push vals (itemAt spreadItems spi)
+                        spi = (spi + 1)
+                    }
+                }
+            } {
+                push vals (this.evaluateExpr(argNode))
+                if scriptThrew {
+                    return
+                }
+            }
+            ai = (ai + 1)
+        }
+        this.runSuperConstructorValues(cls inst vals depth)
     }
 
     ; D-CLASSBUILTIN: give an instance the internal state its BUILT-IN base
@@ -41957,12 +42030,60 @@ class ComponentEngine {
                 }
             }
         }
+        def gaveMessage:boolean false
+        if ((array_length args) > 0) {
+            if (false == ((itemAt args 0).isUndefined())) {
+                gaveMessage = true
+            }
+        }
         def ks:[string] (this.objectKeys(built))
         def i:int 0
         while (i < (array_length ks)) {
             def k:string (itemAt ks i)
-            inst.setMember(k (built.getMember(k)))
+            ; §19.5.1.1 step 4: an error's own `message` exists only when a
+            ; message argument was given.
+            def skipKey:boolean false
+            if (k == "message") {
+                if (false == gaveMessage) { skipKey = true }
+            }
+            if (false == skipKey) {
+                inst.setMember(k (built.getMember(k)))
+            }
             i = (i + 1)
+        }
+        ; §21.2.3.2.2: `lastIndex` is writable, non-enumerable and
+        ; non-configurable on every RegExp, subclass instances included. The
+        ; pattern state -- source, flags, the flag booleans -- is
+        ; non-enumerable too, so the key walk above missed all of it and a
+        ; subclass instance matched as the empty pattern.
+        if (baseName == "RegExp") {
+            def reKeys:[string]
+            push reKeys "source"
+            push reKeys "flags"
+            push reKeys "global"
+            push reKeys "ignoreCase"
+            push reKeys "multiline"
+            push reKeys "sticky"
+            push reKeys "unicode"
+            push reKeys "dotAll"
+            push reKeys "hasIndices"
+            push reKeys "unicodeSets"
+            def rki:int 0
+            while (rki < (array_length reKeys)) {
+                def rk:string (itemAt reKeys rki)
+                def rkv:EvHandle (built.getMember(rk))
+                if ((rkv.isString()) || (rkv.isBoolean())) {
+                    ; An OWN definition: setMember would find the accessor of
+                    ; the same name on RegExp.prototype and hand the write to
+                    ; it instead.
+                    inst.putOwnData(rk rkv)
+                    inst.setAttrs(rk false false false)
+                }
+                rki = (rki + 1)
+            }
+            if (inst.hasOwnData("lastIndex")) {
+                inst.setAttrs("lastIndex" true false false)
+            }
         }
         ; The internal slots the key walk does not see, because they are hidden.
         def slots:[string]
@@ -41987,12 +42108,6 @@ class ComponentEngine {
         ; skips: both are non-enumerable. §19.5.1.1 step 4: the own `message`
         ; exists only when a message ARGUMENT was given -- `new E()` inherits
         ; the prototype's.
-        def gaveMessage:boolean false
-        if ((array_length args) > 0) {
-            if (false == ((itemAt args 0).isUndefined())) {
-                gaveMessage = true
-            }
-        }
         if (built.hasOwnData("message")) {
             if gaveMessage {
                 inst.setMember("message" (built.getOwnData("message")))
@@ -42055,29 +42170,9 @@ class ComponentEngine {
                         }
                     }
                 }
-                ; D-CLASSACCESSORS: `get v() {}` / `set v(x) {}` in a class body
-                ; install as real accessors on the instance. Without this the
-                ; member read returned the accessor FUNCTION instead of calling
-                ; it, which type-checks as a function and silently misbehaves.
-                if (m.nodeType == "MethodDefinition") {
-                    def mk:string m.accessor
-                    if ((strlen mk) == 0) {
-                        mk = m.kind
-                    }
-                    ; A STATIC accessor belongs to the class value, not to the
-                    ; instance: installed here it shadowed the prototype's
-                    ; accessor of the same name.
-                    if (m.kind == "static") { mk = "" }
-                    if ((mk == "get") || (mk == "set")) {
-                        def accFn:EvHandle (EvValueBridge.taggedBoundMethod(m inst))
-                        this.stampSrcOn(accFn)
-                        if (mk == "get") {
-                            inst.defineGetter(m.name accFn)
-                        } {
-                            inst.defineSetter(m.name accFn)
-                        }
-                    }
-                }
+                ; Accessors are properties of the PROTOTYPE (buildClassPrototype);
+                ; a per-instance copy shadowed a later redefinition of the
+                ; same name and a static accessor's instance twin.
                 i = (i + 1)
             }
             context = savedCtx
@@ -42087,14 +42182,24 @@ class ComponentEngine {
 
     fn classValueFor:EvHandle (name:string) {
         def ckey:string (currentModule + ("::" + name))
+        def stampNode:TSNode (this.classNodeByName(name))
+        def stamp:string ((to_string stampNode.start) + (":" + (to_string stampNode.line)))
         def found@(optional):EvHandle (get classValues ckey)
         if (!null? found) {
-            return (unwrap found)
+            def oldStamp@(optional):string (get classValueStamps ckey)
+            if oldStamp {
+                if ((unwrap oldStamp) == stamp) {
+                    return (unwrap found)
+                }
+            } {
+                return (unwrap found)
+            }
         }
         def cv:EvHandle (EvValueBridge.taggedNativeFunction(name))
         ; Publish before wiring: the prototype's `constructor` points back here
         ; and a field initialiser may mention the class by name.
         set classValues ckey cv
+        set classValueStamps ckey stamp
         cv.setMember("__classname__" (EvValueBridge.taggedString(name)))
         cv.setMember("name" (EvValueBridge.taggedString(name)))
         cv.setAttrs("name" false false true)
@@ -42415,6 +42520,9 @@ class ComponentEngine {
                     } {
                         mv.addSuppressed("prototype")
                     }
+                    ; §14.5.1: class code is strict, so the method value has
+                    ; no own caller/arguments and poisons both.
+                    mv.setStrictFn(true)
                     ; An accessor's name carries its kind -- the getter for `g`
                     ; is named "get g", not "g".
                     def mName:string (this.functionNameForKey(mKey))
@@ -44295,9 +44403,28 @@ class ComponentEngine {
                         return fieldV
                     }
                 }
+                ; An ACCESSOR on the prototype chain answers the read: the
+                ; class-node lookup below would hand back the getter itself
+                ; as a bound method.
+                def accG:EvHandle (this.resolveGetterOn(obj propName))
+                if (accG.isFunction()) {
+                    def accArgs:[EvHandle]
+                    if (accG.hasFunctionNode()) {
+                        return (this.callFnValueWithValues((accG.withThisForCall(obj)) accArgs))
+                    }
+                    if (accG.isBuiltinMethod()) {
+                        return (this.invokeBuiltin((accG.builtinKindOf()) (accG.builtinNameOf()) obj accArgs))
+                    }
+                }
+                if (obj.hasSetterFor(propName)) {
+                    return (EvValueBridge.taggedUndefined())
+                }
                 def mcls:TSNode (this.classNodeForInstance(obj))
                 def mnode:TSNode (this.findMethodOnClassNode(mcls propName))
-                if (mnode.nodeType == "MethodDefinition") {
+                def mnodeIsAcc:boolean false
+                if ((mnode.accessor == "get") || (mnode.accessor == "set")) { mnodeIsAcc = true }
+                if ((mnode.kind == "get") || (mnode.kind == "set") || (mnode.kind == "static")) { mnodeIsAcc = true }
+                if ((mnode.nodeType == "MethodDefinition") && (false == mnodeIsAcc)) {
                     def bm:EvHandle (EvValueBridge.taggedBoundMethod(mnode obj))
                     this.stampSrcOn(bm)
                     ; provenance travels with the value: a stored method of a
@@ -45819,7 +45946,12 @@ class ComponentEngine {
                                 pv.addSuppressed("prototype")
                             }
                         }
-                        this.nameFunctionFromKey(pv key)
+                        ; `k: (0, function () {})` is a SEQUENCE, not an
+                        ; anonymous function definition: no name is contextually
+                        ; assigned (§12.2.1.2 IsFunctionDefinition is false).
+                        if (valueNode.nodeType != "SequenceExpression") {
+                            this.nameFunctionFromKey(pv key)
+                        }
                         push values pv
                     } {
                         push values (EvValueBridge.taggedNull())
@@ -45864,7 +45996,7 @@ class ComponentEngine {
         ; A `__proto__` key in the literal replaces that link. `null` means no
         ; prototype at all; anything that is not an object is ignored outright.
         if hasProtoLit {
-            if (protoFromLit.isObject()) {
+            if ((protoFromLit.isObject()) && (false == (this.isSymbolValue(protoFromLit)))) {
                 built.setProto(protoFromLit)
             } {
                 if (protoFromLit.isNull()) {
