@@ -1386,6 +1386,12 @@ class ComponentEngine {
     ; an arrow, which has no new.target or super of its own to lend it.
     def evalIsDirect:boolean false
     def currentFnIsArrow:boolean false
+    ; A class whose heritage was not a plain name -- `extends (f(), C)`, or a
+    ; name holding a function that is not a class -- records what it resolved
+    ; to, keyed by the class's table name, for the chain walks that only know
+    ; the class node.
+    def classSuperNames:[string:string]
+    def classSuperValues:[string:EvHandle]
     ; What the base constructor answered to the last super() call: an object
     ; there REPLACES the derived constructor's `this` (§12.3.5.1 step 8).
     def superCallResult:EvHandle (EvValueBridge.taggedUndefined())
@@ -15229,9 +15235,16 @@ class ComponentEngine {
                     return 1
                 }
                 def cFn:EvHandle (this.iteratorMethodOf(dIt2 "return"))
+                if scriptThrew { return 0 }
                 if (cFn.isFunction()) {
-                    def _cc:EvHandle (this.iteratorInvoke(dIt2 cFn (EvValueBridge.taggedUndefined())))
+                    def cRes:EvHandle (this.iteratorInvoke(dIt2 cFn (EvValueBridge.taggedUndefined())))
                     if scriptThrew { return 0 }
+                    ; IteratorClose step 8: a non-object answer from `return`
+                    ; is its own TypeError, ahead of the protocol one.
+                    if (false == (this.isDescriptorObject(cRes))) {
+                        def _cr:EvHandle (this.throwSpecError("TypeError" "iterator result is not an object"))
+                        return 0
+                    }
                 }
                 def _tv:EvHandle (this.throwSpecError("TypeError" "the iterator does not provide a throw method"))
                 return 0
@@ -19911,13 +19924,12 @@ class ComponentEngine {
             if isSuperCall {
                 {
                     ; §12.3.5.1: a constructor may call super() ONCE. The
-                    ; second call finds `this` already bound, which is a
-                    ; ReferenceError.
-                    if (superCallCount > 0) {
-                        return (this.throwSpecError("ReferenceError" "Super constructor may only be called once"))
-                    }
+                    ; second call still evaluates its arguments and constructs
+                    ; the base -- and THEN finds `this` already bound, which
+                    ; is the ReferenceError. `this` is not available while the
+                    ; arguments are evaluated: `super(this.x)` is that error too.
+                    def superAlready:boolean (superCallCount > 0)
                     superCallCount = (superCallCount + 1)
-                    derivedCtorPending = false
                     superCallResult = (EvValueBridge.taggedUndefined())
                     def selfV:EvHandle (context.lookup("this"))
                     ; isDescriptorObject, not isObject: an instance of a class
@@ -19925,10 +19937,25 @@ class ComponentEngine {
                     ; its super() call entirely -- `super(42)` ran nothing, so
                     ; the length the base was asked for never arrived.
                     if (this.isDescriptorObject(selfV)) {
-                        def ownCls:string (this.instanceClassName(selfV))
+                        ; The chain climbs from the class whose CONSTRUCTOR is
+                        ; running -- the home class -- not from the instance's
+                        ; own class: in a three-deep hierarchy the middle
+                        ; constructor's super() must reach the base, and
+                        ; walking from the instance's class re-entered the
+                        ; middle one forever.
+                        def ownCls:string currentHomeClass
+                        if ((strlen ownCls) == 0) {
+                            ownCls = (this.instanceClassName(selfV))
+                        }
                         def ownNode:TSNode (this.classNodeByName(ownCls))
                         if ((this.nodeKindOf(ownNode)) == 25) {
                             this.runSuperConstructor(ownNode selfV node.children 0)
+                        }
+                        derivedCtorPending = false
+                        if (false == scriptThrew) {
+                            if superAlready {
+                                return (this.throwSpecError("ReferenceError" "Super constructor may only be called once"))
+                            }
                         }
                         ; §15.7.14 step 8: the derived class's own fields are
                         ; installed HERE, once super() has returned -- which is
@@ -26485,6 +26512,12 @@ class ComponentEngine {
                     ; prototype is empty. Publishing them enumerable made every
                     ; prototype look like a bag of own data.
                     p.setAttrs(nm true false true)
+                    ; §19.2.3.6: Function.prototype[@@hasInstance] is the one
+                    ; method that is neither writable nor configurable, so a
+                    ; bound function's instanceof cannot be redirected.
+                    if (nm == "@@hasInstance") {
+                        p.setAttrs(nm false false false)
+                    }
                 }
                 i = (i + 1)
             }
@@ -28757,6 +28790,16 @@ class ComponentEngine {
                             sre = (itemAt args 0)
                         }
                         def sreV:EvHandle (this.toRegexValue(sre))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        ; §21.1.3.15 step 8: Invoke(rx, @@search, «S»).
+                        def ovSearch:EvHandle (this.overriddenPrototypeMethod("regexp" "@@search"))
+                        if (ovSearch.isFunction()) {
+                            def ovArgsS:[EvHandle]
+                            push ovArgsS (EvValueBridge.taggedString(s))
+                            return (this.callFnValueWithValues((ovSearch.withThisForCall(sreV)) ovArgsS))
+                        }
                         def sprog:RegexProgram (this.compileRegexOf(sreV))
                         if (false == sprog.valid) {
                             return (this.throwSpecError("SyntaxError" ("Invalid regular expression: " + sprog.errorMessage)))
@@ -28777,6 +28820,18 @@ class ComponentEngine {
                             mre = (itemAt args 0)
                         }
                         def mreV:EvHandle (this.toRegexValue(mre))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        ; §21.1.3.11 step 8: Invoke(rx, @@match, «S») -- a
+                        ; guest's RegExp.prototype[@@match] runs for a string
+                        ; pattern too, with the created regexp as `this`.
+                        def ovMatch:EvHandle (this.overriddenPrototypeMethod("regexp" "@@match"))
+                        if (ovMatch.isFunction()) {
+                            def ovArgsM:[EvHandle]
+                            push ovArgsM (EvValueBridge.taggedString(s))
+                            return (this.callFnValueWithValues((ovMatch.withThisForCall(mreV)) ovArgsM))
+                        }
                         def mprog:RegexProgram (this.compileRegexOf(mreV))
                         if (false == mprog.valid) {
                             return (this.throwSpecError("SyntaxError" ("Invalid regular expression: " + mprog.errorMessage)))
@@ -28964,7 +29019,11 @@ class ComponentEngine {
                     if ((name == "includes") || ((name == "startsWith") || (name == "endsWith"))) {
                         def needleV:EvHandle (EvValueBridge.taggedUndefined())
                         if ((array_length args) > 0) { needleV = (itemAt args 0) }
-                        if ((this.receiverKind(needleV)) == "regexp") {
+                        def needleIsRe:boolean (this.isRegExpValue(needleV))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        if needleIsRe {
                             return (this.throwSpecError("TypeError" ("First argument to String.prototype." + (name + " must not be a regular expression"))))
                         }
                         def needle:string (this.toStringOf(needleV))
@@ -32496,6 +32555,20 @@ class ComponentEngine {
             }
         }
         return (EvValueBridge.taggedNull())
+    }
+
+    ; §7.2.8 IsRegExp: an object's own @@match answer decides when it has one
+    ; -- so a plain object can claim to be a regexp and a regexp can deny it --
+    ; and the [[RegExpMatcher]] brand decides otherwise. A throw from the
+    ; @@match getter is the answer.
+    fn isRegExpValue:boolean (v:EvHandle) {
+        if (false == (this.isDescriptorObject(v))) { return false }
+        def mV:EvHandle (this.getPropertyValue(v "@@match"))
+        if scriptThrew { return false }
+        if (false == (mV.isUndefined())) {
+            return (mV.toBool())
+        }
+        return ((this.receiverKind(v)) == "regexp")
     }
 
     fn isWrapperCtorName:boolean (name:string) {
@@ -41024,6 +41097,10 @@ class ComponentEngine {
     ; there rather than from a dedicated field.
     fn superClassNameOf:string (cls:TSNode) {
         if (null? cls.left) { return "" }
+        def recordedSup@(optional):string (get classSuperNames cls.name)
+        if recordedSup {
+            return (unwrap recordedSup)
+        }
         def sup:TSNode (unwrap cls.left)
         if ((strlen sup.name) > 0) {
             return sup.name
@@ -41210,7 +41287,13 @@ class ComponentEngine {
             ; The chain walk used to stop at a non-class base, so the base
             ; body never ran and its fields never arrived.
             if (false == (this.isBuiltinCtorName(supName))) {
-                def baseFnV:EvHandle (context.lookup(supName))
+                def baseFnV:EvHandle (EvValueBridge.taggedUndefined())
+                def recordedBase@(optional):EvHandle (get classSuperValues cls.name)
+                if recordedBase {
+                    baseFnV = (unwrap recordedBase)
+                } {
+                    baseFnV = (context.lookup(supName))
+                }
                 if (baseFnV.isFunction()) {
                     if (baseFnV.hasFunctionNode()) {
                         def fArgs:[EvHandle]
@@ -41281,7 +41364,16 @@ class ComponentEngine {
             ; the base constructor sees who was actually newed, not itself.
             pendingNewTarget = currentNewTarget
             hasPendingNewTarget = true
+            ; The base constructor is its own activation: it may call super()
+            ; once itself, whatever this one has done, and if it is derived
+            ; too it starts with `this` unbound.
+            def savedSuperCnt:int superCallCount
+            def savedDerivedS:boolean derivedCtorPending
+            superCallCount = 0
+            pendingDerivedCtor = (this.classIsDerived(supCls))
             def _sr:EvHandle (this.callUserFunctionNode(sCtor argNodes inst true))
+            superCallCount = savedSuperCnt
+            derivedCtorPending = savedDerivedS
             currentHomeClass = savedHomeS
         } {
             ; No explicit constructor: an implicit one just forwards upward.
@@ -41681,6 +41773,78 @@ class ComponentEngine {
                         proto.setProto((this.builtinPrototype(supName)))
                         cv.setProto((this.builtinGlobalObject(supName)))
                         linked = true
+                    }
+                }
+            }
+        }
+        ; §14.5.14 ClassDefinitionEvaluation steps 5-7: a heritage that is
+        ; not the name of a class is an EXPRESSION whose value is the base --
+        ; a variable holding a function, a bound function, `(f(), C)`. It is
+        ; evaluated once, here: null makes a prototype with no [[Prototype]],
+        ; anything that is not a constructor is a TypeError, and the parent
+        ; prototype is Get(base, "prototype"), which may run a getter and
+        ; must answer an object or null.
+        if (false == linked) {
+            if cls.left {
+                ; The parser wraps the heritage expression in an `extends`
+                ; node; the expression is that node's left.
+                def herWrap:TSNode (unwrap cls.left)
+                def herNode:TSNode herWrap
+                if herWrap.left {
+                    herNode = (unwrap herWrap.left)
+                }
+                def baseV:EvHandle (EvValueBridge.taggedUndefined())
+                def haveBase:boolean false
+                if ((this.nodeKindOf(herNode)) == 1) {
+                    if (context.has(herNode.name)) {
+                        baseV = (this.lookupIdentifier(herNode.name))
+                        haveBase = true
+                    }
+                } {
+                    baseV = (this.evaluateExpr(herNode))
+                    haveBase = true
+                }
+                if scriptThrew { return }
+                if haveBase {
+                    if (baseV.isNull()) {
+                        proto.setProto(baseV)
+                        linked = true
+                    } {
+                        if (false == (baseV.isFunction())) {
+                            def _he:EvHandle (this.throwSpecError("TypeError" "Class extends value is not a constructor or null"))
+                            return
+                        }
+                        def baseClsName:EvHandle (baseV.getMember("__classname__"))
+                        if (baseClsName.isString()) {
+                            ; A class reached by value: link as by name, and
+                            ; record the name for the constructor chain walk.
+                            def bcn:string (baseClsName.stringOf())
+                            set classSuperNames name bcn
+                            def bProto:EvHandle (baseV.getMember("prototype"))
+                            if (bProto.isObject()) {
+                                proto.setProto(bProto)
+                            }
+                            cv.setProto(baseV)
+                            linked = true
+                        } {
+                            def parentProto:EvHandle (this.getPropertyValue(baseV "prototype"))
+                            if scriptThrew { return }
+                            if (parentProto.isNull()) {
+                                proto.setProto(parentProto)
+                            } {
+                                if (false == (this.isDescriptorObject(parentProto))) {
+                                    def _hp:EvHandle (this.throwSpecError("TypeError" "Class extends value does not have valid prototype property"))
+                                    return
+                                }
+                                proto.setProto(parentProto)
+                            }
+                            cv.setProto(baseV)
+                            set classSuperValues name baseV
+                            if ((this.nodeKindOf(herNode)) != 1) {
+                                set classSuperNames name "__superexpr__"
+                            }
+                            linked = true
+                        }
                     }
                 }
             }
@@ -45412,8 +45576,7 @@ class ComponentEngine {
         def tagIsMember:boolean false
         if ((this.nodeKindOf(tagNode)) == 3) {
             if tagNode.left {
-                def tagBase:TSNode (unwrap tagNode.left)
-                if (tagBase.nodeType != "Super") {
+                if ((unwrap tagNode.left).nodeType != "Super") {
                     tagIsMember = true
                 }
             }
