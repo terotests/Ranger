@@ -64,6 +64,18 @@ A login form screenshot in the live page:
 
 ![Erazer live demo, HTML login](shots/demo-html-login.png)
 
+Dark **shadcn/ui**-shaped widgets (zinc cards, pill buttons, nav, bar chart, balance):
+
+![Erazer on shadcn/ui](shots/shadcn-ui.png)
+
+The full dashboard overlay:
+
+![Erazer overlay on a shadcn dashboard](shots/shadcn-dash-overlay.png)
+
+The same dashboard in the live page (`?png=shadcn-dash.png`):
+
+![Erazer live demo, shadcn dashboard](shots/demo-shadcn-dash.png)
+
 ## Files
 
 | File | |
@@ -76,6 +88,7 @@ A login form screenshot in the live page:
 | `ErazerTest.rgr` | the fixtures, asserted |
 | `web/` | the live page |
 | `web/components.html` | HTML/CSS widgets for `erazer:shots` |
+| `web/shadcn.html` | dark zinc shadcn/ui-shaped dashboard |
 | `shots/` | captured PNGs the live page can load |
 
 It is a heuristic. A photograph of a Mac settings panel will not come back as
