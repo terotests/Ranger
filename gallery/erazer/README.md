@@ -29,6 +29,28 @@ screenshot's geometry. Each node carries `class-name` `erazer-button`,
 `erazer-textfield`, `erazer-checkbox`, `erazer-tab`, `erazer-menu`, …
 so a later pass can restyle it.
 
+## Layout net (geometry, not pixels)
+
+Erazer already has primitive boxes and a widget type. A second, tiny
+network ranks **groups** of those boxes:
+
+```
+primitives → em / relative features → 2-layer MLP → list | form | toolbar | …
+```
+
+Grouping stays heuristic (same edge, regular gap, repeating child
+pattern). The net only names a candidate and returns an abstract
+structure: axis, item count, alignment, spacing in `em`, member
+indices. A user selection plus a name is one training point; gap,
+scale, font-size and leave-one-out jitter expand it to a dozen
+samples, with axis-flips as hard negatives.
+
+The live page: click boxes, pick `lista` / `toolbar` / a new concept,
+**Opeta valinta**. Weights stay in `localStorage`. This is the small
+MLP (about 1.5k parameters), not a vision model — swap in a set
+transformer later if the 40 hand-crafted features stop separating
+the classes.
+
 ## Commands
 
 ```sh
@@ -87,6 +109,7 @@ The same dashboard in the live page (`?png=shadcn-dash.png`):
 | --- | --- |
 | `Erazer.rgr` | region grow, nesting, heuristics, EVG emit |
 | `ErazerTypes.rgr` | options, regions, the result tree |
+| `ErazerLayout.rgr` | em-features, candidate groups, 2-layer MLP |
 | `ErazerFont.rgr` | 5×7 face: paint and read |
 | `ErazerPaint.rgr` | synthetic UI-library screenshots |
 | `erazer_cli.rgr` | PNG/JPEG in, `.evg.json` out |

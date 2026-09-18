@@ -72,6 +72,19 @@
     position: absolute; left: 0; top: 0; width: 100%; height: 100%;
     pointer-events: none; overflow: hidden;
   }
+  .frame svg rect[data-box] { pointer-events: auto; cursor: pointer; }
+  .frame svg rect[data-box].picked { fill: rgba(125, 179, 255, 0.32); stroke-width: 2; }
+  .concept {
+    display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0;
+  }
+  .concept label {
+    display: inline-flex; align-items: center; gap: 6px; font-size: 13px;
+    color: var(--ink); cursor: pointer;
+  }
+  #newConcept {
+    font: inherit; font-size: 13px; color: var(--ink); background: #12151b;
+    border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; min-width: 140px;
+  }
   .op {
     margin-left: auto; text-transform: none; letter-spacing: 0; font-weight: 500;
     display: flex; align-items: center; gap: 8px; color: var(--muted);
@@ -97,7 +110,9 @@
   <p>
     Bitmap-tracer seuraa valokuvan mustetta. Erazer etsii <strong>UI-elementtejä</strong>:
     sisäkkäisiä laatikoita, tekstiä, nappeja, kenttiä, tabbeja, valikoita, checkboxeja
-    ja ikoneita, ja kirjoittaa niistä EVG-puun. Kuva ei poistu koneelta.
+    ja ikoneita, ja kirjoittaa niistä EVG-puun. Päälle tulee pieni
+    <strong>layout-verkko</strong>: se näkee em-normalisoitua geometriaa, ei screenshot-pikseleitä,
+    ja sen voi opettaa valitsemalla laatikoita. Kuva ei poistu koneelta.
   </p>
 </header>
 <main>
@@ -150,6 +165,27 @@
       <div class="head">Tulos <span class="counts" id="counts"></span></div>
       <pre id="outline">Ei vielä ajettu.</pre>
     </section>
+    <section style="margin-top:18px">
+      <div class="head">Layout-verkko <span class="counts" id="layoutPicked">ei valintaa</span></div>
+      <div class="body">
+        <p class="hint">Klikkaa laatikoita kuvassa, anna nimi ja opeta. Yksi valinta laajennetaan automaattisesti kymmeniksi näytteiksi (väli, skaala, em). Painot jäävät tähän selaimeen.</p>
+        <div class="concept" id="concepts">
+          <label><input type="radio" name="concept" value="list" checked> lista</label>
+          <label><input type="radio" name="concept" value="toolbar"> toolbar</label>
+          <label><input type="radio" name="concept" value="form"> lomake</label>
+          <label><input type="radio" name="concept" value="card"> kortti</label>
+          <label><input type="radio" name="concept" value="property_row"> property-rivi</label>
+          <label><input type="radio" name="concept" value="grid"> ruudukko</label>
+          <label><input type="radio" name="concept" value="nav"> nav</label>
+        </div>
+        <div class="actions">
+          <input id="newConcept" type="text" placeholder="uusi konsepti" autocomplete="off">
+          <button type="button" id="teachBtn" class="primary">Opeta valinta</button>
+          <button type="button" id="clearPickBtn">Tyhjennä valinta</button>
+        </div>
+        <pre id="layoutOut">Ei vielä ryhmiä.</pre>
+      </div>
+    </section>
   </div>
   <div>
     <section>
@@ -174,6 +210,119 @@
   var outline = document.getElementById("outline");
   var jsonEl = document.getElementById("json");
   var counts = document.getElementById("counts");
+  var layoutOut = document.getElementById("layoutOut");
+  var layoutPicked = document.getElementById("layoutPicked");
+  var lastDoc = null;
+  var picked = {};
+
+  var WEIGHTS_KEY = "erazer-layout-weights";
+  try {
+    var saved = localStorage.getItem(WEIGHTS_KEY);
+    if (saved && typeof ErazerLayoutNet === "function" && ErazerLayoutNet.adoptWeights(saved)) {
+      /* user weights beat the synthetic seed */
+    }
+  } catch (err) {}
+
+  function selectedConcept() {
+    var typed = (document.getElementById("newConcept").value || "").trim();
+    if (typed) return typed.replace(/\s+/g, "_");
+    var radios = document.querySelectorAll('input[name="concept"]');
+    for (var r = 0; r < radios.length; r++) {
+      if (radios[r].checked) return radios[r].value;
+    }
+    return "list";
+  }
+
+  function boxesFromJson(json) {
+    var out = [];
+    if (!json) return out;
+    var data = typeof json === "string" ? JSON.parse(json) : json;
+    var list = (data && data.boxes) || [];
+    for (var i = 0; i < list.length; i++) {
+      var b = list[i];
+      var box = ErazerLayoutBox.of(b.type, b.x, b.y, b.w, b.h, b.fontSize || 14);
+      box.index = b.i;
+      out.push(box);
+    }
+    return out;
+  }
+
+  function pickedBoxes() {
+    var all = lastDoc ? boxesFromJson(lastDoc.layoutJson) : [];
+    var out = [];
+    for (var i = 0; i < all.length; i++) {
+      if (picked[String(all[i].index)]) out.push(all[i]);
+    }
+    return out;
+  }
+
+  function paintPicks() {
+    var n = 0;
+    stage.querySelectorAll("rect[data-box]").forEach(function (el) {
+      var id = el.getAttribute("data-box");
+      if (picked[id]) {
+        el.classList.add("picked");
+        n++;
+      } else {
+        el.classList.remove("picked");
+      }
+    });
+    layoutPicked.textContent = n ? ("valittu " + n) : "ei valintaa";
+  }
+
+  function showLayout(doc) {
+    var text = "Ei vielä ryhmiä.";
+    try {
+      var data = JSON.parse(doc.layoutJson || "{}");
+      var groups = data.groups || [];
+      if (groups.length) {
+        text = groups.map(function (g) {
+          var conf = Math.round((g.confidence || 0) * 100);
+          var pat = (g.pattern || []).join("+");
+          var sp = g.spacing || {};
+          return g.type + " " + conf + "% · " + g.axis + " · n=" + g.items +
+            " · " + (g.alignment || "") +
+            " · " + (sp.mean != null ? Number(sp.mean).toFixed(2) + "em" : "") +
+            (pat ? " · " + pat : "");
+        }).join("\n");
+      }
+    } catch (err) {
+      text = String(doc.layoutJson || "");
+    }
+    layoutOut.textContent = text;
+    var svg = stage.querySelector("svg");
+    if (svg) {
+      svg.querySelectorAll("[data-layout]").forEach(function (el) { el.remove(); });
+      try {
+        var data2 = JSON.parse(doc.layoutJson || "{}");
+        (data2.groups || []).forEach(function (g) {
+          var ns = "http://www.w3.org/2000/svg";
+          var wrap = document.createElementNS(ns, "g");
+          wrap.setAttribute("data-layout", g.type || "");
+          var rect = document.createElementNS(ns, "rect");
+          rect.setAttribute("x", g.x);
+          rect.setAttribute("y", g.y);
+          rect.setAttribute("width", g.w);
+          rect.setAttribute("height", g.h);
+          rect.setAttribute("fill", "none");
+          rect.setAttribute("stroke", "#7c3aed");
+          rect.setAttribute("stroke-width", "2");
+          rect.setAttribute("stroke-dasharray", "5 3");
+          rect.setAttribute("pointer-events", "none");
+          var lab = document.createElementNS(ns, "text");
+          lab.setAttribute("x", (g.x || 0) + 4);
+          lab.setAttribute("y", (g.y || 0) + 12);
+          lab.setAttribute("font-size", "10");
+          lab.setAttribute("fill", "#7c3aed");
+          lab.setAttribute("pointer-events", "none");
+          lab.textContent = (g.type || "") + " " + Math.round((g.confidence || 0) * 100) + "%";
+          wrap.appendChild(rect);
+          wrap.appendChild(lab);
+          svg.appendChild(wrap);
+        });
+      } catch (err2) {}
+    }
+  }
 
   function bufferToCanvas(img) {
     var c = document.createElement("canvas");
@@ -224,10 +373,28 @@
       svg.removeAttribute("width");
       svg.removeAttribute("height");
       svg.setAttribute("preserveAspectRatio", "none");
+      svg.addEventListener("click", function (ev) {
+        var el = ev.target;
+        if (!el || !el.getAttribute) return;
+        var id = el.getAttribute("data-box");
+        if (id == null) {
+          var p = el.closest && el.closest("[data-box]");
+          if (p) id = p.getAttribute("data-box");
+        }
+        if (id == null) return;
+        ev.preventDefault();
+        if (picked[id]) delete picked[id];
+        else picked[id] = true;
+        paintPicks();
+      });
     }
     stage.appendChild(frame);
+    lastDoc = doc;
+    picked = {};
     outline.textContent = doc.outline || "(tyhjä)";
     jsonEl.textContent = doc.json || "";
+    showLayout(doc);
+    paintPicks();
     var r = doc.root;
     counts.textContent =
       "button " + r.roleCount("button") +
@@ -421,6 +588,39 @@
   });
   document.querySelectorAll("button[data-png]").forEach(function (btn) {
     btn.addEventListener("click", function () { loadPng(btn.getAttribute("data-png")); });
+  });
+
+  document.getElementById("clearPickBtn").addEventListener("click", function () {
+    picked = {};
+    paintPicks();
+  });
+
+  document.getElementById("teachBtn").addEventListener("click", function () {
+    if (!lastDoc) {
+      layoutOut.textContent = "Aja ensin kuva.";
+      return;
+    }
+    var sel = pickedBoxes();
+    if (sel.length < 2) {
+      layoutOut.textContent = "Valitse vähintään kaksi laatikkoa.";
+      return;
+    }
+    var label = selectedConcept();
+    if (!label) {
+      layoutOut.textContent = "Anna konseptille nimi.";
+      return;
+    }
+    layoutOut.textContent = "Opetetaan " + label + " (" + sel.length + " laatikkoa)…";
+    var t0 = performance.now();
+    var net = ErazerLayoutNet.shared();
+    net.teach(sel, label, 8);
+    try { localStorage.setItem(WEIGHTS_KEY, net.dumpWeights()); } catch (err) {}
+    var all = boxesFromJson(lastDoc.layoutJson);
+    var guesses = net.scan(all);
+    lastDoc.layoutJson = net.toJson(all, guesses);
+    var ms = Math.round(performance.now() - t0);
+    showLayout(lastDoc);
+    layoutOut.textContent += "\n" + ms + " ms · painot tallennettu";
   });
 
   var params = new URLSearchParams(location.search);

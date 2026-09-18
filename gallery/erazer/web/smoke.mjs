@@ -31,6 +31,10 @@ if (!html.includes("paste") || !html.includes("loadBlob")) {
   console.error("live page is missing paste / blob load");
   process.exit(1);
 }
+if (!html.includes("teachBtn") || !html.includes("Opeta valinta")) {
+  console.error("live page is missing layout-net training UI");
+  process.exit(1);
+}
 
 const bundle = fs.readFileSync(path.join(DIST, "erazer.js"), "utf8");
 const sandbox = { console, globalThis: {} };
@@ -38,9 +42,13 @@ vm.createContext(sandbox);
 sandbox.globalThis = sandbox;
 vm.runInContext(bundle, sandbox);
 
-const { Erazer, ErazerPaint } = sandbox;
+const { Erazer, ErazerPaint, ErazerLayoutNet, ErazerLayoutBox } = sandbox;
 if (typeof Erazer !== "function" || typeof ErazerPaint !== "function") {
   console.error("bundle did not publish Erazer / ErazerPaint");
+  process.exit(1);
+}
+if (typeof ErazerLayoutNet !== "function" || typeof ErazerLayoutBox !== "function") {
+  console.error("bundle did not publish ErazerLayoutNet / ErazerLayoutBox");
   process.exit(1);
 }
 
@@ -72,4 +80,13 @@ if (sliders.root.roleCount("slider") < 3) {
   process.exit(1);
 }
 
-console.log("erazer web smoke ok — button, chip row, sliders recognised");
+const net = new ErazerLayoutNet();
+const list = net.synthList(4, 16);
+net.teach(list, "list", 5);
+const pred = net.predict(list);
+if (pred.type !== "list" || pred.confidence < 0.5) {
+  console.error("layout net did not learn a vertical label list: " + pred.type + " " + pred.confidence);
+  process.exit(1);
+}
+
+console.log("erazer web smoke ok — button, chip row, sliders, layout-net");

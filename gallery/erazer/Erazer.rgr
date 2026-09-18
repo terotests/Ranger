@@ -16,6 +16,7 @@
 
 Import "ErazerTypes.rgr"
 Import "ErazerFont.rgr"
+Import "ErazerLayout.rgr"
 Import "pkg:evg/EvgBitmapTracer.rgr"
 Import "pkg:evg/EVGTreeJson.rgr"
 Import "pkg:image/ImageBuffer.rgr"
@@ -1585,13 +1586,32 @@ class Erazer {
         return "#64748b"
     }
 
-    fn writeOverlay:string (n:ErazerNode w:int h:int) {
+    fn writeOverlay:string (n:ErazerNode w:int h:int groups:[ErazerLayoutGuess]) {
         def svg:string "<svg xmlns=\"http://www.w3.org/2000/svg\" "
         svg = (svg + "width=\"" + (to_string w) + "\" height=\"" + (to_string h) + "\" ")
         svg = (svg + "viewBox=\"0 0 " + (to_string w) + " " + (to_string h) + "\">")
         svg = (svg + (this.overlayNode(n)))
+        svg = (svg + (this.overlayGroups(groups)))
         svg = (svg + "</svg>")
         return svg
+    }
+
+    fn overlayGroups:string (groups:[ErazerLayoutGuess]) {
+        def s:string ""
+        def i:int 0
+        while (i < (array_length groups)) {
+            def g:ErazerLayoutGuess (itemAt groups i)
+            s = (s + "<g data-layout=\"" + g.type + "\">")
+            s = (s + "<rect x=\"" + (to_string g.x) + "\" y=\"" + (to_string g.y) + "\" ")
+            s = (s + "width=\"" + (to_string g.w) + "\" height=\"" + (to_string g.h) + "\" ")
+            s = (s + "fill=\"none\" stroke=\"#7c3aed\" stroke-width=\"2\" stroke-dasharray=\"5 3\" pointer-events=\"none\"/>")
+            def lab:string (g.type + " " + (to_string g.confidence))
+            s = (s + "<text x=\"" + (to_string (g.x + 4.0)) + "\" y=\"" + (to_string (g.y + 12.0)) + "\" ")
+            s = (s + "font-size=\"10\" fill=\"#7c3aed\" pointer-events=\"none\">" + (this.xmlEsc(lab)) + "</text>")
+            s = (s + "</g>")
+            i = (i + 1)
+        }
+        return s
     }
 
     fn xmlEsc:string (s:string) {
@@ -1627,7 +1647,13 @@ class Erazer {
         def s:string "<g>"
         s = (s + "<rect x=\"" + (to_string n.x) + "\" y=\"" + (to_string n.y) + "\" ")
         s = (s + "width=\"" + (to_string n.w) + "\" height=\"" + (to_string n.h) + "\" ")
-        s = (s + "fill=\"none\" stroke=\"" + col + "\" stroke-width=\"1\"/>")
+        if (n.boxId > 0) {
+            s = (s + "data-box=\"" + (to_string (n.boxId - 1)) + "\" ")
+            s = (s + "fill=\"transparent\" ")
+        } {
+            s = (s + "fill=\"none\" ")
+        }
+        s = (s + "stroke=\"" + col + "\" stroke-width=\"1\"/>")
         def lab:string n.role
         if ((strlen n.text) > 0) {
             lab = ((lab + " ") + n.text)
@@ -1700,6 +1726,9 @@ class Erazer {
         this.relabelTexts(page)
         this.promoteGroups(page)
         this.traceIcons(page)
+        def boxes:[ErazerLayoutBox] (ErazerLayoutNet.boxesFromTree(page w h))
+        def net:ErazerLayoutNet (ErazerLayoutNet.shared())
+        def guesses:[ErazerLayoutGuess] (net.scan(boxes))
         def doc (new ErazerDoc())
         doc.width = w
         doc.height = h
@@ -1708,7 +1737,8 @@ class Erazer {
         evg.position = "relative"
         doc.json = (EVGTreeJson.toText(evg))
         doc.outline = (this.writeOutline(page ""))
-        doc.overlaySvg = (this.writeOverlay(page w h))
+        doc.layoutJson = (net.toJson(boxes guesses))
+        doc.overlaySvg = (this.writeOverlay(page w h guesses))
         return doc
     }
 }

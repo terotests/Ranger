@@ -117,6 +117,8 @@ class ErazerNode {
     def iconPaths:[string]
     def iconFills:[string]
     def confidence:double 0.5
+    ; 1-based id when this node is a layout primitive; 0 means not collected.
+    def boxId:int 0
     def kids:[ErazerNode]
 
     Constructor () {
@@ -245,6 +247,8 @@ class ErazerDoc {
     def json:string ""
     def overlaySvg:string ""
     def outline:string ""
+    ; Geometry-layout groups ranked by the small MLP (not pixel-CNN).
+    def layoutJson:string ""
 
     Constructor () {
         root = (ErazerNode.of("page" 0 0 1 1 255 255 255))

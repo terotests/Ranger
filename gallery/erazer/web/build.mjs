@@ -58,10 +58,10 @@ let bundle = fs.readFileSync(rawPath, "utf8").replace(/^#![^\n]*\n/, "");
   const previous = globalThis.require;
   globalThis.require = undefined;
   const found = (0, eval)(
-    bundle + "; typeof Erazer + '|' + typeof ErazerPaint + '|' + typeof ImageBuffer"
+    bundle + "; typeof Erazer + '|' + typeof ErazerPaint + '|' + typeof ImageBuffer + '|' + typeof ErazerLayoutNet + '|' + typeof ErazerLayoutBox"
   );
   globalThis.require = previous;
-  if (found !== "function|function|function") {
+  if (found !== "function|function|function|function|function") {
     throw new Error("erazer.js missing browser exports (got " + found + ")");
   }
 }
@@ -74,6 +74,9 @@ const scoped =
   "\n;globalThis.ErazerPaint = ErazerPaint;" +
   "\n;globalThis.ErazerFont = ErazerFont;" +
   "\n;globalThis.ErazerOptions = ErazerOptions;" +
+  "\n;globalThis.ErazerLayoutNet = ErazerLayoutNet;" +
+  "\n;globalThis.ErazerLayoutBox = ErazerLayoutBox;" +
+  "\n;globalThis.ErazerLayoutFeat = ErazerLayoutFeat;" +
   "\n;globalThis.ImageBuffer = ImageBuffer;" +
   "\n})();\n";
 
