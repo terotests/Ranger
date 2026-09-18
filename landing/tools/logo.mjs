@@ -14,7 +14,7 @@
  * What lands in landing/assets is therefore a real vector logo — about 7 KB,
  * three layers, sharp at any size — produced by this repository from a
  * picture, with no design tool in between. It is what the navigation bar, the
- * favicon, the colophon and the rippling backdrop all draw.
+ * favicon and the rippling backdrop all draw.
  *
  * The same tracer compiles to Node, Python, C++ and Rust, and
  * `npm run evg:trace:cli:smoke` asserts all four write byte-identical SVG for

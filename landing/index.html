@@ -26,7 +26,6 @@
     <a href="#source">One source</a>
     <a href="#targets">Targets</a>
     <a href="#platforms">Platforms</a>
-    <a href="#proof">Proof</a>
     <a href="#gallery">Gallery</a>
     <a href="playground/">Playground</a>
   </nav>
@@ -101,13 +100,6 @@
       </div>
     </div>
     </div>
-    <p class="marks__note">
-      Swift, Kotlin, JavaScript, TypeScript, C#, C++, Rust, Go, Python, Dart, PHP, Java,
-      Scala, LLVM and WebAssembly — on iPhone, iPad and Apple Watch, on Android, in a
-      browser tab, on a desktop and on a Raspberry Pi. <span class="dim">Every mark in this strip is a path computed from a
-      bitmap by <a class="u" href="evg/">Ranger's own vectoriser</a>: EVG rasterised it, the
-      bitmap tracer read it back.</span>
-    </p>
   </div>
 </section>
 
@@ -238,7 +230,6 @@
 <section class="section section--dark" id="targets">
   <div class="wrap">
     <p class="label reveal">Targets</p>
-    <h2 class="display display--lg reveal">Fourteen back ends,<br>and a table of how far each one goes.</h2>
     <p class="lead lead--wide reveal">
       Target quality varies by language and by feature area. These are the tiers from
       <a class="u" href="https://github.com/terotests/Ranger/blob/master/TARGET_NOTES.md">TARGET_NOTES.md</a>.
@@ -404,95 +395,6 @@
 </section>
 
 <!-- ====================================================================== -->
-<!-- Proof — how portability is measured                                    -->
-<!-- ====================================================================== -->
-<section class="section section--dark" id="proof">
-  <div class="wrap">
-    <p class="label reveal">Proof</p>
-    <h2 class="display display--lg reveal">What the four gates<br>on every push measure.</h2>
-    <p class="lead lead--wide reveal">
-      Equivalent output across a dozen languages is easy to assert and hard to keep. These
-      four run on every push and break the build when they stop agreeing, which is what
-      keeps the claims on this page tied to the current compiler.
-    </p>
-
-    <div class="proofs">
-      <article class="proof reveal">
-        <p class="label">01</p>
-        <h3>The syntax app, on fifteen outputs</h3>
-        <p>
-          One program that uses <strong>203 of the 207 core operator names</strong>
-          together with classes, inheritance, traits, records, enums, extensions, lambdas,
-          optionals, buffers and custom operators. It is compiled to all fourteen back ends
-          the CLI accepts, plus TypeScript, then built and run with <code>node</code>, <code>tsc</code>, <code>go</code>,
-          <code>python3</code>, <code>rustc</code>, <code>g++</code>, <code>javac</code>,
-          <code>php</code> and <code>lli</code> — whichever the machine has — and what each
-          one printed is compared with the reference target. The result is a matrix
-          asserted against a checked-in baseline, so an improvement requires an explicit
-          update to the baseline just as a regression does.
-        </p>
-      </article>
-
-      <article class="proof reveal">
-        <p class="label">02</p>
-        <h3>Self-hosted across seven source targets, with LLVM verified separately</h3>
-        <p>
-          The compiler running on Node is the reference build. It also compiles
-          <em>itself</em> to C++, Dart, Python, C#, Go and Kotlin — seven builds counting
-          the reference. Each of those six is then handed the compiler's own source and
-          asked for JavaScript, and the JavaScript that comes out is compared
-          <strong>byte for byte</strong> with what the Node build writes for the same
-          input: identical on all six, save for a single line on C++ (32-bit
-          <code>int</code>). On LLVM, the 22 MB of IR the compiler emits for itself passes
-          <code>opt -passes=verify</code> and links into a native <code>rangerc</code>,
-          which reproduces the Node build's JavaScript byte for byte as well.
-        </p>
-      </article>
-
-      <article class="proof reveal">
-        <p class="label">03</p>
-        <h3>A JavaScript engine as the load test</h3>
-        <p>
-          <code>gallery/game_engine/v2/interp</code> is a JavaScript interpreter written in
-          Ranger, which makes it the largest thing the cross-target gate has to carry: Go,
-          Kotlin, Python, C#, Dart and Swift 6 each compile it, and where the toolchain is
-          installed they build it and answer the benchmark cases.
-          <strong>1303 conformance cases</strong> are checked against Node's answers — a
-          fast wrong answer fails the run. The C++ and Rust builds score 1297 of them with
-          zero crashes, and the six failures are named and tracked rather than new. Performance is reported
-          separately: on the C++ build, the geometric mean over the benchmark cases is
-          about <strong>4.4× QuickJS 2021-03-27</strong> once the <code>strcat</code> case
-          is excluded, and
-          <a class="u" href="https://github.com/terotests/Ranger/blob/master/QUICKJS_COMPARISON.md">QUICKJS_COMPARISON.md</a>
-          gives the methodology and says why that row does not belong in the average.
-        </p>
-      </article>
-
-      <article class="proof reveal">
-        <p class="label">04</p>
-        <h3>Semantics, pinned as fixtures</h3>
-        <p>
-          The places targets disagree by nature are the places a portable program breaks:
-          integer division promoting to double, array parameters passed by reference,
-          Unicode string indexing by code point, line endings. Each one is a conformance
-          fixture run on ES6, Go, Kotlin and Dart. Where a target has a known gap, the gap
-          is named in the fixture rather than papered over.
-        </p>
-      </article>
-    </div>
-
-    <p class="footnote reveal">
-      Two more, for the rendering stack: EVG's SVG painter and its WebGL painter share no
-      code and are differenced pixel for pixel over the same frames — 0.022% on a sheet
-      built to exercise every draw command, 0.000% on every slide of a real
-      <code>.pptx</code> deck. And the bitmap tracer that turned Ranger's logo into the
-      vector on this page is compiled to Node, Python, C++ and Rust, with a smoke test
-      asserting all four write the byte-identical SVG for the same input.
-    </p>
-  </div>
-</section>
-
-<!-- ====================================================================== -->
 <!-- EVG                                                                    -->
 <!-- ====================================================================== -->
 <section class="section" id="evg">
@@ -560,7 +462,7 @@
 <section class="section section--dark" id="gallery">
   <div class="wrap">
     <p class="label reveal">Gallery</p>
-    <h2 class="display display--lg reveal">Built with it,<br>running in your browser.</h2>
+    <h2 class="display display--lg reveal">OK, Show me the code.</h2>
     <p class="lead lead--wide reveal">
       Every demo below is compiled from this repository's sources on every push, so what is
       deployed is what the commit produces. No server does any of the work — the parsing,
@@ -651,49 +553,12 @@
 </section>
 
 <!-- ====================================================================== -->
-<!-- Colophon                                                               -->
-<!-- ====================================================================== -->
-<section class="section section--colophon" id="colophon">
-  <div class="wrap colophon">
-    <div class="colophon__art" aria-hidden="true">
-      <span data-inline-svg="assets/ranger-mark.svg"></span>
-    </div>
-    <div class="colophon__text">
-      <p class="label reveal">Colophon</p>
-      <h2 class="display display--md reveal">The logo on this page<br>was vectorised by a tool written in Ranger.</h2>
-      <p class="reveal">
-        Ranger's mark existed as a 304-pixel bitmap and nothing else. It went into
-        <code>lib/evg/tools/evg_trace_cli.rgr</code> — the bitmap tracer — which
-        posterised it into flat colour regions, walked the edges of each one, found the
-        corners, fitted cubics between them and wrote back
-        <strong>three layers, about 3 KB</strong>. That one file is the shield in the
-        navigation bar, the tab icon, the drawing beside this paragraph and the mark in
-        the backdrop at the top of the page, and it is sharp at every one of those sizes
-        because none of them is the bitmap any more.
-      </p>
-      <p class="reveal">
-        The backdrop at the top of the page is the same story one layer further on. It is
-        an <strong>EVG display list</strong>, laid out at build time from a stylesheet and
-        a tree, drawn on the GPU by the same WebGL painter the PowerPoint editor uses, and
-        put through <code>evg-surface-effect: ripple</code> — a post-process that renders
-        the finished surface into a texture and bends it in rings travelling out from each
-        drop. Move the pointer across it; the rings interfere where they cross, because
-        that is what summing waves does.
-      </p>
-      <pre class="code code--plain reveal"><code>node landing/tools/logo.mjs        <span class="c"># the mark</span>
-node landing/tools/hero.mjs       <span class="c"># the surface behind it</span>
-npm run evg:trace:cli:smoke       <span class="c"># four targets, one file, compared byte for byte</span></code></pre>
-    </div>
-  </div>
-</section>
-
-<!-- ====================================================================== -->
 <!-- Getting started                                                        -->
 <!-- ====================================================================== -->
 <section class="section section--start" id="start">
   <div class="wrap">
     <p class="label reveal">Getting started</p>
-    <h2 class="display display--lg reveal">From zero to a Ranger program,<br>in three commands.</h2>
+    <h2 class="display display--lg reveal">From zero to Ranger</h2>
     <p class="lead lead--wide reveal">
       The language itself is small: <code>compiler/Lang.rgr</code> declares 336 core
       operator definitions under 207 names, and the generated reference documents 838

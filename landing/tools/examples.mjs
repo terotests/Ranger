@@ -44,7 +44,7 @@ const out = {};
 for (const t of TARGETS) {
   const file = `Cart_${t.id}.${t.ext}`;
   const log = execFileSync("node",
-    ["bin/output.js", ...t.flag.split(" "), SRC, `-d=${path.relative(ROOT, TMP)}`, `-o=${file}`, "-nodecli"],
+    ["bin/output.js", ...t.flag.split(" "), SRC, `-d=${path.relative(ROOT, TMP)}`, `-o=${file}`],
     { cwd: ROOT, env, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] });
   // The compiler exits 0 even when it failed, so the log is the status.
   if (log.includes("[FAIL]") || log.includes("Compilation FAILED")) {
@@ -54,6 +54,10 @@ for (const t of TARGETS) {
   const written = path.join(TMP, file);
   if (!fs.existsSync(written)) throw new Error(`no output for ${t.label} (expected ${written})`);
   let code = fs.readFileSync(written, "utf8").replace(/\r\n/g, "\n").trim();
+  // Cart is a library, not a CLI. Drop a Node shebang if one was written, and
+  // the C++ argc/argv globals every program on that target carries.
+  code = code.replace(/^#!\/usr\/bin\/env node\n/, "");
+  code = code.replace(/\nint __g_argc;\nchar \*\*__g_argv;\n/, "\n");
   let skipped = 0;
   if (t.from) {
     const at = code.search(t.from);

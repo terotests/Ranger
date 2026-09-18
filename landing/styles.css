@@ -10,8 +10,8 @@
 
    The mark is landing/assets/ranger-mark.svg: the project's shield, traced
    out of its own bitmap by lib/evg's tracer. The same file is the tab
-   icon, the mark in the navigation bar and the footer, the drawing in the
-   colophon, and the letter inside the rippling backdrop.
+   icon, the mark in the navigation bar and the footer, and the letter
+   inside the rippling backdrop.
    ========================================================================== */
 
 :root {
@@ -66,8 +66,8 @@ img { max-width: 100%; display: block; }
  * to get. Zero lets the column be the window's width and the <pre> scroll
  * inside it.
  */
-.cols > *, .tiers > *, .plats > *, .proofs > *, .steps > *,
-.gal > *, .starts > *, .figures > *, .shots > *, .colophon > *,
+.cols > *, .tiers > *, .plats > *, .steps > *,
+.gal > *, .starts > *, .figures > *, .shots > *,
 .hero__cols > * { min-width: 0; }
 
 .dim { color: var(--dim); }
@@ -259,6 +259,7 @@ code:not(pre code) {
   max-width: var(--wrap);
   margin: clamp(48px, 6vw, 84px) auto 0;
   padding-inline: var(--pad);
+  padding-bottom: 28px;
 }
 
 /* The track is `width: max-content` — wider than the window by design — so
@@ -308,18 +309,6 @@ code:not(pre code) {
   .marks__run:last-child { display: none; }
   .marks__run { flex-wrap: wrap; row-gap: 22px; }
 }
-
-/* Deliberately quiet: the strip says what it says, and this is the small
-   print under it for whoever leans in. */
-.marks__note {
-  margin: 14px 0 0;
-  font: 400 10.5px/1.6 var(--mono);
-  letter-spacing: .01em;
-  color: #4a4d55;
-  max-width: 96ch;
-}
-.marks__note .u { color: #6a5f3c; text-decoration-color: rgba(251,200,2,.2); }
-.marks__note .u:hover { color: var(--gold); text-decoration-color: var(--gold); }
 
 .m-swift { --mark: url("assets/logos/swift.svg"); }
 .m-apple { --mark: url("assets/logos/apple.svg"); }
@@ -476,16 +465,6 @@ code:not(pre code) {
 .plat p:not(.label) { color: var(--dim); font-size: 15.5px; margin: 0; }
 @media (max-width: 760px) { .plat { padding-inline: 0; border-right: 0; } }
 
-/* ------------------------------------------------------------- proofs --- */
-
-.proofs { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(440px, 100%), 1fr)); gap: 0; margin-top: 44px; }
-.proof { padding: 28px 30px; border-top: 1px solid var(--line-2); border-right: 1px solid var(--line); }
-.proof:first-child { padding-left: 0; }
-.proof .label { color: var(--gold); }
-.proof h3 { font: 650 19px/1.25 var(--sans); letter-spacing: -.015em; margin: 0 0 12px; }
-.proof p:not(.label) { color: var(--dim); font-size: 15.5px; margin: 0; }
-@media (max-width: 760px) { .proof { padding-inline: 0; border-right: 0; } }
-
 /* --------------------------------------------------------------- seam --- */
 
 .seam { margin-top: 40px; border: 1px solid var(--line); padding: 24px; background: var(--ink-3); }
@@ -538,19 +517,10 @@ code:not(pre code) {
 .more a:hover { color: var(--gold); }
 .more span { color: var(--dimmer); }
 
-/* ---------------------------------------------------------- colophon ---- */
-
-.section--colophon { background: var(--ink-2); border-block: 1px solid var(--line); }
-.colophon { display: grid; grid-template-columns: minmax(min(180px, 100%), 300px) 1fr; gap: clamp(28px, 6vw, 70px); align-items: center; }
-@media (max-width: 860px) { .colophon { grid-template-columns: 1fr; } .colophon__art { max-width: 170px; } }
-.colophon__art { color: var(--gold); }
-.colophon__art svg { width: 100%; height: auto; }
-.colophon__text p:not(.label) { color: var(--dim); max-width: 64ch; }
-
 /* ------------------------------------------------------------- start ---- */
 
-/* The numbered path in, laid out like the proof blocks: a rule over each
-   step, the number in the label slot, and room for a command block. */
+/* The numbered path in: a rule over each step, the number in the label
+   slot, and room for a command block. */
 .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(440px, 100%), 1fr)); gap: 0; margin-top: 44px; }
 .step { padding: 28px 30px 32px; border-top: 1px solid var(--line-2); border-right: 1px solid var(--line); }
 .step:first-child { padding-left: 0; }

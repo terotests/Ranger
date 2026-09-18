@@ -1,9 +1,9 @@
 # The front page
 
 What is published at <https://terotests.github.io/Ranger/> — the language's own
-page: what Ranger is, what it compiles to, which platforms it reaches, how the
-portability claims are checked, and the gallery. The playground it replaced at
-the site root now lives at [`/playground/`](https://terotests.github.io/Ranger/playground/).
+page: what Ranger is, what it compiles to, which platforms it reaches, and the
+gallery. The playground it replaced at the site root now lives at
+[`/playground/`](https://terotests.github.io/Ranger/playground/).
 
 It is plain HTML, one stylesheet and one module. No framework, no bundler, no
 dependency to install — `node landing/build.mjs` copies four files and checks
@@ -52,8 +52,8 @@ anti-aliased band still leaves. The paper layer is dropped and the rest are
 clipped to the silhouette, so nothing escapes past the outline. What comes out
 is `assets/ranger-mark.svg`: a real vector logo, three layers, about 3 KB,
 sharp at any size. It is the mark in the
-navigation bar and the footer, the tab icon, the drawing in the colophon, and
-the shield inside the rippling backdrop, so those four cannot drift apart.
+navigation bar and the footer, the tab icon, and
+the shield inside the rippling backdrop, so those cannot drift apart.
 
 The same tracer compiles to Node, Python, C++ and Rust, and
 `npm run evg:trace:cli:smoke` asserts all four write the byte-identical SVG.
@@ -98,7 +98,10 @@ on the page depends on the backdrop having run.
 compiles it for Swift, Kotlin, JavaScript, TypeScript, C#, C++, PHP and Rust
 and writes each result into `assets/targets.js`. For C++ and Rust it starts the
 listing after the small runtime header every program on those targets carries,
-and says how many lines it skipped.
+and says how many lines it skipped. JavaScript and TypeScript are compiled
+without `-nodecli`, so the listing is the classes rather than a Node shebang;
+the C++ argv globals every program on that target carries are dropped the same
+way.
 
 The compiler exits 0 even when compilation fails, so the script reads the log
 rather than the exit status, and throws if any target did not produce a file.
