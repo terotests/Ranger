@@ -231,6 +231,41 @@ class CodeGraphDiffTest {
         c.eqStr("self diff: total same" (none.statusOfMethod("Order.total")) "")
         c.eqStr("self diff: describe" (none.describe()) "no class changed")
 
+        ; A method inserted after another one lands in the blank lines
+        ; between them; the one before must not count as changed.
+        c.section("insertion after a member")
+        def g1:CodeGraph (new CodeGraph)
+        def k1:CodeClass (g1.addClass("K"))
+        k1.fileName = "k.rgr"
+        def a1:CodeMethod (g1.addMethod("K" "a"))
+        a1.fileName = "k.rgr"
+        a1.startLine = 1
+        g1.addSource("k.rgr" "class K {\n    fn a:void () {\n    }\n}")
+        def g2:CodeGraph (new CodeGraph)
+        def k2:CodeClass (g2.addClass("K"))
+        k2.fileName = "k.rgr"
+        def a2:CodeMethod (g2.addMethod("K" "a"))
+        a2.fileName = "k.rgr"
+        a2.startLine = 1
+        def b2:CodeMethod (g2.addMethod("K" "b"))
+        b2.fileName = "k.rgr"
+        b2.startLine = 4
+        g2.addSource("k.rgr" "class K {\n    fn a:void () {\n    }\n\n    fn b:void () {\n    }\n}")
+        def ins2:CodeGraphDiff (CodeGraphDiff.compare(g1 g2))
+        c.eqStr("K.b added" (ins2.statusOfMethod("K.b")) "added")
+        c.eqStr("K.a untouched by the insertion after it" (ins2.statusOfMethod("K.a")) "")
+        c.eqStr("K changed (a member was added)" (ins2.statusOfClass("K")) "changed")
+        ; But a line edited inside a's body is a's change.
+        def g3:CodeGraph (new CodeGraph)
+        def k3:CodeClass (g3.addClass("K"))
+        k3.fileName = "k.rgr"
+        def a3:CodeMethod (g3.addMethod("K" "a"))
+        a3.fileName = "k.rgr"
+        a3.startLine = 1
+        g3.addSource("k.rgr" "class K {\n    fn a:void () {\n        print 1\n    }\n}")
+        def edit3:CodeGraphDiff (CodeGraphDiff.compare(g1 g3))
+        c.eqStr("K.a changed by a body line" (edit3.statusOfMethod("K.a")) "changed")
+
         c.section("merged graph")
         def m:CodeGraph (d.merged())
         c.ok("merged has Order" (m.hasClass("Order")))

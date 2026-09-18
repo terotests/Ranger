@@ -693,14 +693,39 @@ class CodeGraphDiff {
             }
             ci = (ci + 1)
         }
+        def lines:[string] (LineDiff.splitLines((g.sourceOf(fileName))))
         if (best == 2000000000) {
-            def lines:[string] (LineDiff.splitLines((g.sourceOf(fileName))))
             best = (array_length lines)
             if (best <= first) {
                 best = (first + 1)
             }
         }
-        return (best - 1)
+        ; The span ends at the member's last non-blank line, not at the
+        ; line before the next member: a method inserted after this one
+        ; lands in the blank lines between, and would otherwise count as
+        ; a change to this one.
+        def last:int (best - 1)
+        while (last > first) {
+            if (last < (array_length lines)) {
+                if ((strlen (CodeGraphDiff.trimBlank((itemAt lines last)))) > 0) {
+                    return last
+                }
+            }
+            last = (last - 1)
+        }
+        return last
+    }
+
+    sfn trimBlank:string (s:string) {
+        def i:int 0
+        while (i < (strlen s)) {
+            def ch:int (charAt s i)
+            if ((ch != 32) && (ch != 9) && (ch != 13)) {
+                return (substring s i (strlen s))
+            }
+            i = (i + 1)
+        }
+        return ""
     }
 
     sfn fieldNamed:CodeField (c:CodeClass name:string) {
