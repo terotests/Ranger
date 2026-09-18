@@ -17432,7 +17432,7 @@ class ComponentEngine {
     ; was reachable only by writing the literal name `Array`, and
     ; `class L extends Array {}` had no `L.from` at all even though
     ; Object.getPrototypeOf(L) is Array. One implementation, both doors.
-    fn arrayFromValues:EvHandle (srcV:EvHandle mapFn:EvHandle) {
+    fn arrayFromValues:EvHandle (srcV:EvHandle mapFn:EvHandle mapThis:EvHandle) {
         def frItems:[EvHandle]
         def srcIterable:boolean false
         if (srcV.isArrayValue()) { srcIterable = true }
@@ -17503,13 +17503,20 @@ class ComponentEngine {
         ; The optional map function runs over each element with its index,
         ; which is what `Array.from(xs, f)` means.
         if (mapFn.isFunction()) {
+            ; §23.1.2.1 takes a THIRD argument, the `this` the map function is
+            ; called with. It was dropped, so `Array.from(xs, f, o)` ran f with
+            ; an unbound receiver and every `this.x` in it read undefined.
+            def mapCallee:EvHandle mapFn
+            if (false == (mapThis.isUndefined())) {
+                mapCallee = (mapFn.withThisForCall(mapThis))
+            }
             def mapped:[EvHandle]
             def mi3:int 0
             while (mi3 < (array_length frItems)) {
                 def mArgs:[EvHandle]
                 push mArgs (itemAt frItems mi3)
                 push mArgs (EvHandle.fromInt(mi3))
-                push mapped (this.callFnValueWithValues(mapFn mArgs))
+                push mapped (this.callFnValueWithValues(mapCallee mArgs))
                 if scriptThrew {
                     return (EvValueBridge.taggedUndefined())
                 }
@@ -20147,7 +20154,14 @@ class ComponentEngine {
                                 return (EvValueBridge.taggedUndefined())
                             }
                         }
-                        return (this.arrayFromValues(afSrc afMap))
+                        def afThis:EvHandle (EvValueBridge.taggedUndefined())
+                        if ((array_length node.children) > 2) {
+                            afThis = (this.evaluateExpr((itemAt node.children 2)))
+                            if scriptThrew {
+                                return (EvValueBridge.taggedUndefined())
+                            }
+                        }
+                        return (this.arrayFromValues(afSrc afMap afThis))
                     }
                     if (methodName == "isArray") {
                         def tv:EvHandle (EvValueBridge.taggedNull())
@@ -24133,7 +24147,9 @@ class ComponentEngine {
                 if ((array_length args) > 0) { afsV = (itemAt args 0) }
                 def afmV:EvHandle (EvValueBridge.taggedUndefined())
                 if ((array_length args) > 1) { afmV = (itemAt args 1) }
-                return (this.arrayFromValues(afsV afmV))
+                def afTV:EvHandle (EvValueBridge.taggedUndefined())
+                if ((array_length args) > 2) { afTV = (itemAt args 2) }
+                return (this.arrayFromValues(afsV afmV afTV))
             }
             if (name == "of") {
                 def ofVals:[EvHandle]
@@ -27349,6 +27365,10 @@ class ComponentEngine {
             push out "getSeconds"
             push out "getTime"
             push out "getTimezoneOffset"
+            ; §21.4.4.45: Date.prototype[@@toPrimitive], which is what makes
+            ; `+d` a number and `"" + d` the date string. Absent, the pair was
+            ; decided by valueOf alone.
+            push out "@@toPrimitive"
             push out "getUTCDate"
             push out "getUTCDay"
             push out "getUTCFullYear"
@@ -27527,6 +27547,11 @@ class ComponentEngine {
         if (nsName == "Symbol") {
             p.setMember("@@toPrimitive" (this.sharedNativeMethod("symbolproto" "@@toPrimitive")))
             p.setAttrs("@@toPrimitive" false false true)
+            ; ES2019 Symbol.prototype.description is an ACCESSOR on the
+            ; prototype, not a data property each symbol carries -- which is
+            ; what `Symbol.prototype.hasOwnProperty("description")` asks.
+            p.defineGetter("description" (this.sharedNativeMethod("symbolproto" "description")))
+            p.setAttrs("description" false false true)
         }
         ; D-PROTOCTOR: every prototype carries `constructor` back to its global.
         ; Safe against the cycle (global sets prototype, prototype sets
@@ -27609,6 +27634,16 @@ class ComponentEngine {
             push unsNames "includes"
             push unsNames "keys"
             push unsNames "values"
+            ; Every method added after ES2015 joins the list as it lands: a
+            ; `with` block must not have `flat` shadow a variable of that name.
+            push unsNames "at"
+            push unsNames "findLast"
+            push unsNames "findLastIndex"
+            push unsNames "flat"
+            push unsNames "flatMap"
+            push unsNames "toReversed"
+            push unsNames "toSorted"
+            push unsNames "toSpliced"
             def uni:int 0
             while (uni < (array_length unsNames)) {
                 uns.setMember((itemAt unsNames uni) (EvValueBridge.taggedBoolean(true)))
@@ -28237,6 +28272,12 @@ class ComponentEngine {
         }
         if (kind == "symbolproto") {
             if (name == "@@toPrimitive") { return 1 }
+        }
+        if (kind == "date") {
+            if (name == "@@toPrimitive") { return 1 }
+        }
+        if (kind == "symbolproto") {
+            if (name == "description") { return 0 }
         }
         if (kind == "Generator") {
             if (name == "next") { return 1 }
@@ -28941,6 +28982,49 @@ class ComponentEngine {
     ; the time value lives on the object, so there is nothing to compute from a
     ; receiver that has none.
     fn invokeDateMethod:EvHandle (name:string recv:EvHandle args:[EvHandle]) {
+        ; §21.4.4.45 is the one Date.prototype method that is NOT about dates:
+        ; it runs OrdinaryToPrimitive on ANY object receiver, with "default"
+        ; meaning "string" -- which is the whole reason it exists -- and it is
+        ; borrowed onto other objects to test exactly that.
+        if (name == "@@toPrimitive") {
+            if (false == (this.isDescriptorObject(recv))) {
+                return (this.throwSpecError("TypeError" "Date.prototype[Symbol.toPrimitive] called on a non-object"))
+            }
+            def hintS:string ""
+            if ((array_length args) > 0) {
+                hintS = (this.toStringOf((itemAt args 0)))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+            }
+            def wantStr:boolean true
+            if (hintS == "number") { wantStr = false }
+            if (((hintS != "number") && (hintS != "string")) && (hintS != "default")) {
+                return (this.throwSpecError("TypeError" "Invalid hint: " + hintS))
+            }
+            def firstM:string "valueOf"
+            def secondM:string "toString"
+            if wantStr {
+                firstM = "toString"
+                secondM = "valueOf"
+            }
+            def noArgsP:[EvHandle]
+            def r1:EvHandle (this.callMethodOnValue(recv firstM noArgsP))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+            if (false == (this.isDescriptorObject(r1))) {
+                return r1
+            }
+            def r2:EvHandle (this.callMethodOnValue(recv secondM noArgsP))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+            if (false == (this.isDescriptorObject(r2))) {
+                return r2
+            }
+            return (this.throwSpecError("TypeError" "Cannot convert object to primitive value"))
+        }
         if (false == (recv.isObject())) {
             return (this.throwSpecError("TypeError" ("Date.prototype." + name + " called on a non-Date")))
         }
@@ -29788,6 +29872,33 @@ class ComponentEngine {
         }
         ; Symbol.prototype.valueOf and Symbol.prototype[@@toPrimitive] both
         ; answer thisSymbolValue: the symbol, unboxed from a wrapper if need be.
+        if (kind == "symbolproto") {
+            if (name == "description") {
+                def dSym:EvHandle (this.symbolOfReceiver(recv))
+                if (dSym.isNull()) {
+                    return (this.throwSpecError("TypeError" "Symbol.prototype.description requires that 'this' be a Symbol"))
+                }
+                ; The mint records the description on the symbol, and records
+                ; `Symbol()` with no argument as UNDEFINED rather than the empty
+                ; string -- the two are distinguishable and `__symbol__` alone
+                ; cannot tell them apart.
+                if (dSym.hasOwnData("__symhasdesc__")) {
+                    def dRaw:EvHandle (dSym.getMember("__symbol__"))
+                    if (dRaw.isString()) {
+                        return dRaw
+                    }
+                }
+                ; A WELL-KNOWN symbol is minted elsewhere and carries no
+                ; marker, but its description is its name and never empty.
+                def dWk:EvHandle (dSym.getMember("__symbol__"))
+                if (dWk.isString()) {
+                    if ((strlen (dWk.stringOf())) > 0) {
+                        return dWk
+                    }
+                }
+                return (EvValueBridge.taggedUndefined())
+            }
+        }
         if ((name == "valueOf") || (kind == "symbolproto")) {
             def symV:EvHandle (this.symbolOfReceiver(recv))
             if (false == (symV.isNull())) {
@@ -34487,6 +34598,7 @@ class ComponentEngine {
             def tpCallable:boolean (tpFn.hasFunctionNode())
             if (tpFn.isBuiltinMethod()) {
                 if ((tpFn.builtinKindOf()) == "symbolproto") { tpCallable = true }
+                if ((tpFn.builtinKindOf()) == "date") { tpCallable = true }
             }
             if tpCallable {
                 def hint:string "number"
@@ -38510,6 +38622,11 @@ class ComponentEngine {
         }
         if hasDesc {
             minted.setMember("description" (EvValueBridge.taggedString(desc)))
+            ; A marker slot, because "described with the empty string" and "not
+            ; described at all" are different answers and an undefined member
+            ; cannot be told from an absent one at the value layer.
+            minted.setMember("__symhasdesc__" (EvValueBridge.taggedBoolean(true)))
+            minted.setAttrs("__symhasdesc__" false false false)
         } {
             minted.setMember("description" (EvValueBridge.taggedUndefined()))
         }

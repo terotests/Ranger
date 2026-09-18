@@ -6380,6 +6380,17 @@ class TSParserSimple {
     while ((tokVal == "*") || (tokVal == "/") || (tokVal == "%") || (tokVal == "**")) {
       
       def opTok (this.peek())
+      ; ES2016 12.6: the left operand of `**` may not be an unparenthesised
+      ; UnaryExpression -- `-5 ** 2` is a SyntaxError because the two readings
+      ; ((-5) ** 2 and -(5 ** 2)) differ and the grammar refuses to pick. It
+      ; parsed as the first, silently.
+      if (opTok.value == "**") {
+        if (left.nodeType == "UnaryExpression") {
+          if (left.parenthesized == false) {
+            this.syntaxError("Parse error: an unparenthesised unary expression is not allowed as the left operand of '**'")
+          }
+        }
+      }
       this.advance()
       def right (this.parseUnary())
       
