@@ -1,0 +1,12 @@
+---
+/**
+ * Keep the word "Ranger" next to the mark. Starlight's site title is the
+ * slogan used in the document <title> ("Page | Save time. Keep one source."),
+ * which is too long for the header.
+ */
+import Default from "@astrojs/starlight/components/SiteTitle.astro";
+
+Astro.locals.starlightRoute.siteTitle = "Ranger";
+---
+
+<Default />

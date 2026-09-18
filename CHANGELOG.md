@@ -65,6 +65,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The public site title is "Save time. Keep one source."** The front page
+  heading, its document title and Open Graph title, the documentation
+  `<title>` suffix (`Page | Save time. Keep one source.`), and the
+  playground tab title all use that line. The docs header still says
+  Ranger.
+
 - **EVG is MIT and lives in `lib/evg`.** The layout engine moved out of
   `gallery/` (AGPL) to `lib/` (MIT) together with the image codecs it needs,
   which are now the package `lib/image` (`Buffer`, `ImageBuffer`,
