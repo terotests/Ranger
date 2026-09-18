@@ -173,7 +173,7 @@
     <section style="margin-top:18px">
       <div class="head">Layout-verkko <span class="counts" id="layoutPicked">ei valintaa</span></div>
       <div class="body">
-        <p class="hint">Klikkaa laatikoita kuvassa, anna nimi ja opeta — tai rakenna testsetti tunnetuista HTML-komponenteista: renderöi, nauhoita boksit, PNG, vektoroi Erazerilla. Kun näytteitä on tarpeeksi, kouluta pieni malli WebGPU:lla.</p>
+        <p class="hint">Klikkaa laatikoita kuvassa, anna nimi ja opeta — tai rakenna testsetti tunnetuista HTML-komponenteista: renderöi, nauhoita boksit, PNG, vektoroi Erazerilla. Kun näytteitä on tarpeeksi, kouluta pieni malli WebGPU:lla. Tunnistus on violetit katkoviivat kuvassa; <strong>Kokeile valinta</strong> nimeää valitut boksit kouluttamatta, <strong>Testaa tunnistusta</strong> ajaa mallin shadcn-fixtuureilla joita koulutus ei ole nähnyt.</p>
         <div class="concept" id="concepts">
           <label><input type="radio" name="concept" value="list" checked> lista</label>
           <label><input type="radio" name="concept" value="toolbar"> toolbar</label>
@@ -192,6 +192,8 @@
         <div class="actions">
           <button type="button" id="buildSetBtn">Rakenna HTML-testsetti</button>
           <button type="button" id="trainGpuBtn" disabled>Kouluta WebGPU:lla</button>
+          <button type="button" id="tryPickBtn">Kokeile valinta</button>
+          <button type="button" id="testHoldoutBtn">Testaa tunnistusta</button>
           <button type="button" id="saveModelBtn">Tallenna malli</button>
           <label class="filebtn" for="modelFile">Lataa malli</label>
           <input id="modelFile" class="sr-file" type="file" accept=".txt,text/plain">
@@ -761,6 +763,59 @@
       }).catch(function (err) {
         labLog("FAIL: " + (err && err.message ? err.message : err));
         refreshTrainBtn();
+      });
+    });
+  }
+
+  document.getElementById("tryPickBtn").addEventListener("click", function () {
+    if (!lastDoc) {
+      labLog("Aja ensin kuva.");
+      return;
+    }
+    var sel = pickedBoxes();
+    if (sel.length < 2) {
+      labLog("Valitse vähintään kaksi laatikkoa — klikkaa niitä kuvassa.");
+      return;
+    }
+    var g = ErazerLayoutLab && ErazerLayoutLab.predictBoxes
+      ? ErazerLayoutLab.predictBoxes(sel)
+      : ErazerLayoutNet.shared().predict(sel);
+    if (!g) {
+      labLog("Valintaa ei voitu nimetä.");
+      return;
+    }
+    labLog("valinta → " + g.type + " " + Math.round((g.confidence || 0) * 100) +
+      "% · " + g.axis + " · n=" + g.items +
+      (g.pattern ? " · " + g.pattern : "") + " (ei opetettu)");
+    document.documentElement.setAttribute("data-lab-tried", g.type);
+    document.documentElement.setAttribute("data-lab-tried-n", String(sel.length));
+  });
+
+  var testHoldoutBtn = document.getElementById("testHoldoutBtn");
+  if (testHoldoutBtn) {
+    testHoldoutBtn.addEventListener("click", function () {
+      if (!ErazerLayoutLab || !ErazerLayoutLab.testHoldout) return;
+      testHoldoutBtn.disabled = true;
+      labBusy = true;
+      labLog("Ajetaan tunnistus shadcn-holdoutilla (ei kirjoiteta näytteitä)…");
+      ErazerLayoutLab.testHoldout({}).then(function (summary) {
+        if (lastDoc) showLayout(lastDoc);
+        labBusy = false;
+        testHoldoutBtn.disabled = false;
+        document.documentElement.setAttribute("data-lab-tested", "1");
+        document.documentElement.setAttribute("data-lab-holdout-dom", String(summary.domScore));
+        document.documentElement.setAttribute("data-lab-holdout-erazer", String(summary.erazerScore));
+        document.documentElement.setAttribute("data-lab-holdout-scan", String(summary.scanScore));
+        document.documentElement.setAttribute("data-lab-holdout-n", String((summary.rows || []).length));
+        document.documentElement.setAttribute("data-lab-holdout-dom-ok", String(summary.dom.ok));
+        document.documentElement.setAttribute("data-lab-holdout-erazer-ok", String(summary.erazer.ok));
+        document.title = "lab-tested " + summary.dom.ok + "/" + summary.dom.n;
+      }).catch(function (err) {
+        labBusy = false;
+        testHoldoutBtn.disabled = false;
+        labLog("FAIL: " + (err && err.message ? err.message : err));
+        document.documentElement.setAttribute("data-lab-tested", "0");
+        document.title = "lab-test-fail";
       });
     });
   }

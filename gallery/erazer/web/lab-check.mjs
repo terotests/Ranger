@@ -154,6 +154,33 @@ const after = await page.evaluate(ARCHETYPES);
 ok("the archetypes still hold after training", after.ok === after.n, after.wrong.join(","));
 ok("no error while training", problems.length === 0, [...new Set(problems)].join("; "));
 
+console.log("--- the trained net is scored on held-out shadcn groups ---");
+// Training reports accuracy on the fixtures it just captured. That is the
+// train set. Recognition is the other question: does the same net name
+// groups it was not taught from — the shadcn widgets, which are a different
+// look and never go through "Rakenna HTML-testsetti".
+problems.length = 0;
+await page.click("#testHoldoutBtn");
+await page.waitForFunction(() => document.documentElement.hasAttribute("data-lab-tested"), null,
+  { timeout: 180000 }).catch(() => {});
+const hold = await page.evaluate(() => ({
+  done: document.documentElement.getAttribute("data-lab-tested"),
+  n: Number(document.documentElement.getAttribute("data-lab-holdout-n")),
+  dom: Number(document.documentElement.getAttribute("data-lab-holdout-dom")),
+  erazer: Number(document.documentElement.getAttribute("data-lab-holdout-erazer")),
+  scan: Number(document.documentElement.getAttribute("data-lab-holdout-scan")),
+  domOk: Number(document.documentElement.getAttribute("data-lab-holdout-dom-ok")),
+  log: (document.getElementById("layoutOut").textContent || "").split("\n").slice(-8).join(" | "),
+}));
+ok("the holdout run finished", hold.done === "1", JSON.stringify(hold));
+ok("it scored several labelled groups", hold.n >= 4, JSON.stringify(hold));
+ok("every holdout group got a DOM prediction", hold.dom >= 0, JSON.stringify(hold));
+ok("the log names expected vs predicted",
+  (await page.textContent("#layoutOut")).includes("shadcn-kit-btns") &&
+  (await page.textContent("#layoutOut")).includes("Tunnistus shadcn.html"),
+  hold.log);
+ok("no error while testing recognition", problems.length === 0, [...new Set(problems)].join("; "));
+
 console.log("--- the trained weights round-trip ---");
 const trip = await page.evaluate(() => {
   const dump = ErazerLayoutNet.shared().dumpWeights();

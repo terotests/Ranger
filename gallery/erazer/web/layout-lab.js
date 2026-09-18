@@ -2,7 +2,13 @@
  * Erazer layout lab — HTML fixtures → PNG → Erazer boxes → tiny WebGPU MLP.
  *
  * Browser: globalThis.ErazerLayoutLab
- * Node smoke can load the pure helpers (packDump, matchBoxes, MIN_SAMPLES).
+ * Node smoke can load the pure helpers (packDump, matchBoxes, MIN_SAMPLES,
+ * predictBoxes, scanFinds, scoreCasesDetail, summarizeEval).
+ *
+ * Training captures labelled samples and fine-tunes. Recognition is separate:
+ * `predictBoxes` / `scanFinds` name a group without a gradient step, and
+ * `testHoldout` scores the live weights on shadcn groups the trainer never
+ * wrote to IndexedDB.
  */
 (function (root) {
   var IN = 40;
@@ -456,22 +462,105 @@
    * Share of `cases` a dump names correctly, overall and over the archetypes
    * alone. Both are -1 when the dump will not load.
    */
-  lab.scoreParts = function (dump, cases) {
-    if (typeof ErazerLayoutNet === "undefined" || !cases.length) return { all: -1, core: -1 };
+  /**
+   * Same split as `scoreParts`, plus one row per case: expected, predicted,
+   * confidence. Training used to report a single ratio, which hid whether the
+   * miss was a list or every archetype at once.
+   */
+  lab.scoreCasesDetail = function (dump, cases) {
+    var empty = { all: -1, core: -1, ok: 0, n: 0, coreOk: 0, coreN: 0, rows: [] };
+    if (typeof ErazerLayoutNet === "undefined" || !cases || !cases.length) return empty;
     var net = new ErazerLayoutNet();
-    if (!net.loadWeights(dump)) return { all: -1, core: -1 };
+    if (!net.loadWeights(dump)) return empty;
     var ok = 0;
     var coreOk = 0;
     var coreN = 0;
+    var rows = [];
     for (var i = 0; i < cases.length; i++) {
-      var hit = net.predict(cases[i].boxes).type === cases[i].label;
+      var g = net.predict(cases[i].boxes);
+      var hit = g.type === cases[i].label;
       if (hit) ok++;
       if (cases[i].core) {
         coreN++;
         if (hit) coreOk++;
       }
+      rows.push({
+        label: cases[i].label,
+        predicted: g.type,
+        confidence: g.confidence,
+        hit: hit,
+        core: !!cases[i].core,
+        fixture: cases[i].fixture || "",
+        items: g.items,
+        axis: g.axis
+      });
     }
-    return { all: ok / cases.length, core: coreN ? coreOk / coreN : 1 };
+    return {
+      all: ok / cases.length,
+      core: coreN ? coreOk / coreN : 1,
+      ok: ok,
+      n: cases.length,
+      coreOk: coreOk,
+      coreN: coreN,
+      rows: rows
+    };
+  };
+
+  lab.scoreParts = function (dump, cases) {
+    var d = lab.scoreCasesDetail(dump, cases);
+    return { all: d.all, core: d.core };
+  };
+
+  lab.asRangerBoxes = function (list) {
+    if (!list || !list.length) return [];
+    if (typeof list[0].cx === "function") return list;
+    return toRangerBoxes(list);
+  };
+
+  /**
+   * Name one group with the live net (or a dump), without teaching.
+   * This is what "Kokeile valinta" is for: the same forward pass the overlay
+   * uses, pointed at the boxes the user picked.
+   */
+  lab.predictBoxes = function (boxes, dump) {
+    if (typeof ErazerLayoutNet === "undefined") return null;
+    var packed = lab.asRangerBoxes(boxes);
+    if (packed.length < 2) return null;
+    var net;
+    if (dump) {
+      net = new ErazerLayoutNet();
+      if (!net.loadWeights(dump)) return null;
+    } else {
+      net = ErazerLayoutNet.shared();
+    }
+    return net.predict(packed);
+  };
+
+  /**
+   * Did `scan` propose a group of `expected` among these primitives?
+   * `predict` is given the group; `scan` has to find it.
+   */
+  lab.scanFinds = function (boxes, expected, dump) {
+    if (typeof ErazerLayoutNet === "undefined") {
+      return { hit: false, guesses: [] };
+    }
+    var packed = lab.asRangerBoxes(boxes);
+    var net;
+    if (dump) {
+      net = new ErazerLayoutNet();
+      if (!net.loadWeights(dump)) return { hit: false, guesses: [] };
+    } else {
+      net = ErazerLayoutNet.shared();
+    }
+    var guesses = net.scan(packed);
+    var found = null;
+    var out = [];
+    for (var i = 0; i < guesses.length; i++) {
+      var g = guesses[i];
+      out.push({ type: g.type, confidence: g.confidence, items: g.items, axis: g.axis });
+      if (!found && g.type === expected) found = out[out.length - 1];
+    }
+    return { hit: !!found, found: found, guesses: out };
   };
 
   /** Overall share only, for callers that do not need the split. */
@@ -954,6 +1043,159 @@
       " (arkkityypit " + pct(score.core) + ", " + cases.length +
       " tapausta) · tallennettu IndexedDB + localStorage");
     return result;
+  };
+
+  function guessLine(g) {
+    if (!g) return "—";
+    return g.type + " " + Math.round((g.confidence || 0) * 100) + "%";
+  }
+
+  /**
+   * Run the live net on labelled HTML groups without writing a sample.
+   *
+   * Training scores the fixtures it just captured. This is the other half:
+   * render a page the trainer did not see (shadcn by default), measure the
+   * annotated groups, and ask `predict` / `scan` what they are. DOM boxes are
+   * the oracle grouping; Erazer boxes are what the overlay will actually get.
+   */
+  lab.evaluateHtml = async function (opts) {
+    opts = opts || {};
+    var hooks = lab.hooks || {};
+    var log = hooks.log || function () {};
+    var showCanvas = hooks.showCanvas;
+    var canvasToBuffer = hooks.canvasToBuffer;
+    var runDoc = hooks.runDoc;
+    var url = opts.url || "shadcn.html";
+    var selector = opts.selector || "[data-holdout][data-concept]";
+    var dump = opts.dump || lab.currentDump();
+    log("Ladataan " + url + "…");
+    var html = await fetch(url).then(function (r) {
+      if (!r.ok) throw new Error(url + " puuttuu");
+      return r.text();
+    });
+    var parsed = lab.installFixtureCss(html);
+    var shots = parsed.querySelectorAll(selector);
+    if (!shots.length) throw new Error("ei " + selector + " -ryhmiä " + url + ":ssa");
+    var host = hooks.host;
+    if (!host) throw new Error("capture-host puuttuu");
+    var bg = opts.background || (url.indexOf("shadcn") >= 0 ? "#09090b" : "#e8ecf0");
+    var rows = [];
+    for (var i = 0; i < shots.length; i++) {
+      var src = shots[i];
+      var name = src.getAttribute("data-fixture") ||
+        src.getAttribute("data-shot") ||
+        ("eval-" + i);
+      var concept = src.getAttribute("data-concept") || "other";
+      host.innerHTML = "";
+      var node = document.importNode(src, true);
+      host.appendChild(node);
+      host.style.background = bg;
+      await waitFrame();
+      var measured = lab.measureRoles(node);
+      var row = {
+        fixture: name,
+        expected: concept,
+        nBoxes: measured.boxes.length,
+        dom: null,
+        erazer: null,
+        scan: null,
+        scanErazer: null
+      };
+      if (measured.boxes.length >= 2) {
+        row.dom = lab.predictBoxes(measured.boxes, dump);
+        row.scan = lab.scanFinds(measured.boxes, concept, dump);
+      }
+      if (opts.vectorize !== false) {
+        var raster = null;
+        try {
+          raster = await lab.rasterizeElement(node, "image/png");
+          if (showCanvas) showCanvas(raster.canvas, name);
+          await waitFrame();
+        } catch (err) {
+          log("   " + name + ": rasterointi epäonnistui (" + err.message + ")");
+          var fallback = lab.paintRoleCanvas(measured.group, measured.boxes);
+          raster = { canvas: fallback, mime: "image/png", width: fallback.width, height: fallback.height, fallback: true };
+          if (showCanvas) showCanvas(fallback, name);
+        }
+        if (raster && canvasToBuffer && typeof Erazer !== "undefined") {
+          var img = canvasToBuffer(raster.canvas);
+          var doc = Erazer.analyze(img);
+          if (runDoc) runDoc(img, doc);
+          await waitFrame();
+          var layout = {};
+          try { layout = JSON.parse(doc.layoutJson || "{}"); } catch (err2) {}
+          var matched = lab.matchBoxes(layout.boxes || [], measured.group, 8);
+          if (matched.length >= 2) {
+            row.erazer = lab.predictBoxes(matched, dump);
+            row.scanErazer = lab.scanFinds(matched, concept, dump);
+          }
+        }
+      }
+      rows.push(row);
+      log(lab.formatEvalRow(row));
+      if (hooks.progress) hooks.progress({ name: name, concept: concept, row: row });
+      await sleep(20);
+    }
+    host.innerHTML = "";
+    var summary = lab.summarizeEval(rows);
+    log("Tunnistus " + url + ": DOM " + summary.dom.ok + "/" + summary.dom.n +
+      " · Erazer " + summary.erazer.ok + "/" + summary.erazer.n +
+      " · scan " + summary.scan.ok + "/" + summary.scan.n);
+    summary.rows = rows;
+    summary.url = url;
+    summary.dump = dump;
+    return summary;
+  };
+
+  lab.formatEvalRow = function (row) {
+    var mark = function (g) {
+      if (!g) return "—";
+      var hit = g.type === row.expected;
+      return (hit ? "ok " : "miss ") + guessLine(g);
+    };
+    var scan = row.scan && row.scan.hit
+      ? ("scan " + guessLine(row.scan.found))
+      : "scan miss";
+    return row.fixture + " (" + row.expected + ", n=" + row.nBoxes + "): DOM " +
+      mark(row.dom) + " · Erazer " + mark(row.erazer) + " · " + scan;
+  };
+
+  lab.summarizeEval = function (rows) {
+    var bucket = function () { return { ok: 0, n: 0 }; };
+    var dom = bucket();
+    var erz = bucket();
+    var scan = bucket();
+    for (var i = 0; i < (rows || []).length; i++) {
+      var r = rows[i];
+      if (r.dom) {
+        dom.n++;
+        if (r.dom.type === r.expected) dom.ok++;
+      }
+      if (r.erazer) {
+        erz.n++;
+        if (r.erazer.type === r.expected) erz.ok++;
+      }
+      if (r.scan) {
+        scan.n++;
+        if (r.scan.hit) scan.ok++;
+      }
+    }
+    return {
+      dom: dom,
+      erazer: erz,
+      scan: scan,
+      domScore: dom.n ? dom.ok / dom.n : -1,
+      erazerScore: erz.n ? erz.ok / erz.n : -1,
+      scanScore: scan.n ? scan.ok / scan.n : -1
+    };
+  };
+
+  /** Held-out page: shadcn widgets the HTML trainer never captured. */
+  lab.testHoldout = async function (opts) {
+    return lab.evaluateHtml(Object.assign({
+      url: "shadcn.html",
+      selector: "[data-holdout][data-concept]"
+    }, opts || {}));
   };
 
   lab.downloadDump = function (dump, filename) {

@@ -23,7 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The live overlay is pinned to the image (not the padded stage) with a
   **tausta** opacity slider. Same-row chips of equal height and fill with
   one-line labels are promoted to buttons together; a wide thin bar with
-  an optional circular thumb is a **slider**.
+  an optional circular thumb is a **slider**. The layout net on that page
+  can be taught from clicks or an HTML test set; **Kokeile valinta**
+  names a selection without training, and **Testaa tunnistusta** scores
+  the live weights on held-out shadcn groups the trainer never captured.
 - **CodeGraph diffs two git revisions.** `codegraph_cli … --diff=base..head`
   (or `--diff=base` against the working tree) and the desktop **Diff**
   button check each side out as a detached worktree, analyse it the way
