@@ -309,18 +309,6 @@ code:not(pre code) {
   .marks__run { flex-wrap: wrap; row-gap: 22px; }
 }
 
-/* Deliberately quiet: the strip says what it says, and this is the small
-   print under it for whoever leans in. */
-.marks__note {
-  margin: 14px 0 0;
-  font: 400 10.5px/1.6 var(--mono);
-  letter-spacing: .01em;
-  color: #4a4d55;
-  max-width: 96ch;
-}
-.marks__note .u { color: #6a5f3c; text-decoration-color: rgba(251,200,2,.2); }
-.marks__note .u:hover { color: var(--gold); text-decoration-color: var(--gold); }
-
 .m-swift { --mark: url("assets/logos/swift.svg"); }
 .m-apple { --mark: url("assets/logos/apple.svg"); }
 .m-kotlin { --mark: url("assets/logos/kotlin.svg"); }
