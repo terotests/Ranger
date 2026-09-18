@@ -2581,6 +2581,11 @@ class ComponentEngine {
         if (fv.boundExplicitOf()) {
             return true
         }
+        ; A class is strict code throughout (§14.5.1), so its value poisons
+        ; `caller` and `arguments` like any strict function.
+        if (fv.hasOwnData("__classname__")) {
+            return true
+        }
         return (fv.strictFnOf())
     }
 
@@ -2712,6 +2717,9 @@ class ComponentEngine {
 
     fn strictForBody:boolean (fnNode:TSNode) {
         if strictMode {
+            return true
+        }
+        if fnNode.strictBody {
             return true
         }
         if (null? fnNode.body) {
@@ -4034,14 +4042,21 @@ class ComponentEngine {
         def i:int 0
         while (i < (array_length names)) {
             def nm:string (itemAt names i)
+            def wasOwn:boolean (gObj.hasOwnData(nm))
             if (context.has(nm)) {
                 gObj.setMember(nm (context.lookup(nm)))
             } {
                 ; Hoisted but not yet initialised: the property exists and holds
                 ; undefined, which is what a read before the declaration sees.
-                if (false == (gObj.hasOwnData(nm))) {
+                if (false == wasOwn) {
                     gObj.setMember(nm (EvValueBridge.taggedUndefined()))
                 }
+            }
+            ; §8.1.1.4.17/18 CreateGlobalVarBinding / CreateGlobalFunctionBinding:
+            ; a script's var or function declaration is a NON-configurable,
+            ; enumerable, writable property of the global object.
+            if (false == wasOwn) {
+                gObj.setAttrs(nm true true false)
             }
             i = (i + 1)
         }
@@ -12601,6 +12616,18 @@ class ComponentEngine {
     }
 
     fn bcPutField:void (obj:EvHandle name:string v:EvHandle) {
+        ; D-STRICT: writing `caller` or `arguments` on a strict function is
+        ; the same TypeError reading them is -- on this tier too.
+        if (obj.isFunction()) {
+            if ((name == "caller") || (name == "arguments")) {
+                if (false == (obj.hasOwnAttrs(name))) {
+                    if (this.functionIsStrict(obj)) {
+                        def _sw:EvHandle (this.throwSpecError("TypeError" ("'" + name + "' may not be accessed on a strict function")))
+                        return
+                    }
+                }
+            }
+        }
         ; D-PROXY: the `set` trap.
         if (this.isProxyValue(obj)) {
             def sTgt:EvHandle (this.proxyTargetOf(obj))
@@ -16774,10 +16801,25 @@ class ComponentEngine {
         while (ci < (array_length entries)) {
             def entry:EvHandle (itemAt entries ci)
             if isMapKind {
-                ; Each entry is a [key, value] pair; anything else contributes
-                ; nothing rather than half an entry.
+                ; §23.1.1.2 AddEntriesFromIterable: each entry must be an
+                ; OBJECT (a TypeError otherwise), and its key and value are
+                ; Get(entry, "0") and Get(entry, "1") -- so `{}` is an entry
+                ; with an undefined key, not something to skip.
                 if (entry.isArrayValue()) {
                     coll.mapSet((entry.getIndex(0)) (entry.getIndex(1)))
+                } {
+                    if ((false == (this.isDescriptorObject(entry))) || (this.isSymbolValue(entry))) {
+                        return (this.throwSpecError("TypeError" "Iterator value is not an entry object"))
+                    }
+                    def ek:EvHandle (this.getPropertyValue(entry "0"))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    def ev:EvHandle (this.getPropertyValue(entry "1"))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    coll.mapSet(ek ev)
                 }
             } {
                 coll.setAdd(entry)
@@ -16887,6 +16929,26 @@ class ComponentEngine {
         }
         def recvClass:EvHandle (recvV.getMember("__classname__"))
         if (false == (recvClass.isString())) {
+            ; §22.1.2.3 step 6: a plain constructor function is called as
+            ; `new C(len)`, the items are defined on what it built, and its
+            ; `length` is set -- `Array.of.call(function (n) { this.n = n })`.
+            if (recvV.hasFunctionNode()) {
+                def plainArgs:[EvHandle]
+                push plainArgs (EvHandle.fromInt((array_length items)))
+                def plainBuilt:EvHandle (this.constructWithValues(recvV plainArgs recvV))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                if (this.isDescriptorObject(plainBuilt)) {
+                    def pbi:int 0
+                    while (pbi < (array_length items)) {
+                        this.bcPutField(plainBuilt (to_string pbi) (itemAt items pbi))
+                        pbi = (pbi + 1)
+                    }
+                    this.bcPutField(plainBuilt "length" (EvHandle.fromInt((array_length items))))
+                    return plainBuilt
+                }
+            }
             return (EvValueBridge.taggedArray(items))
         }
         ; Constructed with NO arguments: `new L(n)` would mean a length, and
@@ -23810,6 +23872,12 @@ class ComponentEngine {
                                 def sv2:EvHandle (this.getPropertyValue(srcA sk2))
                                 if scriptThrew {
                                     return (EvValueBridge.taggedUndefined())
+                                }
+                                ; Set(to, key, value, true): a non-writable
+                                ; target property is a TypeError, not a skip.
+                                def asgRefuse:string (this.writeRefusalError(a0 sk2))
+                                if ((strlen asgRefuse) > 0) {
+                                    return (this.throwSpecError("TypeError" asgRefuse))
                                 }
                                 this.bcPutField(a0 sk2 sv2)
                                 if scriptThrew {
@@ -32535,7 +32603,8 @@ class ComponentEngine {
                 }
                 ; A bound function carries a COPY of its target's core here, so
                 ; its `prototype` is already the target's -- no unwrapping step.
-                def hiProto:EvHandle (recv.getMember("prototype"))
+                ; Get(C, "prototype"): an accessor runs, and a throw is the answer.
+                def hiProto:EvHandle (this.getPropertyValue(recv "prototype"))
                 if scriptThrew {
                     return (EvValueBridge.taggedUndefined())
                 }
@@ -32822,6 +32891,27 @@ class ComponentEngine {
     fn objectClassOf:string (v:EvHandle) {
         if (v.isUndefined()) { return "Undefined" }
         if (v.isNull()) { return "Null" }
+        ; §19.1.3.6 steps 15-17: a STRING @@toStringTag, own or inherited,
+        ; names the brand of any object -- an array or a boxed primitive
+        ; given one answers it, not its built-in tag. A symbol is not an
+        ; object and keeps its own brand.
+        def tagFirst:boolean false
+        if (v.isArrayValue()) { tagFirst = true }
+        if (v.isFunction()) { tagFirst = true }
+        if (v.isMap()) { tagFirst = true }
+        if (v.isSet()) { tagFirst = true }
+        if (v.isObject()) {
+            if (false == (this.isSymbolValue(v))) { tagFirst = true }
+        }
+        if tagFirst {
+            def tagEarly:EvHandle (this.getPropertyValue(v "@@toStringTag"))
+            if scriptThrew {
+                return "Object"
+            }
+            if (tagEarly.isString()) {
+                return (tagEarly.stringOf())
+            }
+        }
         if (v.isArrayValue()) {
             ; A TYPED array is an array value here -- that is how it gets the
             ; element machinery -- but it brands as its own constructor, which
@@ -41673,10 +41763,20 @@ class ComponentEngine {
             si = (si + 1)
         }
         ; An error carries `message` and `stack` as own properties the key walk
-        ; skips: both are non-enumerable.
+        ; skips: both are non-enumerable. §19.5.1.1 step 4: the own `message`
+        ; exists only when a message ARGUMENT was given -- `new E()` inherits
+        ; the prototype's.
+        def gaveMessage:boolean false
+        if ((array_length args) > 0) {
+            if (false == ((itemAt args 0).isUndefined())) {
+                gaveMessage = true
+            }
+        }
         if (built.hasOwnData("message")) {
-            inst.setMember("message" (built.getOwnData("message")))
-            inst.setAttrs("message" true false true)
+            if gaveMessage {
+                inst.setMember("message" (built.getOwnData("message")))
+                inst.setAttrs("message" true false true)
+            }
         }
     }
 
@@ -42026,6 +42126,8 @@ class ComponentEngine {
         while (i < (array_length body.children)) {
             def m:TSNode (itemAt body.children i)
             if (m.nodeType == "MethodDefinition") {
+                ; §14.5.1: every method and the constructor is strict code.
+                m.strictBody = true
                 ; `accessor` names get/set when the parser records it there;
                 ; otherwise `kind` carries it, and `kind` also carries "static".
                 def acc:string m.accessor

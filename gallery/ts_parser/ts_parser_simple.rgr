@@ -47,6 +47,9 @@ class TSNode {
   ; all, and it never changes for a given node.
   def argScanned:boolean false
   def usesArguments:boolean false
+  ; A function whose body is strict by POSITION -- a class method or
+  ; constructor (§14.5.1) -- whatever the surrounding code says.
+  def strictBody:boolean false
   ; Same memo for `this`: does the body mention `this` in its own lexical
   ; this-scope (arrows included, nested ordinary functions not), or `super`
   ; or `eval`, which reach it another way? Decides whether a call binds a
