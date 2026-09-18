@@ -184,6 +184,61 @@ if (!ready) {
     console.error("palette swatches should match the emitted layers");
     process.exitCode = 1;
   }
+
+  // Pisteet draws the trace's own points over the drawing, in a separate SVG
+  // so it cannot pollute querySelectorAll("path"). Zooming has to actually
+  // magnify: the stage is a flexbox, so the picture needs flex:none.
+  const geom = await page.evaluate(async () => {
+    const btn = document.getElementById("geomToggle");
+    if (btn.disabled) return { disabled: true };
+    const drawingBefore = document.querySelectorAll("#outStage svg path").length;
+    btn.click();
+    const overlay = document.querySelector("#outStage .geomlayer");
+    const stats = document.querySelector("#outStage .geomstats");
+    const drawingAfter = document.querySelectorAll("#outStage svg:not(.geomlayer) path").length;
+    const overlayPaths = overlay ? overlay.querySelectorAll("path").length : 0;
+    const sel = stats && stats.querySelector("select");
+    let zoomed = false, flexNone = false;
+    if (sel) {
+      sel.value = "4";
+      sel.dispatchEvent(new Event("change", { bubbles: true }));
+      const svg = document.querySelector("#outStage svg:not(.geomlayer)");
+      const stage = document.getElementById("outStage");
+      zoomed = stage.classList.contains("zoomed") && svg && svg.style.width === "400%";
+      const cs = svg ? getComputedStyle(svg) : null;
+      flexNone = !!(cs && cs.flexGrow === "0" && cs.flexShrink === "0");
+    }
+    btn.click();
+    return {
+      disabled: false,
+      overlay: !!overlay,
+      overlayPaths,
+      stats: !!(stats && /pistettä/.test(stats.textContent || "")),
+      drawingBefore,
+      drawingAfter,
+      overlayGone: !document.querySelector("#outStage .geomlayer"),
+      zoomed,
+      flexNone,
+    };
+  });
+  console.log(JSON.stringify(geom));
+  if (geom.disabled || !geom.overlay || !geom.stats || !(geom.overlayPaths > 0)) {
+    console.error("Pisteet should overlay the drawing with a separate SVG and a count of points");
+    process.exitCode = 1;
+  }
+  if (geom.drawingAfter !== geom.drawingBefore) {
+    console.error("the Pisteet overlay must not add paths to the drawing, "
+      + geom.drawingBefore + " → " + geom.drawingAfter);
+    process.exitCode = 1;
+  }
+  if (!geom.overlayGone) {
+    console.error("turning Pisteet off should remove the overlay");
+    process.exitCode = 1;
+  }
+  if (!geom.zoomed || !geom.flexNone) {
+    console.error("Pisteet zoom should actually magnify (flex:none on the SVG)");
+    process.exitCode = 1;
+  }
   // The color slider's range is a promise the engine has to keep: it is worth
   // asking for more than sixteen colors only if asking produces more of them.
   // Measured on a portrait the palette keeps growing to 64 (16→15 layers,
@@ -393,6 +448,8 @@ if (!ready) {
       refine: document.getElementById("toolRefine").classList.contains("active"),
       merge: document.getElementById("toolMerge").classList.contains("active"),
       stage: document.getElementById("outStage").classList.contains("refining"),
+      refineControls: getComputedStyle(
+        document.querySelector(".refine-only")).display !== "none",
     }));
 
     // merge: set the picker, click the biggest shape, count what took the color
@@ -555,6 +612,10 @@ if (!ready) {
     // deleting what is on top used to reveal geometry that was never visible.
     // And all of it comes back in one click.
     await page.click("#toolWand");
+    const refineHiddenOnWand = await page.evaluate(() => {
+      const el = document.querySelector(".refine-only");
+      return getComputedStyle(el).display === "none";
+    });
     const wand = await (async () => {
       // Seed from a real click point, the way a person does: half the shapes
       // in a stacked drawing are buried under later layers and can neither be
@@ -747,7 +808,7 @@ if (!ready) {
     await page.waitForTimeout(400);
     const stillEditing = await page.evaluate(() =>
       document.getElementById("editbar").classList.contains("on"));
-    return { before, exploded, statusLive, defaultTool, merged, undone, picked, want, wand, smoothSteps,
+    return { before, exploded, statusLive, defaultTool, refineHiddenOnWand, merged, undone, picked, want, wand, smoothSteps,
              groups, groupsUndone, stillEditing,
              masks, masksUndone, preview: refined.preview, previewLeft: refined.previewLeft,
              refineChangedPixels: refined.changed,
@@ -802,8 +863,14 @@ if (!ready) {
     console.error("sizing the refine box must not re-trace and drop the edit session");
     process.exitCode = 1;
   }
-  if (!edit.defaultTool.refine || edit.defaultTool.merge || !edit.defaultTool.stage) {
-    console.error("edit mode should open on Tarkennin, got " + JSON.stringify(edit.defaultTool));
+  if (!edit.defaultTool.refine || edit.defaultTool.merge || !edit.defaultTool.stage
+    || !edit.defaultTool.refineControls) {
+    console.error("edit mode should open on Tarkennin with its own sliders, got "
+      + JSON.stringify(edit.defaultTool));
+    process.exitCode = 1;
+  }
+  if (!edit.refineHiddenOnWand) {
+    console.error("Omat sävyt / Reunan sulautus / Tarkentimen koko should hide when the wand is the tool");
     process.exitCode = 1;
   }
   if (!(edit.wand.loose > edit.wand.tight) || edit.wand.tight < 1) {

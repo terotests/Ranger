@@ -93,7 +93,9 @@ corners out of an outline, and **Taikasauva** picks an object out — click
 to grow a selection by color, or draw a rough outline by hand and let the
 shapes decide where the edge really is — and then cuts everything else away,
 leaving the object alone on transparency, which is how you get an icon out of a
-photograph. Every one of them is one undo step per gesture, and *Palauta* goes
+photograph. **Pisteet** draws the trace's own anchors, lines and curves over
+the drawing (a separate overlay, so it does not lie to the shape count).
+Every one of them is one undo step per gesture, and *Palauta* goes
 back to the trace.
 
 ### Eight pages are generated
