@@ -359,7 +359,14 @@ canvas.addEventListener(
   (ev) => {
     ev.preventDefault();
     const { x, y } = canvasCoords(ev);
-    web.wheel(x, y, ev.deltaY < 0 ? 1 : -1);
+    let dx = ev.deltaX;
+    let dy = ev.deltaY;
+    if (ev.shiftKey && Math.abs(dx) < Math.abs(dy)) {
+      dx = dy;
+      dy = 0;
+    }
+    if (Math.abs(dx) > 0.5) web.wheelX(x, y, dx);
+    if (Math.abs(dy) > 0.5) web.wheel(x, y, dy < 0 ? 1 : -1);
     afterInput();
   },
   { passive: false },

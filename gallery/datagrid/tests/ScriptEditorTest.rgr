@@ -523,6 +523,28 @@ class ScriptEditorTest {
         fd.handleText("z")
         c.eqStr("and the keys go back to the document, over the match" (fd.buf.lineAt(3)) "za again")
 
+        print "== horizontal scroll"
+        def hs:ScriptEditor (new ScriptEditor)
+        hs.init("fn f:void () {\n    return (\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\")\n}\n")
+        hs.showMinimap = false
+        hs.setBounds(0 0 240 400)
+        hs.contentWPx = 800
+        hs.contentWVersion = hs.buf.version
+        c.eqInt("starts at the left" hs.layout.scrollX 0)
+        c.ok("a long line needs a bar" ((hs.maxScrollX()) > 0))
+        hs.scrollByX(120)
+        c.eqInt("a sideways wheel moves the text" hs.layout.scrollX 120)
+        hs.scrollByX(-40)
+        c.eqInt("and back" hs.layout.scrollX 80)
+        hs.scrollByX(-1000)
+        c.eqInt("not past the left edge" hs.layout.scrollX 0)
+        hs.scrollByX(10000)
+        c.eqInt("nor past the end of the line" hs.layout.scrollX (hs.maxScrollX()))
+        c.ok("the thumb sits on a track" ((hs.hScrollH()) == 10))
+        hs.moveCaret(1 0 false)
+        hs.handleKey((UIKey.end()) false false)
+        c.ok("End walks to the end of the line" (hs.sel.caret.col > 20))
+
         print ""
         print ("passed " + (to_string c.passed) + ", failed " + (to_string c.failed))
         if (c.failed > 0) {

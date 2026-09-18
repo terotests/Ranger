@@ -332,6 +332,9 @@ class CodeEditorPage {
         if (inp.scrollDelta != 0) {
             editor.scrollBy(inp.scrollDelta)
         }
+        if (inp.scrollDeltaX != 0) {
+            editor.scrollByX(inp.scrollDeltaX)
+        }
         if inp.ctrlDown {
             def t:string inp.textInput
             def ti:int 0
@@ -410,6 +413,7 @@ class CodeEditorPage {
         str_append r ("|" + (to_string editor.sel.anchor.line))
         str_append r (":" + (to_string editor.sel.anchor.col))
         str_append r ("|" + (to_string editor.layout.scrollLine))
+        str_append r (":" + (to_string editor.layout.scrollX))
         str_append r ("|" + (to_string W))
         str_append r ("x" + (to_string H))
         str_append r ("|" + (to_string (this.blinkPhase())))

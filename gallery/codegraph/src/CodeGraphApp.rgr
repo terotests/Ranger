@@ -32,6 +32,7 @@ Import "../../datagrid/src/script/lang/EditorLanguage.rgr"
 Import "../../datagrid/src/script/lang/RangerLanguage.rgr"
 Import "../../datagrid/src/script/lang/JsLanguage.rgr"
 Import "../../game_engine/ui/UITextRenderer.rgr"
+Import "../../game_engine/ui/UIInput.rgr"
 Import "CodeGraphSample.rgr"
 Import "CodeGraphFlow.rgr"
 Import "CodeGraphBuilder.rgr"
@@ -175,6 +176,7 @@ class CodeGraphApp extends EvgApp {
         this.installLanguages()
         codeView.init("; Select a class, field or method to open its source.")
         codeView.showMinimap = true
+        codeView.focused = false
         this.buildChrome()
         this.setPageSize(w h)
         this.loadSample("shop")
@@ -2413,10 +2415,12 @@ class CodeGraphApp extends EvgApp {
         ; The drawer is out of the flow and in front, but not modal: a press
         ; on it is its own, anything beside it goes where it always went.
         if (members.drawer.owns(id)) {
+            codeView.focused = false
             this.press(id)
             return
         }
         if (this.isSplitSep(id)) {
+            codeView.focused = false
             splitDrag = true
             splitDragI = (split.sepIndex(id))
             splitAt = x
@@ -2424,11 +2428,13 @@ class CodeGraphApp extends EvgApp {
             return
         }
         if (this.inSource(x y)) {
+            ui.blur()
             sourceDrag = true
             codeView.focused = true
             codeView.pointerDown(codeTr (to_int x) (to_int y) shift)
             return
         }
+        codeView.focused = false
         if (this.inCanvas(x y)) {
             graphDrag = true
             this.graphDown(x y shift ctrl)
@@ -2477,6 +2483,7 @@ class CodeGraphApp extends EvgApp {
         }
         if sourceDrag {
             sourceDrag = false
+            codeView.pointerUp()
             this.sourceClick(x y)
             return
         }
@@ -2556,29 +2563,38 @@ class CodeGraphApp extends EvgApp {
     }
 
     fn wheel:void (x:double y:double delta:double) {
+        this.wheelXY(x y 0.0 delta)
+    }
+
+    fn wheelXY:void (x:double y:double dx:double dy:double) {
         if (members.isOpen()) {
             if (members.drawer.owns((this.hitId(x y)))) {
-                members.drawer.scrollBy(delta)
+                members.drawer.scrollBy(dy)
                 return
             }
         }
         if (this.inCanvas(x y)) {
-            this.graphWheel(x y delta)
+            this.graphWheel(x y dy)
             return
         }
         if (this.inSource(x y)) {
-            def notches:int 1
-            if (delta < 0.0) {
-                notches = -1
+            if (dx != 0.0) {
+                codeView.scrollByX((to_int dx))
             }
-            def lines:int (to_int (delta / 20.0))
-            if (lines == 0) {
-                lines = notches
+            if (dy != 0.0) {
+                def notches:int 1
+                if (dy < 0.0) {
+                    notches = -1
+                }
+                def lines:int (to_int (dy / 20.0))
+                if (lines == 0) {
+                    lines = notches
+                }
+                codeView.scrollBy((0 - lines))
             }
-            codeView.scrollBy((0 - lines))
             return
         }
-        this.scrollClassList(delta)
+        this.scrollClassList(dy)
     }
 
     fn scrollClassList:void (delta:double) {
@@ -2758,6 +2774,7 @@ class CodeGraphApp extends EvgApp {
         if ((strlen id) == 0) {
             return false
         }
+        codeView.focused = false
         def oldSample:string sampleSel.value
         def oldClass:string classTree.activeValue
         def oldBase:string baseSel.value
@@ -3118,8 +3135,8 @@ class CodeGraphApp extends EvgApp {
             }
         }
         ; Ctrl+F puts a find bar over the source. While it is up those three
-        ; keys are the bar's — everything else keeps its meaning, so the
-        ; chrome still answers the arrows and the wheel.
+        ; keys are the bar's — arrows still move the caret, so you can look
+        ; around without losing the query.
         if (codeView.findActive()) {
             if (k == "Escape") {
                 codeView.closeFind()
@@ -3132,6 +3149,17 @@ class CodeGraphApp extends EvgApp {
             if (k == "Backspace") {
                 codeView.findBackspace()
                 return true
+            }
+        }
+        ; A click in the source takes the arrows. Without this they fall
+        ; through to the page splitter, which is a focusable separator, and
+        ; Home/End/Left/Right resize the panes instead of moving the caret.
+        if (this.sourceActive()) {
+            def ek:int (CodeGraphApp.editorKey(k))
+            if (ek != 0) {
+                if (codeView.handleKey(ek shift ctrl)) {
+                    return true
+                }
             }
         }
         if (ui.focusId == prField.tid) {
@@ -3148,6 +3176,32 @@ class CodeGraphApp extends EvgApp {
             this.refreshClasses()
         }
         return true
+    }
+
+    ; Browser / SDL key names as UIKey numbers. The source pane speaks the
+    ; latter; the hosts speak the former.
+    sfn editorKey:int (k:string) {
+        if ((k == "ArrowLeft") || (k == "left")) { return (UIKey.left()) }
+        if ((k == "ArrowRight") || (k == "right")) { return (UIKey.right()) }
+        if ((k == "ArrowUp") || (k == "up")) { return (UIKey.up()) }
+        if ((k == "ArrowDown") || (k == "down")) { return (UIKey.down()) }
+        if ((k == "Home") || (k == "home")) { return (UIKey.home()) }
+        if ((k == "End") || (k == "end")) { return (UIKey.end()) }
+        if ((k == "PageUp") || (k == "pageUp")) { return (UIKey.pageUp()) }
+        if ((k == "PageDown") || (k == "pageDown")) { return (UIKey.pageDown()) }
+        if ((k == "Backspace") || (k == "backspace")) { return (UIKey.backspace()) }
+        if ((k == "Delete") || (k == "delete")) { return (UIKey.del()) }
+        if ((k == "Enter") || (k == "enter")) { return (UIKey.enter()) }
+        if ((k == "Tab") || (k == "tab")) { return (UIKey.tab()) }
+        if ((k == "Escape") || (k == "escape")) { return (UIKey.escape()) }
+        return 0
+    }
+
+    fn sourceActive:boolean () {
+        if (codeView.findActive()) {
+            return true
+        }
+        return codeView.focused
     }
 
     fn typeText:boolean (text:string) {
@@ -3170,6 +3224,9 @@ class CodeGraphApp extends EvgApp {
             return (codeView.handleCtrlChar(ch))
         }
         if (codeView.findActive()) {
+            return (codeView.handleText(text))
+        }
+        if codeView.focused {
             return (codeView.handleText(text))
         }
         def before:string classSearch.value

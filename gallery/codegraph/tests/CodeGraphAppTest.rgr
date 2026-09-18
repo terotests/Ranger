@@ -770,6 +770,76 @@ class CodeGraphAppTest {
         n = (n + (CodeGraphAppTest.checkCommitPickers(css)))
         n = (n + (CodeGraphAppTest.checkMemberPopup(css)))
         n = (n + (CodeGraphAppTest.checkCopyAndFont(css)))
+        n = (n + (CodeGraphAppTest.checkSourceKeys(css)))
+        return n
+    }
+
+    ; Clicking the source takes the arrows. They used to resize the page
+    ; splitter instead, because the separator is a focusable tab stop and a
+    ; click in the pane did not steal that focus.
+    sfn checkSourceKeys:int (css:string) {
+        print "== source pane keys and sideways scroll"
+        def n:int 0
+        def app (new CodeGraphApp)
+        app.start(1200.0 800.0 css)
+        def long:string "    return (\"#\" + (strfromcode (charAt hexChars r1)) + (strfromcode (charAt hexChars r2)) + more)"
+        app.codeView.init((("fn f:void () {\n" + long) + "\n}\n"))
+        app.display()
+        def sx:double (app.sourceX + 60.0)
+        def sy:double (app.sourceY + 40.0)
+        ; Focus the graph|source separator the way a tab or a click would,
+        ; then click in the source: arrows must move the caret, not the split.
+        def sepX:double ((app.canvasX + app.canvasW) + 2.0)
+        def sepY:double (app.canvasY + 20.0)
+        def sepId:string (app.hitId(sepX sepY))
+        if ((app.isSplitSep(sepId)) == false) {
+            if ((indexOf sepId "cg-split-sep") < 0) {
+                print ("  FAIL graph|source separator hit " + sepId)
+                return (n + 1)
+            }
+        }
+        app.pointerDown(sepX sepY false false)
+        app.pointerUp(sepX sepY false false)
+        if ((indexOf (app.focusedField()) "cg-split-sep") < 0) {
+            print ("  FAIL clicking the splitter did not focus it: " + (app.focusedField()))
+            n = (n + 1)
+        }
+        def share0:double (app.splitSizeAt(2))
+        app.pointerDown(sx sy false false)
+        app.pointerUp(sx sy false false)
+        if (app.sourceActive() == false) {
+            print "  FAIL a click in the source did not take the keys"
+            n = (n + 1)
+        }
+        if ((strlen (app.focusedField())) > 0) {
+            print ("  FAIL the splitter kept focus after a source click: " + (app.focusedField()))
+            n = (n + 1)
+        }
+        app.codeView.moveCaret(1 0 false)
+        def col0:int app.codeView.sel.caret.col
+        app.keyWith("ArrowRight" false false)
+        if ((app.splitSizeAt(2)) != share0) {
+            print ("  FAIL ArrowRight resized the splitter while the source had the keys " + (to_string share0) + " -> " + (to_string (app.splitSizeAt(2))))
+            n = (n + 1)
+        }
+        if (app.codeView.sel.caret.col <= col0) {
+            print ("  FAIL ArrowRight did not move the caret (col " + (to_string app.codeView.sel.caret.col) + ")")
+            n = (n + 1)
+        }
+        app.keyWith("End" false false)
+        if (app.codeView.sel.caret.col < 20) {
+            print ("  FAIL End did not walk to the end of the line")
+            n = (n + 1)
+        }
+        app.codeView.contentWPx = 1600
+        app.codeView.contentWVersion = app.codeView.buf.version
+        app.codeView.setBounds((to_int app.sourceX) (to_int app.sourceY) (to_int app.sourceW) (to_int app.sourceH))
+        def x0:int app.codeView.layout.scrollX
+        app.wheelXY((app.sourceX + 40.0) (app.sourceY + 40.0) 80.0 0.0)
+        if (app.codeView.layout.scrollX <= x0) {
+            print ("  FAIL a sideways wheel did not scroll the source (scrollX=" + (to_string app.codeView.layout.scrollX) + ")")
+            n = (n + 1)
+        }
         return n
     }
 
