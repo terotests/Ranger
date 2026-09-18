@@ -316,3 +316,87 @@
   border-color: rgb(37, 99, 235);
   color: rgb(255, 255, 255);
 }
+
+/* Every member of one class, from a "+ N more" row. The backdrop is the
+ * page; the card is centred; the list scrolls. Rows carry the diff colour
+ * of the member they stand for, the same three as the UML box. */
+.cg-members-root {
+  display: flex;
+}
+
+.cg-members-overlay {
+  background-color: rgba(15, 23, 42, 0.35);
+}
+
+.cg-members {
+  display: flex;
+  flex-direction: column;
+  width: 620px;
+  height: 480px;
+  padding: 14px 16px;
+  background-color: rgb(255, 255, 255);
+  border: 1px solid rgb(203, 213, 225);
+  border-radius: 8px;
+}
+
+.cg-members-title {
+  font-size: 14px;
+  font-weight: bold;
+  color: rgb(15, 23, 42);
+  height: 22px;
+  flex-shrink: 0;
+}
+
+.cg-members-hint {
+  font-size: 12px;
+  color: rgb(100, 116, 139);
+  height: 20px;
+  margin-bottom: 6px;
+  flex-shrink: 0;
+}
+
+.cg-members-scroll {
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1;
+  min-height: 0px;
+  border: 1px solid rgb(226, 232, 240);
+  border-radius: 4px;
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(148, 163, 184) rgb(241, 245, 249);
+}
+
+.cg-member {
+  align-self: stretch;
+  padding: 4px 10px;
+  height: 24px;
+  font-size: 13px;
+  font-family: "Noto Sans";
+  color: rgb(26, 31, 43);
+  flex-shrink: 0;
+}
+
+.cg-member-added {
+  background-color: rgb(220, 252, 231);
+}
+
+.cg-member-removed {
+  background-color: rgb(254, 226, 226);
+}
+
+.cg-member-changed {
+  background-color: rgb(254, 243, 199);
+}
+
+.cg-members-close {
+  margin-top: 10px;
+  height: 28px;
+  padding: 5px 12px;
+  font-size: 13px;
+  color: rgb(255, 255, 255);
+  background-color: rgb(37, 99, 235);
+  border-radius: 6px;
+  align-self: flex-end;
+  flex-shrink: 0;
+}

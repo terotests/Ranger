@@ -36,6 +36,7 @@ Import "CodeGraphSample.rgr"
 Import "CodeGraphFlow.rgr"
 Import "CodeGraphBuilder.rgr"
 Import "CodeGraphGit.rgr"
+Import "CodeGraphMembers.rgr"
 
 class CodeGraphApp extends EvgApp {
     def session:CodeGraphSession (new CodeGraphSession)
@@ -121,6 +122,8 @@ class CodeGraphApp extends EvgApp {
     def baseSel:SelectCtl (new SelectCtl)
     def headSel:SelectCtl (new SelectCtl)
     def prField:InputCtl (new InputCtl)
+    ; Every member of one class, opened from a "+ N more" row.
+    def members:MemberPopupCtl (new MemberPopupCtl)
     def commitList:[GitCommitInfo]
     def gitRoot:string ""
     ; Only a host with git on PATH (desktop, CLI) turns this on; the tab
@@ -432,6 +435,10 @@ class CodeGraphApp extends EvgApp {
         root.addChild(headerEl)
         root.addChild(bodyEl)
         root.addChild(footerEl)
+        members.tid = "cg-members"
+        members.name = "class members"
+        members.build()
+        this.mount(root members)
         this.buildSplit()
         chromeReady = true
         this.applyChromeSizes()
@@ -2071,6 +2078,10 @@ class CodeGraphApp extends EvgApp {
         }
         if classBox {
             def row:int (editor.rowAtPoint(n fy))
+            if ((strlen (session.pages.moreRowKind(n.id row))) > 0) {
+                this.showMembers(n.id)
+                return
+            }
             def fname:string (session.pages.fieldNameAtRow(n.id row))
             def mid:string (session.pages.methodIdAtRow(n.id row))
             if ((strlen mid) > 0) {
@@ -2338,6 +2349,11 @@ class CodeGraphApp extends EvgApp {
         sourceDrag = false
         splitDrag = false
         def id:string (this.hitId(x y))
+        if members.open {
+            ; The popup is over everything; a press lands on it or its backdrop.
+            this.press(id)
+            return
+        }
         if (this.isSplitSep(id)) {
             splitDrag = true
             splitDragI = (split.sepIndex(id))
@@ -2360,6 +2376,9 @@ class CodeGraphApp extends EvgApp {
     }
 
     fn pointerMove:void (x:double y:double shift:boolean ctrl:boolean) {
+        if members.open {
+            return
+        }
         if splitDrag {
             def dx:double (x - splitAt)
             if (dx == 0.0) {
@@ -2478,6 +2497,10 @@ class CodeGraphApp extends EvgApp {
     }
 
     fn wheel:void (x:double y:double delta:double) {
+        if members.open {
+            members.scrollBy(delta)
+            return
+        }
         if (this.inCanvas(x y)) {
             this.graphWheel(x y delta)
             return
@@ -2679,6 +2702,11 @@ class CodeGraphApp extends EvgApp {
         def oldBase:string baseSel.value
         def oldHead:string headSel.value
         ui.click(id)
+        def pickedMember:string (members.consumePicked())
+        if ((strlen pickedMember) > 0) {
+            this.revealMember(pickedMember)
+            return true
+        }
         if ((baseSel.value != oldBase) || (headSel.value != oldHead)) {
             this.compareSelected()
         }
@@ -2901,6 +2929,78 @@ class CodeGraphApp extends EvgApp {
         headSel.build()
     }
 
+    ; --- every member of a class ---------------------------------------------
+
+    ; The list behind a "+ N more" row: all fields, then all methods, each
+    ; with its diff status and reason when a diff is open.
+    fn showMembers:boolean (name:string) {
+        if ((session.model.hasClass(name)) == false) {
+            return false
+        }
+        def c:CodeClass (session.model.classByName(name))
+        def d:CodeGraphDiff session.diff
+        def list:[MemberEntry]
+        def added:int 0
+        def removed:int 0
+        def changed:int 0
+        def fi:int 0
+        while (fi < (array_length c.fields)) {
+            def f:CodeField (itemAt c.fields fi)
+            def fe (new MemberEntry)
+            fe.key = ((name + ".") + f.name)
+            fe.kind = "field"
+            fe.name = f.name
+            fe.detail = f.fieldType
+            fe.status = (d.statusOfField(name f.name))
+            fe.note = (d.noteOf(fe.key))
+            push list fe
+            fi = (fi + 1)
+        }
+        def mi:int 0
+        while (mi < (array_length c.methodIds)) {
+            def mid:string (itemAt c.methodIds mi)
+            def m:CodeMethod (session.model.methodById(mid))
+            def me (new MemberEntry)
+            me.key = mid
+            me.kind = "method"
+            me.name = ((m.name + "(") + m.params + ")")
+            me.detail = m.returns
+            me.status = (d.statusOfMethod(mid))
+            me.note = (d.noteOf(mid))
+            push list me
+            mi = (mi + 1)
+        }
+        def li:int 0
+        while (li < (array_length list)) {
+            def e:MemberEntry (itemAt list li)
+            if (e.status == "added") { added = (added + 1) }
+            if (e.status == "removed") { removed = (removed + 1) }
+            if (e.status == "changed") { changed = (changed + 1) }
+            li = (li + 1)
+        }
+        def parts:[string]
+        if (changed > 0) { push parts ((to_string changed) + " changed") }
+        if (added > 0) { push parts ((to_string added) + " added") }
+        if (removed > 0) { push parts ((to_string removed) + " removed") }
+        members.showFor(name list (join parts ", "))
+        ui.focus((members.closeTid()))
+        return true
+    }
+
+    ; A pick from the popup: "Class.field" or a method id.
+    fn revealMember:void (key:string) {
+        if (session.model.hasMethod(key)) {
+            this.revealMethod(key)
+            return
+        }
+        def dot:int (indexOf key ".")
+        if (dot > 0) {
+            def cls:string (substring key 0 dot)
+            def fld:string (substring key (dot + 1) (strlen key))
+            this.revealField(cls fld)
+        }
+    }
+
     fn consumeOpenDiff:boolean () {
         if wantOpenDiff {
             wantOpenDiff = false
@@ -2927,6 +3027,10 @@ class CodeGraphApp extends EvgApp {
 
     fn keyWith:boolean (k:string shift:boolean ctrl:boolean) {
         if (k == "Escape") {
+            if members.open {
+                members.close()
+                return true
+            }
             if sampleSel.open {
                 sampleSel.closeList()
                 return true
@@ -3011,19 +3115,36 @@ class CodeGraphApp extends EvgApp {
         return (tid == "cg-pr")
     }
 
+    ; The chrome, with the chart painted inside the canvas element and the
+    ; source pane inside its element — registered with `paintAt` before the
+    ; page is built, so both sit where those elements are in the paint
+    ; order. Appending them after the page put them over every overlay: the
+    ; member popup was drawn, then the chart was drawn over it.
     fn display:EVGDisplayList () {
-        def dl:EVGDisplayList (ui.displayList())
+        def page:EVGElement (ui.layout())
         this.syncPaneRects()
         def sc:FlowScene (editor.view.build())
         def graphDl:EVGDisplayList (sc.toDisplayList())
         graphDl.offsetBy(canvasX canvasY)
-        dl.addClip(canvasX canvasY canvasW canvasH)
-        dl.appendFrom(graphDl)
-        dl.addClipEnd()
+        def canvasDl (new EVGDisplayList)
+        canvasDl.addClip(canvasX canvasY canvasW canvasH)
+        canvasDl.appendFrom(graphDl)
+        canvasDl.addClipEnd()
         codeView.setBounds((to_int sourceX) (to_int sourceY) (to_int sourceW) (to_int sourceH))
         this.applySourceJump()
         def blink:int (to_int (clockMs / 500.0))
-        codeView.paint(dl codeTr blink)
+        def sourceDl (new EVGDisplayList)
+        codeView.paint(sourceDl codeTr blink)
+        def engineLay (new EVGLayout)
+        engineLay.setPageSize(ui.pageWidth ui.pageHeight)
+        def dl (new EVGDisplayList)
+        def te (engineLay.getTextEngine())
+        dl.setTextEngine(te)
+        dl.setScrollbars(ui.showScrollbars)
+        dl.setScrollbarState(ui.scrollbarState)
+        dl.paintAt("cg-canvas" canvasDl)
+        dl.paintAt("cg-source" sourceDl)
+        dl.build(page)
         return dl
     }
 

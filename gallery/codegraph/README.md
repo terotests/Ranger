@@ -159,9 +159,14 @@ the class page keeps the colours on its rows: an added field or method is a
 green row marked `+`, a removed one a red row marked `−` (it is still
 drawn, from the old side), a changed one an amber row marked `Δ`. The text
 keeps its ink; rest the pointer on a row and the tooltip says what happened
-(`type int → double`, `signature … → …`, `body edited`). Rose boxes and
-related classes are coloured too, so a removed caller still shows above the
-class it used to call. **← diff** and **overview** go back to the summary.
+(`type int → double`, `signature … → …`, `body edited`). A box lists eight
+fields and eight methods; the **+ N more** row below them is marked and
+tinted when the members it folds away include a change, and its tooltip
+counts them. Click it (or open `?members=Order` on the web page) for a
+popup that lists every member of the class with its mark and reason; a
+click on one opens it in the source pane. Rose boxes and related classes
+are coloured too, so a removed caller still shows above the class it used
+to call. **← diff** and **overview** go back to the summary.
 
 The source pane shows a file the change touched **merged**: the new text
 with the removed lines still in place — added lines on a green band,

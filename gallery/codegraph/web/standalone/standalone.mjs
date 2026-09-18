@@ -402,6 +402,10 @@ async function main() {
   }
   const openClass = params.get("open") || "";
   if (openClass) await app.openClass(openClass);
+  // ?members=Order opens the popup that lists every member of a class —
+  // what a click on a "+ N more" row does.
+  const membersOf = params.get("members") || "";
+  if (membersOf) await app.showMembers(membersOf);
   sceneStale = true;
   syncChrome();
 }

@@ -22,7 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pickers, and a pull request field (`12`, `#12`, a URL) fetches
   `refs/pull/N/head` from origin and diffs from the merge base with the
   target branch (`gh` when installed, else the remote's default branch);
-  the CLI takes `--pr=`. `CodeGraphDiff` needs neither git nor the
+  the CLI takes `--pr=`. Rows keep their ink and carry a mark (`+`, `−`,
+  `Δ`) with a tooltip saying why; a `+ N more` row is marked when the
+  folded members include a change, and clicking it lists every member of
+  the class in a popup. `CodeGraphDiff` needs neither git nor the
   compiler; the web page's EXAMPLE menu diffs `calls.rgr` against
   `calls_v2.rgr` in the tab.
   RangerFlow rows gained `tint` / `tintText` and ScriptEditor `lineMarks`

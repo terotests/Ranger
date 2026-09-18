@@ -246,6 +246,41 @@ class CodeGraphFlow {
         m.tooltip = (CodeGraphFlow.diffTooltip(status note))
     }
 
+    ; A "+ N more" row over members a diff touched: tinted by the strongest
+    ; status among them (changed over added over removed), marked, and a
+    ; tooltip with the counts. Every such row invites the click that lists
+    ; the members, diff or not.
+    sfn markFold:void (m:UMLMember hidden:[string] diff:CodeGraphDiff) {
+        m.tooltip = "Click to list every member of this class"
+        if (diff.active == false) {
+            return
+        }
+        def added:int 0
+        def removed:int 0
+        def changed:int 0
+        def i:int 0
+        while (i < (array_length hidden)) {
+            def st:string (itemAt hidden i)
+            if (st == "added") { added = (added + 1) }
+            if (st == "removed") { removed = (removed + 1) }
+            if (st == "changed") { changed = (changed + 1) }
+            i = (i + 1)
+        }
+        if (((added + removed) + changed) == 0) {
+            return
+        }
+        def top:string "removed"
+        if (added > 0) { top = "added" }
+        if (changed > 0) { top = "changed" }
+        m.tint = (CodeGraphPages.diffFill(top))
+        m.trailing = (CodeGraphFlow.diffMark(top))
+        def parts:[string]
+        if (changed > 0) { push parts ((to_string changed) + " changed") }
+        if (added > 0) { push parts ((to_string added) + " added") }
+        if (removed > 0) { push parts ((to_string removed) + " removed") }
+        m.tooltip = (("Among the folded members: " + (join parts ", ")) + " — click to list them all")
+    }
+
     sfn diffMark:string (status:string) {
         if (status == "added") {
             return "+"
@@ -325,6 +360,26 @@ class CodeGraphFlow {
         if (leftover > 0) {
             def moreA:UMLMember (u.attribute("" ("+" + (to_string leftover) + " more") ""))
             moreA.wantPort = false
+            ; The fields the cap folded away, in the order they were listed.
+            def hiddenF:[string]
+            def hi:int shown
+            def ordered:[CodeField]
+            def oi:int 0
+            while (oi < (array_length assoc)) {
+                push ordered (itemAt assoc oi)
+                oi = (oi + 1)
+            }
+            def oi2:int 0
+            while (oi2 < (array_length rest)) {
+                push ordered (itemAt rest oi2)
+                oi2 = (oi2 + 1)
+            }
+            while (hi < (array_length ordered)) {
+                def hf:CodeField (itemAt ordered hi)
+                push hiddenF (diff.statusOfField(c.name hf.name))
+                hi = (hi + 1)
+            }
+            CodeGraphFlow.markFold(moreA hiddenF diff)
         }
         def mi:int 0
         def opsShown:int 0
@@ -332,6 +387,13 @@ class CodeGraphFlow {
             if (opsShown >= opCap) {
                 def more:UMLMember (u.operation("+" ("+" + (to_string ((array_length c.methodIds) - opCap)) + " more") "" ""))
                 more.wantPort = false
+                def hiddenM:[string]
+                def hm:int opCap
+                while (hm < (array_length c.methodIds)) {
+                    push hiddenM (diff.statusOfMethod((itemAt c.methodIds hm)))
+                    hm = (hm + 1)
+                }
+                CodeGraphFlow.markFold(more hiddenM diff)
                 mi = (array_length c.methodIds)
             } {
                 def m:CodeMethod (model.methodById((itemAt c.methodIds mi)))

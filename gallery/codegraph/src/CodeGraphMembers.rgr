@@ -1,0 +1,265 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; CodeGraphMembers.rgr — every member of one class, in a popup.
+; ============================================================================
+;
+; A UML box lists eight fields and eight methods and folds the rest into a
+; "+ N more" row. Clicking that row opens this: a scrollable list of all the
+; class's members, each with its diff mark when a diff is open, so a change
+; below the fold is one click away rather than hidden by the cap. Clicking
+; a member reveals it in the source pane and closes the popup.
+;
+; A UiCtl like the rest of the chrome: the host hit-tests its ids, `activate`
+; answers a click, Escape closes it.
+; ============================================================================
+
+Import "../../ui/src/UiHost.rgr"
+Import "CodeGraphDiff.rgr"
+
+class MemberEntry {
+    ; "Class.field" or the method id
+    def key:string ""
+    ; "field" / "method"
+    def kind:string ""
+    def name:string ""
+    def detail:string ""
+    def status:string ""
+    def note:string ""
+
+    Constructor () {
+    }
+
+    fn mark:string () {
+        if (status == "added") {
+            return "+"
+        }
+        if (status == "removed") {
+            return "−"
+        }
+        if (status == "changed") {
+            return "Δ"
+        }
+        return ""
+    }
+}
+
+class MemberPopupCtl extends UiCtl {
+    def open:boolean false
+    def className:string ""
+    def entries:[MemberEntry]
+    ; "3 changed, 1 added" when a diff is open, else "".
+    def summary:string ""
+    def overlayEl:EVGElement (EVGElement.createDiv())
+    def cardEl:EVGElement (EVGElement.createDiv())
+    def titleEl:EVGElement (EVGElement.createDiv())
+    def hintEl:EVGElement (EVGElement.createDiv())
+    def closeEl:EVGElement (EVGElement.createDiv())
+    def scrollEl:EVGElement (EVGElement.createDiv())
+    def rowEls:[EVGElement]
+    ; The entry clicked last; the host drains it after the click.
+    def picked:string ""
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+    }
+
+    fn overlayTid:string () {
+        return (tid + "-overlay")
+    }
+
+    fn cardTid:string () {
+        return (tid + "-card")
+    }
+
+    fn closeTid:string () {
+        return (tid + "-close")
+    }
+
+    fn scrollTid:string () {
+        return (tid + "-scroll")
+    }
+
+    fn entryTid:string (key:string) {
+        return ((tid + "-entry-") + key)
+    }
+
+    fn entryCount:int () {
+        return (array_length entries)
+    }
+
+    fn entryAt:MemberEntry (i:int) {
+        return (itemAt entries i)
+    }
+
+    fn consumePicked:string () {
+        def k:string picked
+        picked = ""
+        return k
+    }
+
+    fn showFor:void (name:string list:[MemberEntry] summaryText:string) {
+        className = name
+        entries = list
+        summary = summaryText
+        open = true
+        picked = ""
+        this.build()
+    }
+
+    fn close:void () {
+        open = false
+        this.build()
+    }
+
+    fn build:void () {
+        def root:EVGElement (unwrap rootEl)
+        root.id = tid
+        root.className = "cg-members-root"
+        UiTree.clearChildren(root)
+        def none:[EVGElement]
+        rowEls = none
+        if (open == false) {
+            return
+        }
+        overlayEl.id = (this.overlayTid())
+        overlayEl.className = "cg-members-overlay"
+        UiTree.backdrop(overlayEl)
+        UiTree.clearChildren(overlayEl)
+        root.addChild(overlayEl)
+
+        cardEl.id = (this.cardTid())
+        cardEl.className = "cg-members"
+        UiTree.surface(cardEl "center" "center")
+        UiTree.clearChildren(cardEl)
+
+        titleEl.className = "cg-members-title"
+        def head:string ((className + " · ") + (to_string (array_length entries)) + " members")
+        if ((strlen summary) > 0) {
+            head = ((head + " · ") + summary)
+        }
+        UiTree.leafText(titleEl head)
+        cardEl.addChild(titleEl)
+
+        hintEl.className = "cg-members-hint"
+        UiTree.leafText(hintEl "Click a member to open it in the source pane. Esc closes.")
+        cardEl.addChild(hintEl)
+
+        scrollEl.id = (this.scrollTid())
+        scrollEl.className = "cg-members-scroll"
+        UiTree.clearChildren(scrollEl)
+        def i:int 0
+        while (i < (array_length entries)) {
+            def e:MemberEntry (itemAt entries i)
+            def row:EVGElement (EVGElement.createDiv())
+            row.id = (this.entryTid(e.key))
+            row.className = "cg-member"
+            if ((strlen e.status) > 0) {
+                UiTree.addClass(row ("cg-member-" + e.status))
+            }
+            def text:string ""
+            def m:string (e.mark())
+            if ((strlen m) > 0) {
+                text = (m + "  ")
+            } {
+                text = "    "
+            }
+            def vis:string "+"
+            if (e.kind == "field") {
+                vis = "-"
+            }
+            text = (((text + vis) + " ") + e.name)
+            if ((strlen e.detail) > 0) {
+                text = ((text + " : ") + e.detail)
+            }
+            if ((strlen e.note) > 0) {
+                text = ((text + "   — ") + e.note)
+            }
+            UiTree.leafText(row text)
+            scrollEl.addChild(row)
+            push rowEls row
+            i = (i + 1)
+        }
+        cardEl.addChild(scrollEl)
+
+        closeEl.id = (this.closeTid())
+        closeEl.className = "cg-members-close"
+        UiTree.leafText(closeEl "Close")
+        cardEl.addChild(closeEl)
+        root.addChild(cardEl)
+    }
+
+    fn tids:[string] () {
+        def a:[string]
+        push a tid
+        push a (this.overlayTid())
+        push a (this.cardTid())
+        push a (this.closeTid())
+        push a (this.scrollTid())
+        def i:int 0
+        while (i < (array_length entries)) {
+            def e:MemberEntry (itemAt entries i)
+            push a (this.entryTid(e.key))
+            i = (i + 1)
+        }
+        return a
+    }
+
+    ; The backdrop is focusable too: the host only activates what can take
+    ; focus, and a click on the backdrop has to reach `activate` to close.
+    fn isFocusable:boolean (target:string) {
+        if (open == false) {
+            return false
+        }
+        if (target == (this.closeTid())) {
+            return true
+        }
+        if (target == (this.overlayTid())) {
+            return true
+        }
+        return ((indexOf target (tid + "-entry-")) == 0)
+    }
+
+    fn activate:string (target:string) {
+        if (open == false) {
+            return ""
+        }
+        if (target == (this.closeTid())) {
+            this.close()
+            return ""
+        }
+        if (target == (this.overlayTid())) {
+            this.close()
+            return ""
+        }
+        def prefix:string (tid + "-entry-")
+        if ((indexOf target prefix) == 0) {
+            picked = (substring target (strlen prefix) (strlen target))
+            this.close()
+        }
+        return ""
+    }
+
+    fn keyDown:string (target:string key:string) {
+        if (key == "Escape") {
+            if open {
+                this.close()
+            }
+        }
+        return ""
+    }
+
+    ; The whole overlay is this control's: a click anywhere lands on one of
+    ; its ids (the backdrop closes, a row picks).
+    fn scrollBy:void (delta:double) {
+        def top:double (scrollEl.scrollTop + delta)
+        if (top < 0.0) {
+            top = 0.0
+        }
+        def max:double (scrollEl.maxScrollTop())
+        if (top > max) {
+            top = max
+        }
+        scrollEl.scrollTop = top
+    }
+}

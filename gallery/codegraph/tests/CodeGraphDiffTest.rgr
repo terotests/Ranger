@@ -9,6 +9,7 @@
 
 Import "../src/CodeGraphDiff.rgr"
 Import "../src/CodeGraphFlow.rgr"
+Import "../src/CodeGraphSample.rgr"
 
 class CGDChecker {
     def passed:int 0
@@ -345,6 +346,42 @@ class CodeGraphDiffTest {
         c.eqStr("Checkout.pay signature note" (d.noteOf("Order.pay")) "")
         def sigDiff:CodeGraphDiff (CodeGraphDiff.compare(head base))
         c.ok("qty note the other way" ((indexOf (sigDiff.noteOf("Order.qty")) "double → int") >= 0))
+
+        c.section("the + N more row")
+        def fat:CodeGraph (CodeGraphSample.fatClass())
+        def fatPages:CodeGraphPages (CodeGraphPages.of(fat 24))
+        c.eqStr("row 8 is the folded fields" (fatPages.moreRowKind("Fat" 8)) "fields")
+        c.eqStr("row 17 is the folded methods" (fatPages.moreRowKind("Fat" 17)) "methods")
+        c.eqStr("row 0 is a field" (fatPages.moreRowKind("Fat" 0)) "")
+        c.eqStr("row 9 is a method" (fatPages.moreRowKind("Fat" 9)) "")
+        c.eqStr("Peer has no fold" (fatPages.moreRowKind("Peer" 0)) "")
+        ; A method added past the cap: the fold row says so.
+        def fat2:CodeGraph (CodeGraphSample.fatClass())
+        fat2.addMethod("Fat" "m99")
+        def fatDiff:CodeGraphDiff (CodeGraphDiff.compare(fat fat2))
+        c.eqStr("m99 added" (fatDiff.statusOfMethod("Fat.m99")) "added")
+        def fatSession:CodeGraphSession (CodeGraphSession.ofDiff(fat fat2 "fat" 24))
+        fatSession.goTo("class:Fat")
+        def fg:FlowGraph (fatSession.graph())
+        def fn2:FlowNode (fg.nodeById("Fat"))
+        def ops:FlowSection (fn2.sectionAt(1))
+        def fold:FlowRow (itemAt ops.rows 8)
+        c.ok("fold row label" ((indexOf fold.text "more") > 0))
+        c.eqStr("fold row marked added" fold.trailing "+")
+        c.eqStr("fold row green" fold.tint (CodeGraphPages.diffFill("added")))
+        c.ok("fold tooltip counts" ((indexOf fold.tooltip "1 added") >= 0))
+        def attrs:FlowSection (fn2.sectionAt(0))
+        def foldF:FlowRow (itemAt attrs.rows 8)
+        c.eqStr("field fold untouched: no mark" foldF.trailing "")
+        c.ok("field fold still invites the click" ((indexOf foldF.tooltip "Click") == 0))
+        def plainSession:CodeGraphSession (CodeGraphSession.of(fat 24))
+        plainSession.goTo("class:Fat")
+        def pg:FlowGraph (plainSession.graph())
+        def pn:FlowNode (pg.nodeById("Fat"))
+        def pops:FlowSection (pn.sectionAt(1))
+        def pfold:FlowRow (itemAt pops.rows 8)
+        c.eqStr("without a diff: no tint" pfold.tint "")
+        c.ok("without a diff: still a tooltip" ((strlen pfold.tooltip) > 0))
 
         print ("passed " + (to_string c.passed) + ", failed " + (to_string c.failed))
         if (c.failed > 0) {
