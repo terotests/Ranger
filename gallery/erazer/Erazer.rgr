@@ -7,7 +7,7 @@
 ; Where EvgBitmapTracer follows photographic ink, Erazer looks for the things
 ; a screenshot of an application is made of: nested rectangles, text runs,
 ; form controls, and small pictorial marks. Heuristics guess a widget class
-; (button, textfield, checkbox, tab, menu, label, icon) and the result is an
+; (button, textfield, checkbox, slider, tab, menu, label, icon) and the result is an
 ; EVG tree that can be opened like any other document.
 ;
 ;   npm run erazer:test
@@ -839,6 +839,110 @@ class Erazer {
         n.textB = t.textB
     }
 
+    ; Glyphs on one baseline still count as a single label even when OCR
+    ; split them into several text nodes (a long chip is the usual case).
+    fn oneLineText:boolean (n:ErazerNode) {
+        def count:int 0
+        def base:int 0
+        def i:int 0
+        while (i < (array_length n.kids)) {
+            def k:ErazerNode (itemAt n.kids i)
+            if ((k.role == "text") || (k.role == "label")) {
+                if (count == 0) {
+                    base = (k.maxY())
+                } {
+                    if ((this.absI(((k.maxY()) - base))) > 8) {
+                        return false
+                    }
+                }
+                count = (count + 1)
+            }
+            i = (i + 1)
+        }
+        if (count >= 1) {
+            return true
+        }
+        if ((strlen n.text) > 0) {
+            return true
+        }
+        return false
+    }
+
+    fn looksLikeTrack:boolean (n:ErazerNode) {
+        if ((n.role == "text") || (n.role == "label") || (n.role == "icon")) {
+            return false
+        }
+        if ((n.h < 4) || (n.h > 22)) {
+            return false
+        }
+        if (n.w < 40) {
+            return false
+        }
+        def aspect:double 0.0
+        if (n.h > 0) {
+            aspect = ((to_double n.w) / (to_double n.h))
+        }
+        if (aspect < 4.0) {
+            return false
+        }
+        return true
+    }
+
+    fn looksLikeChip:boolean (n:ErazerNode) {
+        if ((n.role == "text") || (n.role == "label") || (n.role == "icon")) {
+            return false
+        }
+        if ((n.role == "checkbox") || (n.role == "slider") || (n.role == "sliderthumb")) {
+            return false
+        }
+        if ((n.role == "tab") || (n.role == "tablist") || (n.role == "menu") || (n.role == "menuitem")) {
+            return false
+        }
+        if ((n.role == "form") || (n.role == "page")) {
+            return false
+        }
+        if ((n.h < 16) || (n.h > 58)) {
+            return false
+        }
+        if (n.w < 28) {
+            return false
+        }
+        def aspect:double 0.0
+        if (n.h > 0) {
+            aspect = ((to_double n.w) / (to_double n.h))
+        }
+        if ((aspect < 1.05) || (aspect > 20.0)) {
+            return false
+        }
+        return true
+    }
+
+    fn similarFill:boolean (a:ErazerNode b:ErazerNode) {
+        if ((this.absI((a.r - b.r))) > 40) {
+            return false
+        }
+        if ((this.absI((a.g - b.g))) > 40) {
+            return false
+        }
+        if ((this.absI((a.b - b.b))) > 40) {
+            return false
+        }
+        return true
+    }
+
+    fn similarChipRow:boolean (a:ErazerNode b:ErazerNode) {
+        if ((this.absI((a.y - b.y))) > 8) {
+            return false
+        }
+        if ((this.absI((a.h - b.h))) > 8) {
+            return false
+        }
+        if (this.similarFill(a b) == false) {
+            return false
+        }
+        return true
+    }
+
     fn guessSelf:void (n:ErazerNode) {
         if (n.role == "text") {
             return
@@ -850,6 +954,7 @@ class Erazer {
             return
         }
         def texts:int (this.textKidCount(n))
+        def oneLine:boolean (this.oneLineText(n))
         def sq:boolean false
         def dwh:int (this.absI((n.w - n.h)))
         if ((dwh <= 4) && (n.w >= 10) && (n.w <= 32)) {
@@ -863,6 +968,11 @@ class Erazer {
         def aspect:double 0.0
         if (n.h > 0) {
             aspect = ((to_double n.w) / (to_double n.h))
+        }
+        if ((n.h >= 4) && (n.h <= 20) && (n.w >= 80) && (texts == 0) && (aspect >= 6.0)) {
+            n.role = "slider"
+            n.confidence = 0.8
+            return
         }
         def lum:int (this.lumaOf(n.r n.g n.b))
         def centered:boolean false
@@ -885,7 +995,7 @@ class Erazer {
             }
         }
         if ((n.h >= 16) && (n.h <= 58) && (n.w >= 28) && (n.w <= 360) && (aspect >= 1.12) && (aspect <= 9.0)) {
-            if ((texts == 1) && centered) {
+            if (oneLine && centered) {
                 n.role = "button"
                 n.confidence = 0.8
                 if hit {
@@ -896,7 +1006,7 @@ class Erazer {
         }
         if ((n.h >= 18) && (n.h <= 58) && (n.w >= 72) && (aspect >= 2.4)) {
             if ((lum >= 200) || (n.borderW > 0)) {
-                if (texts <= 1) {
+                if ((texts <= 1) || oneLine) {
                     if ((leftish && (centered == false)) || (texts == 0)) {
                         n.role = "textfield"
                         n.confidence = 0.78
@@ -909,7 +1019,7 @@ class Erazer {
             }
         }
         if ((n.h >= 16) && (n.h <= 58) && (n.w >= 28) && (n.w <= 360) && (aspect >= 1.12) && (aspect <= 9.0)) {
-            if (texts == 1) {
+            if oneLine {
                 n.role = "button"
                 n.confidence = 0.6
                 if hit {
@@ -918,7 +1028,9 @@ class Erazer {
                 return
             }
         }
-        if (((array_length n.kids) >= 2) && (n.w > 48) && (n.h > 40)) {
+        ; Compact chips stay unclassified here so a sibling row can still
+        ; promote them; tall boxes with several children are panels.
+        if (((array_length n.kids) >= 2) && (n.w > 48) && (n.h > 58)) {
             n.role = "panel"
             n.confidence = 0.55
             return
@@ -972,8 +1084,222 @@ class Erazer {
             n.role = "form"
             n.confidence = 0.84
         }
+        this.promoteSliders(n)
+        this.promoteButtons(n)
         this.promoteTabs(n)
         this.promoteMenu(n)
+    }
+
+    fn absorbNode:void (keep:ErazerNode gone:ErazerNode) {
+        def x2:int (this.minI(keep.x gone.x))
+        def y2:int (this.minI(keep.y gone.y))
+        def mx:int (this.maxI((keep.maxX()) (gone.maxX())))
+        def my:int (this.maxI((keep.maxY()) (gone.maxY())))
+        keep.x = x2
+        keep.y = y2
+        keep.w = (mx - x2)
+        keep.h = (my - y2)
+        gone.w = 0
+    }
+
+    fn pruneZero:void (n:ErazerNode) {
+        def live:[ErazerNode]
+        def i:int 0
+        while (i < (array_length n.kids)) {
+            def k:ErazerNode (itemAt n.kids i)
+            if (k.w > 0) {
+                push live k
+            }
+            i = (i + 1)
+        }
+        n.kids = live
+    }
+
+    fn collinearTracks:boolean (a:ErazerNode b:ErazerNode) {
+        if ((this.absI((a.y - b.y))) > 4) {
+            return false
+        }
+        if ((this.absI((a.h - b.h))) > 4) {
+            return false
+        }
+        def gap:int 0
+        if ((a.maxX()) < b.x) {
+            gap = (b.x - (a.maxX()))
+        } {
+            if ((b.maxX()) < a.x) {
+                gap = (a.x - (b.maxX()))
+            } {
+                gap = 0
+            }
+        }
+        ; A circular thumb often sits in the gap between the filled and
+        ; empty halves of a range track.
+        if (gap > 32) {
+            return false
+        }
+        return true
+    }
+
+    fn looksLikeThumb:boolean (n:ErazerNode track:ErazerNode) {
+        if (n.w <= 0) {
+            return false
+        }
+        if (n.role == "slider") {
+            return false
+        }
+        def dwh:int (this.absI((n.w - n.h)))
+        if ((dwh > 6) || (n.w < 8) || (n.w > 32)) {
+            return false
+        }
+        if ((this.absI(((n.cy()) - (track.cy())))) > ((this.maxI(track.h n.h)) + 4)) {
+            return false
+        }
+        def slack:int (idiv n.w 2)
+        if ((n.cx()) < (track.x - slack)) {
+            return false
+        }
+        if ((n.cx()) > ((track.maxX()) + slack)) {
+            return false
+        }
+        return true
+    }
+
+    fn promoteSliders:void (n:ErazerNode) {
+        def tracks:[ErazerNode]
+        def i:int 0
+        while (i < (array_length n.kids)) {
+            def k:ErazerNode (itemAt n.kids i)
+            if (this.looksLikeTrack(k)) {
+                push tracks k
+            }
+            i = (i + 1)
+        }
+        def a:int 0
+        while (a < (array_length tracks)) {
+            def left:ErazerNode (itemAt tracks a)
+            if (left.w > 0) {
+                def b:int (a + 1)
+                while (b < (array_length tracks)) {
+                    def right:ErazerNode (itemAt tracks b)
+                    if (right.w > 0) {
+                        if (this.collinearTracks(left right)) {
+                            this.absorbNode(left right)
+                        }
+                    }
+                    b = (b + 1)
+                }
+            }
+            a = (a + 1)
+        }
+        def t:int 0
+        while (t < (array_length tracks)) {
+            def tr:ErazerNode (itemAt tracks t)
+            if (tr.w >= 80) {
+                def hh:int (this.maxI(1 tr.h))
+                def aspect:double ((to_double tr.w) / (to_double hh))
+                if (aspect >= 6.0) {
+                    tr.role = "slider"
+                    tr.confidence = 0.82
+                    def c:int 0
+                    while (c < (array_length n.kids)) {
+                        def thumb:ErazerNode (itemAt n.kids c)
+                        if (this.looksLikeThumb(thumb tr)) {
+                            thumb.role = "sliderthumb"
+                            thumb.confidence = 0.8
+                        }
+                        c = (c + 1)
+                    }
+                }
+            }
+            t = (t + 1)
+        }
+        this.pruneZero(n)
+    }
+
+    fn applyButtonRow:void (group:[ErazerNode]) {
+        def lined:int 0
+        def already:int 0
+        def i:int 0
+        while (i < (array_length group)) {
+            def k:ErazerNode (itemAt group i)
+            if (k.role == "button") {
+                already = (already + 1)
+            }
+            if (this.oneLineText(k)) {
+                lined = (lined + 1)
+            }
+            i = (i + 1)
+        }
+        def ok:boolean false
+        if (lined >= 2) {
+            ok = true
+        }
+        if ((already >= 1) && ((array_length group) >= 2)) {
+            ok = true
+        }
+        if (ok == false) {
+            return
+        }
+        def t:int 0
+        while (t < (array_length group)) {
+            def k2:ErazerNode (itemAt group t)
+            if (k2.role != "button") {
+                k2.role = "button"
+                k2.confidence = 0.74
+                def hit@(optional):ErazerNode (this.firstText(k2))
+                if hit {
+                    this.copyTextOnto(k2 (unwrap hit))
+                }
+            }
+            t = (t + 1)
+        }
+    }
+
+    fn promoteButtons:void (n:ErazerNode) {
+        def cand:[ErazerNode]
+        def i:int 0
+        while (i < (array_length n.kids)) {
+            def k:ErazerNode (itemAt n.kids i)
+            if (this.looksLikeChip(k)) {
+                push cand k
+            }
+            i = (i + 1)
+        }
+        if ((array_length cand) < 2) {
+            return
+        }
+        def flags:[int]
+        def f:int 0
+        while (f < (array_length cand)) {
+            push flags 0
+            f = (f + 1)
+        }
+        def a:int 0
+        while (a < (array_length cand)) {
+            def marked:int (itemAt flags a)
+            if (marked == 0) {
+                def seed:ErazerNode (itemAt cand a)
+                def group:[ErazerNode]
+                push group seed
+                set flags a 1
+                def b:int 0
+                while (b < (array_length cand)) {
+                    def om:int (itemAt flags b)
+                    if (om == 0) {
+                        def other:ErazerNode (itemAt cand b)
+                        if (this.similarChipRow(seed other)) {
+                            push group other
+                            set flags b 1
+                        }
+                    }
+                    b = (b + 1)
+                }
+                if ((array_length group) >= 2) {
+                    this.applyButtonRow(group)
+                }
+            }
+            a = (a + 1)
+        }
     }
 
     fn promoteTabs:void (n:ErazerNode) {
@@ -1004,6 +1330,26 @@ class Erazer {
             j = (j + 1)
         }
         if (same >= 3) {
+            def minW:int a.w
+            def maxW:int a.w
+            def wj:int 0
+            while (wj < (array_length cand)) {
+                def cw:ErazerNode (itemAt cand wj)
+                if ((this.absI((a.y - cw.y))) <= 6) {
+                    if (cw.w < minW) {
+                        minW = cw.w
+                    }
+                    if (cw.w > maxW) {
+                        maxW = cw.w
+                    }
+                }
+                wj = (wj + 1)
+            }
+            ; Unequal-width chips on a form (Rest / Sick / a long label) are
+            ; buttons, not a tab strip. Equal File/Edit/View bars still match.
+            if (maxW > ((idiv (minW * 3) 2) + 24)) {
+                return
+            }
             def t:int 0
             while (t < (array_length cand)) {
                 def k3:ErazerNode (itemAt cand t)
@@ -1124,7 +1470,7 @@ class Erazer {
             el.color = (EVGColor.rgb(n.textR n.textG n.textB))
         } {
             el.backgroundColor = (EVGColor.rgb(n.r n.g n.b))
-            if ((n.role == "button") || (n.role == "textfield") || (n.role == "tab") || (n.role == "menuitem")) {
+            if ((n.role == "button") || (n.role == "textfield") || (n.role == "tab") || (n.role == "menuitem") || (n.role == "slider")) {
                 if ((strlen n.text) > 0) {
                     ; text also lives on a child span
                 }
@@ -1178,7 +1524,7 @@ class Erazer {
         if (n.fontSize > 0) {
             line = ((line + " font=") + (to_string n.fontSize))
         }
-        if ((n.role == "text") || (n.role == "label") || (n.role == "button") || (n.role == "tab") || (n.role == "menuitem")) {
+        if ((n.role == "text") || (n.role == "label") || (n.role == "button") || (n.role == "tab") || (n.role == "menuitem") || (n.role == "slider")) {
             if (n.fontSize > 0) {
                 line = ((line + " ink=") + (this.hexOf(n.textR n.textG n.textB)))
             }
@@ -1229,6 +1575,12 @@ class Erazer {
         }
         if (role == "icon") {
             return "#ea580c"
+        }
+        if (role == "slider") {
+            return "#4f46e5"
+        }
+        if (role == "sliderthumb") {
+            return "#6366f1"
         }
         return "#64748b"
     }

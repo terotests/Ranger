@@ -94,7 +94,7 @@ class ErazerRaw {
 
 class ErazerNode {
     ; page | panel | form | button | textfield | checkbox | label | text
-    ; tab | tablist | menu | menuitem | icon | image
+    ; tab | tablist | menu | menuitem | icon | image | slider | sliderthumb
     def role:string "panel"
     def x:int 0
     def y:int 0

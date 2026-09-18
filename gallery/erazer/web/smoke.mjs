@@ -56,4 +56,20 @@ if (!String(doc.json).includes("erazer-button")) {
   process.exit(1);
 }
 
-console.log("erazer web smoke ok — button recognised, json has erazer-button");
+const chips = Erazer.analyze(ErazerPaint.chipRow());
+if (chips.root.roleCount("button") < 3) {
+  console.error("chip row did not yield three buttons:\n" + chips.outline);
+  process.exit(1);
+}
+const strip = Erazer.analyze(ErazerPaint.chipStrip());
+if (strip.root.roleCount("button") < 3 || strip.root.roleCount("tab") > 0) {
+  console.error("uneven chip strip was not three buttons:\n" + strip.outline);
+  process.exit(1);
+}
+const sliders = Erazer.analyze(ErazerPaint.sliders());
+if (sliders.root.roleCount("slider") < 3) {
+  console.error("slider fixture did not yield three sliders:\n" + sliders.outline);
+  process.exit(1);
+}
+
+console.log("erazer web smoke ok — button, chip row, sliders recognised");
