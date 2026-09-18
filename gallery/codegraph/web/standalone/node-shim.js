@@ -60,6 +60,13 @@
         cb(null, "");
       }
     },
+    // A Shell command (git) in the tab: fails the way a missing program
+    // does, so the app can say so instead of throwing from require().
+    child_process: {
+      spawnSync: function () {
+        return { error: new Error("no processes in the browser") };
+      }
+    },
     crypto: {
       createHash: function () {
         return {

@@ -19,18 +19,20 @@
 
 Import "../src/CodeGraphBuilder.rgr"
 Import "../src/CodeGraphFlow.rgr"
+Import "../src/CodeGraphGit.rgr"
 Import "../../rangerflow/export/FlowExport.rgr"
 
 class CodeGraphCli {
     sfn main:void () {
         if ((shell_arg_cnt) < 1) {
-            print "usage: codegraph_cli <file.rgr|dir|ranger.json|file.hpp> [--max=N] [--filter=substr] [--page=id]"
+            print "usage: codegraph_cli <file.rgr|dir|ranger.json|file.hpp> [--max=N] [--filter=substr] [--page=id] [--diff=base..head] [--pr=N|url]"
             return
         }
         def file:string (shell_arg 0)
         def maxNodes:int 24
         def filter:string ""
         def pageId:string "overview:0"
+        def diffSpec:string ""
         def i:int 1
         while (i < (shell_arg_cnt)) {
             def a:string (shell_arg i)
@@ -44,7 +46,17 @@ class CodeGraphCli {
             if ((indexOf a "--page=") == 0) {
                 pageId = (substring a 7 (strlen a))
             }
+            if ((indexOf a "--diff=") == 0) {
+                diffSpec = (substring a 7 (strlen a))
+            }
+            if ((indexOf a "--pr=") == 0) {
+                diffSpec = (substring a 5 (strlen a))
+            }
             i = (i + 1)
+        }
+        if ((strlen diffSpec) > 0) {
+            CodeGraphCli.runDiff(file diffSpec maxNodes pageId)
+            return
         }
         def model:CodeGraph (new CodeGraph)
         if (CodeGraphCli.isCompilerFragment(file)) {
@@ -78,6 +90,82 @@ class CodeGraphCli {
             session.goTo(pageId)
         }
         print ("  page    " + session.pageId)
+        CodeGraphCli.draw(session)
+    }
+
+    ; --diff=base..head: both revisions of `file` through git worktrees,
+    ; the change per class and member on the console, and the diff
+    ; summary page as SVG.
+    sfn runDiff:void (file:string spec:string maxNodes:int pageId:string) {
+        print ((("comparing " + spec) + " around ") + file)
+        def git (new CodeGraphGit)
+        def session:CodeGraphSession (new CodeGraphSession)
+        if (CodeGraphGit.isPullRequestSpec(spec)) {
+            session = (git.diffPullRequest(file spec maxNodes))
+        } {
+            session = (git.diffSession(file spec maxNodes))
+        }
+        if ((session.model.classCount()) == 0) {
+            print ("diff failed: " + git.lastError)
+            exit 1
+        }
+        def d:CodeGraphDiff session.diff
+        print ("  " + d.label + ": " + (d.describe()))
+        print (("  files   " + (to_string (array_length git.changedFiles))) + " changed in git, " + (to_string (array_length d.changedFiles)) + " with classes")
+        def i:int 0
+        while (i < (array_length d.summary)) {
+            def name:string (itemAt d.summary i)
+            def st:string (d.statusOfClass(name))
+            print (("  " + (CodeGraphCli.mark(st))) + " " + name)
+            if (st == "changed") {
+                CodeGraphCli.printMembers(session.model d name)
+            }
+            i = (i + 1)
+        }
+        if (pageId != "overview:0") {
+            session.goTo(pageId)
+        }
+        print ("  page    " + session.pageId)
+        CodeGraphCli.draw(session)
+    }
+
+    sfn printMembers:void (m:CodeGraph d:CodeGraphDiff name:string) {
+        def c:CodeClass (m.classByName(name))
+        def fi:int 0
+        while (fi < (array_length c.fields)) {
+            def f:CodeField (itemAt c.fields fi)
+            def fs:string (d.statusOfField(name f.name))
+            if ((strlen fs) > 0) {
+                print ((("      " + (CodeGraphCli.mark(fs))) + " ") + f.name + ":" + f.fieldType)
+            }
+            fi = (fi + 1)
+        }
+        def mi:int 0
+        while (mi < (array_length c.methodIds)) {
+            def mid:string (itemAt c.methodIds mi)
+            def ms:string (d.statusOfMethod(mid))
+            if ((strlen ms) > 0) {
+                def meth:CodeMethod (m.methodById(mid))
+                print ((("      " + (CodeGraphCli.mark(ms))) + " ") + (meth.signature()))
+            }
+            mi = (mi + 1)
+        }
+    }
+
+    sfn mark:string (status:string) {
+        if (status == "added") {
+            return "+"
+        }
+        if (status == "removed") {
+            return "-"
+        }
+        if (status == "changed") {
+            return "~"
+        }
+        return " "
+    }
+
+    sfn draw:void (session:CodeGraphSession) {
         print ("  " + session.status)
         def g:FlowGraph (session.graph())
         print (("  drawn   " + (to_string (g.nodeCount()))) + " nodes, " + (to_string (g.edgeCount())) + " edges")

@@ -79,6 +79,7 @@ cp gallery/evg/gl/evg-view.js "$OUT/gl/evg-view.js"
 cp gallery/evg/gl/evg-list.js "$OUT/gl/evg-list.js"
 cp gallery/evg/web/tools/assets-client.mjs "$OUT/evg/assets-client.mjs"
 cp gallery/codegraph/fixtures/*.rgr "$OUT/examples/"
+cp gallery/uast/fixtures/cpp/zip_writer.hpp "$OUT/examples/zip_writer.hpp"
 FONT_SRC=gallery/pdf_writer/assets/fonts/Noto_Sans
 cp "$FONT_SRC/NotoSans-Regular.ttf" "$OUT/fonts/NotoSans-Regular.ttf"
 cp "$FONT_SRC/NotoSans-Bold.ttf" "$OUT/fonts/NotoSans-Bold.ttf"

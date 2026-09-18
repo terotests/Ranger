@@ -35,6 +35,8 @@ Import "../../game_engine/ui/UITextRenderer.rgr"
 Import "CodeGraphSample.rgr"
 Import "CodeGraphFlow.rgr"
 Import "CodeGraphBuilder.rgr"
+Import "CodeGraphGit.rgr"
+Import "CodeGraphMembers.rgr"
 
 class CodeGraphApp extends EvgApp {
     def session:CodeGraphSession (new CodeGraphSession)
@@ -83,6 +85,16 @@ class CodeGraphApp extends EvgApp {
     def chromeReady:boolean false
     def wantOpenFile:boolean false
     def wantOpenGitUrl:boolean false
+    ; Diff pressed: the host asks for two revisions and calls analyzeGitDiff.
+    def wantOpenDiff:boolean false
+    ; The source pane shows a merged diff view (removed lines in place);
+    ; remembered so a switch in or out of a diff re-inits the buffer.
+    def sourceDiffShown:boolean false
+    ; A menu pick the app could not serve from what it holds: the gallery
+    ; pack, an example file or the C++ fixture is fetched by the host. The
+    ; web page drains this after every pointer event and loads the sources,
+    ; then picks the same item again.
+    def pendingSample:string ""
     def lastClickMs:double 0.0
     def lastClickX:double 0.0
     def lastClickY:double 0.0
@@ -103,6 +115,24 @@ class CodeGraphApp extends EvgApp {
     def capClasses:LabelCtl (new LabelCtl)
     def bar:ToolbarCtl (new ToolbarCtl)
     def sampleSel:SelectCtl (new SelectCtl)
+    ; COMMITS: two picks from the opened repository's own log, and a
+    ; field for a pull request. Filled by loadCommits once a checkout is
+    ; open; empty (one disabled item) until then.
+    def capCommits:LabelCtl (new LabelCtl)
+    def baseSel:SelectCtl (new SelectCtl)
+    def headSel:SelectCtl (new SelectCtl)
+    def prField:InputCtl (new InputCtl)
+    ; Every member of one class, in a drawer opened from a "+ N more" row.
+    def members:MemberDrawer (new MemberDrawer)
+    ; Ctrl+C in the source pane leaves the selection here; the host puts it
+    ; on the clipboard (the tab through navigator.clipboard, SDL through
+    ; SDL_SetClipboardText) and drains it.
+    def clipboardText:string ""
+    def commitList:[GitCommitInfo]
+    def gitRoot:string ""
+    ; Only a host with git on PATH (desktop, CLI) turns this on; the tab
+    ; has no processes, and says so instead of trying.
+    def gitEnabled:boolean false
     def classSearch:InputCtl (new InputCtl)
     def classTree:TreeCtl (new TreeCtl)
     def classScrollEl:EVGElement (EVGElement.createDiv())
@@ -289,6 +319,7 @@ class CodeGraphApp extends EvgApp {
         bar.name = "explorer"
         bar.addItem("open" "Open" false)
         bar.addItem("giturl" "Git URL" false)
+        bar.addItem("diff" "Diff" false)
         bar.addItem("back" "←" true)
         bar.addItem("fwd" "→" true)
         bar.addItem("overview" "overview" false)
@@ -322,6 +353,7 @@ class CodeGraphApp extends EvgApp {
         sampleSel.addItem("evg" "evg — EVGElement" false)
         sampleSel.addItem("zip" "zip — ZipReader" false)
         sampleSel.addItem("cpp" "cpp — ZipWriter" false)
+        sampleSel.addItem("diff-calls" "calls.rgr → calls_v2.rgr (diff)" false)
         ; VirtualCompiler is already in the binary because Open on a `.rgr`
         ; file compiles through CodeGraphBuilder. A menu item that walks
         ; `VirtualCompiler.rgr` does not add those C++ lines — it just
@@ -331,6 +363,31 @@ class CodeGraphApp extends EvgApp {
         sampleSel.value = "shop"
         sampleSel.build()
         this.mount(railEl sampleSel)
+
+        capCommits.tid = "cg-cap-commits"
+        capCommits.name = "COMMITS"
+        capCommits.build()
+        def capCoEl:EVGElement (unwrap capCommits.rootEl)
+        capCoEl.className = "cg-cap"
+        this.mount(railEl capCommits)
+
+        baseSel.tid = "cg-base"
+        baseSel.name = "base commit"
+        headSel.tid = "cg-head"
+        headSel.name = "head commit"
+        this.fillCommitSelects()
+        this.mount(railEl baseSel)
+        this.mount(railEl headSel)
+
+        prField.tid = "cg-pr"
+        prField.name = "Pull request"
+        prField.kind = "text"
+        prField.placeholder = "Pull request # or URL, Enter"
+        prField.fontSize = 13.0
+        prField.build()
+        this.mount(railEl prField)
+        def prEl:EVGElement (unwrap prField.rootEl)
+        UiTree.addClass(prEl "cg-class-search")
 
         capClasses.tid = "cg-cap-classes"
         capClasses.name = "CLASSES"
@@ -382,6 +439,8 @@ class CodeGraphApp extends EvgApp {
         root.addChild(headerEl)
         root.addChild(bodyEl)
         root.addChild(footerEl)
+        members.drawer.build()
+        this.mount(root members.drawer)
         this.buildSplit()
         chromeReady = true
         this.applyChromeSizes()
@@ -524,6 +583,28 @@ class CodeGraphApp extends EvgApp {
         sampleSel.build()
     }
 
+    ; A menu item whose analysis went through Open's path (the C++ fixture,
+    ; the diff example) left an "opened · file" item behind and the select
+    ; on it. The menu item is what was picked; put it back.
+    fn settleSample:void (name:string) {
+        sampleName = name
+        if ((strlen openedItem) > 0) {
+            def kept:[UiItem]
+            def i:int 0
+            while (i < (array_length sampleSel.items)) {
+                def it:UiItem (itemAt sampleSel.items i)
+                if (it.value != openedItem) {
+                    push kept it
+                }
+                i = (i + 1)
+            }
+            sampleSel.items = kept
+            openedItem = ""
+        }
+        this.syncSampleSelect()
+        this.syncToolbar()
+    }
+
     fn setOpenedItem:void (value:string label:string) {
         def fresh (new UiItem)
         fresh.value = value
@@ -627,6 +708,51 @@ class CodeGraphApp extends EvgApp {
 
     fn setExampleFile:void (name:string data:string) {
         set exampleFiles name data
+    }
+
+    fn hasExampleFile:boolean (name:string) {
+        return (has exampleFiles name)
+    }
+
+    fn consumePendingSample:string () {
+        def want:string pendingSample
+        pendingSample = ""
+        return want
+    }
+
+    ; The example file behind a menu item, when it is not a `.rgr` that
+    ; compiles through the VFS: the C++ fixture, or a TypeScript file.
+    sfn exampleFileFor:string (name:string) {
+        if (name == "cpp") {
+            return "zip_writer.hpp"
+        }
+        return name
+    }
+
+    ; Analyse a file the host handed over as text, by its extension:
+    ; Ranger through VirtualCompiler, C++ and TypeScript through their
+    ; UAST frontends. `.rgr` still needs the compiler libraries.
+    fn analyzeText:boolean (source:string filename:string) {
+        if (this.isRgr(filename)) {
+            return (this.analyzeSource(source filename))
+        }
+        lastOpenPath = filename
+        def g:CodeGraph (CodeGraphBuilder.fromSource(source filename))
+        if ((indexOf g.title " FAIL ") >= 0) {
+            status = g.title
+            this.refreshChrome()
+            return false
+        }
+        if ((g.classCount()) == 0) {
+            status = ("no classes in " + filename)
+            this.refreshChrome()
+            return false
+        }
+        def name:string (this.fileBaseName(filename))
+        if ((strlen name) == 0) {
+            name = filename
+        }
+        return (this.applyGraph(g name))
     }
 
     fn setUserFile:void (name:string data:string) {
@@ -1065,7 +1191,9 @@ class CodeGraphApp extends EvgApp {
         if ((strlen name) == 0) {
             name = path
         }
-        return (this.applyGraph(g name))
+        def shown:boolean (this.applyGraph(g name))
+        this.loadCommits()
+        return shown
     }
 
     fn hasCompiler:boolean () {
@@ -1177,19 +1305,62 @@ class CodeGraphApp extends EvgApp {
             return (this.loadSample(name))
         }
         if ((name == "css") || (name == "evg") || (name == "zip")) {
+            if ((this.hasGalleryTree()) == false) {
+                return (this.askHostFor(name))
+            }
             return (this.analyzeGallery(name))
         }
         if (name == "cpp") {
-            return (this.openDiskPath("gallery/uast/fixtures/cpp/zip_writer.hpp"))
+            def hpp:string "zip_writer.hpp"
+            if (has exampleFiles hpp) {
+                def ok:boolean (this.analyzeText((unwrap (get exampleFiles hpp)) hpp))
+                if ok {
+                    this.settleSample("cpp")
+                }
+                return ok
+            }
+            def diskHpp:string "gallery/uast/fixtures/cpp/zip_writer.hpp"
+            ; Bound first: `strlen` straight on an async call's result is
+            ; emitted as `await f().length` in the browser bundle.
+            def hppText:string (this.readDisk("gallery/uast/fixtures/cpp" "zip_writer.hpp"))
+            if ((strlen hppText) == 0) {
+                return (this.askHostFor(name))
+            }
+            def okDisk:boolean (this.openDiskPath(diskHpp))
+            if okDisk {
+                this.settleSample("cpp")
+            }
+            return okDisk
         }
         if (name == "compiler") {
+            if ((this.hasCompilerTree()) == false) {
+                return (this.askHostFor(name))
+            }
             return (this.analyzeCompiler())
         }
+        if (name == "diff-calls") {
+            if ((has exampleFiles "calls.rgr") == false) {
+                return (this.askHostFor(name))
+            }
+            if ((has exampleFiles "calls_v2.rgr") == false) {
+                return (this.askHostFor(name))
+            }
+            def okDiff:boolean (this.diffSources((unwrap (get exampleFiles "calls.rgr")) "calls.rgr" (unwrap (get exampleFiles "calls_v2.rgr")) "calls_v2.rgr"))
+            if okDiff {
+                this.settleSample("diff-calls")
+            }
+            return okDiff
+        }
         if (has exampleFiles name) {
-            return (this.analyzeSource((unwrap (get exampleFiles name)) name))
+            return (this.analyzeText((unwrap (get exampleFiles name)) name))
         }
         if (has userFiles name) {
             return (this.analyzeSource((unwrap (get userFiles name)) name))
+        }
+        ; An example the page ships but has not fetched yet (`animals.rgr`
+        ; before the first pick of it).
+        if ((name == "calls.rgr") || (name == "animals.rgr")) {
+            return (this.askHostFor(name))
         }
         ; The "opened ·" item: a path on the real disk, which is what Open
         ; and Git URL leave behind. Picking it again re-reads it.
@@ -1201,21 +1372,44 @@ class CodeGraphApp extends EvgApp {
         return false
     }
 
+    ; The sources for `name` are not in the VFS. Leave the request for the
+    ; host and say so on the status line; a host without one (the desktop
+    ; loads everything up front) sees the message and nothing else.
+    fn askHostFor:boolean (name:string) {
+        pendingSample = name
+        status = ("loading " + name + "…")
+        this.refreshChrome()
+        return false
+    }
+
     fn runAnalyze:boolean (source:string filename:string filter:string) {
-        if ((this.hasCompiler()) == false) {
-            status = "compiler libraries not loaded"
+        def g:CodeGraph (this.compileGraph(source filename filter))
+        if ((indexOf g.title " FAIL ") >= 0) {
+            status = (substring g.title ((indexOf g.title " FAIL ") + 6) (strlen g.title))
             this.refreshChrome()
             return false
+        }
+        return (this.applyGraph(g g.title))
+    }
+
+    ; Compile `source` (or the VFS entry `filename` when source is empty)
+    ; and walk it into a graph. A failure comes back as an empty graph
+    ; titled "<file> FAIL <reason>", the same shape CodeGraphBuilder uses.
+    fn compileGraph:CodeGraph (source:string filename:string filter:string) {
+        def bad (new CodeGraph)
+        if ((this.hasCompiler()) == false) {
+            bad.title = (filename + " FAIL compiler libraries not loaded")
+            return bad
         }
         def fname:string filename
         if ((strlen fname) == 0) {
             fname = "example.rgr"
         }
+        bad.title = (fname + " FAIL compile failed")
         if ((strlen source) == 0) {
             if ((strlen filter) > 0) {
-                status = "no source"
-                this.refreshChrome()
-                return false
+                bad.title = (fname + " FAIL no source")
+                return bad
             }
         }
         status = ("compiling " + fname + "…")
@@ -1244,9 +1438,8 @@ class CodeGraphApp extends EvgApp {
         this.installUserTree(fs)
         def libF@(optional):InputFSFolder (create_folder fs "lib")
         if (null? libF) {
-            status = "could not create lib folder"
-            this.refreshChrome()
-            return false
+            bad.title = (fname + " FAIL could not create lib folder")
+            return bad
         }
         def libDir:InputFSFolder (unwrap libF)
         def libNames:[string] (keys libFiles)
@@ -1263,32 +1456,113 @@ class CodeGraphApp extends EvgApp {
         def res:CompilerResults (vc.run(env))
         def errText:string (this.compilerErrorText(res))
         if res.hasErrors {
-            status = errText
-            this.refreshChrome()
-            return false
+            bad.title = (fname + " FAIL " + errText)
+            return bad
         }
         def ctx@(optional):RangerAppWriterContext res.ctx
         if (null? ctx) {
-            status = "no compiler context"
-            this.refreshChrome()
-            return false
+            bad.title = (fname + " FAIL no compiler context")
+            return bad
         }
         def appCtx:RangerAppWriterContext (unwrap ctx)
         if ((array_length appCtx.compilerErrors) > 0) {
-            status = errText
-            this.refreshChrome()
-            return false
+            bad.title = (fname + " FAIL " + errText)
+            return bad
         }
         def b (new CodeGraphBuilder)
         b.fileFilter = filter
         def g:CodeGraph (b.fromContext(appCtx))
         g.title = fname
         if ((g.classCount()) == 0) {
-            status = "no classes in compiled source"
+            bad.title = (fname + " FAIL no classes in compiled source")
+            return bad
+        }
+        return g
+    }
+
+    ; --- diff ----------------------------------------------------------------
+
+    ; Two versions of one program, both handed over as text — the browser
+    ; page's diff example, or two uploads. Each is compiled through the
+    ; VFS like Analyze; the result opens on the diff summary.
+    fn diffSources:boolean (baseText:string baseName:string headText:string headName:string) {
+        def base:CodeGraph (this.compileGraph(baseText baseName ""))
+        if ((indexOf base.title " FAIL ") >= 0) {
+            status = (substring base.title ((indexOf base.title " FAIL ") + 6) (strlen base.title))
             this.refreshChrome()
             return false
         }
-        return (this.applyGraph(g fname))
+        def head:CodeGraph (this.compileGraph(headText headName ""))
+        if ((indexOf head.title " FAIL ") >= 0) {
+            status = (substring head.title ((indexOf head.title " FAIL ") + 6) (strlen head.title))
+            this.refreshChrome()
+            return false
+        }
+        ; Both compiles named their entry differently; the diff matches
+        ; classes by name and files by path, so the head file's name is
+        ; the one the base side's classes have to carry.
+        CodeGraphGit.renameFile(base baseName headName)
+        lastOpenPath = headName
+        return (this.applyDiffSession((CodeGraphSession.ofDiff(base head ((baseName + " → ") + headName) 24)) headName))
+    }
+
+    ; `spec` is what git takes: "a1b2c3d..HEAD", "v1..v2", or "HEAD~1"
+    ; for that commit against the working tree. The entry is whatever
+    ; Open or Git URL opened last.
+    fn analyzeGitDiff:boolean (spec:string) {
+        if (gitEnabled == false) {
+            status = "git diff runs in the desktop app or the CLI: npm run codegraph:analyze -- <path> --diff=base..head, or --pr=N"
+            this.refreshChrome()
+            return false
+        }
+        if ((strlen lastOpenPath) == 0) {
+            status = "open a file, a directory or a Git URL first, then pick commits or a pull request"
+            this.refreshChrome()
+            return false
+        }
+        if ((strlen spec) == 0) {
+            status = "diff needs two revisions: base..head, base for the working tree, or a pull request # / URL"
+            this.refreshChrome()
+            return false
+        }
+        status = (("comparing " + spec) + "…")
+        this.refreshChrome()
+        def git (new CodeGraphGit)
+        def s:CodeGraphSession (new CodeGraphSession)
+        if (CodeGraphGit.isPullRequestSpec(spec)) {
+            s = (git.diffPullRequest(lastOpenPath spec 24))
+        } {
+            s = (git.diffSession(lastOpenPath spec 24))
+        }
+        if ((s.model.classCount()) == 0) {
+            status = git.lastError
+            if ((strlen status) == 0) {
+                status = s.status
+            }
+            this.refreshChrome()
+            return false
+        }
+        def ok:boolean (this.applyDiffSession(s sampleName))
+        if ok {
+            status = ((status + " · ") + (to_string (array_length git.changedFiles)) + " files in git diff")
+            if ((array_length commitList) == 0) {
+                this.loadCommits()
+            }
+            this.showComparedCommits(git.lastBase git.lastHead)
+            this.refreshChrome()
+        }
+        return ok
+    }
+
+    fn applyDiffSession:boolean (s:CodeGraphSession name:string) {
+        sampleName = name
+        umlOn = true
+        session = s
+        sourcePath = ""
+        def shown:boolean (this.showPage())
+        status = ((session.diff.label + ": ") + (session.diff.describe()))
+        this.refreshChrome()
+        return shown
     }
 
     fn fillResolverMap:void (r:InputFileResolver src:[string:string]) {
@@ -1417,7 +1691,7 @@ class CodeGraphApp extends EvgApp {
         editor.view.showControls = true
         editor.view.showNodeTools = false
         editor.fitView()
-        if ((indexOf session.pageId "uml:") == 0) {
+        if (session.selectsOnly()) {
             editor.ensureMinZoom(1.0)
         }
         this.framePageFocus()
@@ -1463,6 +1737,7 @@ class CodeGraphApp extends EvgApp {
         def searchEl:EVGElement (unwrap classSearch.rootEl)
         UiTree.addClass(searchEl "cg-class-search")
         this.placeSearchCaret()
+        this.placeFieldCaret(prField)
     }
 
     ; `InputCtl.build()` makes the caret element but cannot place it: where a
@@ -1471,8 +1746,12 @@ class CodeGraphApp extends EvgApp {
     ; same — and without it the bar stayed pinned to the left edge of the
     ; field however far into the word you had typed or arrowed.
     fn placeSearchCaret:void () {
-        def car:EVGElement (unwrap classSearch.caretEl)
-        if (ui.focusId != classSearch.tid) {
+        this.placeFieldCaret(classSearch)
+    }
+
+    fn placeFieldCaret:void (field:InputCtl) {
+        def car:EVGElement (unwrap field.caretEl)
+        if (ui.focusId != field.tid) {
             ; Two carets on a page is two claims about where typing goes.
             car.width = (EVGUnit.px(0.0))
             car.markInline("width")
@@ -1481,8 +1760,8 @@ class CodeGraphApp extends EvgApp {
         car.width = (EVGUnit.px(1.0))
         car.markInline("width")
         def eng:EVGTextEngine (caretMeasurer.getTextEngine())
-        def cx:double (classSearch.caretXAt(eng classSearch.caret))
-        car.left = (EVGUnit.px((cx - classSearch.scrollX)))
+        def cx:double (field.caretXAt(eng field.caret))
+        car.left = (EVGUnit.px((cx - field.scrollX)))
         car.markInline("left")
     }
 
@@ -1646,6 +1925,9 @@ class CodeGraphApp extends EvgApp {
         if umlOn {
             next = (session.pages.umlPageId(0))
         }
+        if (session.diff.active) {
+            next = (session.pages.diffPageId(0))
+        }
         if (session.goTo(next)) {
             return (this.showPage())
         }
@@ -1748,7 +2030,7 @@ class CodeGraphApp extends EvgApp {
             return
         }
         def c:CodeClass (session.model.classByName(name))
-        this.revealAt(c.fileName c.startLine)
+        this.revealAtSide(c.fileName c.startLine ((session.diff.statusOfClass(name)) == "removed"))
     }
 
     fn revealMethod:void (mid:string) {
@@ -1757,7 +2039,7 @@ class CodeGraphApp extends EvgApp {
             return
         }
         def m:CodeMethod (session.model.methodById(mid))
-        this.revealAt(m.fileName m.startLine)
+        this.revealAtSide(m.fileName m.startLine ((session.diff.statusOfMethod(mid)) == "removed"))
     }
 
     fn revealField:void (className:string fieldName:string) {
@@ -1773,7 +2055,7 @@ class CodeGraphApp extends EvgApp {
                 if ((strlen path) == 0) {
                     path = c.fileName
                 }
-                this.revealAt(path f.startLine)
+                this.revealAtSide(path f.startLine ((session.diff.statusOfField(className fieldName)) == "removed"))
                 return
             }
             i = (i + 1)
@@ -1798,6 +2080,10 @@ class CodeGraphApp extends EvgApp {
         }
         if classBox {
             def row:int (editor.rowAtPoint(n fy))
+            if ((strlen (session.pages.moreRowKind(n.id row))) > 0) {
+                this.showMembers(n.id)
+                return
+            }
             def fname:string (session.pages.fieldNameAtRow(n.id row))
             def mid:string (session.pages.methodIdAtRow(n.id row))
             if ((strlen mid) > 0) {
@@ -1825,17 +2111,42 @@ class CodeGraphApp extends EvgApp {
     }
 
     fn revealAt:void (fileName:string startLine:int) {
+        this.revealAtSide(fileName startLine false)
+    }
+
+    ; With a diff open, a file the change touched is shown merged: the
+    ; new text with the removed lines still in place, added lines green
+    ; and removed ones red. `old` says the line is counted on the old
+    ; side (a removed member), so it lands on its red rows.
+    fn revealAtSide:void (fileName:string startLine:int old:boolean) {
         def src:string (this.sourceTextOf(fileName))
         if ((strlen src) == 0) {
             src = (this.missingSourceNote(fileName))
         }
-        if (sourcePath != fileName) {
+        def line:int (this.bufferLine(fileName startLine))
+        def marks:[int]
+        def inDiff:boolean false
+        if (session.diff.active) {
+            if (session.diff.hasFileDiff(fileName)) {
+                def ld:LineDiffResult (session.diff.fileDiffOf(fileName))
+                src = (ld.mergedText())
+                marks = (ld.marks())
+                inDiff = true
+                if old {
+                    line = (ld.rowOfOldLine(line))
+                } {
+                    line = (ld.rowOfNewLine(line))
+                }
+            }
+        }
+        if ((sourcePath != fileName) || (sourceDiffShown != inDiff)) {
             sourcePath = fileName
+            sourceDiffShown = inDiff
             codeView.init(src)
             def lang:EditorLanguage (languages.forFile(fileName))
             codeView.setLanguage(lang)
+            codeView.setLineMarks(marks)
         }
-        def line:int (this.bufferLine(fileName startLine))
         codeView.moveCaret(line 0 false)
         ; `ensureCaretVisible` pins the caret on the last row, so the
         ; method body would sit one line below the fold. Jump on the next
@@ -2040,6 +2351,12 @@ class CodeGraphApp extends EvgApp {
         sourceDrag = false
         splitDrag = false
         def id:string (this.hitId(x y))
+        ; The drawer is out of the flow and in front, but not modal: a press
+        ; on it is its own, anything beside it goes where it always went.
+        if (members.drawer.owns(id)) {
+            this.press(id)
+            return
+        }
         if (this.isSplitSep(id)) {
             splitDrag = true
             splitDragI = (split.sepIndex(id))
@@ -2180,6 +2497,12 @@ class CodeGraphApp extends EvgApp {
     }
 
     fn wheel:void (x:double y:double delta:double) {
+        if (members.isOpen()) {
+            if (members.drawer.owns((this.hitId(x y)))) {
+                members.drawer.scrollBy(delta)
+                return
+            }
+        }
         if (this.inCanvas(x y)) {
             this.graphWheel(x y delta)
             return
@@ -2378,7 +2701,18 @@ class CodeGraphApp extends EvgApp {
         }
         def oldSample:string sampleSel.value
         def oldClass:string classTree.activeValue
+        def oldBase:string baseSel.value
+        def oldHead:string headSel.value
         ui.click(id)
+        def pickedMember:string (members.consumePicked())
+        if ((strlen pickedMember) > 0) {
+            ; The drawer stays: the reader is walking the list.
+            this.revealMember(pickedMember)
+            return true
+        }
+        if ((baseSel.value != oldBase) || (headSel.value != oldHead)) {
+            this.compareSelected()
+        }
         if ((indexOf id "cg-bar-") == 0) {
             this.runToolbar(bar.rovingValue)
         }
@@ -2405,6 +2739,10 @@ class CodeGraphApp extends EvgApp {
         }
         if (op == "giturl") {
             wantOpenGitUrl = true
+            return
+        }
+        if (op == "diff") {
+            wantOpenDiff = true
             return
         }
         if (op == "back") {
@@ -2491,13 +2829,230 @@ class CodeGraphApp extends EvgApp {
         return false
     }
 
+    ; --- commits from the opened repository --------------------------------
+
+    fn enableGit:void () {
+        gitEnabled = true
+    }
+
+    fn setCommitList:void (list:[GitCommitInfo]) {
+        commitList = list
+        this.fillCommitSelects()
+    }
+
+    fn commitCount:int () {
+        return (array_length commitList)
+    }
+
+    ; Read the log of the repository around what was opened last. Nothing
+    ; happens in a host without git, or before anything is open.
+    fn loadCommits:void () {
+        if (gitEnabled == false) {
+            return
+        }
+        if ((strlen lastOpenPath) == 0) {
+            return
+        }
+        def git (new CodeGraphGit)
+        gitRoot = (git.repoRootOf(lastOpenPath))
+        def fresh:[GitCommitInfo]
+        if ((strlen gitRoot) > 0) {
+            fresh = (git.commits(gitRoot 40))
+        }
+        this.setCommitList(fresh)
+    }
+
+    fn fillCommitSelects:void () {
+        def keepBase:string baseSel.value
+        def keepHead:string headSel.value
+        def noneB:[UiItem]
+        baseSel.items = noneB
+        def noneH:[UiItem]
+        headSel.items = noneH
+        if ((array_length commitList) == 0) {
+            baseSel.addItem("" "(open a git checkout)" true)
+            headSel.addItem("" "working tree" true)
+        } {
+            baseSel.addItem("" "pick a base commit…" false)
+            headSel.addItem("" "working tree" false)
+            def i:int 0
+            while (i < (array_length commitList)) {
+                def c:GitCommitInfo (itemAt commitList i)
+                baseSel.addItem(c.sha (c.label()) false)
+                headSel.addItem(c.sha (c.label()) false)
+                i = (i + 1)
+            }
+        }
+        baseSel.value = ""
+        if ((baseSel.indexOfValue(keepBase)) >= 0) {
+            baseSel.value = keepBase
+        }
+        headSel.value = ""
+        if ((headSel.indexOfValue(keepHead)) >= 0) {
+            headSel.value = keepHead
+        }
+        baseSel.build()
+        headSel.build()
+    }
+
+    ; The two picks as a git spec — "base" alone is the working tree.
+    fn selectedSpec:string () {
+        def base:string baseSel.value
+        if ((strlen base) == 0) {
+            return ""
+        }
+        def head:string headSel.value
+        if ((strlen head) == 0) {
+            return base
+        }
+        return ((base + "..") + head)
+    }
+
+    fn compareSelected:boolean () {
+        def spec:string (this.selectedSpec())
+        if ((strlen spec) == 0) {
+            status = "pick a base commit; the head is the working tree unless you pick one"
+            this.refreshChrome()
+            return false
+        }
+        return (this.analyzeGitDiff(spec))
+    }
+
+    ; After a diff, point the two selects at the commits it compared.
+    fn showComparedCommits:void (baseSha:string headSha:string) {
+        if ((baseSel.indexOfValue(baseSha)) >= 0) {
+            baseSel.value = baseSha
+        }
+        if ((headSel.indexOfValue(headSha)) >= 0) {
+            headSel.value = headSha
+        } {
+            headSel.value = ""
+        }
+        baseSel.build()
+        headSel.build()
+    }
+
+    ; --- every member of a class ---------------------------------------------
+
+    ; The list behind a "+ N more" row: all fields, then all methods, each
+    ; with its diff status and reason when a diff is open.
+    fn showMembers:boolean (name:string) {
+        if ((session.model.hasClass(name)) == false) {
+            return false
+        }
+        def c:CodeClass (session.model.classByName(name))
+        def d:CodeGraphDiff session.diff
+        def list:[MemberEntry]
+        def added:int 0
+        def removed:int 0
+        def changed:int 0
+        def fi:int 0
+        while (fi < (array_length c.fields)) {
+            def f:CodeField (itemAt c.fields fi)
+            def fe (new MemberEntry)
+            fe.key = ((name + ".") + f.name)
+            fe.kind = "field"
+            fe.name = f.name
+            fe.detail = f.fieldType
+            fe.status = (d.statusOfField(name f.name))
+            fe.note = (d.noteOf(fe.key))
+            push list fe
+            fi = (fi + 1)
+        }
+        def mi:int 0
+        while (mi < (array_length c.methodIds)) {
+            def mid:string (itemAt c.methodIds mi)
+            def m:CodeMethod (session.model.methodById(mid))
+            def me (new MemberEntry)
+            me.key = mid
+            me.kind = "method"
+            me.name = ((m.name + "(") + m.params + ")")
+            me.detail = m.returns
+            me.status = (d.statusOfMethod(mid))
+            me.note = (d.noteOf(mid))
+            push list me
+            mi = (mi + 1)
+        }
+        def li:int 0
+        while (li < (array_length list)) {
+            def e:MemberEntry (itemAt list li)
+            if (e.status == "added") { added = (added + 1) }
+            if (e.status == "removed") { removed = (removed + 1) }
+            if (e.status == "changed") { changed = (changed + 1) }
+            li = (li + 1)
+        }
+        def parts:[string]
+        if (changed > 0) { push parts ((to_string changed) + " changed") }
+        if (added > 0) { push parts ((to_string added) + " added") }
+        if (removed > 0) { push parts ((to_string removed) + " removed") }
+        ; Below the header, the height of the body, in from the left edge.
+        members.drawer.top = canvasY
+        members.drawer.panelHeight = canvasH
+        members.drawer.pageWidth = pageW
+        members.showFor(name list (join parts ", "))
+        ui.focus((members.drawer.closeTid()))
+        return true
+    }
+
+    ; The drawer already in place, for a deep link or a host that does
+    ; not tick: nothing to slide in from.
+    fn showMembersSettled:boolean (name:string) {
+        def ok:boolean (this.showMembers(name))
+        if ok {
+            members.drawer.progress = 1.0
+            members.drawer.place()
+        }
+        return ok
+    }
+
+    ; A pick from the drawer: "Class.field" or a method id.
+    fn revealMember:void (key:string) {
+        if (session.model.hasMethod(key)) {
+            this.revealMethod(key)
+            return
+        }
+        def dot:int (indexOf key ".")
+        if (dot > 0) {
+            def cls:string (substring key 0 dot)
+            def fld:string (substring key (dot + 1) (strlen key))
+            this.revealField(cls fld)
+        }
+    }
+
+    fn consumeOpenDiff:boolean () {
+        if wantOpenDiff {
+            wantOpenDiff = false
+            return true
+        }
+        return false
+    }
+
+    fn diffActive:boolean () {
+        return session.diff.active
+    }
+
+    fn diffSummary:string () {
+        if (session.diff.active == false) {
+            return ""
+        }
+        return (session.diff.describe())
+    }
+
     fn tick:boolean (dtMs:double) {
         clockMs = (clockMs + dtMs)
-        return (ui.tick(dtMs))
+        def busy:boolean (ui.tick(dtMs))
+        if (members.drawer.animating()) {
+            return true
+        }
+        return busy
     }
 
     fn keyWith:boolean (k:string shift:boolean ctrl:boolean) {
         if (k == "Escape") {
+            if (members.isOpen()) {
+                members.close()
+                return true
+            }
             if sampleSel.open {
                 sampleSel.closeList()
                 return true
@@ -2517,6 +3072,12 @@ class CodeGraphApp extends EvgApp {
             }
             if (k == "Backspace") {
                 codeView.findBackspace()
+                return true
+            }
+        }
+        if (ui.focusId == prField.tid) {
+            if (k == "Enter") {
+                this.analyzeGitDiff(prField.value)
                 return true
             }
         }
@@ -2542,7 +3103,12 @@ class CodeGraphApp extends EvgApp {
             return false
         }
         if ctrl {
-            return (codeView.handleCtrlChar((charAt text 0)))
+            def ch:int (charAt text 0)
+            if ((ch == 99) || (ch == 67)) {
+                clipboardText = (codeView.selectionText())
+                return ((strlen clipboardText) > 0)
+            }
+            return (codeView.handleCtrlChar(ch))
         }
         if (codeView.findActive()) {
             return (codeView.handleText(text))
@@ -2555,6 +3121,26 @@ class CodeGraphApp extends EvgApp {
             return true
         }
         return ((strlen ui.focusId) > 0)
+    }
+
+    fn consumeClipboardText:string () {
+        def t:string clipboardText
+        clipboardText = ""
+        return t
+    }
+
+    ; The face the source pane measures and draws with, from the bytes of
+    ; a TrueType file. Without one the renderer measures every character
+    ; at a bitmap font's fixed step, which is wider than the face the tab
+    ; draws — the gaps between the tokens grew along the line. The SDL host
+    ; opens its faces from disk instead and never calls this.
+    fn loadCodeFont:boolean (family:string data:buffer) {
+        def ok:boolean (codeTr.loadFontBytes(family data))
+        if ok {
+            codeView.fontFamily = family
+            codeView.layout.syncMetrics(codeTr)
+        }
+        return ok
     }
 
     ; What the find bar has selected, so a host can say so.
@@ -2570,22 +3156,42 @@ class CodeGraphApp extends EvgApp {
     }
 
     fn hasField:boolean (tid:string) {
-        return (tid == "cg-class-filter")
+        if (tid == "cg-class-filter") {
+            return true
+        }
+        return (tid == "cg-pr")
     }
 
+    ; The chrome, with the chart painted inside the canvas element and the
+    ; source pane inside its element — registered with `paintAt` before the
+    ; page is built, so both sit where those elements are in the paint
+    ; order. Appending them after the page put them over every overlay: the
+    ; member popup was drawn, then the chart was drawn over it.
     fn display:EVGDisplayList () {
-        def dl:EVGDisplayList (ui.displayList())
+        def page:EVGElement (ui.layout())
         this.syncPaneRects()
         def sc:FlowScene (editor.view.build())
         def graphDl:EVGDisplayList (sc.toDisplayList())
         graphDl.offsetBy(canvasX canvasY)
-        dl.addClip(canvasX canvasY canvasW canvasH)
-        dl.appendFrom(graphDl)
-        dl.addClipEnd()
+        def canvasDl (new EVGDisplayList)
+        canvasDl.addClip(canvasX canvasY canvasW canvasH)
+        canvasDl.appendFrom(graphDl)
+        canvasDl.addClipEnd()
         codeView.setBounds((to_int sourceX) (to_int sourceY) (to_int sourceW) (to_int sourceH))
         this.applySourceJump()
         def blink:int (to_int (clockMs / 500.0))
-        codeView.paint(dl codeTr blink)
+        def sourceDl (new EVGDisplayList)
+        codeView.paint(sourceDl codeTr blink)
+        def engineLay (new EVGLayout)
+        engineLay.setPageSize(ui.pageWidth ui.pageHeight)
+        def dl (new EVGDisplayList)
+        def te (engineLay.getTextEngine())
+        dl.setTextEngine(te)
+        dl.setScrollbars(ui.showScrollbars)
+        dl.setScrollbarState(ui.scrollbarState)
+        dl.paintAt("cg-canvas" canvasDl)
+        dl.paintAt("cg-source" sourceDl)
+        dl.build(page)
         return dl
     }
 

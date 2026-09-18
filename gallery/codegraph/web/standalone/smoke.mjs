@@ -143,6 +143,8 @@ async function main() {
         [path.resolve(shot), "http://127.0.0.1:" + PORT + "/index.html"],
         [path.join(shotDir, "codegraph_shop.png"), "http://127.0.0.1:" + PORT + "/index.html?sample=shop"],
         [path.join(shotDir, "codegraph_animals.png"), "http://127.0.0.1:" + PORT + "/index.html?example=animals.rgr"],
+        [path.join(shotDir, "codegraph_diff.png"), "http://127.0.0.1:" + PORT + "/index.html?example=diff-calls"],
+        [path.join(shotDir, "codegraph_diff_order.png"), "http://127.0.0.1:" + PORT + "/index.html?example=diff-calls&open=Order"],
       ];
       for (const [file, url] of shots) {
         await runChrome(chrome, [

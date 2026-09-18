@@ -1,0 +1,52 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; calls.rgr one commit later: LineItem.lineTotal reads a price, Order grows
+; a `discount` field and a `count` method, Checkout.pay takes a Receipt,
+; and CodeGraphFixtureMain is gone. The diff example compares this against
+; calls.rgr.
+
+class LineItem {
+    def qty:int 1
+    def sku:string "x"
+    def price:int 3
+
+    fn lineTotal:int () {
+        return (qty * price)
+    }
+}
+
+class Order {
+    def items:[LineItem]
+    def discount:int 0
+
+    fn addItem:void (item:LineItem) {
+        push items item
+    }
+
+    fn count:int () {
+        return (array_length items)
+    }
+
+    fn total:int () {
+        def sum:int 0
+        def i:int 0
+        while (i < (array_length items)) {
+            def row:LineItem (itemAt items i)
+            sum = (sum + (row.lineTotal()))
+            i = (i + 1)
+        }
+        return (sum - discount)
+    }
+}
+
+class Receipt {
+    def paid:int 0
+}
+
+class Checkout {
+    fn pay:Receipt (order:Order) {
+        def r (new Receipt)
+        r.paid = (order.total())
+        return r
+    }
+}

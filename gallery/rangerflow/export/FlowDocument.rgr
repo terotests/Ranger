@@ -246,7 +246,17 @@ class FlowGraphCodec {
                 ; Emphasis is why a primary key reads as one at a glance.
                 ; It was not written once, so a saved schema came back with
                 ; every key row in the same weight as the rest.
-                out = (out + ",\"emphasis\":" + (to_string row.emphasis) + "}")
+                out = (out + ",\"emphasis\":" + (to_string row.emphasis))
+                if ((strlen row.tint) > 0) {
+                    out = (out + ",\"tint\":" + (FlowGraphCodec.str(row.tint)))
+                }
+                if ((strlen row.tintText) > 0) {
+                    out = (out + ",\"tintText\":" + (FlowGraphCodec.str(row.tintText)))
+                }
+                if ((strlen row.tooltip) > 0) {
+                    out = (out + ",\"tooltip\":" + (FlowGraphCodec.str(row.tooltip)))
+                }
+                out = (out + "}")
                 ri = (ri + 1)
             }
             out = (out + "]}")
@@ -465,6 +475,9 @@ class FlowGraphCodec {
                 def row:FlowRow (FlowRow.create((jr.stringOr("badge" "")) (jr.stringOr("text" "")) (jr.stringOr("detail" "")) (jr.stringOr("trailing" ""))))
                 row.portId = (jr.stringOr("port" ""))
                 row.emphasis = (jr.intOr("emphasis" 0))
+                row.tint = (jr.stringOr("tint" ""))
+                row.tintText = (jr.stringOr("tintText" ""))
+                row.tooltip = (jr.stringOr("tooltip" ""))
                 sec.addRow(row)
                 ri = (ri + 1)
             }

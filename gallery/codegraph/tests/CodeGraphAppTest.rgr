@@ -629,10 +629,438 @@ class CodeGraphAppTest {
             print ("  ingest DataGrid → " + (to_string (dg.userFileCount())) + " user files")
         }
 
+        failed = (failed + (CodeGraphAppTest.checkDiffMode((unwrap css))))
+
         if (failed > 0) {
             print ("CodeGraphAppTest FAILED " + (to_string failed))
             exit 1
         }
         print "CodeGraphAppTest ok"
+    }
+
+    ; Two hand-built graphs with a source file, opened as a diff: the
+    ; explorer lands on the summary, the source pane shows the merged
+    ; text with its marks, and Diff / overview go where a diff wants.
+    sfn checkDiffMode:int (css:string) {
+        print "== diff mode in the explorer"
+        def n:int 0
+        def before:CodeGraph (new CodeGraph)
+        before.title = "v1"
+        def b:CodeClass (before.addClass("Cart"))
+        b.fileName = "cart.rgr"
+        def bm:CodeMethod (before.addMethod("Cart" "total"))
+        bm.fileName = "cart.rgr"
+        bm.startLine = 1
+        def bo:CodeMethod (before.addMethod("Cart" "old"))
+        bo.fileName = "cart.rgr"
+        bo.startLine = 4
+        before.addSource("cart.rgr" "class Cart {\n    fn total:int () {\n        return 1\n    }\n    fn old:void () {\n    }\n}")
+        def after:CodeGraph (new CodeGraph)
+        after.title = "v2"
+        def a:CodeClass (after.addClass("Cart"))
+        a.fileName = "cart.rgr"
+        def am:CodeMethod (after.addMethod("Cart" "total"))
+        am.fileName = "cart.rgr"
+        am.startLine = 1
+        after.addSource("cart.rgr" "class Cart {\n    fn total:int () {\n        return 2\n    }\n}")
+        def app (new CodeGraphApp)
+        app.start(1200.0 800.0 css)
+        if ((app.applyDiffSession((CodeGraphSession.ofDiff(before after "v1 → v2" 24)) "cart")) == false) {
+            print "  FAIL applyDiffSession"
+            return 1
+        }
+        if ((app.pageId()) != "diff:0") {
+            print ("  FAIL diff opened on " + (app.pageId()))
+            n = (n + 1)
+        }
+        if ((app.diffActive()) == false) {
+            print "  FAIL diffActive"
+            n = (n + 1)
+        }
+        if ((indexOf (app.diffSummary()) "1 changed") < 0) {
+            print ("  FAIL diff summary: " + (app.diffSummary()))
+            n = (n + 1)
+        }
+        if ((indexOf (app.statusText()) "v1 → v2") < 0) {
+            print ("  FAIL status names the sides: " + (app.statusText()))
+            n = (n + 1)
+        }
+        ; The removed method's row sits in the merged text, on a red row.
+        app.revealMethod("Cart.old")
+        def marks:int (app.codeView.markCount(2))
+        if (marks < 2) {
+            print ("  FAIL merged source has " + (to_string marks) + " removed lines, want 2")
+            n = (n + 1)
+        }
+        if ((app.codeView.markCount(1)) != 1) {
+            print ("  FAIL merged source added lines " + (to_string (app.codeView.markCount(1))))
+            n = (n + 1)
+        }
+        if ((app.codeView.lineMark(app.codeView.sel.caret.line)) != 2) {
+            print ("  FAIL caret is not on the removed method (line " + (to_string app.codeView.sel.caret.line) + ")")
+            n = (n + 1)
+        }
+        app.revealMethod("Cart.total")
+        if (app.codeView.sel.caret.line != 1) {
+            print ("  FAIL caret on total(): line " + (to_string app.codeView.sel.caret.line))
+            n = (n + 1)
+        }
+        app.openClass("Cart")
+        if ((app.pageId()) != "class:Cart") {
+            print ("  FAIL openClass " + (app.pageId()))
+            n = (n + 1)
+        }
+        ; Resting the pointer on the removed row says why it is red.
+        if (app.graph.hasNode("Cart")) {
+            def cartNode:FlowNode (app.graph.nodeById("Cart"))
+            def probe:double (cartNode.y + cartNode.headerHeight)
+            def found:boolean false
+            while ((probe < (cartNode.y + cartNode.height)) && (found == false)) {
+                def rowNo:int (app.editor.rowAtPoint(cartNode probe))
+                def row:FlowRow (FlowUndo.rowOf(cartNode rowNo))
+                if ((indexOf row.text "old") == 0) {
+                    found = true
+                } {
+                    probe = (probe + 2.0)
+                }
+            }
+            if (found == false) {
+                print "  FAIL no row for old() on Cart"
+                n = (n + 1)
+            } {
+                def sx:double (app.editor.view.viewport.toScreenX((cartNode.x + 20.0)))
+                def sy:double (app.editor.view.viewport.toScreenY(probe))
+                app.graphMove((app.canvasX + sx) (app.canvasY + sy) false false)
+                def tip:string app.editor.view.tooltipText
+                if ((indexOf tip "Removed in this change") != 0) {
+                    print ("  FAIL tooltip on the removed row: '" + tip + "'")
+                    n = (n + 1)
+                }
+            }
+        } {
+            print "  FAIL Cart not drawn"
+            n = (n + 1)
+        }
+        app.goOverview()
+        if ((app.pageId()) != "diff:0") {
+            print ("  FAIL overview with a diff open went to " + (app.pageId()))
+            n = (n + 1)
+        }
+        app.runToolbar("diff")
+        if ((app.consumeOpenDiff()) == false) {
+            print "  FAIL Diff button did not ask the host"
+            n = (n + 1)
+        }
+        if (app.consumeOpenDiff()) {
+            print "  FAIL Diff request not consumed"
+            n = (n + 1)
+        }
+        ; Without an opened path there is nothing to run git around.
+        def fresh (new CodeGraphApp)
+        fresh.start(800.0 600.0 css)
+        if (fresh.analyzeGitDiff("HEAD~1..HEAD")) {
+            print "  FAIL analyzeGitDiff with nothing open"
+            n = (n + 1)
+        }
+        if ((indexOf (fresh.statusText()) "desktop") < 0) {
+            print ("  FAIL a host without git is told so: " + (fresh.statusText()))
+            n = (n + 1)
+        }
+        print ("  " + (app.statusText()))
+        n = (n + (CodeGraphAppTest.checkCommitPickers(css)))
+        n = (n + (CodeGraphAppTest.checkMemberPopup(css)))
+        n = (n + (CodeGraphAppTest.checkCopyAndFont(css)))
+        return n
+    }
+
+    ; Ctrl+C hands the pane's selection to the host; a TrueType face given
+    ; as bytes replaces the fixed bitmap step with the face's own advances.
+    sfn checkCopyAndFont:int (css:string) {
+        print "== copy to clipboard, code font"
+        def n:int 0
+        def app (new CodeGraphApp)
+        app.start(1200.0 800.0 css)
+        app.codeView.init("class K {\n    fn a:void () {\n    }\n}")
+        if (app.typeTextWith("c" true)) {
+            print "  FAIL Ctrl+C with nothing selected claimed to copy"
+            n = (n + 1)
+        }
+        app.codeView.selectAll()
+        if ((app.typeTextWith("c" true)) == false) {
+            print "  FAIL Ctrl+C with a selection did not copy"
+            n = (n + 1)
+        }
+        def clip:string (app.consumeClipboardText())
+        if ((indexOf clip "class K {") != 0) {
+            print ("  FAIL clipboard text: '" + clip + "'")
+            n = (n + 1)
+        }
+        if ((strlen (app.consumeClipboardText())) != 0) {
+            print "  FAIL clipboard text not drained"
+            n = (n + 1)
+        }
+        def before:double (app.codeTr.measureWidth("iiiiiiii" 13.0))
+        def beforeWide:double (app.codeTr.measureWidth("MMMMMMMM" 13.0))
+        if (before != beforeWide) {
+            print "  FAIL without a face every character has the same step"
+            n = (n + 1)
+        }
+        def ttf:buffer (buffer_read_file "gallery/pdf_writer/assets/fonts/Noto_Sans" "NotoSans-Regular.ttf")
+        if ((app.loadCodeFont("Noto Sans" ttf)) == false) {
+            print "  FAIL loadCodeFont"
+            return (n + 1)
+        }
+        def narrow:double (app.codeTr.measureWidth("iiiiiiii" 13.0))
+        def wide:double (app.codeTr.measureWidth("MMMMMMMM" 13.0))
+        if (narrow >= wide) {
+            print ("  FAIL the face's own advances: i " + (to_string narrow) + " vs M " + (to_string wide))
+            n = (n + 1)
+        }
+        if (narrow >= before) {
+            print ("  FAIL a run of i is narrower with the face than at the bitmap step: " + (to_string narrow) + " vs " + (to_string before))
+            n = (n + 1)
+        }
+        if (app.codeView.fontFamily != "Noto Sans") {
+            print ("  FAIL the pane draws with the face it measures: " + app.codeView.fontFamily)
+            n = (n + 1)
+        }
+        return n
+    }
+
+    ; A class with more methods than the box lists: the "+ N more" row
+    ; slides in the drawer with every member, marked; a pick reveals it
+    ; and the drawer stays; Escape slides it out; the chart beside it is
+    ; still hit.
+    sfn checkMemberPopup:int (css:string) {
+        print "== member drawer from + N more"
+        def n:int 0
+        def before:CodeGraph (new CodeGraph)
+        def bc:CodeClass (before.addClass("Big"))
+        bc.fileName = "big.rgr"
+        def i:int 0
+        while (i < 10) {
+            def m:CodeMethod (before.addMethod("Big" ("m" + (to_string i))))
+            m.fileName = "big.rgr"
+            m.startLine = (i + 1)
+            i = (i + 1)
+        }
+        def after:CodeGraph (new CodeGraph)
+        def ac:CodeClass (after.addClass("Big"))
+        ac.fileName = "big.rgr"
+        def k:int 0
+        while (k < 11) {
+            def m2:CodeMethod (after.addMethod("Big" ("m" + (to_string k))))
+            m2.fileName = "big.rgr"
+            m2.startLine = (k + 1)
+            k = (k + 1)
+        }
+        ; The same twenty lines on both sides: the file did not change, so
+        ; the pane shows it plain and a pick lands on the method's line.
+        def lines:[string]
+        def li:int 0
+        while (li < 20) {
+            push lines ("    ; line " + (to_string li))
+            li = (li + 1)
+        }
+        before.addSource("big.rgr" (join lines "\n"))
+        after.addSource("big.rgr" (join lines "\n"))
+        def app (new CodeGraphApp)
+        app.start(1200.0 800.0 css)
+        app.applyDiffSession((CodeGraphSession.ofDiff(before after "v1 → v2" 24)) "big")
+        app.openClass("Big")
+        if ((app.graph.hasNode("Big")) == false) {
+            print "  FAIL Big not drawn"
+            return 1
+        }
+        def node:FlowNode (app.graph.nodeById("Big"))
+        def probe:double (node.y + node.headerHeight)
+        def found:boolean false
+        while ((probe < (node.y + node.height)) && (found == false)) {
+            def rowNo:int (app.editor.rowAtPoint(node probe))
+            def row:FlowRow (FlowUndo.rowOf(node rowNo))
+            if ((indexOf row.text "more") > 0) {
+                found = true
+            } {
+                probe = (probe + 2.0)
+            }
+        }
+        if (found == false) {
+            print "  FAIL no + N more row on Big"
+            return 1
+        }
+        def sx:double (app.canvasX + (app.editor.view.viewport.toScreenX((node.x + 20.0))))
+        def sy:double (app.canvasY + (app.editor.view.viewport.toScreenY(probe)))
+        app.graphDown(sx sy false false)
+        app.graphUp(sx sy false false)
+        if ((app.members.isOpen()) == false) {
+            print "  FAIL clicking + N more did not open the drawer"
+            return (n + 1)
+        }
+        if ((app.tick(16.0)) == false) {
+            print "  FAIL the slide does not ask for frames"
+            n = (n + 1)
+        }
+        app.tick(1000.0)
+        if (app.members.drawer.animating()) {
+            print "  FAIL still sliding after a second"
+            n = (n + 1)
+        }
+        if (app.members.drawer.top != app.canvasY) {
+            print "  FAIL the drawer does not start below the header"
+            n = (n + 1)
+        }
+        if ((app.members.entryCount()) != 11) {
+            print ("  FAIL popup lists " + (to_string (app.members.entryCount())) + " members, want 11")
+            n = (n + 1)
+        }
+        if ((indexOf app.members.summary "1 added") < 0) {
+            print ("  FAIL popup summary: '" + app.members.summary + "'")
+            n = (n + 1)
+        }
+        def last:MemberEntry (app.members.entryAt(10))
+        if ((last.status != "added") || ((last.mark()) != "+")) {
+            print ("  FAIL m10 entry: status '" + last.status + "'")
+            n = (n + 1)
+        }
+        ; The drawer is in front where it is, and nowhere else: the right
+        ; end of the chart is still the chart.
+        def onDrawer:string (app.hitId(20.0 (app.canvasY + 60.0)))
+        if ((indexOf onDrawer "cg-members") != 0) {
+            print ("  FAIL the drawer is not hit at the left edge: '" + onDrawer + "'")
+            n = (n + 1)
+        }
+        def onCanvas:string (app.hitId(((app.canvasX + app.canvasW) - 10.0) (app.canvasY + 60.0)))
+        if ((indexOf onCanvas "cg-members") == 0) {
+            print "  FAIL the drawer blocks the chart"
+            n = (n + 1)
+        }
+        app.press((app.members.entryTid("Big.m10")))
+        if ((app.members.isOpen()) == false) {
+            print "  FAIL picking a member closed the drawer"
+            n = (n + 1)
+        }
+        if (app.sourcePath != "big.rgr") {
+            print ("  FAIL picking a member did not reveal it: '" + app.sourcePath + "'")
+            n = (n + 1)
+        }
+        if (app.codeView.sel.caret.line != 11) {
+            print ("  FAIL caret on m10: line " + (to_string app.codeView.sel.caret.line))
+            n = (n + 1)
+        }
+        app.keyWith("Escape" false false)
+        app.tick(1000.0)
+        if (app.members.isOpen()) {
+            print "  FAIL Escape did not close the drawer"
+            n = (n + 1)
+        }
+        app.showMembers("Big")
+        app.tick(1000.0)
+        app.press((app.members.drawer.closeTid()))
+        app.tick(1000.0)
+        if (app.members.isOpen()) {
+            print "  FAIL Close did not close the drawer"
+            n = (n + 1)
+        }
+        def dl:EVGDisplayList (app.display())
+        if ((array_length dl.cmds) < 20) {
+            print "  FAIL display after the popup"
+            n = (n + 1)
+        }
+        return n
+    }
+
+    ; The COMMITS rail: empty until a checkout is open, then the log as
+    ; two selects (base, head) and a pull request field. Picking runs the
+    ; diff; here, with git off, that is the status line saying so.
+    sfn checkCommitPickers:int (css:string) {
+        print "== commit pickers"
+        def n:int 0
+        def app (new CodeGraphApp)
+        app.start(1200.0 800.0 css)
+        if ((array_length app.baseSel.items) != 1) {
+            print ("  FAIL base select before any checkout has " + (to_string (array_length app.baseSel.items)) + " items")
+            n = (n + 1)
+        }
+        def first:UiItem (itemAt app.baseSel.items 0)
+        if (first.disabled == false) {
+            print "  FAIL the placeholder item is not disabled"
+            n = (n + 1)
+        }
+        def log:[GitCommitInfo]
+        def c1 (new GitCommitInfo)
+        c1.sha = "1111111111111111111111111111111111111111"
+        c1.short = "1111111"
+        c1.subject = "second"
+        push log c1
+        def c2 (new GitCommitInfo)
+        c2.sha = "2222222222222222222222222222222222222222"
+        c2.short = "2222222"
+        c2.subject = "first"
+        push log c2
+        app.setCommitList(log)
+        if ((array_length app.baseSel.items) != 3) {
+            print ("  FAIL base select has " + (to_string (array_length app.baseSel.items)) + " items, want placeholder + 2")
+            n = (n + 1)
+        }
+        if ((array_length app.headSel.items) != 3) {
+            print ("  FAIL head select has " + (to_string (array_length app.headSel.items)) + " items, want working tree + 2")
+            n = (n + 1)
+        }
+        if ((strlen (app.selectedSpec())) != 0) {
+            print "  FAIL nothing picked, yet a spec"
+            n = (n + 1)
+        }
+        app.baseSel.value = c2.sha
+        if ((app.selectedSpec()) != c2.sha) {
+            print ("  FAIL base only → working tree spec: " + (app.selectedSpec()))
+            n = (n + 1)
+        }
+        app.headSel.value = c1.sha
+        if ((app.selectedSpec()) != ((c2.sha + "..") + c1.sha)) {
+            print ("  FAIL base..head spec: " + (app.selectedSpec()))
+            n = (n + 1)
+        }
+        ; Picking through the UI: open the base list, click a commit.
+        app.baseSel.value = ""
+        app.headSel.value = ""
+        app.press((app.baseSel.triggerTid()))
+        app.press((app.baseSel.itemTid(c2.sha)))
+        if (app.baseSel.value != c2.sha) {
+            print ("  FAIL clicking a commit did not pick it: '" + app.baseSel.value + "'")
+            n = (n + 1)
+        }
+        if ((indexOf (app.statusText()) "desktop") < 0) {
+            print ("  FAIL the pick ran the diff (git off → told so): " + (app.statusText()))
+            n = (n + 1)
+        }
+        ; The pull request field takes a number and Enter.
+        app.ui.focus(app.prField.tid)
+        app.typeText("#")
+        app.typeText("1")
+        app.typeText("2")
+        if (app.prField.value != "#12") {
+            print ("  FAIL typed into the PR field: '" + app.prField.value + "'")
+            n = (n + 1)
+        }
+        app.keyWith("Enter" false false)
+        if ((indexOf (app.statusText()) "desktop") < 0) {
+            print ("  FAIL Enter in the PR field ran the diff: " + (app.statusText()))
+            n = (n + 1)
+        }
+        if ((app.hasField("cg-pr")) == false) {
+            print "  FAIL cg-pr is a typing field"
+            n = (n + 1)
+        }
+        app.showComparedCommits(c2.sha c1.sha)
+        if ((app.baseSel.value != c2.sha) || (app.headSel.value != c1.sha)) {
+            print "  FAIL showComparedCommits did not point the selects"
+            n = (n + 1)
+        }
+        app.showComparedCommits(c2.sha "")
+        if ((strlen app.headSel.value) != 0) {
+            print "  FAIL working-tree head should clear the head select"
+            n = (n + 1)
+        }
+        return n
     }
 }
