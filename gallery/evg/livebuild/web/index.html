@@ -55,11 +55,10 @@
   }
   button.primary { background: #134e4a; border-color: #2dd4bf66; color: #ccfbf1; font-weight: 650; }
   button:disabled { opacity: .5; cursor: wait; }
-  .chips { display: flex; gap: 8px; flex-wrap: wrap; }
+  .chips, .agents { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .chip.active { border-color: #2dd4bf88; color: var(--accent); }
   .chip.off { opacity: .45; cursor: not-allowed; }
-  .agents { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
-  .agents .lbl { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+  .lbl { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
   main {
     display: grid;
     grid-template-columns: minmax(280px, 420px) 1fr;
@@ -137,8 +136,8 @@
   <div class="mark">RANGER · <span>EVG live build</span></div>
   <form class="ask" id="ask">
     <input id="prompt" name="prompt" autocomplete="off"
-      placeholder="Follow-up: change this phone, then Build. Seed chips start over.">
-    <button class="primary" id="go" type="submit">Build</button>
+      placeholder="Change this phone, then Follow up. Start-over chips wipe it.">
+    <button class="primary" id="go" type="submit">Follow up</button>
   </form>
   <div class="chips" id="chips"></div>
   <div class="agents" id="agents"></div>
@@ -207,6 +206,11 @@ for (const a of agentList.agents) {
   agentBox.appendChild(b);
 }
 
+const sl = document.createElement("span");
+sl.className = "lbl";
+sl.textContent = "Start over";
+sl.title = "These chips replace the live phone. Follow up does not.";
+chips.appendChild(sl);
 for (const k of kinds.kinds) {
   const b = document.createElement("button");
   b.type = "button";
@@ -235,7 +239,7 @@ async function loadSeed(kind) {
   paintFrame(d);
   $("added").textContent = "seed";
   $("kindLabel").textContent = current;
-  $("think").innerHTML = '<span class="empty">This phone is the live document. Type a follow-up and press Build — it edits this screen. Dashboard / Empty start over.</span>';
+  $("think").innerHTML = '<span class="empty">This phone is the live document. Type a change and press Follow up — it edits this screen. Start-over chips (Dashboard / Empty) wipe it.</span>';
   $("ops").innerHTML = '<span class="empty">Deltas land here as they apply.</span>';
   $("code").innerHTML = '<span class="empty">Source is streamed with the tree.</span>';
   $("ntok").textContent = "0";

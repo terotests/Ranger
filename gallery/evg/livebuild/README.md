@@ -62,10 +62,11 @@ npm run livebuild:serve
 ```
 
 The server compiles the Ranger program if needed, then serves the page and
-one SSE stream per build. The page **loads a finished phone dashboard
-immediately** — Build stays enabled and **edits that same phone**. Kind chips
-(Dashboard, Settings, Invoices, Empty) swap the seed and start over. Only
-those chips wipe the screen; Build does not.
+one SSE stream per follow-up. The page **loads a finished phone dashboard
+immediately** — **Follow up** stays enabled and **edits that same phone**.
+There is no second box: the prompt plus Follow up *is* the follow-up.
+Kind chips (Dashboard, Settings, Invoices, Empty) are labelled **Start over**
+and swap the seed. Only those chips wipe the screen; Follow up does not.
 
 `?pace=0` on `/stream` turns the token delay off.
 
@@ -80,9 +81,9 @@ npm run livebuild:withcursor
 
 That checks `agent` / `cursor-agent` is on `PATH` and logged in, compiles
 the live-build program, and starts the page with Cursor selected. The phone
-already has a dashboard. **Build is a follow-up**: it edits that same
-`doc.evg.json` (Cursor `--continue` in the same workspace). Seed chips
-(Dashboard / Empty / …) are what start over.
+already has a dashboard. **Follow up** edits that same `doc.evg.json`
+(Cursor `--continue` in the same workspace). Start-over chips
+(Dashboard / Empty / …) are what wipe it.
 
 Without a browser:
 

@@ -281,7 +281,10 @@ function main() {
     }
     if (url.pathname === "/stream") {
       const prompt = url.searchParams.get("prompt") || "";
-      const kind = pickKind(url.searchParams.get("kind") || lastKind, prompt);
+      // Follow-up never remaps the seed from the typed ask. Kind chips
+      // (via /seed) are the only start-over; lastKind is that seed.
+      const chip = url.searchParams.get("kind") || lastKind;
+      const kind = KINDS.has(chip) ? chip : (lastKind || "dashboard");
       const agent = url.searchParams.get("agent") || DEFAULT_AGENT;
       const pace = Number(url.searchParams.get("pace") ?? 28);
       streamBuild(res, {

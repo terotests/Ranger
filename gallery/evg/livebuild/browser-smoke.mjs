@@ -78,7 +78,10 @@ try {
   const seedCmds = await page.locator("#ncmds").innerText();
   const seedSvg = await page.locator("#screen svg").count();
   if (seedSvg < 1) throw new Error("seed: no SVG painted");
-  console.log(`  seed         cmds=${seedCmds} svg=${seedSvg} Build enabled`);
+  console.log(`  seed         cmds=${seedCmds} svg=${seedSvg} Follow up enabled`);
+
+  const goLabel = await page.locator("#go").innerText();
+  if (!/follow up/i.test(goLabel)) throw new Error(`expected Follow up button, got ${goLabel}`);
 
   await page.getByRole("button", { name: "Settings" }).click();
   await page.waitForFunction(
@@ -88,18 +91,6 @@ try {
     { timeout: 10000 },
   );
 
-  await page.getByRole("button", { name: "Invoices" }).click();
-  await page.waitForFunction(
-    () => document.getElementById("kindLabel")?.textContent?.includes("invoices") &&
-      !document.getElementById("go")?.disabled,
-    null,
-    { timeout: 10000 },
-  );
-
-  await page.fill("#prompt", "Build me a settings screen with notifications");
-  await page.click("#go");
-  await waitDone("prompt");
-
   await page.getByRole("button", { name: "Dashboard", exact: true }).click();
   await page.waitForFunction(
     () => document.getElementById("kindLabel")?.textContent?.includes("dashboard") &&
@@ -107,19 +98,38 @@ try {
     null,
     { timeout: 10000 },
   );
+  const beforeFollow = Number(await page.locator("#ncmds").innerText());
   await page.fill("#prompt", "Make the title larger and use a gold accent");
   await page.click("#go");
   await waitDone("restyle");
+  const afterFollow = Number(await page.locator("#ncmds").innerText());
+  if (afterFollow < Math.max(8, Math.floor(beforeFollow * 0.5))) {
+    throw new Error(`follow-up wiped the phone: cmds ${beforeFollow} → ${afterFollow}`);
+  }
   const think = await page.locator("#think").innerText();
   if (!/gold|accent|title|larger/i.test(think)) {
     throw new Error(`restyle thinking missed the ask: ${think.slice(0, 180)}`);
+  }
+  const svgText = await page.locator("#screen").innerText();
+  if (svgText.length === 0) throw new Error("follow-up left the phone with no painted text");
+
+  await page.getByRole("button", { name: "Empty" }).click();
+  await page.waitForFunction(
+    () => document.getElementById("added")?.textContent === "seed" &&
+      !document.getElementById("go")?.disabled,
+    null,
+    { timeout: 10000 },
+  );
+  const emptyCmds = Number(await page.locator("#ncmds").innerText());
+  if (emptyCmds >= beforeFollow) {
+    throw new Error(`Empty chip did not start over: cmds ${emptyCmds}`);
   }
 
   if (problems.length) {
     console.error(problems.join("\n"));
     throw new Error(`${problems.length} console/page errors`);
   }
-  console.log("ALL PASS — seed painted with Build enabled, then recipe prompt and restyle");
+  console.log("ALL PASS — seed painted, Follow up kept the phone, Empty started over");
 } finally {
   await browser.close();
 }

@@ -286,8 +286,11 @@ and this task. Change the UI by editing \`doc.evg.json\`.
 
 ${task}
 
-\`doc.evg.json\` is already a 390 × 844 phone UI. Edit that file. Do not
-replace it with a blank page unless the task says to start over.
+\`doc.evg.json\` is already a 390 × 844 phone UI with real content. Read
+it (or \`./evg-agent outline doc.evg.json\`) before editing. Edit that
+file in place. Do not replace it with a blank page unless the task says
+to start over. If the outline has more than a handful of nodes, the
+phone is not empty.
 
 ## How to change the document
 
@@ -438,10 +441,53 @@ export function writeSessionDoc(text) {
   return true;
 }
 
+function countNodes(node) {
+  if (!node || typeof node !== "object") return 0;
+  let n = 1;
+  for (const c of node.children || []) n += countNodes(c);
+  return n;
+}
+
+function walkOutline(node, path, lines, cap) {
+  if (!node || typeof node !== "object" || lines.length >= cap) return;
+  const tag = node.tag || "?";
+  const text = node.text ? JSON.stringify(String(node.text).slice(0, 40)) : "";
+  const cls = node.props && node.props.class ? "." + node.props.class : "";
+  lines.push(`${path} ${tag}${cls} ${text}`.trim());
+  const ch = node.children || [];
+  for (let i = 0; i < ch.length; i++) {
+    walkOutline(ch[i], `${path}/${i}`, lines, cap);
+  }
+}
+
+function followUpTask(task, docText) {
+  const lines = [];
+  let n = 0;
+  try {
+    const j = JSON.parse(docText);
+    n = countNodes(j.root);
+    walkOutline(j.root, "0", lines, 16);
+  } catch {
+    /* invalid json still gets the instruction */
+  }
+  const stats = n
+    ? `doc.evg.json is the live phone (${n} nodes). Edit that file in place. Do not replace it with a blank page.`
+    : "doc.evg.json is the live phone. Edit that file in place. Do not replace it with a blank page.";
+  return ["# Follow-up", "", task, "", stats, "", "Current outline:", ...lines.map((l) => "- " + l), ""].join("\n");
+}
+
 export function prepareSession(task, { git = false, kind = "dashboard" } = {}) {
   const dir = sessionDir();
-  if (!fs.existsSync(path.join(dir, "doc.evg.json"))) resetSession(kind);
-  fs.writeFileSync(path.join(dir, "TASK.md"), task + "\n");
+  const docPath = path.join(dir, "doc.evg.json");
+  let existing = "";
+  try {
+    existing = fs.readFileSync(docPath, "utf8");
+  } catch {
+    existing = "";
+  }
+  if (!looksLikeEvg(existing)) resetSession(kind);
+  const doc = fs.readFileSync(path.join(dir, "doc.evg.json"), "utf8");
+  fs.writeFileSync(path.join(dir, "TASK.md"), followUpTask(task, doc));
   fs.writeFileSync(path.join(dir, "AGENTS.md"), workspaceGuide(task));
   installEvgAgent(dir);
   if (git && !fs.existsSync(path.join(dir, ".git"))) seedGit(dir);
@@ -789,6 +835,19 @@ function extractOps(text) {
 export function runRecipeEdit(docPath, onLine, signal, prompt, kind) {
   return new Promise((resolve, reject) => {
     const parsed = parseRestyle(prompt || "");
+    const tagged = (line) => {
+      try {
+        const obj = JSON.parse(String(line).trim());
+        if (obj && obj.t === "session") {
+          obj.followUp = true;
+          onLine(JSON.stringify(obj));
+          return;
+        }
+      } catch {
+        /* not json */
+      }
+      onLine(line);
+    };
     const child = spawn("node", [liveBin, "edit", docPath], {
       cwd: root,
       env: {
@@ -810,7 +869,7 @@ export function runRecipeEdit(docPath, onLine, signal, prompt, kind) {
       if (signal.aborted) stop();
       else signal.addEventListener("abort", stop, { once: true });
     }
-    pipeChild(child, onLine, () => resolve());
+    pipeChild(child, tagged, () => resolve());
     child.on("error", reject);
   });
 }

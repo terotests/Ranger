@@ -8,7 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { listAgents, runTask, root, findCursorAgent, cursorSpawnArgs, frameFixture, resetSession, readSessionDoc, prepareSession } from "./agents.mjs";
+import { listAgents, runTask, root, findCursorAgent, cursorSpawnArgs, frameFixture, resetSession, readSessionDoc, prepareSession, sessionDir } from "./agents.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const bin = path.join(root, "gallery/evg/bin/evg_livebuild.js");
@@ -118,6 +118,25 @@ const kept = readSessionDoc();
 if (!kept) throw new Error("resetSession wrote no dashboard");
 prepareSession("follow-up: make the title gold", { kind: "dashboard" });
 if (readSessionDoc() !== kept) throw new Error("follow-up prepareSession wiped the phone");
+const taskMd = fs.readFileSync(path.join(sessionDir(), "TASK.md"), "utf8");
+if (!/Follow-up/.test(taskMd) || !/nodes/.test(taskMd)) {
+  throw new Error("follow-up TASK.md did not describe the live phone");
+}
+const recipeFollow = [];
+await runTask({
+  agent: "recipe",
+  kind: "dashboard",
+  prompt: "Make the title gold",
+  session: true,
+  onLine: (line) => recipeFollow.push(JSON.parse(line)),
+});
+const afterRecipe = readSessionDoc();
+if (!afterRecipe || afterRecipe.length < kept.length * 0.5) {
+  throw new Error("recipe follow-up wiped the phone");
+}
+if (!recipeFollow.some((e) => e.t === "session" && e.followUp)) {
+  throw new Error("recipe follow-up session missing followUp");
+}
 resetSession("empty");
 if (readSessionDoc() === kept) throw new Error("Empty seed did not replace the phone");
 console.log("  follow-up   same doc until a seed chip resets it");
