@@ -1395,6 +1395,20 @@ class ComponentEngine {
     ; What the base constructor answered to the last super() call: an object
     ; there REPLACES the derived constructor's `this` (§12.3.5.1 step 8).
     def superCallResult:EvHandle (EvValueBridge.taggedUndefined())
+    ; The object a super() call rebound `this` to, reported to the caller
+    ; that invoked the constructor so the construct site can answer it.
+    def superReboundThis:EvHandle (EvValueBridge.taggedUndefined())
+    ; Every name that was ever declared const: a name outside this set can
+    ; skip the scope walk isConstBinding costs on the `i++` fast path.
+    def constEverNames:[string:boolean]
+    ; new.target handed down by Reflect.construct for a CLASS: the name-keyed
+    ; instantiation reads it once, when ctorArgsPrimed says the values are
+    ; primed as well.
+    def primedNewTarget:EvHandle (EvValueBridge.taggedUndefined())
+    def hasPrimedNewTarget:boolean false
+    ; Names the function being compiled declares `const`: a write to one is
+    ; a TypeError the walker raises, so the compiler declines the function.
+    def bcConstNames:[string]
     ; D-SPECIES: the RECEIVER a builtin static was reached through. `L.from(xs)`
     ; for `class L extends Array` has to build an L, and the static's own
     ; implementation is the only place that can know -- but invokeBuiltinStatic
@@ -2581,6 +2595,13 @@ class ComponentEngine {
         if (fv.boundExplicitOf()) {
             return true
         }
+        ; An arrow has no own `caller`/`arguments` in any mode: it inherits
+        ; %ThrowTypeError% from Function.prototype like a strict function.
+        if (fv.hasFunctionNode()) {
+            if ((this.nodeKindOf((fv.functionNodeOf()))) == 17) {
+                return true
+            }
+        }
         ; A class is strict code throughout (§14.5.1), so its value poisons
         ; `caller` and `arguments` like any strict function.
         if (fv.hasOwnData("__classname__")) {
@@ -3043,6 +3064,10 @@ class ComponentEngine {
                     if ((strlen stmt.name) > 0) {
                         set classes stmt.name stmt
                     }
+                    ; ClassDefinitionEvaluation happens HERE, in statement
+                    ; order: the heritage expression sees the scope as it is
+                    ; at the declaration.
+                    this.runStatementValue(stmt)
                 }
             }
             if scriptThrew {
@@ -3158,6 +3183,12 @@ class ComponentEngine {
                     ; in source order, rather than in a pass of its own before
                     ; the program starts. Only the binding is hoisted.
                     if ((this.nodeKindOf(stmt)) == 31) {
+                        this.runStatementValue(stmt)
+                    }
+                    ; A class declaration is evaluated here too, in source
+                    ; order: its heritage expression and computed keys run
+                    ; against the scope as it is at the declaration.
+                    if ((this.nodeKindOf(stmt)) == 25) {
                         this.runStatementValue(stmt)
                     }
                 }
@@ -4352,6 +4383,7 @@ class ComponentEngine {
                 target.define(varName value)
                 if (node.kind == "const") {
                     target.markConst(varName)
+                    set constEverNames varName true
                 }
                 this.syncGlobalVar(varName value)
             }
@@ -4570,6 +4602,10 @@ class ComponentEngine {
     }
 
     fn bindArrayPattern:void (pattern:TSNode value:EvHandle) {
+        if ((value.isNull()) || (value.isUndefined())) {
+            def _ni:EvHandle (this.throwSpecError("TypeError" ((this.typeofTag(value)) + " is not iterable")))
+            return
+        }
         def idx:int 0
         def ci:int 0
         while (ci < (array_length pattern.children)) {
@@ -4614,6 +4650,12 @@ class ComponentEngine {
     }
 
     fn bindObjectPatternValue:void (pattern:TSNode value:EvHandle) {
+        ; §13.3.3.5 RequireObjectCoercible: `{}` against null or undefined is
+        ; a TypeError even with nothing to bind.
+        if ((value.isNull()) || (value.isUndefined())) {
+            def _rc:EvHandle (this.throwSpecError("TypeError" "Cannot destructure a null or undefined value"))
+            return
+        }
         def usedKeys:[string]
         def ci:int 0
         while (ci < (array_length pattern.children)) {
@@ -5555,6 +5597,12 @@ class ComponentEngine {
                         def dnode:TSNode (itemAt initNode.children di)
                         if ((strlen dnode.name) > 0) {
                             push loopNames dnode.name
+                        } {
+                            ; `for (let [x] = ...; ;)`: the names live in the
+                            ; pattern, and each turn copies them like the rest.
+                            if dnode.left {
+                                this.collectPatternNames((unwrap dnode.left) loopNames)
+                            }
                         }
                         di = (di + 1)
                     }
@@ -5634,6 +5682,67 @@ class ComponentEngine {
     ; A fresh loop environment holding a COPY of each per-iteration binding's
     ; current value. Child of the loop's enclosing scope, not of the previous
     ; iteration's, so the chain does not grow with the iteration count.
+    ; Every name a binding pattern declares, appended to `names`.
+    fn collectPatternNames:void (pattern:TSNode names:[string]) {
+        if ((this.nodeKindOf(pattern)) == 1) {
+            push names pattern.name
+            return
+        }
+        def pt:string pattern.nodeType
+        if (pt == "AssignmentPattern") {
+            if pattern.left {
+                this.collectPatternNames((unwrap pattern.left) names)
+            }
+            return
+        }
+        if (pt == "RestElement") {
+            if pattern.left {
+                this.collectPatternNames((unwrap pattern.left) names)
+            } {
+                if ((strlen pattern.name) > 0) {
+                    push names pattern.name
+                }
+            }
+            return
+        }
+        if (pt == "ArrayPattern") {
+            def ai:int 0
+            while (ai < (array_length pattern.children)) {
+                this.collectPatternNames((itemAt pattern.children ai) names)
+                ai = (ai + 1)
+            }
+            return
+        }
+        if (pt == "ObjectPattern") {
+            def oi:int 0
+            while (oi < (array_length pattern.children)) {
+                def prop:TSNode (itemAt pattern.children oi)
+                if (prop.nodeType == "RestElement") {
+                    if ((strlen prop.name) > 0) {
+                        push names prop.name
+                    }
+                } {
+                    if prop.right {
+                        def alias:TSNode (unwrap prop.right)
+                        def an:string alias.nodeType
+                        if ((an == "ObjectPattern") || (an == "ArrayPattern") || (an == "AssignmentPattern")) {
+                            this.collectPatternNames(alias names)
+                        } {
+                            if ((strlen alias.name) > 0) {
+                                push names alias.name
+                            }
+                        }
+                    } {
+                        if ((strlen prop.name) > 0) {
+                            push names prop.name
+                        }
+                    }
+                }
+                oi = (oi + 1)
+            }
+        }
+    }
+
     fn copyLoopBindings:EvalContext (outer:EvalContext names:[string]) {
         def fresh:EvalContext (outer.createChild())
         fresh.isBlockScope = true
@@ -5642,6 +5751,11 @@ class ComponentEngine {
             def nm:string (itemAt names i)
             if (context.has(nm)) {
                 fresh.define(nm (context.lookup(nm)))
+                ; `for (const k = ...; ...)`: the copy is as immutable as the
+                ; binding it was made from.
+                if (context.isConstBinding(nm)) {
+                    fresh.markConst(nm)
+                }
             }
             i = (i + 1)
         }
@@ -5773,7 +5887,10 @@ class ComponentEngine {
                             } {
                                 if ((strlen varName) > 0) {
                                     context.define(varName elemL)
-                                    if ofConst { context.markConst(varName) }
+                                    if ofConst {
+                                        context.markConst(varName)
+                                        set constEverNames varName true
+                                    }
                                 } {
                                     if varTarget {
                                         this.assignToTarget((unwrap varTarget) elemL)
@@ -5835,7 +5952,10 @@ class ComponentEngine {
                                 } {
                                     if ((strlen varName) > 0) {
                                         context.define(varName elem)
-                                        if ofConst { context.markConst(varName) }
+                                        if ofConst {
+                                        context.markConst(varName)
+                                        set constEverNames varName true
+                                    }
                                     } {
                                         if varTarget {
                                             this.assignToTarget((unwrap varTarget) elem)
@@ -5957,7 +6077,10 @@ class ComponentEngine {
                                             } {
                                                 if ((strlen varName) > 0) {
                                                     context.define(varName gElem)
-                                                if ofConst { context.markConst(varName) }
+                                                if ofConst {
+                                        context.markConst(varName)
+                                        set constEverNames varName true
+                                    }
                                                 } {
                                                     if varTarget {
                                                         this.assignToTarget((unwrap varTarget) gElem)
@@ -6382,7 +6505,10 @@ class ComponentEngine {
                                 if ((strlen varName) > 0) {
                                     if declaresVar {
                                         context.define(varName keyV)
-                                        if inConst { context.markConst(varName) }
+                                        if inConst {
+                                            context.markConst(varName)
+                                            set constEverNames varName true
+                                        }
                                     } {
                                         ; An existing binding is ASSIGNED, not
                                         ; shadowed -- the name outlives the loop.
@@ -6616,15 +6742,11 @@ class ComponentEngine {
             if ((this.nodeKindOf(s)) == 25) {
                 if ((strlen s.name) > 0) {
                     set classes s.name s
-                    ; ClassDefinitionEvaluation runs AT THE DECLARATION, not on
-                    ; first use: its computed keys are evaluated, its heritage
-                    ; is read, and an error in either -- a static named
-                    ; `prototype`, a bad `extends` -- is raised here rather than
-                    ; whenever something happens to touch the class.
-                    def _cv:EvHandle (this.classValueFor(s.name))
-                    if scriptThrew {
-                        return
-                    }
+                    ; ClassDefinitionEvaluation runs when the DECLARATION
+                    ; STATEMENT does (runStatementValue), not here: its
+                    ; heritage expression must see the scope as it is at that
+                    ; point -- `class D extends (calls++, C)` counts once, in
+                    ; order -- and a use before the statement is lazy.
                 }
             }
             i = (i + 1)
@@ -8883,6 +9005,14 @@ class ComponentEngine {
             def leftNode:TSNode (unwrap node.left)
             if ((this.nodeKindOf(leftNode)) == 1) {
                 def varName:string leftNode.name
+                ; D-CONST: `c++` on a const binding is the same TypeError an
+                ; assignment is. Only a name that was ever declared const pays
+                ; the scope walk.
+                if (has constEverNames varName) {
+                    if (context.isConstBinding(varName)) {
+                        return (this.throwSpecError("TypeError" "Assignment to constant variable."))
+                    }
+                }
                 ; PERF fast path: a plain number binding bumps in ONE scope
                 ; walk — the general path below walks the chain up to four
                 ; times per i++ (with-host probe, has, read, assign).
@@ -9858,7 +9988,14 @@ class ComponentEngine {
                             upDelta = (0.0 - 1.0)
                         }
                         if ((upOp == 17) || (upOp == 18)) {
-                            if (context.bumpNumberInPlace(upLeft.name upDelta)) {
+                            def upNm:string upLeft.name
+                            if (has constEverNames upNm) {
+                                if (context.isConstBinding(upNm)) {
+                                    def _ceu:EvHandle (this.throwSpecError("TypeError" "Assignment to constant variable."))
+                                    return
+                                }
+                            }
+                            if (context.bumpNumberInPlace(upNm upDelta)) {
                                 return
                             }
                         }
@@ -10986,6 +11123,8 @@ class ComponentEngine {
     }
 
     fn bcCompileFunction:boolean (fnNode:TSNode body:TSNode prog:BcProgram) {
+        def freshConstNames:[string]
+        bcConstNames = freshConstNames
         def np:int (array_length fnNode.params)
         def i:int 0
         while (i < np) {
@@ -11049,6 +11188,9 @@ class ComponentEngine {
                 if ((strlen decl.name) > 0) {
                     if ((prog.localIdxOf(decl.name)) < 0) {
                         push prog.localNames decl.name
+                    }
+                    if (node.kind == "const") {
+                        push bcConstNames decl.name
                     }
                 }
                 di = (di + 1)
@@ -12004,6 +12146,9 @@ class ComponentEngine {
         if ((this.nodeKindOf(tgt)) != 1) {
             return false
         }
+        if (this.isInList(tgt.name bcConstNames)) {
+            return false
+        }
         def slot:int (prog.localIdxOf(tgt.name))
         if (slot < 0) {
             return false
@@ -12056,6 +12201,9 @@ class ComponentEngine {
         }
         def opd:TSNode (unwrap node.left)
         if ((this.nodeKindOf(opd)) != 1) {
+            return false
+        }
+        if (this.isInList(opd.name bcConstNames)) {
             return false
         }
         def slot:int (prog.localIdxOf(opd.name))
@@ -12620,7 +12768,7 @@ class ComponentEngine {
         ; the same TypeError reading them is -- on this tier too.
         if (obj.isFunction()) {
             if ((name == "caller") || (name == "arguments")) {
-                if (false == (obj.hasOwnAttrs(name))) {
+                if ((false == (obj.hasOwnAttrs(name))) && (false == (obj.hasOwnGetter(name)))) {
                     if (this.functionIsStrict(obj)) {
                         def _sw:EvHandle (this.throwSpecError("TypeError" ("'" + name + "' may not be accessed on a strict function")))
                         return
@@ -16185,7 +16333,25 @@ class ComponentEngine {
             return src
         }
         if (false == (this.isDescriptorObject(src))) {
-            return (EvValueBridge.taggedUndefined())
+            ; A primitive is boxed for the @@iterator lookup, so
+            ; `yield* true` reaches an iterator put on Boolean.prototype.
+            if ((src.isNull()) || (src.isUndefined())) {
+                return (EvValueBridge.taggedUndefined())
+            }
+            def boxed:EvHandle (this.toObjectValue(src))
+            if scriptThrew { return (EvValueBridge.taggedUndefined()) }
+            if (false == (this.isDescriptorObject(boxed))) {
+                return (EvValueBridge.taggedUndefined())
+            }
+            def pItFn:EvHandle (this.getPropertyValue(boxed "@@iterator"))
+            if scriptThrew { return (EvValueBridge.taggedUndefined()) }
+            if (false == (pItFn.isFunction())) {
+                return (EvValueBridge.taggedUndefined())
+            }
+            def pNoArgs:[EvHandle]
+            def pIt:EvHandle (this.callFnValueWithValues((pItFn.withThisForCall(boxed)) pNoArgs))
+            if scriptThrew { return (EvValueBridge.taggedUndefined()) }
+            return pIt
         }
         ; An ARGUMENTS object's own @@iterator is %ArrayProto_values%, which
         ; iterates the receiver's indices; asked here it would come back to
@@ -20126,6 +20292,7 @@ class ComponentEngine {
                             if (false == (superCallResult.equals(selfV))) {
                                 context.assign("this" superCallResult)
                                 selfV = superCallResult
+                                superReboundThis = selfV
                             }
                         }
                         superCallResult = (EvValueBridge.taggedUndefined())
@@ -20428,6 +20595,25 @@ class ComponentEngine {
                     }
                 }
                 
+                ; D-WITH: a bare call to a name a `with` object supplies is a
+                ; method call on that object -- `with (o) { m() }` runs m with
+                ; `this` = o (§12.3.4.2 step 6.b).
+                if anyWithScope {
+                    def wCallHost:EvHandle (this.withHostFor(fnName))
+                    if (wCallHost.isObject()) {
+                        def wCallFn:EvHandle (this.getPropertyValue(wCallHost fnName))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        if (wCallFn.isFunction()) {
+                            def wCallArgs:[EvHandle] (this.collectCallArgs(node))
+                            if scriptThrew {
+                                return (EvValueBridge.taggedUndefined())
+                            }
+                            return (this.callFnValueWithValues((wCallFn.withThisForCall(wCallHost)) wCallArgs))
+                        }
+                    }
+                }
                 ; Look up the function in context
                 def fnValue:EvHandle (context.lookup(fnName))
                 if (false == quiet) {
@@ -25101,7 +25287,14 @@ class ComponentEngine {
             if (fnV.hasOwnData("__classname__")) {
                 def cnv:EvHandle (fnV.getOwnData("__classname__"))
                 if (cnv.isString()) {
-                    return (this.constructClassByName((cnv.stringOf()) merged))
+                    def savedPNT:EvHandle primedNewTarget
+                    def savedHasPNT:boolean hasPrimedNewTarget
+                    primedNewTarget = newTarget
+                    hasPrimedNewTarget = true
+                    def pntOut:EvHandle (this.constructClassByName((cnv.stringOf()) merged))
+                    primedNewTarget = savedPNT
+                    hasPrimedNewTarget = savedHasPNT
+                    return pntOut
                 }
             }
             return (this.throwSpecError("TypeError" "Reflect.construct target is not a constructor"))
@@ -36022,7 +36215,7 @@ class ComponentEngine {
         ; back undefined instead of throwing. Here it covers every reader.
         if (obj.isFunction()) {
             if ((key == "caller") || (key == "arguments")) {
-                if (false == (obj.hasOwnAttrs(key))) {
+                if ((false == (obj.hasOwnAttrs(key))) && (false == (obj.hasOwnGetter(key)))) {
                     if (this.functionIsStrict(obj)) {
                         return (this.throwSpecError("TypeError" ("'" + key + "' may not be accessed on a strict function")))
                     }
@@ -41520,12 +41713,35 @@ class ComponentEngine {
             currentHomeClass = supName
             pendingNewTarget = currentNewTarget
             hasPendingNewTarget = true
+            def savedRBv:EvHandle superReboundThis
+            superReboundThis = (EvValueBridge.taggedUndefined())
             def _sr:EvHandle (this.callUserFunctionValues(sCtor argVals inst))
+            def gotRBv:EvHandle superReboundThis
+            superReboundThis = savedRBv
             currentHomeClass = savedHomeS
+            this.noteSuperCtorResult(_sr gotRBv inst)
             return
         }
         def nd:int (depth + 1)
         this.runSuperConstructorValues(supCls inst argVals nd)
+    }
+
+    ; §9.2.2 step 13: an object the base constructor RETURNED -- or the one
+    ; its own super() rebound `this` to -- replaces the instance under
+    ; construction. Reported through superCallResult to the super() site or
+    ; the implicit-constructor path that ran the base.
+    fn noteSuperCtorResult:void (ret:EvHandle rebound:EvHandle inst:EvHandle) {
+        if (this.isDescriptorObject(ret)) {
+            if (false == (ret.equals(inst))) {
+                superCallResult = ret
+                return
+            }
+        }
+        if (this.isDescriptorObject(rebound)) {
+            if (false == (rebound.equals(inst))) {
+                superCallResult = rebound
+            }
+        }
     }
 
     fn runSuperConstructor:void (cls:TSNode inst:EvHandle argNodes:[TSNode] depth:int) {
@@ -41629,7 +41845,12 @@ class ComponentEngine {
             def savedDerivedS:boolean derivedCtorPending
             superCallCount = 0
             pendingDerivedCtor = (this.classIsDerived(supCls))
+            def savedRBn:EvHandle superReboundThis
+            superReboundThis = (EvValueBridge.taggedUndefined())
             def _sr:EvHandle (this.callUserFunctionNode(sCtor argNodes inst true))
+            def gotRBn:EvHandle superReboundThis
+            superReboundThis = savedRBn
+            this.noteSuperCtorResult(_sr gotRBn inst)
             superCallCount = savedSuperCnt
             derivedCtorPending = savedDerivedS
             currentHomeClass = savedHomeS
@@ -41843,6 +42064,10 @@ class ComponentEngine {
                     if ((strlen mk) == 0) {
                         mk = m.kind
                     }
+                    ; A STATIC accessor belongs to the class value, not to the
+                    ; instance: installed here it shadowed the prototype's
+                    ; accessor of the same name.
+                    if (m.kind == "static") { mk = "" }
                     if ((mk == "get") || (mk == "set")) {
                         def accFn:EvHandle (EvValueBridge.taggedBoundMethod(m inst))
                         this.stampSrcOn(accFn)
@@ -42015,6 +42240,19 @@ class ComponentEngine {
         def supName:string (this.superClassNameOf(cls))
         def linked:boolean false
         if ((strlen supName) > 0) {
+            ; `class x extends x {}`: the class's own binding is in its
+            ; temporal dead zone while the heritage is evaluated.
+            if (supName == name) {
+                def _tz:EvHandle (this.throwSpecError("ReferenceError" ("Cannot access '" + name + "' before initialization")))
+                return
+            }
+            ; %Proxy% has no `prototype` property, so it cannot be extended.
+            if (supName == "Proxy") {
+                if (false == (context.has(supName))) {
+                    def _px:EvHandle (this.throwSpecError("TypeError" "Class extends value does not have valid prototype property"))
+                    return
+                }
+            }
             def supNode:TSNode (this.classNodeByName(supName))
             if ((this.nodeKindOf(supNode)) == 25) {
                 def supV:EvHandle (this.classValueFor(supName))
@@ -42069,7 +42307,12 @@ class ComponentEngine {
                         haveBase = true
                     }
                 } {
+                    ; §14.5.1: ClassHeritage is strict code, so a function
+                    ; expression written there is a strict function.
+                    def savedHerStrict:boolean strictMode
+                    strictMode = true
                     baseV = (this.evaluateExpr(herNode))
+                    strictMode = savedHerStrict
                     haveBase = true
                 }
                 if scriptThrew { return }
@@ -42165,7 +42408,13 @@ class ComponentEngine {
                     def mv:EvHandle (EvValueBridge.taggedFunction(m))
                     ; A class method is NOT a constructor: it has no `prototype`
                     ; at all, which `'prototype' in C.prototype.m` asks directly.
-                    mv.addSuppressed("prototype")
+                    ; A generator method has one (§14.4.13): its iterators
+                    ; inherit from it.
+                    if m.generator {
+                        this.shapeFunctionValue(mv m)
+                    } {
+                        mv.addSuppressed("prototype")
+                    }
                     ; An accessor's name carries its kind -- the getter for `g`
                     ; is named "get g", not "g".
                     def mName:string (this.functionNameForKey(mKey))
@@ -42423,6 +42672,16 @@ class ComponentEngine {
             ; Nor is an async function: it has no [[Construct]] at all.
             if ((fnV.functionNodeOf()).async) {
                 return (this.throwSpecError("TypeError" "async function is not a constructor"))
+            }
+            ; Nor is a METHOD -- `{ m() {} }` or a class method -- whose
+            ; missing `prototype` is what marks it (§14.3.8 has no
+            ; [[Construct]]).
+            if (false == (fnV.boundExplicitOf())) {
+                if (fnV.hasSuppressed("prototype")) {
+                    def ncName:string (fnV.fnName())
+                    if ((strlen ncName) == 0) { ncName = "expression" }
+                    return (this.throwSpecError("TypeError" (ncName + " is not a constructor")))
+                }
             }
         }
         def keys0:[string]
@@ -42697,6 +42956,16 @@ class ComponentEngine {
     ; and scope rooting stay with the defining module for the object's lifetime.
     fn evaluateNewExpr:EvHandle (node:TSNode) {
         def className:string ""
+        ; new.target from Reflect.construct, primed together with the values.
+        def ntPrimed:boolean false
+        def ntValue:EvHandle (EvValueBridge.taggedUndefined())
+        if ctorArgsPrimed {
+            if hasPrimedNewTarget {
+                ntPrimed = true
+                ntValue = primedNewTarget
+                hasPrimedNewTarget = false
+            }
+        }
         def nsModule:string ""
         def viaNamespace:boolean false
         if node.left {
@@ -43239,6 +43508,27 @@ class ComponentEngine {
                         def tagV2:EvHandle (refV.getMember("__classname__"))
                         if (tagV2.isString()) {
                             className = (tagV2.stringOf())
+                            ; A BOUND class -- `new (C.bind(null, 1))(2)` --
+                            ; constructs C(1, 2): the fixed arguments come first.
+                            if (false == ctorArgsPrimed) {
+                                if ((refV.boundArgCount()) > 0) {
+                                    def bcVals:[EvHandle]
+                                    def bci:int 0
+                                    while (bci < (refV.boundArgCount())) {
+                                        push bcVals (refV.boundArgAt(bci))
+                                        bci = (bci + 1)
+                                    }
+                                    def bcj:int 0
+                                    while (bcj < (array_length node.children)) {
+                                        push bcVals (this.evaluateExpr((itemAt node.children bcj)))
+                                        if scriptThrew {
+                                            return (EvValueBridge.taggedUndefined())
+                                        }
+                                        bcj = (bcj + 1)
+                                    }
+                                    return (this.constructClassByName(className bcVals))
+                                }
+                            }
                         }
                     }
                 }
@@ -43297,6 +43587,17 @@ class ComponentEngine {
         ; Object.prototype and nothing put on `A.prototype` after the class was
         ; declared was reachable from an instance.
         def clsProtoV:EvHandle ((this.classValueFor(className)).getMember("prototype"))
+        ; §9.2.2 step 5: the instance's prototype is new.target's, which
+        ; Reflect.construct may have set to something other than the class.
+        if ntPrimed {
+            def ntProto:EvHandle (this.getPropertyValue(ntValue "prototype"))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+            if (ntProto.isObject()) {
+                clsProtoV = ntProto
+            }
+        }
         if (clsProtoV.isObject()) {
             inst.setProto(clsProtoV)
         }
@@ -43326,19 +43627,35 @@ class ComponentEngine {
             def savedDerivedPending:boolean derivedCtorPending
             superCallCount = 0
             pendingDerivedCtor = (this.classIsDerived(cls))
-            pendingNewTarget = (this.classValueFor(cls.name))
+            if ntPrimed {
+                pendingNewTarget = ntValue
+            } {
+                pendingNewTarget = (this.classValueFor(cls.name))
+            }
             hasPendingNewTarget = true
             def ctorRet:EvHandle (EvValueBridge.taggedUndefined())
+            def savedRBc:EvHandle superReboundThis
+            superReboundThis = (EvValueBridge.taggedUndefined())
             if ctorArgsPrimed {
                 ctorRet = (this.callUserFunctionValues(ctor ctorArgValues inst))
             } {
                 ctorRet = (this.callUserFunctionNode(ctor node.children inst true))
             }
+            def gotRBc:EvHandle superReboundThis
+            superReboundThis = savedRBc
             def calledSuper:boolean (superCallCount > 0)
             superCallCount = savedSuperN
             derivedCtorPending = savedDerivedPending
             currentHomeClass = savedHomeC
             if (false == scriptThrew) {
+                ; §9.2.2 step 13 / §12.3.5.1: an object the constructor
+                ; returned IS the result, whatever else happened -- a derived
+                ; constructor that returns one need not have called super().
+                if (this.isDescriptorObject(ctorRet)) {
+                    if (false == (this.isSymbolValue(ctorRet))) {
+                        return ctorRet
+                    }
+                }
                 if (this.classIsDerived(cls)) {
                     ; A DERIVED constructor may return an object -- which
                     ; replaces the instance -- or nothing at all. Any other
@@ -43355,6 +43672,13 @@ class ComponentEngine {
                     if (false == calledSuper) {
                         return (this.throwSpecError("ReferenceError" "Must call super constructor in derived class before accessing 'this' or returning from derived constructor"))
                     }
+                    ; super() rebound `this` to the object the base returned:
+                    ; that object is what `new` answers.
+                    if (this.isDescriptorObject(gotRBc)) {
+                        if (false == (gotRBc.equals(inst))) {
+                            return gotRBc
+                        }
+                    }
                 }
             }
         } {
@@ -43369,13 +43693,28 @@ class ComponentEngine {
             ; constructor is still a constructor; what it forwards is this
             ; class, not its parent.
             def savedNTImplicit:EvHandle currentNewTarget
-            currentNewTarget = (this.classValueFor(className))
+            if ntPrimed {
+                currentNewTarget = ntValue
+            } {
+                currentNewTarget = (this.classValueFor(className))
+            }
+            def savedSCRi:EvHandle superCallResult
+            superCallResult = (EvValueBridge.taggedUndefined())
             if ctorArgsPrimed {
                 this.runSuperConstructorValues(cls inst ctorArgValues 0)
             } {
                 this.runSuperConstructor(cls inst node.children 0)
             }
             currentNewTarget = savedNTImplicit
+            ; The implicit constructor is `super(...args)`: an object the base
+            ; returned replaces the instance here as it would at an explicit
+            ; super() call.
+            if (this.isDescriptorObject(superCallResult)) {
+                if (false == (superCallResult.equals(inst))) {
+                    inst = superCallResult
+                }
+            }
+            superCallResult = savedSCRi
             ; The implicit constructor IS `super(...args)`, so a derived class's
             ; fields go in once it has returned -- the same point an explicit
             ; super() call installs them.
@@ -43432,7 +43771,7 @@ class ComponentEngine {
             ; its `arguments` threw.
             if (obj.isFunction()) {
                 if ((propName == "caller") || (propName == "arguments")) {
-                    if (false == (obj.hasOwnAttrs(propName))) {
+                    if ((false == (obj.hasOwnAttrs(propName))) && (false == (obj.hasOwnGetter(propName)))) {
                         if (this.functionIsStrict(obj)) {
                             return (this.throwSpecError("TypeError" ("'" + propName + "' may not be accessed on a strict function")))
                         }
@@ -43619,7 +43958,7 @@ class ComponentEngine {
             ; is a whole family of tests in built-ins/Function.
             if (obj.isFunction()) {
                 if ((propName == "caller") || (propName == "arguments")) {
-                    if (false == (obj.hasOwnData(propName))) {
+                    if ((false == (obj.hasOwnData(propName))) && (false == (obj.hasOwnGetter(propName)))) {
                         if (this.functionIsStrict(obj)) {
                             return (this.throwSpecError("TypeError" ("'" + propName + "' may not be accessed on a strict function")))
                         }
@@ -45476,7 +45815,9 @@ class ComponentEngine {
                         ; value both take the property's name -- `{m(){}}.m.name`
                         ; is "m". A method is additionally not a constructor.
                         if (prop.method) {
-                            pv.addSuppressed("prototype")
+                            if (false == valueNode.generator) {
+                                pv.addSuppressed("prototype")
+                            }
                         }
                         this.nameFunctionFromKey(pv key)
                         push values pv
@@ -45525,6 +45866,10 @@ class ComponentEngine {
         if hasProtoLit {
             if (protoFromLit.isObject()) {
                 built.setProto(protoFromLit)
+            } {
+                if (protoFromLit.isNull()) {
+                    built.setProto(protoFromLit)
+                }
             }
         }
         def ai:int 0

@@ -1500,7 +1500,15 @@ class TSParserSimple {
     
     ; Check for labeled statement: identifier :
     def tokType (this.peekType())
-    if (tokType == "Identifier") {
+    def labelable:boolean (tokType == "Identifier")
+    ; `yield` outside a generator and `await` outside async code are
+    ; ordinary identifiers, so they can label a statement (sloppy code).
+    if (tokType == "Keyword") {
+      def kwLab:string (this.peekValue())
+      if ((kwLab == "yield") && ((false == this.inGenerator) && (false == this.strictMode))) { labelable = true }
+      if ((kwLab == "await") && ((false == this.inAsync) && (false == this.moduleMode))) { labelable = true }
+    }
+    if labelable {
       def nextVal (this.peekNextValue())
       if (nextVal == ":") {
         return (this.parseLabeledStatement())
@@ -1520,7 +1528,8 @@ class TSParserSimple {
     node.line = startTok.line
     node.col = startTok.col
     
-    def labelTok (this.expect("Identifier"))
+    def labelTok (this.peek())
+    this.advance()
     node.name = labelTok.value
     
     this.expectValue(":")
