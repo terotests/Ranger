@@ -52,6 +52,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   RangerFlow rows gained `tint` / `tintText` and ScriptEditor `lineMarks`
   for this. `npm run codegraph:diff` is the unit suite.
 
+- **EVG live build** (`gallery/evg/livebuild/`). A demo of streaming an EVG
+  display list to a browser while an agent constructs the tree: thinking
+  tokens, `EVGPatch` ops, Ranger source and frames on SSE. The recipes are
+  scripted (dashboard, settings, invoices) so the pictures always land; a
+  live model that wrote the same ops would use the same socket.
+  `npm run livebuild:serve`, `npm run livebuild:test`.
+
 ### Changed
 
 - **EVG is MIT and lives in `lib/evg`.** The layout engine moved out of

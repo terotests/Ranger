@@ -885,6 +885,7 @@ npm run showcase                # the gallery -> showcase/dist/index.html
 npm run evg:responsive:web:serve   # the live responsive page
 npm run evg:trace:web:serve        # the live bitmap tracer
 npm run erazer:web:serve           # bitmap UI screenshot → EVG layout
+npm run livebuild:serve            # agent builds a phone UI; display lists stream over SSE
 
 # one document, three targets
 npm run evgpdf:test             # -> PDF
