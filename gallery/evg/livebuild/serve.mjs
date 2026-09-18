@@ -22,6 +22,7 @@ const root = path.resolve(here, "../../..");
 const bin = path.join(root, "gallery/evg/bin/evg_livebuild.js");
 const web = path.join(here, "web");
 const PORT = Number(process.env.EVG_LIVEBUILD_PORT || 8765);
+const DEFAULT_AGENT = process.env.EVG_LIVEBUILD_DEFAULT_AGENT || "recipe";
 
 const KINDS = new Set(["dashboard", "settings", "invoices"]);
 
@@ -219,13 +220,18 @@ function main() {
       return;
     }
     if (url.pathname === "/agents") {
-      send(res, 200, "application/json; charset=utf-8", JSON.stringify({ agents: listAgents() }));
+      send(
+        res,
+        200,
+        "application/json; charset=utf-8",
+        JSON.stringify({ agents: listAgents(), preferred: DEFAULT_AGENT }),
+      );
       return;
     }
     if (url.pathname === "/stream") {
       const prompt = url.searchParams.get("prompt") || "";
       const kind = kindOf(url.searchParams.get("kind") || prompt || "dashboard");
-      const agent = url.searchParams.get("agent") || "recipe";
+      const agent = url.searchParams.get("agent") || DEFAULT_AGENT;
       const pace = Number(url.searchParams.get("pace") ?? 28);
       streamBuild(res, {
         kind,
@@ -267,7 +273,7 @@ function main() {
     send(res, 200, type, fs.readFileSync(file));
   });
   server.listen(PORT, "127.0.0.1", () => {
-    process.stderr.write(`EVG live-build http://127.0.0.1:${PORT}\n`);
+    process.stderr.write(`EVG live-build http://127.0.0.1:${PORT} (agent=${DEFAULT_AGENT})\n`);
   });
 }
 

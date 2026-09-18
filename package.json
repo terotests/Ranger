@@ -836,6 +836,7 @@
     "livebuild:test": "bash -o pipefail -c 'bash scripts/rgr-suite.sh ./gallery/evg/livebuild/EvgLiveBuildTest.rgr ./gallery/evg/bin EvgLiveBuildTest.js | tee /dev/stderr | grep -q \"ALL PASS\"'",
     "livebuild:stream": "node gallery/evg/livebuild/stream-check.mjs",
     "livebuild:serve": "node gallery/evg/livebuild/serve.mjs",
+    "livebuild:withcursor": "node gallery/evg/livebuild/withcursor.mjs",
     "livebuild:web": "node gallery/evg/livebuild/browser-smoke.mjs",
     "livebuild:agents": "node gallery/evg/livebuild/agents-check.mjs",
     "evgjson:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/pdf_writer/src/tools/evg_json_tool.rgr -d=./gallery/pdf_writer/bin -o=evg_json_tool.js -nodecli",

@@ -35,6 +35,7 @@ this machine. Which *model* they call is a separate question:
                          ├── recipe   this process, no network
                          ├── mock     local CLI, writes doc.evg.json
                          ├── self     this cloud agent, EVGPatch on the workspace
+                         ├── Cursor   local CLI, your Cursor subscription
                          ├── Codex    local CLI, OpenAI inference
                          ├── Claude   local CLI, Anthropic inference
                          └── Ollama   local model, no cloud
@@ -43,11 +44,12 @@ this machine. Which *model* they call is a separate question:
 `interface Agent { run(task) }` is `gallery/evg/livebuild/agents.mjs`.
 Recipe is the default so a clone without API keys still paints. **This agent**
 is the Cursor cloud agent in the same container: it edits `doc.evg.json`
-with `EVGPatch` while the host streams frames. Pick Codex or Claude when
-those CLIs are on `PATH`; they get a temp workspace (`doc.evg.json` +
-`AGENTS.md`). Inference for those two is in the cloud — the agent program
-is local, the weights are not. Ollama is the fully-offline slot
-(`localhost:11434`).
+with `EVGPatch` while the host streams frames. **Cursor** is the local
+Agent CLI (`agent` / `cursor-agent`) on your machine — the same
+subscription as the editor. Pick Codex or Claude when those CLIs are on
+`PATH`; they get a temp workspace (`doc.evg.json` + `AGENTS.md`). Inference
+for Cursor, Codex and Claude is in the cloud — the agent program is local,
+the weights are not. Ollama is the fully-offline slot (`localhost:11434`).
 
 Matching a free-text prompt to a recipe is keyword-based when the
 adapter is `recipe`. The other adapters receive the prompt as the task.
@@ -62,13 +64,28 @@ npm run livebuild:serve
 The server compiles the Ranger program if needed, then serves the page and
 one SSE stream per build. `?pace=0` on `/stream` turns the token delay off.
 
+To drive it with **local Cursor** (Agent CLI + your subscription):
+
+```sh
+curl https://cursor.com/install -fsS | bash   # once
+agent login                                  # or CURSOR_API_KEY
+npm run livebuild:withcursor
+# open http://127.0.0.1:8765/?agent=cursor
+```
+
+That checks `agent` / `cursor-agent` is on `PATH` and logged in, compiles
+the live-build program, and starts the page with Cursor selected. Each
+Build spawns `agent -p <task> --force --trust --workspace <tmp>` against a
+throwaway folder (`doc.evg.json`, `AGENTS.md`, `./evg-agent`). It is not
+the Cloud Agents REST API — that clones GitHub; this watches a local file.
+
 Without a browser:
 
 ```sh
 npm run livebuild -- run dashboard     # NDJSON on stdout
 npm run livebuild:test                 # the three recipes apply, frames grow
 node gallery/evg/livebuild/stream-check.mjs
-npm run livebuild:agents               # orchestrator: recipe + mock workspace agent
+npm run livebuild:agents               # orchestrator: recipe + mock + Cursor slot
 npm run livebuild:web                  # Chromium: paint, click chips, type a prompt
 ```
 
@@ -102,9 +119,10 @@ one, so the UI can say "+12" without walking the list.
 | `EvgLiveBuildMain.rgr` | `run` / `kinds` CLI |
 | `EvgLiveBuildTest.rgr` | the three recipes, in process |
 | `serve.mjs` | HTTP + SSE |
-| `agents.mjs` | `Agent` interface: recipe, mock, self, Codex, Claude, Ollama |
+| `agents.mjs` | `Agent` interface: recipe, mock, self, Cursor, Codex, Claude, Ollama |
 | `mock-agent.mjs` | a local CLI that writes `doc.evg.json` — no model |
 | `self-agent.mjs` | stays open while this cloud agent patches the tree |
+| `withcursor.mjs` | `npm run livebuild:withcursor` — local Agent CLI + login check |
 | `restyle.mjs` | recipe follow-ups: colour / size / radius from the ask |
 | `agents-check.mjs` | orchestrator: recipe, mock workspace, self slot |
 | `browser-smoke.mjs` | Chromium: three recipes and a typed prompt |

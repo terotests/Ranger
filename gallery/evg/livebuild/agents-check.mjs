@@ -8,7 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { listAgents, runTask, root } from "./agents.mjs";
+import { listAgents, runTask, root, findCursorAgent, cursorSpawnArgs } from "./agents.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const bin = path.join(root, "gallery/evg/bin/evg_livebuild.js");
@@ -59,9 +59,22 @@ const agents = listAgents();
 const recipe = agents.find((a) => a.id === "recipe");
 const mock = agents.find((a) => a.id === "mock");
 const self = agents.find((a) => a.id === "self");
+const cursor = agents.find((a) => a.id === "cursor");
 if (!recipe?.available) throw new Error("recipe must always be available");
 if (!mock?.available) throw new Error("mock must always be available");
 if (!self?.available) throw new Error("self must always be available");
+if (!cursor) throw new Error("cursor slot missing from listAgents");
+const cursorBin = findCursorAgent();
+if (Boolean(cursorBin) !== Boolean(cursor.available)) {
+  throw new Error("cursor available flag does not match findCursorAgent()");
+}
+if (!cursor.available && !/cursor.com\/install/i.test(cursor.hint || "")) {
+  throw new Error("cursor-off hint must mention curl https://cursor.com/install");
+}
+const spawnArgs = cursorSpawnArgs("Build a phone dashboard", "/tmp/evg-live-ws");
+for (const need of ["-p", "--force", "--trust", "--workspace", "/tmp/evg-live-ws"]) {
+  if (!spawnArgs.includes(need)) throw new Error(`cursor spawn missing ${need}`);
+}
 console.log(
   "  agents      " +
     agents.map((a) => `${a.id}${a.available ? "" : " (off)"}`).join(", "),
@@ -122,9 +135,40 @@ if (!/hello from the cloud agent/.test(selfRun.stdout || "")) {
 }
 console.log("  self        slot stays open until STOP, thinking from think.log");
 
+if (!cursor.available) {
+  const blocked = [];
+  await runTask({
+    agent: "cursor",
+    kind: "dashboard",
+    prompt: "should not spawn",
+    onLine: (line) => blocked.push(JSON.parse(line)),
+  });
+  const err = blocked.find((e) => e.t === "error");
+  if (!err || !/cursor.com\/install|not available/i.test(err.text || "")) {
+    throw new Error("unavailable cursor should emit the install hint, got " + JSON.stringify(blocked));
+  }
+  console.log("  cursor      off — install hint streamed, no spawn");
+}
+
+const withcursor = spawnSync(process.execPath, [path.join(here, "withcursor.mjs"), "--check"], {
+  encoding: "utf8",
+  timeout: 8000,
+});
+if (withcursor.status !== 0) {
+  throw new Error("withcursor --check exit " + withcursor.status + " " + (withcursor.stderr || withcursor.stdout || ""));
+}
+if (cursorBin) {
+  if (!/cursor CLI/.test(`${withcursor.stdout || ""}${withcursor.stderr || ""}`)) {
+    throw new Error("withcursor --check did not mention the CLI");
+  }
+} else if (!/cursor CLI off/.test(withcursor.stdout || "")) {
+  throw new Error("withcursor --check should say cursor CLI off when missing");
+}
+console.log("  withcursor  " + String(withcursor.stdout || "").trim());
+
 const missing = agents.filter((a) => !a.available).map((a) => a.id);
 if (missing.length) {
   console.log("  skipped     " + missing.join(", ") + " (not on this machine)");
 }
 
-console.log("ALL PASS — local orchestrator, recipe + mock + self slot");
+console.log("ALL PASS — local orchestrator, recipe + mock + self + Cursor slot");

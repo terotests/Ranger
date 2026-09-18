@@ -2,10 +2,10 @@
 /**
  * Local agent orchestrator for EVG live-build.
  *
- * The page is this process. Codex / Claude Code / Ollama are *adapters*:
- * a CLI (or a local HTTP model) that runs on this machine. Inference for
- * Codex and Claude is in the cloud; Ollama's is on localhost. The recipe
- * adapter does not call a model at all.
+ * The page is this process. Codex / Claude Code / Cursor / Ollama are
+ * *adapters*: a CLI (or a local HTTP model) that runs on this machine.
+ * Inference for Codex, Claude and Cursor is in the cloud; Ollama's is on
+ * localhost. The recipe adapter does not call a model at all.
  *
  *   interface Agent { run(task): stream of NDJSON events }
  *
@@ -32,6 +32,71 @@ function which(cmd) {
   return (r.stdout || "").trim();
 }
 
+function runQuiet(bin, args, timeout = 1800) {
+  try {
+    return spawnSync(bin, args, {
+      encoding: "utf8",
+      timeout,
+      env: { ...process.env, NO_OPEN_BROWSER: "1" },
+    });
+  } catch {
+    return { status: 1, stdout: "", stderr: "" };
+  }
+}
+
+function looksLikeCursorCli(bin) {
+  if (!bin) return false;
+  const about = runQuiet(bin, ["about"]);
+  const aboutText = `${about.stdout || ""}${about.stderr || ""}`;
+  if (/cursor/i.test(aboutText)) return true;
+  const help = runQuiet(bin, ["--help"]);
+  const helpText = `${help.stdout || ""}${help.stderr || ""}`;
+  return /\b--print\b/.test(helpText) && /\b--trust\b/.test(helpText) && /\b--workspace\b/.test(helpText);
+}
+
+let cachedCursorBin;
+export function findCursorAgent() {
+  if (cachedCursorBin !== undefined) return cachedCursorBin;
+  const envPath = process.env.CURSOR_AGENT_PATH || process.env.AGENT_PATH || "";
+  const candidates = [envPath, which("cursor-agent"), which("agent")].filter(Boolean);
+  for (const bin of candidates) {
+    if (looksLikeCursorCli(bin)) {
+      cachedCursorBin = bin;
+      return bin;
+    }
+  }
+  cachedCursorBin = "";
+  return "";
+}
+
+export function cursorLoggedIn(bin) {
+  if (process.env.CURSOR_API_KEY) return true;
+  if (!bin) return false;
+  const r = runQuiet(bin, ["status"], 4000);
+  const text = `${r.stdout || ""}${r.stderr || ""}`;
+  if (/not authenticated|logged out|please log in|agent login/i.test(text)) return false;
+  if (/authenticated|logged in|@|account/i.test(text)) return true;
+  return r.status === 0 && text.trim().length > 0;
+}
+
+export function cursorSpawnArgs(task, workspace) {
+  const args = [
+    "-p",
+    task,
+    "--force",
+    "--trust",
+    "--workspace",
+    workspace,
+    "--output-format",
+    "stream-json",
+    "--stream-partial-output",
+  ];
+  if (process.env.EVG_CURSOR_MODEL) {
+    args.push("--model", process.env.EVG_CURSOR_MODEL);
+  }
+  return args;
+}
+
 function ollamaUp() {
   try {
     const r = spawnSync(
@@ -46,6 +111,7 @@ function ollamaUp() {
 }
 
 export function listAgents() {
+  const cursor = findCursorAgent();
   const codex = which("codex");
   const claude = which("claude");
   const ollama = ollamaUp();
@@ -70,6 +136,16 @@ export function listAgents() {
       available: true,
       where: "this cloud container — Cursor agent",
       hint: "I edit doc.evg.json with EVGPatch. Real agent, no vendor CLI.",
+    },
+    {
+      id: "cursor",
+      label: "Cursor",
+      available: Boolean(cursor),
+      bin: cursor || "",
+      where: "local CLI — Cursor subscription",
+      hint: cursor
+        ? "agent -p --force --trust in a bounded workspace"
+        : "install: curl https://cursor.com/install -fsS | bash, then agent login",
     },
     {
       id: "codex",
@@ -224,9 +300,34 @@ A node is:
 {"tag":"div","props":{"display":"flex"},"children":[{"tag":"span","text":"Hi"}]}
 \`\`\`
 
-After each edit, save \`doc.evg.json\`. The host will lay it out and stream
-the display list to the browser. You may also write \`App.rgr\` with Ranger
-that builds the same tree.
+If \`./evg-agent\` exists in this folder, use it. It is the same tool
+surface as \`npm run agent\` in the Ranger repo:
+
+\`\`\`
+./evg-agent outline doc.evg.json
+./evg-agent query   doc.evg.json .card
+./evg-agent patch   doc.evg.json ops.json
+./evg-agent measure doc.evg.json --width=390 --height=844
+\`\`\`
+
+\`outline\` prints addresses. Re-run it after any insert/remove/move.
+\`patch\` takes a JSON file of ops and writes \`doc.evg.json\`:
+
+\`\`\`json
+{"ops":[
+  {"op":"set-text","at":"0/0/k:title","value":"Invoices"},
+  {"op":"set-prop","at":"0/0","prop":"background-color","value":"rgb(255,251,235)"},
+  {"op":"insert","at":"0/0","index":2,"tag":"span"}
+]}
+\`\`\`
+
+A rejected op fails the whole batch and changes nothing. \`measure\`
+reports overflow, overlap, and nodes off the page — trust those numbers
+over a screenshot.
+
+If there is no \`./evg-agent\`, edit \`doc.evg.json\` directly and save.
+The host lays each save out and streams the display list to the browser.
+You may also write \`App.rgr\` with Ranger that builds the same tree.
 
 Do not leave the workspace. Do not require confirmation.
 `;
@@ -236,11 +337,45 @@ function seedDoc() {
   return fs.readFileSync(path.join(here, "fixtures/step1.evg.json"), "utf8");
 }
 
-function makeWorkspace(task) {
+function installEvgAgent(dir) {
+  const src = path.join(root, "gallery/evg/bin/evg_agent.js");
+  if (!fs.existsSync(src)) return false;
+  fs.copyFileSync(src, path.join(dir, "evg_agent.js"));
+  fs.writeFileSync(
+    path.join(dir, "evg-agent"),
+    `#!/bin/sh\nexec node "$(dirname "$0")/evg_agent.js" "$@"\n`,
+    { mode: 0o755 },
+  );
+  return true;
+}
+
+function seedGit(dir) {
+  const opts = { cwd: dir, encoding: "utf8", stdio: "ignore" };
+  const init = spawnSync("git", ["init", "-q"], opts);
+  if (init.status !== 0) return;
+  spawnSync("git", ["add", "-A"], opts);
+  spawnSync(
+    "git",
+    [
+      "-c",
+      "user.email=evg-livebuild@local",
+      "-c",
+      "user.name=evg-livebuild",
+      "commit",
+      "-qm",
+      "seed",
+    ],
+    opts,
+  );
+}
+
+function makeWorkspace(task, { git = false } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "evg-live-"));
   fs.writeFileSync(path.join(dir, "doc.evg.json"), seedDoc());
   fs.writeFileSync(path.join(dir, "TASK.md"), task + "\n");
   fs.writeFileSync(path.join(dir, "AGENTS.md"), workspaceGuide(task));
+  installEvgAgent(dir);
+  if (git) seedGit(dir);
   return dir;
 }
 
@@ -274,7 +409,45 @@ function spawnAgentProcess(id, bin, workspace, task) {
       { cwd: workspace, env: process.env, stdio: ["ignore", "pipe", "pipe"] },
     );
   }
+  if (id === "cursor") {
+    return spawn(bin, cursorSpawnArgs(task, workspace), {
+      cwd: workspace,
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  }
   throw new Error(`no spawn for ${id}`);
+}
+
+function feedCursorLine(line, onLine) {
+  let obj;
+  try {
+    obj = JSON.parse(line);
+  } catch {
+    return false;
+  }
+  if (!obj || typeof obj !== "object" || typeof obj.type !== "string") return false;
+  if (obj.type === "assistant") {
+    const content = obj.message && obj.message.content;
+    let text = "";
+    if (Array.isArray(content)) {
+      text = content.map((c) => (c && c.text) || "").join("");
+    } else if (typeof content === "string") {
+      text = content;
+    }
+    if (text) tokenize(text, onLine);
+    return true;
+  }
+  if (obj.type === "tool_call" && obj.subtype === "started") {
+    const tc = obj.tool_call || {};
+    const path =
+      (tc.writeToolCall && tc.writeToolCall.args && tc.writeToolCall.args.path) ||
+      (tc.shellToolCall && tc.shellToolCall.args && tc.shellToolCall.args.command) ||
+      "";
+    if (path) onLine(ndjson({ t: "think", text: String(path) }));
+    return true;
+  }
+  return true;
 }
 
 function watchDoc(workspace, onChange) {
@@ -336,7 +509,7 @@ export async function runWorkspaceAgent({ id, kind, prompt, onLine, signal }) {
     return;
   }
 
-  const ws = makeWorkspace(task);
+  const ws = makeWorkspace(task, { git: id === "cursor" });
   const keep = process.env.EVG_LIVEBUILD_KEEP === "1";
   let frames = 0;
   const stopWatch = watchDoc(ws, (file) => {
@@ -378,19 +551,27 @@ export async function runWorkspaceAgent({ id, kind, prompt, onLine, signal }) {
       while ((nl = buf.indexOf("\n")) >= 0) {
         const line = buf.slice(0, nl);
         buf = buf.slice(nl + 1);
-        if (line.trim()) tokenize(line, onLine);
+        if (!line.trim()) continue;
+        if (id === "cursor" && feedCursorLine(line, onLine)) continue;
+        tokenize(line, onLine);
       }
     });
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk) => {
       const text = String(chunk).trim();
       if (text) process.stderr.write(`[${id}] ${text}\n`);
+      if (id === "cursor" && /not authenticated|invalid api key|agent login/i.test(text)) {
+        onLine(ndjson({ t: "error", text }));
+      }
     });
     child.on("error", (e) => {
       onLine(ndjson({ t: "error", text: String(e.message || e) }));
       resolve();
     });
     child.on("close", (code) => {
+      if (buf.trim()) {
+        if (!(id === "cursor" && feedCursorLine(buf, onLine))) tokenize(buf, onLine);
+      }
       stopWatch();
       // Final frame, in case the last write landed with the process.
       frameFile(path.join(ws, "doc.evg.json"), onLine);

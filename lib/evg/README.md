@@ -886,6 +886,7 @@ npm run evg:responsive:web:serve   # the live responsive page
 npm run evg:trace:web:serve        # the live bitmap tracer
 npm run erazer:web:serve           # bitmap UI screenshot → EVG layout
 npm run livebuild:serve            # agent builds a phone UI; display lists stream over SSE
+npm run livebuild:withcursor       # same page, local Cursor Agent CLI (agent login)
 
 # one document, three targets
 npm run evgpdf:test             # -> PDF
