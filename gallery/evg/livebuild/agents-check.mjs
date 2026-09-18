@@ -5,6 +5,7 @@
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { listAgents, runTask, root } from "./agents.mjs";
@@ -57,8 +58,10 @@ compile();
 const agents = listAgents();
 const recipe = agents.find((a) => a.id === "recipe");
 const mock = agents.find((a) => a.id === "mock");
+const self = agents.find((a) => a.id === "self");
 if (!recipe?.available) throw new Error("recipe must always be available");
 if (!mock?.available) throw new Error("mock must always be available");
+if (!self?.available) throw new Error("self must always be available");
 console.log(
   "  agents      " +
     agents.map((a) => `${a.id}${a.available ? "" : " (off)"}`).join(", "),
@@ -97,9 +100,31 @@ if (errors.length) throw new Error("mock emitted error: " + (errors[0].text || "
 if (mockEvents[0].agent !== "mock") throw new Error("session did not name the agent");
 console.log(`  mock        ${frames.length} frames, ${tokens.length} tokens, agent=${mockEvents[0].agent}`);
 
+const selfWs = fs.mkdtempSync(path.join(os.tmpdir(), "evg-self-"));
+fs.writeFileSync(
+  path.join(selfWs, "doc.evg.json"),
+  fs.readFileSync(path.join(here, "fixtures/step1.evg.json")),
+);
+fs.writeFileSync(path.join(selfWs, "think.log"), "hello from the cloud agent\n");
+fs.writeFileSync(path.join(selfWs, "STOP"), "1");
+const selfRun = spawnSync(process.execPath, [path.join(here, "self-agent.mjs"), selfWs], {
+  encoding: "utf8",
+  timeout: 5000,
+});
+if (selfRun.status !== 0) {
+  throw new Error("self-agent exit " + selfRun.status + " " + (selfRun.stderr || ""));
+}
+if (!/Cursor cloud agent/.test(selfRun.stdout || "")) {
+  throw new Error("self-agent did not introduce itself");
+}
+if (!/hello from the cloud agent/.test(selfRun.stdout || "")) {
+  throw new Error("self-agent did not flush think.log");
+}
+console.log("  self        slot stays open until STOP, thinking from think.log");
+
 const missing = agents.filter((a) => !a.available).map((a) => a.id);
 if (missing.length) {
   console.log("  skipped     " + missing.join(", ") + " (not on this machine)");
 }
 
-console.log("ALL PASS — local orchestrator, recipe + mock workspace agent");
+console.log("ALL PASS — local orchestrator, recipe + mock + self slot");

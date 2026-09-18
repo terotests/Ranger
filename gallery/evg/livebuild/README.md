@@ -34,18 +34,20 @@ this machine. Which *model* they call is a separate question:
                          │
                          ├── recipe   this process, no network
                          ├── mock     local CLI, writes doc.evg.json
+                         ├── self     this cloud agent, EVGPatch on the workspace
                          ├── Codex    local CLI, OpenAI inference
                          ├── Claude   local CLI, Anthropic inference
                          └── Ollama   local model, no cloud
 ```
 
 `interface Agent { run(task) }` is `gallery/evg/livebuild/agents.mjs`.
-Recipe is the default so a clone without API keys still paints. Pick
-Codex or Claude in the page when those CLIs are on `PATH`; they get a
-temp workspace (`doc.evg.json` + `AGENTS.md`), this process watches the
-file, lays it out, and streams frames. Inference for those two is in
-the cloud — the agent program is local, the weights are not. Ollama is
-the fully-offline slot (`localhost:11434`).
+Recipe is the default so a clone without API keys still paints. **This agent**
+is the Cursor cloud agent in the same container: it edits `doc.evg.json`
+with `EVGPatch` while the host streams frames. Pick Codex or Claude when
+those CLIs are on `PATH`; they get a temp workspace (`doc.evg.json` +
+`AGENTS.md`). Inference for those two is in the cloud — the agent program
+is local, the weights are not. Ollama is the fully-offline slot
+(`localhost:11434`).
 
 Matching a free-text prompt to a recipe is keyword-based when the
 adapter is `recipe`. The other adapters receive the prompt as the task.
@@ -100,9 +102,11 @@ one, so the UI can say "+12" without walking the list.
 | `EvgLiveBuildMain.rgr` | `run` / `kinds` CLI |
 | `EvgLiveBuildTest.rgr` | the three recipes, in process |
 | `serve.mjs` | HTTP + SSE |
-| `agents.mjs` | `Agent` interface: recipe, mock, Codex, Claude, Ollama |
+| `agents.mjs` | `Agent` interface: recipe, mock, self, Codex, Claude, Ollama |
 | `mock-agent.mjs` | a local CLI that writes `doc.evg.json` — no model |
-| `agents-check.mjs` | orchestrator: recipe always on, mock writes a workspace |
+| `self-agent.mjs` | stays open while this cloud agent patches the tree |
+| `restyle.mjs` | recipe follow-ups: colour / size / radius from the ask |
+| `agents-check.mjs` | orchestrator: recipe, mock workspace, self slot |
 | `browser-smoke.mjs` | Chromium: three recipes and a typed prompt |
 | `web/index.html` | the page |
 | `stream-check.mjs` | parse the CLI stream as JSON |

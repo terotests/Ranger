@@ -18,11 +18,13 @@ import os from "node:os";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { parseRestyle, restyleEnv } from "./restyle.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const root = path.resolve(here, "../../..");
 const liveBin = path.join(root, "gallery/evg/bin/evg_livebuild.js");
 const mockBin = path.join(here, "mock-agent.mjs");
+const selfBin = path.join(here, "self-agent.mjs");
 
 function which(cmd) {
   const r = spawnSync("which", [cmd], { encoding: "utf8" });
@@ -53,7 +55,7 @@ export function listAgents() {
       label: "Recipe",
       available: true,
       where: "this process — no network",
-      hint: "Scripted EVGPatch. The pictures always land.",
+      hint: "Scripted. Restyles colour, type size, and radius. New widgets need Codex/Claude/Ollama.",
     },
     {
       id: "mock",
@@ -61,6 +63,13 @@ export function listAgents() {
       available: true,
       where: "localhost process — no model",
       hint: "A local agent binary that writes doc.evg.json. Proves the orchestrator.",
+    },
+    {
+      id: "self",
+      label: "This agent",
+      available: true,
+      where: "this cloud container — Cursor agent",
+      hint: "I edit doc.evg.json with EVGPatch. Real agent, no vendor CLI.",
     },
     {
       id: "codex",
@@ -126,9 +135,14 @@ function pipeChild(child, onLine, onClose) {
 
 export function runRecipe(kind, onLine, signal, prompt) {
   return new Promise((resolve, reject) => {
+    const parsed = parseRestyle(prompt || "");
     const child = spawn("node", [liveBin, "run", kind], {
       cwd: root,
-      env: { ...process.env, EVG_LIVEBUILD_PROMPT: prompt || "" },
+      env: {
+        ...process.env,
+        EVG_LIVEBUILD_PROMPT: prompt || "",
+        ...restyleEnv(parsed),
+      },
       stdio: ["ignore", "pipe", "pipe"],
     });
     const stop = () => {
@@ -233,6 +247,13 @@ function makeWorkspace(task) {
 function spawnAgentProcess(id, bin, workspace, task) {
   if (id === "mock") {
     return spawn(process.execPath, [mockBin, workspace], {
+      cwd: workspace,
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  }
+  if (id === "self") {
+    return spawn(process.execPath, [selfBin, workspace], {
       cwd: workspace,
       env: process.env,
       stdio: ["ignore", "pipe", "pipe"],
