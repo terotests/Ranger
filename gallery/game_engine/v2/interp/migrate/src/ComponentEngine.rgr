@@ -175,9 +175,31 @@ class EvalContext {
     ; properties -- an object whose `x` is a getter still shadows the binding
     ; beneath it, and only the engine can invoke the getter, so the search and
     ; the call are split between here and there.
+    ; D-WITH: §9.1.1.2.1 HasBinding consults @@unscopables, so a name the with
+    ; object OWNS may still be invisible inside the block. The fast paths here
+    ; answered from the object alone, and disagreed with the engine's own with
+    ; read, which does apply the rule -- `with (o) bar` saw a blocked name.
+    ; Data-only, which is what a fast path can do; an @@unscopables ACCESSOR is
+    ; the engine's to run.
+    fn withUnscopableBlocks:boolean (wo:EvHandle name:string) {
+        def uns:EvHandle (wo.getMember("@@unscopables"))
+        if (uns.isObject()) {
+            def bv:EvHandle (uns.getMember(name))
+            return (bv.toBool())
+        }
+        return false
+    }
+
     fn findWithObjectFor:EvHandle (name:string) {
         if withObject {
             def wo:EvHandle (unwrap withObject)
+            if (this.withUnscopableBlocks(wo name)) {
+                if parent {
+                    def wpar:EvalContext (unwrap parent)
+                    return (wpar.findWithObjectFor(name))
+                }
+                return (EvValueBridge.taggedNull())
+            }
             if (wo.hasOwnData(name)) {
                 return wo
             }
@@ -230,11 +252,14 @@ class EvalContext {
     }
 
     fn lookup:EvHandle (name:string) {
-        ; D-WITH: the object scope shadows the bindings beneath it.
+        ; D-WITH: the object scope shadows the bindings beneath it -- unless
+        ; @@unscopables hides the name, in which case the scopes beneath answer.
         if withObject {
             def wo:EvHandle (unwrap withObject)
-            if (wo.hasOwnData(name)) {
-                return (wo.getOwnData(name))
+            if (false == (this.withUnscopableBlocks(wo name))) {
+                if (wo.hasOwnData(name)) {
+                    return (wo.getOwnData(name))
+                }
             }
         }
         def lpi:int (this.paramIdxOf(name))
@@ -261,9 +286,11 @@ class EvalContext {
         ; the whole observable point of `with`.
         if withObject {
             def wo:EvHandle (unwrap withObject)
-            if (wo.hasOwnData(name)) {
-                wo.setMember(name value)
-                return true
+            if (false == (this.withUnscopableBlocks(wo name))) {
+                if (wo.hasOwnData(name)) {
+                    wo.setMember(name value)
+                    return true
+                }
             }
         }
         def api:int (this.paramIdxOf(name))
@@ -357,8 +384,10 @@ class EvalContext {
     fn has:boolean (name:string) {
         if withObject {
             def wo:EvHandle (unwrap withObject)
-            if (wo.hasOwnData(name)) {
-                return true
+            if (false == (this.withUnscopableBlocks(wo name))) {
+                if (wo.hasOwnData(name)) {
+                    return true
+                }
             }
         }
         if ((this.paramIdxOf(name)) >= 0) {
@@ -2483,21 +2512,54 @@ class ComponentEngine {
     }
 
     fn collectCallArgs:[EvHandle] (node:TSNode) {
+        return (this.collectArgNodeValues(node.children))
+    }
+
+    ; The argument VALUES of a call, spread expanded. Taken as a node list
+    ; rather than a call node so the built-in constructor doors -- `Array(...xs)`,
+    ; `Function(...xs)` -- read their arguments by the same rules as an ordinary
+    ; call instead of evaluating a SpreadElement as if it were an expression.
+    fn collectArgNodeValues:[EvHandle] (argNodes:[TSNode]) {
         def args:[EvHandle]
         def i:int 0
-        while (i < (array_length node.children)) {
-            def argNode:TSNode (itemAt node.children i)
-            ; Spread a call argument: f(...xs) expands the array's elements.
+        while (i < (array_length argNodes)) {
+            def argNode:TSNode (itemAt argNodes i)
+            ; Spread a call argument: f(...xs) expands the ITERABLE, not just an
+            ; array. §12.3.6.1 ArgumentListEvaluation is defined over
+            ; GetIterator, so `f(...aSet)`, `f(...aGenerator)` and `f(..."ab")`
+            ; all spread -- and a non-iterable is a TypeError rather than an
+            ; argument silently dropped. The array fast path stays because it
+            ; is the common case and skips minting an iterator.
             if ((this.nodeKindOf(argNode)) == 47) {
                 def sv:EvHandle (EvValueBridge.taggedNull())
                 if argNode.left {
                     sv = (this.evaluateExpr((unwrap argNode.left)))
                 }
+                if scriptThrew {
+                    return args
+                }
                 if (sv.isArrayValue()) {
                     def k:int 0
                     while (k < (sv.denseLen())) {
-                        push args (sv.arrayItemAt(k))
+                        ; §7.4.6: iterating an array yields undefined for a
+                        ; HOLE, and the result has no holes of its own --
+                        ; `[...[,,]]` is two present undefineds, not two gaps.
+                        def hv:EvHandle (sv.arrayItemAt(k))
+                        if (hv.isHole()) {
+                            hv = (EvValueBridge.taggedUndefined())
+                        }
+                        push args hv
                         k = (k + 1)
+                    }
+                } {
+                    def spItems:[EvHandle] (this.forOfItemList(sv))
+                    if scriptThrew {
+                        return args
+                    }
+                    def spi:int 0
+                    while (spi < (array_length spItems)) {
+                        push args (itemAt spItems spi)
+                        spi = (spi + 1)
                     }
                 }
             } {
@@ -2786,6 +2848,22 @@ class ComponentEngine {
     fn buildArrayFromArgs:EvHandle (argNodes:[TSNode]) {
         def items:[EvHandle]
         def n:int (array_length argNodes)
+        ; §22.1.1: `Array(...xs)` is the same call as `Array(x0, x1, ...)`. The
+        ; nodes were evaluated one for one, so a spread argument evaluated as a
+        ; SpreadElement expression and the whole call answered `[null]`.
+        def hasSpreadArg:boolean false
+        def hsi:int 0
+        while (hsi < n) {
+            if ((this.nodeKindOf((itemAt argNodes hsi))) == 47) { hasSpreadArg = true }
+            hsi = (hsi + 1)
+        }
+        if hasSpreadArg {
+            def spreadVals:[EvHandle] (this.collectArgNodeValues(argNodes))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+            return (this.buildArrayFromValues(spreadVals))
+        }
         if (n == 1) {
             def only:EvHandle (this.evaluateExpr((itemAt argNodes 0)))
             if (only.isNumber()) {
@@ -4592,6 +4670,37 @@ class ComponentEngine {
     }
 
     fn assignArrayTarget:void (target:TSNode value:EvHandle) {
+        ; §12.15.5.2: the ASSIGNMENT form of an array pattern destructures an
+        ; iterable by exactly the rules the declaration form uses. It read the
+        ; right-hand side by index instead, so `[a, b] = iter` -- a generator, a
+        ; Set, a string's code points -- assigned undefined to everything.
+        if ((value.isNull()) || (value.isUndefined())) {
+            def _nia:EvHandle (this.throwSpecError("TypeError" ((this.typeofTag(value)) + " is not iterable")))
+            return
+        }
+        def srcItems:[EvHandle]
+        def useItems:boolean false
+        if (false == (value.isArrayValue())) {
+            def need:int 0
+            def wantAll:boolean false
+            def ni:int 0
+            while (ni < (array_length target.children)) {
+                def nEl:TSNode (itemAt target.children ni)
+                def nn:string nEl.nodeType
+                if ((nn == "RestElement") || (nn == "SpreadElement")) {
+                    wantAll = true
+                } {
+                    need = (need + 1)
+                }
+                ni = (ni + 1)
+            }
+            if wantAll { need = 0 - 1 }
+            srcItems = (this.iterableTakeItems(value need))
+            if scriptThrew {
+                return
+            }
+            useItems = true
+        }
         def idx:int 0
         def ci:int 0
         while (ci < (array_length target.children)) {
@@ -4605,8 +4714,19 @@ class ComponentEngine {
                     if (value.isArrayValue()) {
                         def k:int idx
                         while (k < (value.denseLen())) {
-                            push items (value.arrayItemAt(k))
+                            def rhv:EvHandle (value.arrayItemAt(k))
+                            if (rhv.isHole()) {
+                                rhv = (EvValueBridge.taggedUndefined())
+                            }
+                            push items rhv
                             k = (k + 1)
+                        }
+                    }
+                    if useItems {
+                        def ri:int idx
+                        while (ri < (array_length srcItems)) {
+                            push items (itemAt srcItems ri)
+                            ri = (ri + 1)
                         }
                     }
                     if el.left {
@@ -4617,9 +4737,14 @@ class ComponentEngine {
                     if (value.isArrayValue()) {
                         if (idx < (value.denseLen())) {
                             elemVal = (value.arrayItemAt(idx))
+                            if (elemVal.isHole()) {
+                                elemVal = (EvValueBridge.taggedUndefined())
+                            }
                         }
                     } {
-                        elemVal = (value.getIndex(idx))
+                        if (idx < (array_length srcItems)) {
+                            elemVal = (itemAt srcItems idx)
+                        }
                     }
                     this.assignToTarget(el elemVal)
                     idx = (idx + 1)
@@ -4630,27 +4755,116 @@ class ComponentEngine {
     }
 
     fn assignObjectTarget:void (target:TSNode value:EvHandle) {
+        ; §12.15.5.2 RequireObjectCoercible: `({} = null)` is a TypeError even
+        ; with nothing to assign.
+        if ((value.isNull()) || (value.isUndefined())) {
+            def _rco:EvHandle (this.throwSpecError("TypeError" "Cannot destructure a null or undefined value"))
+            return
+        }
+        ; ToObject, as in the declaration form: `({toFixed} = 2)` reads through
+        ; the boxed Number, not off the bare primitive.
+        def srcO:EvHandle (this.toObjectValue(value))
+        value = srcO
+        ; D-DSTR: TWO node shapes reach here and they disagree about every slot.
+        ; When the parser knew a pattern was coming it built an ObjectPattern --
+        ; key on `name`, TARGET on `right`, default on `init`, computed key on
+        ; `body`. When the `{...}` was read as a literal and only the `=` made it
+        ; a pattern, it is an ObjectExpression, whose property holds its value
+        ; node on `left` and its computed key on `right`. Only the literal shape
+        ; was read, so every `({a} = o)` that parsed as a pattern assigned
+        ; nothing at all and the statement silently did nothing.
+        def isPat:boolean (target.nodeType == "ObjectPattern")
+        def usedKeys:[string]
         def ci:int 0
         while (ci < (array_length target.children)) {
             def prop:TSNode (itemAt target.children ci)
-            if (prop.nodeType == "Property") {
-                def srcKey:string prop.name
-                if prop.computed {
-                    if prop.right {
-                        def keyNode:TSNode (unwrap prop.right)
-                        ; Two `this.` calls nested in one expression is two
-                        ; mutable borrows of self on Rust (E0499). The engine
-                        ; is written once and compiled to every target, so the
-                        ; local is not a style choice.
-                        def keyVal:EvHandle (this.evaluateExpr(keyNode))
-                        srcKey = (this.toPropertyKey(keyVal))
+            if (prop.nodeType == "RestElement") {
+                def rkeys:[string]
+                def rvals:[EvHandle]
+                if (value.isObject()) {
+                    def ks:[string] (this.objectKeys(value))
+                    def ki:int 0
+                    while (ki < (array_length ks)) {
+                        def kk:string (itemAt ks ki)
+                        if ((this.isInList(kk usedKeys)) == false) {
+                            push rkeys kk
+                            push rvals (this.getPropertyValue(value kk))
+                            if scriptThrew {
+                                return
+                            }
+                        }
+                        ki = (ki + 1)
                     }
                 }
-                def v:EvHandle (value.getMember(srcKey))
-                ; `{a = 1} = o` -- the default lives on the VALUE slot here,
-                ; the same place a rename would.
+                def restObj:EvHandle (EvValueBridge.taggedObject(rkeys rvals))
                 if prop.left {
-                    this.assignToTarget((unwrap prop.left) v)
+                    this.assignToTarget((unwrap prop.left) restObj)
+                }
+            } {
+                if (prop.nodeType == "Property") {
+                    def srcKey:string prop.name
+                    if prop.computed {
+                        if isPat {
+                            if prop.body {
+                                def kn1:TSNode (unwrap prop.body)
+                                def kv1:EvHandle (this.evaluateExpr(kn1))
+                                if scriptThrew {
+                                    return
+                                }
+                                srcKey = (this.toPropertyKey(kv1))
+                            }
+                        } {
+                            if prop.right {
+                                def kn2:TSNode (unwrap prop.right)
+                                ; Two `this.` calls nested in one expression is
+                                ; two mutable borrows of self on Rust (E0499).
+                                ; The engine is written once and compiled to
+                                ; every target, so the local is not a style
+                                ; choice.
+                                def kv2:EvHandle (this.evaluateExpr(kn2))
+                                if scriptThrew {
+                                    return
+                                }
+                                srcKey = (this.toPropertyKey(kv2))
+                            }
+                        }
+                        if scriptThrew {
+                            return
+                        }
+                    }
+                    push usedKeys srcKey
+                    ; Through the property path, not the raw map: a getter runs,
+                    ; a proxy trap fires and an inherited property is found.
+                    def v:EvHandle (this.getPropertyValue(value srcKey))
+                    if scriptThrew {
+                        return
+                    }
+                    if isPat {
+                        ; `({a = 1} = o)` -- in the pattern shape the default
+                        ; hangs off the property, not off the target node.
+                        if ((v.isNull()) || (v.isUndefined())) {
+                            if prop.init {
+                                v = (this.evaluateExpr((unwrap prop.init)))
+                                if scriptThrew {
+                                    return
+                                }
+                            }
+                        }
+                        if prop.right {
+                            this.assignToTarget((unwrap prop.right) v)
+                        } {
+                            ; Shorthand: the key IS the target name.
+                            context.assign(prop.name v)
+                            this.syncGlobalVar(prop.name v)
+                        }
+                    } {
+                        ; `{a = 1} = o` -- the default lives on the VALUE slot
+                        ; here, the same place a rename would, and
+                        ; assignToTarget unwraps it.
+                        if prop.left {
+                            this.assignToTarget((unwrap prop.left) v)
+                        }
+                    }
                 }
             }
             ci = (ci + 1)
@@ -4661,6 +4875,33 @@ class ComponentEngine {
         if ((value.isNull()) || (value.isUndefined())) {
             def _ni:EvHandle (this.throwSpecError("TypeError" ((this.typeofTag(value)) + " is not iterable")))
             return
+        }
+        ; §13.3.3.6 IteratorBindingInitialization: an array pattern destructures
+        ; an ITERABLE, not only an array. A generic iterable was read by INDEX,
+        ; which answers undefined for a generator, a Set, a string's code points
+        ; and every hand-written iterable -- so `var [a, b] = iter` bound two
+        ; undefineds instead of failing loudly or working.
+        def srcItems:[EvHandle]
+        def useItems:boolean false
+        if (false == (value.isArrayValue())) {
+            def need:int 0
+            def wantAll:boolean false
+            def ni:int 0
+            while (ni < (array_length pattern.children)) {
+                def nEl:TSNode (itemAt pattern.children ni)
+                if (nEl.nodeType == "RestElement") {
+                    wantAll = true
+                } {
+                    need = (need + 1)
+                }
+                ni = (ni + 1)
+            }
+            if wantAll { need = 0 - 1 }
+            srcItems = (this.iterableTakeItems(value need))
+            if scriptThrew {
+                return
+            }
+            useItems = true
         }
         def idx:int 0
         def ci:int 0
@@ -4674,8 +4915,19 @@ class ComponentEngine {
                     if (value.isArrayValue()) {
                         def k:int idx
                         while (k < (value.denseLen())) {
-                            push items (value.arrayItemAt(k))
+                            def rhv:EvHandle (value.arrayItemAt(k))
+                            if (rhv.isHole()) {
+                                rhv = (EvValueBridge.taggedUndefined())
+                            }
+                            push items rhv
                             k = (k + 1)
+                        }
+                    }
+                    if useItems {
+                        def ri:int idx
+                        while (ri < (array_length srcItems)) {
+                            push items (itemAt srcItems ri)
+                            ri = (ri + 1)
                         }
                     }
                     def restVal:EvHandle (EvValueBridge.taggedArray(items))
@@ -4693,9 +4945,16 @@ class ComponentEngine {
                     if (value.isArrayValue()) {
                         if (idx < (value.denseLen())) {
                             elemVal = (value.arrayItemAt(idx))
+                            ; A HOLE binds as undefined, which is also what lets
+                            ; a default (`[a = 1] = [,]`) fire for it.
+                            if (elemVal.isHole()) {
+                                elemVal = (EvValueBridge.taggedUndefined())
+                            }
                         }
                     } {
-                        elemVal = (value.getIndex(idx))
+                        if (idx < (array_length srcItems)) {
+                            elemVal = (itemAt srcItems idx)
+                        }
                     }
                     this.bindPattern(el elemVal)
                     idx = (idx + 1)
@@ -4712,6 +4971,11 @@ class ComponentEngine {
             def _rc:EvHandle (this.throwSpecError("TypeError" "Cannot destructure a null or undefined value"))
             return
         }
+        ; §13.3.3.7 step 2 is ToObject: `var {toFixed} = 2` reads
+        ; Number.prototype.toFixed through the boxed receiver. The raw primitive
+        ; has no properties at all here, so every such pattern bound undefined.
+        def src:EvHandle (this.toObjectValue(value))
+        value = src
         def usedKeys:[string]
         def ci:int 0
         while (ci < (array_length pattern.children)) {
@@ -4740,6 +5004,24 @@ class ComponentEngine {
                 context.define(prop.name (EvValueBridge.taggedObject(rkeys rvals)))
             } {
                 def srcKey:string prop.name
+                ; §13.3.3.7: a COMPUTED key in a pattern -- `var {[k]: v} = o` --
+                ; names the property its expression evaluates to. The parser
+                ; leaves `name` empty and puts the expression on `body`; reading
+                ; `name` regardless looked up the empty string and bound
+                ; undefined every time.
+                if prop.computed {
+                    if prop.body {
+                        def pkNode:TSNode (unwrap prop.body)
+                        def pkVal:EvHandle (this.evaluateExpr(pkNode))
+                        if scriptThrew {
+                            return
+                        }
+                        srcKey = (this.toPropertyKey(pkVal))
+                        if scriptThrew {
+                            return
+                        }
+                    }
+                }
                 push usedKeys srcKey
                 ; D-PROXY: `var {a} = p` is a GET of `a`, so it goes through the
                 ; property path and reaches the trap. Reading the map directly
@@ -6486,6 +6768,21 @@ class ComponentEngine {
                     if decl.left {
                         inPattern = (unwrap decl.left)
                     }
+                    ; annexB B.3.5: `for (var i = 0 in o)` assigns the
+                    ; initialiser to the binding BEFORE the loop, and the value
+                    ; survives when the object has no keys at all. The parser
+                    ; keeps it on the declarator; ignoring it left `i`
+                    ; undefined.
+                    if decl.init {
+                        if ((strlen varName) > 0) {
+                            def seedV:EvHandle (this.evaluateExpr((unwrap decl.init)))
+                            if scriptThrew {
+                                return
+                            }
+                            context.define(varName seedV)
+                            this.syncGlobalVar(varName seedV)
+                        }
+                    }
                 }
             } {
                 def leftK:int (this.nodeKindOf(leftNode))
@@ -7377,6 +7674,15 @@ class ComponentEngine {
                     context.isBlockScope = true
                     if ((strlen catchNode.name) > 0) {
                         context.define(catchNode.name thrown)
+                    } {
+                        ; §13.15.7: the catch parameter is a full binding
+                        ; TARGET, so `catch ([i, j])` and `catch ({k})` bind
+                        ; through the pattern. Only the plain-name form was
+                        ; handled, and a destructuring parameter bound nothing
+                        ; -- the handler then read its own names as undeclared.
+                        if catchNode.left {
+                            this.bindPattern((unwrap catchNode.left) thrown)
+                        }
                     }
                     if catchNode.body {
                         this.runBlockOrStatement((unwrap catchNode.body))
@@ -8671,13 +8977,30 @@ class ComponentEngine {
                 if ((obj.isNull()) || (obj.isUndefined())) {
                     return (this.throwSpecError("TypeError" "Cannot convert undefined or null to object"))
                 }
+                ; annexB B.2.2.1 is an ACCESSOR on Object.prototype, so an
+                ; object that does not inherit it -- `Object.create(null)` --
+                ; gets an ordinary own property named `__proto__` instead, and
+                ; its prototype stays null. Treated as [[SetPrototypeOf]]
+                ; regardless, the one object that is supposed to be safe from
+                ; prototype poisoning was not.
+                def inheritsProtoAccessor:boolean ((this.builtinInstanceOf(obj "Object")) == 1)
+                if (false == inheritsProtoAccessor) {
+                    obj.setMember("__proto__" rightValue)
+                    return rightValue
+                }
                 if (this.isDescriptorObject(obj)) {
                     ; §9.1.2 [[SetPrototypeOf]]: a NON-EXTENSIBLE object refuses
                     ; the change. It was applied regardless, so
                     ; `Object.preventExtensions(o).__proto__ = p` mutated a
                     ; prototype the object had been sealed against.
+                    ; An ARRAY, a function, a Map and a Set are objects too,
+                    ; and each is a legal prototype -- `o.__proto__ =
+                    ; Array.prototype` is the annex B way to say
+                    ; setPrototypeOf, and it did nothing because only a plain
+                    ; object was accepted.
                     def protoChanging:boolean false
-                    if (rightValue.isObject()) { protoChanging = true }
+                    if (this.isDescriptorObject(rightValue)) { protoChanging = true }
+                    if (this.isSymbolValue(rightValue)) { protoChanging = false }
                     if (rightValue.isNull()) { protoChanging = true }
                     if protoChanging {
                         if (false == (obj.isExtensible())) {
@@ -10825,7 +11148,34 @@ class ComponentEngine {
     ; constructor was not callable at all and answered a plain object or a
     ; "not a function" TypeError. `asNew` picks the construct form where the two
     ; differ.
+    ; §27.1.1 and friends: the constructors that have no [[Call]] at all. Called
+    ; without `new` they are a TypeError, not a quiet construction -- which is
+    ; how a guest tells a real constructor from a factory function, and what
+    ; `Promise()`, `Set()` and `Int8Array(buf)` each answered wrongly.
+    ; The ES5 wrappers (Number, String, Boolean, Array, Object, Function,
+    ; RegExp, Date, Error) and Symbol/BigInt are callable by design and stay out.
+    fn builtinRequiresNew:boolean (name:string) {
+        if (name == "Map") { return true }
+        if (name == "Set") { return true }
+        if (name == "WeakMap") { return true }
+        if (name == "WeakSet") { return true }
+        if (name == "WeakRef") { return true }
+        if (name == "FinalizationRegistry") { return true }
+        if (name == "Promise") { return true }
+        if (name == "Proxy") { return true }
+        if (name == "ArrayBuffer") { return true }
+        if (name == "SharedArrayBuffer") { return true }
+        if (name == "DataView") { return true }
+        if (this.isTypedArrayCtorName(name)) { return true }
+        return false
+    }
+
     fn callBuiltinCtorValues:EvHandle (name:string args:[EvHandle] asNew:boolean) {
+        if (false == asNew) {
+            if (this.builtinRequiresNew(name)) {
+                return (this.throwSpecError("TypeError" ("Constructor " + (name + " requires 'new'"))))
+            }
+        }
         if (this.isTypedArrayCtorName(name)) {
             return (this.constructTypedArray(name args))
         }
@@ -10947,6 +11297,29 @@ class ComponentEngine {
         ; §27.1.2.1: %Iterator% is abstract -- it exists to hang the helpers and
         ; `from` on, and constructing it directly is a TypeError.
         if (name == "Iterator") {
+            ; §27.1.3.1: %Iterator% refuses only when new.target IS %Iterator%
+            ; itself -- a SUBCLASS constructs, which is the whole point of
+            ; publishing the class. `class C extends Iterator {}` could not be
+            ; instantiated at all.
+            if (asNew) {
+                if hasPendingNewTarget {
+                    if (false == (pendingNewTarget.equals((this.builtinGlobalObject("Iterator"))))) {
+                        def keysIt:[string]
+                        def valsIt:[EvHandle]
+                        def itInst:EvHandle (EvValueBridge.taggedObject(keysIt valsIt))
+                        def ntProtoIt:EvHandle (this.getPropertyValue(pendingNewTarget "prototype"))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        if (this.isDescriptorObject(ntProtoIt)) {
+                            itInst.setProto(ntProtoIt)
+                        } {
+                            itInst.setProto((this.builtinPrototype("Iterator")))
+                        }
+                        return itInst
+                    }
+                }
+            }
             return (this.throwSpecError("TypeError" "Abstract class Iterator not directly constructable"))
         }
         if (name == "Object") {
@@ -11772,6 +12145,14 @@ class ComponentEngine {
                     return false
                 }
                 hasCatch = true
+                ; A DESTRUCTURING catch parameter -- `catch ([i, j])` -- has no
+                ; name to give a slot, and the compiled form would bind nothing
+                ; at all. It stays walked, where the pattern path binds it.
+                if ((strlen catchNode.name) == 0) {
+                    if catchNode.left {
+                        return false
+                    }
+                }
                 if ((strlen catchNode.name) > 0) {
                     if (null? prog.rootBody) {
                         return false
@@ -16629,15 +17010,18 @@ class ComponentEngine {
         def keysG:[string]
         def valsG:[EvHandle]
         def p:EvHandle (EvValueBridge.taggedObject(keysG valsG))
-        p.setProto((this.builtinPrototype("Object")))
+        ; §27.5.1: %GeneratorPrototype% inherits from %IteratorPrototype%, and
+        ; takes its @@iterator from there rather than owning one -- which is
+        ; what `Object.getPrototypeOf(%GeneratorPrototype%)
+        ; .hasOwnProperty(Symbol.iterator)` asks, and what puts the iterator
+        ; helpers within a generator's reach.
+        p.setProto((this.listIteratorPrototype()))
         p.setMember("next" (this.sharedNativeMethod("Generator" "next")))
         p.setAttrs("next" true false true)
         p.setMember("return" (this.sharedNativeMethod("Generator" "return")))
         p.setAttrs("return" true false true)
         p.setMember("throw" (this.sharedNativeMethod("Generator" "throw")))
         p.setAttrs("throw" true false true)
-        p.setMember("@@iterator" (this.sharedNativeMethod("Generator" "@@iterator")))
-        p.setAttrs("@@iterator" true false true)
         p.setMember("@@toStringTag" (EvValueBridge.taggedString("Generator")))
         p.setAttrs("@@toStringTag" false false true)
         ; The memo is taken only once the object is FULLY built. Stored before
@@ -17071,6 +17455,83 @@ class ComponentEngine {
     ; `new Map(iterable)` / `new Set(iterable)` from an already-evaluated
     ; initialiser. Any iterable is accepted, not only an array literal, because
     ; forOfItemList is what the spec's "iterate it" means here.
+    ; §7.4.6 IteratorClose. A throw already pending is the answer, so one from
+    ; `return` on the way out is swallowed rather than replacing it.
+    fn closeIteratorObject:void (iter:EvHandle) {
+        def hadThrow:boolean scriptThrew
+        def hadVal:EvHandle scriptThrowValue
+        scriptThrew = false
+        def retFn:EvHandle (this.getPropertyValue(iter "return"))
+        if (retFn.isFunction()) {
+            def rArgs:[EvHandle]
+            def _rv:EvHandle (this.callFnValueWithValues((retFn.withThisForCall(iter)) rArgs))
+        }
+        scriptThrew = hadThrow
+        scriptThrowValue = hadVal
+    }
+
+    ; One entry into a Map or a Set being constructed, THROUGH the adder the
+    ; prototype currently holds when a guest has replaced it -- §24.1.1.1 step 7
+    ; reads `add` / `set` off the new object and calls it, which is what makes
+    ; a subclass that overrides one see its own entries.
+    ; §7.2.11 SameValueZero is what a Map and a Set key on, so -0 and +0 are the
+    ; SAME key and the stored one is +0: `new Set([-0]).has(0)` is true and the
+    ; value that comes back out of a forEach is +0, not -0.
+    fn normalizeZeroKey:EvHandle (v:EvHandle) {
+        if (v.isNumber()) {
+            def nz:double (v.toNumber())
+            if (nz == 0.0) {
+                return (EvValueBridge.taggedNumber(0.0))
+            }
+        }
+        return v
+    }
+
+    fn collectionAddEntry:void (coll:EvHandle isMapKind:boolean adder:EvHandle entry:EvHandle) {
+        if (adder.isFunction()) {
+            if (adder.hasFunctionNode()) {
+                def aArgs:[EvHandle]
+                if isMapKind {
+                    if ((false == (this.isDescriptorObject(entry))) || (this.isSymbolValue(entry))) {
+                        def _te:EvHandle (this.throwSpecError("TypeError" "Iterator value is not an entry object"))
+                        return
+                    }
+                    def gk:EvHandle (this.getPropertyValue(entry "0"))
+                    if scriptThrew { return }
+                    def gv:EvHandle (this.getPropertyValue(entry "1"))
+                    if scriptThrew { return }
+                    push aArgs gk
+                    push aArgs gv
+                } {
+                    push aArgs entry
+                }
+                def _ar:EvHandle (this.callFnValueWithValues((adder.withThisForCall(coll)) aArgs))
+                return
+            }
+        }
+        if isMapKind {
+            ; §23.1.1.2 AddEntriesFromIterable: each entry must be an OBJECT (a
+            ; TypeError otherwise), and its key and value are Get(entry, "0")
+            ; and Get(entry, "1") -- so `{}` is an entry with an undefined key,
+            ; not something to skip.
+            if (entry.isArrayValue()) {
+                coll.mapSet((this.normalizeZeroKey((entry.getIndex(0)))) (entry.getIndex(1)))
+                return
+            }
+            if ((false == (this.isDescriptorObject(entry))) || (this.isSymbolValue(entry))) {
+                def _te2:EvHandle (this.throwSpecError("TypeError" "Iterator value is not an entry object"))
+                return
+            }
+            def ek:EvHandle (this.getPropertyValue(entry "0"))
+            if scriptThrew { return }
+            def ev:EvHandle (this.getPropertyValue(entry "1"))
+            if scriptThrew { return }
+            coll.mapSet((this.normalizeZeroKey(ek)) ev)
+            return
+        }
+        coll.setAdd((this.normalizeZeroKey(entry)))
+    }
+
     fn constructCollectionValue:EvHandle (name:string init:EvHandle) {
         def isMapKind:boolean (name == "Map")
         def coll:EvHandle (EvValueBridge.taggedSetEmpty())
@@ -17079,36 +17540,75 @@ class ComponentEngine {
         }
         if (init.isUndefined()) { return coll }
         if (init.isNull()) { return coll }
+        ; The adder is read ONCE, before the walk, and it is the one the
+        ; prototype holds now -- a guest that replaced `Set.prototype.add` sees
+        ; every entry go through it.
+        def addName:string "add"
+        if isMapKind { addName = "set" }
+        def adder:EvHandle (this.getPropertyValue(coll addName))
+        if scriptThrew { return coll }
+        ; A source that iterates through the PROTOCOL is walked lazily, so a
+        ; throw from the adder closes the iterator. Draining it first would
+        ; leave it exhausted, and `return` is then not called at all.
+        def viaProtocol:boolean false
+        if (this.isDescriptorObject(init)) {
+            viaProtocol = true
+            if (init.isArrayValue()) { viaProtocol = false }
+            if (init.isMap()) { viaProtocol = false }
+            if (init.isSet()) { viaProtocol = false }
+            if (this.isGeneratorValue(init)) { viaProtocol = false }
+            if (init.hasOwnData("__arguments__")) { viaProtocol = false }
+        }
+        if viaProtocol {
+            def itFn:EvHandle (this.getPropertyValue(init "@@iterator"))
+            if scriptThrew { return coll }
+            if (false == (itFn.isFunction())) {
+                viaProtocol = false
+            } {
+                def noArgsC:[EvHandle]
+                def iter:EvHandle (this.callFnValueWithValues((itFn.withThisForCall(init)) noArgsC))
+                if scriptThrew { return coll }
+                if (false == (this.isDescriptorObject(iter))) {
+                    def _ci:EvHandle (this.throwSpecError("TypeError" "Result of the Symbol.iterator method is not an object"))
+                    return coll
+                }
+                def going:boolean true
+                def guardC:int 0
+                while (going && (guardC < maxLoopIterations)) {
+                    def stepArgsC:[EvHandle]
+                    def step:EvHandle (this.callMethodOnValue(iter "next" stepArgsC))
+                    if scriptThrew { return coll }
+                    if (false == (this.isDescriptorObject(step))) {
+                        def _cs:EvHandle (this.throwSpecError("TypeError" "Iterator result is not an object"))
+                        return coll
+                    }
+                    def doneC:EvHandle (this.getPropertyValue(step "done"))
+                    if scriptThrew { return coll }
+                    if (doneC.toBool()) {
+                        going = false
+                    } {
+                        def valC:EvHandle (this.getPropertyValue(step "value"))
+                        if scriptThrew { return coll }
+                        this.collectionAddEntry(coll isMapKind adder valC)
+                        if scriptThrew {
+                            this.closeIteratorObject(iter)
+                            return coll
+                        }
+                    }
+                    guardC = (guardC + 1)
+                }
+                return coll
+            }
+        }
         def entries:[EvHandle] (this.forOfItemList(init))
         if scriptThrew {
             return coll
         }
         def ci:int 0
         while (ci < (array_length entries)) {
-            def entry:EvHandle (itemAt entries ci)
-            if isMapKind {
-                ; §23.1.1.2 AddEntriesFromIterable: each entry must be an
-                ; OBJECT (a TypeError otherwise), and its key and value are
-                ; Get(entry, "0") and Get(entry, "1") -- so `{}` is an entry
-                ; with an undefined key, not something to skip.
-                if (entry.isArrayValue()) {
-                    coll.mapSet((entry.getIndex(0)) (entry.getIndex(1)))
-                } {
-                    if ((false == (this.isDescriptorObject(entry))) || (this.isSymbolValue(entry))) {
-                        return (this.throwSpecError("TypeError" "Iterator value is not an entry object"))
-                    }
-                    def ek:EvHandle (this.getPropertyValue(entry "0"))
-                    if scriptThrew {
-                        return (EvValueBridge.taggedUndefined())
-                    }
-                    def ev:EvHandle (this.getPropertyValue(entry "1"))
-                    if scriptThrew {
-                        return (EvValueBridge.taggedUndefined())
-                    }
-                    coll.mapSet(ek ev)
-                }
-            } {
-                coll.setAdd(entry)
+            this.collectionAddEntry(coll isMapKind adder (itemAt entries ci))
+            if scriptThrew {
+                return coll
             }
             ci = (ci + 1)
         }
@@ -17120,7 +17620,7 @@ class ComponentEngine {
     ; was reachable only by writing the literal name `Array`, and
     ; `class L extends Array {}` had no `L.from` at all even though
     ; Object.getPrototypeOf(L) is Array. One implementation, both doors.
-    fn arrayFromValues:EvHandle (srcV:EvHandle mapFn:EvHandle) {
+    fn arrayFromValues:EvHandle (srcV:EvHandle mapFn:EvHandle mapThis:EvHandle) {
         def frItems:[EvHandle]
         def srcIterable:boolean false
         if (srcV.isArrayValue()) { srcIterable = true }
@@ -17191,13 +17691,20 @@ class ComponentEngine {
         ; The optional map function runs over each element with its index,
         ; which is what `Array.from(xs, f)` means.
         if (mapFn.isFunction()) {
+            ; §23.1.2.1 takes a THIRD argument, the `this` the map function is
+            ; called with. It was dropped, so `Array.from(xs, f, o)` ran f with
+            ; an unbound receiver and every `this.x` in it read undefined.
+            def mapCallee:EvHandle mapFn
+            if (false == (mapThis.isUndefined())) {
+                mapCallee = (mapFn.withThisForCall(mapThis))
+            }
             def mapped:[EvHandle]
             def mi3:int 0
             while (mi3 < (array_length frItems)) {
                 def mArgs:[EvHandle]
                 push mArgs (itemAt frItems mi3)
                 push mArgs (EvHandle.fromInt(mi3))
-                push mapped (this.callFnValueWithValues(mapFn mArgs))
+                push mapped (this.callFnValueWithValues(mapCallee mArgs))
                 if scriptThrew {
                     return (EvValueBridge.taggedUndefined())
                 }
@@ -17296,48 +17803,70 @@ class ComponentEngine {
     ;
     ; A plain array carries no stamp and takes the ordinary path: no lookup, no
     ; construction, no cost on the hot case.
+    ; §7.3.22 ArraySpeciesCreate: the array a method like map, filter or slice
+    ; builds is made through `this.constructor[@@species]` when the receiver has
+    ; one -- which is how a subclass keeps its own type, and how a guest
+    ; redirects the result to something else entirely. Only a CLASS-stamped
+    ; receiver was considered, so an ordinary array whose `constructor` a guest
+    ; had replaced answered a plain array and the species was never consulted.
     fn arraySpeciesResult:EvHandle (recv:EvHandle items:[EvHandle]) {
+        def plain:EvHandle (EvValueBridge.taggedArray(items))
+        ; The step is defined over IsArray(originalArray); anything else builds
+        ; an ordinary array without asking.
         if (false == (recv.isArrayValue())) {
-            return (EvValueBridge.taggedArray(items))
+            return plain
         }
-        if (false == (recv.hasOwnData("__class__"))) {
-            return (EvValueBridge.taggedArray(items))
+        def ctorV:EvHandle (this.getPropertyValue(recv "constructor"))
+        if scriptThrew {
+            return plain
         }
-        def clsName:string ((recv.getOwnData("__class__")).toString())
-        if ((strlen clsName) == 0) {
-            return (EvValueBridge.taggedArray(items))
+        if (false == (this.isDescriptorObject(ctorV))) {
+            return plain
         }
-        def ctorV:EvHandle (this.classValueFor(clsName))
-        if (false == (ctorV.isFunction())) {
-            return (EvValueBridge.taggedArray(items))
+        ; The Array global's own species answers Array itself, which is the
+        ; ordinary array this already builds -- no need to construct one.
+        if (ctorV.equals((this.builtinGlobalObject("Array")))) {
+            return plain
         }
-        ; Symbol.species names a DIFFERENT constructor to build with, which is
-        ; how a subclass opts back out to plain arrays. Absent, the class
-        ; itself is the species -- that is what Array's own species getter,
-        ; which answers `this`, means for a subclass.
         def specV:EvHandle (this.getPropertyValue(ctorV "@@species"))
         if scriptThrew {
-            return (EvValueBridge.taggedArray(items))
+            return plain
         }
-        def useCtor:EvHandle ctorV
-        if (specV.isFunction()) {
-            useCtor = specV
+        if (specV.isNull()) {
+            return plain
         }
-        ; A species that is not a class -- Array itself, most usefully -- means
-        ; an ordinary array.
-        if (false == (useCtor.hasOwnData("__classname__"))) {
-            return (EvValueBridge.taggedArray(items))
+        if (specV.isUndefined()) {
+            return plain
+        }
+        if (false == (specV.isFunction())) {
+            return (this.throwSpecError("TypeError" "Symbol.species is not a constructor"))
+        }
+        if (specV.equals((this.builtinGlobalObject("Array")))) {
+            return plain
         }
         def specArgs:[EvHandle]
-        def built:EvHandle (this.constructWithValues(useCtor specArgs useCtor))
+        push specArgs (EvHandle.fromInt((array_length items)))
+        def built:EvHandle (this.constructWithValues(specV specArgs specV))
         if scriptThrew {
-            return (EvValueBridge.taggedArray(items))
+            return (EvValueBridge.taggedUndefined())
         }
-        if (false == (built.isArrayValue())) {
-            return (EvValueBridge.taggedArray(items))
+        if (built.isArrayValue()) {
+            built.arrSetItems(items)
+            return built
         }
-        built.arrSetItems(items)
-        return built
+        ; A species that answers a plain OBJECT is legal: the method then
+        ; defines the indices and the length on it, and that object is the
+        ; result.
+        if (this.isDescriptorObject(built)) {
+            def bi:int 0
+            while (bi < (array_length items)) {
+                built.setMember((to_string bi) (itemAt items bi))
+                bi = (bi + 1)
+            }
+            built.setMember("length" (EvHandle.fromInt((array_length items))))
+            return built
+        }
+        return plain
     }
 
     fn isAsyncGeneratorValue:boolean (v:EvHandle) {
@@ -17573,6 +18102,80 @@ class ComponentEngine {
         }
         return out
     }
+    ; §13.3.3.6 IteratorBindingInitialization: an array PATTERN pulls only as
+    ; many values as it binds, and then closes the iterator -- so a hand-written
+    ; iterable sees its `return` called and a generator's `finally` runs.
+    ; Draining it instead is observable in both directions: the extra `next`
+    ; calls happen and the close does not.
+    ; `limit` below zero means "take everything", which is what a rest element
+    ; asks for; there is nothing left to close after that.
+    fn iterableTakeItems:[EvHandle] (src:EvHandle limit:int) {
+        if (limit < 0) {
+            return (this.forOfItemList(src))
+        }
+        ; The built-in kinds answer from their storage and have no guest-visible
+        ; iterator object to close, so the whole-list form is equivalent there.
+        def viaProtocol:boolean false
+        if (this.isDescriptorObject(src)) {
+            viaProtocol = true
+            if (src.isArrayValue()) { viaProtocol = false }
+            if (src.isMap()) { viaProtocol = false }
+            if (src.isSet()) { viaProtocol = false }
+            if (this.isGeneratorValue(src)) { viaProtocol = false }
+            if (src.hasOwnData("__arguments__")) { viaProtocol = false }
+        }
+        if (false == viaProtocol) {
+            return (this.forOfItemList(src))
+        }
+        def out:[EvHandle]
+        def itFn:EvHandle (this.getPropertyValue(src "@@iterator"))
+        if scriptThrew { return out }
+        if (false == (itFn.isFunction())) {
+            return (this.forOfItemList(src))
+        }
+        def noArgs:[EvHandle]
+        def iter:EvHandle (this.callFnValueWithValues((itFn.withThisForCall(src)) noArgs))
+        if scriptThrew { return out }
+        if (false == (this.isDescriptorObject(iter))) {
+            def _eIt:EvHandle (this.throwSpecError("TypeError" "Result of the Symbol.iterator method is not an object"))
+            return out
+        }
+        def exhausted:boolean false
+        def taken:int 0
+        while ((taken < limit) && (false == exhausted)) {
+            def stepArgs:[EvHandle]
+            def step:EvHandle (this.callMethodOnValue(iter "next" stepArgs))
+            if scriptThrew { return out }
+            if (false == (this.isDescriptorObject(step))) {
+                def _eSt:EvHandle (this.throwSpecError("TypeError" "Iterator result is not an object"))
+                return out
+            }
+            def doneV:EvHandle (this.getPropertyValue(step "done"))
+            if scriptThrew { return out }
+            if (doneV.toBool()) {
+                exhausted = true
+            } {
+                push out (this.getPropertyValue(step "value"))
+                if scriptThrew { return out }
+                taken = (taken + 1)
+            }
+        }
+        ; §7.4.6 IteratorClose: only when the walk stopped EARLY. An iterator
+        ; that reported done is already finished and must not be returned into.
+        if (false == exhausted) {
+            def retFn:EvHandle (this.getPropertyValue(iter "return"))
+            if scriptThrew { return out }
+            if (retFn.isFunction()) {
+                def retArgs:[EvHandle]
+                def _rv:EvHandle (this.callFnValueWithValues((retFn.withThisForCall(iter)) retArgs))
+                ; A throw from `return` is swallowed when the walk itself
+                ; completed normally -- the values are the answer.
+                scriptThrew = false
+            }
+        }
+        return out
+    }
+
     ; The tier-facing forms: the same lists as VALUE ARRAYS for the
     ; forin_keys / forof_items ops.
     fn bcForInKeys:EvHandle (target:EvHandle) {
@@ -19087,6 +19690,12 @@ class ComponentEngine {
                 if (templateChild.nodeType == "TemplateElement") {
                     ; Parse and evaluate any ${...} expressions in the template text
                     def rawText:string templateChild.value
+                    ; ES2018 kept the error for an UNTAGGED template: only a tag
+                    ; may see an element with no cooked value, because only a tag
+                    ; can read the raw text instead.
+                    if (this.hasBadEscapeMark(rawText)) {
+                        return (this.throwSpecError("SyntaxError" "Invalid escape sequence in template"))
+                    }
                     def processedText:string (this.evaluateTemplateExpressions(rawText))
                     templateText = templateText + processedText
                 }
@@ -19761,7 +20370,14 @@ class ComponentEngine {
                                 return (EvValueBridge.taggedUndefined())
                             }
                         }
-                        return (this.arrayFromValues(afSrc afMap))
+                        def afThis:EvHandle (EvValueBridge.taggedUndefined())
+                        if ((array_length node.children) > 2) {
+                            afThis = (this.evaluateExpr((itemAt node.children 2)))
+                            if scriptThrew {
+                                return (EvValueBridge.taggedUndefined())
+                            }
+                        }
+                        return (this.arrayFromValues(afSrc afMap afThis))
                     }
                     if (methodName == "isArray") {
                         def tv:EvHandle (EvValueBridge.taggedNull())
@@ -20324,6 +20940,26 @@ class ComponentEngine {
                 ; matters: it is callable and returns undefined for any
                 ; arguments, and reporting "prototype is not a function" was the
                 ; opposite of what `typeof` had just said about it.
+                ; D-PROXY: a method CALL on a proxy is a `get` of the method --
+                ; through the trap, or the target's own chain when there is none
+                ; -- followed by a call with the PROXY as the receiver. Every
+                ; branch above dispatches on the receiver's KIND, and a proxy
+                ; has none of its own, so `new Proxy([], {}).pop()` reached
+                ; "pop is not a function" for a method its target answers.
+                if (this.isProxyValue(obj)) {
+                    def pxFn:EvHandle (this.getPropertyValue(obj methodName))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    def pxArgs:[EvHandle] (this.collectCallArgs(node))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    if (pxFn.isFunction()) {
+                        return (this.callFnValueWithValues((pxFn.withThisForCall(obj)) pxArgs))
+                    }
+                    return (this.throwSpecError("TypeError" (methodName + " is not a function")))
+                }
                 def memberVal:EvHandle (obj.getMember(methodName))
                 if (memberVal.isFunction()) {
                     if (memberVal.hasOwnData("__fnprotocall__")) {
@@ -21958,6 +22594,27 @@ class ComponentEngine {
             return 0
         }
         if (cname == "Object") {
+            ; §19.1.3: `x instanceof Object` is a prototype-chain question, not
+            ; a "is it object-like" one. An object created with a null
+            ; prototype -- `Object.create(null)`, `{__proto__: null}` -- is not
+            ; an instance of Object, and answering 1 for everything said it was.
+            def objProtoO:EvHandle (this.builtinPrototype("Object"))
+            def walkO:EvHandle v
+            def stepsO:int 0
+            while (stepsO < 32) {
+                def nxtO:EvHandle (this.protoOfValue(walkO))
+                if scriptThrew {
+                    return (0 - 1)
+                }
+                if (false == (this.isDescriptorObject(nxtO))) {
+                    return 0
+                }
+                if (nxtO.equals(objProtoO)) {
+                    return 1
+                }
+                walkO = nxtO
+                stepsO = (stepsO + 1)
+            }
             return 1
         }
         if (cname == "Function") {
@@ -22018,6 +22675,49 @@ class ComponentEngine {
         if (name == "BigInt64Array") { return true }
         if (name == "BigUint64Array") { return true }
         return false
+    }
+
+    ; §23.2.3: the method surface of %TypedArray%.prototype. Every one of them
+    ; dispatches through the ARRAY registry -- a typed array IS an array value
+    ; inside this realm -- so this list only decides what is PUBLISHED, and a
+    ; name the registry does not know is skipped rather than handed out dead.
+    ; Array-only methods (push, pop, concat, splice, flat) are deliberately
+    ; absent: a typed array has a fixed length and does not have them.
+    fn typedArrayProtoNames:[string] () {
+        def out:[string]
+        push out "@@iterator"
+        push out "at"
+        push out "copyWithin"
+        push out "entries"
+        push out "every"
+        push out "fill"
+        push out "filter"
+        push out "find"
+        push out "findIndex"
+        push out "findLast"
+        push out "findLastIndex"
+        push out "forEach"
+        push out "includes"
+        push out "indexOf"
+        push out "join"
+        push out "keys"
+        push out "lastIndexOf"
+        push out "map"
+        push out "reduce"
+        push out "reduceRight"
+        push out "reverse"
+        push out "set"
+        push out "slice"
+        push out "some"
+        push out "sort"
+        push out "subarray"
+        push out "toLocaleString"
+        push out "toReversed"
+        push out "toSorted"
+        push out "toString"
+        push out "values"
+        push out "with"
+        return out
     }
 
     fn typedArrayBrandOf:string (v:EvHandle) {
@@ -23150,37 +23850,134 @@ class ComponentEngine {
         }
         w.setMember("__weakdata__" wStore)
         ; The optional iterable initialiser: entries for a WeakMap, values for
-        ; a WeakSet, and each of them checked exactly as an add would be.
+        ; a WeakSet. §24.3.1.1 step 8 reads `set` / `add` off the NEW OBJECT and
+        ; calls it per entry, so a guest that replaced the prototype method sees
+        ; them -- and a throw from it closes the iterator. The store was filled
+        ; directly instead, past both.
         if ((array_length args) > 0) {
             def wInit:EvHandle (itemAt args 0)
             if (false == ((wInit.isUndefined()) || (wInit.isNull()))) {
-                def wItems:[EvHandle] (this.forOfItemList(wInit))
+                def wAddName:string "add"
+                if (wKind == "weakmap") { wAddName = "set" }
+                def wAdder:EvHandle (this.getPropertyValue(w wAddName))
                 if scriptThrew {
                     return (EvValueBridge.taggedUndefined())
                 }
-                def wi:int 0
-                while (wi < (array_length wItems)) {
-                    def wIt:EvHandle (itemAt wItems wi)
-                    if (wKind == "weakmap") {
-                        def wK:EvHandle (this.getPropertyValue(wIt "0"))
-                        if scriptThrew {
-                            return (EvValueBridge.taggedUndefined())
-                        }
-                        def wV:EvHandle (this.getPropertyValue(wIt "1"))
-                        if scriptThrew {
-                            return (EvValueBridge.taggedUndefined())
-                        }
-                        if (false == (this.canBeWeakTarget(wK))) {
-                            return (this.throwSpecError("TypeError" "Invalid value used as weak map key"))
-                        }
-                        wStore.mapSet(wK wV)
-                    } {
-                        if (false == (this.canBeWeakTarget(wIt))) {
-                            return (this.throwSpecError("TypeError" "Invalid value used in weak set"))
-                        }
-                        wStore.setAdd(wIt)
+                def wGuest:boolean false
+                if (wAdder.isFunction()) {
+                    if (wAdder.hasFunctionNode()) { wGuest = true }
+                }
+                def wProto:boolean false
+                if (this.isDescriptorObject(wInit)) {
+                    wProto = true
+                    if (wInit.isArrayValue()) { wProto = false }
+                    if (wInit.isMap()) { wProto = false }
+                    if (wInit.isSet()) { wProto = false }
+                    if (this.isGeneratorValue(wInit)) { wProto = false }
+                    if (wInit.hasOwnData("__arguments__")) { wProto = false }
+                }
+                def wIter:EvHandle (EvValueBridge.taggedUndefined())
+                def wItems:[EvHandle]
+                if wProto {
+                    def wItFn:EvHandle (this.getPropertyValue(wInit "@@iterator"))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
                     }
-                    wi = (wi + 1)
+                    if (wItFn.isFunction()) {
+                        def wNoArgs:[EvHandle]
+                        wIter = (this.callFnValueWithValues((wItFn.withThisForCall(wInit)) wNoArgs))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                    } {
+                        wProto = false
+                    }
+                }
+                if (false == wProto) {
+                    wItems = (this.forOfItemList(wInit))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                }
+                def wGoing:boolean true
+                def wi:int 0
+                def wGuard:int 0
+                while (wGoing && (wGuard < maxLoopIterations)) {
+                    def wIt:EvHandle (EvValueBridge.taggedUndefined())
+                    if wProto {
+                        def wStepArgs:[EvHandle]
+                        def wStep:EvHandle (this.callMethodOnValue(wIter "next" wStepArgs))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        if (false == (this.isDescriptorObject(wStep))) {
+                            return (this.throwSpecError("TypeError" "Iterator result is not an object"))
+                        }
+                        def wDone:EvHandle (this.getPropertyValue(wStep "done"))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        if (wDone.toBool()) {
+                            wGoing = false
+                        } {
+                            wIt = (this.getPropertyValue(wStep "value"))
+                            if scriptThrew {
+                                return (EvValueBridge.taggedUndefined())
+                            }
+                        }
+                    } {
+                        if (wi < (array_length wItems)) {
+                            wIt = (itemAt wItems wi)
+                            wi = (wi + 1)
+                        } {
+                            wGoing = false
+                        }
+                    }
+                    if wGoing {
+                        if wGuest {
+                            def wArgsG:[EvHandle]
+                            if (wKind == "weakmap") {
+                                def wgK:EvHandle (this.getPropertyValue(wIt "0"))
+                                if (false == scriptThrew) {
+                                    def wgV:EvHandle (this.getPropertyValue(wIt "1"))
+                                    push wArgsG wgK
+                                    push wArgsG wgV
+                                }
+                            } {
+                                push wArgsG wIt
+                            }
+                            if (false == scriptThrew) {
+                                def _wr:EvHandle (this.callFnValueWithValues((wAdder.withThisForCall(w)) wArgsG))
+                            }
+                        } {
+                            if (wKind == "weakmap") {
+                                def wK:EvHandle (this.getPropertyValue(wIt "0"))
+                                if (false == scriptThrew) {
+                                    def wV:EvHandle (this.getPropertyValue(wIt "1"))
+                                    if (false == scriptThrew) {
+                                        if (false == (this.canBeWeakTarget(wK))) {
+                                            def _wt:EvHandle (this.throwSpecError("TypeError" "Invalid value used as weak map key"))
+                                        } {
+                                            wStore.mapSet(wK wV)
+                                        }
+                                    }
+                                }
+                            } {
+                                if (false == (this.canBeWeakTarget(wIt))) {
+                                    def _wt2:EvHandle (this.throwSpecError("TypeError" "Invalid value used in weak set"))
+                                } {
+                                    wStore.setAdd(wIt)
+                                }
+                            }
+                        }
+                        if scriptThrew {
+                            if wProto {
+                                this.closeIteratorObject(wIter)
+                            }
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                    }
+                    wGuard = (wGuard + 1)
                 }
             }
         }
@@ -23684,7 +24481,9 @@ class ComponentEngine {
                 if ((array_length args) > 0) { afsV = (itemAt args 0) }
                 def afmV:EvHandle (EvValueBridge.taggedUndefined())
                 if ((array_length args) > 1) { afmV = (itemAt args 1) }
-                return (this.arrayFromValues(afsV afmV))
+                def afTV:EvHandle (EvValueBridge.taggedUndefined())
+                if ((array_length args) > 2) { afTV = (itemAt args 2) }
+                return (this.arrayFromValues(afsV afmV afTV))
             }
             if (name == "of") {
                 def ofVals:[EvHandle]
@@ -23931,6 +24730,26 @@ class ComponentEngine {
                         }
                     }
                     gdsI = (gdsI + 1)
+                }
+                ; §20.1.2.9 walks OwnPropertyKeys, which includes the symbol
+                ; keys. objectKeys answers strings only, so a symbol-keyed
+                ; property was missing from the result entirely.
+                if (this.isDescriptorObject(gdsSrc)) {
+                    def gdsAll:[string] (gdsSrc.ownDataKeys())
+                    def gdsS:int 0
+                    while (gdsS < (array_length gdsAll)) {
+                        def gdsSK:string (itemAt gdsAll gdsS)
+                        if ((indexOf gdsSK "@@") == 0) {
+                            def gdsSD:EvHandle (this.ownPropertyDescriptorOf(gdsSrc gdsSK))
+                            if scriptThrew {
+                                return (EvValueBridge.taggedUndefined())
+                            }
+                            if (false == (gdsSD.isUndefined())) {
+                                gdsOut.setMember(gdsSK gdsSD)
+                            }
+                        }
+                        gdsS = (gdsS + 1)
+                    }
                 }
                 return gdsOut
             }
@@ -24961,6 +25780,50 @@ class ComponentEngine {
                 if ((fromArg.isUndefined()) || (fromArg.isNull())) {
                     return (this.throwSpecError("TypeError" "Iterator.from called on null or undefined"))
                 }
+                ; §27.1.2.1.1 GetIteratorFlattenable: an object with no
+                ; @@iterator IS the iterator, as long as it answers `next` --
+                ; which is the whole point of `Iterator.from`, and the case
+                ; that reported "object is not iterable" instead.
+                def fromIterFn:EvHandle (this.getPropertyValue(fromArg "@@iterator"))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+                if (false == (fromIterFn.isFunction())) {
+                    if (this.isDescriptorObject(fromArg)) {
+                        def fromNext:EvHandle (this.getPropertyValue(fromArg "next"))
+                        if scriptThrew {
+                            return (EvValueBridge.taggedUndefined())
+                        }
+                        if (fromNext.isFunction()) {
+                            def wrapItems:[EvHandle]
+                            def wGuard:int 0
+                            while (wGuard < maxLoopIterations) {
+                                def wStepArgs:[EvHandle]
+                                def wStep:EvHandle (this.callMethodOnValue(fromArg "next" wStepArgs))
+                                if scriptThrew {
+                                    return (EvValueBridge.taggedUndefined())
+                                }
+                                if (false == (this.isDescriptorObject(wStep))) {
+                                    return (this.throwSpecError("TypeError" "Iterator result is not an object"))
+                                }
+                                def wDone:EvHandle (this.getPropertyValue(wStep "done"))
+                                if scriptThrew {
+                                    return (EvValueBridge.taggedUndefined())
+                                }
+                                if (wDone.toBool()) {
+                                    wGuard = maxLoopIterations
+                                } {
+                                    push wrapItems (this.getPropertyValue(wStep "value"))
+                                    if scriptThrew {
+                                        return (EvValueBridge.taggedUndefined())
+                                    }
+                                    wGuard = (wGuard + 1)
+                                }
+                            }
+                            return (this.makeListIterator(wrapItems))
+                        }
+                    }
+                }
                 def fromItems:[EvHandle] (this.forOfItemList(fromArg))
                 if scriptThrew {
                     return (EvValueBridge.taggedUndefined())
@@ -25321,8 +26184,11 @@ class ComponentEngine {
                     }
                 }
                 ; NULL is a prototype too -- `Reflect.setPrototypeOf(o, null)`
-                ; detaches the chain rather than doing nothing.
-                if ((rProto.isObject()) || (rProto.isNull())) {
+                ; detaches the chain rather than doing nothing -- and so is an
+                ; ARRAY, a function, a Map or a Set. Only a plain object was
+                ; stored, so `Reflect.setPrototypeOf(o, Array.prototype)`
+                ; reported success and changed nothing.
+                if ((this.isDescriptorObject(rProto)) || (rProto.isNull())) {
                     rTgt.setProto(rProto)
                 }
                 return (EvValueBridge.taggedBoolean(true))
@@ -26317,6 +27183,19 @@ class ComponentEngine {
             g.setAttrs("@@toStringTag" false false true)
         }
         if (nsName == "Intl") { g.setMember("__nsbrand__" (EvValueBridge.taggedString("Intl"))) }
+        ; §21.3.1 / §25.5 / §27.1 / §8.1: the namespace objects are ORDINARY
+        ; objects whose [[Prototype]] is Object.prototype. With no link at all
+        ; the chain ended at the namespace itself, so `Intl.constructor` and
+        ; `Math.hasOwnProperty` were undefined.
+        def nsPlain:boolean false
+        if (nsName == "Math") { nsPlain = true }
+        if (nsName == "JSON") { nsPlain = true }
+        if (nsName == "Reflect") { nsPlain = true }
+        if (nsName == "Atomics") { nsPlain = true }
+        if (nsName == "Intl") { nsPlain = true }
+        if nsPlain {
+            g.setProto((this.builtinPrototype("Object")))
+        }
         ; Math and JSON also brand through Symbol.toStringTag, which is what
         ; `Object.prototype.toString.call(Math)` reads. The __nsbrand__ slot
         ; above is internal and answered nothing to guest code.
@@ -26332,6 +27211,10 @@ class ComponentEngine {
         if (nsName == "Set") { hasSpecies = true }
         if (nsName == "RegExp") { hasSpecies = true }
         if (nsName == "Promise") { hasSpecies = true }
+        ; §25.1.4.3 / §25.2.4.2: the buffer constructors publish it too, and
+        ; `ArrayBuffer[Symbol.species]` was undefined.
+        if (nsName == "ArrayBuffer") { hasSpecies = true }
+        if (nsName == "SharedArrayBuffer") { hasSpecies = true }
         if hasSpecies {
             g.defineGetter("@@species" (this.sharedNativeMethod("speciesget" "get")))
             g.setAttrs("@@species" false false true)
@@ -26413,6 +27296,21 @@ class ComponentEngine {
         while (si < (array_length statics)) {
             def sn:string (itemAt statics si)
             def stv:EvHandle (EvValueBridge.taggedNativeStatic(nsName sn))
+            ; §20.1.2.12-13: Number.parseInt and Number.parseFloat ARE the
+            ; global functions of the same name -- the same function object, not
+            ; a second one that behaves alike. Minting a fresh static made the
+            ; identity comparison the suite checks answer false.
+            if (nsName == "Number") {
+                if ((sn == "parseInt") || (sn == "parseFloat")) {
+                    def gNum:EvHandle (this.theGlobalObject())
+                    if (gNum.hasOwnData(sn)) {
+                        g.setMember(sn (gNum.getOwnData(sn)))
+                        g.setAttrs(sn true false true)
+                        si = (si + 1)
+                        continue
+                    }
+                }
+            }
             stv.setMember("length" (EvHandle.fromInt((this.builtinStaticArity(nsName sn)))))
             stv.setAttrs("length" false false true)
             stv.setMember("name" (EvValueBridge.taggedString(sn)))
@@ -26423,6 +27321,16 @@ class ComponentEngine {
             ; tell which constructor was asked.
             if (nsName == "Intl") {
                 if (this.intlIsCtorName(sn)) {
+                    ; D-INTL: each of them is a real constructor, so it carries
+                    ; a `prototype` whose `constructor` points back. Without the
+                    ; pair, `new Intl.NumberFormat() instanceof Intl.NumberFormat`
+                    ; was not merely false -- OrdinaryHasInstance reports a
+                    ; TypeError for a constructor whose prototype is undefined.
+                    def iproto:EvHandle (this.builtinPrototype(("Intl." + sn)))
+                    stv.setMember("prototype" iproto)
+                    stv.setAttrs("prototype" false false false)
+                    iproto.setMember("constructor" stv)
+                    iproto.setAttrs("constructor" true false true)
                     def slo:EvHandle (EvValueBridge.taggedNativeStatic("Intl" (sn + ".supportedLocalesOf")))
                     slo.setMember("length" (EvHandle.fromInt(1)))
                     slo.setAttrs("length" false false true)
@@ -26489,6 +27397,14 @@ class ComponentEngine {
     }
 
     fn kindForCtorName:string (nsName:string) {
+        ; D-INTL: the Intl constructors live on a namespace, so their prototype
+        ; is keyed by the dotted name -- `Intl.NumberFormat` -- and serves the
+        ; same receiver kind the instances dispatch on.
+        if (nsName == "Intl.Collator") { return "intlcollator" }
+        if (nsName == "Intl.NumberFormat") { return "intlnumberformat" }
+        if (nsName == "Intl.DateTimeFormat") { return "intldatetimeformat" }
+        if (nsName == "Intl.PluralRules") { return "intlpluralrules" }
+        if (nsName == "Intl.ListFormat") { return "intllistformat" }
         if (nsName == "Array") { return "array" }
         if (nsName == "String") { return "string" }
         if (nsName == "Number") { return "number" }
@@ -26799,6 +27715,10 @@ class ComponentEngine {
         if (kind == "set") {
             push out "@@iterator"
             push out "add"
+            ; §24.2.3.5: a Set has `entries` too -- it yields [v, v] pairs, so a
+            ; Set and a Map can be walked by the same code. The implementation
+            ; was there; only the published name was missing.
+            push out "entries"
             push out "clear"
             push out "delete"
             push out "forEach"
@@ -26830,6 +27750,10 @@ class ComponentEngine {
             push out "getSeconds"
             push out "getTime"
             push out "getTimezoneOffset"
+            ; §21.4.4.45: Date.prototype[@@toPrimitive], which is what makes
+            ; `+d` a number and `"" + d` the date string. Absent, the pair was
+            ; decided by valueOf alone.
+            push out "@@toPrimitive"
             push out "getUTCDate"
             push out "getUTCDay"
             push out "getUTCFullYear"
@@ -26967,6 +27891,16 @@ class ComponentEngine {
         if (nsName != "Object") {
             p.setProto((this.builtinPrototype("Object")))
         }
+        ; §23.2.7: a CONCRETE typed array's prototype inherits from
+        ; %TypedArray%.prototype, where every method lives, and carries its own
+        ; BYTES_PER_ELEMENT. Chained to Object.prototype instead, the whole
+        ; method surface was invisible: `Int8Array.prototype.map` was undefined
+        ; on an engine whose instances answer `map` perfectly well.
+        if (this.isTypedArrayCtorName(nsName)) {
+            p.setProto((this.builtinPrototype("TypedArray")))
+            p.setMember("BYTES_PER_ELEMENT" (EvHandle.fromInt((this.typedArrayWidth(nsName)))))
+            p.setAttrs("BYTES_PER_ELEMENT" false false false)
+        }
         ; %AsyncFunction.prototype% sits BELOW Function.prototype, not beside
         ; it: an async function is a function, so everything on Function
         ; .prototype still reaches it.
@@ -26998,15 +27932,29 @@ class ComponentEngine {
         if (nsName == "Symbol") {
             p.setMember("@@toPrimitive" (this.sharedNativeMethod("symbolproto" "@@toPrimitive")))
             p.setAttrs("@@toPrimitive" false false true)
+            ; ES2019 Symbol.prototype.description is an ACCESSOR on the
+            ; prototype, not a data property each symbol carries -- which is
+            ; what `Symbol.prototype.hasOwnProperty("description")` asks.
+            p.defineGetter("description" (this.sharedNativeMethod("symbolproto" "description")))
+            p.setAttrs("description" false false true)
         }
         ; D-PROTOCTOR: every prototype carries `constructor` back to its global.
         ; Safe against the cycle (global sets prototype, prototype sets
         ; constructor) because both cache their object BEFORE populating it.
+        ; D-INTL: an `Intl.<Ctor>` prototype has no global of its own -- its
+        ; constructor is a property of the Intl namespace, and the link is made
+        ; where that property is minted. Asking builtinGlobalObject for it here
+        ; would invent a namespace named "Intl.NumberFormat".
+        if (this.isIntlProtoName(nsName)) {
+            p.setMember("@@toStringTag" (EvValueBridge.taggedString(nsName)))
+            p.setAttrs("@@toStringTag" false false true)
+        } {
         def ctorG:EvHandle (this.builtinGlobalObject(nsName))
         if (false == (ctorG.isNull())) {
             p.setMember("constructor" ctorG)
             ; Non-enumerable, like every other property of a built-in prototype.
             p.setAttrs("constructor" true false true)
+        }
         }
         ; D-CLASSOF: Number.prototype, String.prototype and Boolean.prototype are
         ; themselves boxed primitives holding +0, "" and false. That is not a
@@ -27071,6 +28019,16 @@ class ComponentEngine {
             push unsNames "includes"
             push unsNames "keys"
             push unsNames "values"
+            ; Every method added after ES2015 joins the list as it lands: a
+            ; `with` block must not have `flat` shadow a variable of that name.
+            push unsNames "at"
+            push unsNames "findLast"
+            push unsNames "findLastIndex"
+            push unsNames "flat"
+            push unsNames "flatMap"
+            push unsNames "toReversed"
+            push unsNames "toSorted"
+            push unsNames "toSpliced"
             def uni:int 0
             while (uni < (array_length unsNames)) {
                 uns.setMember((itemAt unsNames uni) (EvValueBridge.taggedBoolean(true)))
@@ -27098,6 +28056,12 @@ class ComponentEngine {
             push rgNames "multiline"
             push rgNames "sticky"
             push rgNames "unicode"
+            ; The flags added after ES2015 are accessors on the prototype too,
+            ; and `flags` reads them BY NAME -- absent, the `d`, `s` and `v`
+            ; flags could not show up in it at all.
+            push rgNames "hasIndices"
+            push rgNames "dotAll"
+            push rgNames "unicodeSets"
             push rgNames "flags"
             def rgi:int 0
             while (rgi < (array_length rgNames)) {
@@ -27105,6 +28069,23 @@ class ComponentEngine {
                 p.defineGetter(rgn (this.sharedNativeMethod("regexpget" rgn)))
                 p.setAttrs(rgn false false true)
                 rgi = (rgi + 1)
+            }
+        }
+        ; %TypedArray%.prototype itself: the shared method surface the concrete
+        ; prototypes inherit. It is not reachable from kindForCtorName because
+        ; the kind it serves ("array") is Array.prototype's, and publishing the
+        ; whole array list here would give a typed array `push` and `concat`.
+        if (nsName == "TypedArray") {
+            p.setMember("__protokind__" (EvValueBridge.taggedString("array")))
+            def taNames:[string] (this.typedArrayProtoNames())
+            def tai:int 0
+            while (tai < (array_length taNames)) {
+                def tanm:string (itemAt taNames tai)
+                if (this.hasBuiltin("array" tanm)) {
+                    p.setMember(tanm (this.sharedNativeMethod("array" tanm)))
+                    p.setAttrs(tanm true false true)
+                }
+                tai = (tai + 1)
             }
         }
         def kind:string (this.kindForCtorName(nsName))
@@ -27135,6 +28116,19 @@ class ComponentEngine {
                 }
                 if (nm == "valueOf") {
                     if (false == (this.ownsValueOf(nsName))) {
+                        publishHere = false
+                    }
+                }
+                ; §10.3.3 / §11.3.3: `compare` and `format` are ACCESSORS whose
+                ; getter hands back a function BOUND to the collator or the
+                ; formatter -- which is what makes `arr.sort(c.compare)` and
+                ; `map(nf.format)` work at all. Published as plain methods they
+                ; lost the receiver the moment they were detached, and sorted by
+                ; the wrong locale in silence.
+                if (this.isIntlProtoName(nsName)) {
+                    if ((nm == "compare") || (nm == "format")) {
+                        p.defineGetter(nm (this.sharedNativeMethod("intlbound" nm)))
+                        p.setAttrs(nm false false true)
                         publishHere = false
                     }
                 }
@@ -27566,6 +28560,7 @@ class ComponentEngine {
         if (kind == "set") {
             if (name == "add") { return 1 }
             if (name == "clear") { return 0 }
+            if (name == "entries") { return 0 }
             if (name == "delete") { return 1 }
             if (name == "forEach") { return 1 }
             if (name == "has") { return 1 }
@@ -27676,6 +28671,16 @@ class ComponentEngine {
         }
         if (kind == "symbolproto") {
             if (name == "@@toPrimitive") { return 1 }
+        }
+        if (kind == "date") {
+            if (name == "@@toPrimitive") { return 1 }
+        }
+        if (kind == "symbolproto") {
+            if (name == "description") { return 0 }
+        }
+        if (kind == "intlbound") {
+            if (name == "compare") { return 0 }
+            if (name == "format") { return 0 }
         }
         if (kind == "Generator") {
             if (name == "next") { return 1 }
@@ -28380,6 +29385,49 @@ class ComponentEngine {
     ; the time value lives on the object, so there is nothing to compute from a
     ; receiver that has none.
     fn invokeDateMethod:EvHandle (name:string recv:EvHandle args:[EvHandle]) {
+        ; §21.4.4.45 is the one Date.prototype method that is NOT about dates:
+        ; it runs OrdinaryToPrimitive on ANY object receiver, with "default"
+        ; meaning "string" -- which is the whole reason it exists -- and it is
+        ; borrowed onto other objects to test exactly that.
+        if (name == "@@toPrimitive") {
+            if (false == (this.isDescriptorObject(recv))) {
+                return (this.throwSpecError("TypeError" "Date.prototype[Symbol.toPrimitive] called on a non-object"))
+            }
+            def hintS:string ""
+            if ((array_length args) > 0) {
+                hintS = (this.toStringOf((itemAt args 0)))
+                if scriptThrew {
+                    return (EvValueBridge.taggedUndefined())
+                }
+            }
+            def wantStr:boolean true
+            if (hintS == "number") { wantStr = false }
+            if (((hintS != "number") && (hintS != "string")) && (hintS != "default")) {
+                return (this.throwSpecError("TypeError" "Invalid hint: " + hintS))
+            }
+            def firstM:string "valueOf"
+            def secondM:string "toString"
+            if wantStr {
+                firstM = "toString"
+                secondM = "valueOf"
+            }
+            def noArgsP:[EvHandle]
+            def r1:EvHandle (this.callMethodOnValue(recv firstM noArgsP))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+            if (false == (this.isDescriptorObject(r1))) {
+                return r1
+            }
+            def r2:EvHandle (this.callMethodOnValue(recv secondM noArgsP))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+            if (false == (this.isDescriptorObject(r2))) {
+                return r2
+            }
+            return (this.throwSpecError("TypeError" "Cannot convert object to primitive value"))
+        }
         if (false == (recv.isObject())) {
             return (this.throwSpecError("TypeError" ("Date.prototype." + name + " called on a non-Date")))
         }
@@ -28916,6 +29964,49 @@ class ComponentEngine {
             return (EvValueBridge.taggedUndefined())
         }
         if (kind == "regexpget") {
+            ; §22.2.6.4: `flags` is GENERIC. It reads each flag as a PROPERTY of
+            ; the receiver, in a fixed order, so it answers for a Proxy, a
+            ; subclass instance or any object carrying those properties.
+            ; Composed from the internal flag string instead, it answered for a
+            ; real RegExp alone and threw for everything else -- and the order
+            ; of the reads, which is what the compat suite observes through a
+            ; proxy, was invisible.
+            if (name == "flags") {
+                if (false == (this.isDescriptorObject(recv))) {
+                    return (this.throwSpecError("TypeError" "RegExp.prototype.flags getter called on a non-object"))
+                }
+                def fProps:[string]
+                def fChars:[string]
+                push fProps "hasIndices"
+                push fChars "d"
+                push fProps "global"
+                push fChars "g"
+                push fProps "ignoreCase"
+                push fChars "i"
+                push fProps "multiline"
+                push fChars "m"
+                push fProps "dotAll"
+                push fChars "s"
+                push fProps "unicode"
+                push fChars "u"
+                push fProps "unicodeSets"
+                push fChars "v"
+                push fProps "sticky"
+                push fChars "y"
+                def fOut:string ""
+                def fi:int 0
+                while (fi < (array_length fProps)) {
+                    def fv:EvHandle (this.getPropertyValue(recv (itemAt fProps fi)))
+                    if scriptThrew {
+                        return (EvValueBridge.taggedUndefined())
+                    }
+                    if (fv.toBool()) {
+                        fOut = (fOut + (itemAt fChars fi))
+                    }
+                    fi = (fi + 1)
+                }
+                return (EvValueBridge.taggedString(fOut))
+            }
             def isRe:boolean false
             if (recv.isObject()) {
                 if (recv.hasOwnData("__regex__")) { isRe = true }
@@ -28953,6 +30044,15 @@ class ComponentEngine {
             }
             if (name == "unicode") {
                 return (EvValueBridge.taggedBoolean(((indexOf rgFlags "u") >= 0)))
+            }
+            if (name == "hasIndices") {
+                return (EvValueBridge.taggedBoolean(((indexOf rgFlags "d") >= 0)))
+            }
+            if (name == "dotAll") {
+                return (EvValueBridge.taggedBoolean(((indexOf rgFlags "s") >= 0)))
+            }
+            if (name == "unicodeSets") {
+                return (EvValueBridge.taggedBoolean(((indexOf rgFlags "v") >= 0)))
             }
             if (name == "flags") {
                 def fOut:string ""
@@ -29173,8 +30273,53 @@ class ComponentEngine {
         if (kind == "date") {
             return (this.invokeDateMethod(name recv args))
         }
+        ; The bound comparator / formatter an Intl accessor answers. It is the
+        ; SAME function object on every read -- a guest may compare two reads,
+        ; or use one as a memo key -- so it is cached on the instance.
+        if (kind == "intlbound") {
+            def ikindV:EvHandle (recv.getMember("__intlkind__"))
+            if (false == (ikindV.isString())) {
+                return (this.throwSpecError("TypeError" ("Intl.prototype." + (name + " getter called on an incompatible receiver"))))
+            }
+            def slotName:string ("__intlbound_" + (name + "__"))
+            if (recv.hasOwnData(slotName)) {
+                return (recv.getOwnData(slotName))
+            }
+            def realKind:string ("intl" + (ikindV.stringOf()))
+            def boundFn:EvHandle ((this.sharedNativeMethod(realKind name)).withThisForCall(recv))
+            recv.setMember(slotName boundFn)
+            recv.setAttrs(slotName false false false)
+            return boundFn
+        }
         ; Symbol.prototype.valueOf and Symbol.prototype[@@toPrimitive] both
         ; answer thisSymbolValue: the symbol, unboxed from a wrapper if need be.
+        if (kind == "symbolproto") {
+            if (name == "description") {
+                def dSym:EvHandle (this.symbolOfReceiver(recv))
+                if (dSym.isNull()) {
+                    return (this.throwSpecError("TypeError" "Symbol.prototype.description requires that 'this' be a Symbol"))
+                }
+                ; The mint records the description on the symbol, and records
+                ; `Symbol()` with no argument as UNDEFINED rather than the empty
+                ; string -- the two are distinguishable and `__symbol__` alone
+                ; cannot tell them apart.
+                if (dSym.hasOwnData("__symhasdesc__")) {
+                    def dRaw:EvHandle (dSym.getMember("__symbol__"))
+                    if (dRaw.isString()) {
+                        return dRaw
+                    }
+                }
+                ; A WELL-KNOWN symbol is minted elsewhere and carries no
+                ; marker, but its description is its name and never empty.
+                def dWk:EvHandle (dSym.getMember("__symbol__"))
+                if (dWk.isString()) {
+                    if ((strlen (dWk.stringOf())) > 0) {
+                        return dWk
+                    }
+                }
+                return (EvValueBridge.taggedUndefined())
+            }
+        }
         if ((name == "valueOf") || (kind == "symbolproto")) {
             def symV:EvHandle (this.symbolOfReceiver(recv))
             if (false == (symV.isNull())) {
@@ -30291,11 +31436,19 @@ class ComponentEngine {
         }
         ; ---- Map / Set -------------------------------------------------------
         if (kind == "map") {
+                    ; §24.1.3: every Map.prototype method requires `this` to
+                    ; have the [[MapData]] slot. Map.prototype itself has none,
+                    ; so `Map.prototype.get(k)` is a TypeError rather than an
+                    ; answer -- which is how a guest tells the prototype from an
+                    ; instance.
+                    if (false == (recv.isMap())) {
+                        return (this.throwSpecError("TypeError" ("Method Map.prototype." + (name + " called on incompatible receiver"))))
+                    }
                     if (name == "set") {
                         def k:EvHandle (EvValueBridge.taggedNull())
                         def v:EvHandle (EvValueBridge.taggedUndefined())
                         if ((array_length args) > 0) {
-                            k = (itemAt args 0)
+                            k = (this.normalizeZeroKey((itemAt args 0)))
                         }
                         if ((array_length args) > 1) {
                             v = (itemAt args 1)
@@ -30374,6 +31527,12 @@ class ComponentEngine {
                     }
         }
         if (kind == "set") {
+                    ; §24.2.3: the [[SetData]] brand check, as for Map. Without
+                    ; it `Set.prototype.has(x)` answered false for the prototype
+                    ; instead of refusing a receiver that is not a Set.
+                    if (false == (recv.isSet())) {
+                        return (this.throwSpecError("TypeError" ("Method Set.prototype." + (name + " called on incompatible receiver"))))
+                    }
                     ; D-SETOPS: the ES2025 set operations. Each takes a
                     ; SET-LIKE -- `size`, `has` and `keys` -- rather than a Set,
                     ; so a Map or a guest object that offers those three is a
@@ -30463,7 +31622,7 @@ class ComponentEngine {
                     }
                     if (name == "add") {
                         if ((array_length args) > 0) {
-                            recv.setAdd((itemAt args 0))
+                            recv.setAdd((this.normalizeZeroKey((itemAt args 0))))
                         }
                         return recv
                     }
@@ -31404,7 +32563,14 @@ class ComponentEngine {
                         if (start > n) {
                             start = n
                         }
-                        def delCount:int (n - start)
+                        ; §23.1.3.28: with NO arguments at all nothing is
+                        ; deleted; with one, everything from `start` is. It
+                        ; deleted to the end in both cases, so `a.splice()`
+                        ; emptied the array.
+                        def delCount:int 0
+                        if ((array_length args) == 1) {
+                            delCount = (n - start)
+                        }
                         if ((array_length args) > 1) {
                             delCount = (to_int ((itemAt args 1).toNumber()))
                         }
@@ -31454,6 +32620,15 @@ class ComponentEngine {
                             def q:int 0
                             while (q < alen) {
                                 push items (this.arrayElemAt(recv q))
+                                ; §22.1.3.1 step 5.c.ii reads each element in
+                                ; turn, so a getter that throws ENDS the concat
+                                ; -- and the loop must notice. Carrying on past
+                                ; it kept reading an array-like whose `length`
+                                ; says 2^53-1, which is not slow but unbounded:
+                                ; the host ran out of memory.
+                                if scriptThrew {
+                                    return (EvValueBridge.taggedUndefined())
+                                }
                                 q = (q + 1)
                             }
                         } {
@@ -31479,6 +32654,17 @@ class ComponentEngine {
                                 }
                                 while (r < avLen) {
                                     push items (this.arrayElemAt(av r))
+                                    if scriptThrew {
+                                        return (EvValueBridge.taggedUndefined())
+                                    }
+                                    ; The result of a concat is an ARRAY, so it
+                                    ; cannot be longer than an array may be. A
+                                    ; spreadable whose `length` is past that is
+                                    ; a TypeError rather than an allocation the
+                                    ; host cannot finish.
+                                    if ((array_length items) > 4294967294) {
+                                        return (this.throwSpecError("TypeError" "Invalid array length"))
+                                    }
                                     r = (r + 1)
                                 }
                             } {
@@ -32507,6 +33693,12 @@ class ComponentEngine {
         ; because nothing here collects; the KEY CHECK is the observable part
         ; and is enforced.
         if ((kind == "weakmap") || (kind == "weakset")) {
+            ; §24.3.3 / §24.4.3: the [[WeakMapData]] / [[WeakSetData]] brand
+            ; check. The prototype has no slot, so `WeakMap.prototype.has(o)` is
+            ; a TypeError rather than a quiet false.
+            if (false == (recv.hasOwnData("__weakdata__"))) {
+                return (this.throwSpecError("TypeError" ("Method " + (name + " called on incompatible receiver"))))
+            }
             def wkStore:EvHandle (recv.getMember("__weakdata__"))
             def wkArg:EvHandle (EvValueBridge.taggedUndefined())
             if ((array_length args) > 0) { wkArg = (itemAt args 0) }
@@ -33874,6 +35066,7 @@ class ComponentEngine {
             def tpCallable:boolean (tpFn.hasFunctionNode())
             if (tpFn.isBuiltinMethod()) {
                 if ((tpFn.builtinKindOf()) == "symbolproto") { tpCallable = true }
+                if ((tpFn.builtinKindOf()) == "date") { tpCallable = true }
             }
             if tpCallable {
                 def hint:string "number"
@@ -34491,6 +35684,22 @@ class ComponentEngine {
         return ""
     }
 
+    ; The flag letters in the order §22.2.6.4 composes them, dropping anything
+    ; that is not a flag. Used wherever a `flags` string is handed to a guest.
+    fn canonicalRegexFlags:string (flags:string) {
+        def order:string "dgimsuvy"
+        def out:string ""
+        def i:int 0
+        while (i < (strlen order)) {
+            def c:string (substring order i (i + 1))
+            if ((indexOf flags c) >= 0) {
+                out = (out + c)
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
     fn makeRegexValue:EvHandle (pattern:string flags:string) {
         def keysR:[string]
         def valsR:[EvHandle]
@@ -34499,7 +35708,10 @@ class ComponentEngine {
         r.setAttrs("__regex__" false false false)
         r.setMember("source" (EvValueBridge.taggedString(pattern)))
         r.setAttrs("source" false false false)
-        r.setMember("flags" (EvValueBridge.taggedString(flags)))
+        ; §22.2.6.4 orders the flags d g i m s u v y whatever order the literal
+        ; wrote them in, so `/./igm.flags` is "gim". The source text was stored
+        ; verbatim, which is the one place the canonical order was observable.
+        r.setMember("flags" (EvValueBridge.taggedString((this.canonicalRegexFlags(flags)))))
         r.setAttrs("flags" false false false)
         r.setMember("global" (EvValueBridge.taggedBoolean(((indexOf flags "g") >= 0))))
         r.setAttrs("global" false false false)
@@ -34829,8 +36041,10 @@ class ComponentEngine {
         pk.setMember("__protokind__" (EvValueBridge.taggedString(nextKind)))
         pk.setMember("next" (this.sharedNativeMethod(nextKind "next")))
         pk.setAttrs("next" true false true)
-        pk.setMember("@@iterator" (this.sharedNativeMethod("listiterator" "@@iterator")))
-        pk.setAttrs("@@iterator" true false true)
+        ; @@iterator is INHERITED from %IteratorPrototype% -- an own copy here
+        ; is a property the spec says these prototypes do not have, and
+        ; `%MapIteratorPrototype%.hasOwnProperty(Symbol.iterator)` is how the
+        ; chain is checked.
         pk.setMember("@@toStringTag" (EvValueBridge.taggedString(tag)))
         pk.setAttrs("@@toStringTag" false false true)
         this.installIteratorHelpers(pk)
@@ -34870,6 +36084,10 @@ class ComponentEngine {
         p.setAttrs("next" true false true)
         p.setMember("@@iterator" (this.sharedNativeMethod("listiterator" "@@iterator")))
         p.setAttrs("@@iterator" true false true)
+        ; §27.1.2.1: %IteratorPrototype%[@@toStringTag] is "Iterator". The
+        ; concrete iterator prototypes below override it with their own tag.
+        p.setMember("@@toStringTag" (EvValueBridge.taggedString("Iterator")))
+        p.setAttrs("@@toStringTag" true false true)
         this.installIteratorHelpers(p)
         return p
     }
@@ -36636,7 +37854,16 @@ class ComponentEngine {
             }
         }
         def direct:EvHandle (obj.getMember(key))
-        if (false == (direct.isUndefined())) {
+        def directPresent:boolean (false == (direct.isUndefined()))
+        ; D-PROTO: an ARRAY or a MAP answers a raw NULL for a key it does not
+        ; hold, which is not the same as holding null. Taken as a value, the
+        ; walk below never ran for either, so `Reflect.get([], "pop")` -- and
+        ; every method read through a proxy over one -- answered null for a
+        ; method the prototype publishes.
+        if (direct.isNull()) {
+            directPresent = (obj.hasOwnData(key))
+        }
+        if directPresent {
             return direct
         }
         ; D-PROTO: an ARRAY carries no prototype link of its own, so the value
@@ -37869,6 +39096,11 @@ class ComponentEngine {
         }
         if hasDesc {
             minted.setMember("description" (EvValueBridge.taggedString(desc)))
+            ; A marker slot, because "described with the empty string" and "not
+            ; described at all" are different answers and an undefined member
+            ; cannot be told from an absent one at the value layer.
+            minted.setMember("__symhasdesc__" (EvValueBridge.taggedBoolean(true)))
+            minted.setAttrs("__symhasdesc__" false false false)
         } {
             minted.setMember("description" (EvValueBridge.taggedUndefined()))
         }
@@ -39510,6 +40742,87 @@ class ComponentEngine {
         return (this.toStringOf((itemAt list 0)))
     }
 
+    ; §6.2.2 IsStructurallyValidLanguageTag, to the depth this realm needs: the
+    ; language subtag is 2-3 or 5-8 ALPHABETIC characters and every subtag after
+    ; it is 1-8 alphanumerics. That single rule is what rejects a grandfathered
+    ; tag (`i-klingon`) and a private-use one (`x-en-US-12345`) alike -- both
+    ; open with a one-character subtag, which no language tag may.
+    fn intlTagIsWellFormed:boolean (tag:string) {
+        if ((this.cuLen(tag)) == 0) { return false }
+        def parts:[string] (strsplit tag "-")
+        def i:int 0
+        while (i < (array_length parts)) {
+            def p:string (itemAt parts i)
+            def np:int (this.cuLen(p))
+            if (np == 0) { return false }
+            if (np > 8) { return false }
+            def alpha:boolean true
+            def alnum:boolean true
+            def c:int 0
+            while (c < np) {
+                def ch:int (this.cuUnitAt(p c))
+                def isAl:boolean false
+                if ((ch >= 65) && (ch <= 90)) { isAl = true }
+                if ((ch >= 97) && (ch <= 122)) { isAl = true }
+                def isDi:boolean false
+                if ((ch >= 48) && (ch <= 57)) { isDi = true }
+                if (false == isAl) { alpha = false }
+                if (false == (isAl || isDi)) { alnum = false }
+                c = (c + 1)
+            }
+            if (false == alnum) { return false }
+            if (i == 0) {
+                if (false == alpha) { return false }
+                if (np < 2) { return false }
+                if (np == 4) { return false }
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; §9.2.1 CanonicalizeLocaleList: every requested tag is checked BEFORE
+    ; anything is resolved, and the first malformed one is a RangeError. An
+    ; absent locales argument requests nothing and so cannot be malformed.
+    fn intlCheckTags:boolean (v:EvHandle) {
+        def list:[EvHandle] (this.intlRequestedTag(v))
+        def i:int 0
+        while (i < (array_length list)) {
+            def s:string (this.toStringOf((itemAt list i)))
+            if scriptThrew { return false }
+            ; The engine's own callers -- Number.prototype.toLocaleString and
+            ; the Date ones -- spell "no locale requested" as the EMPTY string
+            ; rather than as undefined, so it cannot be a malformed tag here.
+            if ((strlen s) == 0) {
+                i = (i + 1)
+                continue
+            }
+            if (false == (this.intlTagIsWellFormed(s))) {
+                def _bad:EvHandle (this.throwSpecError("RangeError" ("Incorrect locale information provided: " + s)))
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; The constructor a resolved Intl kind belongs to. Inverse of the
+    ; kind-for-name table, and what names the prototype an instance is given.
+    fn intlCtorNameForKind:string (kind:string) {
+        if (kind == "collator") { return "Collator" }
+        if (kind == "numberformat") { return "NumberFormat" }
+        if (kind == "datetimeformat") { return "DateTimeFormat" }
+        if (kind == "pluralrules") { return "PluralRules" }
+        if (kind == "listformat") { return "ListFormat" }
+        return ""
+    }
+
+    ; An `Intl.<Ctor>` prototype key, the form builtinPrototype is asked for.
+    fn isIntlProtoName:boolean (nsName:string) {
+        if ((strlen nsName) < 6) { return false }
+        return ((substring nsName 0 5) == "Intl.")
+    }
+
     ; §6.2.3 CanonicalizeUnicodeLocaleId, to the extent this realm models it:
     ; the language subtag lowercases, a script subtag title-cases, a region
     ; subtag uppercases. `EN-latn-us` canonicalises to `en-Latn-US`.
@@ -40380,12 +41693,18 @@ class ComponentEngine {
         def optV:EvHandle (EvValueBridge.taggedUndefined())
         if ((array_length args) > 0) { locV = (itemAt args 0) }
         if ((array_length args) > 1) { optV = (itemAt args 1) }
+        def _tagsOk:boolean (this.intlCheckTags(locV))
+        if scriptThrew { return (EvValueBridge.taggedUndefined()) }
         def tag:string (this.intlFirstTag(locV))
         if scriptThrew { return (EvValueBridge.taggedUndefined()) }
         def idx:int (this.localeIndexOf(tag))
         def keys:[string]
         def vals:[EvHandle]
         def o:EvHandle (EvValueBridge.taggedObject(keys vals))
+        ; D-INTL: an instance inherits from its constructor's prototype, which
+        ; is what `instanceof` walks and where `format`/`resolvedOptions` are
+        ; read from as values. The hidden slots below still drive dispatch.
+        def ictor:string (this.intlCtorNameForKind(kind))
         o.setMember("__intlkind__" (EvValueBridge.taggedString(kind)))
         o.setMember("__intllocale__" (EvHandle.fromInt(idx)))
         ; The tailorings are keyed by tag, not by the data table, so a locale
@@ -40481,7 +41800,14 @@ class ComponentEngine {
             if (tStyle == "full") { hourW = 0 }
             o.setMember("__intlhourw__" (EvHandle.fromInt(hourW)))
         }
-        o.setProto((this.builtinPrototype("Object")))
+        ; The prototype is set LAST: the option arms above rebuild nothing, but
+        ; an earlier link here was overwritten by the Object.prototype one this
+        ; replaces, which is why every `instanceof Intl.NumberFormat` was false.
+        if ((strlen ictor) > 0) {
+            o.setProto((this.builtinPrototype(("Intl." + ictor))))
+        } {
+            o.setProto((this.builtinPrototype("Object")))
+        }
         return o
     }
 
@@ -41221,6 +42547,12 @@ class ComponentEngine {
         ; The value properties of the global object. `this.NaN` read undefined
         ; because they lived only as names the resolver knew about.
         if (false == (g.hasOwnData("NaN"))) {
+            ; §19.1.1 globalThis is an ordinary DATA property of the global
+            ; object -- writable, non-enumerable, configurable -- that points at
+            ; the object itself. It was answered by the name resolver alone, so
+            ; `'globalThis' in globalThis` was false and it had no descriptor.
+            g.setMember("globalThis" g)
+            g.setAttrs("globalThis" true false true)
             g.setMember("NaN" (EvValueBridge.taggedNumber((0.0 / 0.0))))
             g.setAttrs("NaN" false false false)
             g.setMember("Infinity" (EvValueBridge.taggedNumber((1.0 / 0.0))))
@@ -41284,6 +42616,25 @@ class ComponentEngine {
             push gnames "WeakRef"
             push gnames "FinalizationRegistry"
             push gnames "performance"
+            ; The keyed collections, Symbol and the typed arrays were missing,
+            ; so `'Int8Array' in globalThis` was false and `globalThis.Map` was
+            ; undefined for constructors the bare names resolve to perfectly
+            ; well -- which is how a feature test that reaches a constructor
+            ; through the global object concludes it does not exist.
+            push gnames "Map"
+            push gnames "Set"
+            push gnames "Symbol"
+            push gnames "Int8Array"
+            push gnames "Uint8Array"
+            push gnames "Uint8ClampedArray"
+            push gnames "Int16Array"
+            push gnames "Uint16Array"
+            push gnames "Int32Array"
+            push gnames "Uint32Array"
+            push gnames "Float32Array"
+            push gnames "Float64Array"
+            push gnames "BigInt64Array"
+            push gnames "BigUint64Array"
             ; The error constructors are globals too -- getOwnPropertyNames on
             ; the global object is expected to list every one of them.
             def enames:[string] (this.errorKindNames())
@@ -42228,6 +43579,13 @@ class ComponentEngine {
     }
 
     fn initFromBuiltinBase:void (baseName:string inst:EvHandle args:[EvHandle]) {
+        ; §27.1.3.1: %Iterator% gives a subclass instance NO internal state --
+        ; it exists to put %IteratorPrototype% on the chain. Calling it here
+        ; reached the "not directly constructable" refusal, so
+        ; `class C extends Iterator {}` could not be instantiated at all.
+        if (baseName == "Iterator") {
+            return
+        }
         def built:EvHandle (this.callBuiltinCtorValues(baseName args true))
         if scriptThrew {
             return
@@ -42419,25 +43777,34 @@ class ComponentEngine {
                     ; It ran here as well, so `static x = 5` left `C.x`
                     ; undefined and gave every instance its own `x` instead.
                     if (m.kind != "static") {
-                        if m.init {
-                            ; A COMPUTED field name is an expression, evaluated
-                            ; here -- `class C { [k] = 7 }`. The parser keeps it
-                            ; on `right` because `init` is the field's value.
-                            def fKey:string m.name
-                            if m.computed {
-                                if m.right {
-                                    def fKeyV:EvHandle (this.evaluateExpr((unwrap m.right)))
-                                    if scriptThrew {
-                                        return
-                                    }
-                                    fKey = (this.toPropertyKey(fKeyV))
-                                    if scriptThrew {
-                                        return
-                                    }
+                        ; A COMPUTED field name is an expression, evaluated
+                        ; here -- `class C { [k] = 7 }`. The parser keeps it
+                        ; on `right` because `init` is the field's value.
+                        def fKey:string m.name
+                        if m.computed {
+                            if m.right {
+                                def fKeyV:EvHandle (this.evaluateExpr((unwrap m.right)))
+                                if scriptThrew {
+                                    return
+                                }
+                                fKey = (this.toPropertyKey(fKeyV))
+                                if scriptThrew {
+                                    return
                                 }
                             }
+                        }
+                        if m.init {
                             def iv:EvHandle (this.evaluateExpr((unwrap m.init)))
                             inst.setMember(fKey iv)
+                        } {
+                            ; §15.7.14: a field with NO initialiser is still
+                            ; DEFINED, as undefined. Skipping it left the key
+                            ; absent, which is observable through the brand
+                            ; check `#x in obj` -- the whole point of which is
+                            ; that a declared private field is present.
+                            if ((strlen fKey) > 0) {
+                                inst.setMember(fKey (EvValueBridge.taggedUndefined()))
+                            }
                         }
                     }
                 }
@@ -42570,7 +43937,15 @@ class ComponentEngine {
                     ; A field with no initialiser is still DEFINED, as
                     ; undefined -- `static x;` then `'x' in C` is true.
                     if (false == scriptThrew) {
+                        ; §15.7.14 defines the field with CreateDataProperty:
+                        ; writable, enumerable and configurable, and it REPLACES
+                        ; whatever the class value already had under that key.
+                        ; `static name = "n"` is the case that shows: the
+                        ; constructor's own non-writable `name` silently
+                        ; swallowed the write, so the field never appeared.
+                        cv.setAttrs(sKey true true true)
                         cv.setMember(sKey sv)
+                        cv.setAttrs(sKey true true true)
                     }
                 }
             }
@@ -42860,6 +44235,12 @@ class ComponentEngine {
             cv.setMember("name" (EvValueBridge.taggedString(declaredName)))
             cv.setAttrs("name" false false true)
         }
+        ; §15.7.14: the static elements run when the class value is created,
+        ; and a class EXPRESSION creates one exactly as a declaration does. Only
+        ; the statement path ran them, so `(class { static x = 1 }).x` was
+        ; undefined -- and a `static name = ...` could not override the name
+        ; stamped just above, which is the order the spec gives.
+        this.runClassStaticInit(nm cv)
         return cv
     }
 
@@ -43129,6 +44510,32 @@ class ComponentEngine {
             }
             return inst
         }
+        ; D-FNEXPRNAME: the constructor may be a NAMED FUNCTION EXPRESSION,
+        ; whose own name is bound in the closure the VALUE carries and nowhere
+        ; else. Running the NODE roots the body in the caller's scope instead,
+        ; where that name does not exist, so `new function f() { ... f ... }()`
+        ; was a ReferenceError for a name the same function answers on a plain
+        ; call. A COPY of the value takes the receiver, so binding `this` here
+        ; cannot leak into the shared one.
+        if ((fnV.closureIdOf()) >= 0) {
+            def cvArgs:[EvHandle] (this.collectArgNodeValues(argNodes))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
+            }
+            def cvFn:EvHandle (EvValueBridge.taggedFunction(fnNode))
+            this.stampSrcOn(cvFn)
+            cvFn.setStrictFn((this.strictForBody(fnNode)))
+            cvFn.setClosureId((fnV.closureIdOf()))
+            cvFn.setHomeModule((fnV.homeModuleOf()))
+            cvFn.setBoundThis(inst)
+            pendingNewTarget = fnV
+            hasPendingNewTarget = true
+            def cvRet:EvHandle (this.callFnValueWithValues(cvFn cvArgs))
+            if (this.isDescriptorObject(cvRet)) {
+                return cvRet
+            }
+            return inst
+        }
         ; D-NEWTARGET: `new F()` makes F the frame's new.target.
         pendingNewTarget = fnV
         hasPendingNewTarget = true
@@ -43174,11 +44581,23 @@ class ComponentEngine {
                 if an.left {
                     sv = (this.evaluateExpr((unwrap an.left)))
                 }
+                ; §12.3.6.1: the spread argument is ITERATED. An array is taken
+                ; directly; anything else goes through the iteration protocol,
+                ; and a non-iterable throws rather than expanding to nothing.
                 if (sv.isArrayValue()) {
                     def k:int 0
                     while (k < (sv.denseLen())) {
                         push argVals (sv.arrayItemAt(k))
                         k = (k + 1)
+                    }
+                } {
+                    if (false == scriptThrew) {
+                        def spItems:[EvHandle] (this.forOfItemList(sv))
+                        def spi:int 0
+                        while (spi < (array_length spItems)) {
+                            push argVals (itemAt spItems spi)
+                            spi = (spi + 1)
+                        }
                     }
                 }
             } {
@@ -43443,36 +44862,19 @@ class ComponentEngine {
             return (this.constructWeak(className wArgs))
         }
         ; Built-in collections: new Map([[k,v]...]) / new Set([v...]).
-        if (className == "Map") {
-            def m:EvHandle (EvValueBridge.taggedMapEmpty())
-            if ((array_length node.children) > 0) {
-                def init:EvHandle (this.evaluateExpr((itemAt node.children 0)))
-                if (init.isArrayValue()) {
-                    def i:int 0
-                    while (i < (init.denseLen())) {
-                        def pair:EvHandle (init.arrayItemAt(i))
-                        if (pair.isArrayValue()) {
-                            m.mapSet((pair.getIndex(0)) (pair.getIndex(1)))
-                        }
-                        i = (i + 1)
-                    }
-                }
+        ; Through the shared constructor, which walks the argument as an
+        ; ITERABLE and adds each entry through the prototype's `add` / `set`.
+        ; Built inline here, only a literal array was ever read: a Set of a
+        ; generator was empty, and a guest that replaced Set.prototype.add
+        ; never saw a single entry.
+        if ((className == "Map") || (className == "Set")) {
+            def collArgs:[EvHandle] (this.collectCallArgs(node))
+            if scriptThrew {
+                return (EvValueBridge.taggedUndefined())
             }
-            return m
-        }
-        if (className == "Set") {
-            def st:EvHandle (EvValueBridge.taggedSetEmpty())
-            if ((array_length node.children) > 0) {
-                def init:EvHandle (this.evaluateExpr((itemAt node.children 0)))
-                if (init.isArrayValue()) {
-                    def i:int 0
-                    while (i < (init.denseLen())) {
-                        st.setAdd((init.arrayItemAt(i)))
-                        i = (i + 1)
-                    }
-                }
-            }
-            return st
+            def collInitV:EvHandle (EvValueBridge.taggedUndefined())
+            if ((array_length collArgs) > 0) { collInitV = (itemAt collArgs 0) }
+            return (this.constructCollectionValue(className collInitV))
         }
         ; D-ERRORS: `new TypeError(msg)` / `new Error(msg)`. The constructor is a
         ; seeded singleton, so the resulting object's `constructor` compares equal
@@ -44743,7 +46145,13 @@ class ComponentEngine {
                 if (sv.isArrayValue()) {
                     def k:int 0
                     while (k < (sv.denseLen())) {
-                        push items (sv.arrayItemAt(k))
+                        ; §7.4.6: a HOLE iterates as a present undefined, so
+                        ; `[...[,,]]` has two elements and `0 in it` is true.
+                        def hv:EvHandle (sv.arrayItemAt(k))
+                        if (hv.isHole()) {
+                            hv = (EvValueBridge.taggedUndefined())
+                        }
+                        push items hv
                         k = (k + 1)
                     }
                 } {
@@ -44851,6 +46259,13 @@ class ComponentEngine {
             if ((substring k 0 2) == "@@") { return true }
         }
         if (k == "__protokind__") { return true }
+        ; D-INTL: a Collator or a formatter keeps its resolved settings in
+        ; hidden slots, and the bound comparator the accessor hands out in one
+        ; more. They are internal state, and `Object.keys(new Intl.Collator())`
+        ; listed every one of them.
+        if ((strlen k) > 6) {
+            if ((substring k 0 6) == "__intl") { return true }
+        }
         if (k == "__date__") { return true }
         if (k == "__nsbrand__") { return true }
         if (k == "__regex__") { return true }
@@ -45000,7 +46415,16 @@ class ComponentEngine {
                 def kEls:[EvHandle] (this.arrayLikeElements(kRes))
                 def ki2:int 0
                 while (ki2 < (array_length kEls)) {
-                    push outK (this.toPropertyKey((itemAt kEls ki2)))
+                    def kKey:string (this.toPropertyKey((itemAt kEls ki2)))
+                    ; §10.5.11 step 8: the trap's list may contain NO DUPLICATE
+                    ; entries. A repeated key was enumerated twice instead,
+                    ; which every reflection built on this list then repeated.
+                    if (this.isInList(kKey outK)) {
+                        def _kd:EvHandle (this.throwSpecError("TypeError" ("proxy ownKeys trap returned a duplicate entry '" + (kKey + "'"))))
+                        def emptyD:[string]
+                        return emptyD
+                    }
+                    push outK kKey
                     ki2 = (ki2 + 1)
                 }
                 ; §10.5.11 steps 17-20: every NON-CONFIGURABLE own key of the
@@ -45309,6 +46733,37 @@ class ComponentEngine {
                         ; the URI encoder want.
                         out = (out + ("\\u" + (this.hexPadLower(cp 4))))
                         handled = true
+                    }
+                }
+                ; ES2019 "well-formed JSON.stringify": a LONE surrogate is
+                ; escaped as \udXXX so the result is well-formed UTF-16 and can
+                ; be parsed back. A surrogate that is half of a valid PAIR is
+                ; left alone -- it stands for a real character. Emitted raw,
+                ; the text could not be parsed back as JSON at all.
+                if (false == handled) {
+                    if ((cp >= 55296) && (cp <= 57343)) {
+                        def lone:boolean true
+                        if (cp < 56320) {
+                            if ((i + 1) < L) {
+                                def nxCh:string (substring s (i + 1) (i + 2))
+                                def nxCp:int (this.charCodePointOf(nxCh))
+                                if ((nxCp >= 56320) && (nxCp <= 57343)) {
+                                    lone = false
+                                }
+                            }
+                        } {
+                            if (i > 0) {
+                                def pvCh:string (substring s (i - 1) i)
+                                def pvCp:int (this.charCodePointOf(pvCh))
+                                if ((pvCp >= 55296) && (pvCp < 56320)) {
+                                    lone = false
+                                }
+                            }
+                        }
+                        if lone {
+                            out = (out + ("\\u" + (this.hexPadLower(cp 4))))
+                            handled = true
+                        }
                     }
                 }
             }
@@ -46267,7 +47722,9 @@ class ComponentEngine {
         ; A `__proto__` key in the literal replaces that link. `null` means no
         ; prototype at all; anything that is not an object is ignored outright.
         if hasProtoLit {
-            if ((protoFromLit.isObject()) && (false == (this.isSymbolValue(protoFromLit)))) {
+            ; Any object-LIKE value is a prototype: `{__proto__: []}` inherits
+            ; from that array, which is what `instanceof Array` then answers.
+            if ((this.isDescriptorObject(protoFromLit)) && (false == (this.isSymbolValue(protoFromLit)))) {
                 built.setProto(protoFromLit)
             } {
                 if (protoFromLit.isNull()) {
@@ -46581,6 +48038,16 @@ class ComponentEngine {
         return out
     }
 
+    ; The lexer's marker for an element whose cooked value does not exist --
+    ; U+0000 U+0001 "BADESC", which no source text can contain.
+    fn badEscapeMarker:string () {
+        return ((strfromcode 0) + ((strfromcode 1) + "BADESC"))
+    }
+
+    fn hasBadEscapeMark:boolean (s:string) {
+        return ((indexOf s (this.badEscapeMarker())) >= 0)
+    }
+
     fn evaluateTaggedTemplate:EvHandle (node:TSNode) {
         if (null? node.left) { return (EvValueBridge.taggedUndefined()) }
         if (null? node.right) { return (EvValueBridge.taggedUndefined()) }
@@ -46646,7 +48113,16 @@ class ComponentEngine {
         def cookedItems:[EvHandle]
         def ci:int 0
         while (ci < (array_length cookedParts)) {
-            push cookedItems (EvValueBridge.taggedString((itemAt cookedParts ci)))
+            ; ES2018 template literal revision: an element whose text held an
+            ; INVALID escape has no cooked value at all -- it is undefined, and
+            ; only `raw` still says what was written. The lexer marks such an
+            ; element rather than refusing the whole template.
+            def cookedPart:string (itemAt cookedParts ci)
+            if (this.hasBadEscapeMark(cookedPart)) {
+                push cookedItems (EvValueBridge.taggedUndefined())
+            } {
+                push cookedItems (EvValueBridge.taggedString(cookedPart))
+            }
             ci = (ci + 1)
         }
         def rawItems:[EvHandle]
