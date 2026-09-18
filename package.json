@@ -856,6 +856,7 @@
     "erazer:web": "node gallery/erazer/web/build.mjs",
     "erazer:web:smoke": "node gallery/erazer/web/smoke.mjs",
     "erazer:web:serve": "node gallery/erazer/web/build.mjs && python3 -m http.server -d gallery/erazer/web/dist 8008",
+    "erazer:shots": "node gallery/erazer/web/build.mjs && bash scripts/rgr-suite.sh ./gallery/erazer/erazer_cli.rgr ./gallery/erazer/bin erazer_cli.js --help >/dev/null && node gallery/erazer/web/shot.mjs",
     "evg:responsive:check": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/web/responsive/EvgResponsiveCheck.rgr -d=./gallery/evg/bin -o=EvgResponsiveCheck.js -nodecli && node ./gallery/evg/bin/EvgResponsiveCheck.js",
     "evg:responsive:web": "node gallery/evg/web/responsive/build.mjs",
     "evg:dom:check": "node gallery/evg/web/responsive/dom-check.mjs",

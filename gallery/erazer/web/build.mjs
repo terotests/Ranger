@@ -79,5 +79,12 @@ const scoped =
 
 fs.writeFileSync(path.join(OUT, "erazer.js"), scoped);
 fs.copyFileSync(path.join(HERE, "index.html"), path.join(OUT, "index.html"));
+fs.copyFileSync(path.join(HERE, "components.html"), path.join(OUT, "components.html"));
+const shots = path.join(HERE, "../shots");
+if (fs.existsSync(shots)) {
+  for (const f of fs.readdirSync(shots)) {
+    if (f.endsWith(".png")) fs.copyFileSync(path.join(shots, f), path.join(OUT, f));
+  }
+}
 fs.rmSync(STAGE, { recursive: true, force: true });
 process.stdout.write("Wrote Erazer page to " + path.relative(ROOT, OUT) + "\n");

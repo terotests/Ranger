@@ -77,13 +77,24 @@
     <section>
       <div class="head">Lähde</div>
       <div class="body">
-        <p class="hint">Pudota PNG/JPEG, tai kokeile synteettistä UI-kirjastokuvaa.</p>
+        <p class="hint">Pudota PNG/JPEG, kokeile synteettistä 5×7-fixtuuria, tai aja Erazer HTML-UI-komponentin kuvakaappaukselle.</p>
         <div class="actions">
           <label class="filebtn">Valitse kuva<input id="file" type="file" accept="image/png,image/jpeg"></label>
           <button type="button" id="formBtn">Lomake</button>
           <button type="button" id="tabsBtn">Tabit</button>
           <button type="button" id="menuBtn">Valikko</button>
           <button type="button" id="iconBtn">Ikoni</button>
+        </div>
+        <p class="hint" style="margin-top:14px">HTML-komponentit (system-ui, kuvakaappaus)</p>
+        <div class="actions">
+          <button type="button" data-png="login.png">Web-lomake</button>
+          <button type="button" data-png="settings.png">Asetukset</button>
+          <button type="button" data-png="tabs.png">HTML-tabit</button>
+          <button type="button" data-png="menu.png">HTML-valikko</button>
+          <button type="button" data-png="toolbar.png">Työkalupalkki</button>
+          <button type="button" data-png="dialog.png">Dialogi</button>
+          <button type="button" data-png="buttons.png">Napit</button>
+          <button type="button" data-png="nav.png">Sivupalkki</button>
         </div>
       </div>
     </section>
@@ -153,12 +164,52 @@
     var ms = Math.round(performance.now() - t0);
     show(img, doc);
     counts.textContent += " · " + ms + " ms";
+    document.documentElement.setAttribute("data-erazer-ready", "1");
   }
 
   document.getElementById("formBtn").onclick = function () { run(ErazerPaint.form()); };
   document.getElementById("tabsBtn").onclick = function () { run(ErazerPaint.tabs()); };
   document.getElementById("menuBtn").onclick = function () { run(ErazerPaint.menu()); };
   document.getElementById("iconBtn").onclick = function () { run(ErazerPaint.iconRow()); };
+
+  function pngToBuffer(im) {
+    var c = document.createElement("canvas");
+    c.width = im.naturalWidth;
+    c.height = im.naturalHeight;
+    var ctx = c.getContext("2d");
+    ctx.drawImage(im, 0, 0);
+    var data = ctx.getImageData(0, 0, c.width, c.height);
+    var img = new ImageBuffer();
+    img.init(c.width, c.height);
+    var n = c.width * c.height;
+    for (var i = 0; i < n; i++) {
+      var o = i * 4;
+      var x = i % c.width;
+      var y = (i / c.width) | 0;
+      img.setPixelRGBA(x, y, data.data[o], data.data[o + 1], data.data[o + 2], data.data[o + 3]);
+    }
+    return img;
+  }
+
+  function loadPng(src) {
+    outline.textContent = "Ladataan " + src + "…";
+    var im = new Image();
+    im.onload = function () { run(pngToBuffer(im)); };
+    im.onerror = function () { outline.textContent = "ei kuvaa: " + src + " — aja npm run erazer:shots"; };
+    im.src = src;
+  }
+  document.querySelectorAll("button[data-png]").forEach(function (btn) {
+    btn.addEventListener("click", function () { loadPng(btn.getAttribute("data-png")); });
+  });
+
+  var params = new URLSearchParams(location.search);
+  var sample = params.get("sample");
+  var png = params.get("png");
+  if (sample === "form") run(ErazerPaint.form());
+  else if (sample === "tabs") run(ErazerPaint.tabs());
+  else if (sample === "menu") run(ErazerPaint.menu());
+  else if (sample === "icon") run(ErazerPaint.iconRow());
+  else if (png) loadPng(png);
 
   document.getElementById("file").addEventListener("change", function (ev) {
     var f = ev.target.files && ev.target.files[0];
