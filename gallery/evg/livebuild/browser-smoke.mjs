@@ -92,6 +92,7 @@ try {
     { timeout: 5000 },
   );
   console.log("  inspect      " + (await page.locator("#pointingLabel").innerText()));
+  await page.getByRole("button", { name: "Inspect" }).click();
 
   const goLabel = await page.locator("#go").innerText();
   if (!/follow up/i.test(goLabel)) throw new Error(`expected Follow up button, got ${goLabel}`);
