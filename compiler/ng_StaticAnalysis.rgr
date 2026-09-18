@@ -2826,6 +2826,14 @@ class StaticAnalyzer {
     for node.children child:CodeNode i {
       this.walkForSharedLocals(child)
     }
+    ; A statement's REGISTER expressions -- the temporaries the flow parser
+    ; hoists for operator arguments and parenthesised receivers -- are defs
+    ; too, and are not among its children.
+    if (has node.register_expressions) {
+      for node.register_expressions regChild:CodeNode ri {
+        this.walkForSharedLocals(regChild)
+      }
+    }
   }
 
   ; Does this body use `this` as a value (a bare `this` node, not the

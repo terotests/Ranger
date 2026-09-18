@@ -72,8 +72,12 @@ Short form:
   parentheses: `return (fn1(3))`. See ISSUES.md #63.
 - **One statement per line.** `{ def c:int 5 return c }` is a parse error.
 - **Never start a statement with a parenthesised receiver.** Bind first:
-  `def recv:T (expr)` then `recv.method()`. Inside an expression it is fine.
-  See ISSUES.md #65.
+  `def recv:T (expr)` then `recv.method()`. Inside an expression it is fine,
+  including as an operand of an infix operator: `((unwrap x).v == 1)` and
+  `(1 + (f()).v)` work (ISSUES.md #87). A method CALL on a parenthesised
+  receiver inside an infix expression -- `((unwrap x).m() + 1)` -- still
+  needs the receiver bound first, and so does one in a loop condition, which
+  the compiler refuses with a message. See ISSUES.md #65.
 - **Import each file via one consistent path form.** Mixed bare vs path imports
   of the same file used to break inherited-method resolution (ISSUES.md #64).
 - **Typed array literals need a parenthesised group:** `([] _:T ( a b c ))`,

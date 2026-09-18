@@ -1,0 +1,34 @@
+; A property read on a PARENTHESISED receiver used as an operand of an infix
+; operator -- `(unwrap x).field == 1`, `1 + (f()).field`. The reader used to
+; hand the infix rewriter the `.field` token on its own and the expression
+; before it was lost (ISSUES.md #87).
+class Box {
+  def v:int 1
+  def name:string "box"
+  fn get:int () { return v }
+}
+class Holder {
+  def b@(optional):Box
+  fn box:Box () { return (unwrap b) }
+}
+class ParenReceiverInfix {
+  sfn m@(main):void () {
+    def h (new Holder())
+    h.b = (new Box())
+    def s:string ((unwrap h.b).name + "!")
+    print ("concat=" + s)
+    if ((unwrap h.b).v == 1) { print "leftEq=1" }
+    if (1 == (unwrap h.b).v) { print "rightEq=1" }
+    def q:int (1 + (unwrap h.b).v)
+    print ("rightAdd=" + (to_string q))
+    def r:int ((h.box()).v * 3)
+    print ("callRecv=" + (to_string r))
+    def d:int ((unwrap h.b).v - (h.box()).v)
+    print ("both=" + (to_string d))
+    ; the shapes that always worked keep their code generation
+    def n:int ((unwrap h.b).v)
+    print ("plain=" + (to_string n))
+    (unwrap h.b).v = 7
+    print ("assigned=" + (to_string ((unwrap h.b).v)))
+  }
+}
