@@ -92,6 +92,8 @@ const tokens = mockEvents.filter((e) => e.t === "token");
 if (tokens.length < 8) throw new Error(`mock only ${tokens.length} tokens`);
 const done = mockEvents.filter((e) => e.t === "done").at(-1);
 if (!done?.ok) throw new Error("mock done.ok is false");
+const errors = mockEvents.filter((e) => e.t === "error");
+if (errors.length) throw new Error("mock emitted error: " + (errors[0].text || ""));
 if (mockEvents[0].agent !== "mock") throw new Error("session did not name the agent");
 console.log(`  mock        ${frames.length} frames, ${tokens.length} tokens, agent=${mockEvents[0].agent}`);
 

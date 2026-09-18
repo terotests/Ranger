@@ -151,7 +151,18 @@ export function runRecipe(kind, onLine, signal) {
   });
 }
 
-function frameFile(docPath, onLine) {
+function looksLikeEvg(text) {
+  const t = String(text || "").trim();
+  if (!t.startsWith("{") || !t.endsWith("}")) return false;
+  try {
+    const j = JSON.parse(t);
+    return Boolean(j && typeof j === "object" && j.root && typeof j.root === "object");
+  } catch {
+    return false;
+  }
+}
+
+function frameFile(docPath, onLine, { quiet = false } = {}) {
   const r = spawnSync("node", [liveBin, "frame", docPath], {
     cwd: root,
     encoding: "utf8",
@@ -163,12 +174,13 @@ function frameFile(docPath, onLine) {
     try {
       const obj = JSON.parse(line);
       if (obj.t === "session" || obj.t === "done") continue;
+      if (quiet && obj.t === "error") continue;
       onLine(line);
     } catch {
       /* ignore compiler chatter */
     }
   }
-  if (r.status !== 0 && r.stderr) {
+  if (!quiet && r.status !== 0 && r.stderr) {
     onLine(ndjson({ t: "error", text: String(r.stderr).slice(0, 500) }));
   }
 }
@@ -255,6 +267,7 @@ function watchDoc(workspace, onChange) {
       return;
     }
     if (text === last) return;
+    if (!looksLikeEvg(text)) return;
     last = text;
     onChange(file);
   };
@@ -309,7 +322,7 @@ export async function runWorkspaceAgent({ id, kind, prompt, onLine, signal }) {
     frameFile(file, (line) => {
       frames += 1;
       onLine(line);
-    });
+    }, { quiet: true });
     const app = path.join(ws, "App.rgr");
     if (fs.existsSync(app)) {
       onLine(ndjson({ t: "code", path: "App.rgr", text: fs.readFileSync(app, "utf8") }));

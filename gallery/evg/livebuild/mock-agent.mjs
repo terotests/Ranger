@@ -26,14 +26,19 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+function writeAtomic(dest, src) {
+  const tmp = dest + ".tmp";
+  fs.copyFileSync(src, tmp);
+  fs.renameSync(tmp, dest);
+}
+
 const delay = Number(process.env.EVG_MOCK_DELAY || 30);
 
 console.log("Mock agent in " + ws);
 console.log("The tree is doc.evg.json. I will patch it in three steps.");
 for (const [thought, file] of steps) {
   console.log(thought);
-  const src = path.join(here, "fixtures", file);
-  fs.copyFileSync(src, path.join(ws, "doc.evg.json"));
+  writeAtomic(path.join(ws, "doc.evg.json"), path.join(here, "fixtures", file));
   await sleep(delay);
 }
 fs.writeFileSync(
