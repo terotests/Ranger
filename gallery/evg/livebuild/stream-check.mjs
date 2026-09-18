@@ -84,6 +84,9 @@ function check(kind) {
     }
     if (f.ncmds < prev) throw new Error(`${kind}: display list shrank`);
     prev = f.ncmds;
+    if (!f.inspect || f.inspect.evginspect !== 1 || !Array.isArray(f.inspect.nodes) || f.inspect.nodes.length < 1) {
+      throw new Error(`${kind}: frame without inspect tree`);
+    }
   }
   const done = events.filter((e) => e.t === "done").at(-1);
   if (!done.ok) throw new Error(`${kind}: done.ok is false ${JSON.stringify(done)}`);

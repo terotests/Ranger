@@ -58,6 +58,14 @@
   .chips, .agents { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .chip.active { border-color: #2dd4bf88; color: var(--accent); }
   .chip.off { opacity: .45; cursor: not-allowed; }
+  .pointing {
+    display: flex; align-items: center; gap: 6px; max-width: 280px;
+    background: #134e4a; border: 1px solid #2dd4bf66; color: #ccfbf1;
+    border-radius: 999px; padding: 6px 8px 6px 12px; font-size: 12px;
+  }
+  .pointing[hidden] { display: none !important; }
+  .pointing code { font: 11px ui-monospace, Menlo, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pointing .x { padding: 2px 8px; border: none; background: transparent; color: inherit; cursor: pointer; }
   .lbl { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
   main {
     display: grid;
@@ -138,6 +146,10 @@
     <input id="prompt" name="prompt" autocomplete="off"
       placeholder="Change this phone, then Follow up. Start-over chips wipe it.">
     <button class="primary" id="go" type="submit">Follow up</button>
+    <span class="pointing" id="pointing" hidden>
+      <code id="pointingLabel"></code>
+      <button type="button" class="x" id="pointingClear" title="Clear selection">×</button>
+    </span>
   </form>
   <div class="chips" id="chips"></div>
   <div class="agents" id="agents"></div>
@@ -172,6 +184,7 @@
 </main>
 <script type="module">
 import { renderDisplayList } from "/evg-html.js";
+import { attach as attachInspector } from "/evg-inspect.js";
 
 const $ = (id) => document.getElementById(id);
 const kinds = await (await fetch("/kinds")).json();
@@ -186,6 +199,9 @@ let currentAgent = preferredInfo && preferredInfo.available ? preferred : "recip
 let es = null;
 let tokens = 0;
 let thinkStarted = false;
+let lastInspect = null;
+let inspector = null;
+let pointing = null;
 
 const al = document.createElement("span");
 al.className = "lbl";
@@ -205,6 +221,20 @@ for (const a of agentList.agents) {
   });
   agentBox.appendChild(b);
 }
+
+const inspectBtn = document.createElement("button");
+inspectBtn.type = "button";
+inspectBtn.className = "chip";
+inspectBtn.id = "inspectBtn";
+inspectBtn.textContent = "Inspect";
+inspectBtn.title = "Pick an element on the phone, then tell Follow up what is wrong with it.";
+inspectBtn.addEventListener("click", () => {
+  if (inspector) dropInspector();
+  else ensureInspector();
+});
+document.querySelector("header").appendChild(inspectBtn);
+
+$("pointingClear").addEventListener("click", () => setPointing(null));
 
 const sl = document.createElement("span");
 sl.className = "lbl";
@@ -234,17 +264,67 @@ $("ask").addEventListener("submit", (e) => {
 async function loadSeed(kind) {
   if (es) { es.close(); es = null; }
   $("go").disabled = false;
+  setPointing(null);
   const d = await (await fetch("/seed?kind=" + encodeURIComponent(kind))).json();
   current = d.kind || kind;
   paintFrame(d);
   $("added").textContent = "seed";
   $("kindLabel").textContent = current;
-  $("think").innerHTML = '<span class="empty">This phone is the live document. Type a change and press Follow up — it edits this screen. Start-over chips (Dashboard / Empty) wipe it.</span>';
+  $("think").innerHTML = '<span class="empty">This phone is the live document. Pick Inspect to point at an element, then Follow up. Start-over chips wipe the screen.</span>';
   $("ops").innerHTML = '<span class="empty">Deltas land here as they apply.</span>';
   $("code").innerHTML = '<span class="empty">Source is streamed with the tree.</span>';
   $("ntok").textContent = "0";
   tokens = 0;
   thinkStarted = false;
+  const want = params.get("inspect");
+  if (want !== null && want !== "0" && want !== "false") ensureInspector();
+}
+
+function setPointing(node) {
+  if (!node || !node.id) {
+    pointing = null;
+    $("pointing").hidden = true;
+    $("pointingLabel").textContent = "";
+    return;
+  }
+  pointing = { id: node.id, tag: node.tag || "", text: node.text || "" };
+  $("pointing").hidden = false;
+  const bits = [pointing.id];
+  if (pointing.tag) bits.push(pointing.tag);
+  if (pointing.text) bits.push(JSON.stringify(String(pointing.text).slice(0, 40)));
+  $("pointingLabel").textContent = bits.join(" · ");
+}
+
+function taskPrompt() {
+  const ask = $("prompt").value.trim() || current;
+  if (!pointing) return ask;
+  const label = pointing.text
+    ? `${pointing.tag} ${JSON.stringify(pointing.text)}`
+    : (pointing.tag || "node");
+  return `The user selected ${pointing.id} (${label}) on the live phone. ${ask}`;
+}
+
+function ensureInspector() {
+  if (inspector) return;
+  if (!lastInspect || !lastInspect.evginspect) return;
+  inspector = attachInspector({
+    surface: $("screen"),
+    onSelect: (_id, node) => setPointing(node),
+    app: {
+      label: "live phone",
+      tree: () => lastInspect,
+      viewport: () => [lastInspect.w || 390, lastInspect.h || 844],
+    },
+  });
+  inspectBtn.classList.add("active");
+}
+
+function dropInspector() {
+  if (inspector) {
+    inspector.detach();
+    inspector = null;
+  }
+  inspectBtn.classList.remove("active");
 }
 
 function paintFrame(d) {
@@ -252,6 +332,10 @@ function paintFrame(d) {
   $("nodes").textContent = String(d.nodes || 0);
   if (d.list) {
     renderDisplayList($("screen"), { width: d.width, height: d.height, list: d.list }, {});
+  }
+  if (d.inspect && d.inspect.evginspect) {
+    lastInspect = d.inspect;
+    if (inspector) inspector.refresh();
   }
 }
 
@@ -269,7 +353,7 @@ function start(keepPicture) {
   $("kindLabel").textContent = "";
   $("go").disabled = true;
   if (!keepPicture) $("screen").replaceChildren();
-  const prompt = $("prompt").value.trim() || current;
+  const prompt = taskPrompt();
   es = new EventSource(`/stream?agent=${encodeURIComponent(currentAgent)}&kind=${encodeURIComponent(current)}&prompt=${encodeURIComponent(prompt)}&pace=24`);
   const on = (type, fn) => es.addEventListener(type, (ev) => {
     if (!ev.data) return;

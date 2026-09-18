@@ -62,7 +62,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   present. `npm run livebuild:serve` (no keys). `npm run livebuild:withcursor`
   drives the local Cursor Agent CLI (`agent login` or `CURSOR_API_KEY`).
   The prompt plus **Follow up** edits the live phone; Start-over chips
-  (Dashboard / Empty) are the only wipe. `npm run livebuild:test`.
+  (Dashboard / Empty) are the only wipe. **Inspect** is the same panel as
+  `npm run evg:inspect:demo` (`?inspect=1`): pick an element and Follow up
+  is addressed at that `EVGPatch` path. `npm run livebuild:test`.
 
 ### Changed
 

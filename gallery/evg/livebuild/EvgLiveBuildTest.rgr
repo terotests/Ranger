@@ -113,6 +113,15 @@ class EvgLiveBuildTest {
         this.ok("frame: one display list" ((this.countKind(b "frame")) == 1))
         this.ok("frame: the card stays on its own page" (b.findings == 0))
         this.ok("frame: the tree was streamed" ((this.countKind(b "code")) == 1))
+        def inspectHit:boolean false
+        def k:int 0
+        while (k < (array_length b.lines)) {
+            if (EvgLiveBuildTest.hasNeedle((itemAt b.lines k) "evginspect")) {
+                inspectHit = true
+            }
+            k = (k + 1)
+        }
+        this.ok("frame: inspect tree was streamed" inspectHit)
         print ""
         if (failed == 0) {
             print (("ALL PASS  " + (to_string passed)) + " assertions")

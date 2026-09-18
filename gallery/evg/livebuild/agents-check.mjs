@@ -105,6 +105,9 @@ const dashFrame = dash.events.find((e) => e.t === "frame");
 if (!dashFrame || !(dashFrame.list?.cmds?.length > 8)) {
   throw new Error("dashboard seed produced no cmds");
 }
+if (!dashFrame.inspect?.evginspect || !(dashFrame.inspect.nodes?.length > 4)) {
+  throw new Error("dashboard seed missing inspect tree");
+}
 const empty = frameFixture("empty");
 const emptyFrame = empty.events.find((e) => e.t === "frame");
 if (!emptyFrame) throw new Error("empty seed produced no frame");
