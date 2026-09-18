@@ -50,6 +50,7 @@ class EvgLiveBuild {
     def printing:boolean true
     def lines:[string]
     def reject:string ""
+    def hush:boolean false
 
     Constructor () {
         def a:[string]
@@ -69,6 +70,7 @@ sfn main:void () {
         findings = 0
         failed = false
         reject = ""
+        hush = false
         def a:[string]
         lines = a
     }
@@ -238,7 +240,9 @@ sfn main:void () {
             this.emitError((r.reason()))
             return false
         }
-        this.emitOps(ops r.applied)
+        if (hush == false) {
+            this.emitOps(ops r.applied)
+        }
         return true
     }
 
@@ -341,6 +345,14 @@ sfn main:void () {
 
     fn step:void (think:string ops:[EVGPatchOp] snippet:string) {
         if failed {
+            return
+        }
+        if hush {
+            def quietOk:boolean (this.applyOps(ops))
+            if (quietOk == false) {
+                return
+            }
+            this.appendCode(snippet)
             return
         }
         this.emitThink(think)
@@ -559,22 +571,254 @@ sfn main:void () {
         this.emitDone()
     }
 
-    fn runKind:void (k:string) {
-        this.reset()
+    sfn hasSub:boolean (hay:string needle:string) {
+        def n:int (strlen needle)
+        def m:int (strlen hay)
+        if (n == 0) {
+            return false
+        }
+        if (n > m) {
+            return false
+        }
+        def i:int 0
+        while (i <= (m - n)) {
+            if ((substring hay i (i + n)) == needle) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn foldAscii:string (s:string) {
+        def out:string ""
+        def i:int 0
+        while (i < (strlen s)) {
+            def c:int (charAt s i)
+            if ((c >= 65) && (c <= 90)) {
+                c = (c + 32)
+            }
+            out = (out + (strfromcode c))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn wantsRestyle:boolean (folded:string) {
+        if ((strlen folded) == 0) {
+            return false
+        }
+        if (EvgLiveBuild.hasSub(folded "gold")) {
+            return true
+        }
+        if (EvgLiveBuild.hasSub(folded "accent")) {
+            return true
+        }
+        if (EvgLiveBuild.hasSub(folded "kulta")) {
+            return true
+        }
+        if (EvgLiveBuild.hasSub(folded "korost")) {
+            return true
+        }
+        if (EvgLiveBuild.hasSub(folded "larger")) {
+            return true
+        }
+        if (EvgLiveBuild.hasSub(folded "title")) {
+            return true
+        }
+        if (EvgLiveBuild.hasSub(folded "isompi")) {
+            return true
+        }
+        if (EvgLiveBuild.hasSub(folded "otsikko")) {
+            return true
+        }
+        if (EvgLiveBuild.hasSub(folded "round")) {
+            return true
+        }
+        if (EvgLiveBuild.hasSub(folded "pyore")) {
+            return true
+        }
+        if (EvgLiveBuild.hasSub(folded "radius")) {
+            return true
+        }
+        if (EvgLiveBuild.hasSub(folded "warm")) {
+            return true
+        }
+        if (EvgLiveBuild.hasSub(folded "lammin")) {
+            return true
+        }
+        if (EvgLiveBuild.hasSub(folded "lämmin")) {
+            return true
+        }
+        if (EvgLiveBuild.hasSub(folded "ulkoasu")) {
+            return true
+        }
+        if (EvgLiveBuild.hasSub(folded "appearance")) {
+            return true
+        }
+        if (EvgLiveBuild.hasSub(folded "restyle")) {
+            return true
+        }
+        if (EvgLiveBuild.hasSub(folded "look")) {
+            return true
+        }
+        return false
+    }
+
+    fn sessionPrompt:string (k:string ask:string) {
+        if ((strlen ask) > 0) {
+            return ask
+        }
         if (k == "settings") {
-            this.emitSession("settings" "A settings screen with a profile, notifications, and a sign-out.")
+            return "A settings screen with a profile, notifications, and a sign-out."
+        }
+        if (k == "invoices") {
+            return "An invoices list with a New button and the open bills."
+        }
+        return "A phone dashboard for Northwind: orders, revenue, today's invoices."
+    }
+
+    fn recipeRestyle:void (folded:string) {
+        def doTitle:boolean false
+        def doGold:boolean false
+        def doRound:boolean false
+        def doWarm:boolean false
+        if (EvgLiveBuild.hasSub(folded "larger")) {
+            doTitle = true
+        }
+        if (EvgLiveBuild.hasSub(folded "title")) {
+            doTitle = true
+        }
+        if (EvgLiveBuild.hasSub(folded "isompi")) {
+            doTitle = true
+        }
+        if (EvgLiveBuild.hasSub(folded "otsikko")) {
+            doTitle = true
+        }
+        if (EvgLiveBuild.hasSub(folded "gold")) {
+            doGold = true
+        }
+        if (EvgLiveBuild.hasSub(folded "accent")) {
+            doGold = true
+        }
+        if (EvgLiveBuild.hasSub(folded "kulta")) {
+            doGold = true
+        }
+        if (EvgLiveBuild.hasSub(folded "korost")) {
+            doGold = true
+        }
+        if (EvgLiveBuild.hasSub(folded "round")) {
+            doRound = true
+        }
+        if (EvgLiveBuild.hasSub(folded "radius")) {
+            doRound = true
+        }
+        if (EvgLiveBuild.hasSub(folded "pyore")) {
+            doRound = true
+        }
+        if (EvgLiveBuild.hasSub(folded "warm")) {
+            doWarm = true
+        }
+        if (EvgLiveBuild.hasSub(folded "lammin")) {
+            doWarm = true
+        }
+        if (EvgLiveBuild.hasSub(folded "lämmin")) {
+            doWarm = true
+        }
+        if (((doTitle == false) && (doGold == false)) && ((doRound == false) && (doWarm == false))) {
+            doTitle = true
+            doGold = true
+            doRound = true
+        }
+        this.emitThink("The screen is already up. I will keep the structure and change how it looks.")
+        if doTitle {
+            def titleOps:[EVGPatchOp] (this.ops())
+            this.styleAt(titleOps "0/0/0" ([] _:string ( "font-size" "28px" )))
+            this.styleAt(titleOps "0/1/1" ([] _:string ( "font-size" "24px" )))
+            this.step("Bump the product name and the greeting so the hierarchy reads from across the room." titleOps "
+  ; restyle: larger title
+")
+        }
+        if doGold {
+            def goldOps:[EVGPatchOp] (this.ops())
+            this.styleAt(goldOps "0/0/1" ([] _:string ( "color" "rgb(251,191,36)" )))
+            if (kind == "dashboard") {
+                this.styleAt(goldOps "0/2/0" ([] _:string ( "color" "rgb(251,191,36)" )))
+                this.styleAt(goldOps "0/3/0" ([] _:string ( "color" "rgb(251,191,36)" )))
+                this.styleAt(goldOps "0/4/0" ([] _:string ( "color" "rgb(251,191,36)" )))
+                this.styleAt(goldOps "0/6/1" ([] _:string ( "color" "rgb(251,191,36)" )))
+                this.styleAt(goldOps "0/7/1" ([] _:string ( "color" "rgb(251,191,36)" )))
+                this.styleAt(goldOps "0/8/1" ([] _:string ( "color" "rgb(251,191,36)" )))
+                this.styleAt(goldOps "0/9/0" ([] _:string ( "color" "rgb(251,191,36)" )))
+            }
+            this.step("A gold accent on the badge, the numbers, and the active tab. One colour, many hits." goldOps "
+  ; restyle: gold accent
+")
+        }
+        if doRound {
+            def roundOps:[EVGPatchOp] (this.ops())
+            if (kind == "dashboard") {
+                this.styleAt(roundOps "0/2" ([] _:string ( "border-radius" "24px" )))
+                this.styleAt(roundOps "0/3" ([] _:string ( "border-radius" "24px" )))
+                this.styleAt(roundOps "0/4" ([] _:string ( "border-radius" "24px" )))
+                this.styleAt(roundOps "0/6" ([] _:string ( "border-radius" "16px" )))
+                this.styleAt(roundOps "0/7" ([] _:string ( "border-radius" "16px" )))
+                this.styleAt(roundOps "0/8" ([] _:string ( "border-radius" "16px" )))
+                this.styleAt(roundOps "0/9" ([] _:string ( "border-radius" "26px" )))
+            } {
+                this.styleAt(roundOps "0/2" ([] _:string ( "border-radius" "24px" )))
+                this.styleAt(roundOps "0/3" ([] _:string ( "border-radius" "18px" )))
+                this.styleAt(roundOps "0/4" ([] _:string ( "border-radius" "18px" )))
+            }
+            this.step("Round the metric cards further. Softer corners, same information." roundOps "
+  ; restyle: rounder cards
+")
+        }
+        if doWarm {
+            def warmOps:[EVGPatchOp] (this.ops())
+            this.styleAt(warmOps "0" ([] _:string ( "background-color" "rgb(49,30,20)" )))
+            if (kind == "dashboard") {
+                this.styleAt(warmOps "0/2" ([] _:string ( "background-color" "rgb(69,40,26)" )))
+                this.styleAt(warmOps "0/3" ([] _:string ( "background-color" "rgb(69,40,26)" )))
+                this.styleAt(warmOps "0/4" ([] _:string ( "background-color" "rgb(69,40,26)" )))
+                this.styleAt(warmOps "0/6" ([] _:string ( "background-color" "rgb(69,40,26)" )))
+                this.styleAt(warmOps "0/7" ([] _:string ( "background-color" "rgb(69,40,26)" )))
+                this.styleAt(warmOps "0/8" ([] _:string ( "background-color" "rgb(69,40,26)" )))
+                this.styleAt(warmOps "0/9" ([] _:string ( "background-color" "rgb(69,40,26)" )))
+            }
+            this.step("Warm the paper: a brown night instead of slate, so the gold has something to sit on." warmOps "
+  ; restyle: warm paper
+")
+        }
+    }
+
+    fn runAsked:void (k:string ask:string) {
+        this.reset()
+        def folded:string (EvgLiveBuild.foldAscii(ask))
+        def restyle:boolean (this.wantsRestyle(folded))
+        hush = restyle
+        if (k == "settings") {
+            this.emitSession("settings" (this.sessionPrompt("settings" ask)))
             this.recipeSettings()
         } {
             if (k == "invoices") {
-                this.emitSession("invoices" "An invoices list with a New button and the open bills.")
+                this.emitSession("invoices" (this.sessionPrompt("invoices" ask)))
                 this.recipeInvoices()
             } {
-                this.emitSession("dashboard" "A phone dashboard for Northwind: orders, revenue, today's invoices.")
+                this.emitSession("dashboard" (this.sessionPrompt("dashboard" ask)))
                 this.recipeDashboard()
             }
         }
+        hush = false
+        if restyle {
+            this.recipeRestyle(folded)
+        }
         this.emitMeasure()
         this.emitDone()
+    }
+
+    fn runKind:void (k:string) {
+        this.runAsked(k "")
     }
 
     fn runCli:void () {
@@ -597,7 +841,17 @@ sfn main:void () {
             if (argc >= 2) {
                 k = (shell_arg 1)
             }
-            this.runKind(k)
+            def ask:string ""
+            if (argc >= 3) {
+                ask = (shell_arg 2)
+            } {
+                def envP@(optional):string (env_var "EVG_LIVEBUILD_PROMPT")
+                if (null? envP) {
+                } {
+                    ask = (unwrap envP)
+                }
+            }
+            this.runAsked(k ask)
             return
         }
         if (verb == "frame") {

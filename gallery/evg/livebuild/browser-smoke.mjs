@@ -81,11 +81,21 @@ try {
   const kind = (await page.locator("#kindLabel").innerText()).trim().toLowerCase();
   if (!kind.includes("settings")) throw new Error(`prompt mapped to ${kind}, want settings`);
 
+  await page.getByRole("button", { name: "Dashboard", exact: true }).click();
+  await waitDone("dashboard-again");
+  await page.fill("#prompt", "Make the title larger and use a gold accent");
+  await page.click("#go");
+  await waitDone("restyle");
+  const think = await page.locator("#think").innerText();
+  if (!/gold|accent|title|larger/i.test(think)) {
+    throw new Error(`restyle thinking missed the ask: ${think.slice(0, 180)}`);
+  }
+
   if (problems.length) {
     console.error(problems.join("\n"));
     throw new Error(`${problems.length} console/page errors`);
   }
-  console.log("ALL PASS — Chromium painted three recipes and a typed prompt");
+  console.log("ALL PASS — Chromium painted recipes, a typed prompt, and a restyle");
 } finally {
   await browser.close();
 }

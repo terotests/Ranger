@@ -137,7 +137,7 @@
   <div class="mark">RANGER · <span>EVG live build</span></div>
   <form class="ask" id="ask">
     <input id="prompt" name="prompt" autocomplete="off"
-      placeholder="Ask for a dashboard, a settings screen, or an invoices list…">
+      placeholder="Ask for a dashboard, or change the look: larger title, gold accent…">
     <button class="primary" id="go" type="submit">Build</button>
   </form>
   <div class="chips" id="chips"></div>
@@ -222,10 +222,10 @@ $("prompt").value = kinds.kinds[0].prompt;
 $("ask").addEventListener("submit", (e) => {
   e.preventDefault();
   const prompt = $("prompt").value.trim();
-  start(prompt || current);
+  start(prompt || current, true);
 });
 
-function start(kindOrPrompt) {
+function start(kindOrPrompt, keepPicture) {
   if (es) { es.close(); es = null; }
   thinkStarted = false;
   tokens = 0;
@@ -238,7 +238,7 @@ function start(kindOrPrompt) {
   $("ntok").textContent = "0";
   $("kindLabel").textContent = "";
   $("go").disabled = true;
-  $("screen").replaceChildren();
+  if (!keepPicture) $("screen").replaceChildren();
   const q = encodeURIComponent(kindOrPrompt);
   es = new EventSource(`/stream?agent=${encodeURIComponent(currentAgent)}&kind=${q}&prompt=${q}&pace=24`);
   const on = (type, fn) => es.addEventListener(type, (ev) => {

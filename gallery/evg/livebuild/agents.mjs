@@ -124,11 +124,11 @@ function pipeChild(child, onLine, onClose) {
   });
 }
 
-export function runRecipe(kind, onLine, signal) {
+export function runRecipe(kind, onLine, signal, prompt) {
   return new Promise((resolve, reject) => {
     const child = spawn("node", [liveBin, "run", kind], {
       cwd: root,
-      env: process.env,
+      env: { ...process.env, EVG_LIVEBUILD_PROMPT: prompt || "" },
       stdio: ["ignore", "pipe", "pipe"],
     });
     const stop = () => {
@@ -477,7 +477,7 @@ function extractOps(text) {
 export async function runTask({ agent, kind, prompt, onLine, signal }) {
   const id = agent || "recipe";
   if (id === "recipe") {
-    await runRecipe(kind || "dashboard", onLine, signal);
+    await runRecipe(kind || "dashboard", onLine, signal, prompt);
     return;
   }
   await runWorkspaceAgent({ id, kind, prompt, onLine, signal });

@@ -39,10 +39,11 @@ function compile() {
   }
 }
 
-function run(kind) {
+function run(kind, prompt) {
   const r = spawnSync("node", [bin, "run", kind], {
     cwd: root,
     encoding: "utf8",
+    env: { ...process.env, EVG_LIVEBUILD_PROMPT: prompt || "" },
     maxBuffer: 20 * 1024 * 1024,
   });
   if (r.status !== 0) {
@@ -98,4 +99,18 @@ compile();
 check("dashboard");
 check("settings");
 check("invoices");
+const restyle = run(
+  "dashboard",
+  "Make the title larger, use a gold accent, and round the metric cards more.",
+);
+if (!restyle.some((e) => e.t === "ops" && JSON.stringify(e).includes("251,191,36"))) {
+  throw new Error("restyle: gold accent missing from ops");
+}
+if (!restyle.some((e) => e.t === "ops" && JSON.stringify(e).includes("28px"))) {
+  throw new Error("restyle: larger title missing from ops");
+}
+if (restyle.filter((e) => e.t === "frame").length < 3) {
+  throw new Error("restyle: expected a frame per restyle step");
+}
+console.log("  restyle    gold + title + radius follow-up");
 console.log("ALL PASS — NDJSON stream, growing display lists, thinking tokens");

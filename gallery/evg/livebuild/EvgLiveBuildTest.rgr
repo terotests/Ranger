@@ -77,6 +77,34 @@ class EvgLiveBuildTest {
         this.checkKind("settings")
         this.checkKind("invoices")
         print ""
+        print "-- restyle follow-up"
+        def r (new EvgLiveBuild())
+        r.printing = false
+        r.runAsked("dashboard" "Make the title larger, use a gold accent, and round the metric cards more.")
+        this.ok("restyle: no patch rejection" (r.failed == false))
+        this.ok("restyle: three visible steps" (r.steps >= 3))
+        this.ok("restyle: the page stays on the canvas" (r.findings == 0))
+        def goldHit:boolean false
+        def i:int 0
+        while (i < (array_length r.lines)) {
+            if (EvgLiveBuildTest.hasNeedle((itemAt r.lines i) "251,191,36")) {
+                goldHit = true
+            }
+            i = (i + 1)
+        }
+        this.ok("restyle: gold accent in the stream" goldHit)
+        def sizeHit:boolean false
+        def j:int 0
+        while (j < (array_length r.lines)) {
+            if (EvgLiveBuildTest.hasNeedle((itemAt r.lines j) "28px")) {
+                sizeHit = true
+            }
+            j = (j + 1)
+        }
+        this.ok("restyle: larger title in the stream" sizeHit)
+        this.ok("restyle: a done event" ((this.countKind(r "done")) == 1))
+        this.ok("restyle: frames for the visible steps" ((this.countKind(r "frame")) == r.steps))
+        print ""
         print "-- frame a fixture"
         def b (new EvgLiveBuild())
         b.printing = false
