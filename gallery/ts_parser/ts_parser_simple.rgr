@@ -8171,7 +8171,38 @@ class TSParserSimple {
         member.col = callee.col
         callee = member
       } {
-        keepMember = false
+        ; §12.3.3: MemberExpression includes a computed member and a tagged
+        ; template, so `new a[k]()` constructs a[k] and `new tag`x`` constructs
+        ; what the tag returned. Stopping at the first `[` or backtick made
+        ; the `new` apply to the bare name and the rest attach to the instance.
+        if (this.matchValue("[")) {
+          this.advance()
+          def keyExpr (this.parseExpr())
+          this.expectValue("]")
+          def cMember (new TSNode())
+          cMember.nodeType = "MemberExpression"
+          cMember.left = callee
+          cMember.right = keyExpr
+          cMember.computed = true
+          cMember.start = callee.start
+          cMember.line = callee.line
+          cMember.col = callee.col
+          callee = cMember
+        } {
+          if ((this.peekType()) == "Template") {
+            def tQuasi (this.parseTemplateLiteral())
+            def tagged (new TSNode())
+            tagged.nodeType = "TaggedTemplateExpression"
+            tagged.left = callee
+            tagged.right = tQuasi
+            tagged.start = callee.start
+            tagged.line = callee.line
+            tagged.col = callee.col
+            callee = tagged
+          } {
+            keepMember = false
+          }
+        }
       }
     }
     node.left = callee

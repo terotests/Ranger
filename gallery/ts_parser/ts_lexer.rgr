@@ -622,7 +622,15 @@ class TSLexer {
             if (ch == "\\") {
                 this.advance()
                 def esc:string (this.advance())
-                rawText = (rawText + ("\\" + esc))
+                ; TRV: the raw text keeps the escape AS WRITTEN, which includes
+                ; the digits of a \x or \u escape (appended below, once they
+                ; have been read), and a line continuation's CR / CRLF is
+                ; normalised to LF the same way the cooked value's is.
+                if (esc == "\r") {
+                    rawText = (rawText + "\\\n")
+                } {
+                    rawText = (rawText + ("\\" + esc))
+                }
                 ; A template's COOKED value decodes every escape a string
                 ; literal does -- only `\n`, `\t`, `` \` `` and `\$` were
                 ; handled, so `` `\x41` `` cooked to the four characters "x41".
@@ -666,6 +674,14 @@ class TSLexer {
                     handled = true
                 }
                 if (esc == "\n") { handled = true }
+                ; LINE SEPARATOR and PARAGRAPH SEPARATOR are line terminators
+                ; too, so a backslash before either is a line continuation.
+                if (false == handled) {
+                    if ((strlen esc) > 0) {
+                        def escCode:int (this.charStringCodePoint(esc))
+                        if ((escCode == 8232) || (escCode == 8233)) { handled = true }
+                    }
+                }
                 if (false == handled) {
                     if (esc == "x") {
                         ; \xHH -- exactly two hex digits.
@@ -678,15 +694,21 @@ class TSLexer {
                         }
                         this.advance()
                         this.advance()
+                        rawText = (rawText + (th1 + th2))
                         value = (value + (this.codeUnitString(((thv1 * 16) + thv2))))
                         handled = true
                     }
                 }
                 if (false == handled) {
                     if (esc == "u") {
+                        def tuStart:int pos
                         def tuEsc:string (this.readUnicodeEscapeBody())
                         if ((strlen tuEsc) == 0) {
                             return (this.makeToken("Invalid" value startPos startLine startCol))
+                        }
+                        while (tuStart < pos) {
+                            rawText = (rawText + (at source tuStart))
+                            tuStart = (tuStart + 1)
                         }
                         value = (value + tuEsc)
                         handled = true
@@ -763,6 +785,18 @@ class TSLexer {
                     }
                 } {
                     def p1:string (this.advance())
+                    ; §11.8.6.1 TV and TRV: a <CR><LF> or a lone <CR> in the
+                    ; text of a template is <LF> in both the cooked and the raw
+                    ; value.
+                    if (p1 == "\r") {
+                        if ((this.peek()) == "\n") {
+                            this.advance()
+                        }
+                        p1 = "\n"
+                    }
+                    if (p1 == "\r\n") {
+                        p1 = "\n"
+                    }
                     value = value + p1
                     rawText = rawText + p1
                 }
