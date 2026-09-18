@@ -557,6 +557,7 @@ code:not(pre code) {
 .step h3 { font: 650 20px/1.25 var(--sans); letter-spacing: -.015em; margin: 0 0 12px; }
 .step p:not(.label) { color: var(--dim); font-size: 15.5px; margin: 0; }
 .step .code--plain { margin-top: 18px; font-size: 12.2px; }
+.step .code--plain + p { margin-top: 18px; }
 @media (max-width: 800px) { .step { padding-inline: 0; border-right: 0; } }
 
 .warning { margin-top: 44px; border: 1px solid var(--line-2); border-left: 3px solid var(--gold); padding: 24px 26px; }

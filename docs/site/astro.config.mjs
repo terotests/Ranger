@@ -39,7 +39,9 @@ export default defineConfig({
   trailingSlash: "always",
   integrations: [
     starlight({
-      title: "Ranger",
+      // Document <title> suffix (and og:site_name). The header still says
+      // "Ranger": see src/components/SiteTitle.astro.
+      title: "Save time. Keep one source.",
       // The Ranger mark: the gold R in a shield. The source of the file is
       // ranger-vscode-extension/icons/ranger-file-icon.svg.
       favicon: "/favicon.svg",
@@ -72,6 +74,7 @@ export default defineConfig({
       customCss: ["./src/styles/docs.css"],
       components: {
         Footer: "./src/components/Footer.astro",
+        SiteTitle: "./src/components/SiteTitle.astro",
       },
       sidebar: [
         {
