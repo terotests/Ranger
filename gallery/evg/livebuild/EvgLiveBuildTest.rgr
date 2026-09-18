@@ -108,7 +108,7 @@ class EvgLiveBuildTest {
         print "-- frame a fixture"
         def b (new EvgLiveBuild())
         b.printing = false
-        b.runFrameFile("gallery/evg/agent/fixtures/card.evg.json")
+        b.runFrameFile("lib/evg/agent/fixtures/card.evg.json")
         this.ok("frame: loaded the card" (b.failed == false))
         this.ok("frame: one display list" ((this.countKind(b "frame")) == 1))
         this.ok("frame: the card stays on its own page" (b.findings == 0))

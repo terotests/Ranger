@@ -338,7 +338,7 @@ function seedDoc() {
 }
 
 function installEvgAgent(dir) {
-  const src = path.join(root, "gallery/evg/bin/evg_agent.js");
+  const src = path.join(root, "lib/evg/bin/evg_agent.js");
   if (!fs.existsSync(src)) return false;
   fs.copyFileSync(src, path.join(dir, "evg_agent.js"));
   fs.writeFileSync(

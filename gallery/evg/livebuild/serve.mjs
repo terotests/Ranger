@@ -162,7 +162,7 @@ function staticFile(urlPath) {
     return path.join(web, "index.html");
   }
   if (urlPath === "/evg-html.js") {
-    return path.join(root, "gallery/evg/html/evg-html.js");
+    return path.join(root, "lib/evg/html/evg-html.js");
   }
   if (urlPath.startsWith("/fonts/")) {
     const name = path.basename(urlPath);

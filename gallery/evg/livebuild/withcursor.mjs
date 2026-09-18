@@ -64,9 +64,9 @@ Then:
 `;
 }
 
-function compile(src, out) {
+function compile(src, out, outRel = "gallery/evg/bin") {
   const env = { ...process.env, RANGER_LIB: "./compiler/Lang.rgr:./lib/stdops.rgr" };
-  const outdir = path.join(root, "gallery/evg/bin");
+  const outdir = path.join(root, outRel);
   const dest = path.join(outdir, out);
   fs.mkdirSync(outdir, { recursive: true });
   try {
@@ -123,7 +123,7 @@ function main() {
 
   compile("./gallery/evg/livebuild/EvgLiveBuildMain.rgr", "evg_livebuild.js");
   try {
-    compile("./gallery/evg/agent/evg_agent.rgr", "evg_agent.js");
+    compile("./lib/evg/agent/evg_agent.rgr", "evg_agent.js", "lib/evg/bin");
   } catch (e) {
     process.stderr.write(`evg_agent compile skipped: ${e.message}\n`);
   }

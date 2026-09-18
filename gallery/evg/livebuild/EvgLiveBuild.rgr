@@ -27,13 +27,13 @@
 ;
 ; ==============================================================================
 
-Import "../EVGElement.rgr"
-Import "../EVGPatch.rgr"
-Import "../EVGTreeJson.rgr"
-Import "../EVGLayout.rgr"
-Import "../EVGDisplayList.rgr"
-Import "../EVGInspect.rgr"
-Import "../EVGUnit.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGPatch.rgr"
+Import "pkg:evg/EVGTreeJson.rgr"
+Import "pkg:evg/EVGLayout.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGInspect.rgr"
+Import "pkg:evg/EVGUnit.rgr"
 
 class EvgLiveBuild {
     def root:EVGElement (EVGElement.createDiv())
@@ -59,9 +59,9 @@ class EvgLiveBuild {
 
     fn reset:void () {
         root = (EVGElement.createDiv())
-        source = "Import \"EVGElement.rgr\"
-Import \"EVGLayout.rgr\"
-Import \"EVGDisplayList.rgr\"
+        source = "Import \"pkg:evg/EVGElement.rgr\"
+Import \"pkg:evg/EVGLayout.rgr\"
+Import \"pkg:evg/EVGDisplayList.rgr\"
 
 sfn main:void () {
 "

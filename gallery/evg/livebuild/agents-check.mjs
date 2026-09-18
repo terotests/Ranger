@@ -80,7 +80,7 @@ console.log(
     agents.map((a) => `${a.id}${a.available ? "" : " (off)"}`).join(", "),
 );
 
-const framed = spawnSync("node", [bin, "frame", "gallery/evg/agent/fixtures/card.evg.json"], {
+const framed = spawnSync("node", [bin, "frame", "lib/evg/agent/fixtures/card.evg.json"], {
   cwd: root,
   encoding: "utf8",
   maxBuffer: 8 * 1024 * 1024,
