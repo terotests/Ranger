@@ -138,4 +138,61 @@ if (again.type !== "list") {
   process.exit(1);
 }
 
-console.log("erazer web smoke ok — button, chip row, sliders, layout-net, html-set");
+// The lab's training helpers, as far as they go without a DOM. The rest —
+// IndexedDB, the fixtures, the capture — is `lab-check.mjs` in a browser.
+const seeds = ErazerLayoutLab.seedSamples();
+const seedLabels = [...new Set(seeds.map((s) => s.label))].sort();
+if (JSON.stringify(seedLabels) !==
+    JSON.stringify(["card", "form", "grid", "list", "nav", "property_row", "toolbar"])) {
+  console.error("seedSamples does not cover the seeded classes: " + seedLabels.join(","));
+  process.exit(1);
+}
+
+const parsed = ErazerLayoutLab.parseDump(ErazerLayoutLab.currentDump());
+if (!parsed || parsed.inSize !== 40 || parsed.hidSize !== 32 || parsed.w1.length !== 40 * 32) {
+  console.error("parseDump did not read the live weights back");
+  process.exit(1);
+}
+if (ErazerLayoutLab.parseDump("v1 40 32 8 a,b w,x") !== null) {
+  console.error("parseDump accepted a truncated dump");
+  process.exit(1);
+}
+
+const evened = ErazerLayoutLab.balance(
+  { x: [[1], [2], [3], [4], [5]], y: [0, 0, 0, 0, 1] }, 8
+);
+const evenedOnes = evened.y.filter((v) => v === 1).length;
+if (evenedOnes < 3) {
+  console.error("balance left the minority class at " + evenedOnes);
+  process.exit(1);
+}
+
+// The gate the training run is decided by. The shipped model has to name every
+// archetype; a freshly initialised one must not, or the gate proves nothing.
+const cases = ErazerLayoutLab.evalCases([]);
+const live = ErazerLayoutLab.scoreParts(ErazerLayoutLab.currentDump(), cases);
+if (live.core < 1) {
+  console.error("the seeded model misses an archetype: core=" + live.core);
+  process.exit(1);
+}
+const cold = ErazerLayoutLab.scoreParts(new ErazerLayoutNet().dumpWeights(), cases);
+if (!(cold.core < live.core)) {
+  console.error("an untrained net scored the archetypes as well as the seeded one");
+  process.exit(1);
+}
+
+// Warm start: fine-tuning on a handful of samples must not cost the archetypes.
+const fixtures = [
+  { label: "list", boxes: net.synthList(5, 16) },
+  { label: "toolbar", boxes: net.synthToolbar(3, 16) },
+  { label: "toolbar", boxes: net.synthToolbar(5, 16) },
+  { label: "toolbar", boxes: net.synthToolbar(6, 16) }
+];
+const tuned = ErazerLayoutLab.trainCPU(fixtures, 6);
+const after = ErazerLayoutLab.scoreParts(tuned.dump, cases);
+if (after.core < live.core) {
+  console.error("trainCPU lost an archetype: " + live.core + " -> " + after.core);
+  process.exit(1);
+}
+
+console.log("erazer web smoke ok — button, chip row, sliders, layout-net, html-set, train gate");

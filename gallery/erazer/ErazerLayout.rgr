@@ -2076,7 +2076,54 @@ class ErazerLayoutNet {
                 }
             }
         }
-        return (sign * (ip + frac))
+        def value:double (sign * (ip + frac))
+        ; A host writing a weight smaller than 1e-6 writes it as "8.4e-7".
+        ; Without this the exponent was dropped and the weight came back as
+        ; 8.4 — a saved model silently loaded as a different model.
+        def epos:int (indexOf s "e")
+        if (epos < 0) {
+            epos = (indexOf s "E")
+        }
+        if (epos >= 0) {
+            def esign:double 1.0
+            def k:int (epos + 1)
+            if (k < n) {
+                def ec:string (substring s k (k + 1))
+                if (ec == "-") {
+                    esign = (0.0 - 1.0)
+                    k = (k + 1)
+                } {
+                    if (ec == "+") {
+                        k = (k + 1)
+                    }
+                }
+            }
+            def ev:int 0
+            while (k < n) {
+                def d3:int (indexOf "0123456789" (substring s k (k + 1)))
+                if (d3 < 0) {
+                    k = n
+                } {
+                    ev = ((ev * 10) + d3)
+                    k = (k + 1)
+                }
+            }
+            if (ev > 60) {
+                ev = 60
+            }
+            def mul:double 1.0
+            def t:int 0
+            while (t < ev) {
+                mul = (mul * 10.0)
+                t = (t + 1)
+            }
+            if (esign < 0.0) {
+                value = (value / mul)
+            } {
+                value = (value * mul)
+            }
+        }
+        return value
     }
 
     fn parseCsv:[double] (s:string) {

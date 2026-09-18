@@ -54,6 +54,19 @@ tiny 40→32→8 net (CPU fallback if the adapter is missing). **Tallenna
 malli** / **Lataa malli** keep weights in IndexedDB, `localStorage`, or a
 `.txt` file.
 
+A fine-tune **continues from the weights the page is already predicting
+with**, and the eight synthetic archetypes ride along in the corpus. The
+HTML fixtures cover six of the eight classes and carry three toolbars
+against one of everything else, so a run that starts from random weights
+on those alone forgets the rest: a four-label column came back `nav` at
+100% and the archetypes fell from 8/8 to 2/8 — saved to IndexedDB, so one
+click degraded the page until site data was cleared.
+
+The run is then **scored before it is adopted**, over the archetypes and
+every recorded sample. A candidate that loses ground on either is
+reported and thrown away; the weights on the page do not move. `npm run
+erazer:web:lab` drives that whole path in a real browser.
+
 ## Commands
 
 ```sh
@@ -61,6 +74,8 @@ npm run erazer:test                 # synthetic UI fixtures (form, tabs, menu, i
 npm run erazer -- in.png out.evg.json
 npm run erazer -- in.png out.evg.json --overlay boxes.svg --outline
 npm run erazer:web:serve            # live page at http://localhost:8008/
+npm run erazer:web:smoke            # the bundle's exports, in Node
+npm run erazer:web:lab              # the live page, in a browser: capture + train
 npm run erazer:shots                # HTML widgets + live-page PNGs
 ```
 
@@ -117,6 +132,8 @@ The same dashboard in the live page (`?png=shadcn-dash.png`):
 | `ErazerPaint.rgr` | synthetic UI-library screenshots |
 | `erazer_cli.rgr` | PNG/JPEG in, `.evg.json` out |
 | `ErazerTest.rgr` | the fixtures, asserted |
+| `web/layout-lab.js` | HTML fixtures → boxes → WebGPU/CPU fine-tune, with the adoption gate |
+| `web/lab-check.mjs` | the lab driven in a real browser |
 | `web/` | the live page |
 | `web/layout-lab.js` | HTML test-set capture + WebGPU trainer |
 | `web/components.html` | HTML/CSS widgets for `erazer:shots` |

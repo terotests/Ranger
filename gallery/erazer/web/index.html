@@ -229,6 +229,10 @@
   var layoutPicked = document.getElementById("layoutPicked");
   var lastDoc = null;
   var picked = {};
+  /* The lab writes its progress into #layoutOut, and it also re-runs the
+     analyser for every fixture. Without this flag the run log was wiped by
+     each show() and the capture looked like it had done nothing. */
+  var labBusy = false;
 
   var WEIGHTS_KEY = "erazer-layout-weights";
   try {
@@ -286,6 +290,10 @@
   }
 
   function showLayout(doc) {
+    if (labBusy) {
+      paintLayoutOverlay(doc);
+      return;
+    }
     var text = "Ei vielä ryhmiä.";
     try {
       var data = JSON.parse(doc.layoutJson || "{}");
@@ -305,6 +313,10 @@
       text = String(doc.layoutJson || "");
     }
     layoutOut.textContent = text;
+    paintLayoutOverlay(doc);
+  }
+
+  function paintLayoutOverlay(doc) {
     var svg = stage.querySelector("svg");
     if (svg) {
       svg.querySelectorAll("[data-layout]").forEach(function (el) { el.remove(); });
@@ -700,9 +712,11 @@
     buildSetBtn.addEventListener("click", function () {
       if (!ErazerLayoutLab) return;
       buildSetBtn.disabled = true;
+      labBusy = true;
       layoutOut.textContent = "";
       labLog("Rakennetaan testsetti HTML-komponenteista…");
       ErazerLayoutLab.buildHtmlSet().then(function (n) {
+        labBusy = false;
         refreshTrainBtn();
         buildSetBtn.disabled = false;
         document.documentElement.setAttribute("data-lab-done", "1");
@@ -712,6 +726,7 @@
           document.documentElement.setAttribute("data-lab-ready", "1");
         }
       }).catch(function (err) {
+        labBusy = false;
         labLog("FAIL: " + (err && err.message ? err.message : err));
         buildSetBtn.disabled = false;
         refreshTrainBtn();
@@ -728,6 +743,11 @@
       labLog("Käynnistetään koulutus…");
       ErazerLayoutLab.trainOnDemand({}).then(function (result) {
         labLog("backend=" + result.backend + " · " + result.ms + " ms · features=" + result.features);
+        document.documentElement.setAttribute("data-lab-adopted", result.adopted ? "1" : "0");
+        document.documentElement.setAttribute("data-lab-score", String(result.score));
+        document.documentElement.setAttribute("data-lab-score-before", String(result.scoreBefore));
+        document.documentElement.setAttribute("data-lab-core", String(result.scoreCore));
+        document.documentElement.setAttribute("data-lab-core-before", String(result.scoreCoreBefore));
         if (lastDoc) {
           var all = boxesFromJson(lastDoc.layoutJson);
           var net = ErazerLayoutNet.shared();

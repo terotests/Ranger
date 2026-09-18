@@ -312,7 +312,6 @@
   }
 
   lab.expandSamples = function (raw) {
-    var net = new ErazerLayoutNet();
     var groups = [];
     var labels = [];
     for (var i = 0; i < raw.length; i++) {
@@ -331,6 +330,153 @@
       }
     }
     return { groups: groups, labels: labels };
+  };
+
+  /**
+   * The synthetic archetypes the Ranger net seeds itself from, as lab samples.
+   *
+   * Eight HTML fixtures cover six of the eight classes and carry three
+   * toolbars against one of everything else. Training on those alone — from a
+   * random start — threw the seed away: a four-label column came back as
+   * `nav` at 100%. The seed corpus rides along in every fine-tune so the
+   * classes the fixtures do not show still have gradient behind them.
+   */
+  lab.seedSamples = function () {
+    if (typeof ErazerLayoutNet === "undefined") return [];
+    var net = ErazerLayoutNet.shared();
+    var em = 16;
+    return [
+      { label: "list", boxes: net.synthList(4, em), source: "seed", fixture: "synth-list-4" },
+      { label: "list", boxes: net.synthList(6, em), source: "seed", fixture: "synth-list-6" },
+      { label: "form", boxes: net.synthForm(em), source: "seed", fixture: "synth-form" },
+      { label: "toolbar", boxes: net.synthToolbar(4, em), source: "seed", fixture: "synth-toolbar-4" },
+      { label: "nav", boxes: net.synthNav(em), source: "seed", fixture: "synth-nav" },
+      { label: "property_row", boxes: net.synthRows(em), source: "seed", fixture: "synth-rows" },
+      { label: "grid", boxes: net.synthGrid(em), source: "seed", fixture: "synth-grid" },
+      { label: "card", boxes: net.synthCard(em), source: "seed", fixture: "synth-card" }
+    ];
+  };
+
+  /** `v1 in hid out names w1 b1 w2 b2` → typed arrays, or null when malformed. */
+  lab.parseDump = function (dump) {
+    var parts = String(dump || "").split(/\s+/).filter(function (t) { return t.length; });
+    if (parts.length < 9 || parts[0] !== "v1") return null;
+    var inSize = parseInt(parts[1], 10);
+    var hidSize = parseInt(parts[2], 10);
+    var outSize = parseInt(parts[3], 10);
+    var names = parts[4].split(",");
+    if (!(inSize > 0) || !(hidSize > 0) || names.length !== outSize) return null;
+    var toF32 = function (csv) {
+      var toks = csv.split(",");
+      var out = new Float32Array(toks.length);
+      for (var i = 0; i < toks.length; i++) {
+        var v = parseFloat(toks[i]);
+        out[i] = isFinite(v) ? v : 0;
+      }
+      return out;
+    };
+    var w1 = toF32(parts[5]), b1 = toF32(parts[6]), w2 = toF32(parts[7]), b2 = toF32(parts[8]);
+    if (w1.length !== inSize * hidSize || b1.length !== hidSize) return null;
+    if (w2.length !== hidSize * outSize || b2.length !== outSize) return null;
+    return { inSize: inSize, hidSize: hidSize, outSize: outSize, names: names, w1: w1, b1: b1, w2: w2, b2: b2 };
+  };
+
+  /** The weights the page is predicting with right now. */
+  lab.currentDump = function () {
+    if (typeof ErazerLayoutNet === "undefined") return "";
+    return ErazerLayoutNet.shared().dumpWeights();
+  };
+
+  /**
+   * Repeat the thin classes until every class carries about as much weight as
+   * the fattest one, and keep `other` — which the hard negatives produce in
+   * bulk — from drowning the rest.
+   */
+  lab.balance = function (batch, classCount, otherIndex) {
+    var n = batch.x.length;
+    if (!n) return batch;
+    /* `other` is wherever the class list puts it: teaching a new concept
+       appends it, so it is not always last. */
+    var other = otherIndex == null ? classCount - 1 : otherIndex;
+    var counts = [];
+    var c;
+    for (c = 0; c < classCount; c++) counts.push(0);
+    for (var i = 0; i < n; i++) counts[batch.y[i]] = (counts[batch.y[i]] || 0) + 1;
+    var top = 0;
+    for (c = 0; c < classCount; c++) {
+      if (c === other) continue;
+      if (counts[c] > top) top = counts[c];
+    }
+    if (top < 1) return batch;
+    var cap = Math.max(top, 1) * 2;
+    var x = [];
+    var y = [];
+    var taken = [];
+    for (c = 0; c < classCount; c++) taken.push(0);
+    for (var k = 0; k < n; k++) {
+      var cls = batch.y[k];
+      var limit = cls === other ? cap : counts[cls];
+      if (taken[cls] >= limit) continue;
+      taken[cls]++;
+      var reps = counts[cls] > 0 ? Math.max(1, Math.round(top / counts[cls])) : 1;
+      if (reps > 6) reps = 6;
+      for (var r = 0; r < reps; r++) {
+        x.push(batch.x[k]);
+        y.push(cls);
+      }
+    }
+    return { x: x, y: y };
+  };
+
+  /**
+   * What a model has to keep getting right: the eight archetypes plus every
+   * sample the lab recorded. A fine-tune that scores worse than the model on
+   * the page is not an improvement, however low its loss got.
+   */
+  lab.evalCases = function (rawSamples) {
+    var cases = [];
+    var seeds = lab.seedSamples();
+    var i;
+    /* `core` marks the archetypes. They are scored on their own as well as in
+       the total, because a fine-tune can raise the total by memorising the
+       fixtures while losing every archetype — which is exactly what training
+       from a random start did. */
+    for (i = 0; i < seeds.length; i++) {
+      cases.push({ label: seeds[i].label, boxes: toRangerBoxes(seeds[i].boxes), core: true });
+    }
+    var raw = rawSamples || [];
+    for (i = 0; i < raw.length; i++) {
+      if (!raw[i].boxes || raw[i].boxes.length < 2) continue;
+      cases.push({ label: raw[i].label || "other", boxes: toRangerBoxes(raw[i].boxes), core: false });
+    }
+    return cases;
+  };
+
+  /**
+   * Share of `cases` a dump names correctly, overall and over the archetypes
+   * alone. Both are -1 when the dump will not load.
+   */
+  lab.scoreParts = function (dump, cases) {
+    if (typeof ErazerLayoutNet === "undefined" || !cases.length) return { all: -1, core: -1 };
+    var net = new ErazerLayoutNet();
+    if (!net.loadWeights(dump)) return { all: -1, core: -1 };
+    var ok = 0;
+    var coreOk = 0;
+    var coreN = 0;
+    for (var i = 0; i < cases.length; i++) {
+      var hit = net.predict(cases[i].boxes).type === cases[i].label;
+      if (hit) ok++;
+      if (cases[i].core) {
+        coreN++;
+        if (hit) coreOk++;
+      }
+    }
+    return { all: ok / cases.length, core: coreN ? coreOk / coreN : 1 };
+  };
+
+  /** Overall share only, for callers that do not need the split. */
+  lab.scoreDump = function (dump, cases) {
+    return lab.scoreParts(dump, cases).all;
   };
 
   lab.featureBatch = function (groups, labels, classNames) {
@@ -440,21 +586,36 @@
     return a;
   }
 
+  /**
+   * The shader is written for exactly 40→32→8, so a net that has grown a
+   * class past the eight defaults cannot be fine-tuned here.
+   */
+  lab.gpuFits = function (init) {
+    return !!init && init.inSize === IN && init.hidSize === HID && init.outSize === 8;
+  };
+
   lab.trainWebGPU = async function (batch, opts) {
     opts = opts || {};
-    var lr = opts.lr == null ? 0.07 : opts.lr;
-    var epochs = opts.epochs == null ? 8 : opts.epochs;
+    var lr = opts.lr == null ? 0.03 : opts.lr;
+    var epochs = opts.epochs == null ? 12 : opts.epochs;
     if (!navigator.gpu) throw new Error("WebGPU ei ole käytössä");
+    var init = opts.init || null;
+    if (init && !lab.gpuFits(init)) {
+      throw new Error("malli ei ole 40→32→8, GPU-polku ei kelpaa");
+    }
     var adapter = await navigator.gpu.requestAdapter();
     if (!adapter) throw new Error("WebGPU-adapteria ei saatu");
     var device = await adapter.requestDevice();
     var rng = { s: 0.137 };
     var s1 = Math.sqrt(6 / (IN + HID));
     var s2 = Math.sqrt(6 / (HID + 8));
-    var w1 = randArr(IN * HID, s1, rng);
-    var b1 = randArr(HID, 0.01, rng);
-    var w2 = randArr(HID * 8, s2, rng);
-    var b2 = randArr(8, 0.01, rng);
+    /* Warm start from the weights the page already predicts with. Starting
+       random threw the synthetic seed away every time the button was hit. */
+    var names = init ? init.names : CLASSES;
+    var w1 = init ? Float32Array.from(init.w1) : randArr(IN * HID, s1, rng);
+    var b1 = init ? Float32Array.from(init.b1) : randArr(HID, 0.01, rng);
+    var w2 = init ? Float32Array.from(init.w2) : randArr(HID * 8, s2, rng);
+    var b2 = init ? Float32Array.from(init.b2) : randArr(8, 0.01, rng);
     var xBuf = device.createBuffer({ size: IN * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
     var w1Buf = device.createBuffer({ size: w1.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC });
     var b1Buf = device.createBuffer({ size: b1.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC });
@@ -519,7 +680,7 @@
     var b2o = await readF32(device, b2Buf, b2.byteLength);
     if (device.destroy) device.destroy();
     return {
-      dump: lab.packDump(CLASSES, w1o, b1o, w2o, b2o),
+      dump: lab.packDump(names, w1o, b1o, w2o, b2o),
       loss: lastLoss[0],
       backend: "webgpu",
       steps: n * epochs
@@ -540,8 +701,12 @@
 
   lab.trainCPU = function (raw, epochs) {
     var net = new ErazerLayoutNet();
-    var expanded = lab.expandSamples(raw);
-    net.fitAll(expanded.groups, expanded.labels, epochs || 8);
+    /* Same rule as the GPU path: continue from the live weights, and keep the
+       archetypes in the corpus so the classes the fixtures miss survive. */
+    var start = lab.currentDump();
+    if (start) net.loadWeights(start);
+    var expanded = lab.expandSamples((raw || []).concat(lab.seedSamples()));
+    net.fitAll(expanded.groups, expanded.labels, epochs || 12);
     return {
       dump: net.dumpWeights(),
       backend: "cpu",
@@ -704,6 +869,12 @@
     return total;
   };
 
+  /**
+   * Train, then check. A run is adopted only when it names the archetypes and
+   * the recorded samples at least as well as the model already on the page —
+   * the weights land in IndexedDB and localStorage, so a bad fine-tune used to
+   * follow the user around until they cleared site data.
+   */
   lab.trainOnDemand = async function (opts) {
     opts = opts || {};
     var log = (lab.hooks && lab.hooks.log) || function () {};
@@ -711,26 +882,63 @@
     if (samples.length < MIN_SAMPLES) {
       throw new Error("liian vähän näytteitä (" + samples.length + "/" + MIN_SAMPLES + ")");
     }
-    var expanded = lab.expandSamples(samples);
-    var batch = lab.featureBatch(expanded.groups, expanded.labels, CLASSES);
-    log("3/3 koulutetaan " + batch.x.length + " feature-vektoria, malli 40→32→8");
+    var baseDump = lab.currentDump();
+    var init = lab.parseDump(baseDump);
+    var names = init ? init.names : CLASSES;
+    var expanded = lab.expandSamples(samples.concat(lab.seedSamples()));
+    var batch = lab.featureBatch(expanded.groups, expanded.labels, names);
+    var otherIndex = names.indexOf("other");
+    batch = lab.balance(batch, names.length, otherIndex < 0 ? names.length - 1 : otherIndex);
+    log("3/3 koulutetaan " + batch.x.length + " feature-vektoria, malli " +
+      IN + "→" + HID + "→" + names.length);
+    var cases = lab.evalCases(samples);
+    var before = lab.scoreParts(baseDump, cases);
+    /* Rank a candidate by the archetypes first: a run that keeps them and ties
+       overall beats one that trades them away for fixture accuracy. */
+    var rank = function (p) { return (p.core * 2) + p.all; };
     var t0 = (typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now();
-    var result;
-    var wantGpu = opts.forceCPU ? false : true;
-    if (wantGpu && lab.hasWebGPU()) {
+    var epochs = opts.epochs || 12;
+    var tried = [];
+    if (!opts.forceCPU && lab.hasWebGPU() && lab.gpuFits(init)) {
       try {
-        result = await lab.trainWebGPU(batch, { epochs: opts.epochs || 8, lr: 0.07 });
+        tried.push(await lab.trainWebGPU(batch, { epochs: epochs, lr: opts.lr || 0.03, init: init }));
       } catch (err) {
         log("WebGPU epäonnistui (" + err.message + "), käytetään CPU:ta");
-        result = lab.trainCPU(samples, opts.epochs || 8);
       }
-    } else {
-      result = lab.trainCPU(samples, opts.epochs || 8);
+    }
+    if (!tried.length || rank(lab.scoreParts(tried[0].dump, cases)) < rank(before)) {
+      tried.push(lab.trainCPU(samples, epochs));
+    }
+    var result = tried[0];
+    var score = lab.scoreParts(result.dump, cases);
+    for (var i = 1; i < tried.length; i++) {
+      var s2 = lab.scoreParts(tried[i].dump, cases);
+      if (rank(s2) > rank(score)) {
+        score = s2;
+        result = tried[i];
+      }
     }
     var ms = Math.round(((typeof performance !== "undefined" && performance.now) ? performance.now() : Date.now()) - t0);
     result.ms = ms;
     result.samples = samples.length;
     result.features = batch.x.length;
+    result.score = score.all;
+    result.scoreCore = score.core;
+    result.scoreBefore = before.all;
+    result.scoreCoreBefore = before.core;
+    result.cases = cases.length;
+    var pct = function (v) { return Math.round(Math.max(0, v) * 100) + "%"; };
+    /* Both have to hold. Overall alone let a run memorise the sixteen fixtures
+       and lose six of the eight archetypes while its total went UP. */
+    if ((score.all + 1e-9 < before.all) || (score.core + 1e-9 < before.core)) {
+      result.adopted = false;
+      result.dump = baseDump;
+      log("Hylätty: " + pct(score.all) + "/" + pct(score.core) + " < nykyinen " +
+        pct(before.all) + "/" + pct(before.core) +
+        " (" + cases.length + " tapausta) · " + result.backend + " · " + ms + " ms · painot ennallaan");
+      return result;
+    }
+    result.adopted = true;
     if (typeof ErazerLayoutNet !== "undefined" && ErazerLayoutNet.adoptWeights) {
       ErazerLayoutNet.adoptWeights(result.dump);
     }
@@ -741,7 +949,10 @@
       steps: result.steps,
       samples: samples.length
     });
-    log("Malli valmis · " + result.backend + " · " + ms + " ms · " + result.features + " näytettä · tallennettu IndexedDB + localStorage");
+    log("Malli valmis · " + result.backend + " · " + ms + " ms · " + result.features +
+      " näytettä · " + pct(before.all) + " → " + pct(score.all) +
+      " (arkkityypit " + pct(score.core) + ", " + cases.length +
+      " tapausta) · tallennettu IndexedDB + localStorage");
     return result;
   };
 
