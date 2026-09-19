@@ -98,6 +98,12 @@ function check(kind) {
   if (measured.width !== 390 || measured.height !== 844) {
     throw new Error(`${kind}: measured at ${measured.width}×${measured.height}`);
   }
+  // Nothing is off its edge either. The demo screens are what every session
+  // starts from and what the guide points at, so a bottom bar one padding to
+  // the right of the cards it floats over teaches that as the house style.
+  if ((measured.align || []).length) {
+    throw new Error(`${kind}: ${measured.align.join("; ")}`);
+  }
   const done = events.filter((e) => e.t === "done").at(-1);
   if (!done.ok) throw new Error(`${kind}: done.ok is false ${JSON.stringify(done)}`);
   if (done.findings !== 0) throw new Error(`${kind}: measure findings ${done.findings}`);

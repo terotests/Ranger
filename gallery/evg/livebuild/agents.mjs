@@ -351,9 +351,29 @@ save — so even editing the JSON by hand leaves you the numbers.
 - **findings** are defects: two in-flow siblings on top of each other
   (with the overlap in px), a child out of a clipping parent, anything
   past the page. Fix them. \`"count":0\` is the goal of every edit.
+- **align** is what does not line up. This is the defect that slips
+  through everything else — a screen where each row starts at a
+  different x has no overlap, no overflow, and looks like it fell down
+  the stairs. Read every line.
 - **tight** is under 4px between neighbours — crowded, and your call.
 - **bottomFree** is the room left under the content. A big number after
   you added something means it did not land where you think.
+
+### Lining up
+
+Children that share an edge are aligned; children that agree on their
+centres are centred; children that agree on neither were not aligned to
+anything, and \`align\` says so with the spread in pixels. Two rows 3px
+apart is never a design decision — it is an edge somebody meant to
+share. Pick one left edge for the column and keep to it.
+
+An **absolute** child is the one that gets away with it, because it is
+exempt from overlap and lands on the page either way. \`left\` and
+\`right\` on it are resolved **from inside the parent's padding**: with
+\`padding: 16px\`, \`left: 16px\` puts the child at 32 while every card
+under it starts at 16. Use \`left: 0px\` to sit on the content edge, and
+size it to the content width, not the screen width. \`align\` names this
+one explicitly when it happens.
 
 For spacing, ask for the boxes:
 

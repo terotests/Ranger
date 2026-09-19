@@ -36,6 +36,36 @@ echo "$found" | grep -q 'overlap by 100×40' || fail "overlap did not carry the 
 npm run --silent agent -- measure lib/evg/agent/fixtures/card.evg.json --width=600 --height=400 \
   | grep -q '"bottomFree"' || fail "measure did not report the free space"
 
+# alignment: the defect every other check passes. A stack that shares no edge,
+# and an overlay one padding to the right of the column it floats over.
+cat > "$work/ragged.evg.json" <<'JSON'
+{"evg":1,"root":{"tag":"div","props":{"display":"flex","width":"390px","height":"844px","padding-left":"16px","padding-right":"16px","gap":"8px"},"children":[
+  {"tag":"div","props":{"width":"200px","height":"40px","margin-left":"20px"}},
+  {"tag":"div","props":{"width":"200px","height":"40px","margin-left":"60px"}},
+  {"tag":"div","props":{"width":"200px","height":"40px","margin-left":"4px"}}
+]}}
+JSON
+ragged=$(npm run --silent agent -- measure "$work/ragged.evg.json")
+echo "$ragged" | grep -q '"count":0' || fail "the ragged fixture should have no DEFECT: $ragged"
+echo "$ragged" | grep -q 'share no edge' || fail "measure did not notice the ragged column: $ragged"
+
+# the overlay case: the column is tidy, the bar floating over it is one padding
+# to the right, and every other check passes it
+cat > "$work/bar.evg.json" <<'JSON'
+{"evg":1,"root":{"tag":"div","props":{"display":"flex","width":"390px","height":"844px","padding-left":"16px","padding-right":"16px","gap":"8px"},"children":[
+  {"tag":"div","props":{"height":"40px"}},
+  {"tag":"div","props":{"height":"40px"}},
+  {"tag":"div","props":{"position":"absolute","left":"16px","bottom":"16px","width":"358px","height":"52px"}}
+]}}
+JSON
+bar=$(npm run --silent agent -- measure "$work/bar.evg.json")
+echo "$bar" | grep -q '"count":0' || fail "the overlay fixture should have no DEFECT: $bar"
+echo "$bar" | grep -q 'one padding' \
+  || fail "measure did not notice the overlay one padding off: $bar"
+if npm run --silent agent -- measure lib/evg/agent/fixtures/card.evg.json | grep -q '"align"'; then
+  fail "a tidy document must not report alignment noise"
+fi
+
 # --boxes: where each node really is, and how far the next one starts
 boxes=$(npm run --silent agent -- measure lib/evg/agent/fixtures/card.evg.json --boxes --at=0)
 echo "$boxes" | grep -q '"gapNext"' || fail "--boxes did not report a distance: $boxes"

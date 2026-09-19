@@ -144,6 +144,16 @@ is not the same as "this is what it looks like":
   card where you think.
 - **`tight`** — neighbours less than 4px apart. Not a defect; the measurement
   of one, for a caller who can decide whether 2px between two cards was meant.
+- **`align`** — what does not line up. Children that share a left edge are
+  aligned, children whose centres agree are centred, children that agree on
+  neither were aligned to nothing, and the spread says by how much. This is
+  the defect every other check misses: a screen where each row starts at a
+  different x has no overlap, no overflow, and is plainly wrong to look at.
+  An absolutely positioned child is compared against the flow it floats over,
+  because it is exempt from every other check and still has to line up; when
+  it is off by exactly the parent's padding, the report says so, since `left`
+  on an absolute child is resolved from inside that padding and asking for it
+  again adds it twice.
 
 ### Distances, when spacing is the question
 

@@ -32,7 +32,7 @@
       {"tag":"span","text":"North Park","props":{"font-size":"14px","color":"rgb(226,232,240)"}},
       {"tag":"span","text":"€96","props":{"font-weight":"bold","font-size":"14px","color":"rgb(125,211,252)"}}
     ]},
-    {"tag":"div","props":{"display":"flex","position":"absolute","flex-direction":"row","justify-content":"space-around","align-items":"center","width":"358px","height":"52px","left":"16px","bottom":"16px","font-size":"14px","background-color":"rgb(30,41,59)","border-radius":"16px"},"children":[
+    {"tag":"div","props":{"display":"flex","position":"absolute","flex-direction":"row","justify-content":"space-around","align-items":"center","width":"358px","height":"52px","left":"0px","bottom":"16px","font-size":"14px","background-color":"rgb(30,41,59)","border-radius":"16px"},"children":[
       {"tag":"span","text":"Home","props":{"font-weight":"bold","font-size":"13px","color":"rgb(125,211,252)"}},
       {"tag":"span","text":"Search","props":{"font-size":"13px","color":"rgb(148,163,184)"}},
       {"tag":"span","text":"You","props":{"font-size":"13px","color":"rgb(148,163,184)"}}

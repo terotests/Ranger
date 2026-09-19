@@ -97,6 +97,19 @@ the tokens. Render only to judge how something looks.
 prints the same summary under `layout` without being asked, so an edit answers
 with what it did to the layout.
 
+`align` is the one to read twice. A stack whose children share a left edge is
+aligned, one whose centres agree is centred, one that agrees on neither was
+aligned to nothing — and that defect passes every other check, because nothing
+overlaps and nothing leaves the page. An absolute child is the usual offender:
+its `left` is resolved from inside the parent's padding, so `padding: 16px`
+plus `left: 16px` puts it at 32 while the flow starts at 16.
+
+```json
+"align":["0/9 starts at 32, the flow at 16 — that is one padding: an absolute
+          left/right is measured from inside the parent's padding, so asking
+          for it again adds it twice"]
+```
+
 When spacing is the question, ask for the boxes:
 
 ```bash

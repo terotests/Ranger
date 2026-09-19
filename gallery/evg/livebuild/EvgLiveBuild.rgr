@@ -396,7 +396,7 @@ sfn main:void () {
   ; today's invoices
 ")
         def nav:[EVGPatchOp] (this.ops())
-        this.addDiv(nav "0" 9 ([] _:string ( "display" "flex" "flex-direction" "row" "align-items" "center" "justify-content" "space-around" "position" "absolute" "left" "16px" "bottom" "16px" "width" "358px" "height" "52px" "background-color" "rgb(30,41,59)" "border-radius" "16px" )))
+        this.addDiv(nav "0" 9 ([] _:string ( "display" "flex" "flex-direction" "row" "align-items" "center" "justify-content" "space-around" "position" "absolute" "left" "0px" "bottom" "16px" "width" "358px" "height" "52px" "background-color" "rgb(30,41,59)" "border-radius" "16px" )))
         this.addSpan(nav "0/9" 0 "Home" ([] _:string ( "font-size" "13px" "font-weight" "bold" "color" "rgb(125,211,252)" )))
         this.addSpan(nav "0/9" 1 "Search" ([] _:string ( "font-size" "13px" "color" "rgb(148,163,184)" )))
         this.addSpan(nav "0/9" 2 "You" ([] _:string ( "font-size" "13px" "color" "rgb(148,163,184)" )))
@@ -425,7 +425,7 @@ sfn main:void () {
   ; settings rows
 ")
         def foot:[EVGPatchOp] (this.ops())
-        this.addDiv(foot "0" 7 ([] _:string ( "display" "flex" "flex-direction" "row" "align-items" "center" "justify-content" "center" "position" "absolute" "left" "16px" "bottom" "16px" "width" "358px" "height" "48px" "background-color" "rgb(254,226,226)" "border-radius" "12px" )))
+        this.addDiv(foot "0" 7 ([] _:string ( "display" "flex" "flex-direction" "row" "align-items" "center" "justify-content" "center" "position" "absolute" "left" "0px" "bottom" "16px" "width" "358px" "height" "48px" "background-color" "rgb(254,226,226)" "border-radius" "12px" )))
         this.addSpan(foot "0/7" 0 "Sign out" ([] _:string ( "font-size" "15px" "font-weight" "bold" "color" "rgb(185,28,28)" )))
         this.step("Sign out, placed on the bottom so it does not crowd the rows." foot "
   ; sign out
@@ -452,7 +452,7 @@ sfn main:void () {
   ; invoice rows
 ")
         def sum:[EVGPatchOp] (this.ops())
-        this.addDiv(sum "0" 7 ([] _:string ( "display" "flex" "flex-direction" "row" "align-items" "center" "justify-content" "space-between" "position" "absolute" "left" "16px" "bottom" "16px" "width" "358px" "height" "56px" "padding-left" "16px" "padding-right" "16px" "background-color" "rgb(15,23,42)" "border-radius" "14px" )))
+        this.addDiv(sum "0" 7 ([] _:string ( "display" "flex" "flex-direction" "row" "align-items" "center" "justify-content" "space-between" "position" "absolute" "left" "0px" "bottom" "16px" "width" "358px" "height" "56px" "padding-left" "16px" "padding-right" "16px" "background-color" "rgb(15,23,42)" "border-radius" "14px" )))
         this.addSpan(sum "0/7" 0 "Open total" ([] _:string ( "font-size" "13px" "color" "rgb(148,163,184)" )))
         this.addSpan(sum "0/7" 1 "€1,936" ([] _:string ( "font-size" "20px" "font-weight" "bold" "color" "rgb(255,255,255)" )))
         this.step("A dark total bar at the bottom so the sum is the last thing the eye hits." sum "

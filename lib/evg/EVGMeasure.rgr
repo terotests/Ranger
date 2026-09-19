@@ -39,6 +39,7 @@ Import "EVGUnit.rgr"
 class EVGMeasure {
     def findings:[string]
     def tight:[string]
+    def align:[string]
     def boxes:[string]
     def width:int 0
     def height:int 0
@@ -60,6 +61,8 @@ class EVGMeasure {
         findings = fresh
         def fresh2:[string]
         tight = fresh2
+        def fresh2b:[string]
+        align = fresh2b
         def fresh3:[string]
         boxes = fresh3
         width = w
@@ -86,6 +89,8 @@ class EVGMeasure {
                 this.checkOffPage(path el pw ph)
                 this.checkOverflow(path el)
                 this.checkSiblings(path el)
+                this.checkAlignment(path el)
+                this.checkAbsolutes(path el)
                 ; The free space is the room left under the CONTENT, so a top
                 ; level node is not counted: a root that is the page itself
                 ; would answer 0 for every document and mean nothing by it.
@@ -128,6 +133,9 @@ class EVGMeasure {
             if (tightMore > 0) {
                 out = ((out + ",\"tightMore\":") + (to_string tightMore))
             }
+        }
+        if ((array_length align) > 0) {
+            out = ((out + ",\"align\":") + (EVGMeasure.strArray(align pretty)))
         }
         if ((array_length boxes) > 0) {
             out = (out + ",\"boxes\":[")
@@ -301,6 +309,271 @@ class EVGMeasure {
             }
             i = (i + 1)
         }
+    }
+
+    ; --- WHY ALIGNMENT IS MEASURED AND NOT LEFT TO TASTE ----------------------
+    ;
+    ; A screen where nothing lines up passes every check above: no overlap, no
+    ; overflow, everything on the page, and it still looks like it fell down
+    ; the stairs. It is also the defect an agent is least able to catch, since
+    ; the markup it wrote says `padding: 16px` in six places and the picture
+    ; does not, and nothing in the document names the edge the eye is looking
+    ; for.
+    ;
+    ; So this asks the one question that has an answer: do these children share
+    ; an edge? A stack whose lefts agree is left-aligned, one whose centres
+    ; agree is centred, one whose rights agree is right-aligned — all three are
+    ; deliberate. A stack that agrees on NONE of them was not aligned to
+    ; anything, and that is what gets reported, with the spread in pixels.
+    ;
+    ; Two children a few pixels apart get their own line: 3px is never a design
+    ; decision, it is an edge somebody meant to share.
+    fn checkAlignment:void (path:string el:EVGElement) {
+        def kids:[EVGElement]
+        def names:[string]
+        def n:int (array_length el.children)
+        def i:int 0
+        while (i < n) {
+            def kid:EVGElement (itemAt el.children i)
+            if ((kid.hasAbsolutePosition()) == false) {
+                if ((kid.calculatedWidth > 0.0) && (kid.calculatedHeight > 0.0)) {
+                    push kids kid
+                    push names ((path + "/") + (EVGMeasure.segOf(kid i)))
+                }
+            }
+            i = (i + 1)
+        }
+        def k:int (array_length kids)
+        if (k < 3) {
+            return
+        }
+        ; A row is measured against its top edges, a column against its lefts.
+        ; Anything that is neither — a wrapped run, a grid — has no single edge
+        ; to be off, so it is left alone rather than guessed at.
+        def dir:string (EVGMeasure.stackOf(kids))
+        if (dir == "none") {
+            return
+        }
+        def starts:[double]
+        def middles:[double]
+        def ends:[double]
+        def j:int 0
+        while (j < k) {
+            def kid:EVGElement (itemAt kids j)
+            def a:double kid.calculatedX
+            def len:double kid.calculatedWidth
+            if (dir == "row") {
+                a = kid.calculatedY
+                len = kid.calculatedHeight
+            }
+            push starts a
+            push middles (a + (len / 2.0))
+            push ends (a + len)
+            j = (j + 1)
+        }
+        def edge:string "left"
+        if (dir == "row") {
+            edge = "top"
+        }
+        def sSpread:double (EVGMeasure.spreadOf(starts))
+        def mSpread:double (EVGMeasure.spreadOf(middles))
+        def eSpread:double (EVGMeasure.spreadOf(ends))
+        def best:double sSpread
+        if (mSpread < best) {
+            best = mSpread
+        }
+        if (eSpread < best) {
+            best = eSpread
+        }
+        if (best <= 0.5) {
+            ; Aligned to something on purpose. A near miss inside an otherwise
+            ; tidy stack is still worth a line.
+            this.nearMiss(names starts edge)
+            return
+        }
+        if (best <= 4.0) {
+            push align ((((((EVGMeasure.pathHead(names)) + ": ") + (to_string k)) + " children are ") + (EVGMeasure.num(best))) + "px off a shared edge — nothing lines up exactly")
+            this.nearMiss(names starts edge)
+            return
+        }
+        push align ((((((((EVGMeasure.pathHead(names)) + ": ") + (to_string k)) + " children share no edge — ") + edge) + " spread ") + (EVGMeasure.num(sSpread))) + "px")
+    }
+
+    ; --- WHY AN ABSOLUTE CHILD IS CHECKED SEPARATELY --------------------------
+    ;
+    ; An overlay is exempt from overlap and from the free-space number, and it
+    ; still has to line up with the column it floats over — a bottom bar 12px
+    ; to the right of every card under it is wrong, and no check above sees it,
+    ; because the bar is off the flow and lands on the page either way.
+    ;
+    ; The cause is nearly always the same, and it is worth naming rather than
+    ; only measuring: `left` on an absolute child is resolved from inside the
+    ; parent's padding, so a 12px padding plus `left: 12px` puts the child at
+    ; 24 while the flow starts at 12. The padding is already there; asking for
+    ; it again moves the child by exactly one padding.
+    fn checkAbsolutes:void (path:string el:EVGElement) {
+        def lefts:[double]
+        def rights:[double]
+        def n:int (array_length el.children)
+        def i:int 0
+        while (i < n) {
+            def kid:EVGElement (itemAt el.children i)
+            if ((kid.hasAbsolutePosition()) == false) {
+                if ((kid.calculatedWidth > 0.0) && (kid.calculatedHeight > 0.0)) {
+                    push lefts kid.calculatedX
+                    push rights (kid.calculatedX + kid.calculatedWidth)
+                }
+            }
+            i = (i + 1)
+        }
+        if ((array_length lefts) < 2) {
+            return
+        }
+        def leftShared:boolean ((EVGMeasure.spreadOf(lefts)) <= 0.5)
+        def rightShared:boolean ((EVGMeasure.spreadOf(rights)) <= 0.5)
+        if ((leftShared == false) && (rightShared == false)) {
+            return
+        }
+        def flowLeft:double (itemAt lefts 0)
+        def flowRight:double (itemAt rights 0)
+        def padLeft:double (flowLeft - el.calculatedX)
+        def k:int 0
+        while (k < n) {
+            def kid:EVGElement (itemAt el.children k)
+            if (kid.hasAbsolutePosition()) {
+                if ((kid.calculatedWidth > 0.0) && (kid.calculatedHeight > 0.0)) {
+                    def who:string ((path + "/") + (EVGMeasure.segOf(kid k)))
+                    if (leftShared) {
+                        this.offEdge(who "starts" kid.calculatedX flowLeft padLeft)
+                    }
+                    if (rightShared) {
+                        def mine:double (kid.calculatedX + kid.calculatedWidth)
+                        this.offEdge(who "ends" mine flowRight (0.0 - padLeft))
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+    }
+
+    ; One edge of one overlay against the column it floats over.
+    fn offEdge:void (who:string verb:string mine:double theirs:double pad:double) {
+        def d:double (mine - theirs)
+        def size:double d
+        if (size < 0.0) {
+            size = (0.0 - size)
+        }
+        if (size <= 0.5) {
+            return
+        }
+        ; Past a screen's worth it is a different design, not a missed edge.
+        if (size > 24.0) {
+            return
+        }
+        if ((array_length align) >= 12) {
+            return
+        }
+        def line:string (((((((who + " ") + verb) + " at ") + (EVGMeasure.num(mine))) + ", the flow at ") + (EVGMeasure.num(theirs))) + " — ")
+        def padSize:double pad
+        if (padSize < 0.0) {
+            padSize = (0.0 - padSize)
+        }
+        def near:double (d - pad)
+        if (near < 0.0) {
+            near = (0.0 - near)
+        }
+        if ((padSize > 0.5) && (near <= 0.5)) {
+            push align (line + ("that is one padding: an absolute left/right is measured from inside the parent's padding, so asking for it again adds it twice"))
+            return
+        }
+        push align (line + ((EVGMeasure.num(size)) + "px off the shared edge"))
+    }
+
+    ; Two children that nearly agree. Reported by address, because "somewhere
+    ; in this stack" is not something anybody can act on.
+    fn nearMiss:void (names:[string] starts:[double] edge:string) {
+        def n:int (array_length starts)
+        def i:int 0
+        while (i < n) {
+            def j:int (i + 1)
+            while (j < n) {
+                def d:double ((itemAt starts i) - (itemAt starts j))
+                if (d < 0.0) {
+                    d = (0.0 - d)
+                }
+                if (d > 0.5) {
+                    if (d <= 4.0) {
+                        if ((array_length align) < 12) {
+                            push align ((((((itemAt names i) + " and ") + (itemAt names j)) + ": ") + edge) + ((" edges " + (EVGMeasure.num(d))) + "px apart — align them or mean it"))
+                        }
+                    }
+                }
+                j = (j + 1)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Are these children a column, a row, or neither? Each one has to start
+    ; after the one before it on the same axis; a single exception makes it
+    ; neither, which is the honest answer for a wrap or a grid.
+    sfn stackOf:string (kids:[EVGElement]) {
+        def n:int (array_length kids)
+        def column:boolean true
+        def row:boolean true
+        def i:int 1
+        while (i < n) {
+            def prev:EVGElement (itemAt kids (i - 1))
+            def cur:EVGElement (itemAt kids i)
+            if (cur.calculatedY < ((prev.calculatedY + prev.calculatedHeight) - 0.5)) {
+                column = false
+            }
+            if (cur.calculatedX < ((prev.calculatedX + prev.calculatedWidth) - 0.5)) {
+                row = false
+            }
+            i = (i + 1)
+        }
+        if (column) {
+            return "column"
+        }
+        if (row) {
+            return "row"
+        }
+        return "none"
+    }
+
+    sfn spreadOf:double (vals:[double]) {
+        def n:int (array_length vals)
+        if (n == 0) {
+            return 0.0
+        }
+        def lo:double (itemAt vals 0)
+        def hi:double (itemAt vals 0)
+        def i:int 1
+        while (i < n) {
+            def v:double (itemAt vals i)
+            if (v < lo) {
+                lo = v
+            }
+            if (v > hi) {
+                hi = v
+            }
+            i = (i + 1)
+        }
+        return (hi - lo)
+    }
+
+    ; The parent's address, read off the first child's.
+    sfn pathHead:string (names:[string]) {
+        if ((array_length names) == 0) {
+            return "0"
+        }
+        def first:string (itemAt names 0)
+        def cut:int (EVGMeasure.lastSlash(first))
+        if (cut < 0) {
+            return first
+        }
+        return (substring first 0 cut)
     }
 
     ; Neighbours: what lies on top of what, and how far apart the rest are.

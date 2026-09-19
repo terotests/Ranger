@@ -283,11 +283,13 @@ function paintMeasure(m) {
     $("findings").textContent = "";
     return;
   }
-  const n = m.count || 0;
+  // `count` is defects; a screen where nothing lines up has none of those and
+  // is still wrong, so the badge counts both.
+  const n = (m.count || 0) + (m.align || []).length;
   $("lay").textContent = n ? String(n) : "ok";
   $("lay").className = n ? "bad" : "";
   const room = Number.isFinite(m.bottomFree) ? `${m.bottomFree}px free below the content` : "";
-  const bad = (m.findings || []).slice(0, 3);
+  const bad = [...(m.findings || []), ...(m.align || [])].slice(0, 3);
   const near = (m.tight || []).slice(0, 2);
   $("findings").replaceChildren();
   for (const text of bad) {
