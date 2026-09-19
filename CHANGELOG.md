@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A surface effect can be switched off, and the demo page has a switch for
+  each one.** `inst.off` on an instance: the painter skips the run, the filter
+  is not live, nothing is compiled or copied, and the driver stops handing it
+  events or counting it busy — so a press on a sleeping pool falls through to
+  what is under it. The frame is not rebuilt, which is the point: stopping one
+  shader must not mean re-uploading every buffer on the page. It is the hook a
+  page's own switch hangs on, and the one `prefers-reduced-motion` would;
+  `fx-demo.html` builds a switch per effect out of the display list and
+  remembers the choice per browser.
+
 - **Liquid glass, as CSS.** A third plugin layer and the effect that needed it.
   `backdrop` runs a plugin IN PAINT ORDER over what is behind the element — the
   surface so far is copied where the element paints, the plugin writes it back
@@ -301,6 +311,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     for every element it compares against.
 
 ### Fixed
+
+- **A liquid-glass pane wiped everything painted before it, on any real page.**
+  A backdrop effect copies the surface mid-frame, and it was copying from the
+  canvas — but a WebGL2 context asked for `antialias: true`, which is the
+  default and what every page here asks for, has a MULTISAMPLED default
+  framebuffer, and copying out of one is `INVALID_OPERATION`. The copy left the
+  texture black and the pass wrote that black back over the whole page above
+  the pane. A frame with a live backdrop now goes through the offscreen target
+  and is presented at the end. The checks had passed on the broken painter
+  because they rendered with `preserveDrawingBuffer: true`, which on this
+  driver hands out a single-sampled buffer: `fx-check.mjs` now asks for what a
+  page asks for and reads pixels back through a 2-D canvas, and fails three
+  ways without the fix.
 
 - **The UI demo page did not work on a phone.** `gallery/ui/demo` wrote each
   demo's own width straight onto the canvas and let the rest hang off the

@@ -156,6 +156,30 @@ drives, which is exactly the old behaviour and still works.
 `fx.busy()` is false when nothing is in flight and no effect says `always`, so
 a page stops drawing when the water stills.
 
+### Switching one off
+
+`inst.off = true` on an instance, and the painter skips the run, the filter is
+not live, nothing is compiled or copied, and the driver stops giving it events
+or reporting it busy. The frame is **not** rebuilt: not one buffer is
+re-uploaded to stop drawing one shader. `fx-demo.html` puts a switch on each
+effect the document declares and remembers the choice per browser.
+
+### The trap under a backdrop effect
+
+A backdrop reads the surface mid-frame, and the one surface it may never read
+is the canvas. A WebGL2 context asked for `antialias: true` — the default, and
+what every page here asks for — has a MULTISAMPLED default framebuffer, and
+copying out of one is `INVALID_OPERATION`: the copy leaves the texture black
+and the pass writes that black over everything painted before the element. So
+a frame with a live backdrop in it is rendered into the offscreen target and
+presented at the end.
+
+This shipped broken for an afternoon and every check passed, because the checks
+rendered with `preserveDrawingBuffer: true`, which on this driver hands out a
+single-sampled buffer. `fx-check.mjs` now asks for the attributes a page asks
+for and reads the pixels back through a 2-D canvas, which is what a screenshot
+does — and it fails three ways if the routing is removed.
+
 ## What this deliberately did not touch
 
 * **`list.effect`, the whole-surface effect, is untouched** — its own field on

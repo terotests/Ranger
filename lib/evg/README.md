@@ -528,6 +528,10 @@ size the layout gave it — nothing in the plugin knows the shape in advance.
 
 `lib/evg/gl/evg-fx.js` is the host's side: it hit-tests the boxes the list
 carries and turns pointer events into the events the shaders read.
+An instance the host marks `off` is skipped by the painter and the driver
+both — no pass, no shader, and a press on it falls through to whatever is
+under it. That is the hook a page's own switch hangs on, and the one
+`prefers-reduced-motion` would; `fx-demo.html` has a switch per effect.
 
 The original whole-surface effect (`list.effect`, drops pushed in by the
 application) is unchanged and still runs. [`PLAN_EFFECTS.md`](PLAN_EFFECTS.md)
