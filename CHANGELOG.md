@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The effects demo's stylesheet is editable in the page.** A textarea under
+  the canvas on `?demo=effects`, holding `effects.css`, applied as you type —
+  and what is typed goes through the WHOLE engine: `EffectsDemo.init` hands the
+  text to `EVGStyleSheet`, the cascade applies it, the layout lays the tree out
+  again, the display list carries whatever effect instances the sheet declared,
+  and the painter looks their names up. Nothing patches a parameter behind the
+  scenes, so `evg-fx-density: 6` on `.fx-sky` reaches the shader the same way
+  it does on a page nobody is editing. What the cascade refuses is reported in
+  the cascade's own words — type `#fx-sky` and it says the selector is
+  unsupported, because `EVGStyleSheet` keeps every declaration it rejected.
+  It is on this page and not on the standalone `lib/evg/gl/fx-demo.html`
+  because the bundle here carries the compiled engine and that page carries
+  only a display list built for it.
+
 - **A switch per effect in the gallery rail**, beside the demo it belongs to.
   The list is built from the DISPLAY LIST rather than from names written into
   the page: it knows that the stylesheet declared four effects and what each is

@@ -975,6 +975,85 @@ console.log("--- the effects demo has a switch per effect ---");
   ok("with its pass back too", (await passes()) === before, String(await passes()));
 }
 
+console.log("--- the effects demo's stylesheet is live ---");
+{
+  // The claim is not that a textarea exists: it is that what is typed goes
+  // through the WHOLE engine. So the check edits a number and reads it back
+  // out of the display list the painter was handed, which is downstream of the
+  // cascade, the layout and the effect pass.
+  await page.click('#demos input[value="effects"]');
+  await page.waitForTimeout(300);
+  const skyParams = () => page.evaluate(() => {
+    const l = JSON.parse(window.__lastList || "{}");
+    const sky = (l.effects || []).find((e) => e.id === "fx-sky");
+    return sky ? sky.p : null;
+  });
+  const before = await skyParams();
+  ok("the sheet as written reaches the display list", before && before.density === 1.5,
+    JSON.stringify(before));
+
+  problems.length = 0;
+  await page.evaluate(() => {
+    const t = document.getElementById("fxcss");
+    t.value = t.value.replace("evg-fx-density: 1.5", "evg-fx-density: 6");
+    t.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  // WAITED FOR, not slept through. The editor debounces by 250ms and then lays
+  // the page out again, and on the software renderer CI uses a frame of this
+  // page costs most of a second — a fixed sleep here passes on a developer's
+  // machine and is a coin toss on the runner.
+  const settled = await page.waitForFunction(() => {
+    const l = JSON.parse(window.__lastList || "{}");
+    const sky = (l.effects || []).find((e) => e.id === "fx-sky");
+    return sky && sky.p.density === 6;
+  }, { timeout: 15000 }).then(() => true, () => false);
+  ok("the edit reaches the page", settled, "the display list never carried the new density");
+  const after = await skyParams();
+  ok("and a number typed into it reaches the same place", after && after.density === 6,
+    JSON.stringify(after));
+  ok("with everything else left alone",
+    after && after.hue === before.hue && after.seed === before.seed, JSON.stringify(after));
+  ok("and no error on the way", problems.length === 0, [...new Set(problems)].join("; "));
+
+  // AND THE ENGINE'S OWN COMPLAINTS, in the engine's words. A page that
+  // guessed at what the cascade would refuse would drift from it.
+  await page.evaluate(() => {
+    const t = document.getElementById("fxcss");
+    t.value = t.value.replace(".fx-sky {", "#fx-sky {");
+    t.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  // Waited for the message to CHANGE, not merely to exist: the line already
+  // says something — "the cascade accepted every declaration" — from the edit
+  // above, and a wait for any text at all would read that and pass on it.
+  const said = await page.waitForFunction(
+    () => {
+      const t = document.getElementById("fxcsserr").textContent || "";
+      return /accepted/.test(t) || t.length === 0 ? false : t;
+    }, { timeout: 15000 },
+  ).then((h) => h.jsonValue(), () => "(the message never changed)");
+  ok("a selector the cascade cannot take is reported by the cascade",
+    /Unsupported selector/.test(said) && said.includes("#fx-sky"), said);
+
+  // And back, so the demos that follow see the page as it ships.
+  //
+  // `evaluate` and not `page.click`: the editor sits BELOW the canvas, and a
+  // real click scrolls it into view — after which every block that follows
+  // measures the canvas from a scrolled page and puts its pointer somewhere
+  // else. That is what happened the first time this block existed, and it
+  // showed up three checks later as "a click becomes the ripple's origin"
+  // failing on a page whose ripple was perfectly well.
+  await page.evaluate(() => document.getElementById("fxcssreset").click());
+  await page.waitForFunction(() => {
+    const l = JSON.parse(window.__lastList || "{}");
+    const sky = (l.effects || []).find((e) => e.id === "fx-sky");
+    return sky && sky.p.density === 1.5;
+  }, { timeout: 15000 }).catch(() => {});
+  const back = await skyParams();
+  ok("reset puts the shipped sheet back", back && back.density === 1.5, JSON.stringify(back));
+  // And the scroll position too, for the same reason.
+  await page.evaluate(() => window.scrollTo(0, 0));
+}
+
 console.log("--- the dashboard has three palettes ---");
 {
   // The theme radio, in a real page. What the node-level check cannot say is
@@ -1042,14 +1121,23 @@ console.log("--- the surface ripples where it was touched ---");
   const sc = await page.evaluate(() => window.__stageScale || 1);
   const put = (x, y) => page.mouse.click(box.x + x * sc, box.y + y * sc);
   await put(700, 430);
-  await page.waitForTimeout(150);
+  // WAITED FOR RATHER THAN SLEPT THROUGH. The list is published at the start
+  // of a paint, but a paint already in flight has to finish first, and on the
+  // software renderer this container uses that is most of a second — so a
+  // fixed sleep here is a coin toss that depends on what the page was doing
+  // when the click landed. It became one the day a demo that animates on its
+  // own arrived on this page.
+  await page.waitForFunction(() => {
+    const l = JSON.parse(window.__lastList || "{}");
+    return l.effect && l.effect.drops && l.effect.drops.length >= 1;
+  }, { timeout: 15000 }).catch(() => {});
   const live = await effect();
   ok("a click becomes the ripple's origin",
     live && live.drops.length >= 1 &&
       Math.abs(live.drops[0][0] - 700) < 3 && Math.abs(live.drops[0][1] - 430) < 3,
     JSON.stringify(live && live.drops[0]));
-  ok("and its clock starts", live && live.drops[0][2] >= 0,
-    String(live && live.drops[0][2]));
+  ok("and its clock starts", live && live.drops.length >= 1 && live.drops[0][2] >= 0,
+    JSON.stringify(live && live.drops));
 
   // MANY AT ONCE, which is the difference between an effect and a surface:
   // a tap somewhere else ADDS a source, it does not move the one that is
@@ -1068,7 +1156,15 @@ console.log("--- the surface ripples where it was touched ---");
   const newest = (fx) => fx && fx.drops.length ? fx.drops[fx.drops.length - 1] : null;
   for (const [cx, cy] of [[420, 330], [900, 520]]) {
     await put(cx, cy);
-    await page.waitForTimeout(90);
+    // The same wait, for the same reason: what is asserted is WHERE the newest
+    // drop landed, and the newest drop only exists once the page has painted
+    // since the click.
+    await page.waitForFunction(([x, y]) => {
+      const l = JSON.parse(window.__lastList || "{}");
+      const ds = (l.effect && l.effect.drops) || [];
+      const last = ds[ds.length - 1];
+      return !!last && Math.abs(last[0] - x) < 3 && Math.abs(last[1] - y) < 3;
+    }, [cx, cy], { timeout: 15000 }).catch(() => {});
     const d = newest(await effect());
     ok(`a touch at ${cx},${cy} lands there`,
       d && Math.abs(d[0] - cx) < 3 && Math.abs(d[1] - cy) < 3, JSON.stringify(d));
