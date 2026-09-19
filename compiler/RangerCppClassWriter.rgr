@@ -1,5 +1,7 @@
 ; SPDX-License-Identifier: MIT
 
+Import "EnumAnalysis.rgr"
+
 class RangerCppClassWriter {
   Extends (RangerGenericClassWriter)
   def compiler:LiveCompiler
@@ -13,6 +15,17 @@ class RangerCppClassWriter {
   ; instead of std::shared_ptr. Read from the flag the first time a class or a
   ; union is written, which is before any type string is emitted.
   def cpp_single_thread:boolean false
+
+  ; Which Ranger `Enum`s are written as a C++ `enum class` rather than lowered
+  ; to a bare `int`. Same question the Rust writer asks of its own `enum`, so
+  ; the rules live in EnumNativeAnalysis (compiler/EnumAnalysis.rgr).
+  def cppEnums:EnumNativeAnalysis (new EnumNativeAnalysis())
+
+  fn cppEnumIsNative:boolean (enumName:string ctx:RangerAppWriterContext) {
+    cppEnums.targetName = "cpp"
+    cppEnums.fallbackType = "int"
+    return (cppEnums.isNative(enumName ctx))
+  }
 
   ; The smart pointer type for a class instance. Default is std::shared_ptr,
   ; whose count libstdc++ makes ATOMIC on any platform that has threads --
@@ -183,6 +196,9 @@ class RangerCppClassWriter {
       }
     }
     if(ctx.isEnumDefined(type_string)) {
+      if (this.cppEnumIsNative(type_string ctx)) {
+        return type_string
+      }
       return "int"
     }      
     if(ctx.isDefinedClass(type_string)) {
@@ -348,6 +364,9 @@ class RangerCppClassWriter {
       }
     }
     if(ctx.isEnumDefined(type_string)) {
+      if (this.cppEnumIsNative(type_string ctx)) {
+        return type_string
+      }
       return "int"
     }
     ; Same reason as in getObjectTypeString: a systemclass carries the target
@@ -448,7 +467,11 @@ class r_optional_primitive {
         
       }   
       case RangerNodeType.Enum {
-        wr.out("int" false)
+        if (this.cppEnumIsNative(t_name ctx)) {
+          wr.out(t_name false)
+        } {
+          wr.out("int" false)
+        }
       }
       case RangerNodeType.Integer {
         def intCppType:string "int"
@@ -779,6 +802,12 @@ class r_optional_primitive {
         def enumName:string (itemAt node.ns 1)
         def e@(optional):RangerAppEnum (ctx.getEnum(rootObjName))
         if (!null? e) {
+          ; a native `enum class` has no implicit conversion either way, so
+          ; the member has to reach the page under its own name
+          if (this.cppEnumIsNative(rootObjName ctx)) {
+            wr.out((rootObjName + "::" + enumName) false)
+            return
+          }
           wr.out(("" + (unwrap (get e.values enumName))) false)
           return
         }
@@ -2261,6 +2290,31 @@ class r_optional_primitive {
       wr.createTag("c++Imports")
       wr.out("" true)
       this.writeCppSingleThreadPrelude(wr)
+      ; A Ranger `Enum` whose every use a C++ `enum class` can carry is
+      ; written as one, ahead of everything that could name a member. The
+      ; underlying type is fixed at `int` -- the same type the fallback
+      ; lowering uses -- so a static_cast back is exact and nothing
+      ; downstream has to know which form the enum got.
+      def cppEnumRoot:RangerAppWriterContext (ctx.getRoot())
+      def wroteAnyEnum:boolean false
+      for (keys cppEnumRoot.definedEnums) cen:string cei {
+        if (this.cppEnumIsNative(cen ctx)) {
+          def ceDef:RangerAppEnum (unwrap (get cppEnumRoot.definedEnums cen))
+          wr.out((("enum class " + cen) + " : int {") true)
+          wr.indent(1)
+          for (keys ceDef.values) cmn:string cmi {
+            def cmv:int (unwrap (get ceDef.values cmn))
+            def ceLine:string ((cmn + " = ") + (to_string cmv))
+            wr.out((ceLine + ",") true)
+            wroteAnyEnum = true
+          }
+          wr.indent(-1)
+          wr.out("};" true)
+        }
+      }
+      if wroteAnyEnum {
+        wr.out("" true)
+      }
       wr.out("// define classes here to avoid compiler errors" true)
       wr.createTag("c++ClassDefs")
       wr.out("" true)

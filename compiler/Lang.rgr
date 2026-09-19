@@ -4388,12 +4388,15 @@ static class RgFiles {
                     ; An enum value is an int on every target, and Python does
                     ; not concatenate an int onto a str.
                     python ( (e 1) " + str(" (e 2) ")" )
-                    kotlin ( (e 1) " + " (e 2) ".toString()" )
+                    ; the operand is parenthesised because `.toString()` binds
+                    ; to the last TOKEN, not to the expression: `"" + i * 4`
+                    ; came out as `"" + i * 4.toString()`, which is Int * String.
+                    kotlin ( (e 1) " + (" (e 2) ").toString()" )
                     ; an enum is an int on Dart, and Dart has no String + int
-                    dart ( (e 1) " + " (e 2) ".toString()" )
+                    dart ( (e 1) " + (" (e 2) ").toString()" )
                     java7 ( (e 1) " + String.valueOf(" (e 2) ")" )
-                    csharp ( (e 1) " + " (e 2) ".ToString()" )
-                    scala ( (e 1) " + " (e 2) ".toString" )
+                    csharp ( (e 1) " + (" (e 2) ").ToString()" )
+                    scala ( (e 1) " + (" (e 2) ").toString" )
                     * ( (e 1) " + " (e 2) )
                 }
             }
@@ -4419,8 +4422,8 @@ static class RgFiles {
                     rust ( (custom _) )
                     swift3 ( (e 1) " + String(" (e 2)")" )
                     swift6 ( (e 1) " + String(" (e 2)")" )
-                    kotlin ( (e 1) " + " (e 2)".toString()" )
-                    dart ( (e 1) " + " (e 2)".toString()" )
+                    kotlin ( (e 1) " + (" (e 2) ").toString()" )
+                    dart ( (e 1) " + (" (e 2) ").toString()" )
                     cpp ( (e 1 ) " + " "r_double_to_string(" (e 2) ")" (imp "<sstream>") (imp "<iomanip>") (imp "<string>") (imp "<cstdlib>")
 (create_polyfill "
 inline std::string r_double_to_string(double v) {
@@ -4452,8 +4455,8 @@ inline std::string r_double_to_string(double v) {
                     go ( "strings.Join([]string{ " (e 1) ",strconv.FormatInt(" (e 2) ", 10) }, \"\")" (imp "strings") (imp "strconv"))
                     swift3 ( (e 1) " + String(" (e 2)")" )
                     swift6 ( (e 1) " + String(" (e 2)")" )
-                    kotlin ( (e 1) " + " (e 2)".toString()" )
-                    dart ( (e 1) " + " (e 2)".toString()" )
+                    kotlin ( (e 1) " + (" (e 2) ").toString()" )
+                    dart ( (e 1) " + (" (e 2) ").toString()" )
                     rust ( (custom _) )
                     cpp ( (e 1 ) " + std::to_string(" (e 2) ")")
                     php ( (e 1) " . " (e 2) ) 
@@ -4616,8 +4619,8 @@ inline std::string r_double_to_string(double v) {
             templates {
                     swift3 ( "String(" (e 1) ") + " (e 2) )
                     swift6 ( "String(" (e 1) ") + " (e 2) )
-                    kotlin ( (e 1) ".toString() + " (e 2) )
-                    dart ( (e 1) ".toString() + " (e 2) )
+                    kotlin ( "(" (e 1) ").toString() + " (e 2) )
+                    dart ( "(" (e 1) ").toString() + " (e 2) )
                     go ( "strings.Join([]string{ strconv.FormatFloat(" (e 1) ",'f', -1, 64)," (e 2) " }, \"\")" (imp "strings") (imp "strconv"))
                     cpp ( "r_double_to_string(" (e 1) ")" (imp "<sstream>") (imp "<iomanip>") (imp "<string>") (imp "<cstdlib>")
 (create_polyfill "
@@ -4650,8 +4653,8 @@ inline std::string r_double_to_string(double v) {
                     go ( "strings.Join([]string{ strconv.FormatInt(" (e 1) ", 10)," (e 2) " }, \"\")" (imp "strings") (imp "strconv"))
                     swift3 ( "String(" (e 1) ") + " (e 2) )
                     swift6 ( "String(" (e 1) ") + " (e 2) )
-                    kotlin ( (e 1) ".toString() + " (e 2) )
-                    dart ( (e 1) ".toString() + " (e 2) )
+                    kotlin ( "(" (e 1) ").toString() + " (e 2) )
+                    dart ( "(" (e 1) ").toString() + " (e 2) )
                     rust ( "format!(\"{}{}\", " (e 1) ", " (e 2) ")" )
                     cpp ( "std::to_string(" (e 1) ") + " (e 2) )
                     php ( (e 1) " . " (e 2) ) 

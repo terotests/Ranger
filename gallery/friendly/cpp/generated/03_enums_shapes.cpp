@@ -5,6 +5,12 @@
 #include  <string>
 #include  <iostream>
 
+enum class Color : int {
+  Red = 0,
+  Green = 1,
+  Blue = 2,
+};
+
 // define classes here to avoid compiler errors
 class Message_Text;
 class Message_Text;
@@ -80,7 +86,7 @@ class EnumsMain {
     /* static methods */ 
     static void main();
     /* instance methods */ 
-    std::string colorName( int c );
+    std::string colorName( Color c );
     std::string describe( const r_union_Message& m );
 };
 
@@ -143,11 +149,11 @@ bool  Message__ops::notEquals( const r_union_Message& a , const r_union_Message&
 }
 EnumsMain::EnumsMain( ) {
 }
-std::string  EnumsMain::colorName( int c ) {
-  if ( c == 0 ) {
+std::string  EnumsMain::colorName( Color c ) {
+  if ( c == Color::Red ) {
     return std::string("red");
   }
-  if ( c == 1 ) {
+  if ( c == Color::Green ) {
     return std::string("green");
   }
   return std::string("blue");
@@ -172,7 +178,7 @@ int main(int argc, char* argv[]) {
   __g_argc = argc;
   __g_argv = argv;
   std::shared_ptr<EnumsMain> app =  std::make_shared<EnumsMain>();
-  std::cout << std::string("color ") + app->colorName(1) << std::endl;
+  std::cout << std::string("color ") + app->colorName(Color::Green) << std::endl;
   std::cout << app->describe(( Message_Ping())) << std::endl;
   std::cout << app->describe(( std::make_shared<Message_Text>(std::string("hi")))) << std::endl;
   std::cout << app->describe(( Message_Move(2, 3))) << std::endl;

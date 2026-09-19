@@ -1,5 +1,7 @@
 ; SPDX-License-Identifier: MIT
 
+Import "EnumAnalysis.rgr"
+
 ; Helper class to hold a list of method names (for call graph)
 class MethodCallList {
   def calls:[string]
@@ -97,17 +99,15 @@ class RangerRustClassWriter {
   ; ask what shape the caller is expecting
   def rustFnReturnNameNode@(optional):CodeNode
   def fileHeaderWritten:boolean false
-  ; PLAN_RUST_SEMANTIC_IDIOMS F: which Ranger `Enum`s are written as a Rust
-  ; `enum` rather than lowered to i64. Computed once per file by
-  ; rustComputeNativeEnums; "" is never a key, and an enum missing from the map
-  ; is not native.
   ; every identifier name in the program, for the snake_case collision guard.
   ; adjustType is called from 40-odd places with no ctx to hand, so the SET is
   ; what gets parked here — filled once by the header pass, which has one.
   def rustIdentNames:[string:boolean]
   def rustIdentNamesDone:boolean false
-  def rustNativeEnums:[string:boolean]
-  def rustNativeEnumsDone:boolean false
+  ; PLAN_RUST_SEMANTIC_IDIOMS F: which Ranger `Enum`s are written as a Rust
+  ; `enum` rather than lowered to i64. The rules are target-neutral -- C++ asks
+  ; the same question of `enum class` -- so they live in EnumNativeAnalysis.
+  def rustEnums:EnumNativeAnalysis (new EnumNativeAnalysis())
   ; writing the TARGET of a cell assignment: the whole collection is being
   ; replaced, so the path names the RefCell itself rather than borrowing it
   def rust_in_cell_assign:boolean false
