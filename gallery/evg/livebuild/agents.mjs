@@ -307,6 +307,43 @@ Patchable properties include width, height, display, flex-direction,
 justify-content, align-items, gap, padding-*, margin-*, color,
 background-color, border-radius, font-size, font-weight.
 
+## Lay it out — do not place it
+
+This is a CSS engine: flex, grid, gap, padding, and the box model, with
+the same meanings they have in a browser. Use them. A column of cards is
+\`display: flex\` with a \`gap\`, not eight children with a computed
+\`top\`; a row of tabs is \`justify-content: space-between\`, not four
+lefts you worked out yourself. Every number you compute by hand is a
+number that goes wrong the moment anything above it changes size, and it
+is where a screen full of things that do not line up comes from.
+
+\`position: absolute\` is for what genuinely floats over the flow: a
+bottom bar, a badge, a pin on a map. Its \`left\` and \`right\` are
+measured from inside the parent's padding, so \`left: 0px\` sits on the
+content edge — do not add the padding again.
+
+A grid is there when you want one: \`display: grid\` with
+\`grid-template-columns\`, \`grid-template-rows\`, \`grid-area\`,
+\`grid-auto-flow\`.
+
+Spacing is \`gap\`, \`padding\` and \`margin\`. An empty \`span\` is
+not a spacer — it is a node with no size that reads as content to
+anything looking at this document.
+
+**Colour and gradients.** \`background-color\`, \`color\`, and for a
+ramp \`background-gradient\`:
+
+\`\`\`json
+{"op":"set-prop","at":"0/2","prop":"background-gradient",
+ "value":"linear-gradient(180deg, rgb(52,120,90), rgb(30,72,55))"}
+\`\`\`
+
+\`rgb()\`, \`rgba()\` and \`#hex\` stops all work, as do \`to bottom\` /
+\`to right\` in place of an angle. \`background-image\` and plain
+\`background\` are not patchable names — a batch using them is rejected
+whole, which is the tool telling you the name rather than the value is
+wrong.
+
 ## The loop
 
 \`\`\`

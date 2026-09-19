@@ -75,7 +75,17 @@ Four things to know, because they change how you write ops:
   those ops *in reverse order*.
 
 Colours read back as `rgb(r,g,b)`; that is the canonical form, `#rrggbb` is
-accepted on the way in.
+accepted on the way in. A ramp is `background-gradient`:
+`linear-gradient(180deg, rgb(52,120,90), rgb(30,72,55))` — `rgb()`, `rgba()`
+and `#hex` stops all work, and `to bottom` / `to right` stand in for the
+angle. `background-image` and plain `background` are not patchable names, so a
+batch using them is rejected whole.
+
+**Lay out, do not place.** It is a CSS engine: a column of cards is
+`display: flex` with a `gap`, not children with computed `top`s, and a grid is
+`display: grid` with `grid-template-columns`. Hand-computed positions are
+where a screen that does not line up comes from, and `measure` reports it
+under `align`. Keep `position: absolute` for what floats over the flow.
 
 ## 3. Check with numbers before you look at a picture
 
