@@ -63,7 +63,7 @@ compiler — the long-form writeups live here.
 | [`evg_window`](evg_window/README.md) | The dialog / window layer, `EVGTextFit`, the host-side text measurer and the drawn ruler and toolbar — the parts of EVG that need the gallery's rasteriser and font engine, kept here under the AGPL when the engine moved to `lib/evg` |
 | [`erazer`](erazer/README.md) | Bitmap UI screenshot → nested EVG layout: panels, text, buttons, fields, sliders, tabs, menus, checkboxes, and icons vectorized as SVG. Paste or pick a screenshot in the tab; [live at /evg/erazer/](https://terotests.github.io/Ranger/evg/erazer/) |
 | [`pkg`](pkg/README.md) | Source packages (`ranger.json` / `ranger.lock` / `Import "pkg:…"`) and a Git pack client that clones a public repo into memory without spawning git |
-| [`friendly`](friendly/README.md) | Target-idiom studies: write ordinary Ranger, compile it, and rank whether the JavaScript / Python / Dart / Swift / Kotlin / Java / Go / C++ / Rust looks like the language a native programmer would write |
+| [`friendly`](friendly/README.md) | Target-idiom studies: write ordinary Ranger, compile it, and rank whether the JavaScript / Python / Dart / Swift / Kotlin / C# / Java / Go / C++ / Rust looks like the language a native programmer would write |
 | `evg_video`, `watch_evg`, `zip`, `ts_to_ranger` | Smaller experiments |
 
 ---

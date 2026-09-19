@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Compile the shared studies in src/ to one target, or to all of them.
-# Usage: bash gallery/friendly/compile.sh [all|rust|go|python|cpp|swift|kotlin|dart|javascript|java]
+# Usage: bash gallery/friendly/compile.sh [all|rust|go|python|cpp|swift|kotlin|dart|javascript|java|csharp]
 # The Ranger compiler exits 0 even on [FAIL]; this script treats that as failure.
 set -euo pipefail
 
@@ -198,6 +198,28 @@ compile_one() {
           fail=1
         fi
         ;;
+      csharp)
+        if ! command -v mcs >/dev/null 2>&1; then
+          echo "    mcs not on PATH — writer output only"
+          continue
+        fi
+        # throw wraps ConfigurationErrorsException; the nine studies do not
+        # need the reference, but one extra assembly is harmless.
+        if ! mcs -langversion:latest -r:System.Configuration -out:"$bin/${name}.exe" "$out/${name}.cs" 2>"$out/${name}.build.log"; then
+          echo "    mcs FAILED — see $out/${name}.build.log"
+          fail=1
+          continue
+        fi
+        echo "    mcs ok"
+        if ! command -v mono >/dev/null 2>&1; then
+          echo "    mono not on PATH — built, not run"
+          continue
+        fi
+        if ! mono "$bin/${name}.exe" | tee "$out/${name}.out"; then
+          echo "    run FAILED"
+          fail=1
+        fi
+        ;;
     esac
   done
   if [[ "$fail" -ne 0 ]]; then
@@ -220,12 +242,13 @@ run_target() {
     dart) compile_one dart .dart dart || overall=1 ;;
     javascript) compile_one javascript .js es6 || overall=1 ;;
     java) compile_one java .java java7 || overall=1 ;;
+    csharp) compile_one csharp .cs csharp || overall=1 ;;
     *) echo "unknown target $1" >&2; overall=1 ;;
   esac
 }
 
 if [[ "$target" == "all" ]]; then
-  for t in rust go python cpp swift kotlin dart javascript java; do
+  for t in rust go python cpp swift kotlin dart javascript java csharp; do
     run_target "$t"
   done
 else
