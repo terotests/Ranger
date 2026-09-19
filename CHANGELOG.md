@@ -112,6 +112,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The front-page hero columns are "There is no Silver Bullet." and
+  "Less is More."** Ranger as a golden-file harness that emits ordinary
+  Swift, Kotlin and JavaScript, not a magic runtime.
+
+- **The gold Native section is "Native apps without duplicating the
+  logic."** One source of shared logic compiled to Swift and Kotlin,
+  called from SwiftUI and Compose with no bridge; a rule changes once
+  in the `.rgr` file. The Shopify quote and the six-up feature grid
+  come out.
+
 - **The public site title is "Rewrite? Use Ranger."** The front page
   heading is two lines — "Rewrite?" then gold "Use Ranger." — and the
   document title, Open Graph title, documentation `<title>` suffix

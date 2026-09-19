@@ -55,23 +55,24 @@
 
     <div class="hero__cols">
       <div class="col">
-        <p class="label">What?</p>
+        <p class="label">There is no Silver Bullet.</p>
         <p>
-          Ranger is a small, typed language — classes, traits, generics, lambdas,
-          custom operators — with a <strong>source-to-source compiler</strong>. It
-          emits ordinary source in the language you already ship: Swift for Apple
-          platforms, Kotlin for Android, JavaScript for the browser, and eleven more
-          back ends — fourteen in all — from the same file. The generated program
-          depends on its own platform toolchain, and on no runtime of Ranger's.
+          Ranger is like <strong>Golden Bullet</strong>. An automated software
+          testing method that compares the actual output of a program against a
+          trusted baseline—known as a "golden file" or "golden master". But it's
+          not Magic. It emits ordinary source in the language you already ship:
+          Swift for Apple platforms, Kotlin for Android, JavaScript for the
+          browser.
         </p>
       </div>
       <div class="col">
-        <p class="label">Consistency is the point</p>
+        <p class="label">Less is More.</p>
         <p>
-          One source for the logic that must not diverge, compiled into ordinary
-          target-language code on every platform. Each side calls the shared
-          classes and methods directly, in its own language, and what you review
-          is ordinary platform source.
+          So you need a harness to keep logic in multiple platforms in sync?
+          Well, Ranger is the harness. Most programs do not need very complex
+          code, but they need a way to verify the execution against a common
+          logic. If you ever get that situation, then Ranger might just be the
+          thing you are looking for.
         </p>
       </div>
     </div>
@@ -104,84 +105,97 @@
 </section>
 
 <!-- ====================================================================== -->
-<!-- Back to native — the gold field                                        -->
+<!-- Native — the gold field                                                -->
 <!-- ====================================================================== -->
 <section class="section section--gold" id="native">
   <div class="wrap">
-    <p class="label reveal">The mobile question, again</p>
-    <h2 class="display display--lg reveal">Back to native,<br>without duplicating the logic that has to stay in sync.</h2>
-
-    <div class="cols cols--3 rules">
-      <div class="col reveal">
-        <p class="label">The article</p>
-        <p class="lead">
-          “Coding agents changed what it costs to build mobile apps twice. Here's why
-          Shopify is moving from React Native back to Swift and Kotlin.”
-        </p>
-        <p><a class="u" href="https://shopify.engineering/back-to-native" rel="noopener">shopify.engineering — Back to Native →</a></p>
-      </div>
-      <div class="col reveal">
-        <p class="label">What actually changed</p>
-        <p>
-          A common cross-platform trade-off is to write the app once and accept a
-          bridge, an extra runtime and a layer between you and the platform. Coding
-          agents have lowered the cost of producing platform-specific code, so that
-          trade pays off less often than it did — and the second implementation gets
-          written. Two independently maintained implementations can still drift
-          apart over time.
-        </p>
-      </div>
-      <div class="col reveal">
-        <p class="label">What Ranger offers</p>
-        <p>
-          Ranger handles the part code generation does not solve: keeping shared
-          logic identical across targets. Compile the logic that must not diverge —
-          the domain model, the pricing, the parser, the sync rules, the state
-          machine — into <strong>checked-in Swift and Kotlin source</strong>, and
-          write SwiftUI and Compose by hand, the way each platform wants them
-          written.
-        </p>
-      </div>
-    </div>
-
-    <div class="cols cols--3 rules">
-      <div class="col reveal">
-        <p class="label">Ordinary calls</p>
-        <p>
-          The shared code arrives as Swift and Kotlin source, so each app calls it
-          the way it calls its own: no cross-language bridge, no serialisation
-          boundary and no additional Ranger runtime. The output is the language you
-          already ship.
-        </p>
-      </div>
-      <div class="col reveal">
-        <p class="label">One source of truth</p>
-        <p>
-          A shared rule can only be changed in one place, because the Swift and the
-          Kotlin are generated from one file. Shared rules stay in step by
-          construction rather than by convention — the user interfaces on each side
-          stay hand-written.
-        </p>
-      </div>
-      <div class="col reveal">
-        <p class="label">Readable diffs</p>
-        <p>
-          <code>@JvmField</code> and <code>MutableList</code> on Kotlin,
-          <code>final class</code> on Swift, <code>Rc&lt;RefCell&lt;T&gt;&gt;</code> on
-          Rust only where the sharing analysis says a class is shared. The generated
-          code is checked in and reviewed like any other platform source.
-        </p>
-      </div>
-    </div>
-
-    <p class="footnote reveal">
-      Worked through at full size in this repository:
-      <a class="u" href="https://github.com/terotests/Ranger/blob/master/gallery/pptx/android/README.md"><code>gallery/pptx</code></a>
-      reads PowerPoint files, and the Android app is that same source compiled to Kotlin
-      and drawn with <code>android.graphics</code>. The ZIP reader, the OOXML parser, the
-      theme resolver, the JPEG and PNG decoders, the TrueType reader and the layout engine
-      are all Ranger, and not one of them was forked for the port.
+    <p class="label reveal">The problem</p>
+    <h2 class="display display--lg reveal">Native apps<br>without duplicating the logic</h2>
+    <p class="lead lead--wide reveal">
+      If you build iOS and Android separately, the UI can stay native — SwiftUI
+      on iOS, Compose on Android — but shared business logic often gets
+      implemented twice.
     </p>
+    <p class="reveal">That means two copies of things like:</p>
+    <ul class="chips reveal">
+      <li>validation</li>
+      <li>pricing and calculations</li>
+      <li>state machines</li>
+      <li>parsers</li>
+      <li>sync rules</li>
+      <li>domain models</li>
+    </ul>
+    <p class="reveal">
+      The implementations may start out identical, but they can drift as the
+      applications evolve.
+    </p>
+
+    <div class="cols cols--2 rules">
+      <div class="col reveal">
+        <p class="label">What Ranger changes</p>
+        <p>
+          With Ranger, the shared logic has one source file and is compiled to
+          both Swift and Kotlin.
+        </p>
+        <pre class="code code--plain code--diagram" role="img" aria-label="Shared Ranger source compiles down to Swift and Kotlin. SwiftUI and Compose stay native on each side."><code>shared Ranger source
+         |
+    +----+----+
+    |         |
+  Swift     Kotlin
+    |         |
+ SwiftUI   Compose</code></pre>
+        <p>
+          The platform UI stays native. Only the logic that should behave the
+          same on both platforms is shared.
+        </p>
+      </div>
+      <div class="col reveal">
+        <p class="label">No bridge or shared runtime</p>
+        <p>Ranger generates ordinary Swift and Kotlin source code.</p>
+        <p>
+          The iOS application calls the generated Swift classes normally. The
+          Android application calls the generated Kotlin classes normally.
+        </p>
+        <p>
+          There is no JavaScript runtime, cross-language bridge, message
+          protocol or serialization layer between the UI and the shared logic.
+        </p>
+        <div class="native-calls">
+          <div>
+            <p class="label">Swift</p>
+            <pre class="code code--plain"><code><span class="k">let</span> result = pricing.calculate(order)</code></pre>
+          </div>
+          <div>
+            <p class="label">Kotlin</p>
+            <pre class="code code--plain"><code><span class="k">val</span> result = pricing.calculate(order)</code></pre>
+          </div>
+        </div>
+        <p>Both calls can originate from the same Ranger implementation.</p>
+      </div>
+    </div>
+
+    <div class="cols cols--2 rules">
+      <div class="col reveal">
+        <p class="label">One implementation to maintain</p>
+        <p>If a rule changes, you change it once:</p>
+        <pre class="code code--plain code--diagram" role="img" aria-label="Pricing.rgr compiles to Pricing.swift and Pricing.kt."><code>Pricing.rgr
+    | compile
+Pricing.swift
+Pricing.kt</code></pre>
+        <p>
+          The generated files can be checked into the repository, reviewed in
+          diffs and tested with the normal platform toolchains.
+        </p>
+        <p>
+          This keeps the part that <strong>must stay identical</strong> in one
+          place, while leaving the parts that
+          <strong>should be platform-specific</strong> native.
+        </p>
+      </div>
+      <div class="col reveal">
+        <p class="lead native-close">Native UI. Shared logic. One source of truth.</p>
+      </div>
+    </div>
   </div>
 </section>
 
