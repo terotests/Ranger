@@ -268,16 +268,34 @@ Two things this stage already taught, which is what a stage is for:
   plus the binding: send the events, fill `{key}` from the context, hand over
   one document. S2 is that call over HTTP.
 
-**S2 — the loop in the tab.** *(next)*
-The host serves the page for the current state; `evg-dom.js` keeps the nodes;
-a press goes through `EVGHitTest.idAt` back to the machine, and the ops for
-the new page come back. The live-build page gains a **Run** toggle beside
-Follow up — design mode streams display lists as it does today, run mode
-hands over to the app.
+**S2 — the loop in the tab. ✅ built (with the display list, not ops).**
+**Run** in the header hands the phone to the app: `/app` is the page for the
+state the machine is in, a click posts its point, `evg_app hit` turns that
+into an id through `EVGHitTest.idAt`, and the page for wherever it landed
+comes back. The session is the list of events, held by the server — the
+machine is deterministic and an app's history is a handful of strings, so the
+tool stays a program that starts and ends.
 
-**S3 — the agent's door.**
-`./evg-app` in the workspace, the guide section, and `check` in the
-orchestrator's test. Only now does an agent get told any of this.
+What it sends is a whole display list per press, the wire the page already
+paints, **not** `EVGHostTree` ops. That is the honest first cut: the loop is
+proved end to end, and the seam that keeps DOM nodes is a change of painter
+rather than a change of design. Ops move to S3, where they buy what a whole
+list cannot — a node that survives a press, and therefore a transition, a
+focus ring and a real field.
+
+A press on nothing and a press on something this state does not answer to are
+different answers, and both are "the screen did not change"; the page says
+which, because that difference is the most common thing to get wrong.
+
+**S3 — the agent's door. ✅ built.**
+`./evg-app` in the workspace beside `./evg-agent` and `./evg-image`, the guide
+section that teaches the habit (APP.md first, `check` on every screen, `memo`
+last), and both in `livebuild:agents`.
+
+**S3b — ops instead of a list.** `EVGHostTree.build()` over the two trees and
+`evg-dom.js` as the host, so a press patches the nodes that changed. Nothing
+above it changes, which is the test that this seam was drawn in the right
+place.
 
 **S4 — code, when data runs out.**
 `App.rgr` compiled on the host to an ES module, running in a Worker, emitting

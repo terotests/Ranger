@@ -58,6 +58,9 @@
   .chips, .agents { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .chip.active { border-color: #2dd4bf88; color: var(--accent); }
   .chip.off { opacity: .45; cursor: not-allowed; }
+  /* Run mode: the phone is an app, not a drawing, and the cursor says so. */
+  .chip.live { border-color: #2dd4bf88; background: #134e4a; color: #ccfbf1; }
+  .screen.live { cursor: pointer; }
   .lbl { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
   /* A picture attached to the ask: what it traced to, and the colours it is
      made of, so the palette is visible to the person too. */
@@ -184,6 +187,7 @@
     </span>
   </div>
   <div class="chips" id="chips"></div>
+  <button type="button" class="chip" id="run" title="Run the app: the machine owns the page, a press is an event">Run</button>
   <div class="agents" id="agents"></div>
 </header>
 <main>
@@ -520,6 +524,83 @@ window.addEventListener("paste", (ev) => {
       }
       return;
     }
+  }
+});
+
+// --- RUN MODE -----------------------------------------------------------------
+//
+// Design mode streams a display list per frame, which is what drawing a screen
+// looks like. Run mode is the app: `/app` is the page for the state the
+// machine is in, a click is a point the host turns into an event, and what
+// comes back is the page for wherever that left it. The painter is the same
+// one; what changes is who decides what it paints.
+let runMode = false;
+
+async function runFetch(url, body) {
+  const res = await fetch(url, body
+    ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }
+    : undefined);
+  const d = await res.json();
+  if (d.error) throw new Error(d.error);
+  return d;
+}
+
+function paintApp(d) {
+  paintFrame(d);
+  paintMeasure(d.layout ? { ...d.layout, findings: d.layout.findings || [] } : null);
+  $("kindLabel").textContent = `app · ${d.state}`;
+  $("added").textContent = d.took === false && d.pressed ? "no event" : "app";
+  const trail = (d.events || []).slice(-4).join(" → ") || "no presses yet";
+  const line = document.createElement("div");
+  line.textContent = d.pressed && d.took === false
+    ? `#${d.pressed} is not an event of ${d.state}`
+    : trail;
+  if (d.pressed && d.took === false) line.className = "bad";
+  $("findings").replaceChildren(line);
+}
+
+async function enterRun() {
+  runMode = true;
+  if (es) { es.close(); es = null; }
+  $("run").classList.add("live");
+  $("screen").classList.add("live");
+  $("go").disabled = true;
+  $("think").innerHTML = '<span class="empty">Run mode: the machine owns the page. Press the phone — an element\'s id is the event it sends.</span>';
+  $("ops").innerHTML = '<span class="empty">Design mode streams ops. Run mode sends events.</span>';
+  try {
+    paintApp(await runFetch("/app?reset=1"));
+  } catch (e) {
+    leaveRun();
+    $("think").append("\n\napp: " + (e.message || e));
+  }
+}
+
+function leaveRun() {
+  runMode = false;
+  $("run").classList.remove("live");
+  $("screen").classList.remove("live");
+  $("go").disabled = false;
+  loadSeed(current);
+}
+
+$("run").addEventListener("click", () => {
+  if (runMode) leaveRun();
+  else enterRun();
+});
+
+// The phone is 390×844 and painted at that size, so the point the host hit
+// tests is the point inside the element. No scaling, no second coordinate
+// system to keep in step.
+$("screen").addEventListener("click", async (ev) => {
+  if (!runMode) return;
+  const box = $("screen").getBoundingClientRect();
+  try {
+    paintApp(await runFetch("/app/press", {
+      x: Math.round(ev.clientX - box.left),
+      y: Math.round(ev.clientY - box.top),
+    }));
+  } catch (e) {
+    $("think").append("\n\napp: " + (e.message || e));
   }
 });
 

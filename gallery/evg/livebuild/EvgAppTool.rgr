@@ -8,6 +8,7 @@
 ;   evg_app press  <app> EVENT…          send events, print where each lands
 ;   evg_app check  <app> [--width=390 --height=844]
 ;   evg_app render <app> [EVENT…] [--out=FILE]
+;   evg_app hit    <app> X Y [EVENT…]    what a press at that point would send
 ;   evg_app model  <app>                 the data model: who writes each key, who reads it
 ;   evg_app memo   <app>                 refresh APP.md — the app's own memory
 ;
@@ -38,7 +39,9 @@ Import "../../../lib/ranger-dir.rgr"
 Import "../../statechart/src/Statechart.rgr"
 Import "../../statechart/src/StatechartJson.rgr"
 Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGHitTest.rgr"
 Import "pkg:evg/EVGInspect.rgr"
+Import "pkg:evg/EVGLayout.rgr"
 Import "pkg:evg/EVGMeasure.rgr"
 Import "pkg:evg/EVGTreeJson.rgr"
 
@@ -64,6 +67,7 @@ class EvgAppTool {
         print "  press  <app> EVENT…          send events, print where each lands"
         print "  check  <app> [--width=N] [--height=N]"
         print "  render <app> [EVENT…] [--out=FILE]   the page for the state those events reach"
+        print "  hit    <app> X Y [EVENT…]    what a press at that point would send"
         print "  model  <app>                 the data model: who writes each key, who reads it"
         print "  memo   <app>                 refresh APP.md — the app's own memory"
         print ""
@@ -103,6 +107,10 @@ class EvgAppTool {
         }
         if (verb == "render") {
             this.render(loaded)
+            return
+        }
+        if (verb == "hit") {
+            this.hit(loaded)
             return
         }
         if (verb == "model") {
@@ -223,6 +231,79 @@ class EvgAppTool {
         out = (out + (EVGTreeJson.str(runner.state)))
         out = (out + ",\"context\":")
         out = (out + (EvgAppTool.contextJson(runner)))
+        out = (out + "}")
+        print out
+    }
+
+    ; --- hit --------------------------------------------------------------------
+    ;
+    ; A press arrives as a point and has to leave as an event. `EVGHitTest`
+    ; already answers the first half — the id under a point, in the paint order
+    ; the list draws in — and the machine answers the second. Neither half is
+    ; new; what this verb adds is that a browser can ask, without running a
+    ; layout engine or knowing what an id means.
+    ;
+    ; The events replayed before the question are the session: the machine is
+    ; deterministic and an app's history is a handful of strings, so the caller
+    ; holds it and this stays a program that starts and ends.
+    fn hit:void (sc:Statechart) {
+        def argc:int (shell_arg_cnt)
+        if (argc < 4) {
+            print "{\"error\":\"hit needs an x and a y\"}"
+            return
+        }
+        ; `to_double` is optional-typed and answers differently per target, so
+        ; the point is read here and a number that is not one is a miss, not a
+        ; press at the origin.
+        def xs@(optional):double (to_double (shell_arg 2))
+        def ys@(optional):double (to_double (shell_arg 3))
+        if (null? xs) {
+            print "{\"error\":\"x is not a number\"}"
+            return
+        }
+        if (null? ys) {
+            print "{\"error\":\"y is not a number\"}"
+            return
+        }
+        def x:double (unwrap xs)
+        def y:double (unwrap ys)
+        def runner (new ScRunner)
+        runner.start(sc)
+        def i:int 4
+        while (i < argc) {
+            def ev:string (shell_arg i)
+            if ((indexOf ev "--") == 0) {
+            } {
+                def ignored:boolean (runner.send((ScEvent.of(ev))))
+            }
+            i = (i + 1)
+        }
+        def file:string (this.pageOf(runner.state))
+        def text@(optional):string (EvgAppTool.slurp(file))
+        if (null? text) {
+            print (("{\"error\":\"no page for state " + runner.state) + "\"}")
+            return
+        }
+        def root@(optional):EVGElement (EVGTreeJson.fromText((unwrap text)))
+        if (null? root) {
+            print (("{\"error\":\"not an EVG document: " + file) + "\"}")
+            return
+        }
+        def tree:EVGElement (unwrap root)
+        this.bind(tree runner)
+        def l (new EVGLayout())
+        l.setPageSize((to_double pageW) (to_double pageH))
+        l.layout(tree)
+        def ht (new EVGHitTest())
+        def id:string (ht.idAt(tree x y))
+        def takes:boolean false
+        if ((strlen id) > 0) {
+            takes = (EvgAppTool.mentions((this.eventsOf(sc runner.state)) id))
+        }
+        def out:string "{\"state\":"
+        out = (out + (EVGTreeJson.str(runner.state)))
+        out = ((out + ",\"id\":") + (EVGTreeJson.str(id)))
+        out = ((out + ",\"takes\":") + (EvgAppTool.boolText(takes)))
         out = (out + "}")
         print out
     }

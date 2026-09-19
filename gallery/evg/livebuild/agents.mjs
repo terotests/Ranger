@@ -673,6 +673,21 @@ export function seedDoc(kind = "empty") {
   }
 }
 
+// One document, laid out and framed, for a caller that has a file rather than
+// a seed kind. The app door uses it: the page it renders is a document like
+// any other, and the painter in the browser is the one already there.
+export function frameDocument(file) {
+  const events = [];
+  frameFile(file, (line) => {
+    try {
+      events.push(JSON.parse(line));
+    } catch {
+      /* chatter */
+    }
+  });
+  return events;
+}
+
 export function frameFixture(kind) {
   const file = fixturePath(kind);
   const events = [];

@@ -12,6 +12,7 @@
  */
 import http from "node:http";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -28,6 +29,8 @@ import {
   clearAttachment,
   attachmentOf,
   ATTACH_BASE,
+  frameDocument,
+  root as repoRoot,
 } from "./agents.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -210,6 +213,69 @@ function staticFile(urlPath) {
 
 function main() {
   compile();
+  // --- THE APP DOOR -------------------------------------------------------
+  //
+  // PLAN_LIVE_APP.md S2. Design mode streams a whole display list per frame,
+  // which is right while a screen is being drawn. Run mode is the other thing:
+  // a machine owns which page you are on, a press is a point that becomes an
+  // event, and the page that comes back is the one for the state it landed in.
+  //
+  // The session is the list of events, held here. The machine is deterministic
+  // and an app's history is a handful of strings, so the tool stays a program
+  // that starts and ends, and a reload does not lose the app.
+  const appBin = path.join(repoRoot, "gallery/evg/bin/evg_app.js");
+  let appEvents = [];
+
+  const appDir = () => {
+    if (process.env.EVG_LIVEBUILD_APP) return process.env.EVG_LIVEBUILD_APP;
+    const mine = path.join(sessionDir(), "app");
+    if (fs.existsSync(path.join(mine, "machine.json"))) return mine;
+    return path.join(repoRoot, "gallery/evg/livebuild/fixtures/app");
+  };
+
+  const appTool = (...args) => {
+    if (!fs.existsSync(appBin)) {
+      const built = spawnSync(
+        "bash",
+        ["scripts/rgr-suite.sh", "./gallery/evg/livebuild/EvgAppTool.rgr", "./gallery/evg/bin", "evg_app.js"],
+        { cwd: repoRoot, encoding: "utf8", maxBuffer: 40 * 1024 * 1024 },
+      );
+      if (!fs.existsSync(appBin)) {
+        throw new Error(`could not build the app tool:\n${`${built.stdout || ""}${built.stderr || ""}`.slice(-800)}`);
+      }
+    }
+    const r = spawnSync(process.execPath, [appBin, ...args], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      maxBuffer: 40 * 1024 * 1024,
+    });
+    const text = `${r.stdout || ""}`.trim();
+    const open = text.indexOf("{");
+    if (open < 0) throw new Error(`the app tool said: ${(text || r.stderr || "nothing").slice(0, 300)}`);
+    return JSON.parse(text.slice(open));
+  };
+
+  // The page for wherever the events have taken the machine, as a frame the
+  // painter in the browser already knows how to draw.
+  const appFrame = () => {
+    const dir = appDir();
+    const out = path.join(os.tmpdir(), "evg-app-page.evg.json");
+    const rendered = appTool("render", dir, ...appEvents, `--out=${out}`);
+    if (rendered.error) throw new Error(rendered.error);
+    const frame = frameDocument(out).find((e) => e && e.t === "frame") || {};
+    return {
+      app: path.basename(dir),
+      state: rendered.state,
+      events: appEvents,
+      layout: rendered.layout,
+      width: frame.width || 390,
+      height: frame.height || 844,
+      ncmds: frame.ncmds || 0,
+      nodes: frame.nodes || 0,
+      list: frame.list || { cmds: [] },
+    };
+  };
+
   // One body, with a ceiling. A data URL is the whole picture in base64, and
   // a request with no end to it is not a picture.
   const readBody = (req, limit) =>
@@ -308,6 +374,37 @@ function main() {
             preset: typeof ask.preset === "string" && ask.preset ? ask.preset : "poster",
           });
           send(res, 200, "application/json; charset=utf-8", JSON.stringify(summary));
+        })
+        .catch((e) => {
+          send(res, 500, "application/json; charset=utf-8", JSON.stringify({ error: String(e.message || e) }));
+        });
+      return;
+    }
+    if (url.pathname === "/app") {
+      try {
+        if (url.searchParams.get("reset") === "1") appEvents = [];
+        send(res, 200, "application/json; charset=utf-8", JSON.stringify(appFrame()));
+      } catch (e) {
+        send(res, 500, "application/json; charset=utf-8", JSON.stringify({ error: String(e.message || e) }));
+      }
+      return;
+    }
+    if (url.pathname === "/app/press" && req.method === "POST") {
+      readBody(req, 4096)
+        .then((body) => {
+          const ask = JSON.parse(body || "{}");
+          const hit = appTool("hit", appDir(), String(Math.round(Number(ask.x) || 0)), String(Math.round(Number(ask.y) || 0)), ...appEvents);
+          if (hit.error) throw new Error(hit.error);
+          // A press on nothing, and a press on something this state does not
+          // answer to, are different answers and both are "the screen did not
+          // change" — so the page is told which.
+          if (hit.id && hit.takes) appEvents = [...appEvents, hit.id];
+          send(
+            res,
+            200,
+            "application/json; charset=utf-8",
+            JSON.stringify({ ...appFrame(), pressed: hit.id || "", took: Boolean(hit.id && hit.takes) }),
+          );
         })
         .catch((e) => {
           send(res, 500, "application/json; charset=utf-8", JSON.stringify({ error: String(e.message || e) }));

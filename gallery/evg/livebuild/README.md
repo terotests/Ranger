@@ -140,6 +140,12 @@ text node is filled from the machine's context, and `check` walks every state
 the machine can reach: a state with no page, a page no state renders and an id
 that is not an event are the three defects an agent cannot see and this names.
 
+**Run** in the header hands the phone to that app: the machine owns which page
+is on screen, a click is a point the host turns into an event through
+`EVGHitTest`, and the page for wherever it landed comes back. The event trail
+is under the phone, and a press on something the state does not answer to says
+so rather than doing nothing quietly.
+
 `app/APP.md` is the app's memory — half generated from the files (every state
 and event, every context key and who writes and reads it), half written by the
 agent (what the app is for, and the decisions a later pass must not undo).

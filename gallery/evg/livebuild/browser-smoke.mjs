@@ -125,11 +125,42 @@ try {
     throw new Error(`Empty chip did not start over: cmds ${emptyCmds}`);
   }
 
+  // Run mode: the machine owns the page and a press is a point that becomes an
+  // event. PLAN_LIVE_APP.md S2 — a tab that does something is the whole
+  // difference between an app and a picture of one.
+  await page.click("#run");
+  await page.waitForFunction(
+    () => (document.getElementById("kindLabel")?.textContent || "").startsWith("app ·"),
+    null,
+    { timeout: 60000 },
+  );
+  const stateNow = async () => (await page.locator("#kindLabel").innerText()).toLowerCase();
+  const first = await stateNow();
+  const box = await page.locator("#screen").boundingBox();
+  const press = async (x, y) => {
+    await page.mouse.click(box.x + x, box.y + y);
+    await page.waitForTimeout(600);
+  };
+  await press(195, 790);
+  const second = await stateNow();
+  if (first === second) throw new Error(`a press on the nav changed nothing: ${first}`);
+  if (!/routes/.test(second)) throw new Error(`the nav went somewhere unexpected: ${second}`);
+  await press(195, 400);
+  const trail = await page.locator("#findings").innerText();
+  if (!/not an event|nav\./.test(trail)) throw new Error(`run mode said nothing about the press: ${trail}`);
+  await page.click("#run");
+  await page.waitForFunction(
+    () => document.getElementById("added")?.textContent === "seed",
+    null,
+    { timeout: 20000 },
+  );
+  console.log(`  run          ${first} → ${second}, and back to design mode`);
+
   if (problems.length) {
     console.error(problems.join("\n"));
     throw new Error(`${problems.length} console/page errors`);
   }
-  console.log("ALL PASS — seed painted, Follow up kept the phone, Empty started over");
+  console.log("ALL PASS — seed painted, Follow up kept the phone, Empty started over, the app ran");
 } finally {
   await browser.close();
 }
