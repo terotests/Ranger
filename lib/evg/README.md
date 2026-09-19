@@ -316,6 +316,42 @@ they are the pass's output and an input the layout also writes would read last
 frame's answer. An arrow that has to point the other way when a menu opens
 upwards reads them, and so does every test here.
 
+#### Placing one edge: `anchor()`
+
+`position-area` puts a whole surface on a side of its anchor, which is what a
+menu wants. A badge hanging off a card's corner is a different statement — one
+edge of this box on one edge of that one — and no area can say it. That is
+CSS's `anchor()`, in the inset properties:
+
+```json
+{"tag": "div", "props": {"anchor-name": "--card"}},
+{"tag": "div", "props": {
+  "position-anchor": "--card",
+  "left": "calc(anchor(right) - 12px)",
+  "top":  "calc(anchor(top) - 10px)",
+  "width": "24px", "height": "24px"
+}}
+```
+
+| In | Written as | Means |
+| --- | --- | --- |
+| `left` / `right` | `anchor(left)`, `anchor(right)`, `anchor(center)` | that edge of the anchor |
+| `top` / `bottom` | `anchor(top)`, `anchor(bottom)`, `anchor(center)` | that edge of the anchor |
+| any of them | `calc(anchor(…) + 8px)`, `calc(anchor(…) - 8px)` | that edge, offset |
+
+`left` and `top` place this box's near edges; `right` and `bottom` place its far
+ones. Both insets on one axis **stretch** the box between them, the same rule
+`left` with `right` already follows. An edge from the wrong axis — `left:
+anchor(bottom)` — is reported and dropped rather than guessed at. One anchor
+reference and at most one length: anything more would need a real `calc()`,
+which this engine does not have.
+
+One consequence worth knowing: `position-anchor` makes the element a surface,
+so a badge placed this way is out of the flow and drawn in the top layer, above
+the page and outside every clip. When you want it clipped with its container
+and stacked with it, position it with `position: absolute` inside that
+container instead — the geometry is yours to write, and nothing looks it up.
+
 #### When it does not fit
 
 | Property | Notes |
@@ -363,6 +399,8 @@ surfaces, once every anchor has a rectangle
 presentation          anchored | sheet | fullscreen
       ↓
 anchor                position-anchor → the name registry
+      ↓
+insets                anchor() in left/top/right/bottom, if any — done
       ↓
 placement             position-area, then each fallback, then the flip
       ↓                   first that fits, or the roomiest, or the least bad

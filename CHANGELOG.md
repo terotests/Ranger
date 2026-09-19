@@ -26,7 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cover the case no placement can: at 390 wide an anchored menu is the wrong
   widget, so it becomes a sheet along the bottom edge with its children laid
   out again at the page's width. `overflow-y`/`overflow-x` are accepted and
-  set `overflow`, which this engine has one of.
+  set `overflow`, which this engine has one of. And `anchor()` is read in the
+  inset properties — `left: calc(anchor(right) - 12px)` — which places one
+  edge against one edge of the anchor, with both insets on an axis stretching
+  the box between them; that is the badge-on-a-corner case no area can state.
   [`lib/evg/EVGLayout.rgr`](lib/evg/EVGLayout.rgr),
   `npm run evg:popover:test`, and the README's
   [Surfaces](lib/evg/README.md#surfaces-popovers-anchors-and-presentation).

@@ -1022,6 +1022,25 @@ class EVGElement {
     ; off the page. With `overflow` other than `visible` it then scrolls.
     def fitViewport:boolean false
 
+    ; CSS's `anchor()` in an inset property: `left: anchor(right)` puts this
+    ; element's left edge on the anchor's right edge, and
+    ; `calc(anchor(right) + 8px)` puts it eight past. Each edge keeps which
+    ; edge of the ANCHOR it was given and how far off it sits; empty means the
+    ; edge was an ordinary length and `left`/`top` hold it as usual.
+    ;
+    ; This is the other half of `position-anchor`. `position-area` places a
+    ; whole surface on a side of its anchor, which is what a menu wants;
+    ; `anchor()` places one EDGE, which is what a badge hanging off a corner
+    ; wants, and there is no way to say that with an area.
+    def anchorLeftSide:string ""
+    def anchorLeftOffset:double 0.0
+    def anchorTopSide:string ""
+    def anchorTopOffset:double 0.0
+    def anchorRightSide:string ""
+    def anchorRightOffset:double 0.0
+    def anchorBottomSide:string ""
+    def anchorBottomOffset:double 0.0
+
     ; --- interaction state -------------------------------------------------------
     ; What is happening to this element right now, so a STYLESHEET can say what
     ; that should look like. `.btn:hover` is a rule that asks for the first of
@@ -1713,6 +1732,107 @@ class EVGElement {
         return out
     }
 
+    ; --- anchor() ---------------------------------------------------------------
+    ;
+    ; `anchor(right)` and `calc(anchor(right) + 8px)`. Only those two shapes:
+    ; one anchor reference and at most one length added to or subtracted from
+    ; it, which is what every real use of this is. Anything more is `calc()`,
+    ; and this engine does not have one.
+
+    sfn mentionsAnchor:boolean (value:string) {
+        return ((indexOf value "anchor(") >= 0)
+    }
+
+    ; Which edge of the anchor was named. An inset property takes an edge on
+    ; its own axis; `anchor(center)` is the middle of that axis. An edge from
+    ; the wrong axis is a mistake worth reporting rather than guessing at.
+    sfn anchorFnSide:string (prop:string value:string) {
+        def open:int (indexOf value "anchor(")
+        def rest:string (substring value (open + 7) (strlen value))
+        def close:int (indexOf rest ")")
+        if (close < 0) {
+            EVGReject.note("unsupported value" prop value)
+            return ""
+        }
+        def side:string (trim (substring rest 0 close))
+        def vertical:boolean ((prop == "top") || (prop == "bottom"))
+        if (side == "center") {
+            return "center"
+        }
+        if vertical {
+            if ((side == "top") || (side == "bottom")) {
+                return side
+            }
+        } {
+            if ((side == "left") || (side == "right")) {
+                return side
+            }
+        }
+        EVGReject.note("unsupported value" prop value)
+        return ""
+    }
+
+    ; What `+ 8px` or `- 8px` after the reference adds. No length, no offset.
+    sfn anchorFnOffset:double (value:string) {
+        def open:int (indexOf value "anchor(")
+        def rest:string (substring value (open + 7) (strlen value))
+        def close:int (indexOf rest ")")
+        if (close < 0) {
+            return 0.0
+        }
+        def tail:string (trim (substring rest (close + 1) (strlen rest)))
+        if ((strlen tail) == 0) {
+            return 0.0
+        }
+        def sign:double 1.0
+        def first:string (substring tail 0 1)
+        if (first == "-") {
+            sign = (0.0 - 1.0)
+        } {
+            if ((first == "+") == false) {
+                return 0.0
+            }
+        }
+        def num:string (trim (substring tail 1 (strlen tail)))
+        ; Drop a trailing unit: px is the only one an offset can mean here,
+        ; because there is nothing to take a percentage of.
+        def digits:string ""
+        def i:int 0
+        while (i < (strlen num)) {
+            def ch:int (charAt num i)
+            def ok:boolean (((ch >= 48) && (ch <= 57)) || (ch == 46))
+            if ok {
+                digits = (digits + (substring num i (i + 1)))
+            } {
+                i = (strlen num)
+            }
+            i = (i + 1)
+        }
+        def v@(optional):double (to_double (trim digits))
+        if v {
+            return (sign * (unwrap v))
+        }
+        return 0.0
+    }
+
+    ; Any inset written as `anchor(…)`. The layout then places this element
+    ; edge by edge instead of by an area.
+    fn hasAnchorInsets:boolean () {
+        if ((strlen anchorLeftSide) > 0) {
+            return true
+        }
+        if ((strlen anchorTopSide) > 0) {
+            return true
+        }
+        if ((strlen anchorRightSide) > 0) {
+            return true
+        }
+        if ((strlen anchorBottomSide) > 0) {
+            return true
+        }
+        return false
+    }
+
     ; A SURFACE: out of its parent's flow, drawn in the top layer, placed
     ; against an anchor rather than by the flow. `overlay: true` says so, and
     ; so does the `popover` tag, which is the web's name for the same thing and
@@ -1788,6 +1908,10 @@ class EVGElement {
         ; A connector is geometry over the layout, never in it: it joins two
         ; boxes and must not push either of them about.
         if (tagName == "connector") {
+            return true
+        }
+        ; An inset written as `anchor(…)` is still an inset.
+        if (this.hasAnchorInsets()) {
             return true
         }
         if left.isSet {
@@ -3225,6 +3349,14 @@ class EVGElement {
         presentation = other.presentation
         sheetBelow = other.sheetBelow
         fitViewport = other.fitViewport
+        anchorLeftSide = other.anchorLeftSide
+        anchorLeftOffset = other.anchorLeftOffset
+        anchorTopSide = other.anchorTopSide
+        anchorTopOffset = other.anchorTopOffset
+        anchorRightSide = other.anchorRightSide
+        anchorRightOffset = other.anchorRightOffset
+        anchorBottomSide = other.anchorBottomSide
+        anchorBottomOffset = other.anchorBottomOffset
         overlayPlacedAlign = other.overlayPlacedAlign
         overlayPlacedPresentation = other.overlayPlacedPresentation
         overlayClamped = other.overlayClamped
@@ -3640,18 +3772,38 @@ class EVGElement {
 
         ; Position
         if (name == "left") {
+            if (EVGElement.mentionsAnchor(value)) {
+                anchorLeftSide = (EVGElement.anchorFnSide(name value))
+                anchorLeftOffset = (EVGElement.anchorFnOffset(value))
+                return
+            }
             left = (this.unitOf(name value))
             return
         }
         if (name == "top") {
+            if (EVGElement.mentionsAnchor(value)) {
+                anchorTopSide = (EVGElement.anchorFnSide(name value))
+                anchorTopOffset = (EVGElement.anchorFnOffset(value))
+                return
+            }
             top = (this.unitOf(name value))
             return
         }
         if (name == "right") {
+            if (EVGElement.mentionsAnchor(value)) {
+                anchorRightSide = (EVGElement.anchorFnSide(name value))
+                anchorRightOffset = (EVGElement.anchorFnOffset(value))
+                return
+            }
             right = (this.unitOf(name value))
             return
         }
         if (name == "bottom") {
+            if (EVGElement.mentionsAnchor(value)) {
+                anchorBottomSide = (EVGElement.anchorFnSide(name value))
+                anchorBottomOffset = (EVGElement.anchorFnOffset(value))
+                return
+            }
             bottom = (this.unitOf(name value))
             return
         }

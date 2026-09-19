@@ -313,6 +313,66 @@ class EVGPopoverTest {
         c.eqInt("and as tall" (to_int m.calculatedHeight) 800)
     }
 
+    sfn testAnchorInsets:void (c:PopCheck) {
+        print ""
+        print "--- anchor() places an edge, not a side ---"
+        def page:EVGElement (EVGPopoverTest.buildPage(200.0))
+        ; A badge hanging off the trigger's top-right corner. The trigger is
+        ; 80x40 at (0,200), so its right edge is x=80 and its top is y=200.
+        def badge (EVGElement.createDiv())
+        badge.id = "badge"
+        badge.setAttribute("width" "20px")
+        badge.setAttribute("height" "20px")
+        badge.setAttribute("position-anchor" "--file")
+        badge.setAttribute("left" "calc(anchor(right) - 8px)")
+        badge.setAttribute("top" "calc(anchor(top) - 6px)")
+        page.addChild(badge)
+        def lay:EVGLayout (EVGPopoverTest.laidOut(page 400.0 800.0))
+        c.eqStr("placed by its edges" badge.overlayPlacedSide "anchor")
+        c.eqInt("left edge on the anchor's right, less the offset" (to_int badge.calculatedX) 72)
+        c.eqInt("top edge above the anchor's top" (to_int badge.calculatedY) 194)
+
+        ; The other two insets: `right`/`bottom` measure the box's far edges.
+        def page2:EVGElement (EVGPopoverTest.buildPage(200.0))
+        def tag2 (EVGElement.createDiv())
+        tag2.id = "tag"
+        tag2.setAttribute("width" "30px")
+        tag2.setAttribute("height" "10px")
+        tag2.setAttribute("position-anchor" "--file")
+        tag2.setAttribute("right" "anchor(left)")
+        tag2.setAttribute("bottom" "anchor(center)")
+        page2.addChild(tag2)
+        def lay2:EVGLayout (EVGPopoverTest.laidOut(page2 400.0 800.0))
+        c.eqInt("its right edge on the anchor's left" (to_int (tag2.calculatedX + tag2.calculatedWidth)) 0)
+        c.eqInt("its bottom on the anchor's middle" (to_int (tag2.calculatedY + tag2.calculatedHeight)) 220)
+
+        ; Both insets on an axis stretch the box between them.
+        def page3:EVGElement (EVGPopoverTest.buildPage(200.0))
+        def rule (EVGElement.createDiv())
+        rule.id = "rule"
+        rule.setAttribute("height" "2px")
+        rule.setAttribute("position-anchor" "--file")
+        rule.setAttribute("left" "anchor(left)")
+        rule.setAttribute("right" "calc(anchor(right) + 40px)")
+        rule.setAttribute("top" "calc(anchor(bottom) + 4px)")
+        page3.addChild(rule)
+        def lay3:EVGLayout (EVGPopoverTest.laidOut(page3 400.0 800.0))
+        c.eqInt("stretched from one inset to the other" (to_int rule.calculatedWidth) 120)
+        c.eqInt("starting at the anchor's left" (to_int rule.calculatedX) 0)
+        c.eqInt("just under it" (to_int rule.calculatedY) 244)
+
+        ; An inset on the wrong axis is reported, not guessed at.
+        def page4:EVGElement (EVGPopoverTest.buildPage(200.0))
+        def bad (EVGElement.createDiv())
+        bad.id = "bad"
+        bad.setAttribute("width" "10px")
+        bad.setAttribute("height" "10px")
+        bad.setAttribute("position-anchor" "--file")
+        bad.setAttribute("left" "anchor(bottom)")
+        page4.addChild(bad)
+        c.ok("a cross-axis edge is not taken" ((strlen bad.anchorLeftSide) == 0))
+    }
+
     sfn main:void () {
         def c (new PopCheck())
         print "=== EVG popovers ==="
@@ -323,6 +383,7 @@ class EVGPopoverTest {
         EVGPopoverTest.testFitViewport(c)
         EVGPopoverTest.testSheet(c)
         EVGPopoverTest.testFullscreen(c)
+        EVGPopoverTest.testAnchorInsets(c)
         print ""
         print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
         if (c.failed > 0) {

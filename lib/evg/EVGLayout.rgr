@@ -2847,6 +2847,90 @@ class EVGLayout {
         return spot
     }
 
+    ; An edge of the anchor, in page coordinates — what `anchor(right)` means.
+    sfn anchorEdgeX:double (a:EVGElement side:string) {
+        if (side == "right") {
+            return (a.calculatedX + a.calculatedWidth)
+        }
+        if (side == "center") {
+            return (a.calculatedX + (a.calculatedWidth / 2.0))
+        }
+        return a.calculatedX
+    }
+
+    sfn anchorEdgeY:double (a:EVGElement side:string) {
+        if (side == "bottom") {
+            return (a.calculatedY + a.calculatedHeight)
+        }
+        if (side == "center") {
+            return (a.calculatedY + (a.calculatedHeight / 2.0))
+        }
+        return a.calculatedY
+    }
+
+    ; `left: anchor(right)`, `top: calc(anchor(center) - 16px)`: the author has
+    ; said where each EDGE goes, so none of the area machinery applies — there
+    ; is no side to flip and no alignment to shift. Both insets on an axis
+    ; stretch the box between them, the same rule `layoutAbsolute` follows for
+    ; `left` and `right` together.
+    fn placeByAnchorInsets:void (surface:EVGElement parent:EVGElement) {
+        def maybe@(optional):EVGElement (this.findOverlayAnchor(surface parent))
+        if (null? maybe) {
+            push overlayErrors (surface.id + ": anchor() has no anchor — name one with `position-anchor`")
+            return
+        }
+        def a:EVGElement (unwrap maybe)
+        def w:double surface.calculatedWidth
+        def h:double surface.calculatedHeight
+        def x:double surface.calculatedX
+        def y:double surface.calculatedY
+
+        def hasL:boolean ((strlen surface.anchorLeftSide) > 0)
+        def hasR:boolean ((strlen surface.anchorRightSide) > 0)
+        def hasT:boolean ((strlen surface.anchorTopSide) > 0)
+        def hasB:boolean ((strlen surface.anchorBottomSide) > 0)
+        def lx:double ((EVGLayout.anchorEdgeX(a surface.anchorLeftSide)) + surface.anchorLeftOffset)
+        def rx:double ((EVGLayout.anchorEdgeX(a surface.anchorRightSide)) + surface.anchorRightOffset)
+        def ty:double ((EVGLayout.anchorEdgeY(a surface.anchorTopSide)) + surface.anchorTopOffset)
+        def by:double ((EVGLayout.anchorEdgeY(a surface.anchorBottomSide)) + surface.anchorBottomOffset)
+
+        if (hasL && hasR) {
+            x = lx
+            def spanW:double (rx - lx)
+            if (spanW > 0.0) {
+                this.resizeSurface(surface spanW h)
+                w = spanW
+            }
+        } {
+            if hasL {
+                x = lx
+            }
+            if hasR {
+                x = (rx - w)
+            }
+        }
+        if (hasT && hasB) {
+            y = ty
+            def spanH:double (by - ty)
+            if (spanH > 0.0) {
+                this.setSurfaceHeight(surface spanH)
+                h = spanH
+            }
+        } {
+            if hasT {
+                y = ty
+            }
+            if hasB {
+                y = (by - h)
+            }
+        }
+
+        surface.overlayPlacedSide = "anchor"
+        surface.overlayPlacedAlign = ""
+        surface.overlayPlacedPresentation = "anchored"
+        this.finishOverlay(surface x y)
+    }
+
     fn placeOverlay:void (surface:EVGElement parent:EVGElement) {
         def w:double surface.calculatedWidth
         def h:double surface.calculatedHeight
@@ -2854,6 +2938,15 @@ class EVGLayout {
         def y:double 0.0
         surface.overlayClamped = false
         surface.overlayPlacedAlign = surface.overlayAlign
+
+        ; EDGES BEFORE SIDES. `anchor()` in an inset is a different statement
+        ; from `position-area`: it places one edge of this box on one edge of
+        ; the anchor, which is what a badge hanging off a corner needs and
+        ; what no area can say.
+        if (surface.hasAnchorInsets()) {
+            this.placeByAnchorInsets(surface parent)
+            return
+        }
 
         ; PRESENTATION FIRST, because it decides whether the anchor is
         ; consulted at all. A sheet is not positioned against anything.

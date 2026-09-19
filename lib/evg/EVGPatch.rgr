@@ -769,6 +769,27 @@ class EVGPatch {
         return a
     }
 
+    ; An inset written as an anchor reference, in the form `setAttribute`
+    ; takes back: `anchor(right)`, or `calc(anchor(right) + 8px)`.
+    sfn anchorInsetText:string (side:string offset:double) {
+        if ((strlen side) == 0) {
+            return ""
+        }
+        def inner:string (("anchor(" + side) + ")")
+        if (offset == 0.0) {
+            return inner
+        }
+        def sign:string " + "
+        def mag:double offset
+        if (offset < 0.0) {
+            sign = " - "
+            mag = (0.0 - offset)
+        }
+        def out:string (("calc(" + inner) + sign)
+        out = ((out + (EVGDisplayList.num(mag))) + "px)")
+        return out
+    }
+
     sfn readable:boolean (name:string) {
         return ((EVGPatch.kindOf(name)) != 0)
     } doc {
@@ -882,10 +903,37 @@ class EVGPatch {
         if (n == "min-height") { return (EVGPatch.unitText(el.minHeight)) }
         if (n == "max-width")  { return (EVGPatch.unitText(el.maxWidth)) }
         if (n == "max-height") { return (EVGPatch.unitText(el.maxHeight)) }
-        if (n == "left")       { return (EVGPatch.unitText(el.left)) }
-        if (n == "top")        { return (EVGPatch.unitText(el.top)) }
-        if (n == "right")      { return (EVGPatch.unitText(el.right)) }
-        if (n == "bottom")     { return (EVGPatch.unitText(el.bottom)) }
+        ; AN INSET MAY BE AN `anchor()` RATHER THAN A LENGTH, and then the
+        ; length is empty — which would have written the document back with
+        ; the badge unpositioned and nothing to say it had been dropped.
+        if (n == "left") {
+            def la:string (EVGPatch.anchorInsetText(el.anchorLeftSide el.anchorLeftOffset))
+            if ((strlen la) > 0) {
+                return la
+            }
+            return (EVGPatch.unitText(el.left))
+        }
+        if (n == "top") {
+            def ta:string (EVGPatch.anchorInsetText(el.anchorTopSide el.anchorTopOffset))
+            if ((strlen ta) > 0) {
+                return ta
+            }
+            return (EVGPatch.unitText(el.top))
+        }
+        if (n == "right") {
+            def ra:string (EVGPatch.anchorInsetText(el.anchorRightSide el.anchorRightOffset))
+            if ((strlen ra) > 0) {
+                return ra
+            }
+            return (EVGPatch.unitText(el.right))
+        }
+        if (n == "bottom") {
+            def ba:string (EVGPatch.anchorInsetText(el.anchorBottomSide el.anchorBottomOffset))
+            if ((strlen ba) > 0) {
+                return ba
+            }
+            return (EVGPatch.unitText(el.bottom))
+        }
         if (n == "gap")        { return (EVGPatch.unitText(el.gap)) }
         if (n == "font-size")  { return (EVGPatch.unitText(el.fontSize)) }
         if (n == "flex-basis") { return (EVGPatch.unitText(el.flexBasis)) }
@@ -1205,18 +1253,26 @@ class EVGPatch {
         }
         if (n == "left") {
             el.left = u
+            el.anchorLeftSide = ""
+            el.anchorLeftOffset = 0.0
             return true
         }
         if (n == "top") {
             el.top = u
+            el.anchorTopSide = ""
+            el.anchorTopOffset = 0.0
             return true
         }
         if (n == "right") {
             el.right = u
+            el.anchorRightSide = ""
+            el.anchorRightOffset = 0.0
             return true
         }
         if (n == "bottom") {
             el.bottom = u
+            el.anchorBottomSide = ""
+            el.anchorBottomOffset = 0.0
             return true
         }
         if (n == "gap") {
