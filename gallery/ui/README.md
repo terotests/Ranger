@@ -91,6 +91,14 @@ event, both sides handle it), but the pointer has to be *mirrored* between two
 independent hosts, and a mirrored click is a simulation of a click. Treat what
 you see here as a lead and confirm it with `npm run ui:report`.
 
+**On a phone.** The stage is scaled to the room the viewport has, so a demo
+that lays out at 900 or 1336 is legible on a 390px screen instead of hanging
+off the right-hand edge where nothing could reach it; below 860px the rail of
+controls folds into a one-line disclosure above the stage. The transform is on
+the box holding the canvas *and* the accessibility mirror, so a tap still lands
+on what it looks like it lands on, and hit testing goes on taking the numbers
+the display list was built with.
+
 ## Trying it on Android
 
 ```bash
@@ -184,6 +192,17 @@ counted so the decision stays visible.
 
 Auditing the canvas itself would be auditing one empty graphic — which is the
 reason `evg-a11y.js` exists at all.
+
+**The way in, which no audit asked about.** A mirror with a roving tabindex
+makes one element tabbable: the one the app says has focus. An app that has not
+been touched yet says nothing has focus, so for a long time NO element in the
+mirror was a tab stop and Tab walked straight past every demo on the page —
+each widget was clean to axe and unreachable from a keyboard. `evg-a11y.js` now
+keeps an entry tab stop while an app names no focus (a roving pattern always
+has one), reports focus that arrived on its own through `onFocus` so the app
+can follow it, and takes `canMoveFocus` from a host that parks the keyboard
+somewhere else — a text-input bridge editing in its own `<input>`. The demo
+page also stopped handing Tab to demos that answer "taken" to every key.
 
 ## The score
 
@@ -304,6 +323,15 @@ obvious ones:
 drawn as the two pills — with a Save that puts an error on the hint's line and
 into the control's description, and a Discard that takes it back. The rows are
 `UiField`s, promoted out of the invoice demo once a third form wanted them.
+
+The invoice form's **Find a customer** is the third one, and it is the field
+that says what the split is for. It was an `InputCtl` with a magnifier drawn in
+front of it: a box that looks like an autocomplete and filters nothing. Making
+it one is seven `addItem` lines and a `comboField`, because the filtering, the
+highlight, what Enter does and what a blur does to a half-typed query are all
+`ComboboxCtl`'s and all measured. The one thing the demo had to add is
+`ownsKey`: the web host leaves the arrows with the platform's own `<input>` on
+purpose, and in a combobox they walk the list.
 
 ## Class-first styling, inline still allowed
 

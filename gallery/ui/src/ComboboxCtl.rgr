@@ -487,6 +487,38 @@ class ComboboxCtl extends UiCtl {
         return true
     }
 
+    ; The PLATFORM edited the text for us.
+    ;
+    ; `typeChar` is the door for a host that turns keystrokes into characters
+    ; itself. This is the door for one that parks a real `<input>` over the box
+    ; and lets the browser do the editing — IME, paste, undo, a phone's
+    ; keyboard — and then reports the whole value. The effect on the LIST is
+    ; the same either way and is the part a host must not have to reinvent:
+    ; typing makes the text a query, opens the list and drops the highlight.
+    ;
+    ; A report that leaves the text alone is a SELECTION move — a click, a
+    ; drag, Ctrl+A — and must not turn a resting label into a query.
+    fn applyEdit:boolean (target:string v:string selStart:int selEnd:int) {
+        if (target != (this.inputTid())) {
+            return false
+        }
+        if disabled {
+            return false
+        }
+        input.tid = (this.inputTid())
+        def before:string input.value
+        input.applyEdit(v selStart selEnd)
+        if (input.value == before) {
+            this.build()
+            return true
+        }
+        filtering = true
+        open = true
+        activeValue = ""
+        this.build()
+        return true
+    }
+
     fn keyDownWith:string (target:string key:string shift:boolean ctrl:boolean) {
         if disabled {
             return ""

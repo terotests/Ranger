@@ -74,10 +74,14 @@ console.log("--- a field in error says so ---");
 
 console.log("--- required is published only when asked for ---");
 {
-  const t = treeOf(fresh());
+  const d = fresh();
+  const t = treeOf(d);
   const req = node(t, "fm-name");
   ok("a required field says so", req && req.required === "true", JSON.stringify(req && req.required));
-  const opt = node(t, "fm-search");
+  // The optional one is the combobox's box — "Find a customer" is a
+  // ComboboxCtl now, so the node is the controller's input rather than a
+  // `fm-search` of the demo's own.
+  const opt = node(t, d.search.inputTid());
   ok("an optional one says nothing at all",
     opt && opt.required === undefined, JSON.stringify(opt && opt.required));
 }

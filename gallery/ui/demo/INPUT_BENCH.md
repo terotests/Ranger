@@ -119,6 +119,27 @@ measured divergence from one. A textbox whose `aria-roledescription` is
 `spinbutton` or `One-time code` is skipped by that attribute, so a third such
 component is skipped the day it publishes the same word.
 
+A third has since left by a different door. **`fm-search` is a combobox.**
+"Find a customer" was an `InputCtl` with a magnifier in front of it and is a
+`ComboboxCtl` now, so its box publishes `role="combobox"` and the discovery
+walk — which collects `role="textbox"` — no longer sees it. It is measured by
+`ui:combobox:check` against @base-ui/react/combobox instead, where filtering,
+the highlight and what a blur does to a half-typed query are the contract.
+The baseline lost its `form/fm-search` row when this happened; `fm-name` and
+`fm-email` still carry the placeholder scenario.
+
+**Twenty-five cells went `fail` to `unobs` at the same time, and that is one
+bug being fixed.** The bench reads Ranger's `focused` from the accessibility
+tree on a page with no editing session — the stepper and the metadata card.
+That tree was handed the demo page's OWN focus field, which was maintained for
+the menubar and nothing else, so it said `""` forever: every step of every
+scenario disagreed with the browser about which field had the focus, and the
+cell was `fail` whatever else was true. Now each demo's focus reaches the tree,
+`focused` agrees, and what is left is the selection those pages do not publish
+— which is `unobs`, not wrong. The cells with a real divergence (`type` on all
+four fields) stayed `fail`, which is how you can tell the change was the focus
+and not a blanket.
+
 ## What the first run found
 
 Sixteen fields on five pages, twenty scenarios, and a matrix that split

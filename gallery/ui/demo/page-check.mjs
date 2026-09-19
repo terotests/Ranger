@@ -989,7 +989,14 @@ console.log("--- the surface ripples where it was touched ---");
     at && at.drops.length === 0, JSON.stringify(at && at.drops));
 
   const box = await (await page.$("#stage canvas")).boundingBox();
-  await page.mouse.click(box.x + 700, box.y + 430);
+  // APP COORDINATES ARE NOT CSS PIXELS ANY MORE. The stage is scaled to fit
+  // whatever room the viewport has, and the dashboard is 1336 wide in a stage
+  // that is narrower than that even on a desktop — so a click aimed at the
+  // display list's 700 has to be placed at 700 × the scale. The page publishes
+  // it; `boundingBox()` is already in CSS pixels and needs no conversion.
+  const sc = await page.evaluate(() => window.__stageScale || 1);
+  const put = (x, y) => page.mouse.click(box.x + x * sc, box.y + y * sc);
+  await put(700, 430);
   await page.waitForTimeout(150);
   const live = await effect();
   ok("a click becomes the ripple's origin",
@@ -1015,7 +1022,7 @@ console.log("--- the surface ripples where it was touched ---");
   // where the clock is the test's, for the same reason the wake is.
   const newest = (fx) => fx && fx.drops.length ? fx.drops[fx.drops.length - 1] : null;
   for (const [cx, cy] of [[420, 330], [900, 520]]) {
-    await page.mouse.click(box.x + cx, box.y + cy);
+    await put(cx, cy);
     await page.waitForTimeout(90);
     const d = newest(await effect());
     ok(`a touch at ${cx},${cy} lands there`,

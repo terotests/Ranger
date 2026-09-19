@@ -437,6 +437,16 @@ class DropdownDemo {
         pressed = id
     }
 
+    ; A keyboard arriving from outside — Tab onto the mirrored trigger — says
+    ; where it landed. MenuCtl is told too: `keyDown` is given a target, and a
+    ; controller whose own roving focus still points at the last row would
+    ; answer the first arrow from there instead of from the button the person
+    ; is actually standing on.
+    fn setFocus:void (id:string) {
+        focused = id
+        model.activeTid = id
+    }
+
     fn markStates:void (el:EVGElement) {
         el.isHovered = false
         el.isPressed = false

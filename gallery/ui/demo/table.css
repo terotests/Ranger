@@ -108,6 +108,12 @@
  * which is how this was caught. */
 .tb-col { transition: background-color 120ms ease-out; border-radius: 6px; }
 .tb-col:hover { background-color: #f4f4f5; }
+/* Where the arrows are. Focus beats hover and has to: the keyboard is the
+ * point of the roving ring, and the header you have arrowed onto should not
+ * stop looking chosen because the pointer is resting somewhere else. The page
+ * had no `:focus` rule at all here, which is the whole of "the table's
+ * keyboard does not work" — it did nothing you could see. */
+.tb-col:focus { background-color: #e4e4e7; }
 
 .tb-arrow {
   color: #18181b;
@@ -145,6 +151,9 @@
 }
 
 .tb-check:hover { border-color: #a1a1aa; }
+/* 2px and dark, because the box is 16px and a border-COLOUR change alone is
+ * about two pixels of difference on a control this size. */
+.tb-check:focus { border-color: #18181b; border-width: 2px; }
 
 .tb-check-checked,
 .tb-check-indeterminate {
@@ -221,6 +230,7 @@
 }
 
 .tb-button:hover  { background-color: #f4f4f5; }
+.tb-button:focus  { border-color: #18181b; }
 .tb-button:active { transform: scale(0.97); }
 
 .tb-button-text {

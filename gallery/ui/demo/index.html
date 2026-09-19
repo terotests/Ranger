@@ -40,10 +40,48 @@
        * has zoomed into — it does that when it focuses a small text field —
        * then cannot be pinched back out over the canvas. */
       canvas { display: block; border-radius: 10px; touch-action: pinch-zoom; }
+      /* The stage is drawn at the demo's own width and then SCALED to whatever
+         the viewport has room for. A transform does not change the layout box,
+         so `#fit` carries the scaled size and `#stage` is painted inside it —
+         which is what keeps the page from growing a horizontal scrollbar on a
+         phone. `main.js` writes both boxes on every paint. */
+      #stage { transform-origin: top left; }
       #stage .evg-a11y :focus-visible { outline: 2px solid #a5b4fc; outline-offset: -2px; border-radius: 6px; }
       .note { color: var(--dim); font-size: 12.5px; margin: 16px 0 0; max-width: 78ch; }
       code { background: #1b2440; padding: 1px 5px; border-radius: 4px; }
       #err { color: #f87171; white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 12px; }
+
+      /* --- a narrow screen ---------------------------------------------------
+         The rail becomes a band above the stage rather than a column beside it:
+         230px of a 390px phone is most of the page, and the demo it is there to
+         drive would get what was left. `details` so the band is one line until
+         it is asked for. */
+      #picker { display: none; }
+      @media (max-width: 860px) {
+        header { padding: 12px 16px; gap: 10px; }
+        header p { font-size: 12px; }
+        main { grid-template-columns: 1fr; min-height: 0; }
+        aside {
+          border-right: 0; border-bottom: 1px solid var(--line);
+          padding: 12px 16px;
+        }
+        #picker { display: block; }
+        #picker summary {
+          cursor: pointer; color: var(--ink); font-size: 13px;
+          padding: 4px 0; list-style-position: inside;
+        }
+        /* The rail's own sections stay, but behind the summary: a phone gets
+           one line until it asks for the rest. */
+        aside > section { display: none; }
+        #picker[open] ~ section:not([hidden]) { display: block; }
+        .stage { padding: 12px 16px 24px; }
+        .note { font-size: 12px; }
+      }
+      /* A pointer that cannot hover has no hover to show, and a 3px scrollbar
+         gutter is 3px a finger cannot use. */
+      @media (pointer: coarse) {
+        label { padding: 7px 0; }
+      }
     </style>
   </head>
   <body>
@@ -61,6 +99,7 @@
     </header>
     <main>
       <aside>
+        <details id="picker"><summary>controls</summary></details>
         <section>
           <h2>demo</h2>
           <div id="demos"></div>
@@ -268,6 +307,21 @@
             applies &mdash; and the hint&rsquo;s line is where the error goes,
             so the picture says the same thing.
           </p>
+          <p class="hint">
+            <strong>Fix the Email field.</strong> Its error is <em>decided</em>
+            from the value on every rebuild, not written once: type an @ and a
+            dot and the ring, the sentence and <code>aria-invalid</code> all
+            stop claiming it is wrong together. Each message says what is
+            wrong rather than that something is.
+          </p>
+          <p class="hint">
+            <strong>Find a customer</strong> is a <code>ComboboxCtl</code>.
+            Type a few letters to filter the list, &uarr; &darr; to walk it,
+            Enter to take a row into the box; leaving it with a half-typed
+            query puts the chosen label back. The arrows reach the list rather
+            than the caret because the demo <em>asks</em> for them &mdash; the
+            text bridge leaves them with the platform everywhere else.
+          </p>
         </section>
         <section data-for="calendar">
           <h2>what to try</h2>
@@ -470,7 +524,7 @@
         </section>
       </aside>
       <div class="stage">
-        <div id="stage"><canvas id="c"></canvas></div>
+        <div id="fit"><div id="stage"><canvas id="c"></canvas></div></div>
         <div id="err"></div>
         <p class="note" data-for="sortable">
           <strong>Drag a row onto another</strong> and the list reorders — and it is
