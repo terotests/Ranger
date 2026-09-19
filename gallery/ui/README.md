@@ -79,9 +79,9 @@ third beside them, which declares nothing, stays still. `EffectsDemo.rgr` holds
 no shader, no clock and no coordinate; see
 [`lib/evg/PLAN_EFFECTS.md`](../../lib/evg/PLAN_EFFECTS.md).
 
-The rail there has the **background picker**: the eleven blocks of
+The rail there has the **background picker**: the fourteen blocks of
 [`lib/evg/gl/effect-presets.css`](../../lib/evg/gl/effect-presets.css) —
-starfields, plasma waves, rain and ambient washes — carried into the page as
+starfields, plasma waves, rain, ambient washes and smoke — carried into the page as
 the FILE rather than as a copy of its numbers. Picking one **types it** into
 the live stylesheet below the canvas, where it can then be read and changed,
 and the cascade takes it from there; nothing reaches the painter behind the

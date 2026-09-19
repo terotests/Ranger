@@ -72,7 +72,7 @@ A plugin declares which it is, and the difference decides when it is drawn:
 
 | | drawn | reads | example |
 | --- | --- | --- | --- |
-| `source` | in paint order, at the element's own background | nothing | `starfield`, `plasma-wave`, `ambient-light` |
+| `source` | in paint order, at the element's own background | nothing | `starfield`, `plasma-wave`, `ambient-light`, `smoke` |
 | `backdrop` | in paint order, at the same point | the surface so far | `liquid-glass`, `raindrop` |
 | `filter` | after the frame, over the box's region | the finished surface | `ripple` |
 
@@ -133,10 +133,10 @@ Both are checked against pixels: a rim-weighted bar leaves the flat middle
 byte-for-byte unchanged, and between passes nothing on the pane is brighter
 than the pane without a sweep at all.
 
-### The quiet three
+### The quieter four
 
 A starfield and a pane of glass are both loud: they are the effect, and the
-page is arranged around them. Three more are the other kind — a background you
+page is arranged around them. Four more are the other kind — a background you
 can put text on and still read it.
 
 * **`plasma-wave`** (source). Ribbons of light drifting across the box: a few
@@ -154,8 +154,20 @@ can put text on and still read it.
   sharp, which is the point: it is the background under a dashboard, not the
   subject.
 
-All three take their box from the layout like the others, and all three are in
-`effect-presets.css` twice, with different numbers.
+* **`smoke`** (source). A bank of smoke rising through the box: fbm evaluated
+  at a point two other fbms have already moved — a DOMAIN WARP, which is the
+  cheapest way to get a turbulent flow out of a function that has none. One
+  warp gives the billows, the second gives the tendrils that come off their
+  edges. What it has to clear rises with height, so the floor is full and the
+  top is single wisps in the black; `height` is how far up that goes, and at 3
+  or more it is a cloud filling the box instead. The light is the field
+  compared with itself one step toward `angle`: where the smoke is thinning
+  that way the step is lower and the pixel is a lit face, where it is
+  thickening the pixel is in shadow — a gradient, which is what gives a cloud
+  its volume.
+
+They take their box from the layout like the others, and each is in
+`effect-presets.css` two or three times, with different numbers.
 
 ### Every parameter
 
@@ -248,6 +260,24 @@ the flat middle as it is at the bevel).
 | `speed` | 0 | how fast the field drifts down; 0 is still |
 | `seed` | 1 | a different scatter |
 
+**`smoke`** (source) — a bank of it rising through the box.
+
+| | default | |
+| --- | --- | --- |
+| `density` | 1.2 | how much of the field shows as smoke |
+| `rise` | 0.05 | how fast it climbs |
+| `wind` | 0 | sideways drift |
+| `swirl` | 2.6 | how hard the warp curls it; 0 is clouds of plain noise |
+| `scale` | 190 | the size of a billow, px |
+| `detail` | 5 | octaves, 1…6 — the last two are the tendrils and most of the cost |
+| `height` | 0.9 | how far up the box it reaches; 3 or more fills it |
+| `softness` | 0.55 | how gradually an edge gives out |
+| `shade` | 0.6 | how much the light sculpts it; 0 is flat grey |
+| `angle` | -60 | where that light is, degrees |
+| `hue` | 205 | the colour it is lit by |
+| `tint` | 0.1 | how much of that colour it takes |
+| `seed` | 1 | a different roll of it |
+
 **`ambient-light`** (source) — a slow wash.
 
 | | default | |
@@ -265,8 +295,9 @@ the flat middle as it is at the bevel).
 
 ### Presets
 
-`lib/evg/gl/effect-presets.css` is eleven blocks of ordinary CSS, one element's
-worth each: five skies, two plasma fields, two rains, two washes. They exist to
+`lib/evg/gl/effect-presets.css` is fourteen blocks of ordinary CSS, one
+element's worth each: five skies, two plasma fields, two rains, two washes and
+three of smoke. They exist to
 be pasted — into the live editor under the gallery's effects demo, or into a
 stylesheet — and nothing but numbers comes with them.
 

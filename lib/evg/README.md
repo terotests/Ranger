@@ -509,7 +509,7 @@ background, border and children are drawn on top, sharp. Each is one GLSL
 function and a parameter list, and the box mask is applied for them — a plugin
 cannot paint outside its own element.
 
-Six ship with the painter:
+Seven ship with the painter:
 
 | name | layer | what it is |
 | --- | --- | --- |
@@ -519,6 +519,7 @@ Six ship with the painter:
 | `plasma-wave` | source | drifting ribbons of light |
 | `raindrop` | backdrop | drops on the pane, each one a small lens over the page |
 | `ambient-light` | source | a slow wash of colour with soft orbs in it |
+| `smoke` | source | a bank of smoke rising through the box, or a cloud filling it |
 
 `liquid-glass` is refraction rather than fog, and it composes with the CSS that
 was already there:
@@ -543,8 +544,9 @@ both — no pass, no shader, and a press on it falls through to whatever is
 under it. That is the hook a page's own switch hangs on, and the one
 `prefers-reduced-motion` would; `fx-demo.html` has a switch per effect.
 
-[`lib/evg/gl/effect-presets.css`](gl/effect-presets.css) is eleven blocks that
-are already a look — five skies, two plasma fields, two rains and two washes —
+[`lib/evg/gl/effect-presets.css`](gl/effect-presets.css) is fourteen blocks
+that are already a look — five skies, two plasma fields, two rains, two washes
+and three of smoke —
 paste-able into the editor under the gallery demo or into a stylesheet of your
 own. `npm run evg:fx:shots` paints every one of them into a contact sheet, and
 `fx-check` reads the same file through the engine's own cascade, so a preset
