@@ -119,12 +119,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **The front-page Targets section is a quality ranking.** The heading
-  is "Quality ranking": an index of the thirteen official source back
-  ends, an idiomacy-score table, and a short essay per language on what
-  the generated file already looks like and what still reads as a port.
-  The percentage is the mean of twelve `gallery/friendly` study scores
-  (0–100, how close that file is to code a native programmer would keep),
+- **The front-page Targets section is generated-code quality status.**
+  The heading is "Generated code quality": an index of the thirteen
+  official source back ends, a score table, and the same two lists for
+  every language — what works well, and current limitations. The
+  percentage is the mean of twelve `gallery/friendly` study scores
+  (0–100, how close that file is to code a native developer would keep),
   not a compile-success score. The "Write for the strictest target" and
   "Extending it is not a rebuild" boxes come out. Swift 3, LLVM and WASM
   stay out of the table.

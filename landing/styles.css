@@ -162,6 +162,7 @@ code:not(pre code) {
 }
 .rank a { color: inherit; text-decoration: none; }
 .rank a:hover { color: var(--gold); }
+.rank li:last-child::before { content: none; }
 
 .quality { margin-top: 56px; }
 .quality__card {
@@ -174,19 +175,31 @@ code:not(pre code) {
   font-size: clamp(22px, 2.2vw, 30px);
   letter-spacing: -.03em;
   line-height: 1.2;
-  margin: 0 0 10px;
+  margin: 0;
 }
 .quality__card p { max-width: 78ch; color: var(--dim); font-size: 15.5px; }
-.quality__card p + p { margin-top: 14px; }
-.quality__score {
-  max-width: 78ch;
-  margin: 0 0 16px;
-  color: var(--dimmer);
-  font-size: 13.5px;
+.quality__cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 28px 48px;
+  margin-top: 22px;
 }
-.quality__score strong {
-  color: var(--gold);
-  font: 650 14px/1 var(--mono);
+.quality__cols > * { min-width: 0; }
+.quality__cols .label { margin-bottom: 10px; }
+.quality__list {
+  margin: 0;
+  padding: 0 0 0 1.15em;
+  max-width: 62ch;
+  color: var(--dim);
+  font-size: 15.5px;
+}
+.quality__list li + li { margin-top: 8px; }
+.quality__list li::marker { color: var(--gold); }
+.quality__card--summary .quality__list { margin-top: 4px; }
+.quality__card--summary .label { margin-top: 22px; }
+.quality__card--summary h3 + p { margin-top: 16px; }
+@media (max-width: 800px) {
+  .quality__cols { grid-template-columns: 1fr; gap: 26px; }
 }
 
 .matrix-wrap {
