@@ -452,7 +452,9 @@ const DEMOS = {
       table.setHover(id);
       return true;
     },
-    key: () => false,
+    // The roving ring `TableDemo.key` walks: arrows between the header, the
+    // boxes and the pager, Enter or Space to work the one you are on.
+    key: (k) => table.key(k),
     host: () => ({
       tick: (dt) => table.tick(dt),
       busy: () => table.busyNow(),
@@ -618,7 +620,12 @@ const DEMOS = {
     // single-character unmodified key as an insertion — so there is no
     // separate typing hook to keep in step with this one.
     keyWith: (k, shift, ctrl) => form.keyWith(k, shift, ctrl),
+    // The demo owns its own tab ring — see the keydown handler.
+    ownsTab: true,
     key: (k) => form.key(k),
+    // Which keys the app wants back out of an editing session — see
+    // `FormDemo.ownsKey` and the bridge's `onKey` below.
+    ownsKey: (k) => form.ownsKey(k),
     host: () => ({
       setHover: (id) => {
         if (id === lastFormHover) return false;
@@ -655,6 +662,8 @@ const DEMOS = {
       return true;
     },
     keyWith: (k, shift, ctrl) => profile.keyWith(k, shift, ctrl),
+    // The demo owns its own tab ring — see the keydown handler.
+    ownsTab: true,
     key: (k) => profile.key(k),
     host: () => ({
       setHover: (id) => {
@@ -734,6 +743,8 @@ const DEMOS = {
     // A printable key with no modifier is typing; Shift+Arrow extends a
     // selection, Ctrl+A selects a box, Tab walks the ring.
     keyWith: (k, shift, ctrl) => metadata.keyWith(k, shift, ctrl),
+    // The demo owns its own tab ring — see the keydown handler.
+    ownsTab: true,
     host: () => ({
       tick: (dt) => metadata.tick(dt),
       busy: () => metadata.busyNow(),
@@ -763,6 +774,8 @@ const DEMOS = {
     key: (k) => otp.key(k),
     // Shift+Tab walks back; Ctrl+A selects every slot.
     keyWith: (k, shift, ctrl) => otp.keyWith(k, shift, ctrl),
+    // The demo owns its own tab ring — see the keydown handler.
+    ownsTab: true,
     host: () => ({
       tick: (dt) => otp.tick(dt),
       busy: () => otp.busyNow(),
@@ -799,6 +812,8 @@ const DEMOS = {
     // Shift reaches the date field: Shift+Tab walks its segments backwards
     // and back from the grid into the year.
     keyWith: (k, shift, ctrl) => calendar.keyWith(k, shift, ctrl),
+    // The demo owns its own tab ring — see the keydown handler.
+    ownsTab: true,
     host: () => ({
       tick: (dt) => calendar.tick(dt),
       busy: () => calendar.busyNow(),
@@ -1249,7 +1264,120 @@ function keySortable(key) {
 
 const canvas = document.getElementById("c");
 const stage = document.getElementById("stage");
+const fit = document.getElementById("fit");
 const errEl = document.getElementById("err");
+
+/**
+ * The object behind each tab.
+ *
+ * Thunks rather than the objects, because `__resetDemo` replaces five of them.
+ * The three kept trees — the menubar, the toolbar and the sortable — are not
+ * here: they are static `page()` builders with no instance to ask.
+ */
+const INSTANCE = {
+  table: () => table,
+  dropdown: () => dropdown,
+  tree: () => treeview,
+  timeline: () => timeline,
+  resizable: () => resize,
+  form: () => form,
+  profile: () => profile,
+  dashboard: () => dashboard,
+  calendar: () => calendar,
+  filters: () => filters,
+  eventcal: () => eventcal,
+  message: () => message,
+  controls: () => controls,
+  otp: () => otp,
+  metadata: () => metadata,
+  dialog: () => dialog,
+  motion: () => motion,
+};
+
+/** The demo showing now, or null for one of the three kept trees. */
+function instance() {
+  const owner = INSTANCE[state.which];
+  return owner ? owner() : null;
+}
+
+/**
+ * Where the keyboard is, per demo.
+ *
+ * This page used to hand `state.focus` — ITS OWN field, maintained for the
+ * menubar and nothing else — to every demo's `a11yJson`. Every other demo
+ * keeps its focus itself, so the mirror was told "nothing is focused" on
+ * nineteen of the twenty. With a roving tabindex that means NO element in the
+ * mirror is a tab stop, which is exactly the bug: you could not Tab into the
+ * dropdown, or the tree, or the table, and once inside nothing said where you
+ * were.
+ *
+ * The three kept trees have no instance to ask, so for them it stays the
+ * page's own field — which is the one case it was ever right for.
+ */
+function appFocus() {
+  const d = instance();
+  if (!d) return state.focus;
+  return d.focused || "";
+}
+
+/**
+ * Focus moved inside the mirror on its own — a Tab, or a reader's cursor.
+ * Told to the demo so its next arrow key starts from there; the mirror never
+ * hears its own `.focus()` back, so this cannot loop.
+ */
+function adoptFocus(node) {
+  const d = instance();
+  if (!d) {
+    state.focus = node.id;
+    paint();
+    return;
+  }
+  if (typeof d.setFocus !== "function") return;
+  if (d.focused === node.id) return;
+  d.setFocus(node.id);
+  paint();
+  // The focus ring is a transitioned property like any other — see the keydown
+  // handler. Without the clock the frame that arrives is the one where the
+  // transition has not started yet, which looks like no ring at all.
+  const dd = DEMOS[state.which];
+  if (dd && dd.animated) animate();
+}
+
+/**
+ * How much of the demo's own width the viewport has room for.
+ *
+ * A demo lays out at a width it chose — 900 for most of them, 1336 for the
+ * dashboard — and a phone has 390. The page used to write that number straight
+ * onto the canvas and let the rest hang off the right-hand edge, where nothing
+ * could reach it: the stage is the ONLY way into these demos, so a stage the
+ * viewport cannot show is a demo that does not work at all on a phone.
+ *
+ * So the picture is scaled to fit instead. The transform is on `#stage`, which
+ * holds the canvas AND the accessibility mirror, so the mirrored elements move
+ * with the pixels they name and a tap still lands on what it looks like it
+ * lands on; `#fit` around it carries the laid-out size, because a transform
+ * does not change a layout box. `offsetX`/`offsetY` are measured in the
+ * canvas's own untransformed box, so every hit test on this page goes on
+ * taking the numbers the display list was built with and nothing downstream
+ * has to know the scale.
+ *
+ * Never above 1: a demo drawn larger than it was laid out for is blurry for no
+ * reason. The floor is there because past a point shrinking stops being
+ * legible and the page is better off letting the stage scroll.
+ */
+const MIN_SCALE = 0.34;
+function stageScale(w) {
+  const box = fit.parentElement || document.body;
+  // `clientWidth` includes the padding, and the stage has 16–20px of it on
+  // each side: scaling against that number leaves the picture wider than the
+  // room it was scaled to fit, which is a horizontal scrollbar on a page whose
+  // content was supposed to fit.
+  const pad = parseFloat(getComputedStyle(box).paddingLeft) +
+    parseFloat(getComputedStyle(box).paddingRight);
+  const room = box.clientWidth - (Number.isFinite(pad) ? pad : 0);
+  if (!room || room >= w) return 1;
+  return Math.max(MIN_SCALE, room / w);
+}
 
 function demo() {
   return DEMOS[state.which];
@@ -1551,7 +1679,15 @@ function paint() {
     const d = demo();
     if (d.sync) d.sync();
     const H = typeof d.height === "function" ? d.height() : d.height;
-    const W2 = typeof d.width === "function" ? d.width() : W;
+    // The demo's OWN page width when it has one. The page used to give every
+    // demo a 1240-wide canvas whatever it laid out at, so a 900-wide dropdown
+    // was drawn onto 340px of empty surface — invisible on a desktop and, once
+    // the stage is scaled to fit a phone, a third of the width thrown away
+    // before the picture is shrunk to what is left.
+    const inst = instance();
+    const W2 = typeof d.width === "function"
+      ? d.width()
+      : (inst && inst.pageW) || W;
     const listJson = d.list();
     // The last frame's display list, for anything driving this page from
     // outside: a browser check needs the COLOUR a control was painted, and
@@ -1560,13 +1696,29 @@ function paint() {
     window.__lastList = listJson;
     const list = JSON.parse(listJson);
     const doc = { width: W2, height: H, list };
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    // The backing store is sized for the pixels actually on screen: a stage
+    // scaled to 0.43 on a phone with a 3x screen still wants 1.3 device pixels
+    // per app pixel, not 3, and asking for 3 is three times the fill rate for a
+    // picture nobody can see the difference in.
+    const s = stageScale(W2);
+    const dpr = Math.min(2, (window.devicePixelRatio || 1) * s);
     canvas.style.width = W2 + "px";
     canvas.style.height = H + "px";
     canvas.width = Math.round(W2 * dpr);
     canvas.height = Math.round(H * dpr);
     stage.style.width = W2 + "px";
     stage.style.height = H + "px";
+    // The transform goes on the INNER box and the size on the wrapper: a
+    // transform does not change the layout box, so scaling the same element
+    // that carries the width would scale that width too and the wrapper would
+    // come out at s² of the picture it is meant to reserve room for.
+    stage.style.transform = s === 1 ? "none" : `scale(${s})`;
+    // Published beside the display list, for the same reason: something
+    // driving this page from outside aims at APP coordinates and has to know
+    // what those are in CSS pixels before it can put a pointer there.
+    window.__stageScale = s;
+    fit.style.width = Math.round(W2 * s) + "px";
+    fit.style.height = Math.round(H * s) + "px";
     const gl = canvas.getContext("webgl2", {
       antialias: true,
       premultipliedAlpha: false,
@@ -1591,7 +1743,7 @@ function paint() {
     // knows the frame changed; it keeps its elements by id, which is why a
     // reader's cursor survives a repaint.
     generation += 1;
-    const treeJson = d.a11y(generation, state.focus);
+    const treeJson = d.a11y(generation, appFocus());
     // Alongside `__lastList`, and for the same reason: something driving this
     // page from outside needs the VALUE of a field, and only the accessible
     // tree carries it. Scraping the draw commands for a known string works
@@ -2064,14 +2216,35 @@ const TYPES_TEXT = new Set([
   "text", "search", "email", "url", "tel", "password", "number", "date",
   "datetime-local", "month", "week", "time",
 ]);
-const consumesText = (el) =>
-  el instanceof HTMLTextAreaElement ||
-  (el instanceof HTMLInputElement && TYPES_TEXT.has(el.type)) ||
-  (el instanceof HTMLElement && el.isContentEditable);
+const consumesText = (el) => {
+  if (!(el instanceof HTMLElement)) return false;
+  // A MIRROR NODE IS NOT A FIELD. The accessibility mirror renders a drawn
+  // textbox as a real `<input>` so a reader meets one, and now that the app's
+  // focus reaches the mirror that input is where the focus often sits — on the
+  // stepper's quantity, say, which is drawn and not typed into. Judged by tag
+  // alone it looked like a field and swallowed every key the demo wanted, so
+  // Shift+ArrowUp on the stepper did nothing at all. A mirror node consumes
+  // text only while the bridge is actually editing in it; otherwise the app
+  // owns the keys, exactly as it did when the canvas held the focus.
+  if (el.dataset && el.dataset.a11yId) {
+    return textInput.isActive() && textInput.element() === el;
+  }
+  return el instanceof HTMLTextAreaElement ||
+    (el instanceof HTMLInputElement && TYPES_TEXT.has(el.type)) ||
+    el.isContentEditable;
+};
 
 window.addEventListener("keydown", (ev) => {
   if (consumesText(ev.target)) return;
   const d0 = demo();
+  // TAB IS THE BROWSER'S unless the demo says otherwise. Every demo's `key`
+  // used to be offered it, and `DropdownDemo.key` — like the tree's — answers
+  // "taken" to anything at all, so the page called `preventDefault()` on Tab
+  // and the focus never moved: there was no way to reach the demo from the
+  // keyboard, and no way to leave it. The five demos that own a tab ring of
+  // their own (the form, the profile card, the metadata card, the OTP boxes
+  // and the calendar) say `ownsTab` and still get it.
+  if (ev.key === "Tab" && !d0.ownsTab) return;
   // A demo that reads modifiers gets them; the rest keep the one-argument
   // door they have always had.
   const took = d0.keyWith
@@ -2083,6 +2256,14 @@ window.addEventListener("keydown", (ev) => {
   // A key that opened a menu asked for a row inside it, and the rows only
   // exist once that paint has built them. One more pass settles it.
   if (settlePendingRow()) paint();
+  // THE CLOCK, same as every pointer handler above. A focus ring and a row's
+  // background are transitioned properties: the frame a key produces is the
+  // START of that transition, so a page that painted once and stopped showed
+  // the highlight still on the row the arrow had just left. Every pointer
+  // path already started the loop; the keyboard was the one that did not, and
+  // that is the whole of "the arrows move the selection but the grey does not
+  // follow".
+  if (d0.animated) animate();
 });
 
 // The text-input session. A real, transparent <input> over the focused field:
@@ -2113,8 +2294,12 @@ const textInput = createTextInputBridge({
   // proxy on purpose: those are precisely the platform rules this exists to
   // borrow, and intercepting them here would be reimplementing them again.
   onKey: (k) => {
-    if (k.key !== "Tab" && k.key !== "Escape" && k.key !== "Enter") return false;
     const d = demo();
+    // Three keys are the application's on every page, and a demo may claim
+    // more for the field that has the focus: the combobox wants its arrows,
+    // because there they walk the list rather than the caret.
+    const claimed = typeof d.ownsKey === "function" && d.ownsKey(k.key);
+    if (!claimed && k.key !== "Tab" && k.key !== "Escape" && k.key !== "Enter") return false;
     const took = d.keyWith ? d.keyWith(k.key, k.shiftKey, k.ctrlKey || k.metaKey) : false;
     // Focus may have moved to another field, or off the fields entirely.
     syncTextSession();
@@ -2181,6 +2366,14 @@ window.__resetDemo = (name) => {
 mirror = createA11yMirror(stage, {
   canvas,
   label: "Ranger tree literal demos",
+  // Focus that arrived on its own is the demo's to record — see `adoptFocus`.
+  onFocus: adoptFocus,
+  // While a text field owns the keyboard, the element holding it is the
+  // bridge's transparent <input> and not the mirror's node for the same field.
+  // The mirror follows the app's focus by calling `.focus()`, so without this
+  // the two would take the field off each other every paint and every second
+  // keystroke would land in the one nobody is reading.
+  canMoveFocus: () => !textInput.isActive(),
   // A reader pressed something: press the app in the middle of the rectangle
   // the reader was given. Not a table from node ids to commands — there is
   // nothing to keep in step, and the rectangle is the one that was drawn.
@@ -2250,3 +2443,20 @@ function syncMotionClock() {
 syncPanels();
 syncMotionClock();
 paint();
+
+// The stage is laid out against the viewport, so the viewport changing is a
+// reason to lay it out again — a phone rotating, a window dragged narrower, or
+// the rail folding away under the 860px breakpoint. Debounced with a frame,
+// because a drag fires this continuously and a repaint is a whole display list.
+let resizePass = 0;
+const relayout = () => {
+  if (resizePass) return;
+  resizePass = requestAnimationFrame(() => {
+    resizePass = 0;
+    paint();
+  });
+};
+window.addEventListener("resize", relayout);
+window.addEventListener("orientationchange", relayout);
+// Opening the controls band on a phone changes how much room the stage has.
+document.getElementById("picker").addEventListener("toggle", relayout);

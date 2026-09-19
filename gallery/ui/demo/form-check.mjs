@@ -288,22 +288,67 @@ console.log("--- readonly is not disabled ---");
 
 console.log("--- a placeholder is drawn and is not a value ---");
 {
+  // "Find a customer" is a ComboboxCtl now, so the box under test is the one
+  // the controller builds and the placeholder wears the kit's own class. What
+  // is asserted is unchanged: an empty box draws the placeholder, greyed, and
+  // one character replaces it outright rather than sitting behind it.
   const d = fresh();
-  const box = one(d, "fm-search");
-  const ghost = box.el.children.find((k) => (k.className || "").includes("fm-ghost"));
+  const tid = d.search.inputTid();
+  const box = one(d, tid);
+  const ghost = box.el.children.find((k) => (k.className || "").includes("ui-input-placeholder"));
   ok("the empty search box draws its placeholder", !!ghost && ghost.textContent === "Search customers",
     ghost ? JSON.stringify(ghost.textContent) : "absent");
-  ok("greyed, not black", ghost.className.includes("fm-ghost"));
-  ok("and the value is empty", d.search.value === "", JSON.stringify(d.search.value));
-  // Typing replaces it outright — a placeholder that survived one character
-  // would be drawn behind the text.
-  d.setFocus("fm-search");
+  ok("greyed, not black", ghost.className.includes("ui-input-placeholder"));
+  ok("and the value is empty", d.search.input.value === "", JSON.stringify(d.search.input.value));
+  d.setFocus(tid);
   d.rebuild();
   d.type("A");
   d.displayListJson();
-  const box2 = one(d, "fm-search");
-  ok("one character and it is gone", !box2.el.children.some((k) => (k.className || "").includes("fm-ghost")));
-  ok("replaced by the value", d.search.value === "A", JSON.stringify(d.search.value));
+  const box2 = one(d, tid);
+  ok("one character and it is gone", !box2.el.children.some((k) => (k.className || "").includes("ui-input-placeholder")));
+  ok("replaced by the value", d.search.input.value === "A", JSON.stringify(d.search.input.value));
+}
+
+console.log("--- and it is an autocomplete, not a box that looks like one ---");
+{
+  // What the field says it is. "Find a customer" was an InputCtl with a
+  // magnifier drawn in front of it: typing into it filtered nothing, because
+  // there was nothing to filter. Each line below is a thing that could not
+  // happen before, and every one of them is ComboboxCtl's — measured against
+  // Base UI in conformance/oracle — rather than written again here.
+  const d = fresh();
+  const tid = d.search.inputTid();
+  const rows = () => JSON.parse(d.a11yJson(1, "")).nodes
+    .filter((n) => n.role === "option").map((n) => n.name);
+  ok("the list is shut to begin with", rows().length === 0, JSON.stringify(rows()));
+  d.press(tid);
+  ok("a click opens it on every customer", rows().length === 7, JSON.stringify(rows()));
+  d.applyEdit(tid, "for", 3, 3);
+  ok("and typing filters it", JSON.stringify(rows()) === JSON.stringify(["Fortney Nolte Associates"]),
+    JSON.stringify(rows()));
+  d.keyWith("ArrowDown", false, false);
+  d.keyWith("Enter", false, false);
+  ok("Enter takes the row into the box", d.search.value === "fortney", d.search.value);
+  ok("which closes the list", rows().length === 0 && d.search.open === false, String(d.search.open));
+  ok("and the box shows its label", d.search.input.value === "Fortney Nolte Associates",
+    JSON.stringify(d.search.input.value));
+  d.applyEdit(tid, "zzz", 3, 3);
+  // Drawn AND announced. The empty line carries no role of its own, so
+  // `EVGA11yFromTree` collects its text onto the listbox — which is the right
+  // answer: a reader is told the list is empty and why, in one node.
+  const painted = JSON.parse(d.displayListJson()).cmds
+    .some((c) => c.text === "No customers found.");
+  const said = JSON.parse(d.a11yJson(1, "")).nodes
+    .find((n) => n.id === d.search.contentTid());
+  ok("nothing matching says so", rows().length === 0 && painted &&
+    said && said.name === "No customers found.",
+    JSON.stringify(rows()) + " painted=" + painted + " said=" + (said && said.name));
+  // A query that names nothing is not a value: leaving the box puts the
+  // chosen label back rather than resting on "zzz".
+  d.press("fm-name");
+  ok("and leaving on a half-typed query reverts it",
+    d.search.input.value === "Fortney Nolte Associates" && d.search.value === "fortney",
+    JSON.stringify(d.search.input.value));
 }
 
 console.log("--- nothing leaks out of its container ---");

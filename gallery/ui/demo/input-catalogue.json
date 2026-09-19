@@ -47,10 +47,10 @@
         {
           "variant": "placeholder",
           "fields": [
-            "form/fm-search",
             "form/fm-name",
             "form/fm-email"
-          ]
+          ],
+          "note": "form/fm-search was here and is a ComboboxCtl now — its box is a combobox, measured by ui:combobox:check rather than against a plain <input>"
         },
         {
           "variant": "readonly",
@@ -66,9 +66,9 @@
         {
           "variant": "with icon (leading)",
           "fields": [
-            "profile/pf-dismissal",
-            "form/fm-search"
-          ]
+            "profile/pf-dismissal"
+          ],
+          "note": "form/fm-search carried the magnifier and is a combobox now; its leading glyph went with the plain box"
         },
         {
           "variant": "with icon (trailing)",

@@ -235,6 +235,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The UI demo page did not work on a phone.** `gallery/ui/demo` wrote each
+  demo's own width straight onto the canvas and let the rest hang off the
+  right-hand edge, where a finger could not reach it — and the 230px rail took
+  most of a 390px screen before the stage got any. The stage is now scaled to
+  the room the viewport has (`transform` on `#stage`, the wrapper carrying the
+  laid-out size, the backing store sized for the pixels actually on screen),
+  the canvas is the demo's OWN width rather than 1240 for all of them, and
+  under 860px the rail becomes a one-line `controls` disclosure above the
+  stage. `window.__stageScale` publishes the factor, because anything driving
+  the page from outside aims at display-list coordinates.
+
+- **A canvas demo could not be reached from the keyboard at all.** The page
+  handed `state.focus` — its own field, kept for the menubar and nothing else
+  — to every demo's `a11yJson`, so the accessibility mirror was told nothing
+  was focused on nineteen of the twenty. With a roving tabindex that means NO
+  element is a tab stop: Tab walked straight past the dropdown, the tree and
+  the table. Each demo's own focus now reaches the mirror, focus arriving by
+  Tab is reported back to the demo (`onFocus`), and `evg-a11y.js` keeps one
+  entry tab stop while an app names no focus — a roving pattern always has
+  one. Tab is also no longer swallowed: `DropdownDemo.key` answers "taken" to
+  any key at all, so the page called `preventDefault()` on Tab and the focus
+  could neither enter nor leave.
+
+- **The keyboard moved the selection and the highlight stayed behind.** Every
+  pointer handler on the demo page started the animation clock; the keydown
+  handler painted once and stopped. A row's background is a transitioned
+  property, so the one frame a key produced was the frame the transition had
+  not started in — the tree's grey sat on the row the arrow had just left, and
+  moved only when something else repainted. Arrowing the tree, the dropdown
+  and the table now looks like what it does.
+
+- **The table demo had no keyboard.** `main.js` gave it `key: () => false` and
+  `TableDemo` had nothing to hand a key to. It now carries a roving focus over
+  the ring its own tree publishes as focusable — the select-all box (which was
+  not focusable and now is), the sortable headers, the row boxes and the pager
+  — with the arrows to walk it, Home and End, and Enter or Space to work the
+  control you are on. `table.css` grew the `:focus` rules without which none
+  of that was visible.
+
+- **The invoice form's Email validator never changed its mind.** The error was
+  a string assigned once in `FormDemo.init`, so the red ring and "That address
+  is missing an @." stayed on the field whatever was typed into it. It is
+  decided from the value on every rebuild now, and each message says what is
+  wrong — a missing @, a space, nothing before or after it, a host with no dot
+  — rather than that something is.
+
+- **"Find a customer" searched nothing.** It was an `InputCtl` with a
+  magnifier drawn in front of it: a field that looks like an autocomplete and
+  filters no list. It is a `ComboboxCtl` now — the same one the metadata card
+  uses, measured against @base-ui/react/combobox — so typing filters, the list
+  opens under the box, the arrows walk it and Enter takes a row into the
+  field. `ComboboxCtl.applyEdit` is the new seam a host that lets the platform
+  do the editing needs: a keystroke and a browser edit have the same effect on
+  the list, and neither host has to reimplement it. The form claims the arrows
+  back from the text bridge for that field alone (`ownsKey`), because there
+  they walk the list rather than the caret.
+
 - **The published compiler shipped a thinner `stdlib.rgr` than the one the
   tests ran against.** `compiler/stdlib.rgr` and `lib/stdlib.rgr` had drifted:
   the compiler's copy carried the LLVM `case` and `is` templates that let

@@ -119,6 +119,15 @@ measured divergence from one. A textbox whose `aria-roledescription` is
 `spinbutton` or `One-time code` is skipped by that attribute, so a third such
 component is skipped the day it publishes the same word.
 
+A third has since left by a different door. **`fm-search` is a combobox.**
+"Find a customer" was an `InputCtl` with a magnifier in front of it and is a
+`ComboboxCtl` now, so its box publishes `role="combobox"` and the discovery
+walk — which collects `role="textbox"` — no longer sees it. It is measured by
+`ui:combobox:check` against @base-ui/react/combobox instead, where filtering,
+the highlight and what a blur does to a half-typed query are the contract.
+The baseline lost its `form/fm-search` row when this happened; `fm-name` and
+`fm-email` still carry the placeholder scenario.
+
 ## What the first run found
 
 Sixteen fields on five pages, twenty scenarios, and a matrix that split

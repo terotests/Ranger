@@ -74,6 +74,12 @@ class TableDemo {
     def layout@(optional):EVGLayout
     def hovered:string ""
     def pressed:string ""
+    ; The keyboard's place in the table. This demo had none: the page handed it
+    ; `key: () => false`, so a table whose header sorts, whose boxes select and
+    ; whose footer pages could be driven by a mouse and by nothing else. The
+    ; controller already answers Enter and Space on a tid — what was missing
+    ; was something to hold WHICH tid, and the arrows that move it.
+    def focused:string ""
     def pageW:double 900.0
     def pageH:double 460.0
 
@@ -145,7 +151,8 @@ class TableDemo {
         def selCol (tree Table
             (ColSel (props (id "tbl-selectcol"))
                 (Check (props (id "tbl-selectall") (className selCls)
-                              (a11yLabel "Select all") (a11yChecked selState))
+                              (a11yLabel "Select all") (a11yChecked selState)
+                              (a11yFocusable true))
                     (Mark (TableCtl.checkGlyph(selState))))))
         head.addChild(selCol)
 
@@ -284,15 +291,154 @@ class TableDemo {
         pressed = id
     }
 
+    ; A keyboard arriving from outside — Tab onto the mirrored table — says
+    ; where it landed, so the first arrow after that steps from there.
+    fn setFocus:void (id:string) {
+        focused = id
+    }
+
+    ; --- the keyboard -----------------------------------------------------------
+    ;
+    ; One tab stop and arrows inside it, which is the roving pattern an ARIA
+    ; grid is built on and the one the accessibility mirror already implements.
+    ; The ring is WALKED out of the tree rather than listed here: it is then
+    ; exactly the set of nodes the mirror publishes as focusable, so a control
+    ; added to the page joins the keyboard without a second edit — and a
+    ; disabled Previous on page one is absent from both.
+
+    fn ringInto:void (el:EVGElement out:[string]) {
+        if el.a11yFocusable {
+            if (el.a11yDisabled == false) {
+                if ((strlen el.id) > 0) {
+                    push out el.id
+                }
+            }
+        }
+        def i:int 0
+        while (i < (array_length el.children)) {
+            def kid:EVGElement (itemAt el.children i)
+            this.ringInto(kid out)
+            i = (i + 1)
+        }
+    }
+
+    fn ring:[string] () {
+        def out:[string]
+        def r:EVGElement (unwrap root)
+        this.ringInto(r out)
+        return out
+    }
+
+    fn indexIn:int (ids:[string] id:string) {
+        def i:int 0
+        while (i < (array_length ids)) {
+            if ((itemAt ids i) == id) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; After a press the tree is new and the ring may be shorter — pressing
+    ; Next on the second-to-last page disables Next. Keep the focus on the same
+    ; control when it is still there, and otherwise on whatever took its place.
+    fn settleFocus:int (was:int) {
+        def ids:[string] (this.ring())
+        if ((array_length ids) == 0) {
+            focused = ""
+            return -1
+        }
+        if ((this.indexIn(ids focused)) >= 0) {
+            return (this.indexIn(ids focused))
+        }
+        def at:int was
+        if (at >= (array_length ids)) {
+            at = ((array_length ids) - 1)
+        }
+        if (at < 0) {
+            at = 0
+        }
+        focused = (itemAt ids at)
+        return at
+    }
+
+    fn key:boolean (k:string) {
+        def ids:[string] (this.ring())
+        if ((array_length ids) == 0) {
+            return false
+        }
+        def at:int (this.indexIn(ids focused))
+        if ((k == "Enter") || (k == " ")) {
+            if (at < 0) {
+                return false
+            }
+            def changed:boolean (model.pressTid(focused))
+            if changed {
+                root = (this.page())
+                this.settleFocus(at)
+            }
+            return changed
+        }
+        def step:int 0
+        if (k == "ArrowRight") {
+            step = 1
+        }
+        if (k == "ArrowDown") {
+            step = 1
+        }
+        if (k == "ArrowLeft") {
+            step = -1
+        }
+        if (k == "ArrowUp") {
+            step = -1
+        }
+        if (k == "Home") {
+            focused = (itemAt ids 0)
+            return true
+        }
+        if (k == "End") {
+            focused = (itemAt ids ((array_length ids) - 1))
+            return true
+        }
+        if (step == 0) {
+            return false
+        }
+        ; Nothing focused yet: the first arrow enters the table rather than
+        ; being thrown away. Down and Right land on the first control, Up and
+        ; Left on the last — the same answer a menu gives.
+        if (at < 0) {
+            if (step > 0) {
+                focused = (itemAt ids 0)
+            } {
+                focused = (itemAt ids ((array_length ids) - 1))
+            }
+            return true
+        }
+        def next:int (at + step)
+        if (next < 0) {
+            return false
+        }
+        if (next >= (array_length ids)) {
+            return false
+        }
+        focused = (itemAt ids next)
+        return true
+    }
+
     fn markStates:void (el:EVGElement) {
         el.isHovered = false
         el.isPressed = false
+        el.isFocused = false
         if ((strlen el.id) > 0) {
             if (el.id == hovered) {
                 el.isHovered = true
             }
             if (el.id == pressed) {
                 el.isPressed = true
+            }
+            if (el.id == focused) {
+                el.isFocused = true
             }
         }
         def i:int 0

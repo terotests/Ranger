@@ -292,3 +292,97 @@
 /* The eye is placed from the right edge by measurement, not by flow — see the
  * note in FormDemo where it is positioned. */
 .fm-eye { position: absolute; }
+
+/* --- the combobox --------------------------------------------------------------
+ *
+ * "Find a customer" is a `ComboboxCtl`, not an `InputCtl` with a magnifier in
+ * front of it — see the header of FormDemo.rgr. The controller builds its own
+ * tree under its own `ui-combobox-*` classes, so the rules below are the whole
+ * of what this sheet has to say about it: the GROUP carries the border the
+ * `.fm-box` rules give every other field, the text box inside loses its own,
+ * and the list is an overlay surface the layout anchors under the group.
+ *
+ * The colours are this sheet's — zinc and a near-black focus ring, not the
+ * metadata card's blues — because the two pages are two designs and the kit's
+ * classes are a hook, not a theme. */
+.ui-combobox { display: flex; flex-direction: column; width: 100%; position: relative; }
+.ui-combobox-group {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  height: 36px;
+  padding: 0 8px 0 10px;
+  border: 1px solid #e4e4e7;
+  border-radius: 8px;
+  background-color: #ffffff;
+  transition: border-color 120ms ease-out;
+}
+.ui-combobox-group:hover { border-color: #d4d4d8; }
+/* Open, focused and in error, in the same three steps the boxes above take. */
+.ui-combobox-group-state-open { border-color: #18181b; }
+.ui-combobox-group:focus { border-color: #18181b; }
+.ui-combobox-group-invalid { border-color: #dc2626; }
+.ui-combobox-input {
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  height: 34px;
+  flex-grow: 1;
+  background-color: transparent;
+}
+/* The group draws the ring; a second one around the box inside it would be a
+ * box within a box. */
+.ui-combobox-input:focus { border-color: transparent; }
+/* A BASE width, not the width: `flex-grow` above fills the group and this is
+ * only what the box asks for before the row is shared out. 210 was wider than
+ * the half-width field it sits in, and a flex base that does not fit is not
+ * shrunk — the trigger beside it was pushed past the border. */
+.ui-combobox-input-single { width: 80px; }
+/* The box INSIDE the group, which the controller builds and this file's
+ * `.fm-box` rules cannot reach — a different class on a different tree. It
+ * carries no border of its own (the group has it) and is the positioning
+ * context for the caret and the band, which are placed by measurement. */
+.ui-input {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  position: relative;
+  overflow: hidden;
+  background-color: transparent;
+}
+.ui-input-text { color: #18181b; font-family: Arial; font-size: 13px; height: 18px; }
+/* Colour alone, on top of the rule above: a placeholder is the same text in a
+ * paler ink, and repeating the font here is a second place to change it. */
+.ui-input-placeholder { color: #a1a1aa; }
+.ui-input-caret { position: absolute; top: 8px; width: 2px; height: 18px; background-color: #2563eb; }
+.ui-combobox-grow { flex-grow: 1; min-width: 4px; height: 4px; }
+.ui-combobox-clear {
+  width: 20px; height: 20px; border-radius: 10px;
+  color: #71717a; font-size: 14px; text-align: center;
+}
+.ui-combobox-clear:hover { background-color: #f4f4f5; }
+.ui-combobox-trigger { width: 20px; height: 20px; color: #71717a; font-size: 11px; text-align: center; }
+.ui-combobox-content {
+  display: flex;
+  flex-direction: column;
+  width: 260px;
+  padding: 4px 0;
+  border: 1px solid #e4e4e7;
+  border-radius: 8px;
+  background-color: #ffffff;
+}
+.ui-combobox-item { color: #18181b; font-size: 13px; height: 32px; padding: 7px 12px; }
+.ui-combobox-item:hover { background-color: #f4f4f5; }
+.ui-combobox-item-state-selected { background-color: #f4f4f5; }
+/* WHERE ENTER WILL LAND, which is not the same as what is chosen — the arrows
+ * move this and only Enter moves the selection. Dark rather than tinted, so
+ * the two states cannot be mistaken for each other at a glance. */
+.ui-combobox-item-active { background-color: #18181b; color: #ffffff; }
+.ui-combobox-item-disabled { color: #a1a1aa; }
+/* #71717a and not a lighter grey: "No customers found." is the only thing on
+ * the surface when it shows, and a sentence nobody can read is not a message. */
+.ui-combobox-empty { color: #71717a; font-size: 13px; height: 32px; padding: 7px 12px; }

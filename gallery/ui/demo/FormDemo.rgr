@@ -38,11 +38,20 @@
 ;
 ; Not here, and each is a real thing being declined rather than an oversight:
 ; a textarea (the caret goes 2D, which is Phase 4), a date field (segmented
-; editing is its own contract), a combobox, and a blinking caret (a demo that
-; renders one frame has nowhere to blink).
+; editing is its own contract), and a blinking caret (a demo that renders one
+; frame has nowhere to blink).
+;
+; THE COMBOBOX USED TO BE ON THAT LIST, and "Find a customer" was a plain text
+; box with a magnifier drawn in front of it — a field that looks like a search
+; and searches nothing. It is a `ComboboxCtl` now: the same one the metadata
+; card uses, measured against @base-ui/react/combobox by
+; `conformance/oracle/combobox_oracle.mjs`. Typing filters, the list opens
+; under the box, the arrows walk it and Enter takes the row into the field.
 ; =============================================================================
 
 Import "../src/InputCtl.rgr"
+Import "../src/ComboboxCtl.rgr"
+Import "../src/UiTree.rgr"
 Import "../src/UiField.rgr"
 Import "../src/CheckboxCtl.rgr"
 Import "../src/RadioGroupCtl.rgr"
@@ -132,7 +141,8 @@ class FormDemo {
     def email:InputCtl (new InputCtl())
     def secret:InputCtl (new InputCtl())
     def amount:InputCtl (new InputCtl())
-    def search:InputCtl (new InputCtl())
+    ; The one control here that is not a plain box: see the header.
+    def search:ComboboxCtl (new ComboboxCtl())
     def invoiceNo:InputCtl (new InputCtl())
     def terms:CheckboxCtl (new CheckboxCtl())
     def delivery:RadioGroupCtl (new RadioGroupCtl())
@@ -223,9 +233,10 @@ class FormDemo {
         this.dress(name fName)
 
         ; The one in error, because a form with nothing wrong with it never
-        ; draws the half of the contract that matters most.
+        ; draws the half of the contract that matters most. The error is not
+        ; WRITTEN here any more — `validate()` decides it from the value on
+        ; every rebuild, and the value below is the one that makes it say this.
         def fMail:UiField (this.addField("fm-email" "Email" "We only use this to send the invoice." true false))
-        fMail.error = "That address is missing an @."
         email.tid = "fm-email"
         email.kind = "email"
         email.placeholder = "you@example.com"
@@ -255,15 +266,31 @@ class FormDemo {
         amount.boxWidth = halfTextW
         this.dress(amount fAmt)
 
-        ; A search box, which is a text field with a glyph in front of it —
-        ; the prefix machinery the "€" already needed, reused rather than
-        ; reinvented. Its placeholder is showing, so this is also the only
-        ; field in the picture that draws one.
-        def fFind:UiField (this.addField("fm-search" "Find a customer" "" false true))
+        ; The autocomplete. A box you type into and a list that filters under
+        ; it — which is what "Find a customer" says it is, and what it was not:
+        ; before this it was an `InputCtl` with a magnifier drawn in front,
+        ; and typing into it searched nothing because there was nothing to
+        ; search. `ComboboxCtl` owns the whole contract (filter, highlight,
+        ; choose, revert on a blur with a partial query) and is measured
+        ; against Base UI, so none of it is written twice.
+        def fFind:UiField (this.addField("fm-search" "Find a customer" "Type to filter; ↑ ↓ to walk the list, Enter to choose." false true))
         search.tid = "fm-search"
-        search.kind = "search"
         search.placeholder = "Search customers"
-        this.dress(search fFind)
+        search.emptyText = "No customers found."
+        search.addItem("estt" "ESTT Corporation" false)
+        search.addItem("fortney" "Fortney Nolte Associates" false)
+        search.addItem("aa" "A&A Consulting" false)
+        search.addItem("dat" "DAT Sports & Entertainment" false)
+        search.addItem("chicago" "City of Chicago" false)
+        search.addItem("northwind" "Northwind Traders" false)
+        search.addItem("contoso" "Contoso Ltd (inactive)" true)
+        fFind.dressCombobox(search)
+        def inner:InputCtl (unwrap search.input)
+        inner.fontFamily = boxFont
+        inner.fontSize = boxFontSize
+        inner.boxWidth = halfTextW
+        search.settleText()
+        search.build()
 
         ; And a READONLY one, which is not a disabled one: it takes focus and
         ; it takes keys, and the only thing it will not do is change. The
@@ -323,7 +350,11 @@ class FormDemo {
         push a email
         push a secret
         push a amount
-        push a search
+        ; The combobox's own box, so every text-session question — what is
+        ; focused, what does it hold, where is it drawn — is answered for it
+        ; by the same three methods as for every other field.
+        def inner:InputCtl (unwrap search.input)
+        push a inner
         push a invoiceNo
         return a
     }
@@ -536,6 +567,68 @@ class FormDemo {
         return box
     }
 
+    ; The caret and the selection band inside the combobox's own box.
+    ;
+    ; `boxFor` does this for the fields this file builds, and cannot do it for
+    ; this one: the box is the CONTROLLER's, built by `InputCtl.build` with the
+    ; text and a caret leaf at the end of the row and no idea where either
+    ; belongs — the measurement is the page's, because only the page has the
+    ; engine the painter draws with. So the same two placements, against the
+    ; same engine, onto the elements the controller made.
+    fn dressComboBox:void (c:ComboboxCtl) {
+        def inner:InputCtl (unwrap c.input)
+        def box:EVGElement (unwrap inner.rootEl)
+        def txt:EVGElement (unwrap inner.textEl)
+        def car:EVGElement (unwrap inner.caretEl)
+        def eng:EVGTextEngine (this.engine())
+        def hasFocus:boolean (focused == (c.inputTid()))
+        def kids:[EVGElement]
+        if hasFocus {
+            inner.ensureCaretVisible(eng)
+            if (inner.hasSelection()) {
+                def a:double (inner.caretXAt(eng (inner.selStart())))
+                def b:double (inner.caretXAt(eng (inner.selEnd())))
+                def band (tree Fm (Band (props (id ((c.inputTid()) + "-band")))))
+                band.left = (EVGUnit.px((a - inner.scrollX)))
+                band.width = (EVGUnit.px((b - a)))
+                push kids band
+            }
+        }
+        push kids txt
+        if hasFocus {
+            def cx:double (inner.caretXAt(eng inner.caret))
+            car.left = (EVGUnit.px((cx - inner.scrollX)))
+            push kids car
+        }
+        box.children = kids
+    }
+
+    ; The same label / body / one-line-underneath shape as `fieldFor2`, with a
+    ; combobox for the body. The body is built by the controller and dressed by
+    ; `UiTree` — so the page's accessibility walk sees a combobox, a listbox
+    ; and options rather than the divs their classes alone would make them.
+    fn comboField:EVGElement (c:ComboboxCtl f:UiField) {
+        def fe (tree Fm (Field (props (id (f.tid + "-field")))))
+        def lb (tree Fm (Label (props (id (f.tid + "-label")))))
+        lb.addChild((tree Fm (LabelTx f.label)))
+        if f.required {
+            lb.addChild((tree Fm (Star "*")))
+        }
+        fe.addChild(lb)
+        UiTree.dress(c)
+        this.dressComboBox(c)
+        def body:EVGElement (unwrap c.rootEl)
+        fe.addChild(body)
+        if (f.isBad()) {
+            fe.addChild((tree Fm (Error f.error)))
+        } {
+            if ((strlen f.hint) > 0) {
+                fe.addChild((tree Fm (Hint f.hint)))
+            }
+        }
+        return fe
+    }
+
     fn fieldFor2:EVGElement (c:InputCtl f:UiField prefix:string) {
         def fe (tree Fm (Field (props (id (f.tid + "-field")))))
         def lb (tree Fm (Label (props (id (f.tid + "-label")))))
@@ -738,7 +831,7 @@ class FormDemo {
         form.addChild(row)
 
         def row2 (tree Fm (Row (props (id "fm-row-2"))))
-        def find:EVGElement (this.fieldFor2(search (this.fieldFor("fm-search")) "⌕ "))
+        def find:EVGElement (this.comboField(search (this.fieldFor("fm-search"))))
         find.width = (EVGUnit.percent(50.0))
         row2.addChild(find)
         def num:EVGElement (this.fieldFor2(invoiceNo (this.fieldFor("fm-invoice")) ""))
@@ -760,7 +853,73 @@ class FormDemo {
         return page
     }
 
+    ; --- validation -------------------------------------------------------------
+    ;
+    ; WHAT WAS WRONG. The Email field's error was a string assigned once in
+    ; `init` and never looked at again, so the red ring and "That address is
+    ; missing an @." stayed on the field no matter what was typed into it —
+    ; type a perfectly good address and the form still said it was broken.
+    ; A validator that cannot change its mind is a picture of a validator.
+    ;
+    ; The rules are the ones a person can act on, and each says what is wrong
+    ; rather than that something is. `type="email"` in a browser checks
+    ; roughly this much and no more: an @ with something either side of it.
+    ; The dot is this form's own rule — it wants a deliverable address and
+    ; `ada@localhost` is not one here — and it is stated in the message so
+    ; that a person who meant it knows why it was refused.
+
+    sfn mailError:string (raw:string) {
+        def v:string (trim raw)
+        if ((strlen v) == 0) {
+            ; Empty is the REQUIRED field's business, not the address format's,
+            ; and a form that shouts about the shape of a box you have not
+            ; reached yet is a form nobody finishes.
+            return ""
+        }
+        if ((indexOf v " ") >= 0) {
+            return "An address cannot contain a space."
+        }
+        def at:int (indexOf v "@")
+        if (at < 0) {
+            return "That address is missing an @."
+        }
+        def local:string (substring v 0 at)
+        def host:string (substring v (at + 1) (strlen v))
+        if ((strlen local) == 0) {
+            return "There is nothing before the @."
+        }
+        if ((indexOf host "@") >= 0) {
+            return "That address has more than one @."
+        }
+        if ((strlen host) == 0) {
+            return "There is nothing after the @."
+        }
+        def dot:int (indexOf host ".")
+        if (dot < 0) {
+            return "The part after the @ needs a dot, as in example.com."
+        }
+        if (dot == 0) {
+            return "The part after the @ starts with a dot."
+        }
+        if (dot == ((strlen host) - 1)) {
+            return "The part after the @ ends with a dot."
+        }
+        return ""
+    }
+
+    ; Re-decide every field that has a rule, and hand the answer back to the
+    ; control so the ring, the `aria-invalid` and the sentence under the box
+    ; are one fact and not three. Called from `rebuild`, which is what every
+    ; edit, click and keystroke ends with — so there is no "and remember to
+    ; validate" anywhere else in the file.
+    fn validate:void () {
+        def f:UiField (this.fieldFor("fm-email"))
+        f.error = (FormDemo.mailError(email.value))
+        f.dressInput(email)
+    }
+
     fn rebuild:void () {
+        this.validate()
         root = (this.pageBody())
     }
 
@@ -808,7 +967,7 @@ class FormDemo {
         push a "fm-secret"
         push a "fm-secret-eye"
         push a "fm-amount"
-        push a "fm-search"
+        push a (search.inputTid())
         ; The readonly field IS a tab stop. A browser gives one focus — it can
         ; be read and copied from — and taking it out of the ring would be
         ; skipping past something a keyboard user is entitled to reach.
@@ -832,6 +991,9 @@ class FormDemo {
             }
             i = (i + 1)
         }
+        ; A Tab out of the combobox spends the query the same way a click
+        ; elsewhere does — measured, and the reason `commitBlur` exists.
+        this.leaveCombo()
         def next:int (at + 1)
         if back {
             next = (at - 1)
@@ -851,9 +1013,60 @@ class FormDemo {
         return (this.keyWith(k false false))
     }
 
+    ; The query is spent when the focus goes elsewhere. Called by everything
+    ; that moves it — a Tab, a click on another control — and a no-op when the
+    ; focus was not in the combobox or nothing was typed.
+    fn leaveCombo:void () {
+        if (this.inCombo(focused)) {
+            search.commitBlur()
+        }
+    }
+
+    ; Keys the APPLICATION owns even while the platform is editing a field.
+    ;
+    ; The web host parks a real `<input>` over the focused box and leaves the
+    ; arrows with it on purpose: that is where the platform's own caret rules
+    ; live, and reimplementing them was the thing the bridge was written to
+    ; stop. For every plain box on this page that is right.
+    ;
+    ; It is wrong for the combobox. An arrow there walks the LIST, and one that
+    ; moved the caret instead leaves a field whose whole point is that you can
+    ; type a few letters and arrow down to the row — the keyboard would reach
+    ; the box and stop. So the demo says which keys it wants back, and only
+    ; while the focus is actually in the combobox.
+    fn ownsKey:boolean (k:string) {
+        if ((this.inCombo(focused)) == false) {
+            return false
+        }
+        if (k == "ArrowDown") {
+            return true
+        }
+        if (k == "ArrowUp") {
+            return true
+        }
+        return false
+    }
+
     fn keyWith:boolean (k:string shift:boolean ctrl:boolean) {
         if (k == "Tab") {
             return (this.tab(shift))
+        }
+        ; AGAIN BEFORE THE TEXT BRANCH, and for the same reason as in `press`:
+        ; the arrows walk the list here, not the caret, and Enter chooses a row
+        ; rather than doing nothing.
+        if (this.inCombo(focused)) {
+            if (((strlen k) == 1) && (ctrl == false)) {
+                if (search.typeChar(focused k)) {
+                    this.rebuild()
+                    return true
+                }
+            }
+            def landed:string (search.keyDownWith(focused k shift ctrl))
+            if ((strlen landed) > 0) {
+                focused = landed
+            }
+            this.rebuild()
+            return true
         }
         if (this.hasInput(focused)) {
             def c:InputCtl (this.inputFor(focused))
@@ -912,7 +1125,35 @@ class FormDemo {
         return took
     }
 
+    ; Is this id one of the combobox's? Its input, its trigger, its clear, a
+    ; row in its list — all of them answer here, because the controller owns
+    ; the whole surface and the demo owns none of it.
+    fn inCombo:boolean (target:string) {
+        if ((strlen target) == 0) {
+            return false
+        }
+        return (search.owns(target))
+    }
+
     fn press:boolean (target:string) {
+        ; THE COMBOBOX FIRST. Its input tid is also in `inputs()`, so the text
+        ; branch below would otherwise catch a click on the box and focus it
+        ; without opening the list — which is the one thing a click on a
+        ; combobox is measured to do.
+        if (this.inCombo(target)) {
+            focused = target
+            search.onFocus(target)
+            def landed:string (search.activate(target))
+            if ((strlen landed) > 0) {
+                focused = landed
+            }
+            this.rebuild()
+            return true
+        }
+        ; Focus leaving the combobox with a query half-typed puts the chosen
+        ; label back, which is what the reference does and what keeps the box
+        ; from resting on a string that names nothing.
+        this.leaveCombo()
         if (target == "fm-secret-eye") {
             focused = target
             secretShown = (secretShown == false)
@@ -1244,6 +1485,17 @@ class FormDemo {
     ; The session reported an edit. Wholesale — see `InputCtl.applyEdit`: the
     ; browser has already done the work, and there is nothing here to replay.
     fn applyEdit:boolean (tid:string v:string selStart:int selEnd:int) {
+        ; The combobox's box goes through the controller, so an edit made by
+        ; the browser filters the list exactly as a keystroke handled here
+        ; would. Straight to `InputCtl.applyEdit` it would change the text and
+        ; leave the list showing everything.
+        if (tid == (search.inputTid())) {
+            def took:boolean (search.applyEdit(tid v selStart selEnd))
+            if took {
+                this.rebuild()
+            }
+            return took
+        }
         def c:InputCtl (this.inputFor(tid))
         if (c.tid != tid) {
             return false
