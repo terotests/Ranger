@@ -59,12 +59,63 @@ class DumpCodeGraph {
         print ("wrote " + dir + "/" + file)
     }
 
+    sfn dumpHover:void (css:string fontDir:string) {
+        def w:int 1200
+        def h:int 800
+        def tr:UITextRenderer (DumpCodeGraph.openFaces(fontDir))
+        def app (new CodeGraphApp)
+        app.codeTr = tr
+        app.start((to_double w) (to_double h) css)
+        app.codeView.fontFamily = "Open Sans"
+        if ((app.openClass("Order")) == false) {
+            print "openClass Order failed"
+            return
+        }
+        def ignore:EVGDisplayList (app.display())
+        app.editor.setSize(app.viewW app.viewH)
+        app.editor.fitView()
+        if ((app.graph.hasNode("Order")) == false) {
+            print "Order not drawn"
+            return
+        }
+        def orderNode:FlowNode (app.graph.nodeById("Order"))
+        def probe:double (orderNode.y + orderNode.headerHeight)
+        def found:boolean false
+        while ((probe < (orderNode.y + orderNode.height)) && (found == false)) {
+            def rowNo:int (app.editor.rowAtPoint(orderNode probe))
+            def row:FlowRow (FlowUndo.rowOf(orderNode rowNo))
+            if ((indexOf row.text "total") == 0) {
+                found = true
+            } {
+                probe = (probe + 2.0)
+            }
+        }
+        if (found == false) {
+            print "no total() row"
+            return
+        }
+        def sx:double (app.editor.view.viewport.toScreenX((orderNode.x + 20.0)))
+        def sy:double (app.editor.view.viewport.toScreenY(probe))
+        app.graphMove((app.canvasX + sx) (app.canvasY + sy) false false)
+        print ("hover=" + app.editor.view.tooltipText)
+        def dl:EVGDisplayList (app.display())
+        def painter (new SoftPainter)
+        painter.begin(w h tr)
+        painter.fontFamily = "Open Sans"
+        painter.draw(dl)
+        DumpCodeGraph.writePng(painter "gallery/codegraph/artifacts" "codegraph_uml_hover.png" w h)
+        if (dir_exists "/opt/cursor/artifacts/screenshots") {
+            DumpCodeGraph.writePng(painter "/opt/cursor/artifacts/screenshots" "codegraph_uml_hover.png" w h)
+        }
+    }
+
     sfn main:void () {
         def css@(optional):string (read_file "gallery/codegraph/web" "codegraph.css")
         if (null? css) {
             print "missing gallery/codegraph/web/codegraph.css"
             return
         }
+        DumpCodeGraph.dumpHover((unwrap css) "gallery/pdf_writer/assets/fonts")
         def w:int 1440
         def h:int 900
         def tr:UITextRenderer (DumpCodeGraph.openFaces("gallery/pdf_writer/assets/fonts"))

@@ -48,6 +48,8 @@ by the Pages workflow.
 
 ![CodeGraph.classNamesByDegree selected: method body in view, faint per-letter minimap](artifacts/codegraph_source_codegraph_degree.png)
 
+![Hovering Order.total: signature, documentation, and a click hint](artifacts/codegraph_uml_hover.png)
+
 ## Run
 
 ```bash
