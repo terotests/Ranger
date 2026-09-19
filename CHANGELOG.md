@@ -102,6 +102,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The surface effects are on the published gallery page** —
+  [`/ui/demo/?demo=effects`](https://terotests.github.io/Ranger/ui/demo/?demo=effects).
+  Every other demo there is a control measured against the component it copies;
+  this one is a MATERIAL, and what it shows is that the effects are declared in
+  `gallery/ui/demo/effects.css` and nowhere else. `EffectsDemo.rgr` holds no
+  shader, no clock, no parameter and no coordinate: it builds a tree, the sheet
+  says which box has which effect, the layout says where the box is, and the
+  painter looks the name up in its registry. The page's own share is four lines
+  — a press, a drag, a release and "is anything still moving" — handed to the
+  driver in `lib/evg/gl/evg-fx.js`, which now runs for any demo whose list
+  carries effects.
+
+- **Liquid glass takes a sweep of light.** A bar crossing the pane at its own
+  angle, flaring where it meets the rim, either parked or travelling:
+  `evg-fx-sweep`, `-sweep-angle`, `-sweep-width`, `-sweep-speed`, `-sweep-at`,
+  `-sweep-edge`, `-sweep-rim` and `-sweep-duty`. The last two are what make it
+  a shine rather than a stripe: `sweep-rim` weights the bar toward the bevel,
+  where real glass catches a moving light, and `sweep-duty` gives the pass a
+  fraction of each cycle and parks it off the pane for the rest — so the pane
+  is clean glass most of the time and the glint is an event. Both are checked
+  against pixels: the flat middle comes back unchanged under a rim-weighted
+  bar, and between passes nothing on the pane is brighter than a pane with no
+  sweep at all. It is off by default, because a pane in a room with nothing
+  moving has no streak on it, and a moving one asks for frames with the same
+  `evg-effect-on: always` a starfield uses. The dashed names are the point:
+  `evg-fx-sweep-speed` reaches the shader as `p_sweep_speed` and nothing in
+  between had to learn either spelling.
+
+- **A surface effect can be switched off, and the demo page has a switch for
+  each one.** `inst.off` on an instance: the painter skips the run, the filter
+  is not live, nothing is compiled or copied, and the driver stops handing it
+  events or counting it busy — so a press on a sleeping pool falls through to
+  what is under it. The frame is not rebuilt, which is the point: stopping one
+  shader must not mean re-uploading every buffer on the page. It is the hook a
+  page's own switch hangs on, and the one `prefers-reduced-motion` would;
+  `fx-demo.html` builds a switch per effect out of the display list and
+  remembers the choice per browser.
+
 - **Liquid glass, as CSS.** A third plugin layer and the effect that needed it.
   `backdrop` runs a plugin IN PAINT ORDER over what is behind the element — the
   surface so far is copied where the element paints, the plugin writes it back
@@ -394,6 +432,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     for every element it compares against.
 
 ### Fixed
+
+- **A demo that moves on its own now gets a frame without being touched.** Every
+  path that started the gallery page's clock was an INPUT — a press, a key, a
+  focus — because every demo that moved did so in answer to one. A surface
+  effect does not, so `?demo=effects` opened on a still picture of a drifting
+  sky until you poked it. The clock is started on the first paint and when the
+  switcher changes demo; it stops on the first frame whose clock says nothing
+  is moving, which is all of them until something is.
+
+- **A liquid-glass pane wiped everything painted before it, on any real page.**
+  A backdrop effect copies the surface mid-frame, and it was copying from the
+  canvas — but a WebGL2 context asked for `antialias: true`, which is the
+  default and what every page here asks for, has a MULTISAMPLED default
+  framebuffer, and copying out of one is `INVALID_OPERATION`. The copy left the
+  texture black and the pass wrote that black back over the whole page above
+  the pane. A frame with a live backdrop now goes through the offscreen target
+  and is presented at the end. The checks had passed on the broken painter
+  because they rendered with `preserveDrawingBuffer: true`, which on this
+  driver hands out a single-sampled buffer: `fx-check.mjs` now asks for what a
+  page asks for and reads pixels back through a 2-D canvas, and fails three
+  ways without the fix.
 
 - **The UI demo page did not work on a phone.** `gallery/ui/demo` wrote each
   demo's own width straight onto the canvas and let the rest hang off the

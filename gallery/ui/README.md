@@ -71,6 +71,14 @@ Live, from these sources: **[the gallery](https://terotests.github.io/Ranger/ui/
 beside it. `/ui/` itself redirects to the demos and keeps `?demo=`, so
 `?demo=dashboard` still opens the dashboard.
 
+One of them is not a control at all: **`?demo=effects`** is the surface
+effects, declared in `effects.css` and nowhere else — a starfield that drifts,
+a pane of liquid glass that refracts the sky behind it and carries a sweep of
+light across itself, and two cards that ripple where they are pressed while a
+third beside them, which declares nothing, stays still. `EffectsDemo.rgr` holds
+no shader, no clock and no coordinate; see
+[`lib/evg/PLAN_EFFECTS.md`](../../lib/evg/PLAN_EFFECTS.md).
+
 ```bash
 npm run ui:conformance:install   # once
 npm run ui:web                   # builds, serves, prints the URL

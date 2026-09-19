@@ -1,0 +1,261 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; EffectsDemo — surface effects, declared in the stylesheet
+; =============================================================================
+; Every other demo on this page is a CONTROL: a menubar, a table, a form, each
+; measured against the component it is a copy of. This one is a MATERIAL, and
+; the thing it is here to show is that three effects — a starfield, a pane of
+; glass, and water — are declared in `effects.css` and nowhere else.
+;
+;   .fx-sky   { evg-surface-effect: starfield;    evg-effect-on: always }
+;   .fx-glass { evg-surface-effect: liquid-glass }
+;   .fx-pool  { evg-surface-effect: ripple;       evg-effect-on: press drag }
+;
+; This file contains no shader, no clock, no parameter and no coordinate. It
+; builds a tree and hands it to the sheet; the display list carries one effect
+; INSTANCE per element that declared one, with the box the layout gave it; the
+; WebGL painter looks each name up in its plugin registry; and the host's
+; driver (`lib/evg/gl/evg-fx.js`) turns a press on the page into the events the
+; ripple reads. Nothing in the chain between the stylesheet and the shader
+; knows what a starfield is.
+;
+; WHAT THIS PAGE CANNOT SHOW is the effects themselves in the other backends:
+; a surface effect is a GPU pass, so the PNG snapshots and the software
+; rasteriser draw this page with its boxes and its text and no effects at all.
+; That is the right failure and it is why the cards say what they say.
+;
+; The pools react to a press because their sheet says `evg-effect-on: press
+; drag`. The card beside them declares nothing and is therefore inert — which
+; is the whole point of the property, and the reason it is on the page.
+; =============================================================================
+
+Import "../src/UiTree.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGLayout.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGStyleSheet.rgr"
+Import "pkg:evg/EVGTransition.rgr"
+Import "pkg:evg/EVGA11yTree.rgr"
+Import "pkg:evg/EVGA11yFromTree.rgr"
+Import "pkg:evg/EVGHitTest.rgr"
+
+treefactory Fx {
+    child addChild
+    text  textContent
+
+    tag FxPage     EVGElement (props (className "fx-page"))
+    tag FxSky      EVGElement (props (className "fx-sky"))
+    tag FxHeadline EVGElement (props (className "fx-headline") (elementType 1))
+    tag FxLead     EVGElement (props (className "fx-lead") (elementType 1))
+    tag FxGlass    EVGElement (props (className "fx-glass"))
+    tag FxGlassTop EVGElement (props (className "fx-glass-title") (elementType 1))
+    ; Three lines, three tags. The sheet matches CLASSES and not ids — see
+    ; `EVGStyleSheet` — so "the second line, lower down" is a class of its own
+    ; rather than `#fx-glass-sub2`, which the sheet rejects out loud.
+    tag FxGlassSub EVGElement (props (className "fx-glass-sub") (elementType 1))
+    tag FxGlassSub2 EVGElement (props (className "fx-glass-sub fx-glass-sub2") (elementType 1))
+    tag FxGlassSub3 EVGElement (props (className "fx-glass-sub fx-glass-sub3") (elementType 1))
+    tag FxRow      EVGElement (props (className "fx-row"))
+    tag FxPool     EVGElement (props (className "fx-pool"))
+    tag FxCard     EVGElement (props (className "fx-card"))
+    tag FxCardTop  EVGElement (props (className "fx-card-title") (elementType 1))
+    tag FxCardSub  EVGElement (props (className "fx-card-sub") (elementType 1))
+    tag FxFoot     EVGElement (props (className "fx-foot") (elementType 1))
+}
+
+class EffectsDemo {
+
+    def root@(optional):EVGElement
+    def sheet@(optional):EVGStyleSheet
+    def transitions:EVGTransition (new EVGTransition())
+    def layout@(optional):EVGLayout
+    def hovered:string ""
+    def pressed:string ""
+    def pageW:double 980.0
+    def pageH:double 620.0
+
+    Constructor () {
+    }
+
+    fn init:void (css:string) {
+        def s (new EVGStyleSheet())
+        s.parse(css)
+        sheet = s
+        root = (EffectsDemo.page())
+    }
+
+    ; --- the tree -------------------------------------------------------------
+    ;
+    ; A static builder, like every other demo here, so the PNG snapshot, the
+    ; accessibility audit and the live page describe the page once.
+    sfn page:EVGElement () {
+        def page (tree Fx (FxPage (props (id "fx-page"))))
+
+        def sky (tree Fx (FxSky (props (id "fx-sky"))
+            (FxHeadline (props (id "fx-headline")) "A sky, and a pane of glass over it")
+            (FxLead (props (id "fx-lead")) "Both are one line of CSS each, and this text is painted over the stars rather than through them.")))
+        def glass (tree Fx (FxGlass (props (id "fx-glass"))
+            (FxGlassTop (props (id "fx-glass-title")) "liquid-glass")
+            (FxGlassSub (props (id "fx-glass-sub")) "The sky bends at this pane's rim:")
+            (FxGlassSub2 (props (id "fx-glass-sub2")) "refracted, not merely blurred. These")
+            (FxGlassSub3 (props (id "fx-glass-sub3")) "lines are drawn after it, so they are sharp.")))
+        sky.addChild(glass)
+        page.addChild(sky)
+
+        def row (tree Fx (FxRow (props (id "fx-row"))
+            (FxPool (props (id "fx-pool-a"))
+                (FxCardTop (props (id "fx-pool-a-title")) "Press this card")
+                (FxCardSub (props (id "fx-pool-a-sub")) "evg-effect-on: press drag"))
+            (FxPool (props (id "fx-pool-b"))
+                (FxCardTop (props (id "fx-pool-b-title")) "And this one, separately")
+                (FxCardSub (props (id "fx-pool-b-sub")) "the effect belongs to the box, not to the page"))
+            (FxCard (props (id "fx-plain"))
+                (FxCardTop (props (id "fx-plain-title")) "This one does nothing")
+                (FxCardSub (props (id "fx-plain-sub")) "no evg-surface-effect declared"))))
+        page.addChild(row)
+
+        page.addChild((tree Fx (FxFoot (props (id "fx-foot")) "A surface effect is a GPU pass, so the PNG snapshots of this page show its boxes and its text and none of the effects — which is the right failure.")))
+        return page
+    }
+
+    ; --- state the page keeps -------------------------------------------------
+
+    fn setHover:void (id:string) {
+        hovered = id
+    }
+
+    fn setPressed:void (id:string) {
+        pressed = id
+    }
+
+    ; Nothing to press. The pools react because the SHEET says they do, and the
+    ; host's effect driver reads that — a control that had to handle its own
+    ; press to ripple is exactly what this replaces.
+    fn press:boolean (target:string) {
+        return false
+    }
+
+    fn key:boolean (k:string) {
+        return false
+    }
+
+    fn markStates:void (el:EVGElement) {
+        el.isHovered = false
+        el.isPressed = false
+        if ((strlen el.id) > 0) {
+            if (el.id == hovered) {
+                el.isHovered = true
+            }
+            if (el.id == pressed) {
+                el.isPressed = true
+            }
+        }
+        def i:int 0
+        while (i < (el.getChildCount())) {
+            this.markStates((el.getChild(i)))
+            i = (i + 1)
+        }
+    }
+
+    fn laidOut:EVGLayout () {
+        def r:EVGElement (unwrap root)
+        def s:EVGStyleSheet (unwrap sheet)
+        s.setViewport(pageW pageH false)
+        this.markStates(r)
+        s.applyTree(r "")
+        def t:EVGTransition transitions
+        t.reconcileTree(r)
+        if layout {
+            def lay:EVGLayout (unwrap layout)
+            if ((s.layoutClean()) == false) {
+                lay.layout(r)
+            }
+            return lay
+        }
+        def fresh (new EVGLayout())
+        fresh.setPageSize(pageW pageH)
+        layout = fresh
+        fresh.layout(r)
+        return fresh
+    }
+
+    ; The display list, effects and all. `toJson` writes one entry per element
+    ; that declared one — the kind, the trigger, the box the layout worked out
+    ; and the `evg-fx-*` numbers — and the painter is the first thing in the
+    ; chain that knows what any of it means.
+    fn displayListJson:string () {
+        def lay:EVGLayout (this.laidOut())
+        def r:EVGElement (unwrap root)
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(r)
+        return (dl.toJson())
+    }
+
+    ; How many effects this page declared, for a check that wants to ask
+    ; without parsing the JSON back.
+    fn effectCount:int () {
+        def lay:EVGLayout (this.laidOut())
+        def r:EVGElement (unwrap root)
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(r)
+        return (array_length dl.fxIds)
+    }
+
+    fn hitId:string (px:double py:double) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def hit (new EVGHitTest())
+        return (hit.idAt(r px py))
+    }
+
+    fn a11yJson:string (generation:int focusId:string) {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "Surface effects demo" generation focusId))
+        return (t.toJson())
+    }
+
+    fn a11yProblems:[string] () {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        def b (new EVGA11yFromTree())
+        def t:EVGA11yTree (b.build(r "Surface effects demo" 1 ""))
+        return (t.lint())
+    }
+
+    fn styleErrorCount:int () {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (s.getErrorCount())
+    }
+
+    fn styleErrorAt:string (i:int) {
+        def s:EVGStyleSheet (unwrap sheet)
+        return (s.getError(i))
+    }
+
+    ; THE CLOCK IS NOT HERE. A starfield drifts and a ripple decays on the
+    ; host's clock, in the effect driver, because neither changes a box, a
+    ; glyph or a buffer — advancing them through the tree would make the
+    ; cheapest thing on the page the most expensive. What this advances is the
+    ; ordinary CSS transitions, the same as every other demo.
+    fn tick:boolean (dtMs:double) {
+        def r:EVGElement (unwrap root)
+        def t:EVGTransition transitions
+        t.advanceTree(r dtMs)
+        return (t.busy(r))
+    }
+
+    fn busyNow:boolean () {
+        def r:EVGElement (unwrap root)
+        def t:EVGTransition transitions
+        return (t.busy(r))
+    }
+
+    fn heightPx:double () {
+        return pageH
+    }
+}

@@ -78,10 +78,22 @@ class FxDemoDoc {
             + "  border-radius: 30px;"
             + "  backdrop-filter: blur(9px);"
             + "  evg-surface-effect: liquid-glass;"
-            + "  evg-fx-thickness: 30;"
-            + "  evg-fx-strength: 40;"
-            + "  evg-fx-disperse: 0.09;"
-            + "  evg-fx-shine: 0.7;"
+            + "  evg-fx-thickness: 26;"
+            + "  evg-fx-strength: 36;"
+            + "  evg-fx-disperse: 0.08;"
+            + "  evg-fx-shine: 0.55;"
+            ; A LIGHT PASSING OVER THE PANE, kept to the rim where a real
+            ; bevel would catch it, and off the pane entirely for two thirds
+            ; of its cycle — a glint rather than a stripe. `always` is what
+            ; keeps the frames coming for it. Every number is in this sheet;
+            ; the shader has never heard of this page.
+            + "  evg-effect-on: always;"
+            + "  evg-fx-sweep: 0.7;"
+            + "  evg-fx-sweep-width: 0.05;"
+            + "  evg-fx-sweep-speed: 0.42;"
+            + "  evg-fx-sweep-duty: 0.3;"
+            + "  evg-fx-sweep-rim: 0.6;"
+            + "  evg-fx-sweep-edge: 2.6;"
             + "}"
             + ".glass-title { color: rgb(255,255,255); font-size: 19px; }"
             + ".glass-note { color: rgb(214,220,248); font-size: 13px; }"

@@ -32,7 +32,7 @@ function requireDom(name) {
   }
 }
 
-const DEMOS = ["FilterDemo", "EventCalDemo", "MessageDemo", "ControlsDemo", "MenubarDemo", "ToolbarDemo", "SortableDemo", "MotionDemo", "TableDemo", "DropdownDemo", "DialogDemo", "TreeDemo", "TimelineDemo", "ResizeDemo", "FormDemo", "ProfileDemo", "DashboardDemo", "CalendarDemo", "OtpDemo", "MetadataDemo"];
+const DEMOS = ["FilterDemo", "EventCalDemo", "MessageDemo", "ControlsDemo", "MenubarDemo", "ToolbarDemo", "SortableDemo", "MotionDemo", "TableDemo", "DropdownDemo", "DialogDemo", "TreeDemo", "TimelineDemo", "ResizeDemo", "FormDemo", "ProfileDemo", "DashboardDemo", "CalendarDemo", "OtpDemo", "MetadataDemo", "EffectsDemo"];
 for (const name of DEMOS) {
   if (!fs.existsSync(path.join(UI, "bin", name + ".cjs"))) {
     console.error(`compiled ${name} missing — run \`npm run ui:demo:build\` first`);
@@ -65,6 +65,7 @@ fs.writeFileSync(
     'export { ControlsDemo } from "../bin/ControlsDemo.cjs";\n' +
     'export { OtpDemo } from "../bin/OtpDemo.cjs";\n' +
     'export { MetadataDemo } from "../bin/MetadataDemo.cjs";\n' +
+    'export { EffectsDemo } from "../bin/EffectsDemo.cjs";\n' +
     // The whole modules too, as a list: the browser's text measurer is
     // installed into every one of them (`lib/evg/gl/evg-measure.js`),
     // because two copies of a class are two classes and each compiled demo
@@ -99,7 +100,8 @@ fs.writeFileSync(
     `export const MESSAGE_CSS = ${css("message.css")};\n` +
     `export const CONTROLS_CSS = ${css("controls.css")};\n` +
     `export const OTP_CSS = ${css("otp.css")};\n` +
-    `export const METADATA_CSS = ${css("metadata.css")};\n`,
+    `export const METADATA_CSS = ${css("metadata.css")};\n` +
+    `export const EFFECTS_CSS = ${css("effects.css")};\n`,
 );
 
 const esbuild = requireDom("esbuild");

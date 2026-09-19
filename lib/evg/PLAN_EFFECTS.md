@@ -117,6 +117,21 @@ whatever size the flex row gave it and whatever `border-radius` the sheet
 asked for, and `thickness`, `strength`, `power`, `disperse`, `shine`, `angle`
 and `tint` are the seven numbers that shape it.
 
+**The sweep** is the second half of it: a bar of light crossing the pane,
+`evg-fx-sweep` and its five siblings. Two of those decide whether it reads as
+a shine or as a line somebody drew:
+
+* `sweep-rim` weights the bar toward the bevel. Real glass catches a moving
+  light at its EDGES, where the surface is turned; the flat middle only
+  flashes as the light goes by. At 1 the middle is left exactly as it was.
+* `sweep-duty` is the fraction of each cycle the pass takes. The rest of the
+  cycle the bar is parked off the pane, so the pane is clean glass most of the
+  time and the glint is an event.
+
+Both are checked against pixels: a rim-weighted bar leaves the flat middle
+byte-for-byte unchanged, and between passes nothing on the pane is brighter
+than the pane without a sweep at all.
+
 ### Registering one
 
 ```js
@@ -155,6 +170,30 @@ drives, which is exactly the old behaviour and still works.
 
 `fx.busy()` is false when nothing is in flight and no effect says `always`, so
 a page stops drawing when the water stills.
+
+### Switching one off
+
+`inst.off = true` on an instance, and the painter skips the run, the filter is
+not live, nothing is compiled or copied, and the driver stops giving it events
+or reporting it busy. The frame is **not** rebuilt: not one buffer is
+re-uploaded to stop drawing one shader. `fx-demo.html` puts a switch on each
+effect the document declares and remembers the choice per browser.
+
+### The trap under a backdrop effect
+
+A backdrop reads the surface mid-frame, and the one surface it may never read
+is the canvas. A WebGL2 context asked for `antialias: true` — the default, and
+what every page here asks for — has a MULTISAMPLED default framebuffer, and
+copying out of one is `INVALID_OPERATION`: the copy leaves the texture black
+and the pass writes that black over everything painted before the element. So
+a frame with a live backdrop in it is rendered into the offscreen target and
+presented at the end.
+
+This shipped broken for an afternoon and every check passed, because the checks
+rendered with `preserveDrawingBuffer: true`, which on this driver hands out a
+single-sampled buffer. `fx-check.mjs` now asks for the attributes a page asks
+for and reads the pixels back through a 2-D canvas, which is what a screenshot
+does — and it fails three ways if the routing is removed.
 
 ## What this deliberately did not touch
 
