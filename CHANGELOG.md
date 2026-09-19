@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Three quieter surface effects, and a file of presets.** `plasma-wave`
+  (ribbons of light over a noise field), `raindrop` (drops on the pane, each a
+  sphere's lens over what is behind it — strongest at the rim, nothing in the
+  middle, so the page stays legible through the centre) and `ambient-light` (a
+  slow desaturated wash with bokeh discs in it). All three are plugins in the
+  same registry the starfield and the glass use: a name, a parameter list and
+  one GLSL function, with the box coming from the layout. Two of them are
+  BACKDROP effects, which is what makes a drop a lens rather than a sticker.
+  `lib/evg/gl/effect-presets.css` holds eleven ready blocks — five skies, two
+  plasma fields, two rains, two washes — paste-able into the editor under the
+  gallery's effects demo. `npm run evg:fx:shots` paints all of them into one
+  sheet, and `evg:fx:check` reads the same file through the engine's own
+  cascade and then against pixels, so a preset the cascade refuses fails a
+  check instead of quietly drawing the plugin's defaults.
+
 - **The effects demo's stylesheet is editable in the page.** A textarea under
   the canvas on `?demo=effects`, holding `effects.css`, applied as you type —
   and what is typed goes through the WHOLE engine: `EffectsDemo.init` hands the

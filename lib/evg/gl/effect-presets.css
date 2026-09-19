@@ -1,0 +1,223 @@
+/* SPDX-License-Identifier: MIT
+ *
+ * Presets: effects that are already a look.
+ *
+ * Each block below is one element's worth of CSS — paste it into the editor
+ * under the canvas on the gallery's effects demo (`?demo=effects`, the
+ * textarea holds `effects.css`) in place of what `.fx-sky` says, or copy one
+ * into a stylesheet of your own. Every effect here is a name and some numbers;
+ * there is no code to copy with them.
+ *
+ * WHAT EACH BLOCK MUST CARRY is `evg-surface-effect` (which effect),
+ * `evg-effect-on: always` where it moves on its own clock, its own
+ * `background-color` — the effects draw OVER what the element paints — and
+ * whatever `evg-fx-*` numbers it wants. Anything left out takes the plugin's
+ * own default.
+ *
+ * Rendered by `lib/evg/gl/effect-shots.mjs`, and read by the engine's own
+ * cascade in `lib/evg/gl/fx-check.mjs`, which holds every preset here to
+ * producing the effect it names.
+ */
+
+/* ============================================================ starfield === */
+
+.sky-deep {
+  background-color: rgb(6, 7, 20);
+  evg-surface-effect: starfield;
+  evg-effect-on: always;
+  evg-fx-density: 1.5;
+  evg-fx-nebula: 0.8;
+  evg-fx-hue: 228;
+  evg-fx-hue2: 305;
+  evg-fx-speed: 6;
+  evg-fx-angle: 200;
+  evg-fx-seed: 5;
+}
+
+/* EMBER. A warm cloud — orange near, deep red far — with fewer, larger stars,
+ * so the dust carries the picture and the stars sit in it. */
+.sky-ember {
+  background-color: rgb(16, 6, 8);
+  evg-surface-effect: starfield;
+  evg-effect-on: always;
+  evg-fx-density: 0.9;
+  evg-fx-nebula: 0.95;
+  evg-fx-hue: 22;
+  evg-fx-hue2: 348;
+  evg-fx-glow: 1.5;
+  evg-fx-twinkle: 0.7;
+  evg-fx-speed: 4;
+  evg-fx-angle: 170;
+  evg-fx-seed: 12;
+}
+
+/* AURORA. Green near, teal far, and a dense field of small stars behind it —
+ * the dust reads as a curtain rather than as a cloud. */
+.sky-aurora {
+  background-color: rgb(4, 14, 14);
+  evg-surface-effect: starfield;
+  evg-effect-on: always;
+  evg-fx-density: 2.4;
+  evg-fx-nebula: 0.75;
+  evg-fx-hue: 150;
+  evg-fx-hue2: 186;
+  evg-fx-glow: 0.9;
+  evg-fx-twinkle: 1.2;
+  evg-fx-speed: 9;
+  evg-fx-angle: 215;
+  evg-fx-seed: 3;
+}
+
+/* ROSE. Pink near, violet far, slow, with the glow turned up: the sky of a
+ * marketing hero rather than of an observatory. */
+.sky-rose {
+  background-color: rgb(14, 6, 16);
+  evg-surface-effect: starfield;
+  evg-effect-on: always;
+  evg-fx-density: 1.2;
+  evg-fx-nebula: 0.9;
+  evg-fx-hue: 330;
+  evg-fx-hue2: 268;
+  evg-fx-glow: 1.6;
+  evg-fx-twinkle: 0.8;
+  evg-fx-speed: 3;
+  evg-fx-angle: 190;
+  evg-fx-seed: 21;
+}
+
+/* CLEAR NIGHT. Almost no dust and a hard, bright field: what a sky looks like
+ * when the parameter that does most of the work is turned off. */
+.sky-clear {
+  background-color: rgb(3, 4, 12);
+  evg-surface-effect: starfield;
+  evg-effect-on: always;
+  evg-fx-density: 2.8;
+  evg-fx-nebula: 0.1;
+  evg-fx-hue: 205;
+  evg-fx-hue2: 225;
+  evg-fx-glow: 1.3;
+  evg-fx-twinkle: 1.4;
+  evg-fx-speed: 5;
+  evg-fx-angle: 200;
+  evg-fx-seed: 8;
+}
+
+/* ============================================================ plasma =========
+ *
+ * Ribbons of light crossing a dark ground. A SOURCE effect: it paints into the
+ * element's background, so anything the element contains is drawn over it. */
+
+/* TIDE. Blue into violet, five ribbons, slow. The quiet one. */
+.fx-tide {
+  background-color: rgb(4, 6, 24);
+  evg-surface-effect: plasma-wave;
+  evg-effect-on: always;
+  evg-fx-ribbons: 5;
+  evg-fx-speed: 0.3;
+  evg-fx-amp: 0.2;
+  evg-fx-freq: 1.6;
+  evg-fx-width: 2.4;
+  evg-fx-glow: 34;
+  evg-fx-sheet: 0.2;
+  evg-fx-hue: 222;
+  evg-fx-hue2: 288;
+  evg-fx-grain: 0.35;
+  evg-fx-seed: 4;
+}
+
+/* SIGNAL. Tighter, faster, more of them, and a cyan end — a waveform rather
+ * than a tide. */
+.fx-signal {
+  background-color: rgb(3, 8, 18);
+  evg-surface-effect: plasma-wave;
+  evg-effect-on: always;
+  evg-fx-ribbons: 7;
+  evg-fx-speed: 0.7;
+  evg-fx-amp: 0.3;
+  evg-fx-freq: 2.6;
+  evg-fx-width: 1.5;
+  evg-fx-glow: 16;
+  evg-fx-sheet: 0.06;
+  evg-fx-hue: 186;
+  evg-fx-hue2: 262;
+  evg-fx-grain: 0.5;
+  evg-fx-seed: 9;
+}
+
+/* ============================================================ raindrop ======
+ *
+ * Water on the surface. A BACKDROP effect: each drop is a lens over whatever
+ * is behind the element, so a drop over a photograph shows the photograph and
+ * a drop over a flat card shows the card and its own highlight. */
+
+/* GLASS. Rain on a dark pane: many small drops, a few large, light from the
+ * upper left. */
+.fx-rain {
+  background-color: rgb(14, 14, 16);
+  evg-surface-effect: raindrop;
+  evg-fx-density: 1.1;
+  evg-fx-size: 0.5;
+  evg-fx-refract: 14;
+  evg-fx-shine: 0.9;
+  evg-fx-angle: -55;
+  evg-fx-rim: 0.6;
+  evg-fx-seed: 2;
+}
+
+/* DOWNPOUR. Fewer, bigger, and drifting — the field moves, which is what a
+ * still picture of rain never does. */
+.fx-downpour {
+  background-color: rgb(10, 12, 18);
+  evg-surface-effect: raindrop;
+  evg-effect-on: always;
+  evg-fx-density: 0.6;
+  evg-fx-size: 0.7;
+  evg-fx-refract: 22;
+  evg-fx-shine: 0.8;
+  evg-fx-angle: -60;
+  evg-fx-rim: 0.5;
+  evg-fx-speed: 7;
+  evg-fx-seed: 6;
+}
+
+/* ======================================================== ambient light =====
+ *
+ * A wash of colour with soft lights adrift in it. Nothing in it is sharp,
+ * which is the point: it goes BEHIND real content. */
+
+/* LAGOON. Teal into violet, seven lights, barely moving. */
+.fx-lagoon {
+  background-color: rgb(8, 14, 22);
+  evg-surface-effect: ambient-light;
+  evg-effect-on: always;
+  evg-fx-hue: 186;
+  evg-fx-hue2: 272;
+  evg-fx-sat: 0.45;
+  evg-fx-tilt: 25;
+  evg-fx-depth: 0.5;
+  evg-fx-orbs: 7;
+  evg-fx-size: 0.6;
+  evg-fx-softness: 1.5;
+  evg-fx-speed: 0.06;
+  evg-fx-glow: 0.5;
+  evg-fx-seed: 2;
+}
+
+/* DUSK. Warm, dimmer, fewer and larger lights — a background for a page with
+ * a lot of text on it. */
+.fx-dusk {
+  background-color: rgb(16, 10, 16);
+  evg-surface-effect: ambient-light;
+  evg-effect-on: always;
+  evg-fx-hue: 338;
+  evg-fx-hue2: 28;
+  evg-fx-sat: 0.3;
+  evg-fx-tilt: 200;
+  evg-fx-depth: 0.42;
+  evg-fx-orbs: 4;
+  evg-fx-size: 0.85;
+  evg-fx-softness: 1.9;
+  evg-fx-speed: 0.05;
+  evg-fx-glow: 0.42;
+  evg-fx-seed: 11;
+}
