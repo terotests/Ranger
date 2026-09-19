@@ -15,7 +15,20 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { listAgents, runTask, frameFixture, seedDoc, resetSession, readSessionDoc, writeSessionDoc } from "./agents.mjs";
+import {
+  listAgents,
+  runTask,
+  frameFixture,
+  seedDoc,
+  resetSession,
+  readSessionDoc,
+  writeSessionDoc,
+  sessionDir,
+  traceAttachment,
+  clearAttachment,
+  attachmentOf,
+  ATTACH_BASE,
+} from "./agents.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "../../..");
@@ -197,6 +210,23 @@ function staticFile(urlPath) {
 
 function main() {
   compile();
+  // One body, with a ceiling. A data URL is the whole picture in base64, and
+  // a request with no end to it is not a picture.
+  const readBody = (req, limit) =>
+    new Promise((resolve, reject) => {
+      let text = "";
+      req.setEncoding("utf8");
+      req.on("data", (chunk) => {
+        text += chunk;
+        if (text.length > limit) {
+          reject(new Error("that picture is too large — 12 MB is the limit"));
+          req.destroy();
+        }
+      });
+      req.on("end", () => resolve(text));
+      req.on("error", reject);
+    });
+
   const server = http.createServer((req, res) => {
     const url = new URL(req.url || "/", `http://${req.headers.host || "127.0.0.1"}`);
     if (req.method === "OPTIONS") {
@@ -244,6 +274,55 @@ function main() {
       );
       return;
     }
+    // --- A PICTURE, ATTACHED TO THE ASK -----------------------------------
+    //
+    // The prompt box says what to build; a picture says what it should look
+    // like, and a model cannot read one off a screen it has never seen. So the
+    // host traces it with Ranger's own bitmap tracer the moment it arrives:
+    // the agent gets flat colour layers it can insert as vector, and a palette
+    // counted over the pixels. Neither costs it a single coordinate of
+    // context.
+    if (url.pathname === "/attach" && req.method === "POST") {
+      readBody(req, 12 * 1024 * 1024)
+        .then((body) => {
+          const ask = JSON.parse(body || "{}");
+          if (ask.clear) {
+            clearAttachment(sessionDir());
+            send(res, 200, "application/json; charset=utf-8", JSON.stringify({ cleared: true }));
+            return;
+          }
+          const dataUrl = String(ask.dataUrl || "");
+          const comma = dataUrl.indexOf(",");
+          if (comma < 0 || !/^data:image\/(png|jpe?g)/i.test(dataUrl)) {
+            send(res, 400, "application/json; charset=utf-8", JSON.stringify({ error: "a PNG or JPEG data URL is what this takes" }));
+            return;
+          }
+          const ext = /png/i.test(dataUrl.slice(0, comma)) ? "png" : "jpg";
+          const dir = sessionDir();
+          fs.mkdirSync(dir, { recursive: true });
+          clearAttachment(dir);
+          const file = `${ATTACH_BASE}.${ext}`;
+          fs.writeFileSync(path.join(dir, file), Buffer.from(dataUrl.slice(comma + 1), "base64"));
+          const summary = traceAttachment(dir, file, {
+            width: Number(ask.width) > 0 ? Number(ask.width) : 358,
+            preset: typeof ask.preset === "string" && ask.preset ? ask.preset : "poster",
+          });
+          send(res, 200, "application/json; charset=utf-8", JSON.stringify(summary));
+        })
+        .catch((e) => {
+          send(res, 500, "application/json; charset=utf-8", JSON.stringify({ error: String(e.message || e) }));
+        });
+      return;
+    }
+    if (url.pathname === "/attached") {
+      send(
+        res,
+        200,
+        "application/json; charset=utf-8",
+        JSON.stringify(attachmentOf(sessionDir()) || {}),
+      );
+      return;
+    }
     if (url.pathname === "/agents") {
       send(
         res,
@@ -262,6 +341,9 @@ function main() {
       lastDoc = readSessionDoc() || framed.doc;
       lastKind = kind;
       const frame = framed.events.find((e) => e && e.t === "frame") || {};
+      // The seed is a laid-out screen like any other, so it answers the same
+      // question: is anything overlapping, off the page, or crowded?
+      const measured = framed.events.find((e) => e && e.t === "measure") || null;
       send(
         res,
         200,
@@ -275,6 +357,7 @@ function main() {
           added: 0,
           nodes: frame.nodes || 0,
           list: frame.list || { cmds: [] },
+          measure: measured,
         }),
       );
       return;

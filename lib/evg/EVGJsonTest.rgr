@@ -89,6 +89,50 @@ class EVGJsonTest {
         this.has("for the other one too" (this.listOf(backDown)) "\"gd\":0")
     }
 
+    ; --- WHAT A GRADIENT MAY BE WRITTEN IN ------------------------------------
+    ;
+    ; The parser looked for `#hex` and nothing else, so a gradient written in
+    ; `rgb()` — the form every other colour in a generated document uses, and
+    ; the form a model reaches for first — parsed to a gradient with NO stops.
+    ; An element with no stops emits no background rectangle at all, so the
+    ; node vanished from the picture: not a flat colour, not a wrong colour,
+    ; gone. Three properties, three spellings, one silent disappearance.
+    ;
+    ; The direction was the other half. CSS with no angle runs top to bottom
+    ; and `to bottom` says the same thing; this field's default was 0, which is
+    ; to the TOP, and `to …` was not read at all — so two of the three ways of
+    ; asking for the same ramp came out upside down.
+    fn testGradientSpellings:void () {
+        print "-- the spellings a gradient may arrive in"
+
+        def rgbStops:EVGElement (EVGJsonTest.boxWith("background" "linear-gradient(180deg, rgb(16,32,48), rgb(200,210,220))"))
+        def rgbJson:string (this.listOf(rgbStops))
+        this.has("rgb() stops paint at all" rgbJson "\"gd\":0")
+        this.has("the near stop" rgbJson "\"c\":[16,32,48,1.00]")
+        this.has("the far one" rgbJson "\"c2\":[200,210,220,1.00]")
+
+        def alpha:EVGElement (EVGJsonTest.boxWith("background" "linear-gradient(to right, rgba(16,32,48,0.5), #c8d2dc)"))
+        def alphaJson:string (this.listOf(alpha))
+        this.has("rgba keeps its alpha" alphaJson "\"c\":[16,32,48,0.50]")
+        this.has("and `to right` is the horizontal axis" alphaJson "\"gd\":1")
+
+        ; The three ways of saying top-to-bottom have to agree with each other.
+        def spelled:EVGElement (EVGJsonTest.boxWith("background" "linear-gradient(180deg, #102030, #c8d2dc)"))
+        def bare:EVGElement (EVGJsonTest.boxWith("background" "linear-gradient(#102030, #c8d2dc)"))
+        def keyword:EVGElement (EVGJsonTest.boxWith("background" "linear-gradient(to bottom, #102030, #c8d2dc)"))
+        def a:string (this.listOf(spelled))
+        def b:string (this.listOf(bare))
+        def c:string (this.listOf(keyword))
+        this.ok("no angle means the same as 180deg" (a == b))
+        this.ok("and so does `to bottom`" (a == c))
+        this.has("with the first colour at the top" a "\"c\":[16,32,48,1.00]")
+
+        ; `background-gradient` is the name the editable document format
+        ; carries, so it has to reach the list the same way `background` does.
+        def named:EVGElement (EVGJsonTest.boxWith("background-gradient" "linear-gradient(180deg, rgb(16,32,48), rgb(200,210,220))"))
+        this.ok("background-gradient is the same gradient" ((this.listOf(named)) == rgbJson))
+    }
+
     ; The pair a Figma import speaks, which the list has always understood and
     ; the raster and PDF painters had not.
     fn testTwoStopPairReachesTheList:void () {
@@ -115,6 +159,7 @@ class EVGJsonTest {
         this.testGradient()
         this.testElementGradient()
         this.testGradientAngleConventions()
+        this.testGradientSpellings()
         this.testTwoStopPairReachesTheList()
         this.testFlatRectHasNoGradient()
         this.testRectAndBorder()

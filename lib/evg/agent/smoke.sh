@@ -30,6 +30,50 @@ echo "$found" | grep -q '"count":4' || fail "measure did not find the four defec
 npm run --silent agent -- measure lib/evg/agent/fixtures/card.evg.json --width=600 --height=400 \
   | grep -q '"count":0' || fail "measure reported a defect in a sound document"
 
+# the numbers, not just the verdict: an overlap says by how much, and a sound
+# document still says how much room is left under its content
+echo "$found" | grep -q 'overlap by 100×40' || fail "overlap did not carry the amount: $found"
+npm run --silent agent -- measure lib/evg/agent/fixtures/card.evg.json --width=600 --height=400 \
+  | grep -q '"bottomFree"' || fail "measure did not report the free space"
+
+# alignment: the defect every other check passes. A stack that shares no edge,
+# and an overlay one padding to the right of the column it floats over.
+cat > "$work/ragged.evg.json" <<'JSON'
+{"evg":1,"root":{"tag":"div","props":{"display":"flex","width":"390px","height":"844px","padding-left":"16px","padding-right":"16px","gap":"8px"},"children":[
+  {"tag":"div","props":{"width":"200px","height":"40px","margin-left":"20px"}},
+  {"tag":"div","props":{"width":"200px","height":"40px","margin-left":"60px"}},
+  {"tag":"div","props":{"width":"200px","height":"40px","margin-left":"4px"}}
+]}}
+JSON
+ragged=$(npm run --silent agent -- measure "$work/ragged.evg.json")
+echo "$ragged" | grep -q '"count":0' || fail "the ragged fixture should have no DEFECT: $ragged"
+echo "$ragged" | grep -q 'share no edge' || fail "measure did not notice the ragged column: $ragged"
+
+# the overlay case: the column is tidy, the bar floating over it is one padding
+# to the right, and every other check passes it
+cat > "$work/bar.evg.json" <<'JSON'
+{"evg":1,"root":{"tag":"div","props":{"display":"flex","width":"390px","height":"844px","padding-left":"16px","padding-right":"16px","gap":"8px"},"children":[
+  {"tag":"div","props":{"height":"40px"}},
+  {"tag":"div","props":{"height":"40px"}},
+  {"tag":"div","props":{"position":"absolute","left":"16px","bottom":"16px","width":"358px","height":"52px"}}
+]}}
+JSON
+bar=$(npm run --silent agent -- measure "$work/bar.evg.json")
+echo "$bar" | grep -q '"count":0' || fail "the overlay fixture should have no DEFECT: $bar"
+echo "$bar" | grep -q 'one padding' \
+  || fail "measure did not notice the overlay one padding off: $bar"
+if npm run --silent agent -- measure lib/evg/agent/fixtures/card.evg.json | grep -q '"align"'; then
+  fail "a tidy document must not report alignment noise"
+fi
+
+# --boxes: where each node really is, and how far the next one starts
+boxes=$(npm run --silent agent -- measure lib/evg/agent/fixtures/card.evg.json --boxes --at=0)
+echo "$boxes" | grep -q '"gapNext"' || fail "--boxes did not report a distance: $boxes"
+echo "$boxes" | grep -q '"x":' || fail "--boxes did not report positions"
+if npm run --silent agent -- measure lib/evg/agent/fixtures/card.evg.json | grep -q '"boxes"'; then
+  fail "boxes should cost nothing unless asked for"
+fi
+
 # patch: applies, writes, and the inverse puts it back
 cp lib/evg/agent/fixtures/card.evg.json "$work/doc.json"
 cat > "$work/ops.json" <<'JSON'
@@ -41,6 +85,21 @@ JSON
 npm run --silent agent -- patch "$work/doc.json" "$work/ops.json" | grep -q '"applied":2' \
   || fail "patch did not apply"
 npm run --silent agent -- outline "$work/doc.json" | grep -q 'Invoices' || fail "the edit did not land"
+
+# patch answers with the layout it produced, without being asked: an agent that
+# patches and stops has changed a picture it cannot see
+cat > "$work/tint.json" <<'JSON'
+{"ops":[
+  {"op":"set-prop","at":"0/0","prop":"background-color","value":"rgb(255,251,235)"}
+]}
+JSON
+cp lib/evg/agent/fixtures/broken.evg.json "$work/broken.json"
+told=$(npm run --silent agent -- patch "$work/broken.json" "$work/tint.json")
+echo "$told" | grep -q '"layout"' || fail "patch did not report the layout: $told"
+echo "$told" | grep -q 'overlap by' \
+  || fail "patch did not name the defect in the document it just wrote: $told"
+echo "$told" | grep -q '"count":4' \
+  || fail "patch's layout count is not the measure's: $told"
 
 cat > "$work/undo.json" <<'JSON'
 {"ops":[
@@ -93,6 +152,26 @@ npm run --silent agent -- patch "$work/doc.json" "$work/bad.json" | grep -q '"ok
 npm run --silent agent -- outline "$work/doc.json" > "$work/unchanged.txt"
 diff -q "$work/before.txt" "$work/unchanged.txt" > /dev/null \
   || fail "a rejected batch still changed the document"
+
+# a bitmap, through the tracer and into the document. The picture must arrive
+# as vector the document can hold, and the palette must be countable — an agent
+# that cannot see the photograph has to be able to theme a screen from it.
+if [ ! -f lib/evg/bin/evg_image_tool.js ]; then
+  echo "building evg_image_tool…"
+  npm run --silent agent:image > "$work/image-build.log" 2>&1 \
+    || { tail -20 "$work/image-build.log"; fail "could not build evg_image_tool"; }
+fi
+cp lib/evg/web/tracer/sample.png "$work/shot.png"
+traced=$(cd "$work" && node "$root/lib/evg/bin/evg_image_tool.js" shot.png --out=shot --width=180)
+echo "$traced" | grep -q '"colors"' || fail "the tracer reported no palette: $traced"
+echo "$traced" | grep -q '"share"' || fail "the palette has no shares: $traced"
+[ -f "$work/shot.svg" ] || fail "no traced SVG"
+[ -f "$work/shot.ops.json" ] || fail "no ops file to insert the picture with"
+cp lib/evg/agent/fixtures/card.evg.json "$work/pic.json"
+npm run --silent agent -- patch "$work/pic.json" "$work/shot.ops.json" | grep -q '"ok":true' \
+  || fail "the traced picture would not apply"
+npm run --silent agent -- outline "$work/pic.json" | grep -q '^0/0 *svg' \
+  || fail "the picture is not in the document as an svg node"
 
 # a two-stop gradient, which EVG spells two ways and the painters used to know
 # only one of: `gradient-from` / `gradient-to` is what the display list, the GPU

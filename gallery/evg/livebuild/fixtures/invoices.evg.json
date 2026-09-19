@@ -31,7 +31,7 @@
       {"tag":"span","text":"INV-1033  Harbour Co","props":{"font-size":"14px","color":"rgb(226,232,240)"}},
       {"tag":"span","text":"€1,240","props":{"font-weight":"bold","font-size":"14px","color":"rgb(125,211,252)"}}
     ]},
-    {"tag":"div","props":{"display":"flex","position":"absolute","flex-direction":"row","justify-content":"space-between","align-items":"center","width":"358px","height":"56px","left":"16px","bottom":"16px","font-size":"14px","background-color":"rgb(15,23,42)","padding-right":"16px","padding-left":"16px","border-radius":"14px"},"children":[
+    {"tag":"div","props":{"display":"flex","position":"absolute","flex-direction":"row","justify-content":"space-between","align-items":"center","width":"358px","height":"56px","left":"0px","bottom":"16px","font-size":"14px","background-color":"rgb(15,23,42)","padding-right":"16px","padding-left":"16px","border-radius":"14px"},"children":[
       {"tag":"span","text":"Open total","props":{"font-size":"13px","color":"rgb(148,163,184)"}},
       {"tag":"span","text":"€1,936","props":{"font-weight":"bold","font-size":"20px","color":"rgb(255,255,255)"}}
     ]}

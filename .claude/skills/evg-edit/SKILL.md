@@ -75,19 +75,60 @@ Four things to know, because they change how you write ops:
   those ops *in reverse order*.
 
 Colours read back as `rgb(r,g,b)`; that is the canonical form, `#rrggbb` is
-accepted on the way in.
+accepted on the way in. A ramp is `background-gradient`:
+`linear-gradient(180deg, rgb(52,120,90), rgb(30,72,55))` — `rgb()`, `rgba()`
+and `#hex` stops all work, and `to bottom` / `to right` stand in for the
+angle. `background-image` and plain `background` are not patchable names, so a
+batch using them is rejected whole.
+
+**Lay out, do not place.** It is a CSS engine: a column of cards is
+`display: flex` with a `gap`, not children with computed `top`s, and a grid is
+`display: grid` with `grid-template-columns`. Hand-computed positions are
+where a screen that does not line up comes from, and `measure` reports it
+under `align`. Keep `position: absolute` for what floats over the flow.
 
 ## 3. Check with numbers before you look at a picture
 
 ```bash
 npm run agent -- measure <doc.evg.json> --width=600 --height=400
-{"findings":["0/0/0 overflows its parent to the right by 200"],"count":1}
+{"width":600,"height":400,"nodes":12,
+ "findings":["0/0 and 0/1 overlap by 100×40",
+             "0/0/0 overflows its parent to the right by 200"],
+ "count":2,"bottomFree":124,"tight":["0/2 → 0/3: 2 apart"]}
 ```
 
 It lays the document out and reports text past its box, siblings on top of each
-other, and nodes off the page. **Use this instead of rendering a PNG to check
-correctness** — it is exact and costs a fraction of the tokens. Render only to
-judge how something looks.
+other (with the overlap in px), and nodes off the page. **Use this instead of
+rendering a PNG to check correctness** — it is exact and costs a fraction of
+the tokens. Render only to judge how something looks.
+
+`bottomFree` is the room left under the content and `tight` is neighbours under
+4px apart — neither is a defect, both are what the screen actually is. `patch`
+prints the same summary under `layout` without being asked, so an edit answers
+with what it did to the layout.
+
+`align` is the one to read twice. A stack whose children share a left edge is
+aligned, one whose centres agree is centred, one that agrees on neither was
+aligned to nothing — and that defect passes every other check, because nothing
+overlaps and nothing leaves the page. An absolute child is the usual offender:
+its `left` is resolved from inside the parent's padding, so `padding: 16px`
+plus `left: 16px` puts it at 32 while the flow starts at 16.
+
+```json
+"align":["0/9 starts at 32, the flow at 16 — that is one padding: an absolute
+          left/right is measured from inside the parent's padding, so asking
+          for it again adds it twice"]
+```
+
+When spacing is the question, ask for the boxes:
+
+```bash
+npm run agent -- measure <doc.evg.json> --boxes --at=0/2
+{…,"boxes":[{"at":"0/2","x":16,"y":113,"w":358,"h":64,"gapNext":8}]}
+```
+
+`gapNext` is the distance the layout produced, not the one the markup asked
+for — the number to read before changing a `gap` or a margin.
 
 One exception, and it matters because it is the case you will hit with charts:
 on a **diagram** — anything exported from RangerFlow — every node is absolutely
@@ -95,6 +136,20 @@ positioned and every shape is a path with no box, so overlap and overflow have
 nothing to compare. Off-page is still caught. A label that outgrew the shape
 behind it is not. On a diagram, `"count":0` means "nothing left the page", not
 "this looks right" — render it and look.
+
+## A photograph, into a document
+
+```bash
+npm run agent:image                      # once, to build it
+node lib/evg/bin/evg_image_tool.js photo.png --out=photo --width=180
+npm run agent -- patch doc.evg.json photo.ops.json
+```
+
+The tracer turns a PNG or JPEG into flat colour layers and writes the patch
+that inserts them, so the picture arrives as vector — every backend paints it,
+and you never handle a coordinate. The command prints the palette with each
+colour's share of the pixels, which is what to theme a screen with when the
+picture is the brief.
 
 ## Getting a real document in
 

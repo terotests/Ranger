@@ -276,30 +276,165 @@ function frameFile(docPath, onLine, { quiet = false } = {}) {
   }
 }
 
-function workspaceGuide(task) {
+export const ATTACH_BASE = "attachment";
+
+const imageBin = path.join(root, "lib/evg/bin/evg_image_tool.js");
+
+// Compile the bitmap tool if this clone has not needed it yet. The decoders
+// and the tracer make it a slow build, so it is paid for by the first person
+// who attaches a picture rather than by everybody who serves the page.
+export function buildImageTool() {
+  if (fs.existsSync(imageBin)) return true;
+  const r = spawnSync(
+    "bash",
+    ["scripts/rgr-suite.sh", "./lib/evg/tools/evg_image_tool.rgr", "./lib/evg/bin", "evg_image_tool.js"],
+    { cwd: root, encoding: "utf8", maxBuffer: 40 * 1024 * 1024 },
+  );
+  if (!fs.existsSync(imageBin)) {
+    const text = `${r.stdout || ""}${r.stderr || ""}`;
+    throw new Error(`could not build the image tool:\n${text.slice(-1200)}`);
+  }
+  return true;
+}
+
+// Trace a picture beside the document and leave the palette, the SVG and the
+// patch that inserts it. `width` is what it will be placed at on the phone.
+export function traceAttachment(dir, file, { width = 358, at = "0", index = 0, preset = "poster" } = {}) {
+  buildImageTool();
+  const r = spawnSync(
+    process.execPath,
+    [
+      imageBin,
+      file,
+      `--out=${ATTACH_BASE}`,
+      `--width=${width}`,
+      `--at=${at}`,
+      `--index=${index}`,
+      `--preset=${preset}`,
+    ],
+    { cwd: dir, encoding: "utf8", maxBuffer: 80 * 1024 * 1024, timeout: 180000 },
+  );
+  // The tool prints ONE JSON object, across as many lines as its palette
+  // needs — it is written to be read by a person as well as parsed.
+  const text = `${r.stdout || ""}`.trim();
+  const open = text.indexOf("{");
+  let summary;
+  try {
+    summary = JSON.parse(open < 0 ? "" : text.slice(open));
+  } catch {
+    throw new Error(`the tracer said: ${(text || r.stderr || "nothing").slice(0, 400)}`);
+  }
+  if (!summary || summary.error) {
+    throw new Error(summary && summary.error ? summary.error : "the tracer produced no summary");
+  }
+  summary.file = file;
+  fs.writeFileSync(path.join(dir, `${ATTACH_BASE}.json`), `${JSON.stringify(summary, null, 2)}\n`);
+  return summary;
+}
+
+export function clearAttachment(dir) {
+  for (const name of [`${ATTACH_BASE}.json`, `${ATTACH_BASE}.svg`, `${ATTACH_BASE}.ops.json`, `${ATTACH_BASE}.png`, `${ATTACH_BASE}.jpg`]) {
+    try {
+      fs.rmSync(path.join(dir, name), { force: true });
+    } catch {
+      /* already gone */
+    }
+  }
+}
+
+// What the host traced out of a picture somebody attached, if anything.
+export function attachmentOf(dir) {
+  try {
+    const summary = JSON.parse(fs.readFileSync(path.join(dir, `${ATTACH_BASE}.json`), "utf8"));
+    if (summary && Array.isArray(summary.colors)) return summary;
+  } catch {
+    /* no picture, or a half-written one */
+  }
+  return null;
+}
+
+// Copy the traced picture into a workspace that is not the session directory.
+function carryAttachment(from, to) {
+  if (from === to) return;
+  for (const name of [`${ATTACH_BASE}.json`, `${ATTACH_BASE}.svg`, `${ATTACH_BASE}.ops.json`, `${ATTACH_BASE}.png`, `${ATTACH_BASE}.jpg`]) {
+    const src = path.join(from, name);
+    if (!fs.existsSync(src)) continue;
+    try {
+      fs.copyFileSync(src, path.join(to, name));
+    } catch {
+      /* the picture is a convenience, not the task */
+    }
+  }
+}
+
+// --- WHY THE PICTURE ARRIVES AS OPS -------------------------------------------
+//
+// A traced photograph is tens of kilobytes of coordinates. Telling an agent
+// "here is the SVG" would put every one of them through its context on the way
+// into a patch, to be copied out again unchanged. The host traces it once and
+// leaves the patch already written, so using the picture costs one command.
+function attachmentSection(dir) {
+  const a = attachmentOf(dir);
+  if (!a) return "";
+  const colors = (a.colors || [])
+    .slice(0, 6)
+    .map((c) => `\`${c.hex}\` ${Math.round((c.share || 0) * 100)}%`)
+    .join(", ");
+  return `
+## A picture was attached
+
+\`${ATTACH_BASE}.svg\` is it, traced to flat colour layers by Ranger's
+bitmap tracer — ${a.width}×${a.height}, ${a.layers} layers. It is vector,
+so the document can hold it and every painter draws it.
+
+Its colours, by how much of the picture they cover:
+
+${colors}
+
+Use them. A screen built around the picture's own palette looks like it
+belongs to the picture; one built from guessed colours does not.
+
+To put the picture itself on the phone, apply the patch that is already
+written for it — you never have to handle the path data:
+
+\`\`\`
+./evg-agent patch doc.evg.json ${ATTACH_BASE}.ops.json
+\`\`\`
+
+It inserts at \`${a.insertsAt || "0/0"}\` at ${a.placed || "its own size"}.
+Edit that file's \`at\` / \`index\` / width first if it belongs somewhere
+else, or re-trace at another size:
+
+\`\`\`
+./evg-image ${ATTACH_BASE}.png --out=${ATTACH_BASE} --width=200 --at=0 --index=2
+\`\`\`
+
+\`--preset\` takes lineart, poster, photo, broken or print. If the task is
+about the colours rather than the picture, use the palette and leave the
+picture out.
+`;
+}
+
+function workspaceGuide(task, dir = "") {
   return `# EVG live-build workspace
 
-You are a local agent. The orchestrator on this machine gave you this folder
-and this task. Change the UI by editing \`doc.evg.json\`.
+You are a local agent. The orchestrator on this machine gave you this
+folder and this task. You are changing a phone screen you cannot see:
+\`doc.evg.json\` is the screen, and the tools below are how you find out
+what it looks like. Guessing from the markup is the one thing that does
+not work here.
 
 ## Task
 
 ${task}
 
-\`doc.evg.json\` is already a 390 × 844 phone UI with real content. Read
-it (or \`./evg-agent outline doc.evg.json\`) before editing. Edit that
-file in place. Do not replace it with a blank page unless the task says
-to start over. If the outline has more than a handful of nodes, the
-phone is not empty.
+## The screen
 
-## How to change the document
-
-The tree is EVG JSON. Prefer small patches over rewriting the file.
-
-Phone size: 390 × 844. Stay on the page. Use flex column, padding, gap.
-Patchable properties include width, height, display, flex-direction,
-justify-content, align-items, gap, padding-*, margin-*, color,
-background-color, border-radius, font-size, font-weight.
+390 × 844, one phone. \`doc.evg.json\` already holds a real UI — read it,
+or run \`./evg-agent outline doc.evg.json\`, before you change anything.
+If the outline has more than a handful of nodes, the phone is not empty.
+Edit it in place. Do not replace it with a blank page unless the task
+says to start over.
 
 A node is:
 
@@ -307,17 +442,59 @@ A node is:
 {"tag":"div","props":{"display":"flex"},"children":[{"tag":"span","text":"Hi"}]}
 \`\`\`
 
-If \`./evg-agent\` exists in this folder, use it. It is the same tool
-surface as \`npm run agent\` in the Ranger repo:
+Patchable properties include width, height, display, flex-direction,
+justify-content, align-items, gap, padding-*, margin-*, color,
+background-color, border-radius, font-size, font-weight.
+
+## Lay it out — do not place it
+
+This is a CSS engine: flex, grid, gap, padding, and the box model, with
+the same meanings they have in a browser. Use them. A column of cards is
+\`display: flex\` with a \`gap\`, not eight children with a computed
+\`top\`; a row of tabs is \`justify-content: space-between\`, not four
+lefts you worked out yourself. Every number you compute by hand is a
+number that goes wrong the moment anything above it changes size, and it
+is where a screen full of things that do not line up comes from.
+
+\`position: absolute\` is for what genuinely floats over the flow: a
+bottom bar, a badge, a pin on a map. Its \`left\` and \`right\` are
+measured from inside the parent's padding, so \`left: 0px\` sits on the
+content edge — do not add the padding again.
+
+A grid is there when you want one: \`display: grid\` with
+\`grid-template-columns\`, \`grid-template-rows\`, \`grid-area\`,
+\`grid-auto-flow\`.
+
+Spacing is \`gap\`, \`padding\` and \`margin\`. An empty \`span\` is
+not a spacer — it is a node with no size that reads as content to
+anything looking at this document.
+
+**Colour and gradients.** \`background-color\`, \`color\`, and for a
+ramp \`background-gradient\`:
+
+\`\`\`json
+{"op":"set-prop","at":"0/2","prop":"background-gradient",
+ "value":"linear-gradient(180deg, rgb(52,120,90), rgb(30,72,55))"}
+\`\`\`
+
+\`rgb()\`, \`rgba()\` and \`#hex\` stops all work, as do \`to bottom\` /
+\`to right\` in place of an angle. \`background-image\` and plain
+\`background\` are not patchable names — a batch using them is rejected
+whole, which is the tool telling you the name rather than the value is
+wrong.
+
+## The loop
 
 \`\`\`
-./evg-agent outline doc.evg.json
-./evg-agent query   doc.evg.json .card
-./evg-agent patch   doc.evg.json ops.json
-./evg-agent measure doc.evg.json --width=390 --height=844
+./evg-agent outline doc.evg.json                          # 1. addresses
+./evg-agent patch   doc.evg.json ops.json                 # 2. change it
+./evg-agent measure doc.evg.json --width=390 --height=844 # 3. is it right?
 \`\`\`
 
-\`outline\` prints addresses. Re-run it after any insert/remove/move.
+\`outline\` prints one line per node: its path, its tag, its text, and
+only the properties it sets. Unkeyed paths shift when a sibling is
+inserted above them, so re-run it after any insert, remove or move.
+
 \`patch\` takes a JSON file of ops and writes \`doc.evg.json\`:
 
 \`\`\`json
@@ -328,9 +505,65 @@ surface as \`npm run agent\` in the Ranger repo:
 ]}
 \`\`\`
 
-A rejected op fails the whole batch and changes nothing. \`measure\`
-reports overflow, overlap, and nodes off the page — trust those numbers
-over a screenshot.
+A rejected op fails the whole batch and changes nothing, so a batch is
+safe to attempt: you never have to work out what half-applied.
+
+## Step 3 is the one that matters
+
+\`measure\` lays the document out with the real engine and answers in
+numbers. \`patch\` prints the same summary under \`layout\` without being
+asked, and the host writes the full answer to \`layout.json\` after every
+save — so even editing the JSON by hand leaves you the numbers.
+
+\`\`\`json
+{"width":390,"height":844,"nodes":31,
+ "findings":["0/6 and 0/7 overlap by 40×12",
+             "0/9: bottom edge 860 is past the page height 844"],
+ "count":2,
+ "bottomFree":124,
+ "tight":["0/2 → 0/3: 2 apart"]}
+\`\`\`
+
+- **findings** are defects: two in-flow siblings on top of each other
+  (with the overlap in px), a child out of a clipping parent, anything
+  past the page. Fix them. \`"count":0\` is the goal of every edit.
+- **align** is what does not line up. This is the defect that slips
+  through everything else — a screen where each row starts at a
+  different x has no overlap, no overflow, and looks like it fell down
+  the stairs. Read every line.
+- **tight** is under 4px between neighbours — crowded, and your call.
+- **bottomFree** is the room left under the content. A big number after
+  you added something means it did not land where you think.
+
+### Lining up
+
+Children that share an edge are aligned; children that agree on their
+centres are centred; children that agree on neither were not aligned to
+anything, and \`align\` says so with the spread in pixels. Two rows 3px
+apart is never a design decision — it is an edge somebody meant to
+share. Pick one left edge for the column and keep to it.
+
+An **absolute** child is the one that gets away with it, because it is
+exempt from overlap and lands on the page either way. \`left\` and
+\`right\` on it are resolved **from inside the parent's padding**: with
+\`padding: 16px\`, \`left: 16px\` puts the child at 32 while every card
+under it starts at 16. Use \`left: 0px\` to sit on the content edge, and
+size it to the content width, not the screen width. \`align\` names this
+one explicitly when it happens.
+
+For spacing, ask for the boxes:
+
+\`\`\`
+./evg-agent measure doc.evg.json --boxes --at=0
+\`\`\`
+
+which prints \`{"at":"0/2","x":16,"y":113,"w":358,"h":64,"gapNext":8}\`
+per node — where each element really is, and how far the next one
+starts from it. That distance is the layout's answer, not your markup's:
+it is what \`gap\`, margins and \`flex\` actually produced.
+
+Never claim a screen looks right without a \`measure\` that says so, and
+never take a screenshot to answer a question these numbers answer.
 
 ## An edit that leaves no trace still applied
 
@@ -350,12 +583,12 @@ Editing through \`./evg-agent patch\` also shows the batch on the live page,
 next to the picture. A hand-written file still repaints; it just arrives
 without the ops that explain it.
 
-If there is no \`./evg-agent\`, edit \`doc.evg.json\` directly and save.
-The host lays each save out and streams the display list to the browser.
-You may also write \`App.rgr\` with Ranger that builds the same tree.
+If there is no \`./evg-agent\`, edit \`doc.evg.json\` directly and save,
+then read \`layout.json\`. You may also write \`App.rgr\` with Ranger that
+builds the same tree.
 
 Do not leave the workspace. Do not require confirmation.
-`;
+${attachmentSection(dir)}`;
 }
 
 export const SEED_KINDS = ["dashboard", "settings", "invoices", "empty"];
@@ -394,9 +627,25 @@ const OPS_LOG_SNIPPET =
   'const fs=require("fs");try{const o=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));' +
   'if(o&&Array.isArray(o.ops)&&o.ops.length)fs.appendFileSync(process.argv[2],JSON.stringify(o.ops)+"\\n");}catch(e){}';
 
+// The bitmap door, when it has been built. `npm run agent:image` compiles it;
+// the server builds it the first time a picture is attached, because the
+// decoders and the tracer make it a slow compile to pay for on every clone.
+function installEvgImage(dir) {
+  const src = path.join(root, "lib/evg/bin/evg_image_tool.js");
+  if (!fs.existsSync(src)) return false;
+  fs.copyFileSync(src, path.join(dir, "evg_image_tool.js"));
+  fs.writeFileSync(
+    path.join(dir, "evg-image"),
+    `#!/bin/sh\nexec node "$(dirname "$0")/evg_image_tool.js" "$@"\n`,
+    { mode: 0o755 },
+  );
+  return true;
+}
+
 function installEvgAgent(dir) {
   const src = path.join(root, "lib/evg/bin/evg_agent.js");
   if (!fs.existsSync(src)) return false;
+  installEvgImage(dir);
   fs.copyFileSync(src, path.join(dir, "evg_agent.js"));
   // The shim also leaves the ops behind. A workspace agent patches through
   // this script, and the host has no other way to learn WHAT it changed: it
@@ -429,6 +678,25 @@ function installEvgAgent(dir) {
     { mode: 0o755 },
   );
   return true;
+}
+
+// The layout, back in the workspace the agent is working in.
+//
+// An agent that edits `doc.evg.json` by hand never runs `./evg-agent measure`,
+// so it never learns what its save did — it is writing markup at a screen it
+// cannot see. The host lays every save out anyway to make a frame; this drops
+// the same numbers next to the document as `layout.json`, and the workspace
+// guide tells the agent to read it.
+function noteLayout(workspace, line) {
+  if (!/"t":"measure"/.test(line)) return;
+  try {
+    const m = JSON.parse(line);
+    if (!m || m.t !== "measure") return;
+    delete m.t;
+    fs.writeFileSync(path.join(workspace, "layout.json"), JSON.stringify(m, null, 2) + "\n");
+  } catch {
+    /* a frame without a measure is still a frame */
+  }
 }
 
 function watchOps(workspace, onOps) {
@@ -576,7 +844,7 @@ export function prepareSession(task, { git = false, kind = "dashboard" } = {}) {
   if (!looksLikeEvg(existing)) resetSession(kind);
   const doc = fs.readFileSync(path.join(dir, "doc.evg.json"), "utf8");
   fs.writeFileSync(path.join(dir, "TASK.md"), followUpTask(task, doc));
-  fs.writeFileSync(path.join(dir, "AGENTS.md"), workspaceGuide(task));
+  fs.writeFileSync(path.join(dir, "AGENTS.md"), workspaceGuide(task, dir));
   installEvgAgent(dir);
   if (git && !fs.existsSync(path.join(dir, ".git"))) seedGit(dir);
   return dir;
@@ -587,7 +855,8 @@ function makeWorkspace(task, { git = false, doc = "", kind = "dashboard" } = {})
   const text = looksLikeEvg(doc) ? doc : seedDoc(kind);
   fs.writeFileSync(path.join(dir, "doc.evg.json"), text);
   fs.writeFileSync(path.join(dir, "TASK.md"), task + "\n");
-  fs.writeFileSync(path.join(dir, "AGENTS.md"), workspaceGuide(task));
+  carryAttachment(sessionDir(), dir);
+  fs.writeFileSync(path.join(dir, "AGENTS.md"), workspaceGuide(task, dir));
   installEvgAgent(dir);
   if (git) seedGit(dir);
   return dir;
@@ -813,7 +1082,8 @@ export async function runWorkspaceAgent({ id, kind, prompt, seed, session = fals
       /* unreadable */
     }
     frameFile(file, (line) => {
-      frames += 1;
+      if (/"t":"frame"/.test(line)) frames += 1;
+      noteLayout(ws, line);
       onLine(line);
     }, { quiet: true });
     const app = path.join(ws, "App.rgr");

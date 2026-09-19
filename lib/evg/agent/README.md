@@ -74,6 +74,18 @@ $ npm run agent -- patch doc.evg.json ops.json
 ]}
 ```
 
+`patch` answers with `layout` too — the same summary, without being asked:
+
+```
+{"ok":true,"applied":1,"wrote":"doc.evg.json",
+ "layout":{"nodes":30,"count":1,"bottomFree":-13,
+           "findings":["0/8: bottom edge 856 is past the page height 844"]},
+ "inverse":[…]}
+```
+
+An agent that patches and stops has changed a picture it cannot see. One
+layout pass here costs less than the round trip it would skip.
+
 The `inverse` list is a **runnable ops file**: save it, run `patch` with the
 ops in reverse order, and the document is what it was. That is the difference
 between "here is how to undo it" and "here is a description of the undo".
@@ -107,11 +119,11 @@ Four rules worth knowing before writing ops:
 ```
 $ npm run agent -- measure lib/evg/agent/fixtures/broken.evg.json --width=600 --height=300
 {"width":600,"height":300,"nodes":5,"findings":[
-  "0/0 and 0/1 overlap",
+  "0/0 and 0/1 overlap by 100×40",
   "0/0/0 overflows its parent to the right by 200",
   "0/2: right edge 820 is past the page width 600",
   "0/2: bottom edge 320 is past the page height 300"
-],"count":4}
+],"count":4,"bottomFree":200}
 ```
 
 It lays the document out and answers, in numbers, whether the result is wrong.
@@ -119,9 +131,49 @@ A screenshot asks a model to *see* that — badly, and for a thousand times the
 tokens. This reads it off the boxes layout already computed.
 
 What it checks today: a node past the page, a child spilling out of a parent
-that clips, and two in-flow siblings on top of each other. `overflow: visible`
-is not a finding — the author meant it to spill. Absolutely positioned nodes
-are not checked for overlap; overlapping is what they are for.
+that clips, and two in-flow siblings on top of each other — with the overlap
+in pixels, because "they overlap" and "they overlap by 1" are different bugs.
+`overflow: visible` is not a finding — the author meant it to spill. Absolutely
+positioned nodes are not checked for overlap; overlapping is what they are for.
+
+Two numbers come back on a sound document as well, because "nothing is wrong"
+is not the same as "this is what it looks like":
+
+- **`bottomFree`** — the room left under the content, absolutes excluded. A
+  screen that grew by a card and reports the same free space did not put the
+  card where you think.
+- **`tight`** — neighbours less than 4px apart. Not a defect; the measurement
+  of one, for a caller who can decide whether 2px between two cards was meant.
+- **`align`** — what does not line up. Children that share a left edge are
+  aligned, children whose centres agree are centred, children that agree on
+  neither were aligned to nothing, and the spread says by how much. This is
+  the defect every other check misses: a screen where each row starts at a
+  different x has no overlap, no overflow, and is plainly wrong to look at.
+  An absolutely positioned child is compared against the flow it floats over,
+  because it is exempt from every other check and still has to line up; when
+  it is off by exactly the parent's padding, the report says so, since `left`
+  on an absolute child is resolved from inside that padding and asking for it
+  again adds it twice.
+
+### Distances, when spacing is the question
+
+```
+$ npm run agent -- measure doc.evg.json --boxes --at=0/2
+{…,"boxes":[
+  {"at":"0/2","tag":"div","x":16,"y":113,"w":358,"h":64,"gapNext":8},
+  {"at":"0/2/0","tag":"span","x":32,"y":122,"w":65,"h":29,"gapNext":4,"text":"1,284"}
+]}
+```
+
+Where each node really is, and how far the next sibling starts from it.
+`gapNext` is the layout's answer, not the markup's: it is what `gap`, the
+margins and `flex` actually produced, which is the thing a model cannot work
+out from the document it just wrote. The listing is the only part of `measure`
+that grows with the document, so it costs nothing until `--boxes` asks for it,
+and `--at` narrows it to one subtree.
+
+The same checks run inside the live-build server (`EVGMeasure`), so the numbers
+the agent reads and the numbers the page shows cannot drift apart.
 
 A `path` has no box — its geometry is the `d` string — so its page bounds are
 read from the coordinates in `d`, control points included. That bound is looser
@@ -135,6 +187,39 @@ checks have nothing to work with: a label that no longer fits the shape drawn
 behind it is not a finding, because nothing in the document says the two belong
 together. Off-page is caught; fit is not. Look at a diagram before believing a
 count of zero.
+
+## A bitmap in — `evg_image_tool`
+
+```
+$ npm run agent:image                       # once, to build it
+$ node lib/evg/bin/evg_image_tool.js photo.png --out=photo --width=180
+{"width":320,"height":221,"layers":8,"rings":126,"colors":[
+  {"hex":"#E3C8A6","share":0.223},
+  {"hex":"#F0E9D4","share":0.214},
+  {"hex":"#0E184D","share":0.108}
+],"wrote":{"svg":"photo.svg","ops":"photo.ops.json"},
+ "insertsAt":"0/0","placed":"180x124"}
+```
+
+A model handed a photograph can describe it and cannot put it on a screen. The
+bridge — `EvgBitmapTracer`, the same one the live tracer page and erazer use —
+has been here all along with nothing pointing an agent at it. This turns an
+image into the two things an agent can act on:
+
+- **the picture**, traced to flat colour layers and written out as an ops file,
+  so `npm run agent -- patch doc.evg.json photo.ops.json` puts it in the
+  document. It goes in as an `svg` node: vector, painted by the browser, the
+  rasteriser and the PDF backend alike, with no image loading anywhere.
+- **the colours**, each with its share of the pixels — counted over the image,
+  not inferred from how many paths a layer produced, because one huge
+  background region and four hundred specks of the same colour say opposite
+  things about which colour the picture *is*.
+
+The ops file is the point. A traced photograph is tens of kilobytes of
+coordinates, and printing them would put every one through a model's context on
+the way back into a patch. `--at` and `--index` say where the picture is
+inserted, `--width` what it is placed at, and `--preset` picks how it is traced
+(lineart, poster, photo, broken, print — see `EvgTraceTypes.rgr`).
 
 ## Getting a real document in, and a picture out
 

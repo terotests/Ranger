@@ -75,101 +75,226 @@ class EVGGradient {
     ; linear-gradient(90deg, #e74c3c, #f39c12, #2ecc71, #3498db)
     sfn parse:EVGGradient (gradStr:string) {
         def grad:EVGGradient (new EVGGradient())
-        
+
         def len:int (strlen gradStr)
         if (len == 0) {
             return grad
         }
-        
-        ; Check gradient type
+
         def linearIdx:int (indexOf gradStr "linear-gradient")
         def radialIdx:int (indexOf gradStr "radial-gradient")
-        
+
         if (linearIdx >= 0) {
             grad.isLinear = true
             grad.isSet = true
+            ; CSS with no direction runs TOP TO BOTTOM. The field's own default
+            ; is 0 — to the top — so a gradient written the shortest way came
+            ; out upside down, and every painter agreed with the other about
+            ; the wrong answer.
+            grad.angle = 180.0
         }
         if (radialIdx >= 0) {
             grad.isLinear = false
             grad.isSet = true
         }
-        
+
         if (grad.isSet == false) {
             return grad
         }
-        
-        ; Parse angle for linear gradient
-        if grad.isLinear {
-            def degIdx:int (indexOf gradStr "deg")
-            if (degIdx > 0) {
-                def startIdx:int (indexOf gradStr "(")
-                if (startIdx >= 0) {
-                    def angleStr:string (substring gradStr (startIdx + 1) degIdx)
-                    def angleVal@(optional):double (to_double (trim angleStr))
-                    if angleVal {
-                        grad.angle = (unwrap angleVal)
-                    }
-                }
+
+        ; The arguments, split where CSS splits them. A naive split on every
+        ; comma cuts `rgb(52,120,90)` into three pieces that are not colors,
+        ; which is why a gradient written in `rgb()` used to parse to a
+        ; gradient with NO STOPS — and an element with no stops emitted no
+        ; background at all, so the node disappeared from the picture.
+        def args:[string]
+        EVGGradient.splitArgs(gradStr args)
+        def n:int (array_length args)
+        if (n == 0) {
+            return grad
+        }
+
+        def first:int 0
+        def head:string (trim (itemAt args 0))
+        if ((EVGGradient.colorOf(head)).isSet) {
+        } {
+            ; Not a color, so it is the direction (or a radial's shape).
+            first = 1
+            if grad.isLinear {
+                grad.angle = (EVGGradient.angleOf(head grad.angle))
             }
         }
-        
-        ; Parse colors - find all hex colors (#xxx or #xxxxxx)
+
         def colors:[EVGColor]
-        def i:int 0
-        while (i < len) {
-            def ch:int (charAt gradStr i)
-            if (ch == 35) { ; '#'
-                ; Found a color - extract hex digits
-                def colorStart:int i
-                def colorEnd:int (i + 1)
-                while (colorEnd < len) {
-                    def c:int (charAt gradStr colorEnd)
-                    ; Check if hex digit (0-9, a-f, A-F)
-                    def isHex:boolean false
-                    if ((c >= 48) && (c <= 57)) {
-                        isHex = true
-                    }
-                    if ((c >= 65) && (c <= 70)) {
-                        isHex = true
-                    }
-                    if ((c >= 97) && (c <= 102)) {
-                        isHex = true
-                    }
-                    if isHex {
-                        colorEnd = colorEnd + 1
-                    } {
-                        break
-                    }
-                }
-                def colorStr:string (substring gradStr colorStart colorEnd)
-                def parsedColor:EVGColor (EVGColor.parseHex(colorStr))
-                if parsedColor.isSet {
-                    push colors parsedColor
-                }
-                i = colorEnd
-            } {
-                i = i + 1
+        def stopsAt:[double]
+        def i:int first
+        while (i < n) {
+            def arg:string (trim (itemAt args i))
+            def col:EVGColor (EVGGradient.colorOf(arg))
+            if col.isSet {
+                push colors col
+                push stopsAt (EVGGradient.positionOf(arg))
             }
+            i = (i + 1)
         }
-        
-        ; Create stops with evenly distributed percentages
+
         def numColors:int (array_length colors)
         if (numColors > 0) {
             def colorIdx:int 0
             while (colorIdx < numColors) {
-                def pct:double 0.0
-                if (numColors > 1) {
-                    pct = ((to_double colorIdx) / (to_double (numColors - 1)))
+                def pct:double (itemAt stopsAt colorIdx)
+                if (pct < 0.0) {
+                    pct = 0.0
+                    if (numColors > 1) {
+                        pct = ((to_double colorIdx) / (to_double (numColors - 1)))
+                    }
                 }
                 def col:EVGColor (itemAt colors colorIdx)
                 grad.addStop(pct col)
                 colorIdx = colorIdx + 1
             }
         }
-        
+
         return grad
     }
-    
+
+    ; What is inside the outermost parentheses, cut at the commas that are not
+    ; inside a nested call.
+    sfn splitArgs:void (src:string out:[string]) {
+        def len:int (strlen src)
+        def open:int (indexOf src "(")
+        if (open < 0) {
+            return
+        }
+        def depth:int 0
+        def cur:string ""
+        def i:int open
+        while (i < len) {
+            def c:int (charAt src i)
+            if (c == 40) {
+                depth = (depth + 1)
+                if (depth > 1) {
+                    cur = (cur + "(")
+                }
+            } {
+                if (c == 41) {
+                    depth = (depth - 1)
+                    if (depth == 0) {
+                        if ((strlen (trim cur)) > 0) {
+                            push out cur
+                        }
+                        return
+                    }
+                    cur = (cur + ")")
+                } {
+                    if ((c == 44) && (depth == 1)) {
+                        if ((strlen (trim cur)) > 0) {
+                            push out cur
+                        }
+                        cur = ""
+                    } {
+                        cur = (cur + (substring src i (i + 1)))
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if ((strlen (trim cur)) > 0) {
+            push out cur
+        }
+    }
+
+    ; The color in one argument, ignoring a stop position written after it.
+    ; `rgb(…)` and friends end at their own closing bracket; everything else
+    ; ends at the first space.
+    sfn colorOf:EVGColor (arg:string) {
+        def text:string (trim arg)
+        def n:int (strlen text)
+        if (n == 0) {
+            return (EVGColor.noColor())
+        }
+        def close:int (indexOf text ")")
+        if (close >= 0) {
+            return (EVGColor.parse((substring text 0 (close + 1))))
+        }
+        def sp:int (indexOf text " ")
+        if (sp > 0) {
+            return (EVGColor.parse((substring text 0 sp)))
+        }
+        return (EVGColor.parse(text))
+    }
+
+    ; A stop written as a percentage, or -1 when the argument does not say.
+    sfn positionOf:double (arg:string) {
+        def text:string (trim arg)
+        def pct:int (indexOf text "%")
+        if (pct <= 0) {
+            return (0.0 - 1.0)
+        }
+        def start:int pct
+        while (start > 0) {
+            def c:int (charAt text (start - 1))
+            def isNum:boolean (((c >= 48) && (c <= 57)) || ((c == 46) || (c == 45)))
+            if (isNum == false) {
+                break
+            }
+            start = (start - 1)
+        }
+        if (start == pct) {
+            return (0.0 - 1.0)
+        }
+        def v@(optional):double (to_double (substring text start pct))
+        if (null? v) {
+            return (0.0 - 1.0)
+        }
+        return ((unwrap v) / 100.0)
+    }
+
+    ; `45deg`, or the `to …` keywords CSS accepts in place of one. An angle is
+    ; the direction the ramp TRAVELS, 0 to the top and 90 to the right.
+    sfn angleOf:double (spec:string fallback:double) {
+        def text:string (trim spec)
+        def deg:int (indexOf text "deg")
+        if (deg > 0) {
+            def v@(optional):double (to_double (trim (substring text 0 deg)))
+            if (null? v) {
+                return fallback
+            }
+            return (unwrap v)
+        }
+        if ((indexOf text "to ") == 0) {
+            def toTop:boolean ((indexOf text "top") > 0)
+            def toBottom:boolean ((indexOf text "bottom") > 0)
+            def toLeft:boolean ((indexOf text "left") > 0)
+            def toRight:boolean ((indexOf text "right") > 0)
+            if (toTop && toRight) {
+                return 45.0
+            }
+            if (toBottom && toRight) {
+                return 135.0
+            }
+            if (toBottom && toLeft) {
+                return 225.0
+            }
+            if (toTop && toLeft) {
+                return 315.0
+            }
+            if toTop {
+                return 0.0
+            }
+            if toRight {
+                return 90.0
+            }
+            if toBottom {
+                return 180.0
+            }
+            if toLeft {
+                return 270.0
+            }
+        }
+        return fallback
+    }
+
     ; Convert back to CSS string
     fn toCSSString:string () {
         if (isSet == false) {

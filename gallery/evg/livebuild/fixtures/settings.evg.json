@@ -30,7 +30,7 @@
       {"tag":"span","text":"Appearance","props":{"font-size":"15px","color":"rgb(15,23,42)"}},
       {"tag":"span","text":"System","props":{"font-size":"13px","color":"rgb(100,116,139)"}}
     ]},
-    {"tag":"div","props":{"display":"flex","position":"absolute","flex-direction":"row","justify-content":"center","align-items":"center","width":"358px","height":"48px","left":"16px","bottom":"16px","font-size":"14px","background-color":"rgb(254,226,226)","border-radius":"12px"},"children":[
+    {"tag":"div","props":{"display":"flex","position":"absolute","flex-direction":"row","justify-content":"center","align-items":"center","width":"358px","height":"48px","left":"0px","bottom":"16px","font-size":"14px","background-color":"rgb(254,226,226)","border-radius":"12px"},"children":[
       {"tag":"span","text":"Sign out","props":{"font-weight":"bold","font-size":"15px","color":"rgb(185,28,28)"}}
     ]}
   ]}}

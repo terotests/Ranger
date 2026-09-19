@@ -59,6 +59,22 @@
   .chip.active { border-color: #2dd4bf88; color: var(--accent); }
   .chip.off { opacity: .45; cursor: not-allowed; }
   .lbl { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+  /* A picture attached to the ask: what it traced to, and the colours it is
+     made of, so the palette is visible to the person too. */
+  .attach { display: flex; align-items: center; gap: 8px; }
+  .shot {
+    display: none; align-items: center; gap: 8px; padding: 4px 10px 4px 4px;
+    border: 1px solid var(--line); border-radius: 999px; background: #0b1220;
+    font-size: 11.5px; color: var(--muted);
+  }
+  .shot.on { display: flex; }
+  .shot img { width: 30px; height: 30px; object-fit: cover; border-radius: 8px; }
+  .swatches { display: flex; gap: 3px; }
+  .swatch { width: 12px; height: 12px; border-radius: 3px; border: 1px solid rgba(255,255,255,.14); }
+  .shot button {
+    border: 0; background: none; color: var(--muted); padding: 0 2px;
+    font-size: 14px; line-height: 1; cursor: pointer;
+  }
   main {
     display: grid;
     grid-template-columns: minmax(280px, 420px) 1fr;
@@ -97,6 +113,14 @@
     font-variant-numeric: tabular-nums;
   }
   .meta b { color: var(--accent); font-weight: 650; }
+  .meta b.bad { color: var(--warn); }
+  /* The layout numbers, next to the picture they are about. A model cannot
+     see the screen; this is the part of it that can be read. */
+  .findings {
+    margin-top: 8px; max-width: 414px; text-align: center;
+    color: var(--muted); font-size: 11.5px; line-height: 1.5;
+  }
+  .findings .bad { color: var(--warn); }
   .side {
     display: grid; grid-template-rows: 1.1fr 1fr 1.1fr; min-height: 0;
   }
@@ -149,6 +173,16 @@
       placeholder="Change this phone, then Follow up. Start-over chips wipe it.">
     <button class="primary" id="go" type="submit">Follow up</button>
   </form>
+  <div class="attach">
+    <input type="file" id="pick" accept="image/png,image/jpeg" hidden>
+    <button type="button" class="chip" id="attach" title="Attach a picture — it is traced to vector and its colours read">Picture</button>
+    <span class="shot" id="shot">
+      <img id="thumb" alt="">
+      <span class="swatches" id="swatches"></span>
+      <span id="shotText"></span>
+      <button type="button" id="drop" title="Remove">×</button>
+    </span>
+  </div>
   <div class="chips" id="chips"></div>
   <div class="agents" id="agents"></div>
 </header>
@@ -163,7 +197,9 @@
       <span>delta <b id="added">0</b></span>
       <span>nodes <b id="nodes">0</b></span>
       <span>tokens <b id="ntok">0</b></span>
+      <span>layout <b id="lay">—</b></span>
     </div>
+    <div class="findings" id="findings"></div>
   </div>
   <div class="side">
     <section>
@@ -249,6 +285,7 @@ async function loadSeed(kind) {
   const d = await (await fetch("/seed?kind=" + encodeURIComponent(kind))).json();
   current = d.kind || kind;
   paintFrame(d);
+  paintMeasure(d.measure);
   $("added").textContent = "seed";
   $("kindLabel").textContent = current;
   $("think").innerHTML = '<span class="empty">This phone is the live document. Type a change and press Follow up — it edits this screen. Start-over chips (Dashboard / Empty) wipe it.</span>';
@@ -260,6 +297,39 @@ async function loadSeed(kind) {
   pendingBreak = false;
   atParagraphStart = true;
   spin(false);
+}
+
+// `measure` is the layout answering for itself: what overlaps and by how much,
+// what left the page, how close two things are, how much room is left. It is
+// streamed after every frame and was going nowhere until now.
+function paintMeasure(m) {
+  if (!m) {
+    $("lay").textContent = "—";
+    $("lay").className = "";
+    $("findings").textContent = "";
+    return;
+  }
+  // `count` is defects; a screen where nothing lines up has none of those and
+  // is still wrong, so the badge counts both.
+  const n = (m.count || 0) + (m.align || []).length;
+  $("lay").textContent = n ? String(n) : "ok";
+  $("lay").className = n ? "bad" : "";
+  const room = Number.isFinite(m.bottomFree) ? `${m.bottomFree}px free below the content` : "";
+  const bad = [...(m.findings || []), ...(m.align || [])].slice(0, 3);
+  const near = (m.tight || []).slice(0, 2);
+  $("findings").replaceChildren();
+  for (const text of bad) {
+    const el = document.createElement("div");
+    el.className = "bad";
+    el.textContent = text;
+    $("findings").appendChild(el);
+  }
+  const rest = [...near, room].filter(Boolean).join(" · ");
+  if (rest) {
+    const el = document.createElement("div");
+    el.textContent = rest;
+    $("findings").appendChild(el);
+  }
 }
 
 function paintFrame(d) {
@@ -285,6 +355,7 @@ function start(keepPicture) {
   $("nodes").textContent = keepPicture ? $("nodes").textContent : "0";
   $("ntok").textContent = "0";
   $("kindLabel").textContent = "";
+  paintMeasure(null);
   $("go").disabled = true;
   if (!keepPicture) $("screen").replaceChildren();
   const prompt = $("prompt").value.trim() || current;
@@ -347,6 +418,7 @@ function start(keepPicture) {
     $("added").textContent = "+" + String(d.added || 0);
     paintFrame(d);
   });
+  on("measure", paintMeasure);
   on("error", (d) => {
     $("think").append("\n\nerror: " + (d.text || "failed"));
     pendingBreak = true;
@@ -368,6 +440,88 @@ function start(keepPicture) {
     }
   };
 }
+
+// --- THE ATTACHED PICTURE -----------------------------------------------------
+//
+// The file never reaches the model. The host traces it with Ranger's bitmap
+// tracer and the agent is handed flat colour layers and a counted palette,
+// which is the part it can act on; this row is so the person can see what was
+// read out of their picture.
+function showShot(a, dataUrl) {
+  const on = Boolean(a && a.colors && a.colors.length);
+  $("shot").classList.toggle("on", on);
+  if (!on) {
+    $("thumb").removeAttribute("src");
+    $("swatches").replaceChildren();
+    $("shotText").textContent = "";
+    return;
+  }
+  if (dataUrl) $("thumb").src = dataUrl;
+  $("swatches").replaceChildren();
+  for (const c of a.colors.slice(0, 6)) {
+    const sw = document.createElement("span");
+    sw.className = "swatch";
+    sw.style.background = c.hex;
+    sw.title = `${c.hex} · ${Math.round((c.share || 0) * 100)}%`;
+    $("swatches").appendChild(sw);
+  }
+  $("shotText").textContent = `${a.width}×${a.height}, ${a.layers} layers`;
+}
+
+async function sendShot(file) {
+  const dataUrl = await new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result || ""));
+    r.onerror = () => reject(new Error("could not read that file"));
+    r.readAsDataURL(file);
+  });
+  $("attach").textContent = "Tracing…";
+  $("attach").disabled = true;
+  try {
+    const res = await fetch("/attach", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ dataUrl, width: 358 }),
+    });
+    const a = await res.json();
+    if (a.error) throw new Error(a.error);
+    showShot(a, dataUrl);
+  } catch (e) {
+    $("shot").classList.remove("on");
+    $("think").append("\n\nattach: " + (e.message || e));
+  } finally {
+    $("attach").textContent = "Picture";
+    $("attach").disabled = false;
+  }
+}
+
+$("attach").addEventListener("click", () => $("pick").click());
+$("pick").addEventListener("change", () => {
+  const file = $("pick").files && $("pick").files[0];
+  if (file) sendShot(file);
+  $("pick").value = "";
+});
+$("drop").addEventListener("click", async () => {
+  await fetch("/attach", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ clear: true }),
+  });
+  showShot(null);
+});
+// A screenshot in the clipboard is the usual way one of these arrives.
+window.addEventListener("paste", (ev) => {
+  for (const item of (ev.clipboardData && ev.clipboardData.items) || []) {
+    if (item.type && item.type.startsWith("image/")) {
+      const file = item.getAsFile();
+      if (file) {
+        ev.preventDefault();
+        sendShot(file);
+      }
+      return;
+    }
+  }
+});
 
 function spin(on) {
   $("spin").classList.toggle("on", on);

@@ -22,7 +22,7 @@
 ;   {"t":"ops","applied":N,"ops":[...]}
 ;   {"t":"code","text":"..."}
 ;   {"t":"frame","ncmds":N,"added":N,"list":{...}}
-;   {"t":"measure","count":N,"findings":[...]}
+;   {"t":"measure","count":N,"findings":[...],"bottomFree":N}
 ;   {"t":"done","ok":true,"ncmds":N}
 ;
 ; ==============================================================================
@@ -33,6 +33,7 @@ Import "pkg:evg/EVGTreeJson.rgr"
 Import "pkg:evg/EVGLayout.rgr"
 Import "pkg:evg/EVGDisplayList.rgr"
 Import "pkg:evg/EVGInspect.rgr"
+Import "pkg:evg/EVGMeasure.rgr"
 Import "pkg:evg/EVGUnit.rgr"
 
 class EvgLiveBuild {
@@ -269,45 +270,17 @@ sfn main:void () {
         this.emitLine(out)
     }
 
+    ; What the layout is, in numbers — the same check the agent runs from the
+    ; CLI (`EVGMeasure`), not a smaller copy of it. This used to test only the
+    ; page edges, so a screen whose cards sat on top of each other streamed
+    ; `"count":0` while the picture showed the pile.
     fn emitMeasure:void () {
-        def l (new EVGLayout())
-        l.setPageSize((to_double pageW) (to_double pageH))
-        l.layout(root)
-        insp.build(root)
-        def found:[string]
-        def w:double (to_double pageW)
-        def h:double (to_double pageH)
-        def i:int 0
-        while (i < (insp.count())) {
-            def path:string (insp.pathAt(i))
-            def hit@(optional):EVGElement (insp.elementAt(path))
-            if ((null? hit) == false) {
-                def el:EVGElement (unwrap hit)
-                def right:double (el.calculatedX + el.calculatedWidth)
-                def bottom:double (el.calculatedY + el.calculatedHeight)
-                if (right > (w + 0.5)) {
-                    push found (path + " overflows right")
-                }
-                if (bottom > (h + 0.5)) {
-                    push found (path + " overflows bottom")
-                }
-            }
-            i = (i + 1)
-        }
-        findings = (array_length found)
-        def out:string "{\"t\":\"measure\",\"count\":"
-        out = (out + (to_string findings))
-        out = (out + ",\"findings\":[")
-        def k:int 0
-        while (k < findings) {
-            if (k > 0) {
-                out = (out + ",")
-            }
-            out = (out + (EVGTreeJson.str((itemAt found k))))
-            k = (k + 1)
-        }
-        out = (out + "]}")
-        this.emitLine(out)
+        def m (new EVGMeasure())
+        m.look(root pageW pageH "")
+        findings = (array_length m.findings)
+        def body:string (m.json(false))
+        def inner:string (substring body 1 (strlen body))
+        this.emitLine(("{\"t\":\"measure\"," + inner))
     }
 
     fn emitDone:void () {
@@ -423,7 +396,7 @@ sfn main:void () {
   ; today's invoices
 ")
         def nav:[EVGPatchOp] (this.ops())
-        this.addDiv(nav "0" 9 ([] _:string ( "display" "flex" "flex-direction" "row" "align-items" "center" "justify-content" "space-around" "position" "absolute" "left" "16px" "bottom" "16px" "width" "358px" "height" "52px" "background-color" "rgb(30,41,59)" "border-radius" "16px" )))
+        this.addDiv(nav "0" 9 ([] _:string ( "display" "flex" "flex-direction" "row" "align-items" "center" "justify-content" "space-around" "position" "absolute" "left" "0px" "bottom" "16px" "width" "358px" "height" "52px" "background-color" "rgb(30,41,59)" "border-radius" "16px" )))
         this.addSpan(nav "0/9" 0 "Home" ([] _:string ( "font-size" "13px" "font-weight" "bold" "color" "rgb(125,211,252)" )))
         this.addSpan(nav "0/9" 1 "Search" ([] _:string ( "font-size" "13px" "color" "rgb(148,163,184)" )))
         this.addSpan(nav "0/9" 2 "You" ([] _:string ( "font-size" "13px" "color" "rgb(148,163,184)" )))
@@ -452,7 +425,7 @@ sfn main:void () {
   ; settings rows
 ")
         def foot:[EVGPatchOp] (this.ops())
-        this.addDiv(foot "0" 7 ([] _:string ( "display" "flex" "flex-direction" "row" "align-items" "center" "justify-content" "center" "position" "absolute" "left" "16px" "bottom" "16px" "width" "358px" "height" "48px" "background-color" "rgb(254,226,226)" "border-radius" "12px" )))
+        this.addDiv(foot "0" 7 ([] _:string ( "display" "flex" "flex-direction" "row" "align-items" "center" "justify-content" "center" "position" "absolute" "left" "0px" "bottom" "16px" "width" "358px" "height" "48px" "background-color" "rgb(254,226,226)" "border-radius" "12px" )))
         this.addSpan(foot "0/7" 0 "Sign out" ([] _:string ( "font-size" "15px" "font-weight" "bold" "color" "rgb(185,28,28)" )))
         this.step("Sign out, placed on the bottom so it does not crowd the rows." foot "
   ; sign out
@@ -479,7 +452,7 @@ sfn main:void () {
   ; invoice rows
 ")
         def sum:[EVGPatchOp] (this.ops())
-        this.addDiv(sum "0" 7 ([] _:string ( "display" "flex" "flex-direction" "row" "align-items" "center" "justify-content" "space-between" "position" "absolute" "left" "16px" "bottom" "16px" "width" "358px" "height" "56px" "padding-left" "16px" "padding-right" "16px" "background-color" "rgb(15,23,42)" "border-radius" "14px" )))
+        this.addDiv(sum "0" 7 ([] _:string ( "display" "flex" "flex-direction" "row" "align-items" "center" "justify-content" "space-between" "position" "absolute" "left" "0px" "bottom" "16px" "width" "358px" "height" "56px" "padding-left" "16px" "padding-right" "16px" "background-color" "rgb(15,23,42)" "border-radius" "14px" )))
         this.addSpan(sum "0/7" 0 "Open total" ([] _:string ( "font-size" "13px" "color" "rgb(148,163,184)" )))
         this.addSpan(sum "0/7" 1 "€1,936" ([] _:string ( "font-size" "20px" "font-weight" "bold" "color" "rgb(255,255,255)" )))
         this.step("A dark total bar at the bottom so the sum is the last thing the eye hits." sum "

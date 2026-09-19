@@ -1877,6 +1877,17 @@ class EVGElement {
         if (tagName == "connector") {
             return true
         }
+        ; An `svg` element is the same family — `EVGPatch.familyOf` has said so
+        ; since it was written, and the display list draws an inline document
+        ; in `walkPath` — but this answered no for the tag, so the one branch
+        ; that reaches that code was never taken. A node an agent could create,
+        ; address, and fill with a traced picture drew nothing at all.
+        if (tagName == "svg") {
+            return true
+        }
+        if (tagName == "Svg") {
+            return true
+        }
         return false
     }
 
