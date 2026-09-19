@@ -1,5 +1,7 @@
 ; SPDX-License-Identifier: MIT
 
+Import "TraitAnalysis.rgr"
+
 
 ; ---- App1.csproj file has this kind of meta information, which could be updated...
 ;  <ItemGroup>
@@ -35,6 +37,39 @@ class RangerCSharpClassWriter {
 
   ; Serial number for the lambda parameter renaming in CreateLambda below.
   def csLambdaArgCounter:int 0
+
+  ; which behaviour-only Ranger `trait`s become a C# interface
+  def csTraits:TraitInterfaceAnalysis (new TraitInterfaceAnalysis())
+  def csharp_traits_written:boolean false
+
+  ; A behaviour-only trait named as a type, as a C# interface. The mixin copy
+  ; still gives each consumer its own body; this makes the name a type, and
+  ; those bodies are the implementations. C# interface members are implicitly
+  ; public, and the copied methods already are.
+  fn writeCSharpTraitInterfaces:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+    if csharp_traits_written {
+      return
+    }
+    csharp_traits_written = true
+    csTraits.compute(ctx)
+    for (keys csTraits.ifaceTraits) tn:string tni {
+      def tc:RangerAppClassDesc (ctx.findClass(tn))
+      wr.out("" true)
+      wr.out(("public interface " + tn + " {") true)
+      wr.indent(1)
+      for tc.defined_variants fnVar:string fvi {
+        def mVs:RangerAppMethodVariants (get tc.method_variants fnVar)
+        for mVs.variants variant:RangerAppFunctionDesc vi {
+          this.writeTypeDef( (unwrap variant.nameNode) ctx wr)
+          wr.out((" " + variant.compiledName + "(") false)
+          this.writeArgsDef(variant ctx wr)
+          wr.out(");" true)
+        }
+      }
+      wr.indent(-1)
+      wr.out("}" true)
+    }
+  }
 
   fn writeCSharpUnionInterfaces:void (ctx:RangerAppWriterContext wr:CodeWriter) {
     if csharp_unions_written {
@@ -327,6 +362,17 @@ class RangerCSharpClassWriter {
             }
             return
           }      
+          ; A trait CARRYING FIELDS is not a C# interface: its consumers each
+          ; own their own copy of the field, so there is nothing for an
+          ; interface to promise. It used to reach the file as the bare name,
+          ; which mcs answers with "The type or namespace name could not be
+          ; found". A trait of methods only is an interface
+          ; (writeCSharpTraitInterfaces) and does name a type.
+          if cc.is_trait {
+            if ((csTraits.isInterface(t_name ctx)) == false) {
+              ctx.addError(node (("the C# target writes a `trait` as a mixin, so `" + t_name) + "` is not a type it can name. A trait that declares only METHODS becomes a C# interface and can be used as a type; this one carries fields, which its consumers each hold their own copy of. Use a class with subclasses, or give the parameter a concrete type."))
+            }
+          }
         }        
         wr.out((this.getTypeString(node.type_name)) false)
       }
@@ -680,6 +726,7 @@ class RangerCSharpClassWriter {
         wr.indent(1)
       }
     }
+    this.writeCSharpTraitInterfaces(ctx wr)
     this.writeCSharpUnionInterfaces(ctx wr)
     if cl.has_doc {
       def clDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
@@ -691,26 +738,35 @@ class RangerCSharpClassWriter {
     }
     wr.out(('class ' + cl.name + ' ') false )
     def csUnions:[string] (this.unionInterfacesOf((unwrap cl) ctx))
+    ; …and the behaviour-only traits this class `does` that something names as
+    ; a type. Both are interfaces, and C# takes the base class first.
+    def csIfaces:[string] (csTraits.basesOf((unwrap cl) ctx))
+    def csBases:int 0
     if ( ( array_length cl.extends_classes ) > 0 ) { 
       wr.out(' : ' false)
       for cl.extends_classes pName:string i {
         wr.out(pName false)
+        csBases = csBases + 1
 ;        parentClass = (ctx.findClass(pName))
       }
-      ; C# takes the base class first, then the interfaces
-      for csUnions uname:string ui {
-        wr.out((', ' + uname) false)
-      }
-    } {
-      if ((array_length csUnions) > 0) {
+    }
+    for csUnions uname:string ui {
+      if (csBases > 0) {
+        wr.out(', ' false)
+      } {
         wr.out(' : ' false)
-        for csUnions uname:string ui {
-          if (ui > 0) {
-            wr.out(', ' false)
-          }
-          wr.out(uname false)
-        }
       }
+      wr.out(uname false)
+      csBases = csBases + 1
+    }
+    for csIfaces ifName:string ifi {
+      if (csBases > 0) {
+        wr.out(', ' false)
+      } {
+        wr.out(' : ' false)
+      }
+      wr.out(ifName false)
+      csBases = csBases + 1
     }
       
     wr.out(  " {" true)

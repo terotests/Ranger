@@ -8,7 +8,7 @@
 ;
 ; A Ranger `trait` is a MIXIN: its methods are copied into each class that
 ; `does` it. A trait declaring only BEHAVIOUR becomes an abstract base class
-; and can be used as a type — that is `../src/11_behaviour_traits.rgr`, and it
+; and can be used as a type — that is `../../src/12_behaviour_traits.rgr`, and it
 ; builds and runs. This one carries a FIELD, and C++ has nothing to put it in:
 ; each consumer already owns its own copy, so a base holding `name` would be a
 ; second, different field. The writer used to emit `std::shared_ptr<Named>`

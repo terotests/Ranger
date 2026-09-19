@@ -217,7 +217,7 @@ splits, namespaces I control.
     `fn show(n:Named)` used to emit `std::shared_ptr<Named>` and never declare
     `Named`, so the file did not compile while Ranger reported success. A
     behaviour-only trait is an abstract base now (item 7) and
-    `src/11_behaviour_traits.rgr` is the study; a field-bearing one is
+    `../src/12_behaviour_traits.rgr` is the study; a field-bearing one is
     **refused**, with the error naming the way that does work, and
     `attempts/04_trait_as_type.rgr` is the gate. Rust refuses the same program
     for the same reason. Go, Java, Kotlin, C#, Dart and Swift all still have

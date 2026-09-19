@@ -573,7 +573,7 @@ impl NamedTrait for Bot  { … }
 fn show(mut n : Rc<RefCell<dyn NamedTrait>>) -> String
 ```
 
-rustc-clean, and [`rust/src/11_behaviour_traits.rgr`](../../gallery/friendly/rust/src/11_behaviour_traits.rgr)
+rustc-clean, and [`src/12_behaviour_traits.rgr`](../../gallery/friendly/src/12_behaviour_traits.rgr)
 runs it — two traits on one class, a `dyn` parameter, dispatch over two
 implementors.
 
@@ -1051,8 +1051,8 @@ carries FIELDS stays a pure mixin (its consumers already own their own copies,
 and moving them into a base would change what every existing program stores),
 and only a trait NAMED AS A TYPE gets the base — a vtable in every class that
 consumes any behaviour-only trait is a layout change for programs that never
-asked for one. `cpp/src/11_behaviour_traits.rgr` is the study, beside the Rust
-one it mirrors.
+asked for one. `src/12_behaviour_traits.rgr` is the study, shared with every
+other target now that each lowers it to its own interface.
 
 The field-bearing case is **refused** rather than lowered, with the error
 naming the spelling that works, exactly as Rust does — Tier 0's rule is that a
@@ -1060,12 +1060,36 @@ form the target cannot express is a compile error, never silent broken output.
 `cpp/attempts/04_trait_as_type.rgr` is the gate, beside the Rust attempt it
 mirrors.
 
-**The other six targets have the whole hole.** Go, Java and Kotlin were checked
-directly with the same program: `undefined: Named`, `cannot find symbol: class
-Named`, `unresolved reference 'Named'`. C# and Dart and Swift emit the same
-shape. Each of those languages has the type to lower it to — an `interface`, an
-`abstract class`, a `protocol` — and Go's is the easiest of all, being
-structural. None of them is done here.
+### The other six targets — the same fix, six more times
+
+Go, Java, Kotlin, C#, Dart and Swift all had the whole hole, and Go, Java and
+Kotlin were confirmed directly on the same program: `undefined: Named`,
+`cannot find symbol: class Named`, `unresolved reference 'Named'`. Each of
+those languages has the type to lower it to, so each now does:
+
+| Target | Interface | Conformance |
+| --- | --- | --- |
+| Go | `type IFACE_Named interface` | none — Go is structural, the methods are the conformance |
+| Java | `interface Named` in a file of its own | `implements Named` |
+| Kotlin | `interface Named` | `: Named`, and the copied bodies become `override`s |
+| C# | `public interface Named` | `: Named` |
+| Dart | `abstract class Named` | `implements Named` |
+| Swift | `protocol Named`, at the visibility its witnesses have | a conformance in the class's list |
+
+The analysis moved out of the C++ writer into
+[`TraitInterfaceAnalysis`](../../compiler/TraitAnalysis.rgr), which all eight
+writers now hold one of, so the question — behaviour-only, consumed by some
+class, and named as a type somewhere — has one answer rather than eight.
+
+The field-bearing case is refused on every one of them, each error naming its
+own way out. Java's, Kotlin's and Swift's needed one extra thing apiece: Java
+writes one public type per file, Kotlin requires `override` on a method that
+implements an interface member (registering the trait's method names in
+`declaredFunction` is what produces it), and a Swift protocol may not be more
+visible than the types that witness it.
+
+Study 12 is shared now rather than target-local, because the same program runs
+on all ten targets: `gallery/friendly/src/12_behaviour_traits.rgr`.
 
 ### The gate that would have caught it
 

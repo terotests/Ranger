@@ -1,5 +1,7 @@
 ; SPDX-License-Identifier: MIT
 
+Import "TraitAnalysis.rgr"
+
 
 Import "AndroidPageWriter.rgr"
 
@@ -34,6 +36,48 @@ class RangerJava7ClassWriter {
       return "this"
     } 
     return tn
+  }
+
+  ; which behaviour-only Ranger `trait`s become a Java interface
+  def javaTraits:TraitInterfaceAnalysis (new TraitInterfaceAnalysis())
+  def java_traits_written:boolean false
+
+  ; A behaviour-only trait named as a type, as a Java interface in a file of
+  ; its own -- one public type per file is the rule here. The mixin copy still
+  ; gives each consumer its own body; this makes the name a type, and those
+  ; bodies are the implementations.
+  fn writeJavaTraitInterfaces:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+    if java_traits_written {
+      return
+    }
+    java_traits_written = true
+    javaTraits.compute(ctx)
+    def package_name:string (ctx.getCompilerSetting("package"))
+    for (keys javaTraits.ifaceTraits) tn:string tni {
+      def tc:RangerAppClassDesc (ctx.findClass(tn))
+      def tWr:CodeWriter (wr.getFileWriter("." (tn + ".java")))
+      if( this.isPackaged(ctx)) {
+        if( (strlen package_name) > 0) {
+          tWr.out("package " + package_name + ";" , true)
+        }
+      }
+      def tImports:CodeWriter (tWr.fork())
+      tImports.addImport("java.util.*")
+      tWr.out(("public interface " + tn + " { ") true)
+      tWr.indent(1)
+      for tc.defined_variants fnVar:string fvi {
+        def mVs:RangerAppMethodVariants (get tc.method_variants fnVar)
+        for mVs.variants variant:RangerAppFunctionDesc vi {
+          tWr.out("public " false)
+          this.writeTypeDef( (unwrap variant.nameNode) ctx tWr)
+          tWr.out((" " + variant.compiledName + "(") false)
+          this.writeArgsDef(variant ctx tWr)
+          tWr.out(");" true)
+        }
+      }
+      tWr.indent(-1)
+      tWr.out("}" true)
+    }
   }
 
   fn getObjectTypeString2:string (type_string:string ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -354,6 +398,17 @@ class RangerJava7ClassWriter {
               def sName (unwrap (get cc.systemNames "java7"))
               wr.out( sName false )
               return   
+            }
+            ; A trait CARRYING FIELDS is not a Java interface: its consumers
+            ; each own their own copy of the field, so there is nothing for an
+            ; interface to promise. It used to reach the file as the bare
+            ; name, which javac answers with "cannot find symbol". A trait of
+            ; methods only is an interface (writeJavaTraitInterfaces) and does
+            ; name a type.
+            if cc.is_trait {
+              if ((javaTraits.isInterface(t_name ctx)) == false) {
+                ctx.addError(node (("the Java target writes a `trait` as a mixin, so `" + t_name) + "` is not a type it can name. A trait that declares only METHODS becomes a Java interface and can be used as a type; this one carries fields, which its consumers each hold their own copy of. Use a class with subclasses, or give the parameter a concrete type."))
+              }
             }
             ; lambda signature ?? 
           }          
@@ -899,6 +954,7 @@ class RangerJava7ClassWriter {
       }
     }    
 
+    this.writeJavaTraitInterfaces(ctx orig_wr)
     wr.out("" true)
     wr.out(("public class " + cl.name) false)
     if ( ( array_length cl.extends_classes ) > 0 ) { 
@@ -907,6 +963,18 @@ class RangerJava7ClassWriter {
         wr.out(pName false)
       }
     }    
+    ; the behaviour-only traits this class `does` that something names as a
+    ; type: each is an interface, and the mixin copies are what implement it
+    def javaIfaces:[string] (javaTraits.basesOf((unwrap cl) ctx))
+    if ((array_length javaIfaces) > 0) {
+      wr.out(" implements " false)
+      for javaIfaces ifName:string ifi {
+        if (ifi > 0) {
+          wr.out(", " false)
+        }
+        wr.out(ifName false)
+      }
+    }
     wr.out( " { " true)
     wr.indent(1)
     wr.createTag("utilities")

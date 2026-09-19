@@ -1,6 +1,7 @@
 ; SPDX-License-Identifier: MIT
 
 Import "EnumAnalysis.rgr"
+Import "TraitAnalysis.rgr"
 
 class RangerCppClassWriter {
   Extends (RangerGenericClassWriter)
@@ -27,151 +28,25 @@ class RangerCppClassWriter {
     return (cppEnums.isNative(enumName ctx))
   }
 
-  ; --- a behaviour-only trait used as a TYPE ---------------------------------
-  ; A Ranger `trait` is a MIXIN: its methods are copied into each class that
-  ; `does` it, and the trait itself reaches no target as a type. Writing one as
-  ; a PARAMETER type was therefore silent broken output here -- `fn show(n:Named)`
-  ; emitted `std::shared_ptr<Named>` with no `class Named` anywhere in the file,
-  ; and Ranger reported success while g++ stopped at "'Named' was not declared
-  ; in this scope".
-  ;
-  ; A trait that declares only behaviour is exactly what an abstract base class
-  ; says, so that is what it becomes: pure virtual declarations, a virtual
-  ; destructor, and `public Named` on each consumer. The copied bodies are the
-  ; overrides, so nothing about the mixin lowering changes. A trait that carries
-  ; FIELDS stays a pure mixin -- C++ would allow the fields in a base, but the
-  ; consumers already own their own copies and moving them would change what
-  ; every existing program stores.
-  ;
-  ; Only traits NAMED AS A TYPE get the base. A vtable in every class that
-  ; consumes any behaviour-only trait is a layout change for programs that never
-  ; asked for one.
-  def cppIfaceTraits:[string:boolean]
-  def cppIfaceTraitsDone:boolean false
-
-  fn cppNodeNamesType:boolean (node:CodeNode tName:string) {
-    if (node.type_name == tName) {
-      return true
-    }
-    if (node.eval_type_name == tName) {
-      return true
-    }
-    if (node.array_type == tName) {
-      return true
-    }
-    if (node.key_type == tName) {
-      return true
-    }
-    for node.children ch:CodeNode i {
-      if (this.cppNodeNamesType(ch tName)) {
-        return true
-      }
-    }
-    return false
-  }
-
-  fn cppFnsNameType:boolean (fns:[RangerAppFunctionDesc] tName:string) {
-    for fns m:RangerAppFunctionDesc mi {
-      for m.params pp:RangerAppParamDesc ppi {
-        def ppNN@(optional):CodeNode pp.nameNode
-        if (!null? ppNN) {
-          def ppN:CodeNode (unwrap ppNN)
-          if (ppN.type_name == tName) {
-            return true
-          }
-        }
-      }
-      def mNodeOpt@(optional):CodeNode m.node
-      if (null? mNodeOpt) {
-        continue
-      }
-      def mNode:CodeNode (unwrap mNodeOpt)
-      if (this.cppNodeNamesType(mNode tName)) {
-        return true
-      }
-    }
-    return false
-  }
-
-  fn cppComputeIfaceTraits:void (ctx:RangerAppWriterContext) {
-    if cppIfaceTraitsDone {
-      return
-    }
-    cppIfaceTraitsDone = true
-    def root:RangerAppWriterContext (ctx.getRoot())
-    for root.definedClasses tc:RangerAppClassDesc ti {
-      if (tc.is_trait == false) {
-        continue
-      }
-      if ((array_length tc.variables) > 0) {
-        continue
-      }
-      if ((array_length tc.methods) == 0) {
-        continue
-      }
-      def used:boolean false
-      def consumed:boolean false
-      for root.definedClasses uc:RangerAppClassDesc ui {
-        if (uc.is_trait || uc.is_system) {
-          continue
-        }
-        if ((indexOf uc.consumes_traits tc.name) >= 0) {
-          consumed = true
-        }
-        if used {
-          continue
-        }
-        for uc.variables uv:RangerAppParamDesc uvi {
-          def uvNN@(optional):CodeNode uv.nameNode
-          if (!null? uvNN) {
-            def uvN:CodeNode (unwrap uvNN)
-            if (uvN.type_name == tc.name) {
-              used = true
-            }
-          }
-        }
-        if (this.cppFnsNameType(uc.methods tc.name)) {
-          used = true
-        }
-        if (this.cppFnsNameType(uc.static_methods tc.name)) {
-          used = true
-        }
-      }
-      ; nothing `does` it means nothing would override the pure virtuals
-      if (used && consumed) {
-        set cppIfaceTraits tc.name true
-      }
-    }
-  }
+  ; Which behaviour-only Ranger `trait`s become a C++ abstract base class. The
+  ; rules are target-neutral -- every target with interfaces asks the same
+  ; question -- so they live in TraitInterfaceAnalysis
+  ; (compiler/TraitAnalysis.rgr) and this is the C++ half of the pair.
+  def cppTraits:TraitInterfaceAnalysis (new TraitInterfaceAnalysis())
 
   fn cppTraitIsInterface:boolean (tName:string ctx:RangerAppWriterContext) {
-    if ((strlen tName) == 0) {
-      return false
-    }
-    this.cppComputeIfaceTraits(ctx)
-    if (has cppIfaceTraits tName) {
-      return true
-    }
-    return false
+    return (cppTraits.isInterface(tName ctx))
   }
 
-  ; The interface traits this class consumes, in `consumes_traits` order.
   fn cppClassIfaceBases:[string] (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
-    def res:[string]
-    for cl.consumes_traits tn:string tni {
-      if (this.cppTraitIsInterface(tn ctx)) {
-        if ((indexOf res tn) < 0) {
-          push res tn
-        }
-      }
-    }
-    return res
+    return (cppTraits.basesOf(cl ctx))
   }
+
 
   fn writeCppTraitInterfaces:void (ctx:RangerAppWriterContext wr:CodeWriter) {
-    this.cppComputeIfaceTraits(ctx)
+    cppTraits.compute(ctx)
     def root:RangerAppWriterContext (ctx.getRoot())
-    for (keys cppIfaceTraits) tn:string tni {
+    for (keys cppTraits.ifaceTraits) tn:string tni {
       def tc:RangerAppClassDesc (ctx.findClass(tn))
       wr.out((("class " + tn) + " { ") true)
       wr.indent(1)

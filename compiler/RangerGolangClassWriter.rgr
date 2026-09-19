@@ -1,10 +1,15 @@
 ; SPDX-License-Identifier: MIT
 
+Import "TraitAnalysis.rgr"
+
 class RangerGolangClassWriter {
   Extends (RangerGenericClassWriter)
   def compiler:LiveCompiler
   def thisName:string "this"
   def write_raw_type:boolean false
+  ; which behaviour-only Ranger `trait`s become a Go interface -- the same
+  ; question every target with interfaces asks, answered in one place
+  def goTraits:TraitInterfaceAnalysis (new TraitInterfaceAnalysis())
   def did_write_nullable:boolean false
   def did_write_sseclient:boolean false
   ; S5 (PLAN_SHAPES.md): a sealable union is a tagged struct with one pointer
@@ -598,6 +603,22 @@ class RangerGolangClassWriter {
           if(cc.doesInherit()) {
             wr.out("IFACE_" + (this.getTypeString2(t_name ctx)) , false)
             return
+          }
+          ; A behaviour-only trait named as a type is a Go interface, written
+          ; beside the ones a parent class gets. Go is structural, so *User
+          ; and *Bot satisfy it by having the methods -- nothing has to
+          ; declare that it does. An interface value is not a pointer, so this
+          ; returns before the `*` below.
+          if cc.is_trait {
+            if (goTraits.isInterface(t_name ctx)) {
+              wr.out("IFACE_" + (this.getTypeString2(t_name ctx)) , false)
+              return
+            }
+            ; and one carrying FIELDS is not an interface: each consumer owns
+            ; its own copy, so there is nothing for the interface to promise.
+            ; It used to reach the file as `*Named`, which Go answers with
+            ; "undefined: Named".
+            ctx.addError(node (("the Go target writes a `trait` as a mixin, so `" + t_name) + "` is not a type it can name. A trait that declares only METHODS becomes a Go interface and can be used as a type; this one carries fields, which its consumers each hold their own copy of. Use a class with subclasses, or give the parameter a concrete type."))
           }
         }
 
@@ -2125,6 +2146,34 @@ class RangerGolangClassWriter {
     return false
   }
 
+  ; A behaviour-only trait named as a type, as a Go interface. Go is
+  ; structural: every class that `does` the trait already has the methods, so
+  ; nothing needs to declare that it implements this.
+  fn writeGoTraitInterfaces:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+    goTraits.compute(ctx)
+    for (keys goTraits.ifaceTraits) tn:string tni {
+      def tc:RangerAppClassDesc (ctx.findClass(tn))
+      wr.out((("type IFACE_" + tn) + " interface { ") true)
+      wr.indent(1)
+      for tc.defined_variants fnVar:string fvi {
+        def mVs:RangerAppMethodVariants (get tc.method_variants fnVar)
+        for mVs.variants variant:RangerAppFunctionDesc vi {
+          wr.out( variant.compiledName + "(" , false)
+          this.writeArgsDef(variant ctx wr)
+          wr.out(") " false)
+          if (variant.nameNode.hasFlag("optional")) {
+            wr.out("*GoNullable" false)
+          } {
+            this.writeTypeDef(( unwrap variant.nameNode ) ctx wr)
+          }
+          wr.out("" true)
+        }
+      }
+      wr.indent(-1)
+      wr.out("}" true)
+    }
+  }
+
   fn writeClass:void  (node:CodeNode ctx:RangerAppWriterContext orig_wr:CodeWriter) {
     def cl:RangerAppClassDesc node.clDesc
     if (null? cl) {
@@ -2137,6 +2186,7 @@ class RangerGolangClassWriter {
       }
       wr.createTag("utilities")
       did_write_nullable = true
+      this.writeGoTraitInterfaces(ctx wr)
     }
     this.writeGoUnionStructs(ctx wr)
     

@@ -1,6 +1,6 @@
 # friendly — idiomatic target studies
 
-Eleven small Ranger programs in [`src/`](src/) try to express what a native
+Twelve small Ranger programs in [`src/`](src/) try to express what a native
 programmer would write. Each subdirectory compiles the same sources to one
 target and records what came out: what is already the idiom, what works but
 looks generated, and what the language cannot say.
@@ -11,29 +11,29 @@ bash gallery/friendly/compile.sh          # every folder below
 bash gallery/friendly/compile.sh go       # one target
 ```
 
-One program compiled eleven ways has to print the same thing eleven times, so
+One program compiled ten ways has to print the same thing ten times, so
 a run over every target ends by diffing each study's output across the targets
 that actually ran. Nothing checked that until study 11: an optional string set
 to `""` read back as absent on C++ and as present everywhere else, and both
 outputs sat in this directory looking fine on their own.
 
 A target folder may hold `src/` of its own, for a study the same program cannot
-express on every target. There are three: `rust/src/11_behaviour_traits.rgr`
-and `cpp/src/11_behaviour_traits.rgr` — the same program, because those are the
-only two targets where a behaviour-only `trait` used as a *type* reaches the
-output as a type that exists — and `kotlin/src/11_throw_catch.rgr`, because
-Rust refuses `try`/`catch` outright. It may also hold `attempts/`:
+express on every target. There is one left: `kotlin/src/11_throw_catch.rgr`,
+because Rust refuses `try`/`catch` outright. The behaviour-only trait study was
+target-local for the same reason and is `src/12_behaviour_traits.rgr` now, since
+every target lowers it to its own interface. It may also hold `attempts/`:
 forms *that* target cannot express.
 `compile.sh` requires each one to be **refused**, with the error it declares on
 its first line (`; EXPECT-ERROR: …`). A form the target cannot express has to
 be a compile error naming the limitation — never a binary that panics, and
-never code that does not exist. Only `rust/attempts/` exists today.
+never code that does not exist. `rust/attempts/` and `cpp/attempts/` exist
+today.
 
 | Target | Study | Toolchain on this machine |
 | --- | --- | --- |
 | [JavaScript](javascript/README.md) | `-l=es6` → `node` | ran |
 | [Python](python/README.md) | `-l=python` → `python3` | ran |
-| [Dart](dart/README.md) | `-l=dart` → `dart run` | ran |
+| [Dart](dart/README.md) | `-l=dart` → `dart run` | writer only (`dart` not installed) |
 | [Swift](swift/README.md) | `-l=swift6` → `swiftc` when present | writer only (`swiftc` not installed) |
 | [Kotlin](kotlin/README.md) | `-l=kotlin` → `kotlinc` + `java -jar` | ran (kotlinc 2.0.21) |
 | [C#](csharp/README.md) | `-l=csharp` → `mcs` + `mono` | ran |
@@ -82,11 +82,10 @@ Two scores that are not the same thing:
 
 What **none** of them get from Ranger today: a `Result` / `(T, error)` /
 `throws` type, or `@params` surviving as `Stack<T>` rather than `Stack_int`.
-A real `enum` and a behaviour-only `trait` as an interface are Rust-and-C++
-only so far. On the other eight an `Enum` is still an integer, and a `trait`
-used as a *type* is still silent broken output — the writer names a type it
-never declares, and Ranger reports success. Go, Java and Kotlin were checked
-directly; each stops at "undefined: Named" or its equivalent.
+A real `enum` is Rust-and-C++ only so far; on the other eight an `Enum` is
+still an integer. A behaviour-only `trait` used as a *type* is now the
+target's own interface on all eight statically typed ones, and a
+field-bearing one is refused there rather than emitted.
 
 ### Official targets not given a folder
 
@@ -114,7 +113,7 @@ in `Lang.rgr` with thinner templates. They are not in this ranking.
 | `try`/`throw` | `throw "…"` (runs) | `raise`/`except` (runs) | `throw "…"` (runs) | no `throws` (would not swiftc) | `throw "…"` **kotlinc rejects** | `ConfigurationErrorsException` (runs) | `IllegalArgumentException` (runs) | `panic`/`recover` (runs) | `throw string` / `catch(...)` (`error_msg` lost) | catch **dropped**, panic |
 | Closed variants | `__rg_kind` | `_rg_kind` | `abstract class` + `is` | native `enum` | `sealed interface` | `interface` + `is` | `Object` + `instanceof` | tagged struct | `std::variant` | `enum` + `if let` |
 | Ranger `Enum` | number | `int` | `int` | `Int` | `Int` | `int` | `Integer` | `int64` | `enum class` when every use fits | `enum` when every use fits |
-| Ranger `trait` | mixin | mixin | mixin | mixin | mixin | mixin | mixin | mixin | mixin, + abstract base when used as a type | mixin, + `trait` when used as a type |
+| Ranger `trait` | mixin | mixin | mixin, + abstract class when used as a type | mixin, + `protocol` | mixin, + `interface` | mixin, + `interface` | mixin, + `interface` | mixin, + `interface` | mixin, + abstract base | mixin, + `trait` |
 | Generics | `Stack_int` | `Stack_int` | `Stack_int` | `Stack_int` | `Stack_int` | `Stack_int` | `Stack_int` | `Stack_int` | `Stack_int` | `Stack_int` |
 | Higher-order fn | function | callable / hoisted def | `int Function(int)` | closure | `(Int) -> Int` | `Func<int, int>` | `LambdaSignature1` | `func(int64) int64` | `std::function` | `&mut dyn FnMut` |
 | Error type | throw string | `Exception(str)` | throw string | no `throws`/`Result` | throw string illegal | `ConfigurationErrorsException` | `IllegalArgumentException` | no `(T, error)` | no `expected` | no `Result` |
@@ -143,14 +142,12 @@ Forms no target can express, or one target cannot:
 - [`rust/attempts/04_trait_as_type.rgr`](rust/attempts/04_trait_as_type.rgr)
   and [`cpp/attempts/04_trait_as_type.rgr`](cpp/attempts/04_trait_as_type.rgr)
   — a **field-bearing** Ranger `trait` used as a *type*. Both refuse it: such a
-  trait is a mixin, its fields are copied into each consumer, and neither Rust
-  (no associated fields) nor C++ (each consumer already owns its own copy) has
-  anywhere to hold them. A **behaviour-only** trait is a real Rust trait — see
-  [`rust/src/11_behaviour_traits.rgr`](rust/src/11_behaviour_traits.rgr) — and a
-  C++ abstract base class, see
-  [`cpp/src/11_behaviour_traits.rgr`](cpp/src/11_behaviour_traits.rgr).
-  Go, Java, Kotlin, C#, Dart and Swift still have the whole hole for both
-  kinds, in its silent form; ES6 and the other dynamic targets are fine.
+  trait is a mixin, its fields are copied into each consumer, and no target
+  has anywhere to hold them: each consumer already owns its own copy. All
+  eight statically typed targets refuse it now, each naming its own way out.
+  A **behaviour-only** trait becomes the target's interface instead — see
+  [`src/12_behaviour_traits.rgr`](src/12_behaviour_traits.rgr), which runs on
+  every one of them.
 - [`rust/attempts/06_generic_function.rgr`](rust/attempts/06_generic_function.rgr)
   — Ranger rejects a free `@params` function on every target
 - [`rust/attempts/09_throw_panics.rgr`](rust/attempts/09_throw_panics.rgr)

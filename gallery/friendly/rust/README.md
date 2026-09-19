@@ -228,7 +228,7 @@ fn show(mut who : &mut User) -> String { /* … */ }
 ```
 
 **Could it be done?** For a **behaviour-only** trait — methods and no fields —
-yes, and it is done: see [study 11](src/11_behaviour_traits.rgr).
+yes, and it is done: see [study 12](../src/12_behaviour_traits.rgr).
 
 ```rust
 pub trait NamedTrait: RgAnyRef { fn label(&mut self) -> String; }
@@ -445,7 +445,7 @@ it, and the numbers above have been re-checked against them.
 | `Enum Color` was `i64`, `Color.Green` was `1` | `enum Color { Red = 0, … }` and `Color::Green`, per enum and conservative |
 | `match` over a shape was a chain of `if let` | a Rust `match`, no wildcard when the arms cover the enum |
 | `for` was always an index loop with a hoisted bound and a cast | `for v in xs.iter().copied()` where that is safe |
-| a behaviour-only `trait` as a type named a type that did not exist | `pub trait NamedTrait` + one `impl` per consumer ([study 11](src/11_behaviour_traits.rgr)) |
+| a behaviour-only `trait` as a type named a type that did not exist | `pub trait NamedTrait` + one `impl` per consumer ([study 12](../src/12_behaviour_traits.rgr)) |
 | a `shape` case holding a `string` sat behind `Rc<RefCell<…>>` | it rides inside the variant; collections and objects still take the cell |
 | the output was always a program | `-rust-library` gives it a public surface and no `main` |
 | every file carried `#![allow(non_snake_case)]` and 708 warnings | identifiers are snake_case; the allow is gone and the count is zero |

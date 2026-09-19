@@ -1,5 +1,7 @@
 ; SPDX-License-Identifier: MIT
 
+Import "TraitAnalysis.rgr"
+
 ; Dart / Flutter package target writer.
 ; Focus: idiomatic Dart for shared application logic (models, validation,
 ; networking, parsers) that a handwritten Flutter UI can import — not full
@@ -11,6 +13,38 @@ class RangerDartClassWriter {
   ; S5 (PLAN_SHAPES.md): a union is an abstract class its members implement, so
   ; the static type a shape declares survives instead of erasing to dynamic.
   def dart_unions_written:boolean false
+
+  ; which behaviour-only Ranger `trait`s become a Dart abstract class
+  def dartTraits:TraitInterfaceAnalysis (new TraitInterfaceAnalysis())
+  def dart_traits_written:boolean false
+
+  ; A behaviour-only trait named as a type, as an abstract class its consumers
+  ; `implement`. The mixin copy still gives each consumer its own body; this
+  ; makes the name a type, and those bodies are the implementations.
+  fn writeDartTraitInterfaces:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+    if dart_traits_written {
+      return
+    }
+    dart_traits_written = true
+    dartTraits.compute(ctx)
+    for (keys dartTraits.ifaceTraits) tn:string tni {
+      def tc:RangerAppClassDesc (ctx.findClass(tn))
+      wr.out("" true)
+      wr.out(("abstract class " + tn + " {") true)
+      wr.indent(1)
+      for tc.defined_variants fnVar:string fvi {
+        def mVs:RangerAppMethodVariants (get tc.method_variants fnVar)
+        for mVs.variants variant:RangerAppFunctionDesc vi {
+          this.writeTypeDef( (unwrap variant.nameNode) ctx wr)
+          wr.out((" " + variant.compiledName + "(") false)
+          this.writeArgsDef(variant ctx wr)
+          wr.out(");" true)
+        }
+      }
+      wr.indent(-1)
+      wr.out("}" true)
+    }
+  }
 
   fn writeDartUnionInterfaces:void (ctx:RangerAppWriterContext wr:CodeWriter) {
     if dart_unions_written {
@@ -299,6 +333,20 @@ class RangerDartClassWriter {
         if (node.type_name == "void") {
           wr.out("void" false)
         } {
+          ; A trait CARRYING FIELDS is not an abstract class its consumers can
+          ; implement: each owns its own copy of the field, so there is
+          ; nothing for the type to promise. It used to reach the file as the
+          ; bare name, which Dart answers with "Undefined class". A trait of
+          ; methods only is one (writeDartTraitInterfaces) and does name a
+          ; type.
+          if (ctx.isDefinedClass(node.type_name)) {
+            def dTC:RangerAppClassDesc (ctx.findClass(node.type_name))
+            if dTC.is_trait {
+              if ((dartTraits.isInterface(node.type_name ctx)) == false) {
+                ctx.addError(node (("the Dart target writes a `trait` as a mixin, so `" + node.type_name) + "` is not a type it can name. A trait that declares only METHODS becomes an abstract class and can be used as a type; this one carries fields, which its consumers each hold their own copy of. Use a class with subclasses, or give the parameter a concrete type."))
+              }
+            }
+          }
           ; getObjectTypeString, not getTypeString: a union has no Dart type of
           ; its own and has to be written as dynamic here too, not only as a
           ; collection element type.
@@ -709,6 +757,7 @@ class RangerDartClassWriter {
       wrote_header = true
     }
 
+    this.writeDartTraitInterfaces(ctx wr)
     this.writeDartUnionInterfaces(ctx wr)
     wr.out("" true)
     if cl.has_doc {
@@ -733,15 +782,28 @@ class RangerDartClassWriter {
         wr.out(parentClass.compiledName false)
       }
     }
-    ; `implements` is its own clause in Dart, after any `extends`
-    if ((array_length dartUnions) > 0) {
-      wr.out(" implements " false)
-      for dartUnions uname:string ui {
-        if (ui > 0) {
-          wr.out(", " false)
-        }
-        wr.out(uname false)
+    ; `implements` is its own clause in Dart, after any `extends`, and carries
+    ; both the unions this class belongs to and the behaviour-only traits it
+    ; `does` that something names as a type
+    def dartIfaces:[string] (dartTraits.basesOf((unwrap cl) ctx))
+    def dartImpl:int 0
+    for dartUnions uname:string ui {
+      if (dartImpl > 0) {
+        wr.out(", " false)
+      } {
+        wr.out(" implements " false)
       }
+      wr.out(uname false)
+      dartImpl = dartImpl + 1
+    }
+    for dartIfaces ifName:string ifi {
+      if (dartImpl > 0) {
+        wr.out(", " false)
+      } {
+        wr.out(" implements " false)
+      }
+      wr.out(ifName false)
+      dartImpl = dartImpl + 1
     }
     wr.out(" {" true)
     wr.indent(1)
