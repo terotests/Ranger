@@ -303,6 +303,11 @@ class CodeGraphSdl {
                 if (app.consumeOpenDiff()) {
                     this.pickDiff()
                 }
+            } {
+                ; Hover: the web host sends pointerMove on every move with the
+                ; button up. Without that the UML card never appears and the
+                ; cursor stays an arrow — hoverNode is only set here.
+                app.pointerMove(px py shift ctrl)
             }
         }
         dgfx_set_cursor (app.cursorAt(px py))
