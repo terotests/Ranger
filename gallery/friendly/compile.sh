@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Compile the shared studies in src/ to one target, or to all of them.
-# Usage: bash gallery/friendly/compile.sh [all|rust|go|python|cpp|swift]
+# Usage: bash gallery/friendly/compile.sh [all|rust|go|python|cpp|swift|kotlin|dart]
 # The Ranger compiler exits 0 even on [FAIL]; this script treats that as failure.
 set -euo pipefail
 
@@ -13,6 +13,14 @@ export RANGER_LIB="$ROOT/compiler/Lang.rgr:$ROOT/lib/stdops.rgr"
 if [[ ! -f "$COMPILER" ]]; then
   echo "missing $COMPILER — run npm run compile first" >&2
   exit 1
+fi
+
+# Optional local SDKs (same paths the test helpers use when CI drops them in /tmp).
+if [[ -x /tmp/kotlinc/bin/kotlinc && -z "$(command -v kotlinc 2>/dev/null || true)" ]]; then
+  PATH="/tmp/kotlinc/bin:$PATH"
+fi
+if [[ -x /tmp/dart-sdk/bin/dart && -z "$(command -v dart 2>/dev/null || true)" ]]; then
+  PATH="/tmp/dart-sdk/bin:$PATH"
 fi
 
 target="${1:-all}"
@@ -112,6 +120,36 @@ compile_one() {
           fail=1
         fi
         ;;
+      kotlin)
+        if ! command -v kotlinc >/dev/null 2>&1; then
+          echo "    kotlinc not on PATH — writer output only"
+          continue
+        fi
+        if ! kotlinc "$out/${name}.kt" -include-runtime -d "$bin/${name}.jar" 2>"$out/${name}.build.log"; then
+          echo "    kotlinc FAILED — see $out/${name}.build.log"
+          fail=1
+          continue
+        fi
+        echo "    kotlinc ok"
+        if ! java -jar "$bin/${name}.jar" | tee "$out/${name}.out"; then
+          echo "    run FAILED"
+          fail=1
+        fi
+        ;;
+      dart)
+        if ! command -v dart >/dev/null 2>&1; then
+          echo "    dart not on PATH — writer output only"
+          continue
+        fi
+        if ! dart run "$out/${name}.dart" >"$out/${name}.out" 2>"$out/${name}.build.log"; then
+          echo "    dart FAILED — see $out/${name}.build.log"
+          cat "$out/${name}.build.log" >&2
+          fail=1
+          continue
+        fi
+        echo "    dart ok"
+        cat "$out/${name}.out"
+        ;;
     esac
   done
   if [[ "$fail" -ne 0 ]]; then
@@ -130,12 +168,14 @@ run_target() {
     python) compile_one python .py python || overall=1 ;;
     cpp) compile_one cpp .cpp cpp || overall=1 ;;
     swift) compile_one swift .swift swift6 || overall=1 ;;
+    kotlin) compile_one kotlin .kt kotlin || overall=1 ;;
+    dart) compile_one dart .dart dart || overall=1 ;;
     *) echo "unknown target $1" >&2; overall=1 ;;
   esac
 }
 
 if [[ "$target" == "all" ]]; then
-  for t in rust go python cpp swift; do
+  for t in rust go python cpp swift kotlin dart; do
     run_target "$t"
   done
 else
