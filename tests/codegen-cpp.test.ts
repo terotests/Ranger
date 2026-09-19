@@ -287,3 +287,25 @@ describe("C++ Code Generation", () => {
     });
   });
 });
+
+// A module with no `main` is what a host shell -- SDL2, Android, iOS --
+// includes and calls. `rg_ordered_map::at` throws std::out_of_range, and a
+// program WITH a main pulls <stdexcept> in through the iostream chain and never
+// notices the prelude does not include it. A module does not, and failed to
+// compile on a declaration the user never wrote.
+describe("C++ module for a host shell", () => {
+  const MODULE = `${FIXTURES_DIR}/module_no_main.rgr`;
+
+  it("includes <stdexcept> for the map's own throw", () => {
+    const result = getGeneratedCppCode(MODULE);
+    expect(result.success, `Failed: ${result.error}`).toBe(true);
+    expect(result.code).toContain("std::out_of_range");
+    expect(result.code).toContain("#include <stdexcept>");
+  });
+
+  it("emits no main, so a host can supply one", () => {
+    const result = getGeneratedCppCode(MODULE);
+    expect(result.success, `Failed: ${result.error}`).toBe(true);
+    expect(result.code).not.toMatch(/\bint\s+main\s*\(/);
+  });
+});

@@ -2224,6 +2224,12 @@ class RangerCppClassWriter {
       ; a program that declares no array of its own
       wr.out("#include <vector>" true)
       wr.out("#include <cstring>" true)
+      ; `rg_ordered_map::at` throws std::out_of_range, and nothing else here
+      ; guarantees the header. A program with a `main` pulls it in through the
+      ; iostream chain and never notices; a MODULE compiled for a host shell to
+      ; include -- an SDL2 or an Android host -- does not, and fails to compile
+      ; on a declaration the user never wrote.
+      wr.out("#include <stdexcept>" true)
       wr.out("// String hashing for the map below. std::hash<std::string> is" true)
       wr.out("// _Hash_bytes, an out-of-line MurmurHash in libstdc++ that costs a call" true)
       wr.out("// and a per-byte mix; profiling the interpreter put it at ~10% of all" true)

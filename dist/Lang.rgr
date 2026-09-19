@@ -8062,7 +8062,7 @@ std::string join(const T& v, const std::string& delim) {
     ") )  
 
                 csharp ( "String.Join(" (e 2) ", " (e 1) ")" (imp "System"))
-                go ( "strings.Join(" (e 1) ", " (e 2) ")")
+                go ( "strings.Join(" (e 1) ", " (e 2) ")" (imp "strings"))
                 scala ( (e 1) ".mkString(" (e 2) ")" )
                 php ( "implode(" (e 2) ", " (e 1) ")")
                 swift3 ( (e 1) ".joined(separator:" (e 2) ")")
@@ -9478,7 +9478,7 @@ static class RgList {
 
         ; Listen for keyboard input - callback receives key:string
         ; Creates a global key queue/receiver that poll_keypress can use
-        on_keypress     cmdOnKeypress:void      (keyvar:string code:block) {
+        on_keypress     cmdOnKeypress:void      (keyvar@(mutates):string code:block) {
             templates {
                  es6 ( nl 
                     "global.r_key_queue = [];" nl
@@ -9486,10 +9486,10 @@ static class RgList {
                     "readline.emitKeypressEvents(process.stdin);" nl
                     "if (process.stdin.isTTY) { process.stdin.setRawMode(true); }" nl
                     "process.stdin.resume();" nl
-                    "process.stdin.on('keypress', (str, key) => {" nl I
-                    "if (key && key.ctrl && key.name === 'c') { process.stdout.write('\\x1b[?25h'); process.exit(); }" nl
+                    "process.stdin.on('keypress', (__rgr_s, __rgr_key) => {" nl I
+                    "if (__rgr_key && __rgr_key.ctrl && __rgr_key.name === 'c') { process.stdout.write('\\x1b[?25h'); process.exit(); }" nl
                     "var __rgr_k = \"\";" nl
-                    "if (key && key.name) { __rgr_k = key.name; } else if (str && str.length > 0) { __rgr_k = str; } else if (key && key.sequence) { __rgr_k = key.sequence; }" nl
+                    "if (__rgr_key && __rgr_key.name) { __rgr_k = __rgr_key.name; } else if (__rgr_s && __rgr_s.length > 0) { __rgr_k = __rgr_s; } else if (__rgr_key && __rgr_key.sequence) { __rgr_k = __rgr_key.sequence; }" nl
                     "if (__rgr_k !== \"\") { " (e 1) " = __rgr_k; global.r_key_queue.push(__rgr_k); }" nl
                     (block 2) 
                     i nl "});" nl

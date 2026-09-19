@@ -1,0 +1,27 @@
+; Test: `join` on the Go target must bring its own `strings` import.
+;
+; `join` emits `strings.Join(...)` on Go. Until the operator declared
+; `(imp "strings")`, a program whose ONLY use of the strings package was `join`
+; compiled to Go that did not build: `undefined: strings`. Every other Go
+; template that reaches into that package declares it, so nothing else in the
+; program may use one here -- no `trim`, no `strsplit`, no `contains` -- or the
+; import arrives for the wrong reason and the test stops testing anything.
+
+class JoinStringsTest {
+    sfn m@(main):void () {
+        def parts:[string]
+        push parts "a"
+        push parts "b"
+        push parts "c"
+        print (join parts ",")
+
+        def one:[string]
+        push one "solo"
+        print (join one "-")
+
+        def none:[string]
+        print ("[" + (join none ",") + "]")
+
+        print "Done"
+    }
+}
