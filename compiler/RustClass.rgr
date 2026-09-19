@@ -238,6 +238,64 @@ extension RangerRustClassWriter {
     }
   }
 
+  ; --- reachability of the Rc header (PLAN_CPP_IDIOMS, the Rust half) ---------
+  ; `use std::rc::Rc;`, `use std::cell::RefCell;` and the RgAnyRef / rg_downcast
+  ; / RgIdentical trio went into every generated file. Eight of the twelve
+  ; gallery studies have no `Rc` in them at all once the preamble is taken out,
+  ; so those thirteen lines were the file's first impression and none of it was
+  ; about the program. `use std::rc::Weak;` was already gated this way
+  ; (anyWeakField); this asks the same question of the rest.
+  ;
+  ; The cell reaches the output through exactly these: a class the sharing
+  ; analysis marked shared, a `@(weak)` field, a closed family (its enum holds
+  ; a cell per reference case, and its RgIdentical impl rests on the blanket
+  ; one), a behaviour-only trait used as a type, and a class in an inheritance
+  ; family -- `Rc<RefCell<dyn Trait>>` is what a parent-typed handle is.
+  ; Anything else is plain structs, and rustc's unused_imports warning was the
+  ; only thing reading those lines.
+  fn rustNeedsRcHeader:boolean (ctx:RangerAppWriterContext) {
+    def root:RangerAppWriterContext (ctx.getRoot())
+    if ((array_length (this.sealableUnionNames(ctx))) > 0) {
+      return true
+    }
+    for root.definedClassList tName:string tIdx {
+      if (this.rustTraitIsInterface(tName ctx)) {
+        return true
+      }
+    }
+    for root.definedClasses cl:RangerAppClassDesc ci {
+      if (((((cl.is_system || cl.is_trait) || cl.is_template) || cl.is_operator_class) || cl.is_union)) {
+        continue
+      }
+      if cl.is_extended_by_children {
+        return true
+      }
+      if ((array_length cl.extends_classes) > 0) {
+        return true
+      }
+      if (this.rustClassIsShared(cl.name ctx)) {
+        return true
+      }
+      for cl.variables cv:RangerAppParamDesc cvi {
+        def cvNN@(optional):CodeNode cv.nameNode
+        if (!null? cvNN) {
+          def cvN:CodeNode (unwrap cvNN)
+          if (cvN.hasFlag("weak")) {
+            return true
+          }
+          ; a field whose element type is a shared class holds that class's cell
+          if (this.rustClassIsShared(cvN.array_type ctx)) {
+            return true
+          }
+          if (this.rustClassIsShared(cvN.type_name ctx)) {
+            return true
+          }
+        }
+      }
+    }
+    return false
+  }
+
   fn rustClassIsShared:boolean (typeName:string ctx:RangerAppWriterContext) {
     if ((strlen typeName) == 0) {
       return false
@@ -956,7 +1014,10 @@ extension RangerRustClassWriter {
       ; non-scalar elements); borrowed strings are &str already
       header.out("#![allow(clippy::ptr_arg)]" true)
       header.out("" true)
-      header.out("use std::rc::Rc;" true)
+      def needsRc:boolean (this.rustNeedsRcHeader(ctx))
+      if needsRc {
+        header.out("use std::rc::Rc;" true)
+      }
       ; Weak only reaches the output through a @(weak) field; without one
       ; the use line is rustc's unused_imports warning on every file
       def anyWeakField:boolean false
@@ -978,7 +1039,9 @@ extension RangerRustClassWriter {
       if anyWeakField {
         header.out("use std::rc::Weak;" true)
       }
-      header.out("use std::cell::RefCell;" true)
+      if needsRc {
+        header.out("use std::cell::RefCell;" true)
+      }
       ; …but `Cell` is NOT imported. A program is free to declare a class of
       ; its own by that name, and the import made the two collide — `struct
       ; Cell` against `use std::cell::Cell` is "the name `Cell` is defined
@@ -1086,16 +1149,18 @@ extension RangerRustClassWriter {
       ; the same allocation — which is what Rc::<dyn Any>::downcast does in
       ; std. Every generated trait carries RgAnyRef so the check is available
       ; whatever the trait object is.
-      header.out("pub trait RgAnyRef { fn rg_as_any(&self) -> &dyn std::any::Any; }" true)
-      header.out("fn rg_downcast<T: 'static, D: ?Sized + RgAnyRef>(v: &Rc<RefCell<D>>) -> Rc<RefCell<T>> {" true)
-      header.out("    assert!(v.borrow().rg_as_any().is::<T>(), \"invalid downcast\");" true)
-      header.out("    let p = Rc::into_raw(v.clone()) as *const () as *const RefCell<T>;" true)
-      header.out("    unsafe { Rc::from_raw(p) }" true)
-      header.out("}" true)
-      header.out("pub trait RgIdentical { fn rg_identical(&self, other: &Self) -> bool; }" true)
-      header.out("impl<T: ?Sized> RgIdentical for Rc<RefCell<T>> {" true)
-      header.out("    fn rg_identical(&self, other: &Self) -> bool { Rc::ptr_eq(self, other) }" true)
-      header.out("}" true)
+      if needsRc {
+        header.out("pub trait RgAnyRef { fn rg_as_any(&self) -> &dyn std::any::Any; }" true)
+        header.out("fn rg_downcast<T: 'static, D: ?Sized + RgAnyRef>(v: &Rc<RefCell<D>>) -> Rc<RefCell<T>> {" true)
+        header.out("    assert!(v.borrow().rg_as_any().is::<T>(), \"invalid downcast\");" true)
+        header.out("    let p = Rc::into_raw(v.clone()) as *const () as *const RefCell<T>;" true)
+        header.out("    unsafe { Rc::from_raw(p) }" true)
+        header.out("}" true)
+        header.out("pub trait RgIdentical { fn rg_identical(&self, other: &Self) -> bool; }" true)
+        header.out("impl<T: ?Sized> RgIdentical for Rc<RefCell<T>> {" true)
+        header.out("    fn rg_identical(&self, other: &Self) -> bool { Rc::ptr_eq(self, other) }" true)
+        header.out("}" true)
+      }
       if ((array_length unionNames) > 0) {
         for unionNames uname:string uni2 {
           def ucl2:RangerAppClassDesc (hdrRoot.findClass(uname))

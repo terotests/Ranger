@@ -276,9 +276,9 @@ Pricing.kt</code></pre>
         <li><a href="#rank-typescript">TypeScript</a></li>
         <li><a href="#rank-javascript">JavaScript</a></li>
         <li><a href="#rank-java">Java</a></li>
-        <li><a href="#rank-go">Go</a></li>
         <li><a href="#rank-rust">Rust</a></li>
         <li><a href="#rank-cpp">C++</a></li>
+        <li><a href="#rank-go">Go</a></li>
       </ol>
     </nav>
 
@@ -375,26 +375,26 @@ Pricing.kt</code></pre>
           </tr>
           <tr>
             <th class="matrix__rank" scope="row">#11</th>
-            <th class="matrix__lang"><a href="#rank-go">Go</a></th>
+            <th class="matrix__lang"><a href="#rank-rust">Rust</a></th>
             <td class="matrix__score">
-              <span class="score">38%</span>
-              <span class="score__bar" aria-hidden="true"><i style="width:38%"></i></span>
+              <span class="score">46%</span>
+              <span class="score__bar" aria-hidden="true"><i style="width:46%"></i></span>
             </td>
           </tr>
           <tr>
             <th class="matrix__rank" scope="row">#12</th>
-            <th class="matrix__lang"><a href="#rank-rust">Rust</a></th>
+            <th class="matrix__lang"><a href="#rank-cpp">C++</a></th>
             <td class="matrix__score">
-              <span class="score">37%</span>
-              <span class="score__bar" aria-hidden="true"><i style="width:37%"></i></span>
+              <span class="score">45%</span>
+              <span class="score__bar" aria-hidden="true"><i style="width:45%"></i></span>
             </td>
           </tr>
           <tr>
             <th class="matrix__rank" scope="row">#13</th>
-            <th class="matrix__lang"><a href="#rank-cpp">C++</a></th>
+            <th class="matrix__lang"><a href="#rank-go">Go</a></th>
             <td class="matrix__score">
-              <span class="score">29%</span>
-              <span class="score__bar" aria-hidden="true"><i style="width:29%"></i></span>
+              <span class="score">38%</span>
+              <span class="score__bar" aria-hidden="true"><i style="width:38%"></i></span>
             </td>
           </tr>
         </tbody>
@@ -677,8 +677,85 @@ Pricing.kt</code></pre>
         </p>
       </article>
 
+      <article class="quality__card reveal" id="rank-rust">
+        <p class="label">11 — Rust</p>
+        <h3>The most honest about memory, the least Rust-like</h3>
+        <p class="quality__score">Idiomacy <strong>46%</strong> — mean of twelve studies: ownership 58, option 58, shapes 46, traits 52, iterators 30, generics 18, strings 42, builder 36, errors 44, params 38, absent 66, interfaces 60.</p>
+        <p>
+          This is the target the compiler thinks hardest about. A
+          <code>record Point</code> is a <code>struct</code> with
+          <code>i64</code> fields. A method that only reads is
+          <code>&amp;self</code> and <code>&amp;Point</code>. A class the
+          sharing analysis proves is shared becomes
+          <code>Rc&lt;RefCell&lt;T&gt;&gt;</code>; a
+          <code>@(weak optional)</code> parent is
+          <code>Option&lt;Weak&lt;RefCell&lt;T&gt;&gt;&gt;</code>. Optional
+          is <code>Option&lt;T&gt;</code>. A <code>shape</code> is a real
+          Rust <code>enum</code> and the match is a real <code>match</code>
+          where it can be. Names are <code>snake_case</code>. A
+          behaviour-only Ranger <code>trait</code> is a real Rust
+          <code>trait</code> with one <code>impl</code> per consumer, which is
+          what study 12 asked for. All twelve studies compile and print the
+          same answers as Python. A file with no shared class no longer opens
+          with <code>Rc</code>, <code>RefCell</code> and a downcast helper it
+          never uses — six of the twelve drop those thirteen lines.
+        </p>
+        <p>
+          It is still not a file a Rust programmer would keep. There is no
+          <code>Result</code>, no <code>?</code>, no lifetimes, no
+          <code>impl Trait for Type</code>, no iterator adapters.
+          <code>try</code> / <code>throw</code> is a compile error (the catch
+          used to be dropped and the binary died — refusing it is the honest
+          outcome). A field-bearing <code>trait</code> used as a type is
+          also refused. Generics are <code>Stack_int</code>. A Ranger
+          <code>Enum</code> is a real <code>enum</code> only when every use
+          fits; otherwise it is an integer. Map / filter is an index
+          <code>for</code>. The big missing piece is an error type: until
+          Ranger has <code>Result</code>, the Rust will always read as a
+          port of an object language.
+        </p>
+      </article>
+
+      <article class="quality__card reveal" id="rank-cpp">
+        <p class="label">12 — C++</p>
+        <h3>A record is a value now, and the loop is a range-<code>for</code>.</h3>
+        <p class="quality__score">Idiomacy <strong>45%</strong> — mean of twelve studies: ownership 56, option 30, shapes 32, traits 34, iterators 56, generics 16, strings 44, builder 68, errors 46, params 46, absent 70, interfaces 46.</p>
+        <p>
+          The ownership story is the part that is trying to be C++, and it
+          has stopped being the only one. A <code>record Point</code> the
+          sharing analysis proves nothing aliases is a value: the parameter
+          is <code>const Point&amp;</code> (or <code>Point&amp;</code> where
+          the body writes through it), <code>new Point(3 4)</code> is
+          <code>Point(3, 4)</code> on the stack, and the copying builder in
+          study 08 returns a <code>Request</code>. That is the same verdict
+          that gives Rust <code>struct Point</code> / <code>&amp;Point</code>
+          from the same source — the pass ran for C++ all along and only the
+          Rust writer read it. A record something does alias keeps its
+          <code>shared_ptr</code>, because that is what Ranger's reference
+          semantics need. A cycle marked <code>@(weak)</code> is
+          <code>weak_ptr</code> / <code>enable_shared_from_this</code>. A
+          Ranger <code>Enum</code> can be <code>enum class</code> when every
+          use fits. A <code>shape</code> is <code>std::variant</code>. A
+          function value is <code>std::function</code> plus a
+          <code>[&amp;]</code> lambda. <code>error_msg</code> after
+          <code>catch</code> carries the real text, an optional string tells
+          <code>""</code> from absent, and a loop whose body ignores its
+          index is <code>for ( int v : xs )</code>.
+        </p>
+        <p>
+          Classes with behaviour are still <code>shared_ptr</code>: a
+          <code>const User&amp;</code> cannot call a method until the writer
+          emits <code>const</code> member functions. Optional is the Ranger
+          helper type, not <code>std::optional</code>. There is no
+          <code>std::expected</code>. Generics are <code>Stack_int</code>.
+          Variant payloads that are objects stay in cells. <code>int</code>
+          is 32-bit. You can ship the binary; you would still not start a
+          C++17 codebase from this spelling.
+        </p>
+      </article>
+
       <article class="quality__card reveal" id="rank-go">
-        <p class="label">11 — Go</p>
+        <p class="label">13 — Go</p>
         <h3>Pointers share; optionals do not look like Go</h3>
         <p class="quality__score">Idiomacy <strong>38%</strong> — mean of twelve studies: ownership 44, option 26, shapes 28, traits 60, iterators 46, generics 18, strings 68, builder 70, errors 28, params 22, absent 24, interfaces 20.</p>
         <p>
@@ -700,75 +777,6 @@ Pricing.kt</code></pre>
           are C-style index <code>for</code>, not <code>range</code>. Do not
           use <code>try</code> / <code>throw</code> if someone will review
           the <code>.go</code> as a library — prefer a <code>shape</code>.
-        </p>
-      </article>
-
-      <article class="quality__card reveal" id="rank-rust">
-        <p class="label">12 — Rust</p>
-        <h3>The most honest about memory, the least Rust-like</h3>
-        <p class="quality__score">Idiomacy <strong>37%</strong> — mean of twelve studies: ownership 58, option 46, shapes 46, traits 40, iterators 30, generics 18, strings 42, builder 36, errors 44, params 38, absent 34, interfaces 16.</p>
-        <p>
-          This is the target the compiler thinks hardest about. A
-          <code>record Point</code> is a <code>struct</code> with
-          <code>i64</code> fields. A method that only reads is
-          <code>&amp;self</code> and <code>&amp;Point</code>. A class the
-          sharing analysis proves is shared becomes
-          <code>Rc&lt;RefCell&lt;T&gt;&gt;</code>; a
-          <code>@(weak optional)</code> parent is
-          <code>Option&lt;Weak&lt;RefCell&lt;T&gt;&gt;&gt;</code>. Optional
-          is <code>Option&lt;T&gt;</code>. A <code>shape</code> is a real
-          Rust <code>enum</code> and the match is a real <code>match</code>
-          where it can be. Names are <code>snake_case</code>. A
-          behaviour-only Ranger <code>trait</code> is a Rust
-          <code>trait</code> is what study 12 asked for; this compiler
-          names <code>Named</code> and never declares it, so <code>rustc</code>
-          refuses that file. Studies 01–09 compile and print the same answers
-          as Python. Studies 10 and 11 fail on a doubled <code>Option</code>.
-        </p>
-        <p>
-          It is still not a file a Rust programmer would keep. There is no
-          <code>Result</code>, no <code>?</code>, no lifetimes, no
-          <code>impl Trait for Type</code>, no iterator adapters.
-          <code>try</code> / <code>throw</code> is a compile error (the catch
-          used to be dropped and the binary died — refusing it is the honest
-          outcome). A field-bearing <code>trait</code> used as a type is
-          also refused. Generics are <code>Stack_int</code>. A Ranger
-          <code>Enum</code> is a real <code>enum</code> only when every use
-          fits; otherwise it is an integer. Map / filter is an index
-          <code>for</code>. The big missing piece is an error type: until
-          Ranger has <code>Result</code>, the Rust will always read as a
-          port of an object language.
-        </p>
-      </article>
-
-      <article class="quality__card reveal" id="rank-cpp">
-        <p class="label">13 — C++</p>
-        <h3>It compiles. Almost everything is <code>shared_ptr</code>.</h3>
-        <p class="quality__score">Idiomacy <strong>29%</strong> — mean of twelve studies: ownership 36, option 30, shapes 32, traits 34, iterators 28, generics 16, strings 40, builder 48, errors 32, params 20, absent 10, interfaces 16.</p>
-        <p>
-          The ownership story is the part that is trying to be C++. A cycle
-          marked <code>@(weak)</code> is <code>weak_ptr</code> /
-          <code>enable_shared_from_this</code>. A Ranger <code>Enum</code>
-          can be <code>enum class</code> when every use fits. A
-          <code>shape</code> is <code>std::variant</code>. A function value
-          is <code>std::function</code> plus a <code>[&amp;]</code> lambda.
-          <code>error_msg</code> after <code>catch</code> now carries the
-          real text on the studies that compile. An optional string is still
-          a plain <code>std::string</code> that treats <code>""</code> as
-          absent — study 11 would print the wrong answer if it built.
-          The int path names <code>r_optional_primitive</code> without
-          defining it, so studies 10 and 11 do not compile. Study 12 names
-          a missing <code>Named</code>.
-        </p>
-        <p>
-          A <code>record Point</code> is still <code>shared_ptr&lt;Point&gt;</code>,
-          not a value struct, and a read-only object parameter is
-          <code>const shared_ptr&lt;Point&gt;&amp;</code>, not
-          <code>const Point&amp;</code>. Optional is the Ranger helper type,
-          not <code>std::optional</code>. There is no
-          <code>std::expected</code>. Variant payloads that are objects stay
-          in cells. <code>int</code> is 32-bit. You can ship the binary;
-          you would not start a C++17 codebase from this spelling.
         </p>
       </article>
     </div>  </div>

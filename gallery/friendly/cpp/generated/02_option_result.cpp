@@ -1,6 +1,4 @@
 #include  <memory>
-#include  <cstddef>
-#include  <type_traits>
 #include  <variant>
 #include  <string>
 #include  <vector>
@@ -8,32 +6,13 @@
 
 // define classes here to avoid compiler errors
 class ParseOutcome_Err;
-class ParseOutcome_Err;
-class ParseOutcome__ops;
-class Lookup;
-class OptionResultMain;
 class ParseOutcome_Ok;
 class ParseOutcome_Err;
 class ParseOutcome__ops;
 class Lookup;
 class OptionResultMain;
 
-template <class T>
-class r_optional_union {
-  public:
-    bool has_value = false;
-    T value = T();
-    r_optional_union() {}
-    r_optional_union(const T & a_value) : has_value(true), value(a_value) {}
-    template <class U, typename std::enable_if<std::is_constructible<T, const U &>::value, int>::type = 0>
-    r_optional_union(const U & a_value) : has_value(true), value(a_value) {}
-    operator T() const { return value; }
-    bool operator!=(std::nullptr_t) const { return has_value; }
-    bool operator==(std::nullptr_t) const { return !has_value; }
-    explicit operator bool() const { return has_value; }
-};
 typedef std::variant<ParseOutcome_Ok, std::shared_ptr<ParseOutcome_Err>>  r_union_ParseOutcome;
-typedef std::variant<ParseOutcome_Ok, std::shared_ptr<ParseOutcome_Err>, std::shared_ptr<ParseOutcome__ops>, std::shared_ptr<Lookup>, std::shared_ptr<OptionResultMain>, int, std::string, bool, double>  r_union_Any;
 
 template <class T>
 class r_optional_primitive {
@@ -79,8 +58,6 @@ r_optional_primitive<int> cpp_str_to_int(std::string s) {
     return result;
 }
 
-
-template <class T> inline T& rg_arg_ref(T&& v) { return v; }
 
 // header definitions
 class ParseOutcome_Ok { 
@@ -171,13 +148,12 @@ Lookup::Lookup( ) {
 }
  r_optional_primitive<std::string>   Lookup::findName( const std::vector<std::string>& names , const std::string& key ) {
    r_optional_primitive<std::string>  found;
-  for ( int i = 0; i != (int)(names.size()); i++) {
-    std::string n = names.at(i);
+  for ( const std::string& n : names ) {
     if ( (n == key) ) {
       found  = n;
       return found;
     }
-  };
+  }
   return found;
 }
 r_union_ParseOutcome  Lookup::parseInt( const std::string& text ) {

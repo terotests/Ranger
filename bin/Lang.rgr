@@ -5817,8 +5817,11 @@ case class customException(smth:String)  extends Exception
                 java7 ( (forkctx _ ) (def 2) (def 3) "for ( int " (e 3) " = 0; " (e 3) " < " (e 1) ".size(); " (e 3) "++) {" nl I (typeof 2) " " (e 2) " = " (e 1) ".get(" (e 3) ");" nl (block 4) nl i "}" )
                 csharp ( (forkctx _ ) (def 2) (def 3) "for ( int " (e 3) " = 0; " (e 3) " < " (e 1) ".Count; " (e 3) "++) {" nl I (typeof 2) " " (e 2) " = " (e 1) "[" (e 3) "];" nl (block 4) nl i "}" )
                 scala ( (custom _) )      
-                cpp ( (forkctx _ ) (def 2) (def 3) "for ( int " (e 3) " = 0; " (e 3) " != (int)(" (e 1) ".size()); " (e 3) "++) {" nl 
-                            I (typeof 2) " " (e 2) " = " (e 1) ".at(" (e 3) ");" nl (block 4) nl i "}" )          
+                ; PLAN_CPP_IDIOMS C4: the writer picks between the index loop
+                ; this used to be and `for ( const T& v : xs )`, because only it
+                ; can ask whether the body reads the index or touches the
+                ; collection. See RangerCppClassWriter.cppWriteForLoop.
+                cpp ( (forkctx _ ) (def 2) (def 3) (custom _) )
                 cpp.old ( (forkctx _ ) (def 2) (def 3) "for ( std::vector< " (typeof 2) ">::size_type " (e 3) " = 0; " (e 3) " != " (e 1) ".size(); " (e 3) "++) {" nl 
                             I (typeof 2) " " (e 2) " = " (e 1) ".at(" (e 3) ");" nl (block 4) nl i "}" )          
                 python ( (forkctx _ ) (def 2) (def 3) "for " (e 3) ", " (e 2) " in enumerate(" (e 1) "):" nl I (block 4) nl i )

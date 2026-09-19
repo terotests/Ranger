@@ -10,8 +10,11 @@ bash gallery/friendly/cpp/compile.sh
 The C++ I wanted is C++17 as a human writes it: `std::unique_ptr` where
 one owner is enough, `std::optional`, `std::variant`, `enum class`,
 `std::string_view` / `std::span`, exceptions or `std::expected`, and RAII.
-Ranger’s C++ target is a reference-counted port of the object model:
-almost everything is `std::shared_ptr<T>`.
+Ranger’s C++ target used to be a reference-counted port of the object
+model: almost everything was `std::shared_ptr<T>`. A `record` the sharing
+analysis proves is never aliased is a value now (item 1 below), a `for` over a
+collection is a range-`for` where that is safe (item 12), and the preamble goes
+in only when the program reaches it (item 8).
 
 ## Verdict
 
@@ -19,10 +22,13 @@ almost everything is `std::shared_ptr<T>`.
 answers** for every study, and — since study 11 — the *same* answers as the
 other ten targets.
 
-**I could not write idiomatic C++.** A `record Point` is still
-`shared_ptr<Point>`, not a value struct. Read-only object parameters are
-`const std::shared_ptr<Point>&`, which is the ownership pass doing its
-job and still not `const Point&`. `@(optional)` is
+**I could not write idiomatic C++**, and three of the reasons are gone. A
+`record Point` is a value and a read-only parameter of one is `const Point&`,
+when the sharing analysis proves no object of that record is ever aliased and
+held — the same verdict that gives Rust `struct Point` / `&Point`, which until
+now only the Rust writer read. A record something *does* alias keeps its
+`shared_ptr`, because that is what the language's reference semantics need.
+`@(optional)` is
 `r_optional_primitive<T>` / `r_optional_union<T>`, not `std::optional`.
 A `shape` is `std::variant<Ok, shared_ptr<Err>>` — close, then the string
 case is a cell. A Ranger `Enum` **is** an `enum class` now, when every use in
@@ -36,8 +42,10 @@ exception).
 
 | Wanted C++ | Write this Ranger | What comes out |
 | --- | --- | --- |
-| `struct Point { int x, y; }` | `record Point` | `class Point` + `shared_ptr<Point>` |
-| `const Point&` | a read-only object param | `const shared_ptr<Point>&` |
+| `struct Point { int x, y; }` | `record Point` nothing aliases | `class Point`, held by value |
+| `const Point&` | a read-only param of such a record | `const Point&` |
+| `const shared_ptr<Point>&` | a read-only param of a record something aliases | exactly that |
+| `for (const T& v : xs)` | `for xs v:T i` whose body ignores `i` and `xs` | exactly that |
 | `shared_ptr` alias | `def alias:Counter left` | `shared_ptr<Counter> alias = left` |
 | `weak_ptr` | `@(weak optional)` | `r_weak<T>` + `enable_shared_from_this` |
 | `std::optional<T>` | `@(optional)` | `r_optional_primitive<T>` |
@@ -57,16 +65,23 @@ its helper type along (item 2).
 ### 01 — ownership
 
 ```cpp
-int PointOps::manhattan(const std::shared_ptr<Point>& p);
+int PointOps::manhattan(const Point& p);
+Point PointOps::addPoints(const Point& a, const Point& b);
 void TreeNode::adopt(std::shared_ptr<TreeNode> c) {
     c->parent = this->shared_from_this();
     kids.push_back(c);
 }
 ```
 
-`alias = left` shares. `parent` is `r_weak<TreeNode>`. This is the one
-study where the C++ is *trying* to be C++. A human would still make
-`Point` a value.
+`Point` is a value: nothing in the program aliases one, so nothing needs a
+pointer to hold it up, and `Point origin = Point(3, 4);` allocates nothing.
+`Counter` is not — `alias = left` shares it and both names mutate through it —
+so it keeps its `shared_ptr`, and `parent` is `r_weak<TreeNode>`. Same program,
+two answers, from the verdict `-strict-ownership` prints:
+
+```
+ownership[cpp] class Point -> value
+```
 
 ### 02 — optionals and Result
 
@@ -103,9 +118,25 @@ question — see study 11 below.
 
 ### 05 — iteration
 
-`const std::vector<int>& xs`, indexed `for`. `applyEach` takes
-`std::function<int(int)>`. The lambda is `[&](int p) mutable { return p + 1; }`.
-No `<numeric>`, no `std::ranges`.
+```cpp
+int Stats::total( const std::vector<int>& xs ) {
+  int acc = 0;
+  for ( int v : xs ) {
+    acc = acc + v;
+  }
+  return acc;
+}
+```
+
+A range-`for`, not the `for ( int i = 0; i != (int)(xs.size()); i++)` this used
+to be. The rewrite is refused when the body reads the index or touches the
+collection: a range-`for` holds one iterator pair for the whole loop, and a
+body that pushes would walk invalidated iterators where the index form re-reads
+`.size()` every turn. A scalar element binds by value, everything else
+`const T&`. `applyEach` still takes `std::function<int(int)>` and the lambda is
+`[&](int p) mutable { return p + 1; }`. Still no `<numeric>`, no
+`std::ranges`: a loop that pushes is respectable C++, the shape of the loop was
+the tell.
 
 ### 06 — generics
 
@@ -119,14 +150,26 @@ helper is gone. Monomorphization, not `template<class T>`.
 
 `greet(const std::string& name)`, `total(const std::vector<int>&)`. Not
 `string_view` / `span`. UTF-8 helpers exist in the preamble of larger
-programs; this file still pays for a map it does not use.
+programs. The file is 67 lines now: it used to open with a
+`template <class T> class r_optional_union` it never instantiates and a
+`r_union_Any` typedef naming every class in it, because `Any` is a union the
+PARSER declares for every program, so "does this program have a union" was
+true whatever the program said. Both are reachability-gated now, and so is
+`rg_arg_ref`. Across the twelve studies that is 291 lines of preamble gone.
 
 ### 08 — builder
 
-Copying builder returns `shared_ptr<Request>`. `return this` on
-`MutRequest` returns another `shared_ptr` to the same object (reference
-count), which is the C++ fluent style on a shared object — not a
-value-returning builder.
+```cpp
+Request RequestBuild::withHost( const Request& r, const std::string& h ) {
+  return Request(h, r.path, r.port);
+}
+```
+
+The copying builder is a value-returning builder now: `Request` is a record
+nothing aliases, so each step takes `const Request&` and hands back a new one.
+`return this` on `MutRequest` still returns another `shared_ptr` to the same
+object (a reference count), which is the C++ fluent style on a shared object —
+and `MutRequest` is shared for exactly that reason.
 
 ### 09 — errors
 
@@ -187,7 +230,15 @@ splits, namespaces I control.
 
 ## How the language could improve (for C++)
 
-1. Value `record`s as ordinary structs, not `shared_ptr`.
+1. ~~Value `record`s as ordinary structs, not `shared_ptr`.~~ **Done**, for a
+   record the sharing analysis proves is never aliased and held — the verdict
+   `StaticAnalyzer.analyzeClassSharing` has been computing for the Rust target
+   all along, which the C++ writer never read. `-cpp-shared-classes` restores
+   the old lowering, `-strict-ownership` prints the verdict and its reason, and
+   the rules live in `compiler/CppValueAnalysis.rgr`. A record with behaviour
+   is the same question with a much larger blast radius (`const` member
+   functions have to land first, or a `const Point&` cannot call anything) and
+   waits for its own pass.
 2. ~~Always emit `r_optional_primitive` when an optional scalar exists.~~
    **Done** — the writer emits the definition where it emits the type.
    Using `std::optional` instead is item 4.
@@ -211,8 +262,18 @@ splits, namespaces I control.
 8. ~~Drop the ordered-map preamble when the program has no map.~~ **Done.**
    Study 07 went from 237 lines to 88; across the ten studies the C++ output
    is about 45% shorter. The preamble still goes in when a map is reachable —
-   the selfhost build of the compiler gets all of it.
+   the selfhost build of the compiler gets all of it. The two pieces that were
+   left are gated the same way now: `r_optional_union` goes in only when some
+   `@(optional)` names a closed family, `Any` and its forward declarations only
+   when the program says `Any`, and `rg_arg_ref` only when a call site needs
+   it. Study 07 is 67 lines; the twelve studies lost 291 lines between them.
 9. `int64_t` for Ranger `int`, consistently.
+
+12. ~~The generated `for` is a C-style index loop.~~ **Done** — a body that
+    neither reads the index nor touches the collection gets
+    `for ( const T& v : xs )`, which is the same decision the Rust writer makes
+    (PLAN_RUST_SEMANTIC_IDIOMS K). Iterator-adapter lowering
+    (`<algorithm>` / `<ranges>`) is a different item and not this one.
 10. ~~**A `trait` used as a TYPE.**~~ **Done**, both halves.
     `fn show(n:Named)` used to emit `std::shared_ptr<Named>` and never declare
     `Named`, so the file did not compile while Ranger reported success. A

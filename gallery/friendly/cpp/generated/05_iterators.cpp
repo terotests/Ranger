@@ -1,7 +1,4 @@
 #include  <memory>
-#include  <cstddef>
-#include  <type_traits>
-#include  <variant>
 #include  <vector>
 #include  <functional>
 #include  <string>
@@ -10,27 +7,8 @@
 // define classes here to avoid compiler errors
 class Stats;
 class IterMain;
-class Stats;
-class IterMain;
-
-template <class T>
-class r_optional_union {
-  public:
-    bool has_value = false;
-    T value = T();
-    r_optional_union() {}
-    r_optional_union(const T & a_value) : has_value(true), value(a_value) {}
-    template <class U, typename std::enable_if<std::is_constructible<T, const U &>::value, int>::type = 0>
-    r_optional_union(const U & a_value) : has_value(true), value(a_value) {}
-    operator T() const { return value; }
-    bool operator!=(std::nullptr_t) const { return has_value; }
-    bool operator==(std::nullptr_t) const { return !has_value; }
-    explicit operator bool() const { return has_value; }
-};
-typedef std::variant<std::shared_ptr<Stats>, std::shared_ptr<IterMain>, int, std::string, bool, double>  r_union_Any;
 
 
-template <class T> inline T& rg_arg_ref(T&& v) { return v; }
 
 // header definitions
 class Stats { 
@@ -57,37 +35,33 @@ Stats::Stats( ) {
 }
 int  Stats::total( const std::vector<int>& xs ) {
   int acc = 0;
-  for ( int i = 0; i != (int)(xs.size()); i++) {
-    int v = xs.at(i);
+  for ( int v : xs ) {
     acc = acc + v;
-  };
+  }
   return acc;
 }
 int  Stats::evenCount( const std::vector<int>& xs ) {
   int n = 0;
-  for ( int i = 0; i != (int)(xs.size()); i++) {
-    int v = xs.at(i);
+  for ( int v : xs ) {
     if ( v % 2 == 0 ) {
       n = n + 1;
     }
-  };
+  }
   return n;
 }
 std::vector<int>  Stats::doubled( const std::vector<int>& xs ) {
   std::vector<int> out;
-  for ( int i = 0; i != (int)(xs.size()); i++) {
-    int v = xs.at(i);
+  for ( int v : xs ) {
     out.push_back( v * 2  );
-  };
+  }
   return out;
 }
 std::vector<int>  Stats::applyEach( const std::vector<int>& xs , std::function<int(int)> f ) {
   std::vector<int> out;
-  for ( int i = 0; i != (int)(xs.size()); i++) {
-    int v = xs.at(i);
+  for ( int v : xs ) {
     int next = f(v);
     out.push_back( next  );
-  };
+  }
   return out;
 }
 IterMain::IterMain( ) {

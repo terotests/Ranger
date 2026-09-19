@@ -1,11 +1,67 @@
 # PLAN_CPP_IDIOMS — lifting the bottom of the idiom table
 
-> **Status: proposed.** Nothing here has landed. The verification section is
-> reproduced against `master` at 9e61f8a5 with `g++ 13`, `rustc 1.94.1`, `go`,
-> `python3` and `node 22` on this machine.
+> **Status: item 0's verification done, C1 (records), C4 and the preamble half
+> of item 8 landed; the Rust half of the preamble work landed with them.**
+> C2, C3, C5 and every Tier 1 and Tier 2 item are still proposals. The
+> verification section is reproduced against `master` at 9e61f8a5 with
+> `g++ 13`, `rustc 1.94.1`, `go`, `python3` and `node 22` on this machine.
+>
+> What shipped, and what gated it:
+>
+> - **C1, for `record`s.** `compiler/CppValueAnalysis.rgr` reads
+>   `rust_needs_ref_semantics` — the verdict `analyzeClassSharing` has been
+>   computing for C++ compilations all along with only the Rust writer reading
+>   it — and adds the disqualifiers that are about what the C++ writer does
+>   with a class: an `@(optional)` of it (an optional object *is* the null
+>   pointer here), a `cast` to it, a method that hands out bare `this`
+>   (`shared_from_this()` needs the pointer), a field of its own type,
+>   inheritance in either direction, and membership of a closed family (which
+>   keeps the family's own rule). `-cpp-shared-classes` restores the old
+>   lowering; `-strict-ownership` prints the verdict and its reason.
+>   Widening past `record` was tried and reverted: a `const User&` parameter
+>   cannot call `who.label()` until the writer emits `const` member functions,
+>   which is its own item (C6 below).
+>
+>   Two things the value form needed that the pointer form never did, both
+>   found by probing rather than by the studies: a parameter the body writes
+>   through is `Point&` (behind a `shared_ptr` the `const` was on the pointer,
+>   and `needs_cpp_reference` already recorded the fact), and a `T&` does not
+>   bind a temporary, so a `new` in an argument list goes through `rg_arg_ref`.
+>   `tests/fixtures/cpp_value_record.rgr` is the gate for both, and it prints
+>   the same six lines on C++, JavaScript, Python, Go and Rust.
+> - **C4.** `RangerCppClassWriter.cppWriteForLoop`, reached through
+>   `(custom _)` in Lang.rgr's `for` template, the way the Rust writer already
+>   was. Same two safety conditions as Rust: the body must not read the index
+>   and must not touch any name the collection rests on.
+> - **Item 8's remainder.** `r_optional_union`, the `Any` union and
+>   `rg_arg_ref` are reachability-gated. The twelve C++ studies lost 291 lines.
+> - **Rust, same question.** `use std::rc::Rc` / `use std::cell::RefCell` and
+>   the `RgAnyRef` / `rg_downcast` / `RgIdentical` trio go in only when the cell
+>   can reach the output. Six of the twelve Rust studies drop all thirteen
+>   lines.
+>
+> Gate run for each: `gallery/friendly/compile.sh` (twelve studies per target,
+> every `attempts/` file still refused, and the cross-target output diff clean
+> — six targets agree on all twelve), the C++ selfhost build (the C++ binary
+> compiles the compiler to a file that differs from the Node build's only in
+> the 34 pre-existing non-ASCII hunks described below), and
+> `scripts/rust-selfhost-check.sh` (zero rustc errors).
+>
+> **One thing this work found and did not fix: ISSUES.md #95.** 34 hunks of the
+> C++ selfhost diff are non-ASCII and nothing else — `—` comes back as `â`.
+> They are on `master` too, byte for byte, so nothing here caused them. The
+> writer is not the problem: a non-ASCII literal is emitted correctly and the
+> binary prints it correctly. `read_file` is — on C++ it hands back bytes, so
+> `strlen` of a file holding `em dash —` is 96 where JavaScript says 92, and
+> the compiler reading its own sources writes each byte back as a character.
+> That is the Issue #57 class (`SPEC_SEMANTICS.md`: code points on every
+> target) on a target nobody had asked it of. It belongs with Track 1's
+> conformance suite, not with C3 below, and `TARGET_NOTES.md` no longer claims
+> the output is byte-identical save for one line.
 
-The idiom ranking on the landing page puts C++ last at 29%, Rust at 37% and Go
-at 38%. This plan says what to do about that. It is scoped by one rule the
+The idiom ranking on the landing page put C++ last at 29%, Rust at 37% and Go
+at 38% when this was written; after item 0's corrections and the work above it
+reads Rust 46%, C++ 45%, Go 38%, and Go is last. This plan says what to do about that. It is scoped by one rule the
 [language-improvement plan](PLAN_LANGUAGE_IMPROVEMENTS.md) already states and
 this one inherits: **existing `.rgr` sources keep compiling and keep meaning
 what they mean**, and the self-hosting compiler is the canary.
@@ -285,20 +341,28 @@ PLAN_RUST_SEMANTIC_IDIOMS has landed except H, J and M.
 
 ## Order of work
 
-| # | Item | Cost | Moves |
+| # | Item | Cost | Moves | |
+| --- | --- | --- | --- | --- |
+| 1 | 0 — re-verify and correct the copy | S | the table's honesty | **done** |
+| 1b | 0b — make the score a script | S | the table's honesty | open |
+| 2 | C1 — value classes on C++ | M | ownership, params, builder | **done for `record`** |
+| 3 | C2 — `std::optional` | M | option, absent | open |
+| 4 | C4 — range-`for` (C++ and Go) | S | iterators ×2 | **done for C++** |
+| 5 | Go: run the ownership pass, `*T` / `(T, bool)` | M | option, absent, params | open |
+| 6 | C5 + L4 — `string_view` / `span`, `@(borrow)` | M | params, strings | open |
+| 7 | L3 — `interface` | M | interfaces, on eleven targets | open |
+| 8 | L1 — `@(value)` on record and class | S | stability of 2 and 5 | open |
+| 9 | L2 — `Result` + early return | L | errors, on all of them | open |
+| 10 | `-l=java17` | M | four Java columns | open |
+| 11 | L5 — preserved generics | XL | generics, on all of them | open |
+| 12 | C3 — `int64_t`; L6 — adapters | M | conformance; iterators | open |
+
+Two items the work added to the list:
+
+| # | Item | Cost | Why |
 | --- | --- | --- | --- |
-| 1 | 0 + 0b — re-score, and make the score a script | S | the table's honesty |
-| 2 | C1 — value classes on C++ | M | ownership, params, builder |
-| 3 | C2 — `std::optional` | M | option, absent |
-| 4 | C4 — range-`for` (C++ and Go) | S | iterators ×2 |
-| 5 | Go: run the ownership pass, `*T` / `(T, bool)` | M | option, absent, params |
-| 6 | C5 + L4 — `string_view` / `span`, `@(borrow)` | M | params, strings |
-| 7 | L3 — `interface` | M | interfaces, on eleven targets |
-| 8 | L1 — `@(value)` on record and class | S | stability of 2 and 5 |
-| 9 | L2 — `Result` + early return | L | errors, on all of them |
-| 10 | `-l=java17` | M | four Java columns |
-| 11 | L5 — preserved generics | XL | generics, on all of them |
-| 12 | C3 — `int64_t`; L6 — adapters | M | conformance; iterators |
+| C6 | `const` member functions on C++, from `mutates_self` | M | it is what blocks C1 from covering classes: a `const User&` cannot call `who.label()`. `StaticAnalyzer` already computes `mutates_self` per method. |
+| — | ISSUES.md #95: `read_file` hands back bytes on C++ | M | a conformance bug, not an idiom one; it belongs with Track 1's suite |
 
 Items 1–6 are writer and analysis work with no language change. Items 7–9 are
 the additive features. Item 11 is the one that needs a decision before it needs

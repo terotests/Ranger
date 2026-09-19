@@ -1,0 +1,353 @@
+; SPDX-License-Identifier: MIT
+
+; CppValueAnalysis.rgr
+;
+; Which Ranger classes the C++ target can write as a VALUE -- `Point`,
+; `const Point&`, `Point p(3, 4);` -- rather than as `std::shared_ptr<Point>`.
+;
+; The question was already answered. `StaticAnalyzer.analyzeClassSharing`
+; (compiler/StaticAnalysis.rgr) walks the whole program and decides which
+; classes are aliased and held -- stored into an object graph, aliased by a
+; `def` and then mutated, compared with `identical`, named by a union, a
+; singleton, or the target of a `@(weak)` field -- because a value-model target
+; needs a cell to give those classes the reference semantics the language
+; defines. It records the answer on the class as `rust_needs_ref_semantics`,
+; the pass runs for C++ as well as Rust (VirtualCompiler), and until now only
+; the Rust writer read it. That is why the same study came out as
+;
+;   struct Point { x : i64, y : i64 }        // rust
+;   fn manhattan(&self, p : &Point) -> i64
+;
+;   class Point { public: int x; int y; };   // cpp
+;   int PointOps::manhattan( const std::shared_ptr<Point>& p );
+;
+; This file is the C++ half: the shared verdict, plus the conditions that are
+; specific to what the C++ writer does with a class. A class that fails any of
+; them keeps the `shared_ptr` lowering it has today, and `-strict-ownership`
+; prints the verdict and its reason, the way the enum and sharing verdicts do.
+;
+; `-cpp-shared-classes` turns the whole thing off and restores the old output.
+
+Import "RangerAppParamDesc.rgr"
+Import "RangerAppFunctionDesc.rgr"
+Import "RangerAppClassDesc.rgr"
+Import "CodeNode.rgr"
+Import "RangerAppWriterContext.rgr"
+
+class CppValueClassAnalysis {
+
+  ; "" is never a key, and a class missing from the map is not a value class.
+  def valueClasses:[string:boolean]
+  def computed:boolean false
+
+  ; The C++-specific disqualifiers, as a reason string; "" means the class is
+  ; free of them. They are all cases where the writer emits something that only
+  ; a pointer can carry, so a value there would be output that does not compile
+  ; rather than output that is merely less idiomatic.
+  ;
+  ;   @(optional):C      -- an optional object IS the null pointer here
+  ;                         (writeTypeDef's object branch), and a value has no
+  ;                         null state
+  ;   (cast x to:C)      -- a downcast is dynamic_pointer_cast
+  ;   bare `this`        -- WriteVRef writes shared_from_this(), which only
+  ;                         exists on a class held by a shared_ptr
+  ;   null? / !null? on C -- the same absence test, reached through the value
+  ;
+  ; A use through a name whose type the walker could not resolve counts against
+  ; the class: answering "not this class" there would let a real pointer use
+  ; through, and the cost of answering "yes" is the lowering we already had.
+  fn nodeIsClassOf:boolean (node:CodeNode className:string) {
+    if (node.type_name == className) {
+      return true
+    }
+    if (node.eval_type_name == className) {
+      return true
+    }
+    if node.hasParamDesc {
+      def pdNN@(optional):CodeNode node.paramDesc.nameNode
+      if (!null? pdNN) {
+        def pdN:CodeNode (unwrap pdNN)
+        if (pdN.type_name == className) {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
+  fn optionalOf:boolean (node:CodeNode className:string) {
+    if ((this.nodeIsClassOf(node className)) == false) {
+      return false
+    }
+    if (node.hasFlag("optional")) {
+      return true
+    }
+    if node.hasParamDesc {
+      def pdNN@(optional):CodeNode node.paramDesc.nameNode
+      if (!null? pdNN) {
+        def pdN:CodeNode (unwrap pdNN)
+        if (pdN.hasFlag("optional")) {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
+  fn unsafeReason:string (node:CodeNode className:string ctx:RangerAppWriterContext) {
+    if (this.optionalOf(node className)) {
+      return "used as an @(optional)"
+    }
+    if node.expression {
+      if ((array_length node.children) > 0) {
+        def fc:CodeNode (node.getFirst())
+        def cmd:string fc.vref
+        if (cmd == "cast") {
+          if ((array_length node.children) >= 3) {
+            def tgt:CodeNode (node.getThird())
+            if ((this.nodeIsClassOf(tgt className)) || (tgt.type_name == className)) {
+              return "the target of a cast"
+            }
+          }
+        }
+        if ((cmd == "null?") || (cmd == "!null?")) {
+          if ((array_length node.children) >= 2) {
+            def arg:CodeNode (node.getSecond())
+            if (this.nodeIsClassOf(arg className)) {
+              return "tested for absence"
+            }
+          }
+        }
+      }
+    }
+    for node.children ch:CodeNode ci {
+      def sub:string (this.unsafeReason(ch className ctx))
+      if ((strlen sub) > 0) {
+        return sub
+      }
+    }
+    return ""
+  }
+
+  ; `ownName` is the class these functions belong to: a method of the class
+  ; under test that says bare `this` is the one extra thing to look for.
+  fn scanFns:string (fns:[RangerAppFunctionDesc] className:string ownName:string ctx:RangerAppWriterContext reasonIn:string) {
+    def reason:string reasonIn
+    for fns m:RangerAppFunctionDesc mi {
+      if ((strlen reason) > 0) {
+        return reason
+      }
+      def mNodeOpt@(optional):CodeNode m.node
+      if (null? mNodeOpt) {
+        continue
+      }
+      def mNode:CodeNode (unwrap mNodeOpt)
+      reason = (this.unsafeReason(mNode className ctx))
+      ; a method of the class itself that says bare `this` -- the writer has
+      ; only shared_from_this() to write there
+      if ((strlen reason) == 0) {
+        if (ownName == className) {
+          if (this.mentionsBareThis(mNode)) {
+            reason = "a method hands out `this`"
+          }
+        }
+      }
+    }
+    return reason
+  }
+
+  ; `this.field` and `this.method()` are fine -- they reach the page as
+  ; `this->field`, and on a value they are `this->` just the same. What cannot
+  ; be written is `this` ON ITS OWN, as a value passed, stored or returned:
+  ; that is `shared_from_this()`, and a class that is not held by a shared_ptr
+  ; has none.
+  fn mentionsBareThis:boolean (node:CodeNode) {
+    if (node.value_type == RangerNodeType.VRef) {
+      if (node.vref == "this") {
+        if ((array_length node.ns) < 2) {
+          return true
+        }
+      }
+    }
+    for node.children ch:CodeNode ci {
+      if (this.mentionsBareThis(ch)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn fieldReason:string (cl:RangerAppClassDesc className:string) {
+    def reason:string ""
+    for cl.variables cv:RangerAppParamDesc cvi {
+      if ((strlen reason) > 0) {
+        continue
+      }
+      def cvNN@(optional):CodeNode cv.nameNode
+      if (null? cvNN) {
+        reason = "a field the writer cannot read"
+      } {
+        def cvN:CodeNode (unwrap cvNN)
+        ; a field of the class's OWN type, directly or through a collection: a
+        ; value cannot contain itself, and C++ needs the type complete at the
+        ; point the field is declared
+        if (((cvN.type_name == className) || (cvN.array_type == className)) || (cvN.key_type == className)) {
+          reason = "a field of its own type"
+        }
+      }
+    }
+    return reason
+  }
+
+  ; Why this class is not a C++ value, or "" when it is one.
+  fn classReason:string (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    if cl.is_system {
+      return "a systemclass"
+    }
+    if cl.is_union {
+      return "a union"
+    }
+    if cl.is_system_union {
+      return "a system union"
+    }
+    if cl.is_trait {
+      return "a trait"
+    }
+    if cl.is_template {
+      return "a template"
+    }
+    if cl.is_operator_class {
+      return "an operator class"
+    }
+    if cl.is_serialized {
+      return "an @serialize class"
+    }
+    if (cl.isSingletonClass()) {
+      return "a singleton"
+    }
+    ; A record is a bag of named fields and the case this is for. A class with
+    ; behaviour is the same question and a much larger blast radius -- every
+    ; `return this` builder, every method a subclass overrides -- so it waits
+    ; for its own pass.
+    if (cl.is_record == false) {
+      return "not a record"
+    }
+    ; inheritance in either direction needs a pointer for the vtable
+    if ((array_length cl.extends_classes) > 0) {
+      return "it extends another class"
+    }
+    def rootCtx:RangerAppWriterContext (ctx.getRoot())
+    for rootCtx.definedClasses ocl:RangerAppClassDesc oci {
+      if ((indexOf ocl.extends_classes cl.name) >= 0) {
+        return ("it is extended by " + ocl.name)
+      }
+      ; a member of a closed family keeps the family's own rule
+      ; (RangerCppClassWriter.cppUnionValueCase): a case with a string or a
+      ; collection stays behind a pointer so the variant does not grow to the
+      ; largest member, and copying a kind check does not copy the payload
+      ; `Any` is the compiler's own union of EVERY declared class
+      ; (RangerFlowParser.registerAnyType), so it must be skipped -- through it
+      ; every class in every program is a case of a union. analyzeClassSharing
+      ; skips it for the same reason.
+      if (ocl.is_union && (ocl.name != "Any")) {
+        if ((indexOf ocl.is_union_of cl.name) >= 0) {
+          return ("a case of " + ocl.name)
+        }
+      }
+    }
+    ; the shared verdict: some object of this class is aliased and held, so the
+    ; language's reference semantics need a pointer to hold them up
+    if cl.rust_needs_ref_semantics {
+      return cl.rust_ref_reason
+    }
+    def fr:string (this.fieldReason(cl cl.name))
+    if ((strlen fr) > 0) {
+      return fr
+    }
+    return ""
+  }
+
+  fn compute:void (ctx:RangerAppWriterContext) {
+    if computed {
+      return
+    }
+    computed = true
+    def root:RangerAppWriterContext (ctx.getRoot())
+    def diag:boolean (ctx.hasCompilerFlag("strict-ownership"))
+    if (ctx.hasCompilerFlag("cpp-shared-classes")) {
+      return
+    }
+    for root.definedClasses cl:RangerAppClassDesc ci {
+      def reason:string (this.classReason(cl ctx))
+      if ((strlen reason) == 0) {
+        ; the whole-program scan: one use the C++ writer can only spell with a
+        ; pointer is enough to keep the pointer everywhere
+        for root.definedClasses ocl:RangerAppClassDesc oci {
+          if ((strlen reason) > 0) {
+            continue
+          }
+          if (ocl.is_template || ocl.is_system) {
+            continue
+          }
+          reason = (this.scanFns(ocl.methods cl.name ocl.name ctx reason))
+          reason = (this.scanFns(ocl.static_methods cl.name ocl.name ctx reason))
+          if ((strlen reason) == 0) {
+            if (!null? ocl.constructor_fn) {
+              def ctorFn:RangerAppFunctionDesc (unwrap ocl.constructor_fn)
+              def ctorNodeOpt@(optional):CodeNode ctorFn.node
+              if (!null? ctorNodeOpt) {
+                reason = (this.unsafeReason((unwrap ctorNodeOpt) cl.name ctx))
+              }
+            }
+          }
+          if ((strlen reason) == 0) {
+            reason = (this.fieldOfOtherReason(ocl cl.name))
+          }
+        }
+      }
+      if ((strlen reason) == 0) {
+        set valueClasses cl.name true
+        if diag {
+          print (("ownership[cpp] class " + cl.name) + " -> value")
+        }
+      } {
+        if diag {
+          if (cl.is_record) {
+            print ((("ownership[cpp] class " + cl.name) + " -> shared_ptr (") + (reason + ")"))
+          }
+        }
+      }
+    }
+  }
+
+  ; An @(optional) FIELD of that class somewhere else: the field is the null
+  ; pointer, so the class it points at stays a pointer.
+  fn fieldOfOtherReason:string (ocl:RangerAppClassDesc className:string) {
+    for ocl.variables cv:RangerAppParamDesc cvi {
+      def cvNN@(optional):CodeNode cv.nameNode
+      if (!null? cvNN) {
+        def cvN:CodeNode (unwrap cvNN)
+        if (cvN.type_name == className) {
+          if (cvN.hasFlag("optional")) {
+            return (("an @(optional) field of " + ocl.name) + ")")
+          }
+          if (cvN.hasFlag("weak")) {
+            return ("a @(weak) field of " + ocl.name)
+          }
+        }
+      }
+    }
+    return ""
+  }
+
+  fn isValue:boolean (className:string ctx:RangerAppWriterContext) {
+    if ((strlen className) == 0) {
+      return false
+    }
+    this.compute(ctx)
+    if (has valueClasses className) {
+      return true
+    }
+    return false
+  }
+}

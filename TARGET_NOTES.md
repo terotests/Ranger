@@ -55,6 +55,20 @@ the Node build writes, save for one line — see *32-bit `int`* below — and th
 compiler that comes out of it compiles the compiler again to a file that
 matches the Node build exactly.
 
+**That is no longer the whole truth, and the gap is a bug rather than a
+difference of opinion — see ISSUES.md #95.** Thirty-four hunks of the diff
+against the Node build are non-ASCII and nothing else: `—` comes back as `â`,
+`…` as `â`, `✓` as `â`, every one of them a character inside a message the
+compiler prints. The C++ *writer* is fine — a non-ASCII literal in the source
+is emitted correctly and the binary prints it correctly. The reading side is
+not: on C++ `read_file` hands back bytes, so `strlen` of a file holding
+`em dash — and ellipsis …` is 96 with the high bytes `226 128 148 226 128 166`,
+where JavaScript says 92 and `8212 8230`. The compiler reads its own sources
+that way and writes each byte back as a character. It is not a regression (the
+same thirty-four hunks are there on every commit checked) and it does not stop
+the build: the binary compiles the compiler and the compiler that comes out of
+it reproduces itself.
+
 **Dart** goes the same way, and there is no build step — `dart run` takes the
 file:
 

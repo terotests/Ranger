@@ -235,8 +235,14 @@ describe("JSON operators", () => {
   // `use` line into the import slice, which sits ahead of the class content, so
   // a header written with the content ended up second and rustc rejected the
   // file with "an inner attribute is not permitted in this context".
+  //
+  // The fixture is one with a shared class and a weak field, because those are
+  // what still bring a `use` line in: `use std::rc::Rc` and
+  // `use std::cell::RefCell` are emitted only when the cell can reach the
+  // output (rustNeedsRcHeader), and a plain map program has neither. Asking
+  // this of a program with no `use` line at all would assert nothing.
   it("writes the Rust inner attributes ahead of every use line", () => {
-    const result = getGeneratedRustCode("tests/fixtures/hash_map.rgr");
+    const result = getGeneratedRustCode("tests/fixtures/ownership_shared_weak.rgr");
     expect(result.success, `Compile failed: ${result.error}`).toBe(true);
 
     const firstUse = result.code.indexOf("use ");
@@ -245,5 +251,18 @@ describe("JSON operators", () => {
     expect(firstUse).toBeGreaterThan(-1);
     expect(lastAttribute).toBeGreaterThan(-1);
     expect(lastAttribute).toBeLessThan(firstUse);
+  });
+
+  // ...and the gate itself: a program whose classes are all plain structs gets
+  // no Rc/RefCell import and no downcast helper. Six of the twelve gallery
+  // studies are in that shape, and those thirteen lines were the first thing
+  // anyone opening the file read.
+  it("leaves the Rc header out of a program with no shared class", () => {
+    const result = getGeneratedRustCode("tests/fixtures/hash_map.rgr");
+    expect(result.success, `Compile failed: ${result.error}`).toBe(true);
+    expect(result.code).not.toContain("use std::rc::Rc;");
+    expect(result.code).not.toContain("use std::cell::RefCell;");
+    expect(result.code).not.toContain("fn rg_downcast");
+    expect(result.code).toContain("#![allow(dead_code)]");
   });
 });
