@@ -112,14 +112,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The front-page hero columns are "There is no Silver Bullet." and
+  "Less is More."** Ranger as a golden-file harness that emits ordinary
+  Swift, Kotlin and JavaScript, not a magic runtime.
+
 - **The public site title is "Rewrite? Use Ranger."** The front page
   heading is two lines — "Rewrite?" then gold "Use Ranger." — and the
   document title, Open Graph title, documentation `<title>` suffix
   (`Page | Rewrite? Use Ranger.`), and playground tab title all use that
-  line. The docs header still says Ranger. The hero columns now open on
-  "There is no Silver Bullet." and "Less is More.": Ranger as a golden-file
-  harness that emits ordinary Swift, Kotlin and JavaScript, not a magic
-  runtime.
+  line. The docs header still says Ranger.
 
 - **Getting started step 03 is the edit loop, not the old exit-status bug.**
   The front page's path is now: start from the starter, compile the targets,
