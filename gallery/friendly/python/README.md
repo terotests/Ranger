@@ -1,6 +1,6 @@
 # Python — can Ranger write idiomatic Python?
 
-The same nine programs as [`../src/`](../src/) compiled with `-l=python`,
+The same eleven programs as [`../src/`](../src/) compiled with `-l=python`,
 then `python3`. Snapshots are in [`generated/`](generated/).
 
 ```bash

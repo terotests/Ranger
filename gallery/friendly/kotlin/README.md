@@ -1,6 +1,6 @@
 # Kotlin — can Ranger write idiomatic Kotlin?
 
-The same nine programs as [`../src/`](../src/) compiled with `-l=kotlin`,
+The same eleven programs as [`../src/`](../src/) compiled with `-l=kotlin`,
 then `kotlinc -include-runtime` and `java -jar`. Snapshots are in
 [`generated/`](generated/).
 

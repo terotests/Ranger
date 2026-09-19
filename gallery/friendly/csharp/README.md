@@ -1,6 +1,6 @@
 # C# — can Ranger write idiomatic C#?
 
-The same nine programs as [`../src/`](../src/) compiled with `-l=csharp`,
+The same eleven programs as [`../src/`](../src/) compiled with `-l=csharp`,
 then `mcs -langversion:latest` and `mono`. Snapshots are in
 [`generated/`](generated/). Nothing generated needs a language version
 past C# 7; Mono 6.8 is enough.

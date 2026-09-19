@@ -1,6 +1,6 @@
 # Swift — can Ranger write idiomatic Swift?
 
-The same nine programs as [`../src/`](../src/) compiled with `-l=swift6`.
+The same eleven programs as [`../src/`](../src/) compiled with `-l=swift6`.
 Snapshots are in [`generated/`](generated/). This environment has no
 `swiftc`; the study validates the writer. On a Mac,
 `bash gallery/friendly/swift/compile.sh` will `swiftc -O` and run when

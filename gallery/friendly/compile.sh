@@ -25,6 +25,12 @@ fi
 
 target="${1:-all}"
 
+# Which .out files this run produced. A target whose toolchain is missing is
+# skipped, and its .out from an earlier machine must not be compared against
+# the ones just written.
+STAMP="${TMPDIR:-/tmp}/friendly-run-stamp"
+: > "$STAMP"
+
 compile_one() {
   local lang="$1"
   local ext="$2"
@@ -325,6 +331,55 @@ if [[ "$target" == "all" ]]; then
   done
 else
   run_target "$target"
+fi
+
+# Each study in src/ is ONE program compiled ten ways, so the ten runs have to
+# print the same thing. Nothing checked that until study 11 went in: an optional
+# string set to "" read back as absent on C++ and as present on every other
+# target, and both outputs sat in this directory looking fine on their own.
+# Only the targets that actually ran this time are compared — a .out left behind
+# by a machine that had a toolchain this one does not is not evidence.
+compare_outputs() {
+  local mismatch=0
+  echo "======== cross-target output ========"
+  local src name ref reflang t f
+  for src in "$SRC"/*.rgr; do
+    name="$(basename "$src" .rgr)"
+    ref=""
+    reflang=""
+    local seen=0
+    local differ=0
+    for t in javascript python go rust cpp java kotlin dart csharp swift; do
+      f="$HERE/$t/generated/${name}.out"
+      [[ -f "$f" ]] || continue
+      [[ "$f" -nt "$STAMP" ]] || continue
+      seen=$((seen + 1))
+      if [[ -z "$ref" ]]; then
+        ref="$f"
+        reflang="$t"
+        continue
+      fi
+      if ! diff -q "$ref" "$f" >/dev/null 2>&1; then
+        echo "==> $name: $t disagrees with $reflang"
+        diff -u "$ref" "$f" | tail -n +3 | head -20 | sed 's/^/      /'
+        differ=$((differ + 1))
+        mismatch=1
+      fi
+    done
+    if [[ -z "$ref" ]]; then
+      continue
+    fi
+    if [[ "$differ" -eq 0 ]]; then
+      echo "==> $name: $seen targets agree ($reflang is the reference)"
+    else
+      echo "==> $name: $differ of $seen targets disagree with $reflang"
+    fi
+  done
+  return "$mismatch"
+}
+
+if [[ "$target" == "all" ]]; then
+  compare_outputs || overall=1
 fi
 
 if [[ "$overall" -ne 0 ]]; then

@@ -1,6 +1,6 @@
 # JavaScript — can Ranger write idiomatic JavaScript?
 
-The same nine programs as [`../src/`](../src/) compiled with `-l=es6`,
+The same eleven programs as [`../src/`](../src/) compiled with `-l=es6`,
 then `node`. Snapshots are in [`generated/`](generated/). TypeScript is
 the same writer plus `-typescript` (annotations and `export`); there is
 no `tsc` on this machine, so that flag is not a separate study.

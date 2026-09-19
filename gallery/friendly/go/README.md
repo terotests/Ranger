@@ -1,6 +1,6 @@
 # Go — can Ranger write idiomatic Go?
 
-The same nine programs as [`../src/`](../src/) compiled with `-l=go`, then
+The same eleven programs as [`../src/`](../src/) compiled with `-l=go`, then
 `go build` and run. Snapshots are in [`generated/`](generated/).
 
 ```bash

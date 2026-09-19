@@ -1513,7 +1513,47 @@ func r_io_get_env( name string) *GoNullable {
                 ; optional this operator returns
                 python ( "os.environ.get(" (e 1) ")" (imp "os") )
                 dart ( "Platform.environment[" (e 1) "]" (imp "dart:io") )
-                cpp ( "std::getenv(" (e 1) ".c_str()) ? std::string(std::getenv(" (e 1) ".c_str())) : std::string(\"\")" (imp "<cstdlib>") )
+                ; same story as read_file: the operator is optional and Python
+                ; already answers None for a name that is not set. C++ handed
+                ; back the empty string for unset and for set-to-empty alike.
+                cpp ( "r_cpp_env_var(" (e 1) ")" (imp "<cstdlib>")
+(create_polyfill
+"
+template <class T>
+class r_optional_primitive {
+  public:
+    // has_value has to start false: cpp_str_to_int and its siblings leave the
+    // field untouched when the conversion throws, and an indeterminate bool
+    // made a failed str2int read back as a value on the C++ target.
+    bool has_value = false;
+    T value = T();
+    r_optional_primitive() {}
+    // a plain value placed into an optional slot: returning a bare string
+    // from a function declared @(optional):string arrives here. Declaring
+    // any constructor takes the implicit default one away, hence the pair.
+    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
+    r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
+        has_value = rhs.has_value;
+        value = rhs.value;
+        return *this;
+    }
+    r_optional_primitive<T> & operator=(const T a_value) {
+        has_value = true;
+        value = a_value;
+        return *this;
+    }
+};
+"
+)
+(create_polyfill "
+inline r_optional_primitive<std::string> r_cpp_env_var(const std::string& name) {
+    r_optional_primitive<std::string> res;
+    const char* v = std::getenv(name.c_str());
+    if (v) { res = std::string(v); }
+    return res;
+}
+")
+                )
                 ; * ("/* environment variable reading not implemented */")
             }
         }   
@@ -3792,17 +3832,51 @@ def rg_read_file(path, filename):
         return None
 ")
                 )
+                ; read_file is declared optional, and Python already answers
+                ; None for a file it cannot read. C++ used to hand back the
+                ; empty string for both a missing file and an empty one.
                 cpp ( "r_cpp_readFile( " (e 1) " , " (e 2) ")" (imp "<fstream>")
+(create_polyfill
+"
+template <class T>
+class r_optional_primitive {
+  public:
+    // has_value has to start false: cpp_str_to_int and its siblings leave the
+    // field untouched when the conversion throws, and an indeterminate bool
+    // made a failed str2int read back as a value on the C++ target.
+    bool has_value = false;
+    T value = T();
+    r_optional_primitive() {}
+    // a plain value placed into an optional slot: returning a bare string
+    // from a function declared @(optional):string arrives here. Declaring
+    // any constructor takes the implicit default one away, hence the pair.
+    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
+    r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
+        has_value = rhs.has_value;
+        value = rhs.value;
+        return *this;
+    }
+    r_optional_primitive<T> & operator=(const T a_value) {
+        has_value = true;
+        value = a_value;
+        return *this;
+    }
+};
+"
+)
 (create_polyfill "
-std::string  r_cpp_readFile(const std::string& path, const std::string& filename) 
+r_optional_primitive<std::string>  r_cpp_readFile(const std::string& path, const std::string& filename)
 {
+  r_optional_primitive<std::string> res;
   std::ifstream ifs(path + \"/\" + filename);
+  if (!ifs) { return res; }
   std::string content( (std::istreambuf_iterator<char>(ifs) ),
                        (std::istreambuf_iterator<char>()    ) );
-  return content;
-}    
-    ")                        
-            
+  res = content;
+  return res;
+}
+    ")
+
                 )
                 php ("file_get_contents(" (e 1) " . \"/\" . " (e 2) ") " )
                 swift3 ("r_read_file(dirName: " (e 1) " + \"/\" + " (e 2) ") " 
@@ -3947,17 +4021,51 @@ def rg_read_file(path, filename):
         return None
 ")
                 )
+                ; read_file is declared optional, and Python already answers
+                ; None for a file it cannot read. C++ used to hand back the
+                ; empty string for both a missing file and an empty one.
                 cpp ( "r_cpp_readFile( " (e 1) " , " (e 2) ")" (imp "<fstream>")
+(create_polyfill
+"
+template <class T>
+class r_optional_primitive {
+  public:
+    // has_value has to start false: cpp_str_to_int and its siblings leave the
+    // field untouched when the conversion throws, and an indeterminate bool
+    // made a failed str2int read back as a value on the C++ target.
+    bool has_value = false;
+    T value = T();
+    r_optional_primitive() {}
+    // a plain value placed into an optional slot: returning a bare string
+    // from a function declared @(optional):string arrives here. Declaring
+    // any constructor takes the implicit default one away, hence the pair.
+    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
+    r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
+        has_value = rhs.has_value;
+        value = rhs.value;
+        return *this;
+    }
+    r_optional_primitive<T> & operator=(const T a_value) {
+        has_value = true;
+        value = a_value;
+        return *this;
+    }
+};
+"
+)
 (create_polyfill "
-std::string  r_cpp_readFile(const std::string& path, const std::string& filename) 
+r_optional_primitive<std::string>  r_cpp_readFile(const std::string& path, const std::string& filename)
 {
+  r_optional_primitive<std::string> res;
   std::ifstream ifs(path + \"/\" + filename);
+  if (!ifs) { return res; }
   std::string content( (std::istreambuf_iterator<char>(ifs) ),
                        (std::istreambuf_iterator<char>()    ) );
-  return content;
-}    
-    ")                        
-            
+  res = content;
+  return res;
+}
+    ")
+
                 )
                 php ("file_get_contents(" (e 1) " . \"/\" . " (e 2) ") " )
                 swift3 ("r_read_file(dirName: " (e 1) " + \"/\" + " (e 2) ") " 
@@ -4196,6 +4304,13 @@ static class RgFiles {
             templates {
                 cpp ( "/*unwrap dbl*/" (e 1) ".value" )
                 csharp ( "(" (e 1) ").Value" )
+            }
+        }
+        ; see the null? overload: an optional string carries its own presence
+        ; bit on C++, so reading the value out of one is not a no-op.
+        unwrap       cmdUnwrap:string        ( arg@(optional):string ) {
+            templates {
+                cpp ( (e 1) ".value" )
             }
         }
         ; `bool?` is a Nullable<bool> like the two above, and `if (unwrap ok)`
@@ -5397,9 +5512,15 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
                 cpp ((e 1) ".has_value == false")     
             }
         }               
+        ; an optional string used to be a bare std::string on C++, with ""
+        ; standing in for absent. That is the one place the C++ output
+        ; disagreed with every other target: `s = ""` then `null? s` answered
+        ; true here and false on JS, Python, Go and Rust. It is an
+        ; r_optional_primitive<std::string> now, so "" is a value like any
+        ; other and the presence bit is its own.
         null?       cmdIsNotNull:boolean        ( arg@(optional):string ) {
             templates {
-                cpp ((e 1) ".empty()")
+                cpp ((e 1) ".has_value == false")
             }
         }
 
@@ -5454,7 +5575,7 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
         }               
         !null?       cmdIsNotNull:boolean        ( arg@(optional):string ) {
             templates {
-                cpp ((e 1) ".empty() == false ")
+                cpp ((e 1) ".has_value")
             }
         }
 
@@ -7924,6 +8045,11 @@ class r_optional_primitive {
     // made a failed str2int read back as a value on the C++ target.
     bool has_value = false;
     T value = T();
+    r_optional_primitive() {}
+    // a plain value placed into an optional slot: returning a bare string
+    // from a function declared @(optional):string arrives here. Declaring
+    // any constructor takes the implicit default one away, hence the pair.
+    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
     r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
         has_value = rhs.has_value;
         value = rhs.value;
@@ -8107,6 +8233,11 @@ class r_optional_primitive {
     // made a failed str2int read back as a value on the C++ target.
     bool has_value = false;
     T value = T();
+    r_optional_primitive() {}
+    // a plain value placed into an optional slot: returning a bare string
+    // from a function declared @(optional):string arrives here. Declaring
+    // any constructor takes the implicit default one away, hence the pair.
+    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
     r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
         has_value = rhs.has_value;
         value = rhs.value;
@@ -8333,6 +8464,11 @@ class r_optional_primitive {
     // made a failed str2int read back as a value on the C++ target.
     bool has_value = false;
     T value = T();
+    r_optional_primitive() {}
+    // a plain value placed into an optional slot: returning a bare string
+    // from a function declared @(optional):string arrives here. Declaring
+    // any constructor takes the implicit default one away, hence the pair.
+    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
     r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
         has_value = rhs.has_value;
         value = rhs.value;
@@ -8384,6 +8520,11 @@ class r_optional_primitive {
     // made a failed str2int read back as a value on the C++ target.
     bool has_value = false;
     T value = T();
+    r_optional_primitive() {}
+    // a plain value placed into an optional slot: returning a bare string
+    // from a function declared @(optional):string arrives here. Declaring
+    // any constructor takes the implicit default one away, hence the pair.
+    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
     r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
         has_value = rhs.has_value;
         value = rhs.value;
@@ -8442,6 +8583,37 @@ r_optional_primitive<double> cpp_get_map_string_double_value( const M & m , cons
                 ; to give an optional T, so the borrow is cloned away.
                 rust ( (e 1) ".get(" (kref 2) ").cloned()" )
                 cpp ( "r_map_get_val(" (e 1) ", " (ckey 2) ")"
+; the string case below hands back one of these, so its definition has to be
+; on the page before r_map_get_val is. Same text the writer emits for an
+; optional primitive, and createPolyfill keys its dedup on the text.
+(create_polyfill
+"
+template <class T>
+class r_optional_primitive {
+  public:
+    // has_value has to start false: cpp_str_to_int and its siblings leave the
+    // field untouched when the conversion throws, and an indeterminate bool
+    // made a failed str2int read back as a value on the C++ target.
+    bool has_value = false;
+    T value = T();
+    r_optional_primitive() {}
+    // a plain value placed into an optional slot: returning a bare string
+    // from a function declared @(optional):string arrives here. Declaring
+    // any constructor takes the implicit default one away, hence the pair.
+    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
+    r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
+        has_value = rhs.has_value;
+        value = rhs.value;
+        return *this;
+    }
+    r_optional_primitive<T> & operator=(const T a_value) {
+        has_value = true;
+        value = a_value;
+        return *this;
+    }
+};
+"
+)
 (create_polyfill
 "
 // Map read that never inserts on miss (unlike std::map::operator[]) and does a
@@ -8460,9 +8632,18 @@ r_optional_primitive<double> cpp_get_map_string_double_value( const M & m , cons
 // is only ever named for a variant-valued map, so a declaration is enough here
 // and a program with no shape at all still compiles.
 template <class T> class r_optional_union;
+// Same story for a string-valued map, for a different reason: std::string has
+// no null state either, so a miss and a key holding the empty string read back
+// the same. Every other target tells those apart, and r_optional_primitive is
+// the shape an optional string already has on this one; it is defined by the
+// polyfill just above.
+#include <string>
 template<typename T> struct r_map_result { typedef T type; };
 template<typename... A> struct r_map_result<std::variant<A...>> {
     typedef r_optional_union<std::variant<A...>> type;
+};
+template<> struct r_map_result<std::string> {
+    typedef r_optional_primitive<std::string> type;
 };
 template<typename M, typename K>
 typename r_map_result<typename M::mapped_type>::type r_map_get_val( const M & m , const K & key) {

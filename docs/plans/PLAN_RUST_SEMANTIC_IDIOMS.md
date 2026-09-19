@@ -946,6 +946,96 @@ plus 9 rustc errors from `rust-selfhost-check.sh`. Every one of those counts is
 identical with and without the P0 changes, checked by rebuilding from
 `origin/master` and re-running.
 
+`the generated Kotlin builds` in `compiler-selfhost.test.ts` was a twentieth,
+and was invisible: it had been SKIPPED on every machine so far for want of a
+`kotlinc`. It is green now — see the sibling-target section below.
+
+## Sibling targets — what the same study found next door
+
+`src/` is shared, so every study runs on ten targets, and three of the items
+above turned out not to be about Rust at all. They are recorded here rather
+than in a plan of their own because they are the same finding seen from a
+different writer.
+
+### C++ — `Enum` → `enum class` (item **F**, second half)
+
+The nativeness question is the same one Rust asks, and the answer has to be
+the same: a Ranger `Enum` that is only ever declared, compared, assigned,
+switched on and returned can be a real enum; one that is indexed, added to,
+used as a map key or round-tripped through `@serialize` cannot. The rules
+moved out of `RustClass.rgr` into
+[`EnumNativeAnalysis`](../../compiler/EnumAnalysis.rgr), which both writers now
+hold one of, and the C++ writer emits
+
+```cpp
+enum class Color : int { Red = 0, Green = 1, Blue = 2, };
+```
+
+with `Color::Green` at the value sites, `Color` in signatures, and the old
+`int` lowering whenever a use would not fit. Seven of the compiler's own enums
+come out native in its C++ rendering, and `npm run selfhost:check:cpp` stays at
+zero errors. `-strict-ownership` prints `enum[cpp] <name> -> native enum` or the
+reason it fell back, the way the Rust half already did.
+
+### C++ — an optional `string` is not an empty one
+
+This is the one place the C++ output disagreed with every other target, and it
+was a correctness bug rather than a matter of style. An optional string was
+lowered to a bare `std::string` and absence was spelled `.empty()`, so
+
+```ranger
+def s@(optional):string
+s = ""
+if (null? s) { print "absent" } { print "present" }
+```
+
+printed `absent` on C++ and `present` on JavaScript, Python, Go and Rust. An
+optional int had been carrying its own presence bit in `r_optional_primitive<T>`
+since long before; the string case simply never got the same treatment.
+`writeTypeDef` emits `r_optional_primitive<std::string>` now, the `null?` /
+`!null?` / `unwrap` templates read `has_value` and `value` instead of
+`.empty()`, and the template gained the converting constructor that returning
+a bare string from an `@(optional):string` function needs.
+
+Four readers had to come with it, because none of them could say "absent"
+either — each is declared optional, each answers `None` or `null` on the other
+targets, and each handed back `""` on C++:
+
+| Reader | C++ before | C++ now |
+| --- | --- | --- |
+| a `[K:string]` map | `r_map_get_val` returns the `mapped_type`, so a miss and a key holding `""` are one answer | `r_map_result` has a `std::string` specialization, beside the one `std::variant` already had for the same reason |
+| `read_file` | the empty string for a missing file and an empty one alike | `r_optional_primitive<std::string>`, absent when the stream will not open |
+| `env_var` | `std::getenv(…) ? … : std::string("")` | absent when `getenv` answers null, present-and-empty when it answers `""` |
+| JSON `getStr` | `std::string()` for a key that is absent or not a string | absent, the way every other target already read it |
+
+The JSON one is the only one a test caught: `compiler-json.test.ts` prints
+`missing=none` for a key that is not there, and C++ printed nothing.
+
+A *specific* `get` overload for `[K:string]` would have been the obvious fix
+for the map and does not work: an operator overload narrower than
+`[K:T]` does not survive the `??` macro's re-parse, which is why the existing
+`[K:int]` overload silently fails there too. That is a separate bug and is not
+fixed here.
+
+`buffer` and `boolean` keep the old approximation for now, documented where
+their templates are; both are narrower and neither showed up in a study.
+
+### The gate that would have caught it
+
+Nothing compared the ten outputs. Each target's `generated/*.out` was written
+and committed, and two of them disagreeing looked like nothing at all.
+`compile.sh` now diffs every study's output across the targets that actually
+ran, and `src/11_absent_vs_empty.rgr` is the study that asks the question.
+
+### Kotlin — `.toString()` binds to a token, not an expression
+
+Not from the study; found when `kotlinc` arrived on the build machine and the
+self-hosting Kotlin build went from SKIPPED to one error. The string-concat
+templates wrote `(e 2) ".toString()"`, so `"" + i * 4` came out as
+`"" + i * 4.toString()` — `Int * String`, which is not a program. The operand
+is parenthesised now, on both sides of the concat and on Dart, C# and Scala,
+which had the same shape.
+
 Related: [`gallery/friendly/rust/README.md`](../../gallery/friendly/rust/README.md),
 [PLAN_RUST_IDIOMATICITY.md](PLAN_RUST_IDIOMATICITY.md),
 [PLAN_RUST_OWNERSHIP.md](PLAN_RUST_OWNERSHIP.md), [PLAN_SHAPES.md](PLAN_SHAPES.md).

@@ -36,6 +36,11 @@ class r_optional_primitive {
     // made a failed str2int read back as a value on the C++ target.
     bool has_value = false;
     T value = T();
+    r_optional_primitive() {}
+    // a plain value placed into an optional slot: returning a bare string
+    // from a function declared @(optional):string arrives here. Declaring
+    // any constructor takes the implicit default one away, hence the pair.
+    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
     r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
         has_value = rhs.has_value;
         value = rhs.value;
@@ -78,7 +83,7 @@ class Stack_string {
     /* instance methods */ 
     void put( const std::string& item );
     int size();
-    std::string peek();
+     r_optional_primitive<std::string>  peek();
 };
 
 int __g_argc;
@@ -98,8 +103,8 @@ int main(int argc, char* argv[]) {
   words->put(std::string("ada"));
   words->put(std::string("grace"));
   std::cout << std::string("str-size ") + std::to_string(words->size()) << std::endl;
-  std::string lastWord = words->peek();
-  std::cout << std::string("str-top ") + ((lastWord.empty() == false ) ? lastWord : std::string("?")) << std::endl;
+   r_optional_primitive<std::string>  lastWord = words->peek();
+  std::cout << std::string("str-top ") + (lastWord.has_value ? lastWord.value : std::string("?")) << std::endl;
   return 0;
 }
 Stack_int::Stack_int( ) {
@@ -127,8 +132,8 @@ void  Stack_string::put( const std::string& item ) {
 int  Stack_string::size() {
   return (int)(items.size());
 }
-std::string  Stack_string::peek() {
-  std::string found;
+ r_optional_primitive<std::string>   Stack_string::peek() {
+   r_optional_primitive<std::string>  found;
   int n = (int)(items.size());
   if ( n == 0 ) {
     return found;

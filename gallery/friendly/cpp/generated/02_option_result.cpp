@@ -43,6 +43,11 @@ class r_optional_primitive {
     // made a failed str2int read back as a value on the C++ target.
     bool has_value = false;
     T value = T();
+    r_optional_primitive() {}
+    // a plain value placed into an optional slot: returning a bare string
+    // from a function declared @(optional):string arrives here. Declaring
+    // any constructor takes the implicit default one away, hence the pair.
+    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
     r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
         has_value = rhs.has_value;
         value = rhs.value;
@@ -108,7 +113,7 @@ class Lookup {
     /* class constructor */ 
     Lookup( );
     /* instance methods */ 
-    std::string findName( const std::vector<std::string>& names , const std::string& key );
+     r_optional_primitive<std::string>  findName( const std::vector<std::string>& names , const std::string& key );
     r_union_ParseOutcome parseInt( const std::string& text );
     std::string describe( const r_union_ParseOutcome& r );
 };
@@ -164,8 +169,8 @@ bool  ParseOutcome__ops::notEquals( const r_union_ParseOutcome& a , const r_unio
 }
 Lookup::Lookup( ) {
 }
-std::string  Lookup::findName( const std::vector<std::string>& names , const std::string& key ) {
-  std::string found;
+ r_optional_primitive<std::string>   Lookup::findName( const std::vector<std::string>& names , const std::string& key ) {
+   r_optional_primitive<std::string>  found;
   for ( int i = 0; i != (int)(names.size()); i++) {
     std::string n = names.at(i);
     if ( (n == key) ) {
@@ -204,11 +209,11 @@ int main(int argc, char* argv[]) {
   __g_argv = argv;
   std::shared_ptr<Lookup> box =  std::make_shared<Lookup>();
   std::vector<std::string> names = std::vector<std::string>{std::string("ada"), std::string("grace")};
-  std::string hit = box->findName(names, std::string("ada"));
-  std::cout << std::string("found ") + ((hit.empty() == false ) ? hit : std::string("unknown")) << std::endl;
-  std::string miss = box->findName(names, std::string("alan"));
-  std::cout << std::string("miss ") + ((miss.empty() == false ) ? miss : std::string("unknown")) << std::endl;
-  if ( miss.empty() ) {
+   r_optional_primitive<std::string>  hit = box->findName(names, std::string("ada"));
+  std::cout << std::string("found ") + (hit.has_value ? hit.value : std::string("unknown")) << std::endl;
+   r_optional_primitive<std::string>  miss = box->findName(names, std::string("alan"));
+  std::cout << std::string("miss ") + (miss.has_value ? miss.value : std::string("unknown")) << std::endl;
+  if ( miss.has_value == false ) {
     std::cout << std::string("miss is empty") << std::endl;
   }
   std::cout << box->describe(box->parseInt(std::string("42"))) << std::endl;

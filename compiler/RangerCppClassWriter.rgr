@@ -407,6 +407,11 @@ class r_optional_primitive {
     // made a failed str2int read back as a value on the C++ target.
     bool has_value = false;
     T value = T();
+    r_optional_primitive() {}
+    // a plain value placed into an optional slot: returning a bare string
+    // from a function declared @(optional):string arrives here. Declaring
+    // any constructor takes the implicit default one away, hence the pair.
+    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
     r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
         has_value = rhs.has_value;
         value = rhs.value;
@@ -521,7 +526,12 @@ class r_optional_primitive {
       }
       case RangerNodeType.String {
         wr.addImport("<string>")
-        wr.out("std::string" false)
+        if(node.hasFlag("optional")) {
+          this.cppEmitOptionalPrimitive(wr)
+          wr.out(" r_optional_primitive<std::string> " false)
+        } {
+          wr.out("std::string" false)
+        }
       }
       case RangerNodeType.Boolean {
         wr.out("bool" false)

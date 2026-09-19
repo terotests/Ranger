@@ -29146,7 +29146,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               }
             };
             cppEmitOptionalPrimitive (wr) {
-              const code = "\ntemplate <class T>\nclass r_optional_primitive {\n  public:\n    // has_value has to start false: cpp_str_to_int and its siblings leave the\n    // field untouched when the conversion throws, and an indeterminate bool\n    // made a failed str2int read back as a value on the C++ target.\n    bool has_value = false;\n    T value = T();\n    r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {\n        has_value = rhs.has_value;\n        value = rhs.value;\n        return *this;\n    }\n    r_optional_primitive<T> & operator=(const T a_value) {\n        has_value = true;\n        value = a_value;\n        return *this;\n    }\n};\n";
+              const code = "\ntemplate <class T>\nclass r_optional_primitive {\n  public:\n    // has_value has to start false: cpp_str_to_int and its siblings leave the\n    // field untouched when the conversion throws, and an indeterminate bool\n    // made a failed str2int read back as a value on the C++ target.\n    bool has_value = false;\n    T value = T();\n    r_optional_primitive() {}\n    // a plain value placed into an optional slot: returning a bare string\n    // from a function declared @(optional):string arrives here. Declaring\n    // any constructor takes the implicit default one away, hence the pair.\n    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}\n    r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {\n        has_value = rhs.has_value;\n        value = rhs.value;\n        return *this;\n    }\n    r_optional_primitive<T> & operator=(const T a_value) {\n        has_value = true;\n        value = a_value;\n        return *this;\n    }\n};\n";
               const p_write = wr.getTag("utilities");
               if ( ( typeof(p_write.compiledTags[code] ) != "undefined" && Object.prototype.hasOwnProperty.call(p_write.compiledTags, code) ) == false ) {
                 p_write.raw(code, true);
@@ -29256,7 +29256,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   break;
                 case 4 : 
                   wr.addImport("<string>");
-                  wr.out("std::string", false);
+                  if ( node.hasFlag("optional") ) {
+                    this.cppEmitOptionalPrimitive(wr);
+                    wr.out(" r_optional_primitive<std::string> ", false);
+                  } else {
+                    wr.out("std::string", false);
+                  }
                   break;
                 case 5 : 
                   wr.out("bool", false);

@@ -555,7 +555,7 @@ a Rust programmer would recognize.
 ```
 gallery/friendly/
   compile.sh              Ranger → build → run, then attempts must be refused
-  src/NN_*.rgr            the ten programs, shared with every sibling study
+  src/NN_*.rgr            the eleven programs, shared with every sibling study
   rust/
     README.md             this study
     generated/NN_*.rs     snapshots of the writer output

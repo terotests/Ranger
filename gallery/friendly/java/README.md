@@ -1,6 +1,6 @@
 # Java — can Ranger write idiomatic Java?
 
-The same nine programs as [`../src/`](../src/) compiled with `-l=java7`.
+The same eleven programs as [`../src/`](../src/) compiled with `-l=java7`.
 The writer emits **one `.java` file per class** under
 [`generated/<study>/`](generated/). Then `javac` and `java`.
 

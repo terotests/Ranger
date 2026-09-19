@@ -6,10 +6,8 @@
 #include  <iostream>
 
 // define classes here to avoid compiler errors
-class Point;
-class OptionalParams;
-class Point;
-class OptionalParams;
+class AbsentMain;
+class AbsentMain;
 
 template <class T>
 class r_optional_union {
@@ -25,7 +23,7 @@ class r_optional_union {
     bool operator==(std::nullptr_t) const { return !has_value; }
     explicit operator bool() const { return has_value; }
 };
-typedef std::variant<std::shared_ptr<Point>, std::shared_ptr<OptionalParams>, int, std::string, bool, double>  r_union_Any;
+typedef std::variant<std::shared_ptr<AbsentMain>, int, std::string, bool, double>  r_union_Any;
 
 template <class T>
 class r_optional_primitive {
@@ -57,69 +55,49 @@ class r_optional_primitive {
 template <class T> inline T& rg_arg_ref(T&& v) { return v; }
 
 // header definitions
-class Point { 
-  public :
-    int x;
-    int y     /* note: unused */;
-    /* class constructor */ 
-    Point( );
-};
-class OptionalParams { 
+class AbsentMain { 
   public :
     /* class constructor */ 
-    OptionalParams( );
+    AbsentMain( );
     /* static methods */ 
     static void main();
     /* instance methods */ 
-    std::string shown(  r_optional_primitive<std::string>  maybe );
-    int shownInt(  r_optional_primitive<int>  a );
-    int shownPoint( const std::shared_ptr<Point>& p );
+    std::string report( const std::string& label ,  r_optional_primitive<std::string>  s );
 };
 
 int __g_argc;
 char **__g_argv;
-Point::Point( ) {
-  this->x = 0;
-  this->y = 0;
+AbsentMain::AbsentMain( ) {
 }
-OptionalParams::OptionalParams( ) {
-}
-std::string  OptionalParams::shown(  r_optional_primitive<std::string>  maybe ) {
-  if ( maybe.has_value == false ) {
-    return std::string("unknown");
+std::string  AbsentMain::report( const std::string& label ,  r_optional_primitive<std::string>  s ) {
+  if ( s.has_value == false ) {
+    return label + std::string(": absent");
   }
-  return maybe.value;
-}
-int  OptionalParams::shownInt(  r_optional_primitive<int>  a ) {
-  if ( a.has_value == false ) {
-    return 0;
-  }
-  int r = /*unwrap int*/a.value;
-  return r;
-}
-int  OptionalParams::shownPoint( const std::shared_ptr<Point>& p ) {
-  if ( p == NULL ) {
-    return 0;
-  }
-  std::shared_ptr<Point> q = p;
-  return q->x;
+  return ((label + std::string(": present [")) + s.value) + std::string("]");
 }
 int main(int argc, char* argv[]) {
   __g_argc = argc;
   __g_argv = argv;
-  std::shared_ptr<OptionalParams> app =  std::make_shared<OptionalParams>();
-   r_optional_primitive<std::string>  hit;
-  hit  = std::string("ada");
-  std::cout << std::string("name ") + app->shown(hit) << std::endl;
-   r_optional_primitive<std::string>  miss;
-  std::cout << std::string("miss ") + app->shown(miss) << std::endl;
+  std::shared_ptr<AbsentMain> app =  std::make_shared<AbsentMain>();
+   r_optional_primitive<std::string>  s;
+  std::cout << app->report(std::string("unset"), s) << std::endl;
+  s  = std::string("");
+  std::cout << app->report(std::string("empty"), s) << std::endl;
+  std::cout << std::string("empty ?? ") + (s.has_value ? s.value : std::string("FALLBACK")) << std::endl;
+  s  = std::string("x");
+  std::cout << app->report(std::string("set"), s) << std::endl;
    r_optional_primitive<int>  n;
-  n  = 41;
-  std::cout << std::string("int ") + std::to_string(app->shownInt(n)) << std::endl;
-  std::shared_ptr<Point> p;
-  std::shared_ptr<Point> pt =  std::make_shared<Point>();
-  pt->x = 7;
-  p  = pt;
-  std::cout << std::string("point ") + std::to_string(app->shownPoint(p)) << std::endl;
+  if ( n.has_value == false ) {
+    std::cout << std::string("int unset: absent") << std::endl;
+  } else {
+    std::cout << std::string("int unset: present") << std::endl;
+  }
+  n  = 0;
+  if ( n.has_value == false ) {
+    std::cout << std::string("int zero: absent") << std::endl;
+  } else {
+    std::cout << std::string("int zero: present") << std::endl;
+  }
+  std::cout << std::string("int zero ?? ") + std::to_string((n.has_value ? (/*unwrap int*/n.value) : 99)) << std::endl;
   return 0;
 }

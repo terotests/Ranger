@@ -655,6 +655,32 @@ inline rg_json_arr rg_json_as_arr(const rg_json_val& v) {
 }
 ")
              (create_polyfill "
+template <class T>
+class r_optional_primitive {
+  public:
+    // has_value has to start false: cpp_str_to_int and its siblings leave the
+    // field untouched when the conversion throws, and an indeterminate bool
+    // made a failed str2int read back as a value on the C++ target.
+    bool has_value = false;
+    T value = T();
+    r_optional_primitive() {}
+    // a plain value placed into an optional slot: returning a bare string
+    // from a function declared @(optional):string arrives here. Declaring
+    // any constructor takes the implicit default one away, hence the pair.
+    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
+    r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
+        has_value = rhs.has_value;
+        value = rhs.value;
+        return *this;
+    }
+    r_optional_primitive<T> & operator=(const T a_value) {
+        has_value = true;
+        value = a_value;
+        return *this;
+    }
+};
+")
+             (create_polyfill "
 inline const rg_json_val* rg_json_find(const rg_json_obj& o, const std::string& k) {
     if (!o) { return nullptr; }
     for (size_t i = 0; i < o->items.size(); i++) {
@@ -662,10 +688,14 @@ inline const rg_json_val* rg_json_find(const rg_json_obj& o, const std::string& 
     }
     return nullptr;
 }
-inline std::string rg_json_get_str(const rg_json_obj& o, const std::string& k) {
+// getStr is declared optional, and every other target answers null for a key
+// that is absent or not a string. Returning a bare std::string made that the
+// empty string, which is a value.
+inline r_optional_primitive<std::string> rg_json_get_str(const rg_json_obj& o, const std::string& k) {
+    r_optional_primitive<std::string> res;
     const rg_json_val* v = rg_json_find(o, k);
-    if (v && std::holds_alternative<std::string>(*v)) { return std::get<std::string>(*v); }
-    return std::string();
+    if (v && std::holds_alternative<std::string>(*v)) { res = std::get<std::string>(*v); }
+    return res;
 }
 inline bool rg_json_get_bool(const rg_json_obj& o, const std::string& k) {
     const rg_json_val* v = rg_json_find(o, k);
@@ -1177,6 +1207,32 @@ inline rg_json_arr rg_json_as_arr(const rg_json_val& v) {
 }
 ")
              (create_polyfill "
+template <class T>
+class r_optional_primitive {
+  public:
+    // has_value has to start false: cpp_str_to_int and its siblings leave the
+    // field untouched when the conversion throws, and an indeterminate bool
+    // made a failed str2int read back as a value on the C++ target.
+    bool has_value = false;
+    T value = T();
+    r_optional_primitive() {}
+    // a plain value placed into an optional slot: returning a bare string
+    // from a function declared @(optional):string arrives here. Declaring
+    // any constructor takes the implicit default one away, hence the pair.
+    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
+    r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
+        has_value = rhs.has_value;
+        value = rhs.value;
+        return *this;
+    }
+    r_optional_primitive<T> & operator=(const T a_value) {
+        has_value = true;
+        value = a_value;
+        return *this;
+    }
+};
+")
+             (create_polyfill "
 inline const rg_json_val* rg_json_find(const rg_json_obj& o, const std::string& k) {
     if (!o) { return nullptr; }
     for (size_t i = 0; i < o->items.size(); i++) {
@@ -1184,10 +1240,14 @@ inline const rg_json_val* rg_json_find(const rg_json_obj& o, const std::string& 
     }
     return nullptr;
 }
-inline std::string rg_json_get_str(const rg_json_obj& o, const std::string& k) {
+// getStr is declared optional, and every other target answers null for a key
+// that is absent or not a string. Returning a bare std::string made that the
+// empty string, which is a value.
+inline r_optional_primitive<std::string> rg_json_get_str(const rg_json_obj& o, const std::string& k) {
+    r_optional_primitive<std::string> res;
     const rg_json_val* v = rg_json_find(o, k);
-    if (v && std::holds_alternative<std::string>(*v)) { return std::get<std::string>(*v); }
-    return std::string();
+    if (v && std::holds_alternative<std::string>(*v)) { res = std::get<std::string>(*v); }
+    return res;
 }
 inline bool rg_json_get_bool(const rg_json_obj& o, const std::string& k) {
     const rg_json_val* v = rg_json_find(o, k);
@@ -1214,6 +1274,11 @@ class r_optional_primitive {
     // made a failed str2int read back as a value on the C++ target.
     bool has_value = false;
     T value = T();
+    r_optional_primitive() {}
+    // a plain value placed into an optional slot: returning a bare string
+    // from a function declared @(optional):string arrives here. Declaring
+    // any constructor takes the implicit default one away, hence the pair.
+    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
     r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
         has_value = rhs.has_value;
         value = rhs.value;
@@ -1568,6 +1633,32 @@ inline rg_json_arr rg_json_as_arr(const rg_json_val& v) {
 }
 ")
              (create_polyfill "
+template <class T>
+class r_optional_primitive {
+  public:
+    // has_value has to start false: cpp_str_to_int and its siblings leave the
+    // field untouched when the conversion throws, and an indeterminate bool
+    // made a failed str2int read back as a value on the C++ target.
+    bool has_value = false;
+    T value = T();
+    r_optional_primitive() {}
+    // a plain value placed into an optional slot: returning a bare string
+    // from a function declared @(optional):string arrives here. Declaring
+    // any constructor takes the implicit default one away, hence the pair.
+    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
+    r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
+        has_value = rhs.has_value;
+        value = rhs.value;
+        return *this;
+    }
+    r_optional_primitive<T> & operator=(const T a_value) {
+        has_value = true;
+        value = a_value;
+        return *this;
+    }
+};
+")
+             (create_polyfill "
 inline const rg_json_val* rg_json_find(const rg_json_obj& o, const std::string& k) {
     if (!o) { return nullptr; }
     for (size_t i = 0; i < o->items.size(); i++) {
@@ -1575,10 +1666,14 @@ inline const rg_json_val* rg_json_find(const rg_json_obj& o, const std::string& 
     }
     return nullptr;
 }
-inline std::string rg_json_get_str(const rg_json_obj& o, const std::string& k) {
+// getStr is declared optional, and every other target answers null for a key
+// that is absent or not a string. Returning a bare std::string made that the
+// empty string, which is a value.
+inline r_optional_primitive<std::string> rg_json_get_str(const rg_json_obj& o, const std::string& k) {
+    r_optional_primitive<std::string> res;
     const rg_json_val* v = rg_json_find(o, k);
-    if (v && std::holds_alternative<std::string>(*v)) { return std::get<std::string>(*v); }
-    return std::string();
+    if (v && std::holds_alternative<std::string>(*v)) { res = std::get<std::string>(*v); }
+    return res;
 }
 inline bool rg_json_get_bool(const rg_json_obj& o, const std::string& k) {
     const rg_json_val* v = rg_json_find(o, k);
@@ -1605,6 +1700,11 @@ class r_optional_primitive {
     // made a failed str2int read back as a value on the C++ target.
     bool has_value = false;
     T value = T();
+    r_optional_primitive() {}
+    // a plain value placed into an optional slot: returning a bare string
+    // from a function declared @(optional):string arrives here. Declaring
+    // any constructor takes the implicit default one away, hence the pair.
+    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
     r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
         has_value = rhs.has_value;
         value = rhs.value;
@@ -1955,6 +2055,32 @@ inline rg_json_arr rg_json_as_arr(const rg_json_val& v) {
 }
 ")
              (create_polyfill "
+template <class T>
+class r_optional_primitive {
+  public:
+    // has_value has to start false: cpp_str_to_int and its siblings leave the
+    // field untouched when the conversion throws, and an indeterminate bool
+    // made a failed str2int read back as a value on the C++ target.
+    bool has_value = false;
+    T value = T();
+    r_optional_primitive() {}
+    // a plain value placed into an optional slot: returning a bare string
+    // from a function declared @(optional):string arrives here. Declaring
+    // any constructor takes the implicit default one away, hence the pair.
+    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
+    r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
+        has_value = rhs.has_value;
+        value = rhs.value;
+        return *this;
+    }
+    r_optional_primitive<T> & operator=(const T a_value) {
+        has_value = true;
+        value = a_value;
+        return *this;
+    }
+};
+")
+             (create_polyfill "
 inline const rg_json_val* rg_json_find(const rg_json_obj& o, const std::string& k) {
     if (!o) { return nullptr; }
     for (size_t i = 0; i < o->items.size(); i++) {
@@ -1962,10 +2088,14 @@ inline const rg_json_val* rg_json_find(const rg_json_obj& o, const std::string& 
     }
     return nullptr;
 }
-inline std::string rg_json_get_str(const rg_json_obj& o, const std::string& k) {
+// getStr is declared optional, and every other target answers null for a key
+// that is absent or not a string. Returning a bare std::string made that the
+// empty string, which is a value.
+inline r_optional_primitive<std::string> rg_json_get_str(const rg_json_obj& o, const std::string& k) {
+    r_optional_primitive<std::string> res;
     const rg_json_val* v = rg_json_find(o, k);
-    if (v && std::holds_alternative<std::string>(*v)) { return std::get<std::string>(*v); }
-    return std::string();
+    if (v && std::holds_alternative<std::string>(*v)) { res = std::get<std::string>(*v); }
+    return res;
 }
 inline bool rg_json_get_bool(const rg_json_obj& o, const std::string& k) {
     const rg_json_val* v = rg_json_find(o, k);
@@ -2290,6 +2420,32 @@ inline rg_json_arr rg_json_as_arr(const rg_json_val& v) {
 }
 ")
              (create_polyfill "
+template <class T>
+class r_optional_primitive {
+  public:
+    // has_value has to start false: cpp_str_to_int and its siblings leave the
+    // field untouched when the conversion throws, and an indeterminate bool
+    // made a failed str2int read back as a value on the C++ target.
+    bool has_value = false;
+    T value = T();
+    r_optional_primitive() {}
+    // a plain value placed into an optional slot: returning a bare string
+    // from a function declared @(optional):string arrives here. Declaring
+    // any constructor takes the implicit default one away, hence the pair.
+    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
+    r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
+        has_value = rhs.has_value;
+        value = rhs.value;
+        return *this;
+    }
+    r_optional_primitive<T> & operator=(const T a_value) {
+        has_value = true;
+        value = a_value;
+        return *this;
+    }
+};
+")
+             (create_polyfill "
 inline const rg_json_val* rg_json_find(const rg_json_obj& o, const std::string& k) {
     if (!o) { return nullptr; }
     for (size_t i = 0; i < o->items.size(); i++) {
@@ -2297,10 +2453,14 @@ inline const rg_json_val* rg_json_find(const rg_json_obj& o, const std::string& 
     }
     return nullptr;
 }
-inline std::string rg_json_get_str(const rg_json_obj& o, const std::string& k) {
+// getStr is declared optional, and every other target answers null for a key
+// that is absent or not a string. Returning a bare std::string made that the
+// empty string, which is a value.
+inline r_optional_primitive<std::string> rg_json_get_str(const rg_json_obj& o, const std::string& k) {
+    r_optional_primitive<std::string> res;
     const rg_json_val* v = rg_json_find(o, k);
-    if (v && std::holds_alternative<std::string>(*v)) { return std::get<std::string>(*v); }
-    return std::string();
+    if (v && std::holds_alternative<std::string>(*v)) { res = std::get<std::string>(*v); }
+    return res;
 }
 inline bool rg_json_get_bool(const rg_json_obj& o, const std::string& k) {
     const rg_json_val* v = rg_json_find(o, k);
@@ -2643,6 +2803,32 @@ inline rg_json_arr rg_json_as_arr(const rg_json_val& v) {
 }
 ")
              (create_polyfill "
+template <class T>
+class r_optional_primitive {
+  public:
+    // has_value has to start false: cpp_str_to_int and its siblings leave the
+    // field untouched when the conversion throws, and an indeterminate bool
+    // made a failed str2int read back as a value on the C++ target.
+    bool has_value = false;
+    T value = T();
+    r_optional_primitive() {}
+    // a plain value placed into an optional slot: returning a bare string
+    // from a function declared @(optional):string arrives here. Declaring
+    // any constructor takes the implicit default one away, hence the pair.
+    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
+    r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
+        has_value = rhs.has_value;
+        value = rhs.value;
+        return *this;
+    }
+    r_optional_primitive<T> & operator=(const T a_value) {
+        has_value = true;
+        value = a_value;
+        return *this;
+    }
+};
+")
+             (create_polyfill "
 inline const rg_json_val* rg_json_find(const rg_json_obj& o, const std::string& k) {
     if (!o) { return nullptr; }
     for (size_t i = 0; i < o->items.size(); i++) {
@@ -2650,10 +2836,14 @@ inline const rg_json_val* rg_json_find(const rg_json_obj& o, const std::string& 
     }
     return nullptr;
 }
-inline std::string rg_json_get_str(const rg_json_obj& o, const std::string& k) {
+// getStr is declared optional, and every other target answers null for a key
+// that is absent or not a string. Returning a bare std::string made that the
+// empty string, which is a value.
+inline r_optional_primitive<std::string> rg_json_get_str(const rg_json_obj& o, const std::string& k) {
+    r_optional_primitive<std::string> res;
     const rg_json_val* v = rg_json_find(o, k);
-    if (v && std::holds_alternative<std::string>(*v)) { return std::get<std::string>(*v); }
-    return std::string();
+    if (v && std::holds_alternative<std::string>(*v)) { res = std::get<std::string>(*v); }
+    return res;
 }
 inline bool rg_json_get_bool(const rg_json_obj& o, const std::string& k) {
     const rg_json_val* v = rg_json_find(o, k);

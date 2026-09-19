@@ -1,6 +1,6 @@
 # Dart — can Ranger write idiomatic Dart?
 
-The same nine programs as [`../src/`](../src/) compiled with `-l=dart`,
+The same eleven programs as [`../src/`](../src/) compiled with `-l=dart`,
 then `dart run`. Snapshots are in [`generated/`](generated/).
 
 ```bash

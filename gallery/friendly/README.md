@@ -1,6 +1,6 @@
 # friendly — idiomatic target studies
 
-Ten small Ranger programs in [`src/`](src/) try to express what a native
+Eleven small Ranger programs in [`src/`](src/) try to express what a native
 programmer would write. Each subdirectory compiles the same sources to one
 target and records what came out: what is already the idiom, what works but
 looks generated, and what the language cannot say.
@@ -10,6 +10,12 @@ looks generated, and what the language cannot say.
 bash gallery/friendly/compile.sh          # every folder below
 bash gallery/friendly/compile.sh go       # one target
 ```
+
+One program compiled eleven ways has to print the same thing eleven times, so
+a run over every target ends by diffing each study's output across the targets
+that actually ran. Nothing checked that until study 11: an optional string set
+to `""` read back as absent on C++ and as present everywhere else, and both
+outputs sat in this directory looking fine on their own.
 
 A target folder may hold `src/` of its own, for a study the same program cannot
 express on every target. There are two: `rust/src/11_behaviour_traits.rgr`,
@@ -53,19 +59,18 @@ whether Ranger compiled.
 | 6 | [C#](csharp/README.md) | yes | `int?`, `List<T>`, `Func<int, int>`, `interface` for a `shape`. `throw` wraps `ConfigurationErrorsException` and **runs**. `int` is 32-bit. |
 | 7 | [Java](java/README.md) | yes | Runs, and `throw` wraps `IllegalArgumentException`. Everything else is Java 7: `Integer` boxing, `Object` + `instanceof`, one file per class. |
 | 8 | [Go](go/README.md) | yes | Sharing is `*T`. Optional is `*GoNullable`. `try`/`throw` is `panic`/`recover`. Workable, not Go-like. |
-| 9 | [C++](cpp/README.md) | yes | Correct answers behind `shared_ptr` / `r_optional_*`. `error_msg` carries the real text now, and the map preamble only goes in when a map is reachable (study 07: 237 → 88 lines). |
-| 10 | [Rust](rust/README.md) | yes | Ownership-aware (`Rc`/`RefCell`/`Weak`, borrows) and the least Rust-like. No `Result`, no native `enum`, `match` as an `if let` chain. `try`/`catch` and a `trait` used as a type are now compile errors rather than wrong output, and optional params are fixed. |
+| 9 | [C++](cpp/README.md) | yes | `enum class` for a Ranger `Enum` now, and an optional string is an `r_optional_primitive<std::string>` rather than a `std::string` with `""` meaning absent — the one answer that used to differ from every other target. Still `shared_ptr` everywhere. `error_msg` carries the real text, and the map preamble only goes in when a map is reachable (study 07: 237 → 88 lines). |
+| 10 | [Rust](rust/README.md) | yes | Ownership-aware (`Rc`/`RefCell`/`Weak`, borrows) and still the least Rust-like, though less so: a Ranger `Enum` is a real `enum`, a `shape` match is a real `match`, names are `snake_case` and a behaviour-only `trait` is a `trait`. What is left is the big one — no `Result`, no `?`. `try`/`catch` and a `trait` used as a type are compile errors rather than wrong output, and optional params are fixed. |
 
 Two scores that are not the same thing:
 
 - **Correctness.** Python, JavaScript, Dart, Kotlin, C#, Java, Go, C++,
-  Rust all printed the same lines. Swift was not run (`swiftc` missing).
-  One exception, found by study 10 and **not** fixed: on C++ an optional
-  `string` is a plain `std::string` at every position — field, local and
-  parameter — so `""` and absent are the same value. The same program prints
-  `PRESENT[]` on every other target and `ABSENT` on C++. Study 10 does not
-  exercise it (it passes `"ada"` and nothing), so the row above still holds;
-  it is recorded here because no study would otherwise catch it.
+  Rust all printed the same lines, and `compile.sh` now proves it by diffing
+  them rather than leaving it to the reader. The one place they disagreed was
+  found by study 10 and is fixed: on C++ an optional `string` was a plain
+  `std::string` at every position — field, local and parameter — so `""` and
+  absent were the same value. Study 11 is the study that asks the question,
+  and it is the same answer on every target now.
 - **Idiom.** Python first, then the GC languages whose optional/`throw`
   already look like the language (JS, Dart), then the typed languages
   that get `T?` right but break `throw` (Swift, Kotlin), then C# (legal
@@ -74,9 +79,9 @@ Two scores that are not the same thing:
   further from what a native file looks like.
 
 What **none** of them get from Ranger today: a `Result` / `(T, error)` /
-`throws` type, a real `enum` (Ranger `Enum` is an integer on every
-target), a field-free `trait` as an interface, or `@params` surviving as
-`Stack<T>` rather than `Stack_int`.
+`throws` type, or `@params` surviving as `Stack<T>` rather than `Stack_int`.
+A real `enum` and a field-free `trait` as an interface are Rust-and-C++ only
+so far; the other eight still lower an `Enum` to an integer.
 
 ### Official targets not given a folder
 
@@ -100,10 +105,10 @@ in `Lang.rgr` with thinner templates. They are not in this ranking.
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Two names, one object | object | object | object | class / ARC | object | object | object | `*T` | `shared_ptr` | `Rc<RefCell>` when proven |
 | Weak back-edge | ignored | ignored | ignored (`T?`) | `weak var x: T?` | ignored (`T?`) | ignored | ignored | ignored (`*GoNullable`) | `r_weak` / `weak_ptr` | `Weak<RefCell>` |
-| Optional | `undefined` | `None` | `T?` | `T?` | `T?` | `int?` / `String`+null | `null` / `Integer` | `*GoNullable` | `r_optional_*` | `Option<T>` (string **params** broken) |
+| Optional | `undefined` | `None` | `T?` | `T?` | `T?` | `int?` / `String`+null | `null` / `Integer` | `*GoNullable` | `r_optional_*`, string included | `Option<T>` |
 | `try`/`throw` | `throw "…"` (runs) | `raise`/`except` (runs) | `throw "…"` (runs) | no `throws` (would not swiftc) | `throw "…"` **kotlinc rejects** | `ConfigurationErrorsException` (runs) | `IllegalArgumentException` (runs) | `panic`/`recover` (runs) | `throw string` / `catch(...)` (`error_msg` lost) | catch **dropped**, panic |
 | Closed variants | `__rg_kind` | `_rg_kind` | `abstract class` + `is` | native `enum` | `sealed interface` | `interface` + `is` | `Object` + `instanceof` | tagged struct | `std::variant` | `enum` + `if let` |
-| Ranger `Enum` | number | `int` | `int` | `Int` | `Int` | `int` | `Integer` | `int64` | `int` | `i64` |
+| Ranger `Enum` | number | `int` | `int` | `Int` | `Int` | `int` | `Integer` | `int64` | `enum class` when every use fits | `enum` when every use fits |
 | Ranger `trait` | mixin | mixin | mixin | mixin | mixin | mixin | mixin | mixin | mixin | mixin |
 | Generics | `Stack_int` | `Stack_int` | `Stack_int` | `Stack_int` | `Stack_int` | `Stack_int` | `Stack_int` | `Stack_int` | `Stack_int` | `Stack_int` |
 | Higher-order fn | function | callable / hoisted def | `int Function(int)` | closure | `(Int) -> Int` | `Func<int, int>` | `LambdaSignature1` | `func(int64) int64` | `std::function` | `&mut dyn FnMut` |
