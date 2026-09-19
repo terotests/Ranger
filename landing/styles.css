@@ -161,8 +161,15 @@ code:not(pre code) {
 }
 .rank li:nth-child(3) { border-color: var(--gold); color: var(--gold); }
 
+.matrix-hint {
+  margin: 28px 0 10px;
+  font: 400 12.5px/1 var(--mono);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--dimmer);
+}
 .matrix-wrap {
-  margin-top: 36px;
+  margin-top: 0;
   overflow-x: auto;
   border: 1px solid var(--line);
   background: var(--ink-3);
