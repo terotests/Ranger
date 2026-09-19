@@ -164,8 +164,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   again from it is a fixpoint.
 
 - **The front-page hero columns are "There is no Silver Bullet." and
-  "Less is More."** Ranger as a golden-file harness that emits ordinary
-  Swift, Kotlin and JavaScript, not a magic runtime.
+  "Stay Dry."** Ranger is more like golden — a golden-file harness that
+  emits ordinary Swift, Kotlin and JavaScript, not a magic runtime. The
+  definition sits as a small footnote under the first column.
 
 - **The gold Native section is "Native apps without duplicating the
   logic."** One source of shared logic compiled to Swift and Kotlin,
