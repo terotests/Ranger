@@ -68,7 +68,7 @@ img { max-width: 100%; display: block; }
  */
 .cols > *, .tiers > *, .plats > *, .steps > *,
 .gal > *, .starts > *, .figures > *, .shots > *,
-.hero__cols > * { min-width: 0; }
+.hero__cols > *, .native-calls > * { min-width: 0; }
 
 .dim { color: var(--dim); }
 .mono { font-family: var(--mono); }
@@ -354,7 +354,31 @@ code:not(pre code) {
 }
 .section--gold .rules .col { border-left-color: rgba(7,7,10,.24); }
 .section--gold .footnote { border-top-color: rgba(7,7,10,.24); color: rgba(7,7,10,.66); }
-.section--gold .lead:first-of-type { font-size: clamp(18px, 1.9vw, 23px); line-height: 1.4; color: var(--ink); }
+.section--gold .wrap > .lead { font-size: clamp(18px, 1.9vw, 23px); line-height: 1.4; color: var(--ink); }
+.section--gold .chips { margin: 18px 0 20px; }
+.section--gold .chips li { border-color: rgba(7,7,10,.24); color: var(--ink); }
+.section--gold .code--plain {
+  background: var(--ink);
+  border-color: rgba(7,7,10,.18);
+  max-width: 100%;
+}
+.section--gold .native-close {
+  font-size: clamp(22px, 2.4vw, 32px);
+  line-height: 1.25;
+  font-weight: 650;
+  color: var(--ink);
+  margin: 0;
+}
+.native-calls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 20px 0 16px;
+}
+.native-calls .code--plain { margin-top: 0; }
+@media (max-width: 560px) {
+  .native-calls { grid-template-columns: 1fr; }
+}
 
 /* ------------------------------------------------------------ columns --- */
 
