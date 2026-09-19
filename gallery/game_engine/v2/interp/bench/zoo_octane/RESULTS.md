@@ -7,12 +7,15 @@ Measured against the same Octane v9 suites published on
 bash scripts/build-engine-module.sh
 bash gallery/game_engine/v2/interp/bench/zoo_octane/build-native.sh
 node gallery/game_engine/v2/interp/bench/zoo_octane/run.cjs \
-  --targets=es6,cpp,rust,llvm richards,deltablue,regexp
+  --targets=es6 richards,deltablue,regexp,splay,raytrace,navier-stokes
 ```
 
 Octane scores are higher-is-faster throughput numbers. Percentages are
 `engine / baseline × 100`. Same-machine Node is the fair ratio; zoo V8 is for
-table placement against the published amd64 column.
+table placement against the published amd64 column. zoo.js.org's **Score**
+column is the geometric mean of whichever of the eight original Octane suites
+finish (Richards, DeltaBlue, Crypto, RayTrace, EarleyBoyer, RegExp, Splay,
+NavierStokes).
 
 Live timing uses `liveClock` + `performance.now` (fractional ms from
 `wall_clock_ms`). Absolute epoch ms still overflows 32-bit `truncD` on C++ for
@@ -26,20 +29,37 @@ buckets).
 
 Ranger compile: `-es6 -nodemodule` → `engine_module.cjs`, run in-process under Node.
 
+Measured 2026-09-19 on `1b95498b` (PR #1000): bytecode `new` / `o.x++` / outer-receiver
+calls, per-key write fast paths, `__proto__` atom id, and the `<<` / `>>` generic-call
+lookahead. Same harness as the rows below (`liveClock` + `performance.now`).
+
 | Suite | Engine score | Same-machine Node | % of Node | zoo.js V8 (amd64) | % of zoo V8 |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Richards | 59.0 | 55212 | **0.107%** | 37102 | **0.159%** |
-| DeltaBlue | 110 | 127859 | **0.086%** | 106675 | **0.103%** |
-| RegExp | 75.8 | 10830 | **0.700%** | 9499 | **0.798%** |
-| **geo mean (these 3)** | **78.9** | 42442 | **0.186%** | — | — |
+| Richards | 78.6 | 53507 | **0.147%** | 37102 | **0.212%** |
+| DeltaBlue | 83.2 | 128890 | **0.065%** | 106675 | **0.078%** |
+| Splay | 160 | 17310 | **0.924%** | 42718 | **0.375%** |
+| RegExp | 42.0 | 10605 | **0.396%** | 9499 | **0.442%** |
+| RayTrace | 38.9 | 85987 | **0.045%** | 119952 | **0.032%** |
+| NavierStokes | 32.6 | 56929 | **0.057%** | 38655 | **0.084%** |
+| Crypto | — | 59715 | — | 39289 | — (loads; no score in 180 s) |
+| EarleyBoyer | — | 99769 | — | 85422 | — (no score in 180 s) |
+| **Score (geo of the 6 that finished)** | **61.8** | 42858 | **0.144%** | 47285 | **0.131%** |
 
-Rough zoo.js placement (Richards): near sval (~28) / dscriptcpp (~47) / eval5 (~48).
+Rough zoo.js.org placement, amd64 table as of that run:
+
+- **Score ~62** — 47th of 62 engines with an Octane Score: under sval (~66), over DMDScript (~60) / otto (~47). Before #1000 the same machine was ~40 (rust-js).
+- **Richards 79** — 42nd of 61: under Mocha (~99) / Jint (~113), over BESEN (~62) / Nova (~52) / eval5 (~48). About 10× behind QuickJS (787), 5× behind Duktape (381), 2.8× ahead of sval (28).
+
+#998 on the same machine, before the #1000 bytecode/write work: Richards 23.3, DeltaBlue 35.9, Splay 110, RegExp 35.5, RayTrace 31.9 (NavierStokes timed out). Richards is 3.4× that run; the five-suite geo mean was 40.
+
+The C++ / Rust / LLVM tables below were last measured before that work and are not a current native ranking.
 
 ---
 
 ## C++ target (`g++ -O3` native binary)
 
-Ranger compile: `-l=cpp` → `octane_runner`, built with `g++ -O3 -march=native`.
+Last measured before #1000; not a current ranking. Ranger compile: `-l=cpp` →
+`octane_runner`, built with `g++ -O3 -march=native`.
 
 | Suite | Engine score | Same-machine Node | % of Node | zoo.js V8 (amd64) | % of zoo V8 |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -59,7 +79,8 @@ Rough zoo.js placement (Richards): next to rust-js / dmdscript / otto (~22–24)
 
 ## Rust target (`rustc -O` native binary)
 
-Ranger compile: `-l=rust` → `octane_runner`, built with `rustc -C opt-level=3`.
+Last measured before #1000; not a current ranking. Ranger compile: `-l=rust` →
+`octane_runner`, built with `rustc -C opt-level=3`.
 
 | Suite | Engine score | Same-machine Node | % of Node | zoo.js V8 (amd64) | % of zoo V8 |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -205,21 +226,27 @@ quantizes the harness's timing windows. A fixed-work splay kernel puts
 the C++ target at the same wall time across the phase-5/6 builds, so
 read this row as "runs and verifies", not as a stable throughput.
 
-Four suites (richards, deltablue, splay, and — on es6 — regexp) produce a
-valid score on the Ranger engine. The other four fail the SAME way on every
-Ranger target, which locates them in the engine's semantics, not a target's
-lowering: crypto returns a wrong digest, raytrace renders the scene
-incorrectly, navier-stokes fails its checksum, and earley-boyer trips the
+As of this matrix date, four suites (richards, deltablue, splay, and — on es6 —
+regexp) produced a valid score. The other four failed the SAME way on every
+Ranger target, which located them in the engine's semantics, not a target's
+lowering: crypto returned a wrong digest, raytrace rendered the scene
+incorrectly, navier-stokes failed its checksum, and earley-boyer tripped the
 engine's TS parser on the Scheme-compiled source (leading-zero numeric keys
-in strict mode). `regexp` is the one target-specific split — see below.
+in strict mode). `regexp` was the one target-specific split — see below.
 
-earley-boyer fails cleanly and fast on every target now — ~0.2 s on es6,
-~3 s on the natives (the parser tokenizes the 210 KB file quickly since the
-O(1) `at` cache, reports the syntax errors, and the script is rejected rather
-than run). Two earlier failure modes are gone: the ~60 s tokenizer hang (the
-O(n²) `at`) and the native ~15 GB allocation blow-up from evaluating the
+That split is historical. On es6 after #998 / #1000, RayTrace and NavierStokes
+score; Crypto parses (the `<<` / `>>` lookahead) but did not finish in 180 s
+here; EarleyBoyer no longer dies in the parser but did not finish in 180 s
+either. See the current es6 table at the top.
+
+At the time of this matrix, earley-boyer failed cleanly and fast — ~0.2 s on
+es6, ~3 s on the natives (the parser tokenized the 210 KB file quickly since the
+O(1) `at` cache, reported the syntax errors, and the script was rejected rather
+than run). Two earlier failure modes were already gone: the ~60 s tokenizer hang
+(the O(n²) `at`) and the native ~15 GB allocation blow-up from evaluating the
 malformed post-recovery AST (a syntax-error script now throws instead of
-running — the rule `eval`/`Function` already followed).
+running — the rule `eval`/`Function` already followed). After #1000 the file
+parses and the run is the thing that does not finish here.
 
 ### Binary size (stripped, this machine)
 
