@@ -2,7 +2,7 @@
 
 This was written as notes for whoever implemented generics, from the four
 visual editors while planning the shared editing kernel in
-[`gallery/PLAN_EDITOR_KERNEL.md`](gallery/PLAN_EDITOR_KERNEL.md), which was
+[`gallery/PLAN_EDITOR_KERNEL.md`](../../gallery/PLAN_EDITOR_KERNEL.md), which was
 blocked on exactly one language feature.
 
 **It shipped.** `class History @params(Op)` takes a type parameter and

@@ -1,6 +1,6 @@
 # Process runtime invariants
 
-Normative contract for `@process` UI turns. Implementation: [`lib/RangerProcess.rgr`](lib/RangerProcess.rgr).  
+Normative contract for `@process` UI turns. Implementation: [`lib/RangerProcess.rgr`](../../../lib/RangerProcess.rgr).  
 Related: [PROCESS_UI_NOTIFY.md](PROCESS_UI_NOTIFY.md), [PROCESS_MVP.md](PROCESS_MVP.md), [PROCESS_STATUS.md](PROCESS_STATUS.md).
 
 ---
@@ -75,8 +75,8 @@ Install `notifyDepth` guard when overriding `ProcessUiHost.notifyPath` — see [
 
 ## Regression tests
 
-- [`tests/fixtures/process_dispatch_turn_notify.rgr`](tests/fixtures/process_dispatch_turn_notify.rgr) — `proc_send` inside turn → `notifyPathDeliveredCount <= 1`
-- [`tests/compiler-process-dispatch-turn.test.ts`](tests/compiler-process-dispatch-turn.test.ts)
+- [`tests/fixtures/process_dispatch_turn_notify.rgr`](../../../tests/fixtures/process_dispatch_turn_notify.rgr) — `proc_send` inside turn → `notifyPathDeliveredCount <= 1`
+- [`tests/compiler-process-dispatch-turn.test.ts`](../../../tests/compiler-process-dispatch-turn.test.ts)
 
 ---
 

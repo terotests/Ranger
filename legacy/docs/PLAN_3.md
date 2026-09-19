@@ -8,8 +8,8 @@
 > exist. Others were never started (`.nvmrc`, the `tests/fixtures/string_peek.rgr`
 > family). Read this as a record of intent, not as the current plan.
 >
-> The live records are [CHANGELOG.md](CHANGELOG.md) for what shipped and
-> [ISSUES.md](ISSUES.md) for what is broken. Anything here that still matters
+> The live records are [CHANGELOG.md](../../CHANGELOG.md) for what shipped and
+> [ISSUES.md](../../ISSUES.md) for what is broken. Anything here that still matters
 > should move to one of those, and the rest of this file can then go.
 
 ## Executive Summary
@@ -599,7 +599,7 @@ server.onHover((params) => {
 
 - [ ] Set up `vscode-languageserver` package
 - [ ] Create Language Server entry point
-- [ ] Integrate with compiler's introspection API (see [ai/INTROSPECTION.md](ai/INTROSPECTION.md))
+- [ ] Integrate with compiler's introspection API (see [ai/INTROSPECTION.md](../../ai/INTROSPECTION.md))
 - [ ] Implement document synchronization
 - [ ] Add incremental parsing for performance
 - [ ] Cache symbol tables per file

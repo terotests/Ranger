@@ -1,9 +1,9 @@
 # Ranger `@process` — UI view models and cross-class field assignment
 
 **Status:** ✅ **FIXED** (compiler, v3.0.5+). Cross-class field assignment with a `@process` method call on the RHS now compiles. The history below is kept for context.  
-**Gallery reference:** [process_counter_board](gallery/process_counter_board/README.md) — host-side view models filled from `@process` state.  
-**Regression test:** [tests/fixtures/process_view_dto_assign.rgr](tests/fixtures/process_view_dto_assign.rgr) (covered by `tests/compiler.test.ts` → "Process view DTO cross-class assignment").  
-**Related:** [PROCESS_MVP.md](PROCESS_MVP.md) (UI binding is app pattern), [PROCESS_STATUS.md](PROCESS_STATUS.md) (`markStateDirty` / no UI codegen yet).
+**Gallery reference:** [process_counter_board](../../gallery/process_counter_board/README.md) — host-side view models filled from `@process` state.  
+**Regression test:** [tests/fixtures/process_view_dto_assign.rgr](../../tests/fixtures/process_view_dto_assign.rgr) (covered by `tests/compiler.test.ts` → "Process view DTO cross-class assignment").  
+**Related:** [PROCESS_MVP.md](../../docs/plans/process/PROCESS_MVP.md) (UI binding is app pattern), [PROCESS_STATUS.md](../../docs/plans/process/PROCESS_STATUS.md) (`markStateDirty` / no UI codegen yet).
 
 ---
 
@@ -21,7 +21,7 @@ instead of the expected nested call form `(= row.isActive (this.isRowActive ()))
 `Could not match argument types for =` / `can not call non-class type`.
 
 `RangerFlowParser.repairAssignMethodCallRhs` (in
-[compiler/ng_RangerFlowParser.rgr](compiler/ng_RangerFlowParser.rgr)) now re-wraps
+[compiler/ng_RangerFlowParser.rgr](../../compiler/ng_RangerFlowParser.rgr)) now re-wraps
 everything after the LHS of a `=` node into a single expression node, restoring the
 normal call form so the existing call/assignment handling evaluates it. It is invoked
 from the `=` operator paths (`cmdAssign`, `TransformOpFn`, and the operator-match branch).
@@ -146,7 +146,7 @@ class Session @process(true) extends RangerProcessBase {
 | Plain class assigns from **locals** filled by `@process` first | see workaround below |
 | **String** built in `@process`, then one `print` | `session.printUiSnapshot()` |
 
-**Counter-board gallery** avoids the problem: React reads **`CounterBoardPage` fields directly** (`page.rows`, `page.selectedIndex`) — no intermediate DTO layer. See [gallery/process_counter_board/README.md](gallery/process_counter_board/README.md).
+**Counter-board gallery** avoids the problem: React reads **`CounterBoardPage` fields directly** (`page.rows`, `page.selectedIndex`) — no intermediate DTO layer. See [gallery/process_counter_board/README.md](../../gallery/process_counter_board/README.md).
 
 ---
 
@@ -217,8 +217,8 @@ WORKING (pilot + counter board):
 |----------|----------------|
 | **A. Host reads `@process` fields** (counter board) | Yes — primary pattern |
 | **B. Host reads generated view DTOs** filled in Ranger | Yes — cross-class field assign from `@process` methods now compiles |
-| **C. Plain Ranger “builder” class** calling `@process` APIs | Yes — fixed; see [process_view_dto_assign.rgr](tests/fixtures/process_view_dto_assign.rgr) (`ViewBuilder.fillRow`) |
-| **D. `proc_send` + handler methods** for events | Yes — [process_proc_send.rgr](tests/fixtures/process_proc_send.rgr) |
+| **C. Plain Ranger “builder” class** calling `@process` APIs | Yes — fixed; see [process_view_dto_assign.rgr](../../tests/fixtures/process_view_dto_assign.rgr) (`ViewBuilder.fillRow`) |
+| **D. `proc_send` + handler methods** for events | Yes — [process_proc_send.rgr](../../tests/fixtures/process_proc_send.rgr) |
 
 TypeScript `WorkoutMessages.session.confirmFinish(s)` is fine: it calls **`onUiConfirmFinish()`** on the live instance — no DTO assignment in Ranger.
 
@@ -241,8 +241,8 @@ Until then, treat **view models as host-side types** (TS/Swift structs) filled f
 
 | Artifact | Role |
 |----------|------|
-| [gallery/process_counter_board/README.md](gallery/process_counter_board/README.md) | Vite + React host, `processUiBridge`, `useProcess` |
-| [tests/fixtures/process_view_dto_assign.rgr](tests/fixtures/process_view_dto_assign.rgr) | Regression test for cross-class view-DTO assignment (the fix) |
-| [tests/fixtures/process_proc_send.rgr](tests/fixtures/process_proc_send.rgr) | Typed `proc_send` handlers |
-| [lib/RangerProcess.rgr](lib/RangerProcess.rgr) | `markStateDirty`, `ProcessUiHost` stubs |
-| [PROCESS_MVP.md](PROCESS_MVP.md) § UI | UI sync is app pattern, not compiler queue |
+| [gallery/process_counter_board/README.md](../../gallery/process_counter_board/README.md) | Vite + React host, `processUiBridge`, `useProcess` |
+| [tests/fixtures/process_view_dto_assign.rgr](../../tests/fixtures/process_view_dto_assign.rgr) | Regression test for cross-class view-DTO assignment (the fix) |
+| [tests/fixtures/process_proc_send.rgr](../../tests/fixtures/process_proc_send.rgr) | Typed `proc_send` handlers |
+| [lib/RangerProcess.rgr](../../lib/RangerProcess.rgr) | `markStateDirty`, `ProcessUiHost` stubs |
+| [PROCESS_MVP.md](../../docs/plans/process/PROCESS_MVP.md) § UI | UI sync is app pattern, not compiler queue |

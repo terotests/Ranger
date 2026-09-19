@@ -1,6 +1,6 @@
 # HTTP Server Extension - Implementation Progress
 
-Based on [PLAN_HTTP.md](./PLAN_HTTP.md)
+Based on [PLAN_HTTP.md](PLAN_HTTP.md)
 
 ## Status: ✅ Phase 4 Complete (EVG Preview Server Working)
 

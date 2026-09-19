@@ -503,7 +503,7 @@ jobs:
             npm install -g ranger-compiler
             ```
             
-            See [CHANGELOG.md](CHANGELOG.md) for details.
+            See [CHANGELOG.md](../../CHANGELOG.md) for details.
           draft: false
           prerelease: ${{ contains(needs.check-version.outputs.new_version, 'alpha') || contains(needs.check-version.outputs.new_version, 'beta') }}
         env:

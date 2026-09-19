@@ -20,7 +20,7 @@ agreeing:
 
 ## Why a presentation, and why first
 
-[`PLAN_FORMATS.md`](../../PLAN_FORMATS.md) is the plan for the formats after
+[`PLAN_FORMATS.md`](../../docs/plans/PLAN_FORMATS.md) is the plan for the formats after
 DOCX/XLSX/PPTX, and its Phase 1 is ODF — **ODP first**, even though ODT is the
 more wanted format. The reason is that ODP is the ODF format with the *least*
 in common with its OOXML twin, so it is the sharpest available test of the one

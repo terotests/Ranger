@@ -238,7 +238,7 @@ T�m� voisi tuoda Rangeriin jotain melko omaleimaista: turvallisesti ajettava
 
 ## Liittyv�t dokumentit
 
-* [PLAN_WASM_BACKEND.md](./PLAN_WASM_BACKEND.md) — WASM/WAT-pipelinen nykytila
-* [PLUGINS_REVIEW.md](./PLUGINS_REVIEW.md) � nykyinen JavaScript-pohjainen plugin-arkkitehtuuri
-* [ai/ADDING_NEW_LANGUAGE.md](./ai/ADDING_NEW_LANGUAGE.md) � backend-integraatio
-* [compiler/ng_LowIR.rgr](./compiler/ng_LowIR.rgr) � Low IR (mahdollinen plugin-rajapinta Phase 3:ssa)
+* [PLAN_WASM_BACKEND.md](PLAN_WASM_BACKEND.md) — WASM/WAT-pipelinen nykytila
+* [PLUGINS_REVIEW.md](../../compiler/docs/PLUGINS_REVIEW.md) � nykyinen JavaScript-pohjainen plugin-arkkitehtuuri
+* [ai/ADDING_NEW_LANGUAGE.md](../../ai/ADDING_NEW_LANGUAGE.md) � backend-integraatio
+* [compiler/ng_LowIR.rgr](../../compiler/ng_LowIR.rgr) � Low IR (mahdollinen plugin-rajapinta Phase 3:ssa)

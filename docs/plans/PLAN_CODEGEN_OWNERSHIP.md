@@ -32,7 +32,7 @@ Two passes read the flow of the program.
 
 **The mutation pass (C++).** A local that takes a member field and then changes
 it in place becomes `T&` in the place of `T`. This works, it is automatic, and
-[TARGET_NOTES.md](TARGET_NOTES.md) documents it.
+[TARGET_NOTES.md](../../TARGET_NOTES.md) documents it.
 
 **The ownership inference (all targets, `-strict-ownership`).** Each parameter
 gets an OwnershipKind: `borrowed`, `moved`, `owned`, `shared` or `unknown`.

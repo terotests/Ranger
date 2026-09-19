@@ -4,7 +4,7 @@ Tämä dokumentti kuvaa suunnitelman method call chaining -syntaksiin tyyliin `o
 
 Operaattoripuolella tavoite on, että **määritelty operaattori toimii kuin tyyppikohtainen “type class” -instanssi**: jos `substring` on olemassa `string`-receiverille, syntaksi `str.substring(3, 4)` on sallittu ja ketjutettavissa – ei vain prefix-muoto `(substring str 3 4)`.
 
-Katso myös [compiler/test_chain.rgr](./compiler/test_chain.rgr) (vanha kokeilu) ja [PLAN_STATIC_ANALYSIS.md](./PLAN_STATIC_ANALYSIS.md).
+Katso myös [compiler/test_chain.rgr](../../compiler/test_chain.rgr) (vanha kokeilu) ja [PLAN_STATIC_ANALYSIS.md](PLAN_STATIC_ANALYSIS.md).
 
 ## Nykytila (2026-06-08, päivitetty)
 
@@ -224,7 +224,7 @@ Huom: `.add(3)` ja `.add("Hello")` resolvoituvat **eri overloadeihin**; ketjun *
 
 **Vaatimukset:**
 
-1. **Overload-resoluutio ketjussa** – jokaisessa `call`-linkissä valitaan variantti argumenttityypeillä (`method_variants` / `stdParamMatch`), kuten `proc_send`-overloadissa ([`process_proc_send_overload.rgr`](./tests/fixtures/process_proc_send_overload.rgr)).
+1. **Overload-resoluutio ketjussa** – jokaisessa `call`-linkissä valitaan variantti argumenttityypeillä (`method_variants` / `stdParamMatch`), kuten `proc_send`-overloadissa ([`process_proc_send_overload.rgr`](../../tests/fixtures/process_proc_send_overload.rgr)).
 2. **Paluutyypin propagointi** – `eval_type_name` päivittyy valitun variantin paluutyypiksi → seuraava `.finish()` lookup oikeaan luokkaan.
 3. **Monikielinen codegen** – kielet ilman overloadingia eivät saa tuottaa kahta `add`-metodia samalla nimellä:
 
@@ -384,7 +384,7 @@ Nykyinen `RangerFlowParser` on iso (~5500 riviä) ja ketjutus on **walk-aikainen
 | Rust | omistajuus: `self` vs `&mut self` – fluent API vaatii `&mut self` tai owned receiver |
 | Java/C# | suora |
 
-LLVM-erityishuomio: `obj.add(x)` joka palauttaa `this` aliasoi saman objektin – sama borrow-analyysi kuin [PLAN_LLVM_MEMORY.md](./PLAN_LLVM_MEMORY.md).
+LLVM-erityishuomio: `obj.add(x)` joka palauttaa `this` aliasoi saman objektin – sama borrow-analyysi kuin [PLAN_LLVM_MEMORY.md](PLAN_LLVM_MEMORY.md).
 
 ---
 

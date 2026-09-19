@@ -62,7 +62,7 @@ function notifyListeners() {
 }
 ```
 
-Reference: [`gallery/process_counter_board/src/host/processUiBridge.ts`](gallery/process_counter_board/src/host/processUiBridge.ts).
+Reference: [`gallery/process_counter_board/src/host/processUiBridge.ts`](../../../gallery/process_counter_board/src/host/processUiBridge.ts).
 
 ---
 

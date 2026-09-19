@@ -39,7 +39,7 @@ measures the backend.
 | Route | State |
 | --- | --- |
 | Ranger → LLVM/WAT → WASM | Freestanding: primitives and exported functions, no strings, no maps, no objects. Not a program this size. |
-| Ranger → Rust → WASM | Gets through the Ranger frontend now, but the emitted Rust does not compile — 396 rustc errors, 275 of them one emitter bug. See [RUST_ISSUES.md](../../../../RUST_ISSUES.md). |
+| Ranger → Rust → WASM | Gets through the Ranger frontend now, but the emitted Rust does not compile — 396 rustc errors, 275 of them one emitter bug. See [RUST_ISSUES.md](../../../../docs/plans/RUST_ISSUES.md). |
 | **Ranger → C++ → Emscripten → WASM** | **Compiles clean.** 76 743 lines of C++, no source changes. |
 
 ## The two flags that are not optional

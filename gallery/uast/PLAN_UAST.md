@@ -8,8 +8,8 @@ ZipWriter)
 [`gallery/ts_parser`](../ts_parser/README.md),
 [`gallery/js_parser`](../js_parser/README.md),
 [`gallery/cpp_parser`](../cpp_parser/README.md),
-[`PLAN_TS_PARSER.md`](../../PLAN_TS_PARSER.md),
-[`PLAN_JS_PARSER.md`](../../PLAN_JS_PARSER.md)
+[`PLAN_TS_PARSER.md`](../ts_parser/PLAN_TS_PARSER.md),
+[`PLAN_JS_PARSER.md`](../js_parser/PLAN_JS_PARSER.md)
 
 Ranger already compiles *out* to many languages. UAST is the mirror image:
 many languages *in*, one analysis model, then CodeGraph and other tools.
@@ -61,7 +61,7 @@ of the pieces:
 | TypeScript parser | [`gallery/ts_parser`](../ts_parser/), unified `TSNode`, ESTree-ish | Second frontend, after Ranger |
 | JavaScript parser | [`gallery/js_parser`](../js_parser/) | Shared lexer/parser substrate for JS/TS |
 | ComponentEngine | `gallery/pdf_writer` / game engine TSX interpreter | Proof Ranger can eat real JS — **not** the UAST representation |
-| Source positions on JS AST | [`PLAN_JS_PARSER.md`](../../PLAN_JS_PARSER.md) | Span is non-negotiable on every UNode |
+| Source positions on JS AST | [`PLAN_JS_PARSER.md`](../js_parser/PLAN_JS_PARSER.md) | Span is non-negotiable on every UNode |
 
 Keep these distinct. If they collapse into one `UnifiedCodeNode`, the
 project spreads:
@@ -315,7 +315,7 @@ parse a node id belongs to.
 
 ### Typed core, extensible edge — later
 
-Ranger shapes ([`PLAN_SHAPES.md`](../../PLAN_SHAPES.md)) are a good
+Ranger shapes ([`PLAN_SHAPES.md`](../../docs/plans/PLAN_SHAPES.md)) are a good
 *later* encoding. Milestone 0 uses one `UNode` plus `kind`, same reason
 `TSNode` is one wide class. Promote to shapes once the vocabulary is
 stable.
@@ -443,7 +443,7 @@ de-risks layers one at a time. M2 is *not* a prerequisite of M1.
 
 ## 6. TypeScript second, and only “80 % CodeGraph”
 
-[`PLAN_TS_PARSER.md`](../../PLAN_TS_PARSER.md) already reports a core
+[`PLAN_TS_PARSER.md`](../ts_parser/PLAN_TS_PARSER.md) already reports a core
 TS parser on unified `TSNode`. MVP understands:
 
 ```text

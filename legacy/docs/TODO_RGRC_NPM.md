@@ -253,6 +253,6 @@ If publish fails:
 ## References
 
 - [PLAN_RGRC_NPM.md](PLAN_RGRC_NPM.md) - Full plan with code examples
-- [PLAN_PDF_NPM.md](PLAN_PDF_NPM.md) - PDF tool package plan
-- [CHANGELOG.md](CHANGELOG.md) - Version history
-- [package.json](package.json) - Current package configuration
+- [PLAN_PDF_NPM.md](../../gallery/pdf_writer/docs/PLAN_PDF_NPM.md) - PDF tool package plan
+- [CHANGELOG.md](../../CHANGELOG.md) - Version history
+- [package.json](../../package.json) - Current package configuration

@@ -1335,8 +1335,8 @@ is a borrowed slice (`&[String]`), and `.clone()` of a `&[T]` is another `&[T]`
 and writes `.to_vec()` for the owned element. Reached by any nested array, and
 by every generic class instantiated at a collection type.
 
-See [RUST_ISSUES.md](RUST_ISSUES.md) for the measurements and the order of the
-work, and [RUST_TODO.md](RUST_TODO.md).
+See [RUST_ISSUES.md](docs/plans/RUST_ISSUES.md) for the measurements and the order of the
+work, and [RUST_TODO.md](legacy/docs/RUST_TODO.md).
 
 ### What the compiler's own sources took, and where they still stop
 
@@ -1786,7 +1786,7 @@ JavaScript writer did, so the record constructor of the eleven other targets
 did not compile — for example `pub fn new(xpos : , xpos : i64, …)` on Rust and
 `Point::Point( xpos , int xpos , … )` on C++.
 
-See [PLAN_CODEGEN_OWNERSHIP.md](PLAN_CODEGEN_OWNERSHIP.md) for the
+See [PLAN_CODEGEN_OWNERSHIP.md](docs/plans/PLAN_CODEGEN_OWNERSHIP.md) for the
 before-and-after of each target, and for the one change that is not made:
 `record` as a value type in C++ and in Swift. That one stays open because it
 would make the same program share an object on nine targets and copy it on
@@ -1830,7 +1830,7 @@ cd bin && go run myserver.go
 ```
 
 `tests/fixtures/http_server.rgr` is a complete example. See
-[PLAN_HTTP.md](PLAN_HTTP.md) and [TODO_HTTP.md](TODO_HTTP.md).
+[PLAN_HTTP.md](legacy/docs/PLAN_HTTP.md) and [TODO_HTTP.md](legacy/docs/TODO_HTTP.md).
 
 ## Running other programs (`run_process_result`)
 

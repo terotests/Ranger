@@ -19,7 +19,7 @@ Apple’s stack solved the same *shape* of problems multi-screen apps with async
 - **Loose coupling** between UI controllers, timers, and network via **messages**, **protocols**, and **notifications**
 - **Lifecycle** hooks when views/controllers appear and disappear
 
-Ranger’s `@process` MVP is closer to “know the object tree and stop subtrees” than to a full ObjC runtime. The **host tick loop** (see [`process_counter_board`](gallery/process_counter_board/README.md)) is closer to a **custom run loop + message pump** sitting above plain objects.
+Ranger’s `@process` MVP is closer to “know the object tree and stop subtrees” than to a full ObjC runtime. The **host tick loop** (see [`process_counter_board`](../../../gallery/process_counter_board/README.md)) is closer to a **custom run loop + message pump** sitting above plain objects.
 
 Objective-C is worth studying because it separates **mechanism** (runtime messaging, retain counts) from **policy** (view-controller lifecycle, delegate patterns) — and Ranger is still deciding how much of each layer to encode in the language vs the kernel.
 

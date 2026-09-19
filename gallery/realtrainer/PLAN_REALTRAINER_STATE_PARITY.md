@@ -367,7 +367,7 @@ reititin jokaiselle nuolelle (`gallery/rangerflow/layout/ReadableRouter.rgr`):
 laatikoiden ympärillä suojavyöhyke, jokaiselle socketille oma lähtökaista, ja haku
 joka maksaa risteyksistä, jaetuista käytävistä ja nimiöistä kaikkia jo piirrettyjä
 reittejä vasten. `statechart:viz:check` pitää säännöt nollassa.
-[`gallery/rangerflow/docs/PLAN_READABLE_ROUTING.md`](gallery/rangerflow/docs/PLAN_READABLE_ROUTING.md)
+[`gallery/rangerflow/docs/PLAN_READABLE_ROUTING.md`](../rangerflow/docs/PLAN_READABLE_ROUTING.md)
 kertoo mikä on tehty ja mikä jäi: sivun valinta on yhä `faceEdges`, ja `chatMachine`
 piirtyy kuudella risteyksellä.
 

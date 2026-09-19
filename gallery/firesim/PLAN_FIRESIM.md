@@ -1,7 +1,7 @@
 # PLAN_FIRESIM — a Firebase backend, simulated, under the Ranger apps
 
 Status: **phases 1–7 implemented and gated**; phases 8–11 are the plan.
-Module: [`gallery/firesim`](gallery/firesim/README.md).
+Module: [`gallery/firesim`](README.md).
 
 ## The ask
 

@@ -3,8 +3,8 @@
 This document evaluates how Ranger's classes and the `new` operator should be
 handled when compiling to WebAssembly, and whether the answer is **RAII**,
 **reference counting**, or a **garbage collector**. It builds directly on the
-existing native/LLVM design in [`PLAN_LLVM_MEMORY.md`](./PLAN_LLVM_MEMORY.md)
-and the WAT backend in [`PLAN_WASM_BACKEND.md`](./PLAN_WASM_BACKEND.md).
+existing native/LLVM design in [`PLAN_LLVM_MEMORY.md`](PLAN_LLVM_MEMORY.md)
+and the WAT backend in [`PLAN_WASM_BACKEND.md`](PLAN_WASM_BACKEND.md).
 
 ## Implementation progress (branch: claude/ranger-wasm-memory-rc)
 

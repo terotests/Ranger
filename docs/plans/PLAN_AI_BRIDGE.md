@@ -295,11 +295,11 @@ P0 is worth doing whether or not anything after it happens.
 
 ### What P0 shipped, and what it did not
 
-Built: [`EVGPatch`](lib/evg/EVGPatch.rgr) (the op language, validated by
+Built: [`EVGPatch`](../../lib/evg/EVGPatch.rgr) (the op language, validated by
 the engine itself and invertible by construction),
-[`EVGTreeJson`](lib/evg/EVGTreeJson.rgr) (the document format, whose
+[`EVGTreeJson`](../../lib/evg/EVGTreeJson.rgr) (the document format, whose
 contents are exactly the patchable set), and
-[`evg_agent`](lib/evg/agent/README.md) with `outline`, `query`, `patch` and
+[`evg_agent`](../../lib/evg/agent/README.md) with `outline`, `query`, `patch` and
 `measure`. `npm run evg:patch:test` is 81 assertions; `npm run agent:smoke`
 drives the four verbs against fixtures, including that a rejected batch leaves
 the document untouched.

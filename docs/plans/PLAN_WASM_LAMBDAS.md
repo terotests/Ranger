@@ -2,7 +2,7 @@
 
 This document plans how to compile Ranger lambdas (`(fn:… (args){body})`) and
 closures (`{ … }`) to WebAssembly on the freestanding WAT backend. It builds on
-the memory-management runtime already in place ([`PLAN_WASM_MEMORY.md`](./PLAN_WASM_MEMORY.md)):
+the memory-management runtime already in place ([`PLAN_WASM_MEMORY.md`](PLAN_WASM_MEMORY.md)):
 the free-list heap, reference-counted objects, typedesc-driven recursive field
 release, and the wasm-global mechanism added for singletons. **The closure
 environment is just an RC object** — so most of the hard lifetime work is already

@@ -6,9 +6,9 @@ What the **compiler MVP** is for, what it already proves, and whether “product
 **Operators and lifecycle:** [PROCESS_LIFECYCLE.md](PROCESS_LIFECYCLE.md)  
 **Cross-paradigm comparison (Smalltalk, React, Erlang, …):** [PROCESS_COMPARISON.md](PROCESS_COMPARISON.md)  
 **ObjC / UIKit comparison:** [PROCESS_COMPARE_WITH_OBJECTIVEC.md](PROCESS_COMPARE_WITH_OBJECTIVEC.md)  
-**React gallery (`@name`, `useProcess`, `markStateDirty`):** [gallery/process_counter_board/README.md](gallery/process_counter_board/README.md)  
-**Android / iOS exploratory galleries:** [process_counter_android](gallery/process_counter_android/README.md), [process_counter_ios](gallery/process_counter_ios/README.md)  
-**UI view models vs `@process` field assignment:** [PROCESS_UI_VIEW_MODELS.md](PROCESS_UI_VIEW_MODELS.md) (pilot: Active Workout)
+**React gallery (`@name`, `useProcess`, `markStateDirty`):** [gallery/process_counter_board/README.md](../../../gallery/process_counter_board/README.md)  
+**Android / iOS exploratory galleries:** [process_counter_android](../../../gallery/process_counter_android/README.md), [process_counter_ios](../../../gallery/process_counter_ios/README.md)  
+**UI view models vs `@process` field assignment:** [PROCESS_UI_VIEW_MODELS.md](../../../legacy/docs/PROCESS_UI_VIEW_MODELS.md) (pilot: Active Workout)
 
 ---
 
@@ -24,7 +24,7 @@ The MVP is **not** a full app kernel. It is a **small, typed object runtime** em
 | **Lifecycle** | `proc_start` / `proc_stop`, optional `start` / `stop` / `hibernate` / `wakeup` |
 | **Subtree teardown** | `__rangerStopSubtree()` — children first, then `stop()`, then registry |
 
-Everything else — message queues, UI trees, clocks, navigation tables — is **expected to live in Ranger libraries or the host app**, composed from fields and methods on `@process` classes, plus a **host loop** that calls into them (same contract as `tick()` in [`gallery/process_counter_board`](gallery/process_counter_board/README.md)).
+Everything else — message queues, UI trees, clocks, navigation tables — is **expected to live in Ranger libraries or the host app**, composed from fields and methods on `@process` classes, plus a **host loop** that calls into them (same contract as `tick()` in [`gallery/process_counter_board`](../../../gallery/process_counter_board/README.md)).
 
 **Mental model:** “Processes are objects with a known tree and a guaranteed stop order.” That is enough to build production orchestration **next to** or **wrapping** these objects, not necessarily **inside** the compiler.
 
@@ -106,7 +106,7 @@ Or: a host slot stores `RangerProcessBase` / typed `@process` reference; `sendMe
 
 **Not a fundamental gap** — pattern is explicit and matches ObjC “run loop turns, drain queue” ([PROCESS_COMPARE_WITH_OBJECTIVEC.md](PROCESS_COMPARE_WITH_OBJECTIVEC.md)).
 
-**Compiler v1 shortcut:** `proc_send "app.chat" name value` or `proc_send target name value` calls `receiveMessage(name, value)` on a live process (both strings; override on your class). TypeScript hosts use generated `findProcess(path)` for typed lookup. Fixture: [`tests/fixtures/process_proc_send.rgr`](tests/fixtures/process_proc_send.rgr).
+**Compiler v1 shortcut:** `proc_send "app.chat" name value` or `proc_send target name value` calls `receiveMessage(name, value)` on a live process (both strings; override on your class). TypeScript hosts use generated `findProcess(path)` for typed lookup. Fixture: [`tests/fixtures/process_proc_send.rgr`](../../../tests/fixtures/process_proc_send.rgr).
 
 ---
 
@@ -187,7 +187,7 @@ Unifying kernel `pageId` with `__rangerId` is **integration hygiene**, not proof
 
 **Conclusion:** The MVP is **mechanism-complete** for multi-page app orchestration. A host loop is an **instance** of that orchestration on top of `@process` objects; wiring is **refactor and integration**, not waiting for a second runtime.
 
-**Practical pilot:** one route where the slot’s logic is a `@process` class; `switchTo` calls `proc_stop`; messages and UI go through the host bridge ([`process_counter_board`](gallery/process_counter_board/README.md)).
+**Practical pilot:** one route where the slot’s logic is a `@process` class; `switchTo` calls `proc_stop`; messages and UI go through the host bridge ([`process_counter_board`](../../../gallery/process_counter_board/README.md)).
 
 ---
 
@@ -312,7 +312,7 @@ Vitest: `tests/compiler-process-counter-board.test.ts`.
 
 ### `ProcessTreeView` — CLI process tree (debugger-style)
 
-Class in [`lib/RangerProcess.rgr`](lib/RangerProcess.rgr). Walks `__rangerChildren` from roots. For each app compile that uses `@process`, the compiler emits `ProcessRuntime.collectAllLiveRoots()` and `printProcessTree()` / `printProcessTreeTitled(title)` (instances with `__rangerParentId == 0`).
+Class in [`lib/RangerProcess.rgr`](../../../lib/RangerProcess.rgr). Walks `__rangerChildren` from roots. For each app compile that uses `@process`, the compiler emits `ProcessRuntime.collectAllLiveRoots()` and `printProcessTree()` / `printProcessTreeTitled(title)` (instances with `__rangerParentId == 0`).
 
 ```ranger
 Import "RangerProcess.rgr"

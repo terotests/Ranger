@@ -1,6 +1,6 @@
 # EVG live build
 
-A demo of the case [PLAN_WEB_LOADING.md](../../../PLAN_WEB_LOADING.md) left
+A demo of the case [PLAN_WEB_LOADING.md](../../../docs/plans/PLAN_WEB_LOADING.md) left
 open: a screen whose content is not knowable at build time, streamed as EVG
 display lists while an agent builds it.
 

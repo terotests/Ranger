@@ -14,7 +14,7 @@ Last updated after **`proc_send`**, **`findProcess` on `ProcessNameRegistry`**, 
 |-------|--------|
 | **Compiler MVP** | Working: `@process`, tree, registry, `proc_*`, `proc_send`, named paths, subtree stop — JS / Kotlin tested; Swift6 for `process_nesting` + `process_page_lifecycle` (vitest when `swiftc` present) |
 | **TypeScript hosts** | `-typescript` emits `ProcessPath`, `findProcess` on registry, `interface ProcessNameRegistry` overloads; `new @singleton()` returns shared instance |
-| **Web gallery** | [`gallery/process_counter_board/`](gallery/process_counter_board/) — Vite + React, `findProcessByPath` / `new ProcessNameRegistry().findProcess(...)` |
+| **Web gallery** | [`gallery/process_counter_board/`](../../../gallery/process_counter_board) — Vite + React, `findProcessByPath` / `new ProcessNameRegistry().findProcess(...)` |
 | **Host apps** | Orchestration (messages, UI, navigation) lives in the host loop + Ranger libs — see [PROCESS_MVP.md](PROCESS_MVP.md) |
 | **Product orchestration** | Achievable on MVP primitives + gallery/host patterns — see [PROCESS_MVP.md](PROCESS_MVP.md) |
 
@@ -38,7 +38,7 @@ Last updated after **`proc_send`**, **`findProcess` on `ProcessNameRegistry`**, 
 | **Field `describe` introspection** | Not done |
 | **Message queue / `tick` in compiler** | Not done — **not required** for product; app pattern — [PROCESS_MVP.md](PROCESS_MVP.md) |
 | **UI binding codegen** | Not done — **not required**; host bridge + notify batching — [PROCESS_UI_NOTIFY.md](PROCESS_UI_NOTIFY.md) |
-| **Cross-class view DTO field assign** | **Limitation** — plain view classes cannot reliably be filled from `@process` builders; see [PROCESS_UI_VIEW_MODELS.md](PROCESS_UI_VIEW_MODELS.md) |
+| **Cross-class view DTO field assign** | **Limitation** — plain view classes cannot reliably be filled from `@process` builders; see [PROCESS_UI_VIEW_MODELS.md](../../../legacy/docs/PROCESS_UI_VIEW_MODELS.md) |
 | **`@name("app.path")` on `@process` classes** | Done — compile-time unique path; `find_process "path"` in `.rgr`; `ProcessNameRegistry` bind on `proc_start` |
 | **`proc_send` (typed handlers)** | Done — `proc_send target handlerName arg…`; handler is a **method identifier**; emits guarded `call` if `__rangerId != 0`; `cmdCall` type-checks args; path literals rejected (use `find_process` + cast + variable) |
 | **`proc_send` (path string target)** | Not done — use typed variable after `find_process` + `cast`; see [§ `proc_send`](#proc_send--typed-handlers-mvp) |
@@ -62,11 +62,11 @@ Last updated after **`proc_send`**, **`findProcess` on `ProcessNameRegistry`**, 
 | `proc_send target onHandler arg…` | Ranger `.rgr` | Typed handler method + args → guarded `call` when live |
 | `findByPath` / `findProcess` | Generated `ProcessNameRegistry` | Host TS/Kotlin/Swift after `proc_start` |
 | `new ProcessNameRegistry().findProcess(path)` | TypeScript | Singleton `new`; typed path when `-typescript` |
-| `findProcessByPath(path)` | Gallery [`processPaths.ts`](gallery/process_counter_board/src/processPaths.ts) | Thin wrapper around `new … findProcess` |
+| `findProcessByPath(path)` | Gallery [`processPaths.ts`](../../../gallery/process_counter_board/src/processPaths.ts) | Thin wrapper around `new … findProcess` |
 
-**Gallery call sites:** [`counterBoardHost.ts`](gallery/process_counter_board/src/host/counterBoardHost.ts), [`useProcess.ts`](gallery/process_counter_board/src/hooks/useProcess.ts), [`CounterBoard.tsx`](gallery/process_counter_board/src/components/CounterBoard.tsx) (UI line showing registry lookup).
+**Gallery call sites:** [`counterBoardHost.ts`](../../../gallery/process_counter_board/src/host/counterBoardHost.ts), [`useProcess.ts`](../../../gallery/process_counter_board/src/hooks/useProcess.ts), [`CounterBoard.tsx`](../../../gallery/process_counter_board/src/components/CounterBoard.tsx) (UI line showing registry lookup).
 
-Exploratory native galleries (no CI): [`gallery/process_counter_android/`](gallery/process_counter_android/), [`gallery/process_counter_ios/`](gallery/process_counter_ios/) — `findByPath` + manual refresh patterns documented in README/ISSUES.
+Exploratory native galleries (no CI): [`gallery/process_counter_android/`](../../../gallery/process_counter_android), [`gallery/process_counter_ios/`](../../../gallery/process_counter_ios) — `findByPath` + manual refresh patterns documented in README/ISSUES.
 
 ### `proc_send` — typed handlers (MVP)
 
@@ -102,7 +102,7 @@ Solid for demos, tests, and gallery hosts:
 - `parentIdOf`, per-class registry, `allInstances()`, `ProcessRuntime.collectAllLiveRoots()`
 - `process_page_lifecycle` — stop order Tick → Timer → Page on switch
 - `proc_*` operators; `new` vs `proc_start`
-- Named paths + `proc_send` fixture ([`tests/fixtures/process_proc_send.rgr`](tests/fixtures/process_proc_send.rgr))
+- Named paths + `proc_send` fixture ([`tests/fixtures/process_proc_send.rgr`](../../../tests/fixtures/process_proc_send.rgr))
 - Vitest: `compiler-process-named`, `compiler-process-send`, `compiler-process-typescript`, lifecycle/kotlin/swift suites
 
 Details and fixture commands: [PROCESS_MVP.md](PROCESS_MVP.md).
@@ -225,4 +225,4 @@ cd tests/.output-swift && swiftc process_page_lifecycle.swift -parse-as-library 
 | [PROCESS_LIFECYCLE.md](PROCESS_LIFECYCLE.md) | Operators, `start`/`stop`/hibernate, `spawn` (planned) |
 | [PROCESS_COMPARE_WITH_OBJECTIVEC.md](PROCESS_COMPARE_WITH_OBJECTIVEC.md) | ObjC messaging, protocols, run loop parallels |
 | [PROCESS_COMPARISON.md](PROCESS_COMPARISON.md) | Smalltalk / React / Erlang vs `@process` |
-| [gallery/process_counter_board/README.md](gallery/process_counter_board/README.md) | Vite sample, `find_process` vs `findProcess` vs `useProcess` |
+| [gallery/process_counter_board/README.md](../../../gallery/process_counter_board/README.md) | Vite sample, `find_process` vs `findProcess` vs `useProcess` |

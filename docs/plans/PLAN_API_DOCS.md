@@ -146,7 +146,7 @@ foo (x) {
 The doc block was taken for the class body, so the real body was never walked and the
 infix repair that turns `(x + 1)` into an addition never ran. **A class with a doc tail
 compiles clean and produces broken code.** Any trailing `token { block }` does it, not just
-`doc`. That is [ISSUES.md #75](ISSUES.md), a latent bug independent of this plan, and it
+`doc`. That is [ISSUES.md #75](../../ISSUES.md), a latent bug independent of this plan, and it
 fixes the direction of the design: the doc tail must be removed from `children` before
 anything counts children.
 
@@ -1198,7 +1198,7 @@ The first milestone that means anything, stated as a question:
 ## 14. Milestones
 
 **Phase A — the language and the IR.** Detach pass, `RangerDocBlock`, descriptor fields,
-validation, resolution, the §2.2 error, and [ISSUES.md #75](ISSUES.md) fixed. `-apidoc`
+validation, resolution, the §2.2 error, and [ISSUES.md #75](../../ISSUES.md) fixed. `-apidoc`
 writes `api.json` and `api.md`. No writer changes. *All the leverage is here: the model, the
 checks and the portable output, in one new pass and one new file.*
 
@@ -1581,7 +1581,7 @@ suite did not. The three-value form is what the table above requires.
 
 ### 17.11 The bug this uncovered
 
-[ISSUES.md #75](ISSUES.md) — `class X { … } doc { … }`, and any other trailing
+[ISSUES.md #75](../../ISSUES.md) — `class X { … } doc { … }`, and any other trailing
 `token { block }` on a class, made `EnterClass` take the trailing block for the
 class body. The real body was never flow-analysed, the compiler reported
 success, and `return (x + 1)` came out as `return+x1`. The detach pass removes

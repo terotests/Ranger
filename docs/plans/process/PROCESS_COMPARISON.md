@@ -91,7 +91,7 @@ React components are **functions re-invoked on render**; `useState` / `useReduce
 | React hooks | Ranger `@process` |
 |-------------|-------------------|
 | State dies on unmount (unless lifted) | Instances persist until **`proc_stop`**; registry may retain path mapping |
-| Re-render when React detects state change | UI refresh via **`markStateDirty`** / host subscription ([gallery](gallery/process_counter_board/README.md)) |
+| Re-render when React detects state change | UI refresh via **`markStateDirty`** / host subscription ([gallery](../../../gallery/process_counter_board/README.md)) |
 | Tree = JSX hierarchy | Tree = **runtime object graph** (may differ from React tree) |
 | `useContext` for shared store | **`ProcessNameRegistry.findProcess(path)`** for named lookup |
 
@@ -171,4 +171,4 @@ Erlang processes are **isolated**, preemptively scheduled, with **mailboxes** an
 - [PROCESS_LIFECYCLE.md](PROCESS_LIFECYCLE.md) — operators and hooks
 - [PROCESS_STATUS.md](PROCESS_STATUS.md) — checklist and gaps
 - [PROCESS_COMPARE_WITH_OBJECTIVEC.md](PROCESS_COMPARE_WITH_OBJECTIVEC.md) — deep UIKit / ObjC mapping
-- [playground/](playground/) — browser compile-and-run for process fixtures
+- [playground/](../../../playground) — browser compile-and-run for process fixtures

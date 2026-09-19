@@ -3271,7 +3271,7 @@ def bad:int (ArgMain.id(n.plain))
 ## Issue #79: a Rust method returning `this` returns a clone, so a chain mutates copies
 
 **Status:** open. Found while testing chain formatting
-([`PLAN_FORMAT.md`](PLAN_FORMAT.md) phase 3) — the fixture chains six calls and
+([`PLAN_FORMAT.md`](docs/plans/PLAN_FORMAT.md) phase 3) — the fixture chains six calls and
 Rust was the one target that printed the wrong number.
 
 ### Reproduction
@@ -3406,7 +3406,7 @@ differs from a pre-fix baseline, and says why.
 ## Issue #77: `npm test` ran one of its eighty-three test files
 
 **Status:** fixed. Found while trying to verify the formatter change
-([`PLAN_FORMAT.md`](PLAN_FORMAT.md)), which is the only reason it was found at
+([`PLAN_FORMAT.md`](docs/plans/PLAN_FORMAT.md)), which is the only reason it was found at
 all — the summary line does not look like a failure.
 
 ### What it looked like
@@ -3468,7 +3468,7 @@ gives it away is the file count not matching the test count.
 **Status:** fixed for every target whose parser is installed here (JavaScript,
 C++, Go, Rust, Python). Dart, Kotlin, Swift and C# are UNCHECKED, not clean.
 Found while measuring formatter output for
-[`PLAN_FORMAT.md`](PLAN_FORMAT.md).
+[`PLAN_FORMAT.md`](docs/plans/PLAN_FORMAT.md).
 
 ### Reproduction
 

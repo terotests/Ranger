@@ -3,7 +3,7 @@
 **Status:** first slice landed. `lib/core/RgNum.rgr` and `lib/core/RgU32.rgr` are
 in, gated by `npm run test:core` — 104 vectors, byte-identical on es6, python, go,
 cpp and rust, 101 of them exact against Node. See
-[`lib/core/README.md`](lib/core/README.md). Everything else below is still a
+[`lib/core/README.md`](../../lib/core/README.md). Everything else below is still a
 proposal.
 
 **Naming, settled:** the library is `lib/core/`, the "Ranger Core API", and its
@@ -22,7 +22,7 @@ prefix is collision avoidance, not decoration — `Math`, `Date`, `DateTime` and
 
 Phase 0 and part of phase 2 are done, and four measurements out of them amend
 what follows. Each is recorded with its evidence in
-[`lib/core/README.md`](lib/core/README.md#what-was-measured).
+[`lib/core/README.md`](../../lib/core/README.md#what-was-measured).
 
 1. **A static method may not take a global operator's name.** The resolver
    rewrites `RgNum.floor(x)` into the operator call. Nine names are affected

@@ -94,7 +94,7 @@ hand-written readers could hold.
 ## What goes here next
 
 > **Beyond OOXML.** The plan for ODF, PDF, HTML/CSS, EPUB and the data formats
-> is [`PLAN_FORMATS.md`](../../PLAN_FORMATS.md) in the repository root. It
+> is [`PLAN_FORMATS.md`](../../docs/plans/PLAN_FORMATS.md) in the repository root. It
 > extends this roadmap; the items below are what it starts from. Its first
 > phase is `.odp` **beside** `.pptx` — one XML reader, one scene, one painter,
 > one accessibility tree, two models that never meet — because that pair is the

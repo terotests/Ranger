@@ -2,7 +2,7 @@
 
 A small statechart runtime in Ranger: a machine is a **definition** and the
 runner walks it. Written for porting RealTrainer's XState machines
-(see [`../../PLAN_REALTRAINER_STATE_PARITY.md`](../../PLAN_REALTRAINER_STATE_PARITY.md)),
+(see [`../../PLAN_REALTRAINER_STATE_PARITY.md`](../realtrainer/PLAN_REALTRAINER_STATE_PARITY.md)),
 and useful anywhere a Ranger program has states rather than flags.
 
 **License: AGPL-3.0-or-later** (Gallery).

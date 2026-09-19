@@ -1,6 +1,6 @@
 # WASM-backend � v�lidokumentaatio
 
-T�m� dokumentti kuvaa Rangerin LLVM/WASM-pipelinen nykytilan (kes� 2026). Katso my�s [PLAN_WASM_PLUGINS.md](./PLAN_WASM_PLUGINS.md) pitk�n aikav�lin visiosta (pluginit ennen koodigenerointia).
+T�m� dokumentti kuvaa Rangerin LLVM/WASM-pipelinen nykytilan (kes� 2026). Katso my�s [PLAN_WASM_PLUGINS.md](PLAN_WASM_PLUGINS.md) pitk�n aikav�lin visiosta (pluginit ennen koodigenerointia).
 
 ## Pipeline
 

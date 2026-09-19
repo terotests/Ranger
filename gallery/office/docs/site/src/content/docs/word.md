@@ -85,7 +85,7 @@ npm run docx_viewer:oracles       # python-docx ↔ inspectJson
 | Path | Role |
 | --- | --- |
 | [`gallery/docx_viewer/`](https://github.com/terotests/Ranger/tree/master/gallery/docx_viewer) | Parser, layout, ink, editor, web host |
-| [`gallery/docx_viewer/docs/PLAN.md`](https://github.com/terotests/Ranger/blob/master/gallery/docx_viewer/docs/PLAN.md) | Design notes |
+| [`gallery/docx_viewer/docs/PLAN.md`](../../../../../../../legacy/docs/PLAN.md) | Design notes |
 | [`gallery/office/`](https://github.com/terotests/Ranger/tree/master/gallery/office) | Shared fonts, metrics, style flags |
 
 A published facade, when it exists, will follow the PowerPoint pattern: a

@@ -481,7 +481,7 @@ Import "polku/runtime/wasm/ranger_obj.rgr"   ; tuo keko + objekti/str/kokoelma-R
 
 Runtime: [`runtime/wasm/ranger_heap.rgr`](../../runtime/wasm/ranger_heap.rgr) (allokaattori)
 ja [`runtime/wasm/ranger_obj.rgr`](../../runtime/wasm/ranger_obj.rgr) (RC + string- ja
-kokoelma-runtime). Muistimallin koko suunnitelma: [`PLAN_WASM_MEMORY.md`](../../PLAN_WASM_MEMORY.md).
+kokoelma-runtime). Muistimallin koko suunnitelma: [`PLAN_WASM_MEMORY.md`](../../docs/plans/PLAN_WASM_MEMORY.md).
 
 ### Mitä kieliominaisuuksia backend tukee
 

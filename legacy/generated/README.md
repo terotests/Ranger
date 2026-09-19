@@ -3,10 +3,10 @@
 Historical samples used to check whether AI assistants could write Ranger from
 documentation. Prefer the published
 [FAQ](https://terotests.github.io/Ranger/docs/faq/) and
-[`docs/examples/`](../docs/examples/) for current, compiler-checked programs.
+[`docs/examples/`](../../docs/examples/) for current, compiler-checked programs.
 
-Agent-oriented notes now live in [`ai/README.md`](../ai/README.md) and
-[`AGENTS.md`](../AGENTS.md).
+Agent-oriented notes now live in [`ai/README.md`](../../ai/README.md) and
+[`AGENTS.md`](../../AGENTS.md).
 
 ## Contents
 

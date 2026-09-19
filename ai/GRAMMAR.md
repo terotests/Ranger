@@ -235,7 +235,7 @@ is a compile error, because the type is in the signature. `example` names a
 rendered into each target's doc comment in that target's own syntax, and left
 out of the emitted code. `public` is what puts
 a declaration in the API surface — there is no `export` keyword. See
-[`PLAN_API_DOCS.md`](../PLAN_API_DOCS.md).
+[`PLAN_API_DOCS.md`](../docs/plans/PLAN_API_DOCS.md).
 
 ## Extension Definition
 

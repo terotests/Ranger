@@ -169,7 +169,7 @@ User Types → onDidChangeContent → (debounce 300ms) → validateTextDocument
                                               Cache results + send diagnostics
 ```
 
-Location: [server/src/server.ts](ranger-vscode-extension/server/src/server.ts#L155-L169)
+Location: [server/src/server.ts](../../ranger-vscode-extension/server/src/server.ts#L155-L169)
 
 ### 2.2 Finding AST Nodes at Position
 
@@ -206,7 +206,7 @@ When hovering over code, the extension:
 3. Reads `eval_type_name` (inferred type) and `type_name` (declared type)
 4. Uses `TypeResolver` to provide additional context
 
-From [server/src/server.ts](ranger-vscode-extension/server/src/server.ts#L401-L450):
+From [server/src/server.ts](../../ranger-vscode-extension/server/src/server.ts#L401-L450):
 
 ```typescript
 connection.onHover((params: TextDocumentPositionParams): Hover | null => {
@@ -1084,8 +1084,8 @@ fn recompileMethod:void (
 | [compiler/ng_CodeNode.clj](compiler/ng_CodeNode.clj)                                                         | AST node definition            |
 | [compiler/VirtualCompiler.clj](compiler/VirtualCompiler.clj)                                                 | Main compiler entry point      |
 | [compiler/ng_parser.clj](compiler/ng_parser.clj)                                                             | Lisp parser                    |
-| [ranger-vscode-extension/server/src/rangerCompiler.ts](ranger-vscode-extension/server/src/rangerCompiler.ts) | Extension compiler integration |
-| [ranger-vscode-extension/server/src/astAnalyzer.ts](ranger-vscode-extension/server/src/astAnalyzer.ts)       | AST analysis utilities         |
+| [ranger-vscode-extension/server/src/rangerCompiler.ts](../../ranger-vscode-extension/server/src/rangerCompiler.ts) | Extension compiler integration |
+| [ranger-vscode-extension/server/src/astAnalyzer.ts](../../ranger-vscode-extension/server/src/astAnalyzer.ts)       | AST analysis utilities         |
 
 ---
 

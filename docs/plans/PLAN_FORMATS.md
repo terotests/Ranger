@@ -8,8 +8,8 @@ It is a plan about **layers**, not about a format list. Forty readers bolted
 onto three applications is not an engine; the same forty converging on a few
 internal models, over one container, one encoding layer and one scene, is.
 
-> **Read first:** [`gallery/ooxml/README.md`](gallery/ooxml/README.md) and
-> [`gallery/office/README.md`](gallery/office/README.md). This document extends
+> **Read first:** [`gallery/ooxml/README.md`](../../gallery/ooxml/README.md) and
+> [`gallery/office/README.md`](../../gallery/office/README.md). This document extends
 > the roadmap in those two; where they disagree with this one, they are the
 > ones with the code under them.
 
@@ -260,7 +260,7 @@ second caller is the deck reader that already exists.
 > opens a `.odp` in the deck viewer — 15 of `pptx:web:test`'s 113 assertions
 > are that. Steps 1.1, 1.2, 1.3, 1.4 and 1.8 are done; 1.5 to 1.7 moved to
 > **Phase 1b** below, with the measurement that moved them. See
-> [`gallery/odp/README.md`](gallery/odp/README.md).
+> [`gallery/odp/README.md`](../../gallery/odp/README.md).
 
 ## 1.0 The two formats, side by side
 

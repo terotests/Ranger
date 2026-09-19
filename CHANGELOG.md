@@ -1000,7 +1000,7 @@ engine, Mermaid, Figma, CodeGraph, Rave — and is not in the npm tarball.
   for node. 101 + 102 + 17 + 16 assertions and 24/24 target builds; the client
   build an app carries is 113 kB of Kotlin, which is the measured answer to
   whether it fits on a watch. Plan and the phases left in
-  [`PLAN_FIRESIM.md`](PLAN_FIRESIM.md).
+  [`PLAN_FIRESIM.md`](gallery/firesim/PLAN_FIRESIM.md).
 - **A segmented date field, measured against the browser's own.** The
   calendar demo's date box was a formatted label; a person asked for the
   `__/__/____` editor, and shadcn has none to measure (its Date Picker is a
@@ -2715,7 +2715,7 @@ engine, Mermaid, Figma, CodeGraph, Rave — and is not in the npm tarball.
 ### Known gaps
 
 - **`@serialize(true)` does not work for `cpp` or `rust`** — not a template gap: `systemclass JSONDataObject` and `JSONArrayObject` declare no C++ or Rust type at all, so these targets have no JSON representation to serialize into. Needs a design decision, not a template
-- Unary minus, `range`, `min`, `abs(int)`, `round`, `pow` and `log` remain unimplemented; see [PLAN_OPERATORS.md](./PLAN_OPERATORS.md) §5
+- Unary minus, `range`, `min`, `abs(int)`, `round`, `pow` and `log` remain unimplemented; see [PLAN_OPERATORS.md](docs/plans/PLAN_OPERATORS.md) §5
 
 ## [3.2.1] - 2026-08-01
 
@@ -2817,13 +2817,13 @@ engine, Mermaid, Figma, CodeGraph, Rave — and is not in the npm tarball.
 
 ### Added
 
-- **`ProcessUiHost` notify suppress** — `beginSuppressUiNotify` / `endSuppressUiNotify` / `isUiNotifySuppressed` for batching parent↔child sync without re-entrant UI notify loops ([PROCESS_UI_NOTIFY.md](PROCESS_UI_NOTIFY.md))
+- **`ProcessUiHost` notify suppress** — `beginSuppressUiNotify` / `endSuppressUiNotify` / `isUiNotifySuppressed` for batching parent↔child sync without re-entrant UI notify loops ([PROCESS_UI_NOTIFY.md](docs/plans/process/PROCESS_UI_NOTIFY.md))
 - **Process view DTO regression fixture** — [tests/fixtures/process_view_dto_assign.rgr](tests/fixtures/process_view_dto_assign.rgr) (cross-class field assignment with method call on RHS)
-- **Docs** — [PROCESS_UI_NOTIFY.md](PROCESS_UI_NOTIFY.md), [PROCESS_UI_VIEW_MODELS.md](PROCESS_UI_VIEW_MODELS.md); README `@process` quick start
+- **Docs** — [PROCESS_UI_NOTIFY.md](docs/plans/process/PROCESS_UI_NOTIFY.md), [PROCESS_UI_VIEW_MODELS.md](legacy/docs/PROCESS_UI_VIEW_MODELS.md); README `@process` quick start
 
 ### Fixed
 
-- **Parser: assignment RHS method calls** — `row.field = this.helper(index)` no longer splits the call into invalid `=` operands ([PROCESS_UI_VIEW_MODELS.md](PROCESS_UI_VIEW_MODELS.md)); fix in [compiler/ng_RangerFlowParser.rgr](compiler/ng_RangerFlowParser.rgr) (`repairAssignMethodCallRhs`)
+- **Parser: assignment RHS method calls** — `row.field = this.helper(index)` no longer splits the call into invalid `=` operands ([PROCESS_UI_VIEW_MODELS.md](legacy/docs/PROCESS_UI_VIEW_MODELS.md)); fix in [compiler/ng_RangerFlowParser.rgr](compiler/ng_RangerFlowParser.rgr) (`repairAssignMethodCallRhs`)
 
 ### Changed
 
