@@ -166,6 +166,33 @@ extension RangerFlowParser {
       }
     })
 
+    ; PLAN_RUST_SEMANTIC_IDIOMS I: a BEHAVIOUR-ONLY trait — methods and no
+    ; fields — is the thing a Rust `trait` says. The mixin copy below still runs
+    ; and still gives each consumer its own method bodies; this records the
+    ; family the way `Extends(Base)` records one, which is what makes the Rust
+    ; writer emit `pub trait NamedTrait`, `impl NamedTrait for User` and
+    ; `Rc<RefCell<dyn NamedTrait>>`. A trait that CARRIES FIELDS stays a pure
+    ; mixin. Rust only: no other target needs the trait to be a type, and
+    ; marking the family there would turn a mixin into inheritance.
+    if ((ctx.getTargetLangName()) == "rust") {
+      for classesWithTraits tpoint:ClassJoinPoint ti {
+        def tcl:RangerAppClassDesc (unwrap tpoint.class_def)
+        def tNameNode@(lives):CodeNode (at tpoint.node.children 1)
+        def tName:string tNameNode.vref
+        if (ctx.isDefinedClass(tName)) {
+          def tDef:RangerAppClassDesc (ctx.findClass(tName))
+          if ((array_length tDef.variables) == 0) {
+            if ((array_length tDef.methods) > 0) {
+              tDef.is_extended_by_children = true
+              if ((indexOf tDef.child_classes tcl.name) < 0) {
+                push tDef.child_classes tcl.name
+              }
+            }
+          }
+        }
+      }
+    }
+
     for classesWithTraits point:ClassJoinPoint i {
       def cl:RangerAppClassDesc (unwrap point.class_def)
       def joinPoint:CodeNode (unwrap point.node)

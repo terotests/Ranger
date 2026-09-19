@@ -714,6 +714,31 @@ extension RangerRustClassWriter {
     wr.out("}" true)
   }
 
+  ; PLAN_RUST_SEMANTIC_IDIOMS I: is this trait one the Rust target turns into a
+  ; real `trait`? Behaviour only — methods and no fields — and consumed by at
+  ; least one class. A field-bearing trait stays the pure mixin it is on every
+  ; other target: its fields are copied into each consumer and Rust has no
+  ; associated fields to hold them.
+  fn rustTraitIsInterface:boolean (name:string ctx:RangerAppWriterContext) {
+    if ((strlen name) == 0) {
+      return false
+    }
+    if ((ctx.isDefinedClass(name)) == false) {
+      return false
+    }
+    def tc:RangerAppClassDesc (ctx.findClass(name))
+    if (tc.is_trait == false) {
+      return false
+    }
+    if ((array_length tc.variables) > 0) {
+      return false
+    }
+    if ((array_length tc.methods) == 0) {
+      return false
+    }
+    return tc.is_extended_by_children
+  }
+
   ; --- native Rust enums (PLAN_RUST_SEMANTIC_IDIOMS F) ------------------------
   ; A Ranger `Enum` is an integer on every target, so `Color.Green` reaches the
   ; Rust file as the literal `1` and `colorName` takes an `i64`. The name is
@@ -1171,6 +1196,38 @@ extension RangerRustClassWriter {
       ;
       ; `Any` is the compiler's own union of every declared class, so it is not
       ; written: the enum would name every class in the program.
+      ; PLAN_RUST_SEMANTIC_IDIOMS I: the `trait NamedTrait { … }` for every
+      ; behaviour-only Ranger trait something consumes. A parent class with
+      ; subclasses gets its declaration from writeClass, but a `trait` class is
+      ; never written to the file on any target — so this one is emitted here,
+      ; from the same descs and with the same receiver rules, before anything
+      ; can name it. The consumers' `impl`s come from writeClass, alongside the
+      ; ones a subclass gets for its parent.
+      def hdrTraitRoot:RangerAppWriterContext (ctx.getRoot())
+      for hdrTraitRoot.definedClassList htName:string hti {
+        if (this.rustTraitIsInterface(htName ctx)) {
+          def htc:RangerAppClassDesc (hdrTraitRoot.findClass(htName))
+          header.out("" true)
+          header.out(("pub trait " + htName + "Trait: RgAnyRef {") true)
+          header.indent(1)
+          this.rustFillTraitMutations(htc ctx)
+          for htc.defined_variants htVar:string htvi {
+            def htVs:RangerAppMethodVariants (get htc.method_variants htVar)
+            for htVs.variants htv:RangerAppFunctionDesc htvj {
+              header.out(("fn " + (this.adjustType(htv.name)) + "(") false)
+              this.writeRustReceiver((has htc.rust_trait_mut htv.name) header)
+              rust_in_trait_decl = true
+              this.writeArgsDef(htv ctx header)
+              rust_in_trait_decl = false
+              this.writeRustFnClose(htv ctx header)
+              header.out(";" true)
+            }
+          }
+          header.indent(-1)
+          header.out("}" true)
+        }
+      }
+
       ; PLAN_RUST_SEMANTIC_IDIOMS F: a Ranger `Enum` whose every use a Rust enum
       ; can carry is written as one. #[repr(i64)] with explicit discriminants
       ; keeps the integer representation exact, so `Color::Green as i64` is
@@ -2152,6 +2209,14 @@ extension RangerRustClassWriter {
         }
       }
     }
+    ; …and a class that `does` a behaviour-only trait is in that family too
+    if (rgAnyNeeded == false) {
+      for cl.consumes_traits rgAnyT:string rgAnyTi {
+        if (this.rustTraitIsInterface(rgAnyT ctx)) {
+          rgAnyNeeded = true
+        }
+      }
+    }
     if rgAnyNeeded {
       wr.out("" true)
       wr.out((("impl RgAnyRef for " + cl.name) + " { fn rg_as_any(&self) -> &dyn std::any::Any { self } }") true)
@@ -2222,9 +2287,20 @@ extension RangerRustClassWriter {
       wr.out("}" true)
     }
     
-    ; If this class extends a parent class, implement the parent's trait
-    if ((array_length cl.extends_classes) > 0) {
-      for cl.extends_classes parentName:string pi {
+    ; If this class extends a parent class, implement the parent's trait. A
+    ; class that `does` a behaviour-only trait is the same shape of family, so
+    ; the two lists are walked together and the emission below is shared.
+    def rustTraitParents:[string]
+    for cl.extends_classes rtpE:string rtpEi {
+      push rustTraitParents rtpE
+    }
+    for cl.consumes_traits rtpT:string rtpTi {
+      if (this.rustTraitIsInterface(rtpT ctx)) {
+        push rustTraitParents rtpT
+      }
+    }
+    if ((array_length rustTraitParents) > 0) {
+      for rustTraitParents parentName:string pi {
         def parentClass@(optional):RangerAppClassDesc (ctx.findClass(parentName))
         if (!null? parentClass) {
           def pc:RangerAppClassDesc (unwrap parentClass)

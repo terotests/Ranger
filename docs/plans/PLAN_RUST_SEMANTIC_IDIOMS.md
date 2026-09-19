@@ -1,6 +1,6 @@
 # PLAN_RUST_SEMANTIC_IDIOMS — closing the semantic gap the friendly study found
 
-> **Status: P0 landed. P1: G, F and E done, D open. P3: K done.** The three
+> **Status: P0 landed. P1: G, F, E done, D open. P2: I done. P3: K done.** The three
 > correctness items — **A**, **B**, **C1** — are in, with the gallery study as
 > their gate (`bash gallery/friendly/compile.sh`). The rest is parked: the ownership
 > vocabulary of §1, the handle/data split (**J**) and the borrow-provenance
@@ -521,29 +521,42 @@ and a lowering per target — and nothing else here depends on it.
 
 ### I. Behaviour-only `trait` → Rust `trait`
 
-**Status: attempted, reverted. The blocker is not in the Rust writer.** Marking
-a behaviour-only trait the way `Extends(Base)` marks a parent —
-`is_extended_by_children` plus each consumer in `child_classes` — is enough to
-make the *type* come out right: `fn show(n : Rc<RefCell<dyn NamedTrait>>)`. It
-is not enough to get the trait itself, because `pub trait XTrait` and its impls
-are emitted from `writeClass`, and a `trait` class never reaches a writer:
-`VirtualCompiler` skips `is_trait` in the class-writing loop, target
-independently. So the type names a trait that is never declared, which is worse
-than the compile error **C1** gives today — hence the revert.
+**Status: done, by route (2).** A behaviour-only Ranger trait — methods and no
+fields — is now a real Rust trait:
 
-Closing it means one of:
+```rust
+pub trait NamedTrait: RgAnyRef { fn label(&mut self) -> String; }
+impl NamedTrait for User { … }
+impl NamedTrait for Bot  { … }
+fn show(mut n : Rc<RefCell<dyn NamedTrait>>) -> String
+```
 
-1. Letting a behaviour-only trait through that driver loop on Rust, and having
-   every other target ignore it. A driver change, not a writer one.
-2. Emitting the trait and its impls from the Rust header, next to the union
-   enums, as thin forwarding impls over the methods the mixin already copied
-   into each consumer. Self-contained in the Rust writer, but it has to
-   reproduce the receiver-convention machinery (`&self` vs `&mut self` per
-   family) that `writeClass` computes.
+rustc-clean, and [`rust/src/11_behaviour_traits.rgr`](../../gallery/friendly/rust/src/11_behaviour_traits.rgr)
+runs it — two traits on one class, a `dyn` parameter, dispatch over two
+implementors.
 
-(2) is the smaller change and the one to take. Until then **C1** stands: the
-compile error names `Extends(Base)`, which does produce the trait, the impls and
-the `dyn` — verified working.
+**Route (1) does not work, and it is worth saying why.** Marking the trait the
+way `Extends(Base)` marks a parent (`is_extended_by_children` plus the consumers
+in `child_classes`) is enough to get the *type* right on its own. Letting the
+trait class through `VirtualCompiler`'s class-writing loop to get the
+declaration is not: `writeClass` expects a `class` node, and a `trait` node
+walks out as raw tokens — `r#traitNamedr#fnlabelr#return"anon"`.
+
+So the declaration is emitted from the Rust header instead, from the same descs
+and with the same receiver rules `writeClass` uses for a parent class, and the
+consumers' `impl`s come from `writeClass` by walking `consumes_traits` beside
+`extends_classes`. `impl RgAnyRef` follows the same widening.
+
+A trait that **carries fields** stays a pure mixin and using it as a type is
+still the compile error from **C1**: its fields are copied into each consumer
+and Rust has no associated fields to hold them.
+[`attempts/04_trait_as_type.rgr`](../../gallery/friendly/rust/attempts/04_trait_as_type.rgr)
+is that case, and the gate still requires it to be refused.
+
+**The same hole is still open on C++**, for both kinds of trait: that writer
+emits `std::shared_ptr<Named>` and never declares `Named`. That is why study 11
+lives under `rust/src` rather than the shared `src/` — `compile.sh` compiles a
+target-local `src/` alongside the shared one.
 
 The item with the larger *idiom* payoff: it is
 what makes a generated `.rs` a crate someone can depend on. Verified reachable
@@ -757,7 +770,7 @@ document. Both recorded so they are decisions rather than omissions.
 | P1 | **F** real `enum` + use-site casts | **done** | no |
 | P1 | **G** reachability-driven helpers | **done** | no |
 | P2 | **H** portable `Result` + propagation | large, cross-target | no |
-| P2 | **I** behaviour-only trait → Rust trait | attempted, reverted | no |
+| P2 | **I** behaviour-only trait → Rust trait | **done** | no |
 | P2 | **J** handle/data split | large, highest risk | yes |
 | P3 | **K** `for` lowering | **done** | no |
 | P3 | **L** snake_case | blocked on serialize names | no |
@@ -775,8 +788,7 @@ selfhost build stays at its 9 pre-existing rustc errors, all ten `friendly`
 targets compile and run, the four gallery programs build clean, and the suite is
 the same 19 failures as `origin/master`.
 
-What is left divides sharply. **D** needs one analysis it does not have. **I**
-needs a change in the class-writing driver, not the writer. **H** is a language
+What is left divides sharply. **D** needs one analysis it does not have. **H** is a language
 change across ten targets and wants an expression `match` first. **J** and **M**
 are the two items §1 says are cheap inside a lowering IR and expensive without
 one, and **J** has three design questions open besides. **L** is blocked on

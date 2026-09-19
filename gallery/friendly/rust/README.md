@@ -224,10 +224,20 @@ impl User {
 fn show(mut who : &mut User) -> String { /* … */ }
 ```
 
-**Could it be done?** Not with `trait` / `does` — and the study understated how
-badly. Typing a parameter by the trait (`fn show:string (n:Named)`) does not
-produce a less polymorphic signature; it produces a Rust type that does not
-exist. That is now a compile error:
+**Could it be done?** For a **behaviour-only** trait — methods and no fields —
+yes, and it is done: see [study 11](src/11_behaviour_traits.rgr).
+
+```rust
+pub trait NamedTrait: RgAnyRef { fn label(&mut self) -> String; }
+impl NamedTrait for User { … }
+impl NamedTrait for Bot  { … }
+fn show(mut n : Rc<RefCell<dyn NamedTrait>>) -> String
+```
+
+The trait in *this* study carries a field, and that case stays a mixin: its
+fields are copied into each consumer and Rust has no associated fields to hold
+them. Typing a parameter by such a trait used to emit a Rust type that does not
+exist; it is a compile error now —
 [`attempts/04_trait_as_type.rgr`](attempts/04_trait_as_type.rgr).
 
 **But the machinery is already there, one spelling over.** The same program
@@ -428,6 +438,11 @@ it, and the numbers above have been re-checked against them.
 | Was | Now |
 | --- | --- |
 | optional parameter → `Option<Option<T>>`, no rustc | singly wrapped, [study 10](../src/10_optional_params.rgr) runs |
+| every file carried ~140 lines of map preamble it never called | emitted only when the program can reach it; study 07 is 194 lines → 82 |
+| `Enum Color` was `i64`, `Color.Green` was `1` | `enum Color { Red = 0, … }` and `Color::Green`, per enum and conservative |
+| `match` over a shape was a chain of `if let` | a Rust `match`, no wildcard when the arms cover the enum |
+| `for` was always an index loop with a hoisted bound and a cast | `for v in xs.iter().copied()` where that is safe |
+| a behaviour-only `trait` as a type named a type that did not exist | `pub trait NamedTrait` + one `impl` per consumer ([study 11](src/11_behaviour_traits.rgr)) |
 | `try` / `catch` compiles and drops the catch | compile error on `-l=rust` naming the replacement |
 | `trait` as a type → `&mut Named`, no such type, `E0425` | compile error naming `Extends(Base)`, which does work |
 | `attempts/` run by hand, if at all | run by `compile.sh`; each must be refused with its declared error |

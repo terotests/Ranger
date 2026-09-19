@@ -11,7 +11,10 @@ bash gallery/friendly/compile.sh          # every folder below
 bash gallery/friendly/compile.sh go       # one target
 ```
 
-A target folder may also hold `attempts/`: forms *that* target cannot express.
+A target folder may hold `src/` of its own, for a study the same program cannot
+express on every target — `rust/src/11_behaviour_traits.rgr` is one, because the
+C++ writer names a trait type it never declares. It may also hold `attempts/`:
+forms *that* target cannot express.
 `compile.sh` requires each one to be **refused**, with the error it declares on
 its first line (`; EXPECT-ERROR: …`). A form the target cannot express has to
 be a compile error naming the limitation — never a binary that panics, and
@@ -127,11 +130,12 @@ gone.
 Forms no target can express, or one target cannot:
 
 - [`rust/attempts/04_trait_as_type.rgr`](rust/attempts/04_trait_as_type.rgr)
-  — a Ranger `trait` used as a *type*. Rust refuses it: the trait is a mixin
-  there and no type of that name is declared, so the writer used to emit
-  `fn show(n : &mut Named)` with no `Named` in the file (`rustc: E0425`). The
-  C++ writer still has the same hole (`std::shared_ptr<Named>`, no
-  `class Named`); ES6 and the other dynamic targets are fine.
+  — a **field-bearing** Ranger `trait` used as a *type*. Rust refuses it: such a
+  trait is a mixin, its fields are copied into each consumer, and Rust has no
+  associated fields to hold them. A **behaviour-only** trait is a real Rust
+  trait now — see [`rust/src/11_behaviour_traits.rgr`](rust/src/11_behaviour_traits.rgr).
+  The C++ writer still has the hole for both kinds (`std::shared_ptr<Named>`,
+  no `class Named`); ES6 and the other dynamic targets are fine.
 - [`rust/attempts/06_generic_function.rgr`](rust/attempts/06_generic_function.rgr)
   — Ranger rejects a free `@params` function on every target
 - [`rust/attempts/09_throw_panics.rgr`](rust/attempts/09_throw_panics.rgr)

@@ -21606,6 +21606,25 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           }));
         }
       }));
+      if ( ctx.getTargetLangName() == "rust" ) {
+        for ( let ti = 0; ti < this.classesWithTraits.length; ti++) {
+          var tpoint = this.classesWithTraits[ti];
+          const tcl = tpoint.class_def;
+          const tNameNode = tpoint.node.children[1];
+          const tName = tNameNode.vref;
+          if ( ctx.isDefinedClass(tName) ) {
+            const tDef = ctx.findClass(tName);
+            if ( tDef.variables.length == 0 ) {
+              if ( tDef.methods.length > 0 ) {
+                tDef.is_extended_by_children = true;
+                if ( tDef.child_classes.indexOf(tcl.name) < 0 ) {
+                  tDef.child_classes.push(tcl.name);
+                }
+              }
+            }
+          }
+        };
+      }
       for ( let i = 0; i < this.classesWithTraits.length; i++) {
         var point = this.classesWithTraits[i];
         const cl = point.class_def;
@@ -39565,6 +39584,25 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 wr.indent(-1);
                 wr.out("}", true);
               };
+              rustTraitIsInterface (name, ctx) {
+                if ( name.length == 0 ) {
+                  return false;
+                }
+                if ( ctx.isDefinedClass(name) == false ) {
+                  return false;
+                }
+                const tc = ctx.findClass(name);
+                if ( tc.is_trait == false ) {
+                  return false;
+                }
+                if ( tc.variables.length > 0 ) {
+                  return false;
+                }
+                if ( tc.methods.length == 0 ) {
+                  return false;
+                }
+                return tc.is_extended_by_children;
+              };
               rustNodeIsEnumOf (node, enumName, ctx) {
                 if ( node.eval_type == 13 ) {
                   if ( node.type_name == enumName ) {
@@ -39944,6 +39982,33 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         }
                         header.out("use std::cell::RefCell;", true);
                         header.out("", true);
+                        const hdrTraitRoot = ctx.getRoot();
+                        for ( let hti = 0; hti < hdrTraitRoot.definedClassList.length; hti++) {
+                          var htName = hdrTraitRoot.definedClassList[hti];
+                          if ( this.rustTraitIsInterface(htName, ctx) ) {
+                            const htc = hdrTraitRoot.findClass(htName);
+                            header.out("", true);
+                            header.out(("pub trait " + htName) + "Trait: RgAnyRef {", true);
+                            header.indent(1);
+                            this.rustFillTraitMutations(htc, ctx);
+                            for ( let htvi = 0; htvi < htc.defined_variants.length; htvi++) {
+                              var htVar = htc.defined_variants[htvi];
+                              const htVs = ( Object.prototype.hasOwnProperty.call(htc.method_variants, htVar) ? htc.method_variants[htVar] : undefined );
+                              for ( let htvj = 0; htvj < htVs.variants.length; htvj++) {
+                                var htv = htVs.variants[htvj];
+                                header.out(("fn " + this.adjustType(htv.name)) + "(", false);
+                                this.writeRustReceiver(( typeof(htc.rust_trait_mut[htv.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(htc.rust_trait_mut, htv.name) ), header);
+                                this.rust_in_trait_decl = true;
+                                this.writeArgsDef(htv, ctx, header);
+                                this.rust_in_trait_decl = false;
+                                this.writeRustFnClose(htv, ctx, header);
+                                header.out(";", true);
+                              };
+                            };
+                            header.indent(-1);
+                            header.out("}", true);
+                          }
+                        };
                         const hdrEnumRoot = ctx.getRoot();
                         let anyNativeEnum = false;
                         for ( let hei = 0; hei < Object.keys(hdrEnumRoot.definedEnums).length; hei++) {
@@ -40848,6 +40913,14 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 }
                               };
                             }
+                            if ( rgAnyNeeded == false ) {
+                              for ( let rgAnyTi = 0; rgAnyTi < cl.consumes_traits.length; rgAnyTi++) {
+                                var rgAnyT = cl.consumes_traits[rgAnyTi];
+                                if ( this.rustTraitIsInterface(rgAnyT, ctx) ) {
+                                  rgAnyNeeded = true;
+                                }
+                              };
+                            }
                             if ( rgAnyNeeded ) {
                               wr.out("", true);
                               wr.out(("impl RgAnyRef for " + cl.name) + " { fn rg_as_any(&self) -> &dyn std::any::Any { self } }", true);
@@ -40913,9 +40986,20 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               wr.indent(-1);
                               wr.out("}", true);
                             }
-                            if ( cl.extends_classes.length > 0 ) {
-                              for ( let pi_1 = 0; pi_1 < cl.extends_classes.length; pi_1++) {
-                                var parentName_1 = cl.extends_classes[pi_1];
+                            let rustTraitParents = [];
+                            for ( let rtpEi = 0; rtpEi < cl.extends_classes.length; rtpEi++) {
+                              var rtpE = cl.extends_classes[rtpEi];
+                              rustTraitParents.push(rtpE);
+                            };
+                            for ( let rtpTi = 0; rtpTi < cl.consumes_traits.length; rtpTi++) {
+                              var rtpT = cl.consumes_traits[rtpTi];
+                              if ( this.rustTraitIsInterface(rtpT, ctx) ) {
+                                rustTraitParents.push(rtpT);
+                              }
+                            };
+                            if ( rustTraitParents.length > 0 ) {
+                              for ( let pi_1 = 0; pi_1 < rustTraitParents.length; pi_1++) {
+                                var parentName_1 = rustTraitParents[pi_1];
                                 const parentClass_1 = ctx.findClass(parentName_1);
                                 if ( (typeof(parentClass_1) !== "undefined" && parentClass_1 != null )  ) {
                                   const pc_1 = parentClass_1;
@@ -68875,6 +68959,25 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 this.repeat_index = 0;
                                 this.installedFile = {};
                               }
+                              rustWritesTraitClass (cl, ctx) {
+                                if ( typeof(cl) === "undefined" ) {
+                                  return false;
+                                }
+                                const tc = cl;
+                                if ( ctx.getTargetLangName() != "rust" ) {
+                                  return false;
+                                }
+                                if ( tc.is_trait == false ) {
+                                  return false;
+                                }
+                                if ( tc.variables.length > 0 ) {
+                                  return false;
+                                }
+                                if ( tc.methods.length == 0 ) {
+                                  return false;
+                                }
+                                return tc.is_extended_by_children;
+                              };
                               treeReferencesVRef (node, name) {
                                 if ( node.value_type == 11 ) {
                                   if ( node.vref == name ) {

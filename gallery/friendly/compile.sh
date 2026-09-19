@@ -38,8 +38,16 @@ compile_one() {
   if [[ "$lang" == "rust" ]]; then
     extra+=(-strict-ownership)
   fi
+  # The shared studies, plus any this target has of its own. A target-local
+  # study is one the same program cannot express everywhere — `rust/src`
+  # holds the behaviour-only trait study, which C++ cannot compile because
+  # that writer names a trait type it never declares.
+  local srclist=("$SRC"/*.rgr)
+  if compgen -G "$HERE/$lang/src/*.rgr" >/dev/null; then
+    srclist+=("$HERE/$lang"/src/*.rgr)
+  fi
   local src
-  for src in "$SRC"/*.rgr; do
+  for src in "${srclist[@]}"; do
     local name
     name="$(basename "$src" .rgr)"
     local log="$out/${name}.compile.log"

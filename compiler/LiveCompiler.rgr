@@ -29,6 +29,31 @@ extension RangerAppWriterContext {
 
 class LiveCompiler {
 
+  ; PLAN_RUST_SEMANTIC_IDIOMS I: is this `trait` class one the Rust target has
+  ; to write out? Only on Rust, only a trait that carries NO FIELDS, and only
+  ; one something consumes — a field-bearing trait stays a pure mixin, because
+  ; its fields are copied into each consumer and Rust has no associated fields
+  ; to put them in.
+  fn rustWritesTraitClass:boolean (cl@(optional):RangerAppClassDesc ctx:RangerAppWriterContext) {
+    if (null? cl) {
+      return false
+    }
+    def tc:RangerAppClassDesc (unwrap cl)
+    if ((ctx.getTargetLangName()) != "rust") {
+      return false
+    }
+    if (tc.is_trait == false) {
+      return false
+    }
+    if ((array_length tc.variables) > 0) {
+      return false
+    }
+    if ((array_length tc.methods) == 0) {
+      return false
+    }
+    return tc.is_extended_by_children
+  }
+
   fn treeReferencesVRef:boolean (node:CodeNode name:string) {
     if (node.value_type == RangerNodeType.VRef) {
       if (node.vref == name) {

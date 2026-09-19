@@ -152,7 +152,14 @@ header/source splits, namespaces I control.
 7. Field-free `trait` → an abstract base or a concept.
 8. Drop the ordered-map preamble when the program has no map.
 9. `int64_t` for Ranger `int`, consistently.
-10. **An optional `string` that can tell `""` from absent.** It is a plain
+10. **A `trait` used as a TYPE.** `fn show(n:Named)` emits
+    `std::shared_ptr<Named>` and never declares `Named`, so the file does not
+    compile — for a behaviour-only trait and a field-bearing one alike. Rust
+    refuses the field-bearing case and emits a real `trait` for the
+    behaviour-only one; here both are silent broken output. See
+    `gallery/friendly/rust/src/11_behaviour_traits.rgr`, which is Rust-local
+    for exactly this reason.
+11. **An optional `string` that can tell `""` from absent.** It is a plain
     `std::string` at every position — field, local and parameter — and
     `null?` is an emptiness test, so a program that stores an empty string
     in an optional reads it back as absent. Every other target says
