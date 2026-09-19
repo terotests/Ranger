@@ -11,7 +11,7 @@
 ; ==============================================================================
 
 Import "../../src/SoftPainter.rgr"
-Import "../../evg/EVGDisplayList.rgr"
+Import "pkg:evg/EVGDisplayList.rgr"
 Import "../../game_engine/framebuffer.rgr"
 Import "../../game_engine/ui/UIContext.rgr"
 Import "gfx_datagrid_sdl.rgr"
