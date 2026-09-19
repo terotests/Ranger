@@ -2,7 +2,6 @@
 #![allow(unused_mut)]
 #![allow(unused_variables)]
 #![allow(unused_assignments)]
-#![allow(non_snake_case)]
 #![allow(dead_code)]
 // The clippy allows below cover shapes that mirror the Ranger source
 // itself - statement-level clamp chains, nested ifs, function arity and
@@ -65,7 +64,7 @@ impl PointOps {
     }
     ax + ay
   }
-  fn addPoints(&self, a : &Point, b : &Point) -> Point {
+  fn add_points(&self, a : &Point, b : &Point) -> Point {
     Point::new(a.x + b.x, a.y + b.y).clone()
   }
 }
@@ -106,7 +105,7 @@ impl TreeNode {
     c.borrow_mut().parent = Some(Rc::downgrade(__self_rc));
     __self_rc.borrow_mut().kids.push(c.clone());
   }
-  fn childCount(__self_rc : &Rc<RefCell<TreeNode>>) -> i64 {
+  fn child_count(__self_rc : &Rc<RefCell<TreeNode>>) -> i64 {
     __self_rc.borrow().kids.len() as i64
   }
 }
@@ -129,7 +128,7 @@ fn __rg_main_body() {
   let mut ops : PointOps = PointOps::new();
   let mut origin : Point = Point::new(3, 4);
   println!("{}{}", "manhattan ".to_string(), ops.manhattan(&origin));
-  let mut summed : Point = ops.addPoints(&origin, &origin);
+  let mut summed : Point = ops.add_points(&origin, &origin);
   println!("{}{}", "sum.x ".to_string(), summed.x);
   let mut left : Rc<RefCell<Counter>> = Rc::new(RefCell::new(Counter::new()));
   let mut alias : Rc<RefCell<Counter>> = left.clone();
@@ -140,7 +139,7 @@ fn __rg_main_body() {
   let mut leaf : Rc<RefCell<TreeNode>> = Rc::new(RefCell::new(TreeNode::new()));
   leaf.borrow_mut().name = "leaf";
   TreeNode::adopt(&root, leaf.clone());
-  println!("{}{}", "kids ".to_string(), TreeNode::childCount(&root));
+  println!("{}{}", "kids ".to_string(), TreeNode::child_count(&root));
   if  leaf.borrow().parent.as_ref().and_then(|__w| __w.upgrade()).is_none() {
     println!("parent missing");
   } else {

@@ -2,7 +2,6 @@
 #![allow(unused_mut)]
 #![allow(unused_variables)]
 #![allow(unused_assignments)]
-#![allow(non_snake_case)]
 #![allow(dead_code)]
 // The clippy allows below cover shapes that mirror the Ranger source
 // itself - statement-level clamp chains, nested ifs, function arity and
@@ -56,14 +55,14 @@ impl OptionalParams {
     }
     maybe.clone().unwrap().clone()
   }
-  fn shownInt(a : Option<i64>) -> i64 {
+  fn shown_int(a : Option<i64>) -> i64 {
     if  a.is_none() {
       return 0;
     }
     let r : i64 = a.unwrap();
     r
   }
-  fn shownPoint(&self, mut p : Option<Rc<RefCell<Point>>>) -> i64 {
+  fn shown_point(&self, mut p : Option<Rc<RefCell<Point>>>) -> i64 {
     if  p.is_none() {
       return 0;
     }
@@ -85,10 +84,10 @@ fn __rg_main_body() {
   println!("{}{}", "miss ".to_string(), OptionalParams::shown(miss.clone()));
   let mut n : Option<i64> = None;
   n = Some(41);
-  println!("{}{}", "int ".to_string(), OptionalParams::shownInt(n));
+  println!("{}{}", "int ".to_string(), OptionalParams::shown_int(n));
   let mut p : Option<Rc<RefCell<Point>>> = None;
   let mut pt : Rc<RefCell<Point>> = Rc::new(RefCell::new(Point::new()));
   pt.borrow_mut().x = 7;
   p = Some(pt.clone());
-  println!("{}{}", "point ".to_string(), app.shownPoint(p.clone()));
+  println!("{}{}", "point ".to_string(), app.shown_point(p.clone()));
 }

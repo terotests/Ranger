@@ -2,7 +2,6 @@
 #![allow(unused_mut)]
 #![allow(unused_variables)]
 #![allow(unused_assignments)]
-#![allow(non_snake_case)]
 #![allow(dead_code)]
 // The clippy allows below cover shapes that mirror the Ranger source
 // itself - statement-level clamp chains, nested ifs, function arity and
@@ -100,7 +99,7 @@ impl Guarded__ops {
     }
     false
   }
-  pub fn notEquals(a : &union_Guarded, b : &union_Guarded) -> bool {
+  pub fn not_equals(a : &union_Guarded, b : &union_Guarded) -> bool {
     if  Guarded__ops::equals(a, b) {
       return false;
     }

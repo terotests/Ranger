@@ -448,6 +448,7 @@ it, and the numbers above have been re-checked against them.
 | a behaviour-only `trait` as a type named a type that did not exist | `pub trait NamedTrait` + one `impl` per consumer ([study 11](src/11_behaviour_traits.rgr)) |
 | a `shape` case holding a `string` sat behind `Rc<RefCell<…>>` | it rides inside the variant; collections and objects still take the cell |
 | the output was always a program | `-rust-library` gives it a public surface and no `main` |
+| every file carried `#![allow(non_snake_case)]` and 708 warnings | identifiers are snake_case; the allow is gone and the count is zero |
 | `try` / `catch` compiles and drops the catch | compile error on `-l=rust` naming the replacement |
 | `trait` as a type → `&mut Named`, no such type, `E0425` | compile error naming `Extends(Base)`, which does work |
 | `attempts/` run by hand, if at all | run by `compile.sh`; each must be refused with its declared error |
@@ -536,7 +537,8 @@ out to be a reroute rather than new machinery.
    07 is 16 lines of Ranger and 195 lines of Rust; 140 of those are
    `RgOrderedMap` and string-index helpers the binary never calls.
 
-9. **`snake_case` names.** Every file still carries `#![allow(non_snake_case)]`.
+9. ~~**`snake_case` names.**~~ **Done** — identifiers are snake_case and the
+   allow is gone. Every file used to carry `#![allow(non_snake_case)]`.
    `docs/plans/PLAN_RUST_IDIOMATICITY.md` already ranks this. It is mechanical and it
    is what a reviewer sees first.
 

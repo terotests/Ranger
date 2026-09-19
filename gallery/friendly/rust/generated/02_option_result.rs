@@ -2,7 +2,6 @@
 #![allow(unused_mut)]
 #![allow(unused_variables)]
 #![allow(unused_assignments)]
-#![allow(non_snake_case)]
 #![allow(dead_code)]
 // The clippy allows below cover shapes that mirror the Ranger source
 // itself - statement-level clamp chains, nested ifs, function arity and
@@ -100,7 +99,7 @@ impl ParseOutcome__ops {
     }
     false
   }
-  pub fn notEquals(a : &union_ParseOutcome, b : &union_ParseOutcome) -> bool {
+  pub fn not_equals(a : &union_ParseOutcome, b : &union_ParseOutcome) -> bool {
     if  ParseOutcome__ops::equals(a, b) {
       return false;
     }
@@ -116,7 +115,7 @@ impl Lookup {
     Lookup { 
     }
   }
-  fn findName(names : &[String], key : &str) -> Option<String> {
+  fn find_name(names : &[String], key : &str) -> Option<String> {
     let mut found : Option<String> = None;
     for n in names.iter().cloned() {
       if  n == key {
@@ -126,7 +125,7 @@ impl Lookup {
     }
     found.clone()
   }
-  fn parseInt(text : &str) -> union_ParseOutcome {
+  fn parse_int(text : &str) -> union_ParseOutcome {
     if  text.is_empty() {
       return union_ParseOutcome::ParseOutcome_Err(ParseOutcome_Err::new("empty".to_string()));
     }
@@ -167,14 +166,14 @@ fn main() {
 fn __rg_main_body() {
   let mut r#box : Lookup = Lookup::new();
   let mut names : Vec<String> = vec!["ada".to_string(), "grace".to_string()];
-  let hit : Option<String> = Lookup::findName(&names, "ada");
+  let hit : Option<String> = Lookup::find_name(&names, "ada");
   println!("{}{}", "found ".to_string(), if hit.is_some() { hit.clone().unwrap() } else { "unknown".to_string() });
-  let miss : Option<String> = Lookup::findName(&names, "alan");
+  let miss : Option<String> = Lookup::find_name(&names, "alan");
   println!("{}{}", "miss ".to_string(), if miss.is_some() { miss.clone().unwrap() } else { "unknown".to_string() });
   if  miss.is_none() {
     println!("miss is empty");
   }
-  println!("{}", r#box.describe(&Lookup::parseInt("42")));
-  println!("{}", r#box.describe(&Lookup::parseInt("")));
-  println!("{}", r#box.describe(&Lookup::parseInt("nope")));
+  println!("{}", r#box.describe(&Lookup::parse_int("42")));
+  println!("{}", r#box.describe(&Lookup::parse_int("")));
+  println!("{}", r#box.describe(&Lookup::parse_int("nope")));
 }

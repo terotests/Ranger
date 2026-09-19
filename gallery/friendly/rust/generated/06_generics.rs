@@ -2,7 +2,6 @@
 #![allow(unused_mut)]
 #![allow(unused_variables)]
 #![allow(unused_assignments)]
-#![allow(non_snake_case)]
 #![allow(dead_code)]
 // The clippy allows below cover shapes that mirror the Ranger source
 // itself - statement-level clamp chains, nested ifs, function arity and
@@ -53,8 +52,8 @@ fn __rg_main_body() {
   words.put("ada");
   words.put("grace");
   println!("{}{}", "str-size ".to_string(), words.size());
-  let lastWord : Option<String> = words.peek();
-  println!("{}{}", "str-top ".to_string(), if lastWord.is_some() { lastWord.clone().unwrap() } else { "?".to_string() });
+  let last_word : Option<String> = words.peek();
+  println!("{}{}", "str-top ".to_string(), if last_word.is_some() { last_word.clone().unwrap() } else { "?".to_string() });
 }
 #[derive(Clone)]
 struct Stack_int { 

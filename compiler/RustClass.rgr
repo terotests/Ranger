@@ -502,7 +502,7 @@ extension RangerRustClassWriter {
       segIdx = 1
     }
     while (segIdx < (nsLen - 1)) {
-      def segName:string (this.adjustType((itemAt fc.ns segIdx)))
+      def segName:string (this.adjustIdentOrType((itemAt fc.ns segIdx) ctx))
       def haveSegD:boolean false
       def segOptional:boolean false
       def segMember:boolean false
@@ -672,7 +672,7 @@ extension RangerRustClassWriter {
             wr.out(", " false)
           }
           sgWritten = sgWritten + 1
-          wr.out((arg.name + " : ") false)
+          wr.out(((this.adjustType(arg.name)) + " : ") false)
           def sgNameN:CodeNode (unwrap arg.nameNode)
           this.writeTypeDef(sgNameN ctx wr)
         }
@@ -700,7 +700,7 @@ extension RangerRustClassWriter {
             wr.out(", " false)
           }
           sgFwd = sgFwd + 1
-          wr.out(arg.name false)
+          wr.out((this.adjustType(arg.name)) false)
         }
       }
     }
@@ -1153,6 +1153,9 @@ extension RangerRustClassWriter {
     ; ended up after that line and rustc rejected the file.
     if (fileHeaderWritten == false) {
       def header:CodeWriter (wr.getTag("before_imports"))
+      ; the name set the snake_case collision guard consults; adjustType is
+      ; called from places with no ctx to build it from
+      this.rustFillIdentNames(ctx)
       ; which of the two header helper families this program can reach
       def helperNeeds:int (this.rustHeaderHelperNeeds(ctx))
       ; …and which Ranger `Enum`s survive as Rust enums, whose declarations go
@@ -1164,7 +1167,10 @@ extension RangerRustClassWriter {
       header.out("#![allow(unused_mut)]" true)
       header.out("#![allow(unused_variables)]" true)
       header.out("#![allow(unused_assignments)]" true)
-      header.out("#![allow(non_snake_case)]" true)
+      ; PLAN_RUST_SEMANTIC_IDIOMS L: gone. Identifiers are snake_case now, and
+      ; the 81 000-line Rust rendering of this compiler draws zero naming
+      ; warnings with the allow taken away. Type names keep their spelling,
+      ; which is what Rust wants of them.
       header.out("#![allow(dead_code)]" true)
       header.out("// The clippy allows below cover shapes that mirror the Ranger source" true)
       header.out("// itself - statement-level clamp chains, nested ifs, function arity and" true)
@@ -1752,7 +1758,7 @@ extension RangerRustClassWriter {
             wr.out(", " false)
           }
           written = written + 1
-          wr.out((arg.name + " : ") false)
+          wr.out(((this.adjustType(arg.name)) + " : ") false)
           def nameN:CodeNode (unwrap arg.nameNode)
           ; A parameter of a shared class carries the Rc, exactly as an
           ; ordinary method parameter does. Without this the constructor of
@@ -1949,7 +1955,10 @@ extension RangerRustClassWriter {
       if (vnn.hasFlag("main")) {
         continue _
       }
-      wr.out((("pub fn " + variant.name) + "(") false)
+      ; the one place a method name reached the output raw. Every CALL site
+      ; goes through adjustType, so once that renames, a definition that does
+      ; not is a method the calls cannot find.
+      wr.out((("pub fn " + (this.adjustType(variant.name))) + "(") false)
       this.writeArgsDef(variant ctx wr)
       this.writeRustFnClose(variant ctx wr)
       wr.out(" {" true)

@@ -2,7 +2,6 @@
 #![allow(unused_mut)]
 #![allow(unused_variables)]
 #![allow(unused_assignments)]
-#![allow(non_snake_case)]
 #![allow(dead_code)]
 // The clippy allows below cover shapes that mirror the Ranger source
 // itself - statement-level clamp chains, nested ifs, function arity and
@@ -40,7 +39,7 @@ impl User {
       name:"", 
     }
   }
-  fn asString(&self) -> String {
+  fn as_string(&self) -> String {
     format!("{} {}", self.name, self.age).clone()
   }
   fn label(&self) -> String {
@@ -58,7 +57,7 @@ impl Bot {
       name:"", 
     }
   }
-  fn asString(&self) -> String {
+  fn as_string(&self) -> String {
     format!("{}{}", "bot:".to_string(), self.name).clone()
   }
   fn label(&self) -> String {
@@ -75,7 +74,7 @@ impl TraitsMain {
     }
   }
   fn show(mut who : &mut User) -> String {
-    format!("{}{}{}{}", "label=".to_string(), who.label(), " text=".to_string(), who.asString()).clone()
+    format!("{}{}{}{}", "label=".to_string(), who.label(), " text=".to_string(), who.as_string()).clone()
   }
 }
 fn main() {
@@ -91,5 +90,5 @@ fn __rg_main_body() {
   println!("{}", TraitsMain::show(&mut u));
   let mut b : Bot = Bot::new();
   b.name = "r2";
-  println!("{}", b.asString());
+  println!("{}", b.as_string());
 }

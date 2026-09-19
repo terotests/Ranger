@@ -2,7 +2,6 @@
 #![allow(unused_mut)]
 #![allow(unused_variables)]
 #![allow(unused_assignments)]
-#![allow(non_snake_case)]
 #![allow(dead_code)]
 // The clippy allows below cover shapes that mirror the Ranger source
 // itself - statement-level clamp chains, nested ifs, function arity and
@@ -132,7 +131,7 @@ impl Message__ops {
     }
     false
   }
-  pub fn notEquals(a : &union_Message, b : &union_Message) -> bool {
+  pub fn not_equals(a : &union_Message, b : &union_Message) -> bool {
     if  Message__ops::equals(a, b) {
       return false;
     }
@@ -148,7 +147,7 @@ impl EnumsMain {
     EnumsMain { 
     }
   }
-  fn colorName(c : Color) -> String {
+  fn color_name(c : Color) -> String {
     if  c == Color::Red {
       return "red".to_string().clone();
     }
@@ -180,7 +179,7 @@ fn main() {
 }
 fn __rg_main_body() {
   let mut app : EnumsMain = EnumsMain::new();
-  println!("{}{}", "color ".to_string(), EnumsMain::colorName(Color::Green));
+  println!("{}{}", "color ".to_string(), EnumsMain::color_name(Color::Green));
   println!("{}", app.describe(&union_Message::Message_Ping(Message_Ping::new())));
   println!("{}", app.describe(&union_Message::Message_Text(Message_Text::new("hi".to_string()))));
   println!("{}", app.describe(&union_Message::Message_Move(Message_Move::new(2, 3))));

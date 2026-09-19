@@ -2,7 +2,6 @@
 #![allow(unused_mut)]
 #![allow(unused_variables)]
 #![allow(unused_assignments)]
-#![allow(non_snake_case)]
 #![allow(dead_code)]
 // The clippy allows below cover shapes that mirror the Ranger source
 // itself - statement-level clamp chains, nested ifs, function arity and
@@ -43,7 +42,7 @@ impl Stats {
     }
     acc
   }
-  fn evenCount(xs : &[i64]) -> i64 {
+  fn even_count(xs : &[i64]) -> i64 {
     let mut n : i64 = 0;
     for v in xs.iter().copied() {
       if  v % 2 == 0 {
@@ -59,7 +58,7 @@ impl Stats {
     }
     out.clone()
   }
-  fn applyEach(xs : &[i64], f : &mut dyn FnMut(i64) -> i64) -> Vec<i64> {
+  fn apply_each(xs : &[i64], f : &mut dyn FnMut(i64) -> i64) -> Vec<i64> {
     let mut out : Vec<i64> = Vec::new();
     for v in xs.iter().copied() {
       let next : i64 = f(v);
@@ -87,12 +86,12 @@ fn __rg_main_body() {
   let mut s : Stats = Stats::new();
   let mut xs : Vec<i64> = vec![1, 2, 3, 4];
   println!("{}{}", "sum ".to_string(), Stats::total(&xs));
-  println!("{}{}", "evens ".to_string(), Stats::evenCount(&xs));
+  println!("{}{}", "evens ".to_string(), Stats::even_count(&xs));
   let mut twice : Vec<i64> = Stats::doubled(&xs);
   println!("{}{}", "doubled0 ".to_string(), twice[0]);
-  let addOne : &mut dyn FnMut(i64) -> i64 = &mut |mut p| {
+  let add_one : &mut dyn FnMut(i64) -> i64 = &mut |mut p| {
     return p + 1;
   };
-  let mut bumped : Vec<i64> = Stats::applyEach(&xs, addOne);
+  let mut bumped : Vec<i64> = Stats::apply_each(&xs, add_one);
   println!("{}{}", "bumped0 ".to_string(), bumped[0]);
 }

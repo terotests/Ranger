@@ -1,7 +1,7 @@
 # PLAN_RUST_SEMANTIC_IDIOMS — closing the semantic gap the friendly study found
 
 > **Status: P0 landed. P1: D, E, F, G done. P2: I done, H and J open.
-> P3: K done, L and M open. P4: O done for its public-surface half.** The three
+> P3: K and L done, M open. P4: O done for its public-surface half.** The three
 > correctness items — **A**, **B**, **C1** — are in, with the gallery study as
 > their gate (`bash gallery/friendly/compile.sh`). The rest is parked: the ownership
 > vocabulary of §1, the handle/data split (**J**) and the borrow-provenance
@@ -303,8 +303,8 @@ syntax and no language change.
 
 ### D. Value semantics for shape case payloads
 
-**Status: done for the payload half, on Rust.** A `string` payload rides inside
-the variant now, so a `Result`-shaped shape reads as
+**Status: done for the payload half, on Rust, under a mutation guard.** A
+`string` payload rides inside the variant, so a `Result`-shaped shape reads as
 
 ```rust
 pub enum union_ParseOutcome {
@@ -330,6 +330,16 @@ assignment, an argument, a return — where a `String` costs exactly what a
 
 The C++ writer keeps its own rule (`cppUnionValueCase`), because nothing changed
 there: its `case` still copies to test.
+
+**The guard, and why the counters could not be it.** A case whose narrowed
+binding is *mutated* has to keep the cell: `case v s:EvalValue.String {
+str_append s.value x }` works through `borrow_mut` and cannot work in the
+variant, where the match binds `&EvalValue_String`. `prop_assign_cnt` does not
+see it (the mutation is an operator, not an `=`) and `set_cnt` counts the
+constructor's own initialisation, so neither counter answers the question. The
+guard is a scan: does any mutating operator have a target whose path is *rooted*
+at a name of this case type. Rooted matters — the target is `s.value`, whose own
+type is `string`; the type that decides is `s`'s.
 
 **Still open: the second step.** A one-field case unwrapping to its payload type
 — `Ok(i64)` rather than `Ok(ParseOutcome_Ok)` — is a lowering change that also
@@ -702,11 +712,40 @@ not need the whole `Iterator` abstraction to emit good Rust.
 
 ### L. `snake_case`
 
-Already ranked in PLAN_RUST_IDIOMATICITY and already blocked on the same thing:
-`@serialize(true)` derives its JSON keys from field names, so a rename pass
-needs a serialization-name indirection that keeps the wire names stable across
-every target. Symbol resolution staying tied to the Ranger declaration is the
-easy half; the serialized names are the hard half. Unchanged by this study.
+**Status: done, and `#![allow(non_snake_case)]` is gone.** `parseInt` is
+`parse_int`, `evenCount` is `even_count`. The 81 000-line Rust rendering of this
+compiler draws **zero** naming warnings with the allow taken away.
+
+**The documented blocker does not hold.** `@serialize(true)` was said to tie the
+JSON keys to the field names, so a rename would move the wire format. It does
+not: the serializer generates a Ranger `toDictionary` that writes `pvar.name` —
+the name *as written* — as the key, and the field access beside it goes through
+the same rename as every other access. The wire format is tied to the source
+name, not the emitted one.
+
+**What made it one change rather than two.** A `.` path segment can be a field
+or a method and the writer often cannot tell which where it writes one. That
+stops mattering when both are renamed the same way, so this is a single
+transform at a single place — `adjustType`, which in this writer is called only
+for identifiers. Three things it had to learn, each caught by the selfhost
+build:
+
+- **Type names are not identifiers.** The first segment of a static path is a
+  class, and the desc carries it in `compiledName` like anything else, so
+  `InputFSFolder.fromDictionary` became `input_fs_folder::from_dictionary` —
+  which rustc reads as a module. 1278 errors. A name that is a declared class
+  keeps its spelling.
+- **One definition site emitted a method name raw.** Every call went through
+  `adjustType`; the static-method *declaration* did not, so the calls could not
+  find what they named. 889 errors. The constructor's parameter list was the
+  same kind of miss.
+- **Two Ranger names can snake_case to one.** `FlowStdMatch` has a local
+  `pluginFn` assigned into an outer `plugin_fn`, and renaming the first gave
+  `plugin_fn = plugin_fn.clone()` — a variable shadowing itself. That is the one
+  way this transform can change the meaning of a program rather than fail, so a
+  name whose snake_case form is already a name somewhere in the program keeps
+  its spelling. One site in 81 000 lines, and it would have been silent if both
+  had been mutable.
 
 ### M. Borrowed returns, without a user-visible lifetime system
 
@@ -811,27 +850,32 @@ document. Both recorded so they are decisions rather than omissions.
 | P2 | **I** behaviour-only trait → Rust trait | **done** | no |
 | P2 | **J** handle/data split | large, highest risk | yes |
 | P3 | **K** `for` lowering | **done** | no |
-| P3 | **L** snake_case | blocked on serialize names | no |
+| P3 | **L** snake_case | **done**, allow dropped | no |
 | P3 | **M** borrow-provenance inference | medium | yes |
 | P4 | **N** semantic interfaces | design | no |
 | P4 | **O** library mode (public surface) | **done**; generics/modules not | no |
 | P4 | **P** consuming `self`, concurrency | language | no |
 
 **Where this stands.** P0 removed the three footguns the study walked into, two
-of which it had recorded as something milder than they were. Of P1, three of
-four are in: the generated file is ~40% shorter (**G**), a Ranger `Enum` that
-can be one is a Rust `enum` (**F**), and a `match` over a shape is a `match`
-(**E**). **K** came along with them. Each was verified the same way: the
-selfhost build stays at its 9 pre-existing rustc errors, all ten `friendly`
-targets compile and run, the four gallery programs build clean, and the suite is
-the same 19 failures as `origin/master`.
+of which it had recorded as something milder than they were. **P1 is complete**
+— the generated file is ~40% shorter (**G**), a Ranger `Enum` that can be one is
+a Rust `enum` (**F**), a `match` over a shape is a `match` (**E**), and a
+`string` payload rides in the variant (**D**). **I** (P2), **K** and **L** (P3)
+and the public-surface half of **O** (P4) are in as well, and
+`#![allow(non_snake_case)]` is gone.
 
-What is left divides sharply. **H** is a language
+Each was verified the same way: the selfhost build stays at its 9 pre-existing
+rustc errors, all ten `friendly` targets compile and run, the gallery programs
+build clean, and the suite matches `origin/master` once the tests that asserted
+camelCase names were updated to the names the target now emits.
+
+Three of the four remaining items are not emission work. **H** is a language
 change across ten targets and wants an expression `match` first. **J** and **M**
 are the two items §1 says are cheap inside a lowering IR and expensive without
-one, and **J** has three design questions open besides. **L** is blocked on
-serialization-name stability, which is a real constraint and not a Rust
-question. **N**, **O** and **P** are design and language work.
+one, and **J** has three design questions open besides. **N** and **P** are
+design and language work. What is left that is *not* in that class: the second
+step of **D** (a one-field case unwrapping to its payload), and preserved
+generics and modules under **O**.
 
 The
 striking thing about P1 is that none of it needs new Ranger syntax: **D**, **E**,

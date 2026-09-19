@@ -2,7 +2,6 @@
 #![allow(unused_mut)]
 #![allow(unused_variables)]
 #![allow(unused_assignments)]
-#![allow(non_snake_case)]
 #![allow(dead_code)]
 // The clippy allows below cover shapes that mirror the Ranger source
 // itself - statement-level clamp chains, nested ifs, function arity and
@@ -46,7 +45,7 @@ impl TextTools {
     }
     acc
   }
-  fn firstChar(s : &str) -> String {
+  fn first_char(s : &str) -> String {
     if  (s.chars().count() as i64) == 0 {
       return "".to_string().clone();
     }
@@ -76,5 +75,5 @@ fn __rg_main_body() {
   println!("{}", TextTools::greet("ada"));
   let mut xs : Vec<i64> = vec![1, 2, 3];
   println!("{}{}", "twice ".to_string(), t.twice(&xs));
-  println!("{}{}", "first ".to_string(), TextTools::firstChar("grace"));
+  println!("{}{}", "first ".to_string(), TextTools::first_char("grace"));
 }

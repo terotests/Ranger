@@ -212,16 +212,16 @@ describe("Ranger Compiler - Rust &T for proven-borrowed params (PLAN_RUST_OWNERS
   });
 
   it("passes a borrowed object parameter as &T", () => {
-    expect(result.code).toContain("fn sumValue(&self, a : &Node, b : &Node)");
+    expect(result.code).toContain("fn sum_value(&self, a : &Node, b : &Node)");
   });
 
   it("takes &x at the call site instead of a whole-struct clone", () => {
-    expect(result.code).toContain("sumValue(&root, &child)");
-    expect(result.code).not.toContain("sumValue(root.clone(), child.clone())");
+    expect(result.code).toContain("sum_value(&root, &child)");
+    expect(result.code).not.toContain("sum_value(root.clone(), child.clone())");
   });
 
   it("keeps a moved parameter owned", () => {
-    expect(result.code).toContain("fn addToken(&mut self, mut t : Node)");
+    expect(result.code).toContain("fn add_token(&mut self, mut t : Node)");
   });
 });
 
@@ -326,7 +326,7 @@ describe("Ranger Compiler - Rc<RefCell> for shared classes, the Rust default (PL
     // `def m:Node (b.firstItem())` aliases the stored element; the program
     // compiles with rustc, runs, and prints `yy` like the ES6 output —
     // mutating through one alias is visible through the other.
-    expect(surfacesRs).toContain("fn firstItem(&self) -> Rc<RefCell<Node>>");
+    expect(surfacesRs).toContain("fn first_item(&self) -> Rc<RefCell<Node>>");
   });
 
   it("gives a strong optional field of a shared class the Rc form", () => {
@@ -334,7 +334,7 @@ describe("Ranger Compiler - Rc<RefCell> for shared classes, the Rust default (PL
   });
 
   it("takes a call result that is already an Rc without a second cell", () => {
-    expect(surfacesRs).toContain("let mut m : Rc<RefCell<Node>> = b.firstItem();");
+    expect(surfacesRs).toContain("let mut m : Rc<RefCell<Node>> = b.first_item();");
   });
 
   it("borrows mut for a write and shared for a read of one cell", () => {
