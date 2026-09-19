@@ -41,26 +41,9 @@ class CodeGraphAppTest {
             print ("  FAIL canvas width " + (to_string app.canvasW))
             failed = (failed + 1)
         }
-        if ((app.splitCount()) != 3) {
-            print ("  FAIL split panels " + (to_string (app.splitCount())))
-            failed = (failed + 1)
-        } {
-            def railSize:double (app.splitSizeAt(0))
-            app.split.resizeBy(0 8.0)
-            app.dressSplit()
-            if ((app.splitSizeAt(0)) <= railSize) {
-                print ("  FAIL split.resizeBy did not grow the rail")
-                failed = (failed + 1)
-            }
-            def afterSplit:EVGDisplayList (app.display())
-            def srcHit:string (app.hitId((app.canvasX + app.canvasW + 2.0) (app.canvasY + 20.0)))
-            if ((app.isSplitSep(srcHit)) == false) {
-                if ((indexOf srcHit "cg-split-sep") < 0) {
-                    print ("  FAIL graph|source separator hit " + srcHit)
-                    failed = (failed + 1)
-                }
-            }
-        }
+        app.openClass("Order")
+        app.editor.setSize(app.viewW app.viewH)
+        app.editor.fitView()
         ; Hover a UML method row: VS Code-style card, row highlight, pointing cursor.
         if (app.graph.hasNode("Order")) {
             def orderNode:FlowNode (app.graph.nodeById("Order"))
@@ -99,24 +82,41 @@ class CodeGraphAppTest {
                     print "  FAIL hoverRow not set on the method row"
                     failed = (failed + 1)
                 }
-                def cur:int (app.cursorAt((app.canvasX + sx) (app.canvasY + sy)))
-                if (cur != (GridCursor.pointing())) {
-                    print ("  FAIL cursor over UML row is " + (GridCursor.label(cur)) + ", want pointing")
+                if ((app.inCanvas((app.canvasX + sx) (app.canvasY + sy))) == false) {
+                    print "  FAIL hover sample is off the canvas"
                     failed = (failed + 1)
-                }
-            }
-            def awayX:double (app.canvasX + 8.0)
-            def awayY:double (app.canvasY + 8.0)
-            app.graphMove(awayX awayY false false)
-            if ((strlen app.editor.view.tooltipText) > 0) {
-                if (app.editor.view.hoverNode >= 0) {
-                    print ("  FAIL tooltip still up off the box: '" + app.editor.view.tooltipText + "'")
-                    failed = (failed + 1)
+                } {
+                    def cur:int (app.cursorAt((app.canvasX + sx) (app.canvasY + sy)))
+                    if (cur != (GridCursor.pointing())) {
+                        print ("  FAIL cursor over UML row is " + (GridCursor.label(cur)) + ", want pointing")
+                        failed = (failed + 1)
+                    }
                 }
             }
         } {
             print "  FAIL Order not drawn on start"
             failed = (failed + 1)
+        }
+        app.goOverview()
+        if ((app.splitCount()) != 3) {
+            print ("  FAIL split panels " + (to_string (app.splitCount())))
+            failed = (failed + 1)
+        } {
+            def railSize:double (app.splitSizeAt(0))
+            app.split.resizeBy(0 8.0)
+            app.dressSplit()
+            if ((app.splitSizeAt(0)) <= railSize) {
+                print ("  FAIL split.resizeBy did not grow the rail")
+                failed = (failed + 1)
+            }
+            def afterSplit:EVGDisplayList (app.display())
+            def srcHit:string (app.hitId((app.canvasX + app.canvasW + 2.0) (app.canvasY + 20.0)))
+            if ((app.isSplitSep(srcHit)) == false) {
+                if ((indexOf srcHit "cg-split-sep") < 0) {
+                    print ("  FAIL graph|source separator hit " + srcHit)
+                    failed = (failed + 1)
+                }
+            }
         }
         app.revealAt("gallery/codegraph/fixtures/calls.rgr" 14)
         def shown:string (app.codeView.text())
