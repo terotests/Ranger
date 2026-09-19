@@ -338,6 +338,15 @@ describe("C++ value records, range-for and a reachable preamble", () => {
     // program have a union" used to be true whatever the program said
     expect(result.code).not.toContain("class r_optional_union");
     expect(result.code).not.toContain("r_union_Any");
+    // ...and the gate is reachability, not blanket removal: this fixture DOES
+    // reach rg_arg_ref, through the temporary passed to `bump`, so the helper
+    // is there. `codegen-cpp` > "emits no main" uses a fixture that does not.
+    expect(result.code).toContain("inline T& rg_arg_ref");
+  });
+
+  it("leaves rg_arg_ref out of a program that never needs it", () => {
+    const result = getGeneratedCppCode(`${FIXTURES_DIR}/array_push.rgr`);
+    expect(result.success, `Failed: ${result.error}`).toBe(true);
     expect(result.code).not.toContain("rg_arg_ref");
   });
 });
@@ -354,7 +363,9 @@ describe("C++ module for a host shell", () => {
     const result = getGeneratedCppCode(MODULE);
     expect(result.success, `Failed: ${result.error}`).toBe(true);
     expect(result.code).toContain("std::out_of_range");
-    expect(result.code).toContain("#include <stdexcept>");
+    // the writer puts two spaces after `#include`, so match the line rather
+    // than one hand-written spelling of it
+    expect(result.code).toMatch(/#include\s+<stdexcept>/);
   });
 
   it("emits no main, so a host can supply one", () => {

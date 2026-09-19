@@ -2,7 +2,28 @@
 ; host and the host calls this. An SDL2, Android or iOS host is this shape.
 class Shared {
     def frames:int 0
+    ; the map is the point of the `<stdexcept>` guard: rg_ordered_map::at
+    ; throws std::out_of_range, and a MODULE pulls in no <iostream> to drag
+    ; that header along the way a whole program does. Without a map reachable
+    ; the prelude is not emitted at all (it is reachability-gated), so a
+    ; fixture without one cannot ask the question.
+    def counts:[string:int]
     Constructor () {
+    }
+    fn bumpCount:void (k:string) {
+        def prev@(optional):int (get counts k)
+        if (null? prev) {
+            set counts k 1
+        } {
+            set counts k ((unwrap prev) + 1)
+        }
+    }
+    fn countOf:int (k:string) {
+        def hit@(optional):int (get counts k)
+        if (null? hit) {
+            return 0
+        }
+        return (unwrap hit)
     }
     fn greeting:string () {
         return "hello from Ranger"
