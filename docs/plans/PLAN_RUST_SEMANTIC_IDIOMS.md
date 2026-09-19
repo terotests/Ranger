@@ -1,6 +1,6 @@
 # PLAN_RUST_SEMANTIC_IDIOMS — closing the semantic gap the friendly study found
 
-> **Status: P0 landed; P1 is in progress (G and F done).** The three
+> **Status: P0 landed. P1: G, F and E done, D open. P3: K done.** The three
 > correctness items — **A**, **B**, **C1** — are in, with the gallery study as
 > their gate (`bash gallery/friendly/compile.sh`). The rest is parked: the ownership
 > vocabulary of §1, the handle/data split (**J**) and the borrow-provenance
@@ -302,6 +302,20 @@ syntax and no language change.
 
 ### D. Value semantics for shape case payloads
 
+**Status: open, and deliberately not attempted blind.** The blanket rule is one
+line to delete; the question is what replaces it. The measured reason for it
+(`RangerCppClassWriter.rgr:281`) is that a by-value `String` variant made every
+*copy* of the union copy the payload, and a kind check on a 40 KB accumulator
+went O(len). **E** removed one source of those copies — the general shape `case`
+no longer clones the union to match it, it matches a reference — but assignment,
+argument passing and returns still clone, so the cost is reduced, not gone.
+
+The criterion the replacement needs is two-part: *is this case aliased* (which
+`markClassShared` already answers) **and** *is the union copied on a hot path*
+(which nothing answers today). Shipping only the first half is a knowing
+performance regression in this compiler's own hot loop. The second half is a
+loop-invariance question, and it is one of the things §1's lowering IR is for.
+
 The §1 distinction, applied. `ParseOutcome_Err(Rc<RefCell<ParseOutcome_Err>>)`
 becomes a plain variant, and a single-field case can drop its generated struct
 entirely:
@@ -507,7 +521,31 @@ and a lowering per target — and nothing else here depends on it.
 
 ### I. Behaviour-only `trait` → Rust `trait`
 
-The second half of **C**, and the item with the larger *idiom* payoff: it is
+**Status: attempted, reverted. The blocker is not in the Rust writer.** Marking
+a behaviour-only trait the way `Extends(Base)` marks a parent —
+`is_extended_by_children` plus each consumer in `child_classes` — is enough to
+make the *type* come out right: `fn show(n : Rc<RefCell<dyn NamedTrait>>)`. It
+is not enough to get the trait itself, because `pub trait XTrait` and its impls
+are emitted from `writeClass`, and a `trait` class never reaches a writer:
+`VirtualCompiler` skips `is_trait` in the class-writing loop, target
+independently. So the type names a trait that is never declared, which is worse
+than the compile error **C1** gives today — hence the revert.
+
+Closing it means one of:
+
+1. Letting a behaviour-only trait through that driver loop on Rust, and having
+   every other target ignore it. A driver change, not a writer one.
+2. Emitting the trait and its impls from the Rust header, next to the union
+   enums, as thin forwarding impls over the methods the mixin already copied
+   into each consumer. Self-contained in the Rust writer, but it has to
+   reproduce the receiver-convention machinery (`&self` vs `&mut self` per
+   family) that `writeClass` computes.
+
+(2) is the smaller change and the one to take. Until then **C1** stands: the
+compile error names `Extends(Base)`, which does produce the trait, the impls and
+the `dyn` — verified working.
+
+The item with the larger *idiom* payoff: it is
 what makes a generated `.rs` a crate someone can depend on. Verified reachable
 by the `Extends(Named)` equivalence above — mark a trait that is used as a type
 the way a parent class with subclasses is marked, and the existing path emits
@@ -714,12 +752,12 @@ document. Both recorded so they are decisions rather than omissions.
 | P0 | **A** optional parameter | **done** | no |
 | P0 | **B** refuse lossy `try` | **done**, flag for the compiler's own 12 sites | no |
 | P0 | **C1** refuse trait-as-type | **done** | no |
-| P1 | **D** value semantics for shape payloads | medium, shared with C++ | helps |
+| P1 | **D** value semantics for shape payloads | open — needs the hot-copy half | helps |
 | P1 | **E** real `match` arms (statement form) | **done** | helps |
 | P1 | **F** real `enum` + use-site casts | **done** | no |
 | P1 | **G** reachability-driven helpers | **done** | no |
 | P2 | **H** portable `Result` + propagation | large, cross-target | no |
-| P2 | **I** behaviour-only trait → Rust trait | medium | no |
+| P2 | **I** behaviour-only trait → Rust trait | attempted, reverted | no |
 | P2 | **J** handle/data split | large, highest risk | yes |
 | P3 | **K** `for` lowering | **done** | no |
 | P3 | **L** snake_case | blocked on serialize names | no |
@@ -728,8 +766,24 @@ document. Both recorded so they are decisions rather than omissions.
 | P4 | **O** library mode | medium | no |
 | P4 | **P** consuming `self`, concurrency | language | no |
 
-P0 is in, and it removed the three footguns the study walked into — two of which
-it had recorded as something milder than they were. The
+**Where this stands.** P0 removed the three footguns the study walked into, two
+of which it had recorded as something milder than they were. Of P1, three of
+four are in: the generated file is ~40% shorter (**G**), a Ranger `Enum` that
+can be one is a Rust `enum` (**F**), and a `match` over a shape is a `match`
+(**E**). **K** came along with them. Each was verified the same way: the
+selfhost build stays at its 9 pre-existing rustc errors, all ten `friendly`
+targets compile and run, the four gallery programs build clean, and the suite is
+the same 19 failures as `origin/master`.
+
+What is left divides sharply. **D** needs one analysis it does not have. **I**
+needs a change in the class-writing driver, not the writer. **H** is a language
+change across ten targets and wants an expression `match` first. **J** and **M**
+are the two items §1 says are cheap inside a lowering IR and expensive without
+one, and **J** has three design questions open besides. **L** is blocked on
+serialization-name stability, which is a real constraint and not a Rust
+question. **N**, **O** and **P** are design and language work.
+
+The
 striking thing about P1 is that none of it needs new Ranger syntax: **D**, **E**,
 **F** and **G** are backend decisions about values, borrows, identity and native
 control flow. If P0 and P1 land, the study's verdict moves from *working Rust,
