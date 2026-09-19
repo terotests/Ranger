@@ -60,9 +60,7 @@ class MutRequest
 
 class BuilderMain 
  {
-  companion object {
-    
-  }
+  
 }
 
 var __g_args : Array<String> = arrayOf()

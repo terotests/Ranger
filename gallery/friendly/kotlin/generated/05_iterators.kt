@@ -44,9 +44,7 @@ class Stats
 
 class IterMain 
  {
-  companion object {
-    
-  }
+  
 }
 
 var __g_args : Array<String> = arrayOf()

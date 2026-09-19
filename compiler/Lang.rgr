@@ -5501,7 +5501,8 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
                 es6 ( "( e.toString())" )
                 php ( "( $e->getMessage())" )
                 java7 ( "( e.getMessage())" )
-                cpp ( " \"unspecified error\" " )
+                ; the local the try template binds in its handler
+                cpp ( "__rg_err_msg" )
                 ; Dart has no `try` entry of its own and takes the `*` one, which
                 ; binds `e`.
                 dart ( "e.toString()" )
@@ -5526,6 +5527,11 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
                 php ( "throw new Exception(" (e 1) ");")
                 csharp ( "throw new ConfigurationErrorsException(" (e 1) ");" (imp "System.Configuration"))
                 java7 ( "throw new IllegalArgumentException(" (e 1) ");")
+                ; `throw "negative"` in C++ throws a `const char*`, which the
+                ; catch-all below caught and could say nothing about — every
+                ; error came out as "unspecified error". A std::exception
+                ; carries the text, and the try template asks it for one.
+                cpp ( "throw std::runtime_error(" (e 1) ");" (imp "<stdexcept>"))
                 ; Kotlin has no checked exceptions and needs no `throws` on the
                 ; signature, but what is thrown must be a Throwable — a String
                 ; is not, and `throw "negative"` is a kotlinc error, not a
@@ -5604,7 +5610,18 @@ case class customException(smth:String)  extends Exception
                 ; with swift there is no do without try...
                 swift3 ( "do {" nl I (block 1) i nl "} catch { " nl I (block 2) i nl "}" )
                 swift6 ( "do {" nl I (block 1) i nl "} catch { " nl I (block 2) i nl "}" )
-                cpp ( nl "try {" nl I (block 1) i nl "} catch( ... ) {" nl I (block 2) i nl "}" nl )
+                ; The catch stays a catch-ALL — a Ranger `try` block has to
+                ; survive whatever crosses it, including a throw from a
+                ; polyfill or a library that is not a std::exception. Asking
+                ; what it was is the rethrow idiom: re-throw inside the
+                ; handler and catch it again by type. That gives `error_msg`
+                ; the real text without narrowing what is caught, and without
+                ; writing the user's catch block out twice.
+                cpp ( nl "try {" nl I (block 1) i nl "} catch( ... ) {" nl I
+                      "std::string __rg_err_msg = \"unspecified error\";" nl
+                      "try { throw; } catch( const std::exception& __rg_e ) { __rg_err_msg = __rg_e.what(); } catch( ... ) {}" nl
+                      "(void)__rg_err_msg;" nl
+                      (block 2) i nl "}" nl (imp "<stdexcept>") (imp "<string>") )
                 ; Python needs a statement in each suite, and a generated catch
                 ; block is often empty (the @serialize writer emits one), so both
                 ; suites open with `pass`.

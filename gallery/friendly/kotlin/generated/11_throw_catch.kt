@@ -12,9 +12,7 @@ class Guard
 
 class ThrowMain 
  {
-  companion object {
-    
-  }
+  
 }
 
 var __g_args : Array<String> = arrayOf()

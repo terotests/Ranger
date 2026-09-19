@@ -3,12 +3,6 @@ import (
   "strconv"
   "fmt"
 )
-
-type GoNullable struct {
-  value interface{}
-  has_value bool
-}
-
 type Request struct { 
   host string `json:"host"` 
   path string `json:"path"` 

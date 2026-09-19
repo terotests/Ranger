@@ -135,3 +135,7 @@ and channels, `context.Context`, struct tags I control, `iota`,
    and lowercase fields — or a `public` / export annotation the writer
    already has for API docs.
 7. Do not emit `GoNullable` or `strconv` into a file that uses neither.
+
+**Fixed since this was written:** `type GoNullable struct` was declared in
+every file, whether or not the program had an `@(optional)` anywhere. It goes
+in only when one is reachable now — five of the ten studies no longer carry it.

@@ -28,9 +28,7 @@ class Bot
 
 class TraitsMain 
  {
-  companion object {
-    
-  }
+  
   
   fun  show( who : User) : String {
     return ("label=" + who.label()) + (" text=" + who.asString());

@@ -918,8 +918,23 @@ class RangerKotlinClassWriter {
         has_static_vars = true
       }
     }
+    ; `sfn m@(main)` is lifted to a top-level `fun main()` and skipped in the
+    ; companion, so a class whose only static IS main wanted a companion and
+    ; then had nothing to put in it — `companion object { }`, empty, in every
+    ; program with an entry point.
+    def companion_statics:int 0
+    for cl.static_methods cmVariant:RangerAppFunctionDesc cmi {
+      def cmNN@(optional):CodeNode cmVariant.nameNode
+      if (!null? cmNN) {
+        def cmN:CodeNode (unwrap cmNN)
+        if (cmN.hasFlag("main")) {
+          continue _
+        }
+      }
+      companion_statics = (companion_statics + 1)
+    }
     def wants_companion false
-    if (((array_length cl.static_methods) > 0) || has_static_vars) {
+    if ((companion_statics > 0) || has_static_vars) {
       wants_companion = true
     }
     if (cl.isSingletonClass()) {

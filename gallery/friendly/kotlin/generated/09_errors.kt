@@ -86,9 +86,7 @@ class Guard
 
 class ErrorsMain 
  {
-  companion object {
-    
-  }
+  
 }
 
 var __g_args : Array<String> = arrayOf()

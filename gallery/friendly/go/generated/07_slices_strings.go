@@ -3,12 +3,6 @@ import (
   "fmt"
   "strconv"
 )
-
-type GoNullable struct {
-  value interface{}
-  has_value bool
-}
-
 type TextTools struct { 
 }
 

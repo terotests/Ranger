@@ -1304,6 +1304,91 @@ class r_optional_primitive {
     return true
   }
 
+  ; Does this program reach the ordered-map preamble? It used to be written
+  ; into every file: on study 07 of gallery/friendly that is 16 lines of Ranger
+  ; and ~150 lines of hashing and container the binary never calls.
+  ;
+  ; A Ranger map is always spelled with a KEY TYPE somewhere — a field, a
+  ; parameter, a return or a local — so a node carrying one is the signal, and
+  ; there is no way to hold a map without writing it down. Two things this had
+  ; to learn on the Rust side and that hold here too: `def m:[string:int]` is
+  ; rewritten by CollectMethods into `new Map@(string int)` before a writer
+  ; sees it, so the class name is the signal that survives; and `sfn` lands in
+  ; static_methods, so a program whose only entry point is `sfn m@(main)` has
+  ; an EMPTY methods list.
+  ;
+  ; It errs towards emitting: an unused helper is dead code the compiler drops,
+  ; a missing one is a program that does not build.
+  fn cppNodeUsesHash:boolean (node:CodeNode) {
+    if ((strlen node.key_type) > 0) {
+      return true
+    }
+    if (node.type_name == "Map") {
+      return true
+    }
+    if (node.value_type == RangerNodeType.Hash) {
+      return true
+    }
+    if (node.eval_type == RangerNodeType.Hash) {
+      return true
+    }
+    if (node.hasParamDesc) {
+      def pdNN@(optional):CodeNode node.paramDesc.nameNode
+      if (!null? pdNN) {
+        def pdN:CodeNode (unwrap pdNN)
+        if ((strlen pdN.key_type) > 0) {
+          return true
+        }
+      }
+    }
+    for node.children ch:CodeNode i {
+      if (this.cppNodeUsesHash(ch)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn cppScanFnsForHash:boolean (fns:[RangerAppFunctionDesc]) {
+    for fns m:RangerAppFunctionDesc mi {
+      def mNodeOpt@(optional):CodeNode m.node
+      if (!null? mNodeOpt) {
+        if (this.cppNodeUsesHash((unwrap mNodeOpt))) {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
+  fn cppProgramUsesHash:boolean (ctx:RangerAppWriterContext) {
+    def root:RangerAppWriterContext (ctx.getRoot())
+    for root.definedClasses cl:RangerAppClassDesc i {
+      ; a class the file never writes cannot reach the preamble, and the
+      ; operator and template classes of Lang.rgr declare maps all over —
+      ; counting them means every program "needs" it, which is how it came to
+      ; be in every file. `Map` itself is a trait class here.
+      if ((((cl.is_system || cl.is_trait) || cl.is_template) || cl.is_operator_class) || cl.is_union) {
+        continue
+      }
+      for cl.variables pvar:RangerAppParamDesc j {
+        if (!null? pvar.nameNode) {
+          def pvN:CodeNode (unwrap pvar.nameNode)
+          if ((strlen pvN.key_type) > 0) {
+            return true
+          }
+        }
+      }
+      if (this.cppScanFnsForHash(cl.methods)) {
+        return true
+      }
+      if (this.cppScanFnsForHash(cl.static_methods)) {
+        return true
+      }
+    }
+    return false
+  }
+
   fn cppProgramHasWeakField:boolean (ctx:RangerAppWriterContext) {
     def found false
     def root:RangerAppWriterContext (ctx.getRoot())
@@ -2258,157 +2343,169 @@ class r_optional_primitive {
         wr.out("}" true)
         wr.out("" true)
       }
-      wr.out("#include <string_view>" true)
-      ; the map stores its entries in a vector, so the header is needed even in
-      ; a program that declares no array of its own
-      wr.out("#include <vector>" true)
-      wr.out("#include <cstring>" true)
-      wr.out("// String hashing for the map below. std::hash<std::string> is" true)
-      wr.out("// _Hash_bytes, an out-of-line MurmurHash in libstdc++ that costs a call" true)
-      wr.out("// and a per-byte mix; profiling the interpreter put it at ~10% of all" true)
-      wr.out("// instructions, since every scope lookup and every property read hashes" true)
-      wr.out("// a name. This is FxHash -- the one rustc uses for its own identifier" true)
-      wr.out("// maps -- which consumes 8 bytes per multiply-rotate and inlines." true)
-      wr.out("//" true)
-      wr.out("// The string and string_view paths MUST agree, because the const char*" true)
-      wr.out("// overloads probe the same index; they share this one function, so they" true)
-      wr.out("// agree by construction rather than by the standard's promise about" true)
-      wr.out("// hash<string> and hash<string_view>." true)
-      wr.out("static inline size_t rg_hash_bytes(const char* p, size_t n) {" true)
-      wr.out("    const size_t K = (size_t)0x517cc1b727220a95ULL;" true)
-      wr.out("    size_t h = n;" true)
-      wr.out("    size_t i = 0;" true)
-      wr.out("    while (n - i >= sizeof(size_t)) {" true)
-      wr.out("        size_t w; std::memcpy(&w, p + i, sizeof(size_t));" true)
-      wr.out("        h = ((h << 5) | (h >> (8 * sizeof(size_t) - 5))) ^ w; h *= K;" true)
-      wr.out("        i += sizeof(size_t);" true)
-      wr.out("    }" true)
-      wr.out("    while (i < n) {" true)
-      wr.out("        h = ((h << 5) | (h >> (8 * sizeof(size_t) - 5))) ^ (size_t)(unsigned char)p[i]; h *= K;" true)
-      wr.out("        i++;" true)
-      wr.out("    }" true)
-      wr.out("    return h;" true)
-      wr.out("}" true)
-      wr.out("// Any other key type keeps the standard hash; only strings are hot." true)
-      wr.out("template<typename K> struct rg_key_hash {" true)
-      wr.out("    size_t operator()(const K& k) const { return std::hash<K>{}(k); }" true)
-      wr.out("};" true)
-      wr.out("template<> struct rg_key_hash<std::string> {" true)
-      wr.out("    size_t operator()(const std::string& s) const { return rg_hash_bytes(s.data(), s.size()); }" true)
-      wr.out("};" true)
-      wr.out("// Insertion-ordered map: vector storage + open-addressed hash index." true)
-      wr.out("// Replaces std::map (sorted, O(log n) with a string compare per level):" true)
-      wr.out("// lookups hash once, and iteration follows INSERTION order, which is" true)
-      wr.out("// what JavaScript object key enumeration semantics need." true)
-      wr.out("template<typename K, typename V>" true)
-      wr.out("class rg_ordered_map {" true)
-      wr.out("public:" true)
-      wr.out("    typedef K key_type;" true)
-      wr.out("    typedef V mapped_type;" true)
-      wr.out("    std::vector<std::pair<K, V>> entries;" true)
-      wr.out("    std::vector<int32_t> index_;" true)
-      wr.out("    typedef typename std::vector<std::pair<K, V>>::iterator iterator;" true)
-      wr.out("    typedef typename std::vector<std::pair<K, V>>::const_iterator const_iterator;" true)
-      wr.out("    iterator begin() { return entries.begin(); }" true)
-      wr.out("    iterator end() { return entries.end(); }" true)
-      wr.out("    const_iterator begin() const { return entries.begin(); }" true)
-      wr.out("    const_iterator end() const { return entries.end(); }" true)
-      wr.out("    size_t size() const { return entries.size(); }" true)
-      wr.out("    void clear() { entries.clear(); index_.clear(); }" true)
-      wr.out("    void rehash_() {" true)
-      wr.out("        size_t cap = 8;" true)
-      wr.out("        while (cap < (entries.size() + 1) * 2) { cap <<= 1; }" true)
-      wr.out("        index_.assign(cap, -1);" true)
-      wr.out("        for (size_t i = 0; i < entries.size(); i++) {" true)
-      wr.out("            size_t h = rg_key_hash<K>{}(entries[i].first) & (cap - 1);" true)
-      wr.out("            while (index_[h] != -1) { h = (h + 1) & (cap - 1); }" true)
-      wr.out("            index_[h] = (int32_t)i;" true)
-      wr.out("        }" true)
-      wr.out("    }" true)
-      wr.out("    int32_t slot_(const K& k) const {" true)
-      wr.out("        if (index_.empty()) { return -1; }" true)
-      wr.out("        size_t mask = index_.size() - 1;" true)
-      wr.out("        size_t h = rg_key_hash<K>{}(k) & mask;" true)
-      wr.out("        while (true) {" true)
-      wr.out("            int32_t s = index_[h];" true)
-      wr.out("            if (s == -1) { return -1; }" true)
-      wr.out("            if (entries[(size_t)s].first == k) { return s; }" true)
-      wr.out("            h = (h + 1) & mask;" true)
-      wr.out("        }" true)
-      wr.out("    }" true)
-      wr.out("    size_t count(const K& k) const { return slot_(k) == -1 ? 0 : 1; }" true)
-      wr.out("    iterator find(const K& k) {" true)
-      wr.out("        int32_t s = slot_(k);" true)
-      wr.out("        return s == -1 ? entries.end() : entries.begin() + s;" true)
-      wr.out("    }" true)
-      wr.out("    const_iterator find(const K& k) const {" true)
-      wr.out("        int32_t s = slot_(k);" true)
-      wr.out("        return s == -1 ? entries.end() : entries.begin() + s;" true)
-      wr.out("    }" true)
-      wr.out("    V& at(const K& k) {" true)
-      wr.out("        int32_t s = slot_(k);" true)
-      wr.out("        if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); }" true)
-      wr.out("        return entries[(size_t)s].second;" true)
-      wr.out("    }" true)
-      wr.out("    const V& at(const K& k) const {" true)
-      wr.out("        int32_t s = slot_(k);" true)
-      wr.out("        if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); }" true)
-      wr.out("        return entries[(size_t)s].second;" true)
-      wr.out("    }" true)
-      wr.out("    // const char* overloads: a literal key probes WITHOUT constructing a" true)
-      wr.out("    // std::string temporary. C++17 guarantees hash<string> and" true)
-      wr.out("    // hash<string_view> agree on equal character sequences. Instantiated" true)
-      wr.out("    // lazily, so non-string-keyed maps never touch them." true)
-      wr.out("    int32_t slot_sv_(std::string_view k) const {" true)
-      wr.out("        if (index_.empty()) { return -1; }" true)
-      wr.out("        size_t mask = index_.size() - 1;" true)
-      wr.out("        size_t h = rg_hash_bytes(k.data(), k.size()) & mask;" true)
-      wr.out("        while (true) {" true)
-      wr.out("            int32_t s = index_[h];" true)
-      wr.out("            if (s == -1) { return -1; }" true)
-      wr.out("            if (entries[(size_t)s].first.compare(k) == 0) { return s; }" true)
-      wr.out("            h = (h + 1) & mask;" true)
-      wr.out("        }" true)
-      wr.out("    }" true)
-      wr.out("    size_t count(const char* k) const { return slot_sv_(k) == -1 ? 0 : 1; }" true)
-      wr.out("    iterator find(const char* k) {" true)
-      wr.out("        int32_t s = slot_sv_(k);" true)
-      wr.out("        return s == -1 ? entries.end() : entries.begin() + s;" true)
-      wr.out("    }" true)
-      wr.out("    const_iterator find(const char* k) const {" true)
-      wr.out("        int32_t s = slot_sv_(k);" true)
-      wr.out("        return s == -1 ? entries.end() : entries.begin() + s;" true)
-      wr.out("    }" true)
-      wr.out("    V& at(const char* k) {" true)
-      wr.out("        int32_t s = slot_sv_(k);" true)
-      wr.out("        if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); }" true)
-      wr.out("        return entries[(size_t)s].second;" true)
-      wr.out("    }" true)
-      wr.out("    const V& at(const char* k) const {" true)
-      wr.out("        int32_t s = slot_sv_(k);" true)
-      wr.out("        if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); }" true)
-      wr.out("        return entries[(size_t)s].second;" true)
-      wr.out("    }" true)
-      wr.out("    V& operator[](const char* k) {" true)
-      wr.out("        int32_t s = slot_sv_(k);" true)
-      wr.out("        if (s != -1) { return entries[(size_t)s].second; }" true)
-      wr.out("        return (*this)[K(k)];" true)
-      wr.out("    }" true)
-      wr.out("    V& operator[](const K& k) {" true)
-      wr.out("        int32_t s = slot_(k);" true)
-      wr.out("        if (s != -1) { return entries[(size_t)s].second; }" true)
-      wr.out("        entries.push_back(std::make_pair(k, V()));" true)
-      wr.out("        if (index_.empty() || (entries.size() + 1) * 2 > index_.size()) {" true)
-      wr.out("            rehash_();" true)
-      wr.out("        } else {" true)
-      wr.out("            size_t mask = index_.size() - 1;" true)
-      wr.out("            size_t h = rg_key_hash<K>{}(k) & mask;" true)
-      wr.out("            while (index_[h] != -1) { h = (h + 1) & mask; }" true)
-      wr.out("            index_[h] = (int32_t)(entries.size() - 1);" true)
-      wr.out("        }" true)
-      wr.out("        return entries.back().second;" true)
-      wr.out("    }" true)
-      wr.out("};" true)
+      ; PLAN: the ordered map and its hashing go in only when the program
+      ; can reach them. Study 07 of gallery/friendly is 16 lines of Ranger;
+      ; this block was ~150 lines of it.
+      if (this.cppProgramUsesHash(ctx)) {
+        ; These go through addImport rather than out as raw text. Written raw
+        ; they landed HERE, after the helpers the file emits above — including
+        ; `r_get_keys_of_map`, which returns a std::vector — so a program whose
+        ; only vector came from the map itself did not build: "'vector' in
+        ; namespace 'std' does not name a template type". addImport puts them
+        ; in the sorted block at the top with every other header.
+        ;
+        ; The map stores its entries in a vector, so that one is needed even in
+        ; a program that declares no array of its own.
+        wr.addImport("<string_view>")
+        wr.addImport("<vector>")
+        wr.addImport("<cstring>")
+        wr.out("// String hashing for the map below. std::hash<std::string> is" true)
+        wr.out("// _Hash_bytes, an out-of-line MurmurHash in libstdc++ that costs a call" true)
+        wr.out("// and a per-byte mix; profiling the interpreter put it at ~10% of all" true)
+        wr.out("// instructions, since every scope lookup and every property read hashes" true)
+        wr.out("// a name. This is FxHash -- the one rustc uses for its own identifier" true)
+        wr.out("// maps -- which consumes 8 bytes per multiply-rotate and inlines." true)
+        wr.out("//" true)
+        wr.out("// The string and string_view paths MUST agree, because the const char*" true)
+        wr.out("// overloads probe the same index; they share this one function, so they" true)
+        wr.out("// agree by construction rather than by the standard's promise about" true)
+        wr.out("// hash<string> and hash<string_view>." true)
+        wr.out("static inline size_t rg_hash_bytes(const char* p, size_t n) {" true)
+        wr.out("    const size_t K = (size_t)0x517cc1b727220a95ULL;" true)
+        wr.out("    size_t h = n;" true)
+        wr.out("    size_t i = 0;" true)
+        wr.out("    while (n - i >= sizeof(size_t)) {" true)
+        wr.out("        size_t w; std::memcpy(&w, p + i, sizeof(size_t));" true)
+        wr.out("        h = ((h << 5) | (h >> (8 * sizeof(size_t) - 5))) ^ w; h *= K;" true)
+        wr.out("        i += sizeof(size_t);" true)
+        wr.out("    }" true)
+        wr.out("    while (i < n) {" true)
+        wr.out("        h = ((h << 5) | (h >> (8 * sizeof(size_t) - 5))) ^ (size_t)(unsigned char)p[i]; h *= K;" true)
+        wr.out("        i++;" true)
+        wr.out("    }" true)
+        wr.out("    return h;" true)
+        wr.out("}" true)
+        wr.out("// Any other key type keeps the standard hash; only strings are hot." true)
+        wr.out("template<typename K> struct rg_key_hash {" true)
+        wr.out("    size_t operator()(const K& k) const { return std::hash<K>{}(k); }" true)
+        wr.out("};" true)
+        wr.out("template<> struct rg_key_hash<std::string> {" true)
+        wr.out("    size_t operator()(const std::string& s) const { return rg_hash_bytes(s.data(), s.size()); }" true)
+        wr.out("};" true)
+        wr.out("// Insertion-ordered map: vector storage + open-addressed hash index." true)
+        wr.out("// Replaces std::map (sorted, O(log n) with a string compare per level):" true)
+        wr.out("// lookups hash once, and iteration follows INSERTION order, which is" true)
+        wr.out("// what JavaScript object key enumeration semantics need." true)
+        wr.out("template<typename K, typename V>" true)
+        wr.out("class rg_ordered_map {" true)
+        wr.out("public:" true)
+        wr.out("    typedef K key_type;" true)
+        wr.out("    typedef V mapped_type;" true)
+        wr.out("    std::vector<std::pair<K, V>> entries;" true)
+        wr.out("    std::vector<int32_t> index_;" true)
+        wr.out("    typedef typename std::vector<std::pair<K, V>>::iterator iterator;" true)
+        wr.out("    typedef typename std::vector<std::pair<K, V>>::const_iterator const_iterator;" true)
+        wr.out("    iterator begin() { return entries.begin(); }" true)
+        wr.out("    iterator end() { return entries.end(); }" true)
+        wr.out("    const_iterator begin() const { return entries.begin(); }" true)
+        wr.out("    const_iterator end() const { return entries.end(); }" true)
+        wr.out("    size_t size() const { return entries.size(); }" true)
+        wr.out("    void clear() { entries.clear(); index_.clear(); }" true)
+        wr.out("    void rehash_() {" true)
+        wr.out("        size_t cap = 8;" true)
+        wr.out("        while (cap < (entries.size() + 1) * 2) { cap <<= 1; }" true)
+        wr.out("        index_.assign(cap, -1);" true)
+        wr.out("        for (size_t i = 0; i < entries.size(); i++) {" true)
+        wr.out("            size_t h = rg_key_hash<K>{}(entries[i].first) & (cap - 1);" true)
+        wr.out("            while (index_[h] != -1) { h = (h + 1) & (cap - 1); }" true)
+        wr.out("            index_[h] = (int32_t)i;" true)
+        wr.out("        }" true)
+        wr.out("    }" true)
+        wr.out("    int32_t slot_(const K& k) const {" true)
+        wr.out("        if (index_.empty()) { return -1; }" true)
+        wr.out("        size_t mask = index_.size() - 1;" true)
+        wr.out("        size_t h = rg_key_hash<K>{}(k) & mask;" true)
+        wr.out("        while (true) {" true)
+        wr.out("            int32_t s = index_[h];" true)
+        wr.out("            if (s == -1) { return -1; }" true)
+        wr.out("            if (entries[(size_t)s].first == k) { return s; }" true)
+        wr.out("            h = (h + 1) & mask;" true)
+        wr.out("        }" true)
+        wr.out("    }" true)
+        wr.out("    size_t count(const K& k) const { return slot_(k) == -1 ? 0 : 1; }" true)
+        wr.out("    iterator find(const K& k) {" true)
+        wr.out("        int32_t s = slot_(k);" true)
+        wr.out("        return s == -1 ? entries.end() : entries.begin() + s;" true)
+        wr.out("    }" true)
+        wr.out("    const_iterator find(const K& k) const {" true)
+        wr.out("        int32_t s = slot_(k);" true)
+        wr.out("        return s == -1 ? entries.end() : entries.begin() + s;" true)
+        wr.out("    }" true)
+        wr.out("    V& at(const K& k) {" true)
+        wr.out("        int32_t s = slot_(k);" true)
+        wr.out("        if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); }" true)
+        wr.out("        return entries[(size_t)s].second;" true)
+        wr.out("    }" true)
+        wr.out("    const V& at(const K& k) const {" true)
+        wr.out("        int32_t s = slot_(k);" true)
+        wr.out("        if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); }" true)
+        wr.out("        return entries[(size_t)s].second;" true)
+        wr.out("    }" true)
+        wr.out("    // const char* overloads: a literal key probes WITHOUT constructing a" true)
+        wr.out("    // std::string temporary. C++17 guarantees hash<string> and" true)
+        wr.out("    // hash<string_view> agree on equal character sequences. Instantiated" true)
+        wr.out("    // lazily, so non-string-keyed maps never touch them." true)
+        wr.out("    int32_t slot_sv_(std::string_view k) const {" true)
+        wr.out("        if (index_.empty()) { return -1; }" true)
+        wr.out("        size_t mask = index_.size() - 1;" true)
+        wr.out("        size_t h = rg_hash_bytes(k.data(), k.size()) & mask;" true)
+        wr.out("        while (true) {" true)
+        wr.out("            int32_t s = index_[h];" true)
+        wr.out("            if (s == -1) { return -1; }" true)
+        wr.out("            if (entries[(size_t)s].first.compare(k) == 0) { return s; }" true)
+        wr.out("            h = (h + 1) & mask;" true)
+        wr.out("        }" true)
+        wr.out("    }" true)
+        wr.out("    size_t count(const char* k) const { return slot_sv_(k) == -1 ? 0 : 1; }" true)
+        wr.out("    iterator find(const char* k) {" true)
+        wr.out("        int32_t s = slot_sv_(k);" true)
+        wr.out("        return s == -1 ? entries.end() : entries.begin() + s;" true)
+        wr.out("    }" true)
+        wr.out("    const_iterator find(const char* k) const {" true)
+        wr.out("        int32_t s = slot_sv_(k);" true)
+        wr.out("        return s == -1 ? entries.end() : entries.begin() + s;" true)
+        wr.out("    }" true)
+        wr.out("    V& at(const char* k) {" true)
+        wr.out("        int32_t s = slot_sv_(k);" true)
+        wr.out("        if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); }" true)
+        wr.out("        return entries[(size_t)s].second;" true)
+        wr.out("    }" true)
+        wr.out("    const V& at(const char* k) const {" true)
+        wr.out("        int32_t s = slot_sv_(k);" true)
+        wr.out("        if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); }" true)
+        wr.out("        return entries[(size_t)s].second;" true)
+        wr.out("    }" true)
+        wr.out("    V& operator[](const char* k) {" true)
+        wr.out("        int32_t s = slot_sv_(k);" true)
+        wr.out("        if (s != -1) { return entries[(size_t)s].second; }" true)
+        wr.out("        return (*this)[K(k)];" true)
+        wr.out("    }" true)
+        wr.out("    V& operator[](const K& k) {" true)
+        wr.out("        int32_t s = slot_(k);" true)
+        wr.out("        if (s != -1) { return entries[(size_t)s].second; }" true)
+        wr.out("        entries.push_back(std::make_pair(k, V()));" true)
+        wr.out("        if (index_.empty() || (entries.size() + 1) * 2 > index_.size()) {" true)
+        wr.out("            rehash_();" true)
+        wr.out("        } else {" true)
+        wr.out("            size_t mask = index_.size() - 1;" true)
+        wr.out("            size_t h = rg_key_hash<K>{}(k) & mask;" true)
+        wr.out("            while (index_[h] != -1) { h = (h + 1) & mask; }" true)
+        wr.out("            index_[h] = (int32_t)(entries.size() - 1);" true)
+        wr.out("        }" true)
+        wr.out("        return entries.back().second;" true)
+        wr.out("    }" true)
+        wr.out("};" true)
+      }
       wr.out("" true)
       if (this.cppProgramHasWeakField(ctx)) {
         this.writeCppWeakHelper(wr)

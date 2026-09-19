@@ -7,9 +7,7 @@ class Point
 
 class OptionalParams 
  {
-  companion object {
-    
-  }
+  
   
   fun  shown( maybe : String?) : String {
     if ( maybe== null ) {

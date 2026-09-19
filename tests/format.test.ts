@@ -60,6 +60,9 @@ const STRESS = "tests/fixtures/format_stress.rgr";
 const PRECEDENCE = "tests/fixtures/format_precedence.rgr";
 const PROPNAME = "tests/fixtures/format_propname.rgr";
 const MEMBERS = "tests/fixtures/format_members.rgr";
+// The C++ ordered-map helper is only emitted when the program can reach a map,
+// so the test below needs a fixture that declares one.
+const MAPHELPER = "tests/fixtures/format_map_helper.rgr";
 const STRESS_OUT = "105 aa/bb/cc/dd/eeeeeeeeeeee/ffffffffffff/gggggggggggg";
 
 const HAS_GO = have("go", ["version"]);
@@ -391,7 +394,7 @@ describe("output formatter: emitted shapes (phase 5)", () => {
     // rg_ordered_map is literal text in the C++ writer, not codegen: four of
     // its bodies were a whole statement sequence on one line, up to 186
     // characters. Nothing generates them, so nothing but this reformats them.
-    const cpp = compile(CHAINS, "cpp", "cpp", "helper");
+    const cpp = compile(MAPHELPER, "cpp", "cpp", "helper");
     expect(cpp).toMatch(/V& at\(const K& k\) \{\n\s+int32_t s = slot_\(k\);/);
     expect(cpp).not.toMatch(/at\(const K& k\) \{ int32_t s/);
     const bin = path.join(OUT, "helper.bin");

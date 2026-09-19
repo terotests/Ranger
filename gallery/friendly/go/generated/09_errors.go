@@ -4,12 +4,6 @@ import (
   "fmt"
 )
 
-type GoNullable struct {
-  value interface{}
-  has_value bool
-}
-
-
 const (
   union_Guarded_tag_Guarded_Ok = 1
   union_Guarded_tag_Guarded_Err = 2

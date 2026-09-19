@@ -79,9 +79,7 @@ class Message__ops
 
 class EnumsMain 
  {
-  companion object {
-    
-  }
+  
   
   fun  colorName( c : Int) : String {
     if ( c == 0 ) {

@@ -61,9 +61,7 @@ class TreeNode
 
 class OwnershipMain 
  {
-  companion object {
-    
-  }
+  
 }
 
 var __g_args : Array<String> = arrayOf()

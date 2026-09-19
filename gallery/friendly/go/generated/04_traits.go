@@ -3,12 +3,6 @@ import (
   "strconv"
   "fmt"
 )
-
-type GoNullable struct {
-  value interface{}
-  has_value bool
-}
-
 type User struct { 
   age int64 `json:"age"` 
   name string `json:"name"` 

@@ -29,9 +29,7 @@ class TextTools
 
 class SliceMain 
  {
-  companion object {
-    
-  }
+  
 }
 
 var __g_args : Array<String> = arrayOf()

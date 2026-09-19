@@ -129,8 +129,10 @@ throw std::string("negative");
 }
 ```
 
-So `after_bad unspecified error`. The exception is swallowed as a type
-the catch does not name.
+That gave `after_bad unspecified error` — the exception was swallowed as a
+type the catch did not name. **Fixed**: `throw` is `std::runtime_error(msg)`
+and the handler re-throws to classify, so `after_bad negative`, the same line
+every other target prints.
 
 ## What I could not write
 
@@ -144,13 +146,20 @@ header/source splits, namespaces I control.
 2. ~~Always emit `r_optional_primitive` when an optional scalar exists.~~
    **Done** — the writer emits the definition where it emits the type.
    Using `std::optional` instead is item 4.
-3. `catch (const std::string& e)` — or throw a small `r_error` type —
-   so `error_msg` works.
+3. ~~`catch (const std::string& e)` so `error_msg` works.~~ **Done.** `throw`
+   emits `std::runtime_error(msg)`, and the catch stays a catch-**all** —
+   a Ranger `try` has to survive whatever crosses it, including a throw from
+   a polyfill. Asking what it was is the rethrow idiom: re-throw inside the
+   handler and catch it again by type. `error_msg` is the real text now,
+   byte-identical to JavaScript.
 4. `std::optional` / `std::variant` instead of the `r_*` twins.
 5. `enum class` for Ranger `Enum`.
 6. `string_view` / `span` for borrowed `string` / `[T]`.
 7. Field-free `trait` → an abstract base or a concept.
-8. Drop the ordered-map preamble when the program has no map.
+8. ~~Drop the ordered-map preamble when the program has no map.~~ **Done.**
+   Study 07 went from 237 lines to 88; across the ten studies the C++ output
+   is about 45% shorter. The preamble still goes in when a map is reachable —
+   the selfhost build of the compiler gets all of it.
 9. `int64_t` for Ranger `int`, consistently.
 10. **A `trait` used as a TYPE.** `fn show(n:Named)` emits
     `std::shared_ptr<Named>` and never declares `Named`, so the file does not

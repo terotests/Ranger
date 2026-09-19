@@ -4,12 +4,6 @@ import (
   "fmt"
 )
 
-type GoNullable struct {
-  value interface{}
-  has_value bool
-}
-
-
 const (
   union_Message_tag_Message_Ping = 1
   union_Message_tag_Message_Text = 2

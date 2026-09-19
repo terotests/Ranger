@@ -53,7 +53,7 @@ whether Ranger compiled.
 | 6 | [C#](csharp/README.md) | yes | `int?`, `List<T>`, `Func<int, int>`, `interface` for a `shape`. `throw` wraps `ConfigurationErrorsException` and **runs**. `int` is 32-bit. |
 | 7 | [Java](java/README.md) | yes | Runs, and `throw` wraps `IllegalArgumentException`. Everything else is Java 7: `Integer` boxing, `Object` + `instanceof`, one file per class. |
 | 8 | [Go](go/README.md) | yes | Sharing is `*T`. Optional is `*GoNullable`. `try`/`throw` is `panic`/`recover`. Workable, not Go-like. |
-| 9 | [C++](cpp/README.md) | yes | Correct answers behind `shared_ptr` / `r_optional_*` / `catch(...)`. The `error_msg` is lost. |
+| 9 | [C++](cpp/README.md) | yes | Correct answers behind `shared_ptr` / `r_optional_*`. `error_msg` carries the real text now, and the map preamble only goes in when a map is reachable (study 07: 237 → 88 lines). |
 | 10 | [Rust](rust/README.md) | yes | Ownership-aware (`Rc`/`RefCell`/`Weak`, borrows) and the least Rust-like. No `Result`, no native `enum`, `match` as an `if let` chain. `try`/`catch` and a `trait` used as a type are now compile errors rather than wrong output, and optional params are fixed. |
 
 Two scores that are not the same thing:
@@ -177,8 +177,10 @@ writer as `Option<Option<T>>`.
    `class` as a reference type.
 7. **Keep `@params` in the output** (`Stack<T>`, `Stack[T]`) instead of
    `Stack_int`.
-8. **Do not emit unused preambles** (Rust/C++ ordered maps, Go
-   `GoNullable` when unused, Kotlin empty `companion object`).
+8. **Do not emit unused preambles.** **Done on Rust and C++** — both gate the
+   ordered map on whether the program can reach one. **Go** only declares
+   `GoNullable` when the program has an optional, and **Kotlin** no longer
+   opens an empty `companion object` for a class whose only static is `main`.
 
 Items 1-4, 7 and 8 for Rust are ranked with their cost in
 [`docs/plans/PLAN_RUST_SEMANTIC_IDIOMS.md`](../../docs/plans/PLAN_RUST_SEMANTIC_IDIOMS.md).

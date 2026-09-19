@@ -102,9 +102,7 @@ class Lookup
 
 class OptionResultMain 
  {
-  companion object {
-    
-  }
+  
 }
 
 var __g_args : Array<String> = arrayOf()

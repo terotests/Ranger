@@ -151,3 +151,8 @@ only when there are statics, `throw Exception`, coroutines.
 8. Drop empty `companion object` and `@JvmField` unless Java interop
    is requested.
 9. Keep `@params` as `class Stack<T>`.
+
+**Also fixed since this was written:** an empty `companion object { }` used to
+appear in every class whose only static was `sfn m@(main)` — that one is lifted
+to a top-level `fun main()` and skipped in the companion, so the companion was
+opened and then had nothing to put in it.

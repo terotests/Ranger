@@ -2049,6 +2049,82 @@ class RangerGolangClassWriter {
     wr.out("}" true)
   }
 
+  ; Does this program have an @(optional) anywhere? GoNullable is how an
+  ; optional is carried on this target, and it used to be declared in every
+  ; file — Go does not complain about an unused type, but it is four lines of
+  ; "this was generated" at the top of a program that has no optional at all.
+  ;
+  ; Errs towards emitting: an unused type costs nothing, a missing one is a
+  ; program that does not build.
+  fn goNodeUsesOptional:boolean (node:CodeNode) {
+    if (node.hasFlag("optional")) {
+      return true
+    }
+    if (node.hasParamDesc) {
+      if (node.paramDesc.is_optional) {
+        return true
+      }
+      def pdNN@(optional):CodeNode node.paramDesc.nameNode
+      if (!null? pdNN) {
+        def pdN:CodeNode (unwrap pdNN)
+        if (pdN.hasFlag("optional")) {
+          return true
+        }
+      }
+    }
+    for node.children ch:CodeNode i {
+      if (this.goNodeUsesOptional(ch)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn goScanFnsForOptional:boolean (fns:[RangerAppFunctionDesc]) {
+    for fns m:RangerAppFunctionDesc mi {
+      def mnn@(optional):CodeNode m.nameNode
+      if (!null? mnn) {
+        def mn:CodeNode (unwrap mnn)
+        if (mn.hasFlag("optional")) {
+          return true
+        }
+      }
+      for m.params mp:RangerAppParamDesc mpi {
+        if mp.is_optional {
+          return true
+        }
+      }
+      def mNodeOpt@(optional):CodeNode m.node
+      if (!null? mNodeOpt) {
+        if (this.goNodeUsesOptional((unwrap mNodeOpt))) {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
+  fn goProgramUsesOptional:boolean (ctx:RangerAppWriterContext) {
+    def root:RangerAppWriterContext (ctx.getRoot())
+    for root.definedClasses cl:RangerAppClassDesc i {
+      if ((((cl.is_system || cl.is_trait) || cl.is_template) || cl.is_operator_class) || cl.is_union) {
+        continue
+      }
+      for cl.variables pvar:RangerAppParamDesc j {
+        if pvar.is_optional {
+          return true
+        }
+      }
+      if (this.goScanFnsForOptional(cl.methods)) {
+        return true
+      }
+      if (this.goScanFnsForOptional(cl.static_methods)) {
+        return true
+      }
+    }
+    return false
+  }
+
   fn writeClass:void  (node:CodeNode ctx:RangerAppWriterContext orig_wr:CodeWriter) {
     def cl:RangerAppClassDesc node.clDesc
     if (null? cl) {
@@ -2056,7 +2132,9 @@ class RangerGolangClassWriter {
     }
     def wr:CodeWriter orig_wr
     if (did_write_nullable == false) {
-      wr.raw("\r\ntype GoNullable struct { \r\n  value interface{}\r\n  has_value bool\r\n}\r\n" true)
+      if (this.goProgramUsesOptional(ctx)) {
+        wr.raw("\r\ntype GoNullable struct { \r\n  value interface{}\r\n  has_value bool\r\n}\r\n" true)
+      }
       wr.createTag("utilities")
       did_write_nullable = true
     }
