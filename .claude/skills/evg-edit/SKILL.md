@@ -51,13 +51,20 @@ tag, or a path).
 {"ops":[
   {"op":"set-text","at":"0/0/k:title","value":"Invoices"},
   {"op":"set-prop","at":"0/0","prop":"background-color","value":"rgb(255,251,235)"},
+  {"op":"set-id","at":"0/3/0","value":"nav.map"},
   {"op":"insert","at":"0/0","index":2,"tag":"span"},
   {"op":"remove","at":"0/1"},
   {"op":"move","at":"0/0/k:sub","to":"0/1","index":0}
 ]}
 ```
 
-Four things to know, because they change how you write ops:
+Five things to know, because they change how you write ops:
+
+- **`set-id` names a node.** An id is not a property — nothing paints it. It is
+  what `query #id` finds, what the hit test answers with, and, if the document
+  ever becomes an app, the event a press on that node sends. Give buttons, tabs
+  and rows one. Two nodes cannot share an id; the second is rejected and told
+  which node has it.
 
 - **A rejected op fails the whole batch and changes nothing.** So a batch is
   safe to attempt — you never have to work out what half-applied.

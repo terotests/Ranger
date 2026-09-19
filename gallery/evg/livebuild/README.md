@@ -121,6 +121,104 @@ node lib/evg/bin/evg_image_tool.js photo.png --out=photo --width=180
 {"width":320,"height":221,"layers":8,"colors":[{"hex":"#E3C8A6","share":0.223}, …]}
 ```
 
+## Next: an app, not a picture of one
+
+This page designs ONE screen. [`PLAN_LIVE_APP.md`](PLAN_LIVE_APP.md) is the
+next step — several pages, a statechart that owns which one you are on, and a
+press that goes back into it — and its first stage is built:
+
+```sh
+npm run livebuild:app:build     # compile the tool
+npm run livebuild:app           # the fixture app, and a broken one
+node gallery/evg/bin/evg_app.js check gallery/evg/livebuild/fixtures/app
+```
+
+An app is `machine.json` and one `pages/<state>.evg.json` per state — data,
+not code, so the agent changes it with the same `patch` and `measure` it
+already uses. An element's `id` is the event its press sends, `{key}` in a
+text node is filled from the machine's context, and `check` walks every state
+the machine can reach: a state with no page, a page no state renders and an id
+that is not an event are the three defects an agent cannot see and this names.
+
+A screen you designed becomes an app by being pressed. Give the tab bar's
+entries ids — `{"op":"set-id","at":"0/3/0","value":"nav.map"}` — and **Run**
+does the rest: the host reads the `nav.*` ids off the screen, writes a state
+for each and copies the document to `pages/<state>.evg.json`, so every state
+starts from the screen that is already there. Nothing for the agent to run,
+and nothing to install. A document has no navigation in it, so an agent asked
+for four tabs will otherwise hunt for a `goto` that does not exist; the
+workspace guide says so before the hunt starts, and tells it the ids are the
+whole job.
+
+Every page starts as a copy, so the first thing to expect is a press that
+moves the machine over an identical screen — a dead button from the outside.
+`check` names the states that share a document and the live page says it
+under the phone.
+
+**The app runs in the tab.** `EvgAppWeb.rgr` compiles to a browser bundle the
+page loads once: the machine and one document per state go over as data, and
+from then on a press is a function call — hit test, transition, next page,
+about 2ms, no process and no tool on anybody's machine. That matters more
+than the speed: an agent on the other side of a network has no shell here,
+and a runtime that needed one was a runtime only this laptop could run. A
+CODE app is a compiled program the server holds open, so it stays on the
+server, and the page says which it is showing.
+
+```sh
+npm run livebuild:app:web    # build the browser runtime by hand; the server
+                             # builds it on demand
+```
+
+## Keeping one
+
+**Save** writes the session's own files — `doc.evg.json`, and `app/` when the
+screen became an app — under `~/.evg-livebuild/saved/<name>/`, with what was
+asked for beside them. **Saved…** opens one back into the session: the
+document and its app go where the session keeps them, so the page carries on
+as if the design had been made just now, still editable and still runnable.
+
+Nothing is derived on the way out, so nothing can drift on the way in. The
+folder is outside the repository on purpose — these are one person's designs
+on one machine, not source. `EVG_LIVEBUILD_SAVED` moves it, and the two calls
+(`saveSession`, `openSaved`) are the seam a database sits behind if this ever
+runs on a server.
+
+```sh
+npm run livebuild:save    # save, start over, open — byte for byte, app and all
+```
+
+Three things that used to throw a design away and no longer do: turning Run
+off, reloading the page, and restarting the server. Only the seed chips start
+over.
+
+Turning Run off shows the document as it stands. It is not "start over" —
+only the seed chips (Dashboard / Empty / …) are, and they rewrite the
+session's phone from a fixture and drop the app that was made from it.
+
+**Run** in the header hands the phone to that app: the machine owns which page
+is on screen, a click is a point the host turns into an event through
+`EVGHitTest`, and the page for wherever it landed comes back. The event trail
+is under the phone, and a press on something the state does not answer to says
+so rather than doing nothing quietly.
+
+An app may also be **code**: an `App.rgr` beside the machine makes it a
+program, compiled to a module the server imports once and holds open. That
+buys the two things a document cannot do — a list that comes from the context,
+and an instance that outlives a build (`kit.use`) — and it makes a press one
+call instead of three processes: ~8ms rather than ~310ms.
+
+```sh
+npm run livebuild:codeapp    # the fixture code app, and a broken one
+EVG_LIVEBUILD_APP=gallery/evg/livebuild/fixtures/codeapp npm run livebuild:serve
+```
+
+`app/APP.md` is the app's memory — half generated from the files (every state
+and event, every context key and who writes and reads it), half written by the
+agent (what the app is for, and the decisions a later pass must not undo).
+`memo` refreshes the generated half without touching a line anybody wrote, and
+`check` reports a memory that has stopped matching the app, because the next
+pass will believe it.
+
 ## The wire
 
 One JSON object per line. The HTTP door copies each line onto an SSE event

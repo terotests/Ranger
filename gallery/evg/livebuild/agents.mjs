@@ -280,6 +280,31 @@ export const ATTACH_BASE = "attachment";
 
 const imageBin = path.join(root, "lib/evg/bin/evg_image_tool.js");
 
+// WHY A MISSING BINARY IS A BUG AND NOT A CONFIGURATION.
+//
+// Every one of these tools is compiled from Ranger into `bin/`, and `bin/` is
+// ignored by git. A fresh clone therefore HAS the source and NOT the tool, and
+// the installers used to answer that by quietly leaving the shim out. The
+// workspace then looked complete and was not: an agent told to run
+// `./evg-app init` found no such file, reported the workspace was missing it,
+// and stopped — which is exactly what happened, and it cost a session.
+//
+// So build it. It is a few seconds, once per clone, paid by the first person
+// who needs it. A failure is printed rather than swallowed, and the caller is
+// told, so the guide can stop promising a tool that is not there.
+function ensureTool(bin, args, what) {
+  if (fs.existsSync(bin)) return true;
+  const r = spawnSync("bash", ["scripts/rgr-suite.sh", ...args], {
+    cwd: root,
+    encoding: "utf8",
+    maxBuffer: 40 * 1024 * 1024,
+  });
+  if (fs.existsSync(bin)) return true;
+  const text = `${r.stdout || ""}${r.stderr || ""}`;
+  console.error(`[livebuild] could not build ${what}:\n${text.slice(-1200)}`);
+  return false;
+}
+
 // Compile the bitmap tool if this clone has not needed it yet. The decoders
 // and the tracer make it a slow build, so it is paid for by the first person
 // who attaches a picture rather than by everybody who serves the page.
@@ -373,6 +398,197 @@ function carryAttachment(from, to) {
 // "here is the SVG" would put every one of them through its context on the way
 // into a patch, to be copied out again unchanged. The host traces it once and
 // leaves the patch already written, so using the picture costs one command.
+// --- WHY THE GUIDE TALKS ABOUT MEMORY ----------------------------------------
+//
+// A one-screen document needs no memory: the document IS the state, and an
+// agent that reads it knows everything. An app is not one thing — it is a
+// machine, a page per state, and a data model spread across both — and an
+// agent comes back to it with none of yesterday in its head. Without somewhere
+// to look first it renames a key, adds a screen the nav does not reach, and
+// stores a total it could have computed.
+//
+// `APP.md` is that somewhere, and the guide's job is to make reading it the
+// first move and refreshing it the last one. The tool checks the second: a
+// memory that has stopped matching the app is a finding, because the next pass
+// will believe it.
+function appSection(dir) {
+  if (!fs.existsSync(path.join(dir, "app", "machine.json"))) return noAppSection(dir);
+  const code = fs.existsSync(path.join(dir, "app", "App.rgr"));
+  return `${code ? codeAppSection() : dataAppSection()}`;
+}
+
+// There is no app yet, and this is the section an agent needs MOST — the one
+// that was missing. Asked for a phone with four tabs, an agent designs four
+// tabs, presses one, and nothing happens; so it goes looking for the switch.
+// It will not find one, because a document has no navigation in it: no href,
+// no goto, no hidden page. Left to search, it greps the compiled tool for
+// `#page` and `currentPage` and finds nothing there either, which is an hour
+// spent proving an absence. Say it up front: one document is one screen, and
+// several screens is a different thing that already exists.
+function noAppSection(dir) {
+  // A guide that names a tool the workspace does not have sends the agent
+  // looking for it, and an agent that cannot find a tool it was promised
+  // reports the workspace is broken — which it is. Say the honest thing.
+  if (!fs.existsSync(path.join(dir, "evg-app"))) {
+    return `
+## This document is one screen
+
+A document has no navigation in it. There is no \`href\`, no \`goto\`, no
+hidden page — a press on a tab you draw does nothing, because a screen is
+a picture and a picture has no states. Several screens is an app, and the
+tool that makes one (\`./evg-app\`) is NOT in this workspace: it failed
+to build on this machine. Design the screen, and if the task needs more
+than one, say that \`./evg-app\` is missing rather than looking for
+another way — there is not one.
+`;
+  }
+  return `
+## This document is one screen
+
+A document has no navigation in it. There is no \`href\`, no \`goto\`, no
+hidden page, no \`display: none\` screen waiting its turn — and nothing
+to find by searching the tools for one. A press on a tab you draw does
+nothing, because a screen is a picture and a picture has no states. That
+is not missing; it is what a document is.
+
+**Several screens is an app, and YOU DO NOT MAKE ONE — the ids do.**
+Give everything that should be pressable an \`id\` — the tab bar's
+entries \`nav.<state>\`, one per screen the task asks for. When the
+person presses Run, the host reads those ids off the screen, writes a
+state for each and gives every state a copy of the document to start
+from. There is no command for you to run and nothing to install.
+
+So the whole of your job for a multi-screen task is:
+
+1. Design the screen, tab bar included.
+2. \`set-id\` every tab: \`nav.ruuhkat\`, \`nav.kartta\`, and so on. The
+   part after \`nav.\` becomes the state's name.
+3. Make the screens differ. Until the pages differ, a press moves the
+   machine and the screen stays the same, which looks exactly like a
+   dead button — it is the one failure worth expecting here.
+
+For step 3 the pages live at \`app/pages/<state>.evg.json\` once they
+exist, and \`./evg-agent patch\` edits one like any other document.
+\`./evg-app check app\` walks every state, measures each page, reads
+every id back against the machine, and names two states that share a
+document. If \`./evg-app\` is not in this workspace, say so — do not go
+looking for another way to switch screens, because there is not one.
+
+Only do this when the task asks for more than one screen. One screen is a
+document, and a document is what the live page shows.
+`;
+}
+
+// An app that is a program. The guide only says this when there is one,
+// because an app that switches screens never needs it — and an agent told
+// about a runtime it does not need will use it.
+function codeAppSection() {
+  return `
+## This app is a program
+
+\`app/App.rgr\` builds every screen and \`app/machine.json\` decides which
+one you are on. The rules are the data app's, unchanged: the machine
+owns the page, an element's \`id\` is the event its press sends, and
+\`check\` walks every state.
+
+\`\`\`ranger
+Import "pkg:evg-livebuild/EvgAppKit.rgr"
+Import "pkg:evg/EVGElement.rgr"
+
+class App extends EvgApp {
+    fn build:EVGElement (state:string) {
+        if (state == "routes") { return (this.routesPage()) }
+        return (this.mapPage())
+    }
+}
+\`\`\`
+
+\`\`\`
+./evg-app build app         compile it — seconds, and the errors are the
+                            compiler's own, pointing at a line
+./evg-app check app         every state built, measured, ids against the machine
+./evg-app render app EVENT… the page those presses reach
+\`\`\`
+
+What the kit gives you, and the whole of it:
+
+| | |
+| --- | --- |
+| \`kit.text("key")\` | a context value as text |
+| \`kit.list("key")\` | a context list — one row per item, however many |
+| \`kit.state()\` | where the machine is |
+| \`kit.use(key fresh)\` | an instance that outlives this build |
+
+**Write code only for what data cannot hold.** A list, a computed number,
+a row that must remember something. A screen that is the same every time
+is a \`pages/<state>.evg.json\` and always was — and that page can sit
+beside this program, because \`build\` may read one and return it.
+
+\`kit.use\` is the part worth understanding. A page function starts from
+nothing every time it is called, so a value it wants to keep between
+presses has nowhere to live; a component is that home, and the host
+holds it open between presses. Key it by what the row IS — the route's
+name, the invoice's number — never by its index, or a row that leaves
+hands its state to whatever slid into its place.
+
+Everything else the data app's section says is still true, including the
+memory: \`./evg-app memo app\` after any change, and read \`app/APP.md\`
+before making one.
+`;
+}
+
+function dataAppSection() {
+  return `
+## This is an app, not one screen
+
+\`app/machine.json\` is the state machine and \`app/pages/<state>.evg.json\`
+is the screen for each state. The machine decides which page is on
+screen; a page never changes the page. An element's \`id\` is the event
+its press sends, and \`{key}\` in a text node is filled from the
+machine's context.
+
+**Read \`app/APP.md\` before you change anything.** It is this app's
+memory: what it is for, every state and the events it takes, every
+context key and who writes and reads it, and the decisions a later pass
+must not undo. You wrote most of it; the tables in the middle are
+rewritten from the files, so they cannot lie to you.
+
+\`\`\`
+./evg-app states app            every state, its page, the events it takes
+./evg-app model  app            every context key: who writes it, who reads it
+./evg-app press  app nav.routes route.add
+                                send events, print where each one lands
+./evg-app check  app            every page measured, every id checked against
+                                the machine, the data model, and the memory
+./evg-app memo   app            refresh APP.md — do this after any change to
+                                the machine, the pages or the keys
+\`\`\`
+
+The loop is the same one you already use, with one more step at the end:
+
+1. \`APP.md\`, then \`states\` — what exists.
+2. \`patch\` the page, or the machine.
+3. \`check\` — every screen, not just the one you touched.
+4. \`memo\` — so the next pass reads what you did, not what was true
+   before it.
+
+**The data model is the part that rots first.** A page reads \`{trips}\`,
+a transition assigns \`trips\`, the machine starts with a \`trips\` —
+nothing but the spelling ties those three together. \`check\` reports a
+key a page reads and the machine never has, a key a transition assigns
+that was never declared, and a key nothing shows. Before adding a key,
+look at whether one already means what you want.
+
+Three things \`check\` finds that you cannot see by looking:
+
+- a state whose page does not exist — a screen the app can reach and
+  does not have;
+- a page no state renders — work that went nowhere, or a rename;
+- an \`id\` that is not an event of that state — a dead button, which
+  looks exactly like a live one.
+`;
+}
+
 function attachmentSection(dir) {
   const a = attachmentOf(dir);
   if (!a) return "";
@@ -445,6 +661,19 @@ A node is:
 Patchable properties include width, height, display, flex-direction,
 justify-content, align-items, gap, padding-*, margin-*, color,
 background-color, border-radius, font-size, font-weight.
+
+A node may also have an \`id\` (\`{"tag":"div","id":"nav.map",...}\`). It
+names the node: \`query #nav.map\` finds it, the hit test answers with
+it, and if this screen ever becomes an app it is the event a press on
+that node sends. Give every button, tab and row one — a nameless button
+cannot be pressed by anything, now or later. The op is \`set-id\`:
+
+\`\`\`json
+{"op": "set-id", "at": "0/3/0", "value": "nav.map"}
+\`\`\`
+
+An id names one node; naming a second node the same is rejected, and it
+names the one that already has it.
 
 ## Lay it out — do not place it
 
@@ -584,11 +813,10 @@ next to the picture. A hand-written file still repaints; it just arrives
 without the ops that explain it.
 
 If there is no \`./evg-agent\`, edit \`doc.evg.json\` directly and save,
-then read \`layout.json\`. You may also write \`App.rgr\` with Ranger that
-builds the same tree.
+then read \`layout.json\`.
 
 Do not leave the workspace. Do not require confirmation.
-${attachmentSection(dir)}`;
+${appSection(dir)}${attachmentSection(dir)}`;
 }
 
 export const SEED_KINDS = ["dashboard", "settings", "invoices", "empty"];
@@ -605,6 +833,21 @@ export function seedDoc(kind = "empty") {
   } catch {
     return fs.readFileSync(path.join(here, "fixtures/step1.evg.json"), "utf8");
   }
+}
+
+// One document, laid out and framed, for a caller that has a file rather than
+// a seed kind. The app door uses it: the page it renders is a document like
+// any other, and the painter in the browser is the one already there.
+export function frameDocument(file) {
+  const events = [];
+  frameFile(file, (line) => {
+    try {
+      events.push(JSON.parse(line));
+    } catch {
+      /* chatter */
+    }
+  });
+  return events;
 }
 
 export function frameFixture(kind) {
@@ -632,7 +875,9 @@ const OPS_LOG_SNIPPET =
 // decoders and the tracer make it a slow compile to pay for on every clone.
 function installEvgImage(dir) {
   const src = path.join(root, "lib/evg/bin/evg_image_tool.js");
-  if (!fs.existsSync(src)) return false;
+  if (!ensureTool(src, ["./lib/evg/tools/evg_image_tool.rgr", "./lib/evg/bin", "evg_image_tool.js"], "evg-image")) {
+    return false;
+  }
   fs.copyFileSync(src, path.join(dir, "evg_image_tool.js"));
   fs.writeFileSync(
     path.join(dir, "evg-image"),
@@ -642,10 +887,67 @@ function installEvgImage(dir) {
   return true;
 }
 
+// The app door, when it has been built. `npm run livebuild:app:build` compiles
+// it; an app workspace is the only one that needs it.
+function installEvgApp(dir) {
+  const src = path.join(root, "gallery/evg/bin/evg_app.js");
+  if (!ensureTool(src, ["./gallery/evg/livebuild/EvgAppTool.rgr", "./gallery/evg/bin", "evg_app.js"], "evg-app")) {
+    return false;
+  }
+  fs.copyFileSync(src, path.join(dir, "evg_app_tool.js"));
+  // An app is data or code, and the agent should not have to hold which in
+  // its head to ask a question. The shim looks: an `App.rgr` beside the
+  // machine means the app IS the program, so it is compiled (once, and again
+  // whenever it is newer than its binary) and asked directly. Everything else
+  // goes to the data tool, which is also what answers `model` and `memo` for
+  // both kinds, since those read the machine and the memory rather than the
+  // pages.
+  fs.writeFileSync(
+    path.join(dir, "evg-app"),
+    [
+      "#!/bin/sh",
+      'here=$(dirname "$0")',
+      `repo=${JSON.stringify(root)}`,
+      'app=${2:-app}',
+      'verb=${1:-check}',
+      'if [ -f "$app/App.rgr" ]; then',
+      '  case "$verb" in',
+      "    render|hit|states|check|build)",
+      '      bin="$app/bin/app.js"',
+      // An app in a workspace is outside the repository, so `pkg:` has to be
+      // told where the packages are. One file, written once, with absolute
+      // paths — the alternative is an app whose imports only work in the tree
+      // it was written in.
+      '      if [ ! -f "$app/ranger.json" ]; then',
+      `        printf '{"name":"app","entry":"App.rgr","dependencies":{"evg":{"path":"%s/lib/evg"},"evg-livebuild":{"path":"%s/gallery/evg/livebuild"}}}\\n' "$repo" "$repo" > "$app/ranger.json"`,
+      "      fi",
+      '      if [ ! -f "$bin" ] || [ "$app/App.rgr" -nt "$bin" ]; then',
+      '        RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr \\',
+      '          node "$repo/bin/output.js" -es6 "$(cd "$(dirname "$app")" && pwd)/$(basename "$app")/App.rgr" \\',
+      '          -d="$(cd "$(dirname "$app")" && pwd)/$(basename "$app")/bin" -o=app.js -nodecli \\',
+      '          | grep -E "\\[FAIL\\]|Compilation FAILED" && exit 1',
+      "      fi",
+      '      [ "$verb" = "build" ] && { echo "{\\"built\\":\\"$bin\\"}"; exit 0; }',
+      '      shift 2 2>/dev/null || shift $#',
+      '      exec node "$bin" "$verb" "$@" --app="$app"',
+      "      ;;",
+      "  esac",
+      "fi",
+      'exec node "$here/evg_app_tool.js" "$@"',
+      "",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+  return true;
+}
+
 function installEvgAgent(dir) {
   const src = path.join(root, "lib/evg/bin/evg_agent.js");
-  if (!fs.existsSync(src)) return false;
+  if (!ensureTool(src, ["./lib/evg/agent/evg_agent.rgr", "./lib/evg/bin", "evg_agent.js"], "evg-agent")) {
+    return false;
+  }
   installEvgImage(dir);
+  installEvgApp(dir);
   fs.copyFileSync(src, path.join(dir, "evg_agent.js"));
   // The shim also leaves the ops behind. A workspace agent patches through
   // this script, and the host has no other way to learn WHAT it changed: it
@@ -766,16 +1068,20 @@ export function resetSession(kind = "dashboard") {
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, "doc.evg.json"), seedDoc(kind));
   fs.writeFileSync(path.join(dir, "TASK.md"), "Seed: " + kind + "\n");
-  fs.writeFileSync(
-    path.join(dir, "AGENTS.md"),
-    workspaceGuide("The phone already has a UI in doc.evg.json. Wait for the next task."),
-  );
+  // A seed chip is "start over", and the app was made from the document that
+  // is being replaced. Left behind, Run would keep driving the old screens
+  // over the new phone — states named after tabs that are not there any more.
+  fs.rmSync(path.join(dir, "app"), { recursive: true, force: true });
   try {
     fs.unlinkSync(path.join(dir, ".cursor-follow"));
   } catch {
     /* first */
   }
   installEvgAgent(dir);
+  fs.writeFileSync(
+    path.join(dir, "AGENTS.md"),
+    workspaceGuide("The phone already has a UI in doc.evg.json. Wait for the next task.", dir),
+  );
   if (!fs.existsSync(path.join(dir, ".git"))) seedGit(dir);
   return dir;
 }
@@ -844,8 +1150,8 @@ export function prepareSession(task, { git = false, kind = "dashboard" } = {}) {
   if (!looksLikeEvg(existing)) resetSession(kind);
   const doc = fs.readFileSync(path.join(dir, "doc.evg.json"), "utf8");
   fs.writeFileSync(path.join(dir, "TASK.md"), followUpTask(task, doc));
-  fs.writeFileSync(path.join(dir, "AGENTS.md"), workspaceGuide(task, dir));
   installEvgAgent(dir);
+  fs.writeFileSync(path.join(dir, "AGENTS.md"), workspaceGuide(task, dir));
   if (git && !fs.existsSync(path.join(dir, ".git"))) seedGit(dir);
   return dir;
 }
@@ -856,8 +1162,12 @@ function makeWorkspace(task, { git = false, doc = "", kind = "dashboard" } = {})
   fs.writeFileSync(path.join(dir, "doc.evg.json"), text);
   fs.writeFileSync(path.join(dir, "TASK.md"), task + "\n");
   carryAttachment(sessionDir(), dir);
-  fs.writeFileSync(path.join(dir, "AGENTS.md"), workspaceGuide(task, dir));
+  // Tools first: the guide describes the workspace, so it has to be written
+  // after the workspace is finished. The other way round it promises tools
+  // that are not there yet — which is how an agent was told to run a command
+  // that did not exist.
   installEvgAgent(dir);
+  fs.writeFileSync(path.join(dir, "AGENTS.md"), workspaceGuide(task, dir));
   if (git) seedGit(dir);
   return dir;
 }

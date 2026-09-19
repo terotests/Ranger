@@ -12,15 +12,17 @@
  */
 import http from "node:http";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   listAgents,
   runTask,
   frameFixture,
   seedDoc,
   resetSession,
+  prepareSession,
   readSessionDoc,
   writeSessionDoc,
   sessionDir,
@@ -28,6 +30,8 @@ import {
   clearAttachment,
   attachmentOf,
   ATTACH_BASE,
+  frameDocument,
+  root as repoRoot,
 } from "./agents.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -40,8 +44,129 @@ const DEFAULT_AGENT = process.env.EVG_LIVEBUILD_DEFAULT_AGENT || "recipe";
 const KINDS = new Set(["dashboard", "settings", "invoices", "empty"]);
 let lastDoc = seedDoc("dashboard");
 let lastKind = "dashboard";
-resetSession("dashboard");
+let lastPrompt = "";
+// A restart is not a start-over. `resetSession` writes a fixture over the
+// session's phone, so restarting the server used to throw away whatever was
+// on screen; `prepareSession` keeps a document that is already there and
+// seeds only when there is none. Both install the workspace tools and write
+// the guide, which is the part a session cannot be without.
+prepareSession("The phone already has a UI in doc.evg.json. Wait for the next task.", {
+  kind: "dashboard",
+});
 lastDoc = readSessionDoc() || lastDoc;
+
+// WHERE A DESIGN GOES WHEN IT IS WORTH KEEPING.
+//
+// The session is a temp directory: the next seed chip, or the next reboot,
+// takes the screen with it. Good ones arrive in a couple of minutes, so most
+// of what this page makes was being thrown away.
+//
+// A save is the session's own files, copied: the document, the app if the
+// screen became one, and what was asked for. Nothing is derived, so nothing
+// can drift, and opening one puts those files back where the session keeps
+// them — the page then carries on exactly as if the design had been made just
+// now. That round trip is the whole feature; a folder you can only write to
+// is a folder you cannot trust.
+//
+// OUTSIDE THE REPOSITORY, on purpose. These are one person's designs on one
+// machine, not source: in the tree they would be an endless untracked pile,
+// or worse, committed. `~/.evg-livebuild/saved` is the default and
+// EVG_LIVEBUILD_SAVED moves it. When this page eventually runs on a server
+// the same two calls become rows in a database — which is why saving and
+// opening go through `saveSession` and `openSaved` rather than the page
+// touching files.
+const SAVED =
+  process.env.EVG_LIVEBUILD_SAVED || path.join(os.homedir(), ".evg-livebuild", "saved");
+
+const slugOf = (name) => {
+  const base = String(name || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+  return base || "screen";
+};
+
+const savedList = () => {
+  if (!fs.existsSync(SAVED)) return [];
+  return fs
+    .readdirSync(SAVED)
+    .filter((d) => fs.existsSync(path.join(SAVED, d, "doc.evg.json")))
+    .map((slug) => {
+      let about = {};
+      try {
+        about = JSON.parse(fs.readFileSync(path.join(SAVED, slug, "about.json"), "utf8"));
+      } catch {
+        about = {};
+      }
+      const pages = path.join(SAVED, slug, "app/pages");
+      return {
+        slug,
+        name: about.name || slug,
+        prompt: about.prompt || "",
+        saved: about.saved || "",
+        kind: about.kind || "",
+        pages: fs.existsSync(pages) ? fs.readdirSync(pages).filter((f) => f.endsWith(".evg.json")).length : 0,
+      };
+    })
+    .sort((a, b) => String(b.saved).localeCompare(String(a.saved)));
+};
+
+const saveSession = (name) => {
+  const doc = path.join(sessionDir(), "doc.evg.json");
+  if (!fs.existsSync(doc)) throw new Error("there is no document in this session to save");
+  fs.mkdirSync(SAVED, { recursive: true });
+  // A name that is already taken gets a number rather than overwriting a
+  // design somebody kept on purpose.
+  const base = slugOf(name);
+  let slug = base;
+  for (let n = 2; fs.existsSync(path.join(SAVED, slug)); n += 1) slug = `${base}-${n}`;
+  const dir = path.join(SAVED, slug);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.copyFileSync(doc, path.join(dir, "doc.evg.json"));
+  const app = path.join(sessionDir(), "app");
+  let pages = 0;
+  if (fs.existsSync(path.join(app, "machine.json"))) {
+    fs.cpSync(app, path.join(dir, "app"), { recursive: true });
+    const pageDir = path.join(dir, "app/pages");
+    pages = fs.existsSync(pageDir) ? fs.readdirSync(pageDir).filter((f) => f.endsWith(".evg.json")).length : 0;
+  }
+  const about = {
+    name: String(name || slug).slice(0, 120),
+    prompt: lastPrompt,
+    kind: lastKind,
+    saved: new Date().toISOString(),
+    pages,
+  };
+  fs.writeFileSync(path.join(dir, "about.json"), `${JSON.stringify(about, null, 1)}\n`);
+  return { slug, ...about };
+};
+
+const openSaved = (slug) => {
+  const dir = path.join(SAVED, path.basename(String(slug || "")));
+  const doc = path.join(dir, "doc.evg.json");
+  if (!fs.existsSync(doc)) throw new Error(`no saved design called ${slug}`);
+  // Into the session, over whatever is there. An open is a start-over with a
+  // document of your own, so the app that belonged to the old screen goes
+  // too — otherwise Run would drive states named after tabs that are gone.
+  const to = sessionDir();
+  fs.mkdirSync(to, { recursive: true });
+  fs.rmSync(path.join(to, "app"), { recursive: true, force: true });
+  fs.copyFileSync(doc, path.join(to, "doc.evg.json"));
+  if (fs.existsSync(path.join(dir, "app/machine.json"))) {
+    fs.cpSync(path.join(dir, "app"), path.join(to, "app"), { recursive: true });
+  }
+  let about = {};
+  try {
+    about = JSON.parse(fs.readFileSync(path.join(dir, "about.json"), "utf8"));
+  } catch {
+    about = {};
+  }
+  lastDoc = readSessionDoc() || lastDoc;
+  if (about.kind && KINDS.has(about.kind)) lastKind = about.kind;
+  lastPrompt = about.prompt || "";
+  return { slug: path.basename(dir), ...about };
+};
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -210,6 +335,242 @@ function staticFile(urlPath) {
 
 function main() {
   compile();
+  // --- THE APP DOOR -------------------------------------------------------
+  //
+  // PLAN_LIVE_APP.md S2. Design mode streams a whole display list per frame,
+  // which is right while a screen is being drawn. Run mode is the other thing:
+  // a machine owns which page you are on, a press is a point that becomes an
+  // event, and the page that comes back is the one for the state it landed in.
+  //
+  // The session is the list of events, held here. The machine is deterministic
+  // and an app's history is a handful of strings, so the tool stays a program
+  // that starts and ends, and a reload does not lose the app.
+  const appBin = path.join(repoRoot, "gallery/evg/bin/evg_app.js");
+  let appEvents = [];
+
+  // Whose app is being run. A session with an `app/` is running its own; one
+  // without is shown the example — and TOLD so, because a Run that quietly
+  // replaces the phone somebody just designed with a different app is the
+  // most confusing thing this page could do.
+  const ownApp = () => {
+    const mine = path.join(sessionDir(), "app");
+    return fs.existsSync(path.join(mine, "machine.json")) ? mine : "";
+  };
+
+  const appDir = () => {
+    if (process.env.EVG_LIVEBUILD_APP) return process.env.EVG_LIVEBUILD_APP;
+    return ownApp() || path.join(repoRoot, "gallery/evg/livebuild/fixtures/app");
+  };
+
+  const isExample = () => !process.env.EVG_LIVEBUILD_APP && !ownApp();
+
+  // Run means run THIS phone. A document whose tabs already carry `nav.*` ids
+  // is one command away from being an app, and asking the agent to run that
+  // command was the wrong place to put it: the agent may be remote, may have
+  // no shell here, and on a fresh clone had no tool to run. The host has the
+  // repo and the document, so the host does it.
+  const autoInit = () => {
+    if (process.env.EVG_LIVEBUILD_APP || ownApp()) return "";
+    const doc = path.join(sessionDir(), "doc.evg.json");
+    if (!fs.existsSync(doc)) return "";
+    if (!/"id"\s*:\s*"nav\./.test(fs.readFileSync(doc, "utf8"))) return "";
+    const made = appTool("init", path.join(sessionDir(), "app"), `--from=${doc}`);
+    return made && made.error ? "" : ownApp();
+  };
+
+  // The app as DATA, for the runtime in the tab: the machine and one document
+  // per state, sent once. Everything after that — hit test, transition, the
+  // next page — happens in the browser, so a press costs no process and needs
+  // no tool on anybody's machine. A code app cannot go this way (its pages are
+  // a compiled program the server holds open), and says so.
+  const appData = () => {
+    const dir = appDir();
+    if (fs.existsSync(path.join(dir, "App.rgr"))) return { code: true, app: path.basename(dir) };
+    const machine = path.join(dir, "machine.json");
+    if (!fs.existsSync(machine)) return { error: `no machine.json in ${dir}` };
+    const pages = {};
+    const pageDir = path.join(dir, "pages");
+    if (fs.existsSync(pageDir)) {
+      for (const f of fs.readdirSync(pageDir)) {
+        if (f.endsWith(".evg.json")) pages[f.slice(0, -".evg.json".length)] = fs.readFileSync(path.join(pageDir, f), "utf8");
+      }
+    }
+    // Pages that are byte-identical. A press then moves the machine over a
+    // screen that does not change, which from the outside is a dead button —
+    // and `init` makes copies on purpose, so this is the normal state of a
+    // freshly made app, not a rare one.
+    const seen = new Map();
+    const copies = [];
+    for (const [state, text] of Object.entries(pages)) {
+      const first = seen.get(text);
+      if (first) copies.push([first, state]);
+      else seen.set(text, state);
+    }
+    return {
+      app: path.basename(dir),
+      example: isExample(),
+      machine: fs.readFileSync(machine, "utf8"),
+      pages,
+      copies,
+    };
+  };
+
+  // The runtime itself, compiled from EvgAppWeb.rgr. Built on demand and kept,
+  // like every other tool here — `bin/` is not in git, so "not built yet" is
+  // the state of a fresh clone rather than an error.
+  const webBin = path.join(repoRoot, "gallery/evg/bin/evg_app_web.js");
+  const buildWebRuntime = () => {
+    const src = path.join(repoRoot, "gallery/evg/livebuild/EvgAppWeb.rgr");
+    if (fs.existsSync(webBin) && fs.statSync(webBin).mtimeMs >= fs.statSync(src).mtimeMs) return webBin;
+    const r = spawnSync(
+      "node",
+      ["bin/output.js", "-es6", "gallery/evg/livebuild/EvgAppWeb.rgr", "-d=gallery/evg/bin", "-o=evg_app_web.js"],
+      {
+        cwd: repoRoot,
+        encoding: "utf8",
+        maxBuffer: 60 * 1024 * 1024,
+        env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr:./lib/stdops.rgr" },
+      },
+    );
+    if (!fs.existsSync(webBin)) {
+      throw new Error(`could not build the browser runtime:\n${`${r.stdout || ""}${r.stderr || ""}`.slice(-1200)}`);
+    }
+    return webBin;
+  };
+
+  const appTool = (...args) => {
+    if (!fs.existsSync(appBin)) {
+      const built = spawnSync(
+        "bash",
+        ["scripts/rgr-suite.sh", "./gallery/evg/livebuild/EvgAppTool.rgr", "./gallery/evg/bin", "evg_app.js"],
+        { cwd: repoRoot, encoding: "utf8", maxBuffer: 40 * 1024 * 1024 },
+      );
+      if (!fs.existsSync(appBin)) {
+        throw new Error(`could not build the app tool:\n${`${built.stdout || ""}${built.stderr || ""}`.slice(-800)}`);
+      }
+    }
+    const r = spawnSync(process.execPath, [appBin, ...args], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      maxBuffer: 40 * 1024 * 1024,
+    });
+    const text = `${r.stdout || ""}`.trim();
+    const open = text.indexOf("{");
+    if (open < 0) throw new Error(`the app tool said: ${(text || r.stderr || "nothing").slice(0, 300)}`);
+    return JSON.parse(text.slice(open));
+  };
+
+  // --- A CODE APP ---------------------------------------------------------
+  //
+  // PLAN_LIVE_APP.md S4. An app with an `App.rgr` beside its machine is a
+  // program, not a folder of documents: it is compiled to an ES module, this
+  // process imports it ONCE and holds one kit open, and a press is a method
+  // call rather than three spawns. That is what makes a component mean
+  // anything — an instance that outlives a build cannot outlive a process.
+  //
+  // The compile is on the host and it is one file: the engine the app links
+  // does not change, so a rebuild is seconds. It happens when the source is
+  // newer than the module, which is the whole of "incremental" that this
+  // needs.
+  let live = null;
+
+  const codeSource = (dir) => {
+    const src = path.join(dir, "App.rgr");
+    return fs.existsSync(src) ? src : "";
+  };
+
+  const buildCodeApp = (dir) => {
+    const src = codeSource(dir);
+    if (!src) return "";
+    const mod = path.join(dir, "bin", "app_module.mjs");
+    const fresh = fs.existsSync(mod) && fs.statSync(mod).mtimeMs >= fs.statSync(src).mtimeMs;
+    if (fresh) return mod;
+    const r = spawnSync(
+      "node",
+      ["bin/output.js", "-es6", "-esm", "-nodemodule", src, `-d=${path.join(dir, "bin")}`, "-o=app_module.mjs"],
+      {
+        cwd: repoRoot,
+        encoding: "utf8",
+        maxBuffer: 40 * 1024 * 1024,
+        env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr:./lib/stdops.rgr" },
+      },
+    );
+    const text = `${r.stdout || ""}${r.stderr || ""}`;
+    if (!fs.existsSync(mod) || /Compilation FAILED/.test(text)) {
+      // The compiler's own words, which the ranger-lang skill explains and an
+      // agent can act on. Anything else here would be a worse error message
+      // about a better one.
+      const said = text.split("\n").filter((l) => /\[FAIL\]|error/i.test(l)).slice(0, 12);
+      throw new Error(`App.rgr did not compile:\n${said.join("\n") || text.slice(-800)}`);
+    }
+    return mod;
+  };
+
+  // One module, one kit, held open. A reset starts the machine again without
+  // reloading anything: the app is the same program, at its first state.
+  const appLive = async (dir, { reset = false } = {}) => {
+    const mod = buildCodeApp(dir);
+    if (!mod) return null;
+    const stamp = fs.statSync(mod).mtimeMs;
+    if (!live || live.dir !== dir || live.stamp !== stamp) {
+      const loaded = await import(`${pathToFileURL(mod).href}?v=${stamp}`);
+      live = { dir, stamp, mod: loaded, app: null, kit: null };
+      reset = true;
+    }
+    if (reset || !live.kit) {
+      const app = new live.mod.App();
+      const kit = new live.mod.EvgAppKit();
+      app.kit = kit;
+      kit.bootText(fs.readFileSync(path.join(dir, "machine.json"), "utf8"));
+      live.app = app;
+      live.kit = kit;
+      appEvents = [];
+    }
+    return live;
+  };
+
+  // The page for wherever the events have taken the machine, as a frame the
+  // painter in the browser already knows how to draw.
+  const appFrame = () => {
+    const dir = appDir();
+    const out = path.join(os.tmpdir(), "evg-app-page.evg.json");
+    const rendered = appTool("render", dir, ...appEvents, `--out=${out}`);
+    if (rendered.error) throw new Error(rendered.error);
+    const frame = frameDocument(out).find((e) => e && e.t === "frame") || {};
+    return {
+      app: path.basename(dir),
+      example: isExample(),
+      state: rendered.state,
+      events: appEvents,
+      layout: rendered.layout,
+      width: frame.width || 390,
+      height: frame.height || 844,
+      ncmds: frame.ncmds || 0,
+      nodes: frame.nodes || 0,
+      list: frame.list || { cmds: [] },
+    };
+  };
+
+  // The same answer as a data app's, off the live module. The page cannot
+  // tell which kind of app it is looking at, which is the point.
+  const codeFrame = (held) => {
+    const f = JSON.parse(held.kit.frameJson(held.app));
+    return {
+      app: path.basename(held.dir),
+      example: isExample(),
+      code: true,
+      state: f.state,
+      events: appEvents,
+      layout: f.layout,
+      live: f.live,
+      width: f.width,
+      height: f.height,
+      ncmds: f.ncmds,
+      nodes: f.nodes,
+      list: f.list,
+    };
+  };
+
   // One body, with a ceiling. A data URL is the whole picture in base64, and
   // a request with no end to it is not a picture.
   const readBody = (req, limit) =>
@@ -314,6 +675,103 @@ function main() {
         });
       return;
     }
+    if (url.pathname === "/app/web.js") {
+      try {
+        send(res, 200, "text/javascript; charset=utf-8", fs.readFileSync(buildWebRuntime()));
+      } catch (e) {
+        send(res, 500, "text/plain; charset=utf-8", String(e.message || e));
+      }
+      return;
+    }
+    if (url.pathname === "/app/data") {
+      autoInit();
+      try {
+        send(res, 200, "application/json; charset=utf-8", JSON.stringify(appData()));
+      } catch (e) {
+        send(res, 500, "application/json; charset=utf-8", JSON.stringify({ error: String(e.message || e) }));
+      }
+      return;
+    }
+    if (url.pathname === "/app") {
+      const reset = url.searchParams.get("reset") === "1";
+      autoInit();
+      appLive(appDir(), { reset })
+        .then((held) => {
+          if (!held) {
+            if (reset) appEvents = [];
+            send(res, 200, "application/json; charset=utf-8", JSON.stringify(appFrame()));
+            return;
+          }
+          send(res, 200, "application/json; charset=utf-8", JSON.stringify(codeFrame(held)));
+        })
+        .catch((e) => {
+          send(res, 500, "application/json; charset=utf-8", JSON.stringify({ error: String(e.message || e) }));
+        });
+      return;
+    }
+    if (url.pathname === "/app/press" && req.method === "POST") {
+      readBody(req, 4096)
+        .then(async (body) => {
+          const ask = JSON.parse(body || "{}");
+          const held = await appLive(appDir());
+          if (held) {
+            // One call. The kit hit tests the page it is holding, sends the
+            // event if the state answers to it, and the next frame comes off
+            // the same instances.
+            const hit = JSON.parse(held.kit.pressPoint(held.app, Math.round(Number(ask.x) || 0), Math.round(Number(ask.y) || 0)));
+            if (hit.id && hit.takes) appEvents = [...appEvents, hit.id];
+            send(
+              res,
+              200,
+              "application/json; charset=utf-8",
+              JSON.stringify({ ...codeFrame(held), pressed: hit.id || "", took: Boolean(hit.id && hit.takes) }),
+            );
+            return;
+          }
+          const hit = appTool("hit", appDir(), String(Math.round(Number(ask.x) || 0)), String(Math.round(Number(ask.y) || 0)), ...appEvents);
+          if (hit.error) throw new Error(hit.error);
+          // A press on nothing, and a press on something this state does not
+          // answer to, are different answers and both are "the screen did not
+          // change" — so the page is told which.
+          if (hit.id && hit.takes) appEvents = [...appEvents, hit.id];
+          send(
+            res,
+            200,
+            "application/json; charset=utf-8",
+            JSON.stringify({ ...appFrame(), pressed: hit.id || "", took: Boolean(hit.id && hit.takes) }),
+          );
+        })
+        .catch((e) => {
+          send(res, 500, "application/json; charset=utf-8", JSON.stringify({ error: String(e.message || e) }));
+        });
+      return;
+    }
+    // The bridge from a designed screen to a running app. The phone on this
+    // page is a document: it has a tab bar because a phone has one, and
+    // pressing it does nothing because there is nothing behind it. This writes
+    // the machine and a page per state — and refuses to invent which parts of
+    // each screen differ, which is a design decision and the agent's.
+    if (url.pathname === "/app/init" && req.method === "POST") {
+      readBody(req, 4096)
+        .then((body) => {
+          const ask = JSON.parse(body || "{}");
+          const dir = path.join(sessionDir(), "app");
+          fs.mkdirSync(dir, { recursive: true });
+          const doc = path.join(sessionDir(), "doc.evg.json");
+          if (!fs.existsSync(doc)) throw new Error("there is no phone to make an app out of yet");
+          const args = ["init", dir, `--from=${doc}`];
+          if (typeof ask.states === "string" && ask.states.trim()) args.push(`--states=${ask.states.trim()}`);
+          const made = appTool(...args);
+          if (made.error) throw new Error(made.error);
+          live = null;
+          appEvents = [];
+          send(res, 200, "application/json; charset=utf-8", JSON.stringify(made));
+        })
+        .catch((e) => {
+          send(res, 500, "application/json; charset=utf-8", JSON.stringify({ error: String(e.message || e) }));
+        });
+      return;
+    }
     if (url.pathname === "/attached") {
       send(
         res,
@@ -330,6 +788,80 @@ function main() {
         "application/json; charset=utf-8",
         JSON.stringify({ agents: listAgents(), preferred: DEFAULT_AGENT }),
       );
+      return;
+    }
+    // The document as it stands, framed — WITHOUT touching it. `/seed` is
+    // "start over" and rewrites the session's phone from a fixture; leaving Run
+    // mode used to go through it, which threw away every edit the agent had
+    // made. Coming back from Run is not starting over.
+    if (url.pathname === "/doc") {
+      const file = path.join(sessionDir(), "doc.evg.json");
+      if (!fs.existsSync(file)) {
+        send(res, 404, "application/json; charset=utf-8", JSON.stringify({ error: "no document in this session" }));
+        return;
+      }
+      const events = frameDocument(file);
+      const frame = events.find((e) => e && e.t === "frame") || {};
+      send(
+        res,
+        200,
+        "application/json; charset=utf-8",
+        JSON.stringify({
+          kind: lastKind,
+          width: frame.width || 390,
+          height: frame.height || 844,
+          ncmds: frame.ncmds || 0,
+          added: 0,
+          nodes: frame.nodes || 0,
+          list: frame.list || { cmds: [] },
+          measure: events.find((e) => e && e.t === "measure") || null,
+        }),
+      );
+      return;
+    }
+    if (url.pathname === "/saved") {
+      send(res, 200, "application/json; charset=utf-8", JSON.stringify({ saved: savedList() }));
+      return;
+    }
+    if (url.pathname === "/save" && req.method === "POST") {
+      readBody(req, 4096)
+        .then((body) => {
+          const ask = JSON.parse(body || "{}");
+          const made = saveSession(ask.name);
+          send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ...made, saved: savedList() }));
+        })
+        .catch((e) => {
+          send(res, 500, "application/json; charset=utf-8", JSON.stringify({ error: String(e.message || e) }));
+        });
+      return;
+    }
+    if (url.pathname === "/open" && req.method === "POST") {
+      readBody(req, 4096)
+        .then((body) => {
+          const ask = JSON.parse(body || "{}");
+          const opened = openSaved(ask.slug);
+          const events = frameDocument(path.join(sessionDir(), "doc.evg.json"));
+          const frame = events.find((e) => e && e.t === "frame") || {};
+          send(
+            res,
+            200,
+            "application/json; charset=utf-8",
+            JSON.stringify({
+              ...opened,
+              kind: lastKind,
+              width: frame.width || 390,
+              height: frame.height || 844,
+              ncmds: frame.ncmds || 0,
+              added: 0,
+              nodes: frame.nodes || 0,
+              list: frame.list || { cmds: [] },
+              measure: events.find((e) => e && e.t === "measure") || null,
+            }),
+          );
+        })
+        .catch((e) => {
+          send(res, 500, "application/json; charset=utf-8", JSON.stringify({ error: String(e.message || e) }));
+        });
       return;
     }
     if (url.pathname === "/seed") {
@@ -364,6 +896,7 @@ function main() {
     }
     if (url.pathname === "/stream") {
       const prompt = url.searchParams.get("prompt") || "";
+      if (prompt) lastPrompt = prompt;
       // Follow-up never remaps the seed from the typed ask. Kind chips
       // (via /seed) are the only start-over; lastKind is that seed.
       const chip = url.searchParams.get("kind") || lastKind;

@@ -19,6 +19,7 @@
 ; ==============================================================================
 
 Import "EVGPatch.rgr"
+Import "EVGCodepoint.rgr"
 Import "EVGTreeJson.rgr"
 Import "EVGElement.rgr"
 Import "EVGInspect.rgr"
@@ -120,6 +121,40 @@ class EVGPatchTest {
         p.rollback(root)
         this.same("rollback put the old one back" (EVGPatch.readProp(card "width")) before)
         this.ok("and it is still inline, as it was" (card.hasInline("width")))
+    }
+
+    ; An id is the one thing on a node that nothing paints and everything else
+    ; depends on: the hit test answers with it, and an app turns it into an
+    ; event. It round-trips like any other edit, and it refuses to name two
+    ; nodes the same, because a press can only reach one of them.
+    fn testSetId:void () {
+        print ""
+        print "-- set-id"
+        def root:EVGElement (this.build())
+        def p (new EVGPatch())
+        def list:[EVGPatchOp] (this.ops())
+        push list (EVGPatchOp.setId("0/0" "nav.map"))
+        def r:EVGPatchResult (p.apply(root list))
+        this.ok("it applied" r.ok)
+        def card:EVGElement (itemAt root.children 0)
+        this.same("the node is named" card.id "nav.map")
+        p.rollback(root)
+        this.same("rollback takes the name off again" card.id "")
+    }
+
+    fn testDuplicateId:void () {
+        print ""
+        print "-- two nodes, one id"
+        def root:EVGElement (this.build())
+        def p (new EVGPatch())
+        def list:[EVGPatchOp] (this.ops())
+        push list (EVGPatchOp.setId("0/0" "nav.map"))
+        push list (EVGPatchOp.setId("0/k:side" "nav.map"))
+        def r:EVGPatchResult (p.apply(root list))
+        this.ok("the batch is refused" (r.ok == false))
+        this.ok("the reason names the node that has it" ((indexOf (r.reason()) "0/0") >= 0))
+        def card:EVGElement (itemAt root.children 0)
+        this.same("and nothing landed" card.id "")
     }
 
     fn testUnknownProperty:void () {
@@ -442,6 +477,52 @@ class EVGPatchTest {
         this.ok("but it has its tag" ((indexOf text "\"tag\":\"div\"") >= 0))
     }
 
+    ; A document an agent wrote by hand. Anything that is not ASCII arrives as
+    ; `\uXXXX` — that is what every JSON writer emits — and the reader used to
+    ; drop the backslash and keep the four hex digits, so a middot reached the
+    ; screen as the literal text `u00b7`. It reads as a broken font, which is
+    ; the wrong thing to go looking at.
+    fn testUnicodeEscapes:void () {
+        print ""
+        print "-- \\uXXXX, including a surrogate pair"
+        def json:string "{\"evg\":1,\"root\":{\"tag\":\"div\",\"children\":[{\"tag\":\"span\",\"text\":\"7h \\u00b7 42m \\u203a \\ud83d\\ude00\"}]}}"
+        def back@(optional):EVGElement (EVGTreeJson.fromText(json))
+        this.ok("it read" ((null? back) == false))
+        if (null? back) {
+            return
+        }
+        def tree:EVGElement (unwrap back)
+        def label:EVGElement (itemAt tree.children 0)
+        def want:string ((((("7h " + (EVGCodepoint.toStr(183))) + " 42m ") + (EVGCodepoint.toStr(8250))) + " ") + (EVGCodepoint.toStr(128512)))
+        this.same("every escape became its character" label.textContent want)
+        ; And it survives the way back out, which is where a half-decoded
+        ; string would show up as mojibake instead of a missing character.
+        def again@(optional):EVGElement (EVGTreeJson.fromText((EVGTreeJson.toText(tree))))
+        if (null? again) {
+            this.ok("it wrote back" false)
+            return
+        }
+        def back2:EVGElement (unwrap again)
+        def label2:EVGElement (itemAt back2.children 0)
+        this.same("and the round trip" label2.textContent want)
+    }
+
+    ; A malformed escape is not a crash and not a silent drop: it stays as it
+    ; was written, so the mistake is visible in the document that has it.
+    fn testBadEscape:void () {
+        print ""
+        print "-- an escape that is not one"
+        def json:string "{\"evg\":1,\"root\":{\"tag\":\"div\",\"children\":[{\"tag\":\"span\",\"text\":\"half \\u00zz\"}]}}"
+        def back@(optional):EVGElement (EVGTreeJson.fromText(json))
+        this.ok("it still read" ((null? back) == false))
+        if (null? back) {
+            return
+        }
+        def tree:EVGElement (unwrap back)
+        def kid:EVGElement (itemAt tree.children 0)
+        this.same("and kept what was written" kid.textContent "half u00zz")
+    }
+
     fn testTextWithQuotes:void () {
         print ""
         print "-- text that needs escaping"
@@ -516,6 +597,8 @@ class EVGPatchTest {
         print "=== EVGPatch: every edit carries its own undo ==="
         this.testSetProp()
         this.testSetPropOverExisting()
+        this.testSetId()
+        this.testDuplicateId()
         this.testUnknownProperty()
         this.testValueTheEngineRejects()
         this.testNoSuchNode()
@@ -536,6 +619,8 @@ class EVGPatchTest {
         this.testRoundTrip()
         this.testDefaultsAreNotWritten()
         this.testTextWithQuotes()
+        this.testUnicodeEscapes()
+        this.testBadEscape()
         this.testPatchThenSave()
         this.testNotThisFormat()
         print ""

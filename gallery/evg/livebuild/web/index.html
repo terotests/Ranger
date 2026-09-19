@@ -58,7 +58,11 @@
   .chips, .agents { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .chip.active { border-color: #2dd4bf88; color: var(--accent); }
   .chip.off { opacity: .45; cursor: not-allowed; }
+  /* Run mode: the phone is an app, not a drawing, and the cursor says so. */
+  .chip.live { border-color: #2dd4bf88; background: #134e4a; color: #ccfbf1; }
+  .screen.live { cursor: pointer; }
   .lbl { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+  select.chip { appearance: none; max-width: 190px; }
   /* A picture attached to the ask: what it traced to, and the colours it is
      made of, so the palette is visible to the person too. */
   .attach { display: flex; align-items: center; gap: 8px; }
@@ -184,6 +188,13 @@
     </span>
   </div>
   <div class="chips" id="chips"></div>
+  <button type="button" class="chip" id="run" title="Run the app: the machine owns the page, a press is an event">Run</button>
+  <button type="button" class="chip" id="makeapp" hidden title="Write app/machine.json and a page per state from this phone">Make this an app</button>
+  <span class="lbl">Keep</span>
+  <button type="button" class="chip" id="save" title="Save this phone — the document and its app — so it survives the next start over">Save</button>
+  <select id="saved" class="chip" title="Open a saved design back into this session">
+    <option value="">Saved…</option>
+  </select>
   <div class="agents" id="agents"></div>
 </header>
 <main>
@@ -278,6 +289,81 @@ $("ask").addEventListener("submit", (e) => {
   e.preventDefault();
   start(true);
 });
+
+// SAVING, AND GETTING IT BACK.
+//
+// The session is a temp directory, so everything made here was being thrown
+// away by the next start-over. A save copies the session's own files — the
+// document, and the app if the screen became one — under `saved/<name>/`, and
+// opening one copies them back. Nothing is derived on the way out, so nothing
+// can be lost on the way in: what you open is the screen you saved, still
+// editable, app and all.
+function paintSaved(list) {
+  const sel = $("saved");
+  const keep = sel.value;
+  sel.replaceChildren();
+  const head = document.createElement("option");
+  head.value = "";
+  head.textContent = list.length ? `Saved (${list.length})…` : "Saved…";
+  sel.append(head);
+  for (const d of list) {
+    const o = document.createElement("option");
+    o.value = d.slug;
+    o.textContent = d.pages ? `${d.name} · ${d.pages} pages` : d.name;
+    o.title = d.prompt || "";
+    sel.append(o);
+  }
+  sel.value = keep && list.some((d) => d.slug === keep) ? keep : "";
+}
+
+async function refreshSaved() {
+  try {
+    paintSaved((await (await fetch("/saved")).json()).saved || []);
+  } catch {
+    /* the list is a convenience; the page works without it */
+  }
+}
+
+$("save").addEventListener("click", async () => {
+  const name = prompt("Save this phone as:", current || "screen");
+  if (name === null) return;
+  $("save").disabled = true;
+  try {
+    const d = await runFetch("/save", { name });
+    paintSaved(d.saved || []);
+    $("saved").value = d.slug;
+    note(`saved as “${d.name}”${d.pages ? ` with ${d.pages} pages` : ""} — reopen it from Saved`);
+  } catch (e) {
+    note("save failed: " + (e.message || e));
+  } finally {
+    $("save").disabled = false;
+  }
+});
+
+$("saved").addEventListener("change", async (ev) => {
+  const slug = ev.target.value;
+  if (!slug) return;
+  if (runMode) leaveRun();
+  try {
+    const d = await runFetch("/open", { slug });
+    current = d.kind || current;
+    paintFrame(d);
+    paintMeasure(d.measure);
+    $("added").textContent = "seed";
+    $("kindLabel").textContent = d.name || current;
+    $("findings").replaceChildren();
+    note(d.prompt ? `opened “${d.name}” — asked for: ${d.prompt}` : `opened “${d.name}”`);
+  } catch (e) {
+    note("open failed: " + (e.message || e));
+  }
+});
+
+// One line under the phone, where everything else about the screen is said.
+function note(text) {
+  const el = document.createElement("div");
+  el.textContent = text;
+  $("findings").replaceChildren(el);
+}
 
 async function loadSeed(kind) {
   if (es) { es.close(); es = null; }
@@ -523,6 +609,226 @@ window.addEventListener("paste", (ev) => {
   }
 });
 
+// --- RUN MODE -----------------------------------------------------------------
+//
+// Design mode streams a display list per frame, which is what drawing a screen
+// looks like. Run mode is the app: `/app` is the page for the state the
+// machine is in, a click is a point the host turns into an event, and what
+// comes back is the page for wherever that left it. The painter is the same
+// one; what changes is who decides what it paints.
+let runMode = false;
+
+async function runFetch(url, body) {
+  const res = await fetch(url, body
+    ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }
+    : undefined);
+  const d = await res.json();
+  if (d.error) throw new Error(d.error);
+  return d;
+}
+
+function paintApp(d) {
+  paintFrame(d);
+  paintMeasure(d.layout ? { ...d.layout, findings: d.layout.findings || [] } : null);
+  $("kindLabel").textContent = `app · ${d.state}${d.code ? " · code" : d.local ? " · in the tab" : ""}`;
+  $("added").textContent = d.took === false && d.pressed ? "no event" : "app";
+  const lines = [];
+  // The example app is not this session's phone, and saying so is the whole
+  // difference between "Run does nothing" and "Run is running something else".
+  if (d.example) {
+    lines.push(["bad", "this is the example app — the phone you designed is a document, not an app yet"]);
+    $("makeapp").hidden = false;
+  } else {
+    $("makeapp").hidden = true;
+  }
+  // A press that lands on an identical page looks like nothing happened. Say
+  // which states share a document, so the next ask to the agent is the right
+  // one — make the screens differ, not "the button is broken".
+  if ((d.copies || []).length) {
+    const pairs = d.copies.map(([a, b]) => `${a} = ${b}`).join(", ");
+    lines.push(["bad", `${pairs}: the same document, so a press moves the machine and the screen does not change`]);
+  }
+  if (d.pressed && d.took === false) {
+    lines.push(["bad", `#${d.pressed || "nothing"} is not an event of ${d.state}`]);
+  }
+  lines.push(["", (d.events || []).slice(-4).join(" → ") || "no presses yet"]);
+  $("findings").replaceChildren(...lines.map(([cls, text]) => {
+    const el = document.createElement("div");
+    if (cls) el.className = cls;
+    el.textContent = text;
+    return el;
+  }));
+}
+
+// A designed screen becomes an app: the machine and a page per state, written
+// from the phone that is on the page. Which parts of each screen differ is a
+// design decision, so every page starts as the same screen and `check` says
+// what is missing.
+async function makeApp() {
+  $("makeapp").disabled = true;
+  $("makeapp").textContent = "Writing…";
+  try {
+    const made = await runFetch("/app/init", { states: "" });
+    const missing = (made.missing || []).join(", ");
+    $("think").textContent = [
+      `app/machine.json written: ${(made.states || []).join(", ")}`,
+      `${made.pages} page${made.pages === 1 ? "" : "s"}, ${made.idsOnTheScreen} pressable id${made.idsOnTheScreen === 1 ? "" : "s"} on the screen`,
+      missing ? `missing: ${missing}` : "",
+      made.next || "",
+      "",
+      "Ask the agent to give the tabs those ids and make each page its own — then press Run again.",
+    ].filter(Boolean).join("\n\n");
+    await enterRun();
+  } catch (e) {
+    $("think").append("\n\napp: " + (e.message || e));
+  } finally {
+    $("makeapp").disabled = false;
+    $("makeapp").textContent = "Make this an app";
+  }
+}
+
+$("makeapp").addEventListener("click", makeApp);
+
+// THE APP RUNS HERE, NOT ON THE SERVER.
+//
+// A data app is a machine and one document per state — data, all of it. The
+// host sends it once and the runtime compiled from EvgAppWeb.rgr does the
+// rest in this tab: hit test the laid-out page, send the id, build the page
+// for wherever the machine landed. A press is a function call, about 2ms,
+// and it needs no process, no tool and no shell on anybody's machine — which
+// is the point, because the agent that designed the screen may be on the
+// other side of a network with none of those.
+//
+// A code app is a compiled program the server imports and holds open, so it
+// stays on the server. `webApp` being null is how this page knows which it is
+// looking at, and nothing else changes.
+let webApp = null;
+let webData = null;
+let webEvents = [];
+
+// The bundle is a classic script and declares `class EvgAppWeb`, which makes a
+// global LEXICAL binding — not a property of `window`. Looking for it on
+// `window` finds nothing and falls back to the server, quietly, forever.
+const runtimeCtor = () => (typeof EvgAppWeb === "undefined" ? null : EvgAppWeb);
+
+async function loadWebRuntime(data) {
+  if (!runtimeCtor()) {
+    await new Promise((ok, no) => {
+      const s = document.createElement("script");
+      s.src = "/app/web.js";
+      s.onload = ok;
+      s.onerror = () => no(new Error("the browser runtime did not load"));
+      document.head.append(s);
+    });
+  }
+  const Ctor = runtimeCtor();
+  if (!Ctor) throw new Error("the browser runtime did not define EvgAppWeb");
+  const w = new Ctor();
+  if (!w.boot(data.machine)) throw new Error("the machine did not load");
+  for (const [state, doc] of Object.entries(data.pages || {})) w.put(state, doc);
+  window.webApp = w;
+  return w;
+}
+
+// One frame, from the runtime in this tab, in the shape paintApp takes.
+function webFrame(data, extra = {}) {
+  const f = JSON.parse(webApp.frame());
+  return { ...f, app: data.app, example: data.example, copies: data.copies, events: webEvents, local: true, ...extra };
+}
+
+async function enterRun() {
+  runMode = true;
+  if (es) { es.close(); es = null; }
+  $("run").classList.add("live");
+  $("screen").classList.add("live");
+  $("go").disabled = true;
+  $("think").innerHTML = '<span class="empty">Run mode: the machine owns the page. Press the phone — an element\'s id is the event it sends.</span>';
+  $("ops").innerHTML = '<span class="empty">Design mode streams ops. Run mode sends events.</span>';
+  webApp = null;
+  webEvents = [];
+  try {
+    const data = await runFetch("/app/data");
+    if (data.code) {
+      paintApp(await runFetch("/app?reset=1"));
+      return;
+    }
+    webData = data;
+    webApp = await loadWebRuntime(data);
+    paintApp(webFrame(data));
+  } catch (e) {
+    // The runtime failing is not a reason to have no app: the server can
+    // still answer, slower. Falling back quietly would hide a broken build,
+    // so it says which one is running.
+    try {
+      paintApp(await runFetch("/app?reset=1"));
+      $("think").append("\n\nthe browser runtime did not start (" + (e.message || e) + ") — running on the server instead");
+    } catch (e2) {
+      leaveRun();
+      $("think").append("\n\napp: " + (e2.message || e2));
+    }
+  }
+}
+
+// Back to design mode. It shows THE DOCUMENT AS IT STANDS — `loadSeed` would
+// re-seed the session from a fixture, which is what "start over" means, and
+// turning Run off is not that. It was, and it silently threw away every edit
+// the agent had made.
+async function leaveRun() {
+  runMode = false;
+  webApp = null;
+  webData = null;
+  webEvents = [];
+  $("makeapp").hidden = true;
+  $("run").classList.remove("live");
+  $("screen").classList.remove("live");
+  $("go").disabled = false;
+  try {
+    const d = await (await fetch("/doc")).json();
+    if (d.error) throw new Error(d.error);
+    paintFrame(d);
+    paintMeasure(d.measure);
+    $("added").textContent = "seed";
+    $("kindLabel").textContent = current;
+    $("findings").replaceChildren();
+  } catch (e) {
+    // Only if there is no document to come back to.
+    loadSeed(current);
+  }
+}
+
+$("run").addEventListener("click", () => {
+  if (runMode) leaveRun();
+  else enterRun();
+});
+
+// The phone is 390×844 and painted at that size, so the point the host hit
+// tests is the point inside the element. No scaling, no second coordinate
+// system to keep in step.
+$("screen").addEventListener("click", async (ev) => {
+  // A press on a document is not a press on anything. Saying so is the
+  // difference between a feature that is off and a feature that is broken.
+  if (!runMode) {
+    const line = document.createElement("div");
+    line.textContent = "design mode — this phone is a document. Press Run to drive it.";
+    $("findings").replaceChildren(line);
+    return;
+  }
+  const box = $("screen").getBoundingClientRect();
+  const x = Math.round(ev.clientX - box.left);
+  const y = Math.round(ev.clientY - box.top);
+  try {
+    if (webApp) {
+      const hit = JSON.parse(webApp.press(x, y));
+      if (hit.id && hit.takes) webEvents = [...webEvents, hit.id];
+      paintApp(webFrame(webData, { pressed: hit.id, took: hit.takes }));
+      return;
+    }
+    paintApp(await runFetch("/app/press", { x, y }));
+  } catch (e) {
+    $("think").append("\n\napp: " + (e.message || e));
+  }
+});
+
 function spin(on) {
   $("spin").classList.toggle("on", on);
 }
@@ -535,5 +841,22 @@ function cursor() {
   return c;
 }
 
-loadSeed(current);
+// A reload is not a start-over either. The session's document is what the
+// page shows when it opens; a fixture only when there is nothing there.
+async function boot() {
+  try {
+    const d = await (await fetch("/doc")).json();
+    if (d.error) throw new Error(d.error);
+    current = d.kind || current;
+    paintFrame(d);
+    paintMeasure(d.measure);
+    $("added").textContent = "seed";
+    $("kindLabel").textContent = current;
+  } catch {
+    await loadSeed(current);
+  }
+  refreshSaved();
+}
+
+boot();
 </script>

@@ -236,6 +236,55 @@ if (fs.existsSync(path.join(root, "lib/evg/bin/evg_agent.js"))) {
   clearAttachment(dir);
 }
 
+// An app workspace gets a different guide, and the tool to work it with. What
+// is checked here is the habit the guide has to teach: read the memory first,
+// refresh it last — because an agent comes back to a multi-screen app with
+// none of the last pass in its head.
+{
+  resetSession("dashboard");
+  const dir = sessionDir();
+  fs.rmSync(path.join(dir, "app"), { recursive: true, force: true });
+  const plain = fs.readFileSync(path.join(dir, "AGENTS.md"), "utf8");
+  if (/This is an app/.test(plain)) throw new Error("a one-screen workspace was told it is an app");
+  // The section that was missing, and the reason an agent asked for four tabs
+  // went looking inside the compiled tool for a `goto`. A document has no
+  // navigation; the guide has to say so, and say what does.
+  for (const need of ["This document is one screen", "presses Run", "set-id", "nav."]) {
+    if (!plain.includes(need)) throw new Error(`a document workspace is never told about ${need}`);
+  }
+  console.log("  no app yet  a document says it is one screen, and names the way to more");
+  fs.cpSync(path.join(here, "fixtures/app"), path.join(dir, "app"), { recursive: true });
+  prepareSession("add a fourth screen", { kind: "dashboard" });
+  const guide = fs.readFileSync(path.join(dir, "AGENTS.md"), "utf8");
+  for (const need of ["This is an app", "app/APP.md", "./evg-app check", "./evg-app memo", "data model"]) {
+    if (!guide.includes(need)) throw new Error(`the app guide never mentions ${need}`);
+  }
+  // Unconditional, and it was not: skipping this when the binary happened to
+  // be missing is what let a workspace ship without `./evg-app` for a whole
+  // session. `bin/` is ignored by git, so "not built" is the state of every
+  // fresh clone — the installer builds it, and this is what says it did.
+  if (!fs.existsSync(path.join(dir, "evg-app"))) throw new Error("no ./evg-app in the workspace");
+  console.log("  app         guide + ./evg-app, memory first and last");
+  // A code app gets the other guide, and the shim has to know the difference
+  // without being told — an agent should not carry which kind it is holding.
+  fs.cpSync(path.join(here, "fixtures/codeapp"), path.join(dir, "app"), { recursive: true });
+  fs.rmSync(path.join(dir, "app", "bin"), { recursive: true, force: true });
+  prepareSession("make it a program", { kind: "dashboard" });
+  const codeGuide = fs.readFileSync(path.join(dir, "AGENTS.md"), "utf8");
+  for (const need of ["This app is a program", "kit.use", "./evg-app build app", "pkg:evg-livebuild"]) {
+    if (!codeGuide.includes(need)) throw new Error(`the code-app guide never mentions ${need}`);
+  }
+  if (codeGuide.includes("pages/<state>.evg.json is the screen")) {
+    throw new Error("a code app was told to write page documents");
+  }
+  const shim = fs.readFileSync(path.join(dir, "evg-app"), "utf8");
+  for (const need of ["App.rgr", "ranger.json", "app_module.mjs".slice(0, 3)]) {
+    if (!shim.includes(need)) throw new Error(`the shim cannot handle a code app: ${need} missing`);
+  }
+  console.log("  code app    its own guide, and a shim that compiles before it asks");
+  fs.rmSync(path.join(dir, "app"), { recursive: true, force: true });
+}
+
 const selfWs = fs.mkdtempSync(path.join(os.tmpdir(), "evg-self-"));
 fs.writeFileSync(
   path.join(selfWs, "doc.evg.json"),
