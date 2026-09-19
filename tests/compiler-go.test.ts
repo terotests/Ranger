@@ -228,6 +228,27 @@ describe.skipIf(!goAvailable)("Ranger Compiler - Go Target", () => {
     });
   });
 
+  describe("String Joining", () => {
+    // `join` is the only operator in the fixture that reaches into Go's
+    // `strings` package, so this fails to BUILD if the operator stops
+    // declaring `(imp "strings")`. ISSUES.md #88.
+    it("should compile and run join as the sole user of the strings package", () => {
+      const { compile, run } = compileAndRunGo(
+        `${FIXTURES_DIR}/join_strings.rgr`
+      );
+
+      expect(
+        compile.success,
+        `Compile failed: ${compile.error || compile.output}`
+      ).toBe(true);
+      expect(run?.success, `Run failed: ${run?.error}`).toBe(true);
+      expect(run?.output).toContain("a,b,c");
+      expect(run?.output).toContain("solo");
+      expect(run?.output).toContain("[]");
+      expect(run?.output).toContain("Done");
+    });
+  });
+
   describe("Optional Values", () => {
     it("should compile and run optional value handling", () => {
       const { compile, run } = compileAndRunGo(

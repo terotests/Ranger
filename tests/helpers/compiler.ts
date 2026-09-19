@@ -102,6 +102,8 @@ export function compileRanger(
     java7: ".java",
     llvm: ".ll",
     csharp: ".cs",
+    php: ".php",
+    scala: ".scala",
   };
   const ext = extMap[targetLang] || ".js";
   const outputFile = `${sourceBasename}${ext}`;
@@ -223,6 +225,8 @@ export function compileRangerWithFlags(
     java7: ".java",
     llvm: ".ll",
     csharp: ".cs",
+    php: ".php",
+    scala: ".scala",
   };
   const ext = extMap[language] || ".js";
   const outputFile = `${sourceBasename}${ext}`;

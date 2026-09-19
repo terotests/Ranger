@@ -46744,7 +46744,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                   encoded_str_2 = (encoded_str_2 + String.fromCharCode(92)) + String.fromCharCode(34);
                                   break;
                                 case 36 : 
-                                  encoded_str_2 = (encoded_str_2 + String.fromCharCode(92)) + String.fromCharCode(34);
+                                  encoded_str_2 = (encoded_str_2 + String.fromCharCode(92)) + String.fromCharCode(36);
                                   break;
                                 case 92 : 
                                   encoded_str_2 = (encoded_str_2 + String.fromCharCode(92)) + String.fromCharCode(92);
