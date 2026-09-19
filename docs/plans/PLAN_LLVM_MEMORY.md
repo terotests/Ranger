@@ -25,7 +25,7 @@ Tùmù dokumentti kuvaa muistinhallintastrategian Rangerin LLVM-backendille. Katso
 
 **Push-semantiikka (pùùtùs):** owned-lokaalin push arrayhin on **move** ù array ottaa olemassa olevan referenssin, lokaalia ei vapauteta funktion lopussa. Tùmù on oikein koska silmukan runko lowerataan kerran (per-iteraatio retain/release ei toimisi ilman per-iteraatio scope-cleanupia). Borrowed/ei-lokaali arvo pushataan edelleen `ranger_ptrarray_push_owned`-kutsulla (retain).
 
-**Toteutetut tiedostot:** `runtime/ranger_mem.c`, `compiler/ng_LowIRBuilder.rgr`, `compiler/ng_LowIR.rgr`, `compiler/ng_LLVMIRWriter.rgr`, `compiler/ng_LowIRRuntime.rgr`, `tests/fixtures/llvm_mem_*.rgr`, `tests/compiler-llvm.test.ts`
+**Toteutetut tiedostot:** `runtime/ranger_mem.c`, `compiler/LowIRBuilder.rgr`, `compiler/LowIR.rgr`, `compiler/LLVMIRWriter.rgr`, `compiler/LowIRRuntime.rgr`, `tests/fixtures/llvm_mem_*.rgr`, `tests/compiler-llvm.test.ts`
 
 **Seuraavaksi (Vaihe 3):** proper borrow-analyysi (promotoi todistetusti owned-kentùt, poista borrow-by-default-vuodot); sitten `ts_parser_main` natiivi flat-muistiprofiili.
 
@@ -79,14 +79,14 @@ Konkreettisesti tùmù tarkoittaa, ettù **sama omistajuusanalyysi ajetaan aina, mu
 ### 1.3 Miksi tùmù on tùrkeùù nyt
 
 - **LLVM/libc on tiukin asiakas.** Jos analyysi on epùvarma omistajuudesta, manuaalisella targetilla *pitùù* valita konservatiivinen retain/release (ennemmin ylimùùrùinen retain kuin vuoto/double-free). Tùmù on jo nykytilan oletus.
-- **Rust hyùtyy samasta analyysistù mutta eri lopputuloksella.** `StaticAnalyzer` (`ng_StaticAnalysis.rgr`) tuottaa jo `rust_borrow_type` (0=owned, 1=borrow, 2=mut_borrow). Sama omistajuustieto pitùisi jakaa LLVM-polun kanssa.
+- **Rust hyùtyy samasta analyysistù mutta eri lopputuloksella.** `StaticAnalyzer` (`StaticAnalysis.rgr`) tuottaa jo `rust_borrow_type` (0=owned, 1=borrow, 2=mut_borrow). Sama omistajuustieto pitùisi jakaa LLVM-polun kanssa.
 - **Hallituilla targeteilla turha release on haitallista** ù ei vain hyùdytùntù vaan voi olla vùùrin (double-managed). Siksi `memEnabled` portittaa RC:n jo nyt `usesLibc`-lipulla.
 
 ### 1.4 Toteutuksen suunta
 
 1. **Yhteinen omistajuusmalli** (`OwnershipKind`: `owned` / `borrowed` / `moved` / `static`) lasketaan kerran AST/flow-tasolla, riippumatta targetista.
 2. **Target-adapteri** kùùntùù omistajuustuloksen target-spesifiksi koodiksi:
-   - Manuaalinen: retain/release/free + cleanup-pisteet (nykyinen `ng_LowIRBuilder.rgr`-polku).
+   - Manuaalinen: retain/release/free + cleanup-pisteet (nykyinen `LowIRBuilder.rgr`-polku).
    - Rust: borrow-tyypit (nykyinen `StaticAnalyzer`).
    - Hallittu/freestanding: no-op / arena.
 3. **Tiukkuuslippu** (`-strict-ownership` tms.) sallii LLVM-targetille varoituksen/virheen, jos owned-objektin elinkaarta ei voida todistaa (leak-riski). Hallituilla targeteilla lippu on no-op.
@@ -199,7 +199,7 @@ Kùùntùjù emittoi nùmù LLVM-globaaleina (`@Class_typeDesc`, `@Class_typeFields`).
 ## 5. Staattinen analyysi (vaihe 3 ù optimointi)
 
 Hyùdynnetùùn olemassa olevaa infraa:
-- `StaticAnalyzer` (`ng_StaticAnalysis.rgr`) ù mutation/borrow C++/Rustille (ajetaan nyt vain cpp/rust).
+- `StaticAnalyzer` (`StaticAnalysis.rgr`) ù mutation/borrow C++/Rustille (ajetaan nyt vain cpp/rust).
 - `ref_cnt` (parse-aikainen) ù kùyttùlaskenta, dead-local-poisto, Rust-clone.
 - `@(moves)` / `@(pure)` (operaattorit) ù omistajuussiirto ja puhtaus.
 

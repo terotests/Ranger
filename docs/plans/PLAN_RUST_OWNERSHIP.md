@@ -60,7 +60,7 @@ hold one object. Fault 1 is independent, and fixable now.
 
 ### Step 2a, measured
 
-`analyzeClassSharing` in `ng_StaticAnalysis.rgr` runs after the ownership
+`analyzeClassSharing` in `StaticAnalysis.rgr` runs after the ownership
 fixpoint and marks a class shared on the first of: a parameter of its type
 `moved`/`shared` (a callee holds the object while the caller's name lives), a
 def or assignment alias that some name then mutates through, a field or
@@ -95,7 +95,7 @@ make exactly this class a reference.
 
 ## Step 1 — `&T` for a proven-borrowed object parameter
 
-The immutable-borrow marking in `ng_StaticAnalysis.rgr` (`analyzeFunction`)
+The immutable-borrow marking in `StaticAnalysis.rgr` (`analyzeFunction`)
 has always excluded object types, with the comment:
 
 > We do NOT mark object-type parameters as immutable because they may have
@@ -108,7 +108,7 @@ object graph, no return, no storing callee anywhere down the chain. The
 remaining hazards are receiver mutation and reassignment, and the mutation
 pass already tracks both (`is_mutating`, `mutation_count`, `set_cnt`).
 
-**Change.** `applyOwnershipToRustBorrows` in `ng_StaticAnalysis.rgr`, run for
+**Change.** `applyOwnershipToRustBorrows` in `StaticAnalysis.rgr`, run for
 the `rust` target after `analyzeOwnershipAll` (`VirtualCompiler.rgr` now runs
 the ownership pass for Rust as well). A parameter is upgraded to
 `rust_borrow_type = 1` — the writer already emits `name : &T` for that, takes
@@ -149,7 +149,7 @@ work than it once was:
 
 1. The trait support already holds every pattern: `Rc<RefCell<dyn Trait>>`
    fields, `.borrow()` / `.borrow_mut()` at use sites, clone-of-`Rc` on
-   assignment (`ng_RangerRustClassWriter.rgr`, the `rust_needs_rc_wrap`
+   assignment (`RangerRustClassWriter.rgr`, the `rust_needs_rc_wrap`
    paths). The change is to apply the same emission to a concrete class.
 2. The escape analysis now tells which classes need it. A class needs
    reference semantics only if some object of it is ever *aliased and held* —

@@ -17,7 +17,7 @@
 ;      }
 ;    });
 
-Import "ng_RangerProcessCodegen.rgr"
+Import "RangerProcessCodegen.rgr"
 
 class RangerGenericClassWriter {
 

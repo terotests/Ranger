@@ -606,7 +606,7 @@ let oldNum : f64 = self.toNumberOf(_tmp_1);   // expected &Rc<RefCell<EvHandle>>
 
 There are **six** emitters that consume `rust_use_tmpvar`, not four. Two already
 handled the borrow, two more were patched, and the one that mattered was
-`ng_RangerRustClassWriter.rgr:3843` — whose own comment names the case exactly:
+`RangerRustClassWriter.rgr:3843` — whose own comment names the case exactly:
 *"a pre-extracted argument (writeVarDef pulled a nested self-call out of a `let`
 initializer) substitutes its temporary"*. It emitted the temp with no borrow
 prefix at all. Adding the prefix there took the errors to **zero**.

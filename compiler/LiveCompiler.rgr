@@ -1,10 +1,10 @@
 ; SPDX-License-Identifier: MIT
 
 
-Import "ng_RangerFlowParser.rgr"
-Import "ng_CodeNodeCompilerExtensions.rgr"
-Import "ng_RangerLanguageWriters.rgr"
-Import "ng_RangerActiveOperators.rgr"
+Import "RangerFlowParser.rgr"
+Import "CodeNodeCompilerExtensions.rgr"
+Import "RangerLanguageWriters.rgr"
+Import "RangerActiveOperators.rgr"
 
 extension RangerAppWriterContext {
   def rootFile:string "--not-defined--"

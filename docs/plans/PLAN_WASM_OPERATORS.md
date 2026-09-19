@@ -8,10 +8,10 @@ T�m� dokumentti kuvaa, miten `Lang.rgr`:n array/map-operaattorit voidaan tuo
 
 Joten jokainen operaattori pit�� joko:
 
-1. **Laskea alasp�in** `ng_LowIRBuilder.rgr`:ss� (suositeltu), tai
+1. **Laskea alasp�in** `LowIRBuilder.rgr`:ss� (suositeltu), tai
 2. Lis�t� `Lang.rgr`:iin `llvm`-template, **ja** rakentaa erillinen LLVM-template ? Low IR -silta (ei ole olemassa).
 
-K�yt�nn�ss�: **lowering `ng_LowIRBuilder.rgr`:��n + pieni runtime (`RtArray` / `RtMap` tai `Mem`-laajennus)**.
+K�yt�nn�ss�: **lowering `LowIRBuilder.rgr`:��n + pieni runtime (`RtArray` / `RtMap` tai `Mem`-laajennus)**.
 
 ## Nykytila (kes� 2026)
 
@@ -103,8 +103,8 @@ npm run test:llvm
 
 ## Liittyv�t tiedostot
 
-- `compiler/ng_LowIRBuilder.rgr` � lowering
-- `compiler/ng_LowIR.rgr` � `emit*` + intrinsiset
-- `compiler/ng_WATWriter.rgr` / `ng_LLVMIRWriter.rgr`
+- `compiler/LowIRBuilder.rgr` � lowering
+- `compiler/LowIR.rgr` � `emit*` + intrinsiset
+- `compiler/WATWriter.rgr` / `LLVMIRWriter.rgr`
 - `tests/fixtures/llvm_collections.rgr` � luokkapohjainen referenssi
 - `compiler/Lang.rgr` � operaattorim��rittelyt (rivit ~1111, 1881, 2939, 3442�4051)

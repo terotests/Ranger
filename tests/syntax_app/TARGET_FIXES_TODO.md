@@ -76,7 +76,7 @@ C++), `throw` (Python raises, Rust panics).
 - `replace` changed the first occurrence on es6, Go, C++ and Python and every
   occurrence on the other seven. It now changes every occurrence everywhere —
   which is what the compiler's own trigraph escaping in
-  `ng_RangerCppClassWriter.rgr` has always assumed.
+  `RangerCppClassWriter.rgr` has always assumed.
 - `+` between a string and an enum broke Python, `+` between a string and a
   double had no Go, C++ or Python entry on the `double`-first side.
 - `to_int(double)` truncated toward zero on Go and refused an untyped constant;
@@ -159,7 +159,7 @@ ints on PHP.
 
 ### 2. The Go writer
 
-One defect left in `compiler/ng_RangerGolangClassWriter.rgr`, so it needs
+One defect left in `compiler/RangerGolangClassWriter.rgr`, so it needs
 `npm run compile`. (Two others are now fixed: `for` over an array of objects
 dropping the item binding, on `master`; and `(unwrap (get map key))` writing
 the empty type assertion `.value.(())`, which is what stopped the TypeScript

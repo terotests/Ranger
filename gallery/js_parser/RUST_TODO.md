@@ -56,7 +56,7 @@ struct JSNode {
 }
 ```
 
-**Fix needed:** `ng_RangerRustClassWriter.rgr` `writeTypeDef` needs to detect self-referential types.
+**Fix needed:** `RangerRustClassWriter.rgr` `writeTypeDef` needs to detect self-referential types.
 
 ### 3. Field Name Mismatch (line 46)
 
@@ -116,4 +116,4 @@ node gallery/js_parser/js_parser.js -i gallery/js_parser/test_es_modules.js
 
 ## Files to Modify
 
-- `compiler/ng_RangerRustClassWriter.rgr` - Fix code generation issues
+- `compiler/RangerRustClassWriter.rgr` - Fix code generation issues

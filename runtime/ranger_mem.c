@@ -71,7 +71,7 @@ typedef struct {
 #endif
 } RangerObjHeader;
 
-/* Must match buildRtPtrArrayNew in ng_LowIRRuntime.rgr:
+/* Must match buildRtPtrArrayNew in LowIRRuntime.rgr:
  * data | len | cap | owned (element KIND) | rc. */
 typedef struct {
   int64_t data;

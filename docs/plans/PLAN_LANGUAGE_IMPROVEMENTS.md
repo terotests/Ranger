@@ -12,7 +12,7 @@
 | Item | Track | Status |
 |------|-------|--------|
 | Recursive relative import resolution (#61) | 4 | Done (prior work); regression tests added |
-| LF/CRLF/CR line-ending normalization in parser (`ng_parser_v2.rgr`) | 1 | Done |
+| LF/CRLF/CR line-ending normalization in parser (`RangerLispParser.rgr`) | 1 | Done |
 | Type-name diagnostics (no enum integers in errors) | 3.3 | Done |
 | `SPEC_SEMANTICS.md` | 1 | Done |
 | Cross-target conformance harness | 1 | Done |

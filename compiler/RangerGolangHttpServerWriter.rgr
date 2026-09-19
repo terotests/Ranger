@@ -22,10 +22,10 @@
 ;   - Server startup with http.ListenAndServe
 ; ============================================================================
 
-Import "ng_RangerAppWriterContext.rgr"
-Import "ng_RangerAppClassDesc.rgr"
-Import "ng_RangerAppFunctionDesc.rgr"
-Import "ng_CodeNode.rgr"
+Import "RangerAppWriterContext.rgr"
+Import "RangerAppClassDesc.rgr"
+Import "RangerAppFunctionDesc.rgr"
+Import "CodeNode.rgr"
 
 class RangerGolangHttpServerWriter {
     

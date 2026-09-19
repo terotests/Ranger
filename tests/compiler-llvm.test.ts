@@ -189,7 +189,7 @@ describe("Ranger Compiler - LLVM / Low IR backend", () => {
     expect(ll).toContain("@LangCollectionsDemo_run");
     expect(ll).toContain("@RtMap_new");
     // A local `[int]` lowers to the POINTER-array runtime, not RtArray. That is
-    // deliberate (see bindPtrArraySlot in ng_LowIRBuilder.rgr): a locally
+    // deliberate (see bindPtrArraySlot in LowIRBuilder.rgr): a locally
     // created array has to be released at scope end, and routing every local
     // array through one runtime is what makes that uniform. The element kind is
     // 0, so the ints are stored unowned. The behavioural check for this fixture

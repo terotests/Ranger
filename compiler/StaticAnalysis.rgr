@@ -1,15 +1,15 @@
 ; SPDX-License-Identifier: MIT
 
-; ng_StaticAnalysis.rgr
+; StaticAnalysis.rgr
 ; Static analysis pass for C++ and Rust code generation
 ; Detects mutation patterns to generate proper references and borrows
 
-Import "ng_RangerAppParamDesc.rgr"
-Import "ng_RangerAppFunctionDesc.rgr"
-Import "ng_RangerAppClassDesc.rgr"
-Import "ng_RangerAppEnums.rgr"
-Import "ng_CodeNode.rgr"
-Import "ng_RangerAppWriterContext.rgr"
+Import "RangerAppParamDesc.rgr"
+Import "RangerAppFunctionDesc.rgr"
+Import "RangerAppClassDesc.rgr"
+Import "RangerAppEnums.rgr"
+Import "CodeNode.rgr"
+Import "RangerAppWriterContext.rgr"
 
 class StaticAnalyzer {
   def ctx@(optional):RangerAppWriterContext

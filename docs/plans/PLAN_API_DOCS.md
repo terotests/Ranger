@@ -38,11 +38,11 @@ class RangerAppClassDesc {
 }
 ```
 
-`compiler/ng_RangerFlowParser.rgr:2958` reads those nodes out of the class body, finds the
-method by name, and assigns `fndesc.git_doc`. `compiler/ng_RangerDocGenerator.rgr:63`
+`compiler/RangerFlowParser.rgr:2958` reads those nodes out of the class body, finds the
+method by name, and assigns `fndesc.git_doc`. `compiler/RangerDocGenerator.rgr:63`
 (`createClassDoc`) writes them to Markdown under `-classdoc=<file>`.
 
-The whole feature is **two call sites in the tree** (`ng_RangerAppClassDesc.rgr:191`,
+The whole feature is **two call sites in the tree** (`RangerAppClassDesc.rgr:191`,
 `feature_tests.rgr:56`), which is the honest measure of how usable it is:
 
 | Limit | Consequence |
@@ -90,7 +90,7 @@ This is not a proposal about the parser. It is a proposal about what the compile
 with a tree it *already builds*.
 
 `RangerLispParser` ends an expression at a newline when the parent is a block node
-(`compiler/ng_RangerLispParser.rgr:64`, `skip_space`). A `}` that closes the function body
+(`compiler/RangerLispParser.rgr:64`, `skip_space`). A `}` that closes the function body
 returns to the `fn` expression and keeps scanning the same line. So `doc` and the block
 after it become children 4 and 5 of the `fn` node:
 
@@ -103,7 +103,7 @@ doc                   ; child 4   ← the tail
 { public … }          ; child 5   ←
 ```
 
-`EnterFnParts` (`compiler/ng_RangerFlowParser.rgr:1031`) reads children at fixed indices
+`EnterFnParts` (`compiler/RangerFlowParser.rgr:1031`) reads children at fixed indices
 `idx+1`, `idx+2`, `idx+3` and never looks past them. Compiled against the current compiler
 (`bin/output.js`, v3.3.1), every form below was tried as written:
 
@@ -123,7 +123,7 @@ The first five need no parser work at all: the doc block is simply discarded. Th
 `Constructor`, `record` and `shape` errors are arity checks doing their job — noisy, but
 honest. The last row is the one that matters.
 
-`EnterClass` (`ng_RangerFlowParser.rgr:2891`) takes the class body as the *last* child
+`EnterClass` (`RangerFlowParser.rgr:2891`) takes the class body as the *last* child
 (`body_index = chlen() - 1`) and permits a 5-child node because `class Child extends Base { }`
 is 5 children. Append a doc tail to a class and the body index lands on the doc block:
 
@@ -197,7 +197,7 @@ single-valued, so `param` × 4 plus `deprecated { … }` does not fit, and the t
 inside the signature — which is exactly what the tail form is for.
 
 `;` comments stay what they are. They are already collected onto nodes
-(`ng_RangerLispParser.rgr` pushes them to `curr_node.comments`), and they document *the
+(`RangerLispParser.rgr` pushes them to `curr_node.comments`), and they document *the
 implementation*. `doc` documents *the interface*. A compiler that treats them as the same
 thing publishes the notes an author wrote for themselves.
 
@@ -447,7 +447,7 @@ A pass over the parsed tree, before `CollectMethods`:
 
 ```text
 for each node whose children end in [ vref "doc", block ]:
-    node.docNode = block            ; new field, ng_CodeNodeCompilerExtensions.rgr
+    node.docNode = block            ; new field, CodeNodeCompilerExtensions.rgr
     remove those two children
 ```
 
@@ -461,7 +461,7 @@ declaration handlers to skip a trailing doc block — is twelve chances to get i
 one of them is already wrong.
 
 Placement: alongside `DesugarShapes` and `DesugarTrees` at the head of `CollectMethods`
-(`ng_RangerFlowParser.rgr:7164`), which is where the tree is normalised before anything
+(`RangerFlowParser.rgr:7164`), which is where the tree is normalised before anything
 reads it. It runs on imports too, so a documented library keeps its docs.
 
 A `doc` block found anywhere the detach pass did not put it — a bare statement in a class
@@ -470,7 +470,7 @@ that knows the difference.
 
 ### 6.2 Stage 1 — parse the block into a model
 
-New class `RangerDocBlock` (new file `compiler/ng_RangerDocBlock.rgr`):
+New class `RangerDocBlock` (new file `compiler/RangerDocBlock.rgr`):
 
 ```ranger
 class RangerDocParam {
@@ -511,7 +511,7 @@ It hangs off the descriptors that already exist:
 - `RangerAppClassDesc` — classes, records, shapes, enums
 - `RangerAppParamDesc` — fields
 
-`git_doc` (`ng_RangerAppParamDesc.rgr:164`) stays as the legacy slot and is populated from
+`git_doc` (`RangerAppParamDesc.rgr:164`) stays as the legacy slot and is populated from
 `description` so `-classdoc` keeps working unchanged.
 
 ### 6.3 Stage 2 — validate
@@ -1149,8 +1149,8 @@ make a cheap feature wait on an expensive one.
 So documentation lands without layout (§14 phases A and B), the `module` declaration lands
 with it because the *logical* identity is needed for the artifacts, and the language ×
 platform split is real work with its own plan. `CodeWriter.getFileWriter(path, name)`
-(`compiler/ng_writer.rgr:337`) already takes a path, and `-npm`
-(`ng_RangerJavaScriptClassWriter.rgr:1531`) and `-pubspec` are the precedent that the
+(`compiler/CodeWriter.rgr:337`) already takes a path, and `-npm`
+(`RangerJavaScriptClassWriter.rgr:1531`) and `-pubspec` are the precedent that the
 compiler already writes manifests next to output.
 
 ---
@@ -1310,17 +1310,17 @@ against golden files alone.
 
 | Piece | Where |
 | --- | --- |
-| `doc { … }` model, reader, doc-comment renderers | `compiler/ng_RangerDocBlock.rgr` |
-| ApiIR, builder, validation, artifacts, packaging | `compiler/ng_RangerApiDoc.rgr` |
-| `DetachDocBlocks` pass, at the head of `CollectMethods` | `compiler/ng_RangerFlowParser.rgr` |
-| `has_doc_tail` / `docNode` on a node | `compiler/ng_CodeNodeCompilerExtensions.rgr` |
-| `has_doc` / `docBlock` on a descriptor | `compiler/ng_RangerAppParamDesc.rgr` |
-| JSDoc emission | `compiler/ng_RangerJavaScriptClassWriter.rgr` |
-| XML documentation, namespace, visibility | `compiler/ng_RangerCSharpClassWriter.rgr` |
-| KDoc, package statement, visibility | `compiler/ng_RangerKotlinClassWriter.rgr` |
-| DocC markup, visibility | `compiler/ng_RangerSwift6ClassWriter.rgr` |
-| Google docstrings | `compiler/ng_RangerPythonClassWriter.rgr` |
-| dartdoc comments | `compiler/ng_RangerDartClassWriter.rgr` |
+| `doc { … }` model, reader, doc-comment renderers | `compiler/RangerDocBlock.rgr` |
+| ApiIR, builder, validation, artifacts, packaging | `compiler/RangerApiDoc.rgr` |
+| `DetachDocBlocks` pass, at the head of `CollectMethods` | `compiler/RangerFlowParser.rgr` |
+| `has_doc_tail` / `docNode` on a node | `compiler/CodeNodeCompilerExtensions.rgr` |
+| `has_doc` / `docBlock` on a descriptor | `compiler/RangerAppParamDesc.rgr` |
+| JSDoc emission | `compiler/RangerJavaScriptClassWriter.rgr` |
+| XML documentation, namespace, visibility | `compiler/RangerCSharpClassWriter.rgr` |
+| KDoc, package statement, visibility | `compiler/RangerKotlinClassWriter.rgr` |
+| DocC markup, visibility | `compiler/RangerSwift6ClassWriter.rgr` |
+| Google docstrings | `compiler/RangerPythonClassWriter.rgr` |
+| dartdoc comments | `compiler/RangerDartClassWriter.rgr` |
 | Pipeline and options | `compiler/VirtualCompiler.rgr` |
 | Tests and fixtures | `tests/api-docs.test.ts`, `tests/fixtures/api_docs_*.rgr` |
 

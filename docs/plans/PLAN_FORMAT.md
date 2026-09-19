@@ -174,9 +174,9 @@ its parentheses only when it is proven not to need them.
 
 `joined = joined + ((this.arr[k])).asString();` is **two** wraps stacked: the
 receiver wrap above, and an expression wrap from the `suppress_expr_parens`
-path. That flag is declared once (`compiler/ng_writer.rgr:177`), **written at 59
+path. That flag is declared once (`compiler/CodeWriter.rgr:177`), **written at 59
 sites** — 54 of them in the Rust writer alone — and **read at exactly one**
-(`walkCommandList`, `compiler/ng_LiveCompiler.rgr:666`), where it is saved,
+(`walkCommandList`, `compiler/LiveCompiler.rgr:666`), where it is saved,
 immediately cleared, and used to cancel one wrap. A single boolean set from 59
 places and consumed in one is a one-shot suppression, not a precedence model,
 which is why it has to be set and cleared by hand at each site and still misses
@@ -547,7 +547,7 @@ decision. Phase 1 stopped that becoming `((xs[i])).get()`; it did not remove it.
 
 ## 10.5 What shipped: phase 3
 
-`RangerSourceFormat` in `compiler/ng_writer.rgr`, applied in
+`RangerSourceFormat` in `compiler/CodeWriter.rgr`, applied in
 `CodeFileSystem.saveTo` to the finished text of every file whose extension
 names a source language.
 
@@ -832,7 +832,7 @@ V& at(const K& k) { int32_t s = slot_(k); if (s == -1) { throw std::out_of_range
 ```
 
 That is not generated from any Ranger program. It is a **string literal in
-`ng_RangerCppClassWriter.rgr`** — `rg_ordered_map` is a hand-written runtime
+`RangerCppClassWriter.rgr`** — `rg_ordered_map` is a hand-written runtime
 helper the C++ writer prints verbatim, and four of its bodies (and four `find`
 overloads) were written as a whole statement sequence on one line, up to 186
 characters.

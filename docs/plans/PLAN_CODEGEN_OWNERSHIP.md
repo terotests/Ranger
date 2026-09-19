@@ -36,7 +36,7 @@ it in place becomes `T&` in the place of `T`. This works, it is automatic, and
 
 **The ownership inference (all targets, `-strict-ownership`).** Each parameter
 gets an OwnershipKind: `borrowed`, `moved`, `owned`, `shared` or `unknown`.
-`compiler/ng_StaticAnalysis.rgr` stated the limit in its own comment:
+`compiler/StaticAnalysis.rgr` stated the limit in its own comment:
 
 > Phase A only records + reports; it does not change code generation.
 
@@ -90,7 +90,7 @@ int  TokenBag::sumValue( std::shared_ptr<Node> a , std::shared_ptr<Node> b ) {
 
 This is Phase B of a design that is already staged. It needs no annotation.
 
-**Result.** `cppBorrowedObjectParam` in `ng_RangerCppClassWriter.rgr`, with the
+**Result.** `cppBorrowedObjectParam` in `RangerCppClassWriter.rgr`, with the
 pass wired into `VirtualCompiler.rgr` for the C++ target. Two guards keep the
 change safe: a parameter that the program assigns to stays a copy, and every
 parameter of a class that takes part in inheritance stays a copy, because a
@@ -129,7 +129,7 @@ per instance, for a feature that neither program uses.
 `shared_from_this()` call. The writer knows, because the writer emits that
 call.
 
-**Result.** `cppNeedsSharedFromThis` in `ng_RangerCppClassWriter.rgr`. It
+**Result.** `cppNeedsSharedFromThis` in `RangerCppClassWriter.rgr`. It
 reports true for a class whose body uses `this` as a value, and for a class
 that another class extends, because a subclass calls `shared_from_this()`
 through the base.
@@ -182,7 +182,7 @@ eleven of the twelve targets.** See the section below.
 ## Finding 3b — the record constructor did not compile
 
 The compiler builds the constructor of a `record` from its fields
-(`buildRecordConstructor` in `ng_RangerFlowParser.rgr`). The signature it builds
+(`buildRecordConstructor` in `RangerFlowParser.rgr`). The signature it builds
 holds two parameters per field: a marker that carries the name of the keyword
 and no type, and the parameter that carries the value.
 
@@ -232,7 +232,7 @@ an open one.
 extends. The compiler holds the class list, so the test is a lookup. No
 annotation.
 
-**Result.** `ng_RangerSwift6ClassWriter.rgr` reads `is_inherited`, which the
+**Result.** `RangerSwift6ClassWriter.rgr` reads `is_inherited`, which the
 flow parser sets for every class that another class names after `extends`.
 `jpeg_scaler.rgr` gives 22 `final class` of 22, `js_ast.rgr` 41 of 41.
 
@@ -245,9 +245,9 @@ annotation exists.
 
 | Target | `def parent@(weak):Node` becomes | Handling in the writer |
 | --- | --- | --- |
-| Rust | `Option<Weak<RefCell<Node>>>`, assigned with `Rc::downgrade(…)` — and the output does not compile, see the correction below | `ng_RangerRustClassWriter.rgr`, 33 places |
-| C++ | `std::shared_ptr<Node>`, the same as a strong field | `ng_RangerCppClassWriter.rgr`, no mention of the flag |
-| Swift | `var parent : Node?`, no `weak` keyword | `ng_RangerSwift6ClassWriter.rgr`, no handling |
+| Rust | `Option<Weak<RefCell<Node>>>`, assigned with `Rc::downgrade(…)` — and the output does not compile, see the correction below | `RangerRustClassWriter.rgr`, 33 places |
+| C++ | `std::shared_ptr<Node>`, the same as a strong field | `RangerCppClassWriter.rgr`, no mention of the flag |
+| Swift | `var parent : Node?`, no `weak` keyword | `RangerSwift6ClassWriter.rgr`, no handling |
 
 A parent and a child that hold each other therefore stay in memory on C++ and
 on Swift, and the program has no way to say otherwise.
@@ -276,7 +276,7 @@ The cause is under the annotation. The Rust writer gives a class a plain
 Rust needs the Rust object model first, and that is a larger piece of work than
 the C++ and the Swift changes above.
 
-**Result, Swift: done.** `writeVarDef` in `ng_RangerSwift6ClassWriter.rgr`
+**Result, Swift: done.** `writeVarDef` in `RangerSwift6ClassWriter.rgr`
 emits `weak var x : T?` for a field that states `weak` and `optional` and whose
 type is a class of the compilation. Swift needs both parts, because a weak
 reference must be a `var` and must be optional. `@(weak)` without `optional`
@@ -329,7 +329,7 @@ and a child that points back, built with `g++ -std=c++17 -fsanitize=address`:
 `strong`, `lives` and `temp` change no output on any target. Compiled the same
 program with and without each of them for C++, Rust and Swift: the output is
 identical. `lives` and `temp` are read by the lifetime bookkeeping in
-`ng_RangerAppParamDesc.rgr` and by no writer.
+`RangerAppParamDesc.rgr` and by no writer.
 
 ---
 

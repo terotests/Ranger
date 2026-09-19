@@ -81,7 +81,7 @@ proc_send tickChild onTick 1
 - **`handlerName`** — method identifier on the receiver class (not a string literal).
 - **Arguments** — normal Ranger expressions; arity/types checked when the generated `call` is analyzed.
 
-**Lowering:** `ng_RangerProcessProcSend.rgr` rewrites to `if (target.__rangerId != 0) { call target onHello … }`. Reserved names: `start`, `stop`, `hibernate`, `wakeup`, `receiveMessage`, `__ranger*`.
+**Lowering:** `RangerProcessProcSend.rgr` rewrites to `if (target.__rangerId != 0) { call target onHello … }`. Reserved names: `start`, `stop`, `hibernate`, `wakeup`, `receiveMessage`, `__ranger*`.
 
 **Named path send (today):** assign `find_process` + `cast`, then `proc_send` the typed variable:
 

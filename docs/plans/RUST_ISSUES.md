@@ -6,7 +6,7 @@ This document describes the current status and remaining issues with Rust code g
 
 The compiler itself now compiles with **zero rustc errors** as well, and
 `npm run selfhost:parity:rust` passes end to end: `rustc -O` builds the
-81 000-line rendering of `ng_Compiler.rgr`, and that binary compiles the
+81 000-line rendering of `Compiler.rgr`, and that binary compiles the
 compiler's own sources to output byte-identical to the JavaScript build's. The
 six errors that had been left were one defect — a field read whose object is an
 expression rather than a name (`(node.getSecond()).vref`), which no
@@ -48,7 +48,7 @@ The Rust code generator now includes a comprehensive static analysis phase that 
 
 ### Key Components
 
-**1. StaticAnalyzer class** (`compiler/ng_StaticAnalysis.rgr`)
+**1. StaticAnalyzer class** (`compiler/StaticAnalysis.rgr`)
 
 - Mutation detection for buffer/array operators (`buffer_set`, `push`, `set`, etc.)
 - Function parameter analysis (detects which params are mutated)
@@ -145,19 +145,19 @@ fn bindFunctionParams(&mut self, fnNode: TSNode, props: EvalValue) {
 ### Where Fixes Are Needed
 
 **1. For E0308 (assignment from borrowed param)**
-File: `ng_RangerRustClassWriter.rgr`, in `CustomOperator` assignment handling.
+File: `RangerRustClassWriter.rgr`, in `CustomOperator` assignment handling.
 Add check: if RHS is an immutable borrow parameter and LHS is owned field, add `.clone()`.
 
 **2. For E0308 (local vars to immutable borrow params)**  
-File: `ng_RangerRustClassWriter.rgr`, in `writeFnCall` standard path.
+File: `RangerRustClassWriter.rgr`, in `writeFnCall` standard path.
 When passing a local variable (not temp var) to a parameter with `rust_borrow_type == 1`, add `&` prefix.
 
 **3. For E0596 (mutable borrow of immutable ref)**
-File: `ng_StaticAnalysis.rgr`, in `analyzeFunction`.
+File: `StaticAnalysis.rgr`, in `analyzeFunction`.
 Detect when a parameter is passed to a function requiring `&mut` and upgrade the parameter's borrow type.
 
 **4. For E0382 (moved value in loop)**
-File: `ng_StaticAnalysis.rgr`, in `walkForMutations`.
+File: `StaticAnalysis.rgr`, in `walkForMutations`.
 Detect when a variable is used multiple times in a loop body and either:
 
 - Mark it for cloning
@@ -505,9 +505,9 @@ npm run evgcomp:build:cpp
 
 ## Related Files
 
-- `compiler/ng_StaticAnalysis.rgr` - Static analysis implementation
-- `compiler/ng_RangerRustClassWriter.rgr` - Rust code generation
-- `compiler/ng_RangerAppWriterContext.rgr` - Context flags (`isInLhs`, etc.)
+- `compiler/StaticAnalysis.rgr` - Static analysis implementation
+- `compiler/RangerRustClassWriter.rgr` - Rust code generation
+- `compiler/RangerAppWriterContext.rgr` - Context flags (`isInLhs`, etc.)
 - `PLAN_STATIC_ANALYSIS.md` - Detailed static analysis plan
 
 ---

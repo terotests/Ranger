@@ -1,11 +1,11 @@
 ; SPDX-License-Identifier: MIT
 
 
-Import "ng_RangerAppClassDesc.rgr"
-Import "ng_CodeNode.rgr"
-Import "ng_RangerAppWriterContext.rgr"
-Import "ng_writer.rgr"
-Import "ng_parser_v2.rgr"
+Import "RangerAppClassDesc.rgr"
+Import "CodeNode.rgr"
+Import "RangerAppWriterContext.rgr"
+Import "CodeWriter.rgr"
+Import "RangerLispParser.rgr"
 
 class RangerProcessProcStartCheck {
 

@@ -37160,7 +37160,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   cli.printHeader();
                   console.log(cli.info("Re-compiling the compiler itself"));
                   console.log("");
-                  the_file = "ng_Compiler.rgr";
+                  the_file = "Compiler.rgr";
                 } else {
                   if ( (params.values.length) < 1 ) {
                     cli.printHelpHeader();

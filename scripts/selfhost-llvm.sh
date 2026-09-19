@@ -29,7 +29,7 @@ mkdir -p "$OUT"
 echo "==> generating LLVM IR for the compiler"
 RANGER_LIB="./compiler/Lang.rgr;./lib/stdops.rgr" \
   node --max-old-space-size=8192 bin/output.js \
-  -l=llvm ./compiler/ng_Compiler.rgr -nodecli \
+  -l=llvm ./compiler/Compiler.rgr -nodecli \
   -d="$OUT" -o=ranger_compiler.ll -target="$TARGET" > "$LOG" 2>&1
 ERRORS="$(grep -c '\[FAIL\]' "$LOG" || true)"
 echo "    compiler errors: $ERRORS   (full log: $LOG)"
@@ -65,7 +65,7 @@ echo "==> ready: $OUT/rangerc"
 ROUND="tmp/selfhost-llvm-round"
 rm -rf "$ROUND" && mkdir -p "$ROUND"
 echo "==> gen2: the native rangerc compiles the compiler"
-"$OUT/rangerc" -l=es6 ./compiler/ng_Compiler.rgr -nodecli -d="$ROUND" -o=gen2.js > "$ROUND/gen2.log" 2>&1
+"$OUT/rangerc" -l=es6 ./compiler/Compiler.rgr -nodecli -d="$ROUND" -o=gen2.js > "$ROUND/gen2.log" 2>&1
 if [[ ! -f "$ROUND/gen2.js" ]]; then
   echo "    FAILED (see $ROUND/gen2.log)"
   exit 1
@@ -75,7 +75,7 @@ echo "    $(wc -c < "$ROUND/gen2.js") bytes"
 echo "==> reference: the Node build compiles the same sources"
 RANGER_LIB="./compiler/Lang.rgr;./lib/stdops.rgr" \
   node --max-old-space-size=8192 bin/output.js \
-  -l=es6 ./compiler/ng_Compiler.rgr -nodecli -d="$ROUND" -o=ref.js > "$ROUND/ref.log" 2>&1
+  -l=es6 ./compiler/Compiler.rgr -nodecli -d="$ROUND" -o=ref.js > "$ROUND/ref.log" 2>&1
 if cmp -s "$ROUND/gen2.js" "$ROUND/ref.js"; then
   echo "    identical to the Node build"
 else
@@ -86,7 +86,7 @@ fi
 echo "==> gen3: gen2 compiles the compiler"
 RANGER_LIB="./compiler/Lang.rgr;./lib/stdops.rgr" \
   node --max-old-space-size=8192 "$ROUND/gen2.js" \
-  -l=es6 ./compiler/ng_Compiler.rgr -nodecli -d="$ROUND" -o=gen3.js > "$ROUND/gen3.log" 2>&1
+  -l=es6 ./compiler/Compiler.rgr -nodecli -d="$ROUND" -o=gen3.js > "$ROUND/gen3.log" 2>&1
 if cmp -s "$ROUND/gen2.js" "$ROUND/gen3.js"; then
   echo "    gen2 == gen3 -- fixed point"
 else

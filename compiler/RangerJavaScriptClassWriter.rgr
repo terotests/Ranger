@@ -3,7 +3,7 @@
 
 Import "TTypeRegistry.rgr"
 
-Import "ng_WebPageWriter.rgr"
+Import "WebPageWriter.rgr"
 
 class RangerJavaScriptClassWriter {
 

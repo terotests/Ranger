@@ -20,7 +20,7 @@ backend never did.
 - Each lambda is a `RangerAppFunctionDesc` with `is_lambda = true`, its `fnBody`
   (`node.children[2]`), params (from `node.children[1]`), and return type
   (`node.children[0]`), pushed to the enclosing method's `currM.myLambdas`
-  (`ng_RangerFlowParser.rgr:EnterLambdaMethod`).
+  (`RangerFlowParser.rgr:EnterLambdaMethod`).
 - The lambda is parsed under `subCtx.is_capturing = true`; the lambda value node
   is `RangerNodeType.ExpressionType` carrying the signature in `expression_value`,
   and a call through it is flagged `node.has_lambda_call = true`.
@@ -29,7 +29,7 @@ backend never did.
 function **table** + **`elem`** + **type signatures**, **`call_indirect`**, a
 representation for lambda values, capture-set analysis, and the closure
 environment (with RC of captured objects). No wasm function-pointer machinery
-exists in `ng_WATWriter.rgr` yet.
+exists in `WATWriter.rgr` yet.
 
 ## Tiivistelmä (FI)
 
@@ -122,7 +122,7 @@ call_indirect (type $sig)  env  args…  fn_index
 `$sig` is the wasm function type `(param i32 <declared params…>) (result …)` —
 the hidden env `i32` plus the declared signature.
 
-### 2.4 New wasm module machinery (in `ng_WATWriter.rgr`)
+### 2.4 New wasm module machinery (in `WATWriter.rgr`)
 - `(table $lam funcref (elem $lam0 $lam1 …))` — one table of all hoisted lambda
   functions (and any function whose address is taken).
 - `(type $sig_… (func (param …) (result …)))` — one per distinct call_indirect
@@ -144,9 +144,9 @@ param of an enclosing method (not a param of the lambda, not a class field via
 **Good news — the capture set is already computed by the frontend.**
 `RangerAppWriterContext` has `is_capturing` + `captured_variables:[string]`;
 while parsing a lambda body every reference to an outer local is appended to
-`captured_variables` (`ng_RangerAppWriterContext.rgr:858`), and the set is
+`captured_variables` (`RangerAppWriterContext.rgr:858`), and the set is
 exposed on the lambda node as `node.lambda_ctx.captured_variables` (used by the
-existing es6/C++ closure codegen, `ng_RangerFlowParser.rgr:3640`). Nested
+existing es6/C++ closure codegen, `RangerFlowParser.rgr:3640`). Nested
 capture ("2nd tier") is handled too. So the IR pass **reads** the capture set
 rather than computing free variables from scratch — it only needs to classify
 each name (value/string/object/mutated) and lay out the env. Mutation can be

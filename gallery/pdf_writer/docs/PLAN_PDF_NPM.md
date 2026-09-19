@@ -567,4 +567,4 @@ Include all dependencies (fonts, etc.) in the package.
 - Docs site / `ai/QUICKREF.md` - compiler flags and usage
 - `ISSUES.md` - Known issues (especially #62)
 - `gallery/pdf_writer/README.md` - Feature documentation
-- `compiler/ng_RangerJavaScriptClassWriter.rgr` - Module export implementation
+- `compiler/RangerJavaScriptClassWriter.rgr` - Module export implementation

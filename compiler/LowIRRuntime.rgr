@@ -1,7 +1,7 @@
 ; SPDX-License-Identifier: MIT
 
 
-Import "ng_LowIR.rgr"
+Import "LowIR.rgr"
 
 ; Heap-backed [int:int] map runtime for Lang operators (linear probing).
 ; Descriptor layout (16 bytes): keysPtr, valsPtr, cap, size

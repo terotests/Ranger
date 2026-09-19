@@ -10,13 +10,13 @@ The `buffer` type and core operators have been implemented in the Ranger compile
 
 **Files Modified:**
 
-- `compiler/ng_RangerAppEnums.rgr` - Added `Buffer` to RangerNodeType enum
-- `compiler/ng_RangerAppWriterContext.rgr` - Added `buffer` to isPrimitiveType/isDefinedType
-- `compiler/ng_RangerJavaScriptClassWriter.rgr` - Added buffer type mappings
-- `compiler/ng_RangerGolangClassWriter.rgr` - Added buffer type mappings
-- `compiler/ng_RangerRustClassWriter.rgr` - Added buffer type mappings
-- `compiler/ng_RangerCppClassWriter.rgr` - Added buffer type mappings
-- `compiler/ng_RangerJava7ClassWriter.rgr` - Added buffer type mappings
+- `compiler/RangerAppEnums.rgr` - Added `Buffer` to RangerNodeType enum
+- `compiler/RangerAppWriterContext.rgr` - Added `buffer` to isPrimitiveType/isDefinedType
+- `compiler/RangerJavaScriptClassWriter.rgr` - Added buffer type mappings
+- `compiler/RangerGolangClassWriter.rgr` - Added buffer type mappings
+- `compiler/RangerRustClassWriter.rgr` - Added buffer type mappings
+- `compiler/RangerCppClassWriter.rgr` - Added buffer type mappings
+- `compiler/RangerJava7ClassWriter.rgr` - Added buffer type mappings
 - `compiler/Lang.rgr` - Added all buffer operators
 
 **Implemented Operators:**
@@ -373,7 +373,7 @@ class Main {
 
 Adding the `buffer` type requires changes to multiple compiler files:
 
-### 1. ng_RangerAppWriterContext.rgr
+### 1. RangerAppWriterContext.rgr
 
 Add `buffer` to primitive type checks:
 
@@ -392,7 +392,7 @@ fn isDefinedType:boolean (typeName:string) {
 }
 ```
 
-### 2. ng_CodeNode.rgr
+### 2. CodeNode.rgr
 
 Add RangerNodeType enum value:
 
@@ -405,7 +405,7 @@ Buffer
 
 Add type mapping for `buffer`:
 
-**ng_RangerJavaScriptClassWriter.rgr:**
+**RangerJavaScriptClassWriter.rgr:**
 
 ```ranger
 case "buffer" {
@@ -413,7 +413,7 @@ case "buffer" {
 }
 ```
 
-**ng_RangerGolangClassWriter.rgr:**
+**RangerGolangClassWriter.rgr:**
 
 ```ranger
 case "buffer" {
@@ -421,7 +421,7 @@ case "buffer" {
 }
 ```
 
-**ng_RangerRustClassWriter.rgr:**
+**RangerRustClassWriter.rgr:**
 
 ```ranger
 case RangerNodeType.Buffer {
@@ -429,7 +429,7 @@ case RangerNodeType.Buffer {
 }
 ```
 
-**ng_RangerPythonClassWriter.rgr:**
+**RangerPythonClassWriter.rgr:**
 
 ```ranger
 case "buffer" {
@@ -437,7 +437,7 @@ case "buffer" {
 }
 ```
 
-**ng_RangerCppClassWriter.rgr:**
+**RangerCppClassWriter.rgr:**
 
 ```ranger
 case "buffer" {
@@ -459,16 +459,16 @@ The parser should already handle `buffer` as a type name since it's treated as a
 
 | File                                          | Change                                                |
 | --------------------------------------------- | ----------------------------------------------------- |
-| `compiler/ng_RangerAppWriterContext.rgr`      | Add `buffer` to `isPrimitiveType` and `isDefinedType` |
-| `compiler/ng_CodeNode.rgr`                    | Add `Buffer` to `RangerNodeType` enum                 |
-| `compiler/ng_RangerJavaScriptClassWriter.rgr` | Add `buffer` type mapping                             |
-| `compiler/ng_RangerGolangClassWriter.rgr`     | Add `buffer` type mapping                             |
-| `compiler/ng_RangerRustClassWriter.rgr`       | Add `buffer` type mapping                             |
-| `compiler/ng_RangerPythonClassWriter.rgr`     | Add `buffer` type mapping                             |
-| `compiler/ng_RangerCppClassWriter.rgr`        | Add `buffer` type mapping                             |
-| `compiler/ng_RangerCSharpClassWriter.rgr`     | Add `buffer` type mapping                             |
-| `compiler/ng_RangerJava7ClassWriter.rgr`      | Add `buffer` type mapping                             |
-| `compiler/ng_RangerSwift6ClassWriter.rgr`     | Add `buffer` type mapping                             |
+| `compiler/RangerAppWriterContext.rgr`      | Add `buffer` to `isPrimitiveType` and `isDefinedType` |
+| `compiler/CodeNode.rgr`                    | Add `Buffer` to `RangerNodeType` enum                 |
+| `compiler/RangerJavaScriptClassWriter.rgr` | Add `buffer` type mapping                             |
+| `compiler/RangerGolangClassWriter.rgr`     | Add `buffer` type mapping                             |
+| `compiler/RangerRustClassWriter.rgr`       | Add `buffer` type mapping                             |
+| `compiler/RangerPythonClassWriter.rgr`     | Add `buffer` type mapping                             |
+| `compiler/RangerCppClassWriter.rgr`        | Add `buffer` type mapping                             |
+| `compiler/RangerCSharpClassWriter.rgr`     | Add `buffer` type mapping                             |
+| `compiler/RangerJava7ClassWriter.rgr`      | Add `buffer` type mapping                             |
+| `compiler/RangerSwift6ClassWriter.rgr`     | Add `buffer` type mapping                             |
 | `compiler/Lang.rgr`                           | Add all buffer operators                              |
 
 ---

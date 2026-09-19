@@ -7,9 +7,9 @@ T�m� dokumentti kuvaa Rangerin LLVM/WASM-pipelinen nykytilan (kes� 2026). 
 ```text
 Ranger .rgr
     ?  parse / analyze / typecheck
-Low IR (ng_LowIR.rgr, ng_LowIRBuilder.rgr)
-    ?  -l=llvm          ? LLVM IR (ng_LLVMIRWriter.rgr)
-    ?  -l=llvm -wat     ? WAT text (ng_WATWriter.rgr)
+Low IR (LowIR.rgr, LowIRBuilder.rgr)
+    ?  -l=llvm          ? LLVM IR (LLVMIRWriter.rgr)
+    ?  -l=llvm -wat     ? WAT text (WATWriter.rgr)
     ?  wat2wasm         ? .wasm binary
 Host (selain, Node, natiivi) kutsuu exportattuja funktioita
 ```
@@ -31,7 +31,7 @@ Host (selain, Node, natiivi) kutsuu exportattuja funktioita
 - `if` / `while`, paikalliset muuttujat (`alloca` / `load` / `store`)
 - `@(main)` ? LLVM `@main` (ei WAT-demossa pakollinen)
 
-## WAT-backend (`ng_WATWriter.rgr`)
+## WAT-backend (`WATWriter.rgr`)
 
 ### Toimii
 
@@ -121,7 +121,7 @@ ajamista WASM:ssa. Natiivi LLVM-polku sen sijaan yltaa nyt kauas:
 - `npm run selfhost:round:llvm` -> **binaari kaantaa kaantajan**
 
 Kaantaja **self-hostaa nyt LLVM:lla**. Natiivi binaari kaantaa
-`compiler/ng_Compiler.rgr`:n, ja tulos on tavulleen sama kuin Node-buildin
+`compiler/Compiler.rgr`:n, ja tulos on tavulleen sama kuin Node-buildin
 tuottama. Tuo tulos on itsekin toimiva kaantaja: silla kaannetty kaantaja on
 tavulleen sama kuin se itse, eli ketju on kiintopisteessa.
 

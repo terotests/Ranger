@@ -34,7 +34,7 @@ fi
 
 echo "==> 1/4 Ranger compiler + LLVM IR"
 cd "$ROOT"
-if [[ "$ROOT/compiler/ng_LowIRBuilder.rgr" -nt "$ROOT/bin/output.js" ]] || [[ ! -f "$ROOT/bin/output.js" ]]; then
+if [[ "$ROOT/compiler/LowIRBuilder.rgr" -nt "$ROOT/bin/output.js" ]] || [[ ! -f "$ROOT/bin/output.js" ]]; then
   npm run compile --silent
 fi
 RANGER_LIB="$ROOT/compiler/Lang.rgr:$ROOT/lib/stdops.rgr" node "$ROOT/bin/output.js" \

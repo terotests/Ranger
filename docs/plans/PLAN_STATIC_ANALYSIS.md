@@ -6,7 +6,7 @@ The core static analysis infrastructure is now implemented and working for both 
 
 ### What's Been Implemented
 
-1. **StaticAnalyzer class** (`ng_StaticAnalysis.rgr`) - Complete
+1. **StaticAnalyzer class** (`StaticAnalysis.rgr`) - Complete
 
    - Mutation detection for all buffer/array operators
    - Function parameter analysis
@@ -139,7 +139,7 @@ error[E0609]: no field `pixels` on type `Option<EVGUnit>`
      |                                       ^^^^^^ unknown field
 ```
 
-**Root Cause:** The Rust code generator (`ng_RangerRustClassWriter.rgr`) wraps optional types in `Option<T>` but doesn't unwrap them when accessing methods/fields.
+**Root Cause:** The Rust code generator (`RangerRustClassWriter.rgr`) wraps optional types in `Option<T>` but doesn't unwrap them when accessing methods/fields.
 
 **Required Analysis:**
 
@@ -257,7 +257,7 @@ FunctionReturnInfo {
 
 Add new fields to existing compiler structures:
 
-**In `ng_RangerAppParamDesc.rgr`:**
+**In `RangerAppParamDesc.rgr`:**
 
 ```ranger
 ; Already exists
@@ -274,7 +274,7 @@ def needs_cpp_reference:boolean false
 def rust_borrow_type:int 0  ; 0=owned, 1=borrow, 2=mut_borrow
 ```
 
-**In `ng_RangerAppFunctionDesc.rgr`:**
+**In `RangerAppFunctionDesc.rgr`:**
 
 ```ranger
 ; Add new fields
@@ -286,7 +286,7 @@ def mutates_self:boolean false
 
 ### Step 2: Create Analysis Walker
 
-Create new file `compiler/ng_StaticAnalysis.rgr`:
+Create new file `compiler/StaticAnalysis.rgr`:
 
 ```ranger
 class StaticAnalyzer {
@@ -380,7 +380,7 @@ Create a registry of operators that mutate their arguments:
 
 ### Step 4: Modify Code Generation
 
-**For C++, in `ng_RangerCppClassWriter.rgr`:**
+**For C++, in `RangerCppClassWriter.rgr`:**
 
 ```ranger
 fn writeLocalVarDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -399,7 +399,7 @@ fn writeLocalVarDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter
 }
 ```
 
-**For Rust, in `ng_RangerRustClassWriter.rgr`:**
+**For Rust, in `RangerRustClassWriter.rgr`:**
 
 ```ranger
 fn writeFunctionParams:void (fn:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -618,7 +618,7 @@ The static analysis adds compilation time but:
 
 **Partial Implementation Completed (Dec 2024):**
 
-Two fixes were added to `ng_RangerRustClassWriter.rgr`:
+Two fixes were added to `RangerRustClassWriter.rgr`:
 
 1. **Chained field access through optionals** (in `WriteVRef`):
 
@@ -704,7 +704,7 @@ def rust_optional_mutated:boolean false      ; Was this optional mutated through
 def rust_optional_checked:boolean false      ; Was null check done before access?
 ```
 
-**Integration Points in ng_RangerRustClassWriter.rgr:**
+**Integration Points in RangerRustClassWriter.rgr:**
 
 1. `WriteVRef` - Check if path goes through optional, add `.as_ref().unwrap()` or `.as_mut().unwrap()`
 2. `writeFnCall` - Check if method is called on optional type

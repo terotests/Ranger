@@ -66,7 +66,7 @@ why only *bare* field assignments miscompiled.
 
 Removed the redundant widening in `lowerAssign` so the single, correct widening
 in `emitFieldStoreOn` runs. See
-[`compiler/ng_LowIRBuilder.rgr`](../../compiler/ng_LowIRBuilder.rgr) (function
+[`compiler/LowIRBuilder.rgr`](../../compiler/LowIRBuilder.rgr) (function
 `lowerAssign`, class-field branch).
 
 After rebuilding the self-hosted compiler (`npm run compile`):

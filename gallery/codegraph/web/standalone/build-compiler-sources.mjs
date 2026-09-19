@@ -85,8 +85,8 @@ for (const name of Object.keys(files)) {
 if (!files["VirtualCompiler.rgr"]) {
   throw new Error("compiler/VirtualCompiler.rgr missing from the pack");
 }
-if (!files["ng_RangerFlowParser.rgr"]) {
-  throw new Error("compiler/ng_RangerFlowParser.rgr missing from the pack");
+if (!files["RangerFlowParser.rgr"]) {
+  throw new Error("compiler/RangerFlowParser.rgr missing from the pack");
 }
 if (!files["GitPack.rgr"]) {
   throw new Error("pkg/src/GitPack.rgr missing — PkgFetch.rgr cannot resolve");

@@ -1,9 +1,9 @@
 ; SPDX-License-Identifier: MIT
 
 
-Import "ng_LowIR.rgr"
-Import "ng_LowIRRuntime.rgr"
-Import "ng_LowIRTarget.rgr"
+Import "LowIR.rgr"
+Import "LowIRRuntime.rgr"
+Import "LowIRTarget.rgr"
 
 class LowIRLowerContext {
   def ctx@(weak):RangerAppWriterContext

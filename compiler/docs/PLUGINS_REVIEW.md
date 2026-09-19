@@ -294,7 +294,7 @@ plugin.test "MathTests" {
 ### Minimal Plugin Template
 
 ```ranger
-Import "ng_Compiler.rgr"
+Import "Compiler.rgr"
 
 flag npm (
   name "ranger-myplugin"

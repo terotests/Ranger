@@ -92,7 +92,7 @@ const LANGS = [
   // `_site/index.html` -- so `--require` failed the whole deploy over a page
   // nobody could see. The docfx.json the compiler writes has since been given
   // the index.md and toc.yml its `build` stage needs (see writeDocFxConfig in
-  // ng_RangerApiDoc.rgr and the case in api-docs.test.ts), but nothing here
+  // RangerApiDoc.rgr and the case in api-docs.test.ts), but nothing here
   // has run DocFX against it: the egress policy on the dev box blocks the
   // .NET download host, so it cannot be checked before it ships. Put the entry
   // back once a run has actually produced a site.

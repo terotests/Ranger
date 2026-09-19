@@ -1,7 +1,7 @@
 ; SPDX-License-Identifier: MIT
 
 
-Import "ng_LowIR.rgr"
+Import "LowIR.rgr"
 
 ; Target = architecture + environment (e.g. native-linux-gnu, wasm32-wasi).
 

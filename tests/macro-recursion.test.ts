@@ -5,7 +5,7 @@ const FIXTURES = "tests/fixtures";
 
 /**
  * Macro expansion renders the template to Ranger source and walks the result
- * again (`buildMacro` + `WalkNode` in ng_parser_std_match2.rgr). A template
+ * again (`buildMacro` + `WalkNode` in FlowStdMatch.rgr). A template
  * that expands to a call to the same operator therefore has no base case.
  *
  * Before the guard the compiler did not overflow the stack or report anything

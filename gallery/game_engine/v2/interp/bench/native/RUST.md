@@ -12,7 +12,7 @@ binary, and the array path is linear (1.95x for 2x the elements).
 
 ## What was actually wrong
 
-Four writer bugs in `ng_RangerRustClassWriter.rgr`, found by building this
+Four writer bugs in `RangerRustClassWriter.rgr`, found by building this
 binary and running these workloads. Each one is general — none was specific to
 the interpreter.
 

@@ -37,7 +37,7 @@ object-based game/logic code does not.
 - **Phase 3 — string runtime + RC** ✅ *done*
   - 3.1–3.2 ✅ freestanding WASM string runtime (`ranger_str_*` in
     `runtime/wasm/ranger_obj.rgr`: len/concat/dup/from_int/cmp/release; literals
-    in a data segment written by `ng_WATWriter.rgr`; `Mem.loadU8/storeU8` →
+    in a data segment written by `WATWriter.rgr`; `Mem.loadU8/storeU8` →
     `i32.load8_u/store8`). Concat/to_string/strlen all functional (`str_test` 5/5).
   - 3.4 ✅ **owned-string-local RC.** The compiler tracks owned string locals
     (`ownedStringLocals`) and releases them at scope end and per loop iteration
@@ -145,7 +145,7 @@ vapauta mitään.
 
 Ratkaisu on **laajentaa olemassa oleva RC + static cleanup WASM:iin**, ei tehdä
 GC:tä. Toteutuskelpoisuus on **korkea**, koska omistajuusanalyysi ja
-retain/release-lisäys ovat jo *target-riippumattomia* (`ng_LowIRBuilder.rgr`),
+retain/release-lisäys ovat jo *target-riippumattomia* (`LowIRBuilder.rgr`),
 pelkästään `usesLibc`-lipulla pois päältä. Puuttuva osa on WASM-natiivi runtime:
 vapautuslistallokaattori + `ranger_obj_new/release/retain` + typedesc-taulukot
 lineaarimuistiin. Lisänä pelisilmukoille **per-frame areena** (bump + reset),
@@ -158,10 +158,10 @@ natiivilla; ne hoidetaan borrow-by-defaultilla ja heikoilla viittauksilla.
 
 The WAT backend allocates objects with a monotonic bump pointer and never frees:
 
-- `lowerNewObject` (`compiler/ng_LowIRBuilder.rgr:2555`) branches on the target:
+- `lowerNewObject` (`compiler/LowIRBuilder.rgr:2555`) branches on the target:
   libc → `ranger_obj_new(size, typeDesc)`; **freestanding (WASM) → `emitHeapAlloc`
   (bump)**.
-- `heap_alloc` in WAT (`compiler/ng_WATWriter.rgr:439`) is just
+- `heap_alloc` in WAT (`compiler/WATWriter.rgr:439`) is just
   `global.get $heap_ptr` / `i32.add` / `global.set $heap_ptr`. No object header,
   no free, ever.
 
@@ -193,29 +193,29 @@ Ranger already has a complete, deliberate memory model for **manual** targets
   `ranger_ptrarray_release`, `ranger_ptrarray_push_owned`,
   `ranger_mem_live_objects` (test hook).
 - **Insertion is target-agnostic.** All retain/release/obj_new/cleanup is emitted
-  in `ng_LowIRBuilder.rgr` — the LLVM writer is a dumb instruction printer with
+  in `LowIRBuilder.rgr` — the LLVM writer is a dumb instruction printer with
   no RC knowledge. Sites: `lowerNewObject:2568`, `emitReleaseOwnedLocals:2865`
   (function/scope end), `releaseOwnedLocal:2812`, `emitFieldStoreOn:2236`,
   `lowerPush:1304` (move vs push_owned), `lowerReturn:3261` (escape → no release),
   loop-reassignment release (`lowerVarDef:3130`).
 - **The gate.** Every one of those sites is guarded by `target.usesLibc` /
-  `memEnabled()` (`ng_LowIRBuilder.rgr:391`) / `isManualMemory()`. The default
+  `memEnabled()` (`LowIRBuilder.rgr:391`) / `isManualMemory()`. The default
   WASM target `wasm32-hosted-debug` has `usesLibc=false`
-  (`ng_LowIRTarget.rgr:142`), so the RC ops are **never emitted** for WAT — the
+  (`LowIRTarget.rgr:142`), so the RC ops are **never emitted** for WAT — the
   WAT writer isn't ignoring them, they don't exist in its LowIR.
 - **Type descriptors are already built for every struct regardless of target**
   (`lowerTypeDesc:1832`, stored in `LowIRModule.typeDescs`); only the *LLVM
-  writer* serialises them (`ng_LLVMIRWriter.rgr:188`). The WAT writer never
+  writer* serialises them (`LLVMIRWriter.rgr:188`). The WAT writer never
   touches `module.typeDescs`.
 - The ownership analysis defaults object/ptr-array fields to `owned=0`
-  (**borrow-by-default**, `ng_LowIRBuilder.rgr:1854-1867`) to avoid double-free
+  (**borrow-by-default**, `LowIRBuilder.rgr:1854-1867`) to avoid double-free
   on aliased graphs; only string fields are owned by default.
 
 **Reusability verdict: high.** The hard, language-level work — deciding what is
 owned/borrowed/escaped and where to release — is done and target-independent.
 Routing it into WAT is ~90% plumbing: provide the runtime functions + the
 descriptor data in linear memory, and flip the target's memory model. (As
-evidence: `wasm32-wasi` already sets `usesLibc=true` (`ng_LowIRTarget.rgr:151`),
+evidence: `wasm32-wasi` already sets `usesLibc=true` (`LowIRTarget.rgr:151`),
 so compiling with it *already* emits `call $ranger_obj_new` into WAT — it just
 fails because nothing defines those functions or places a typedesc table in
 memory.)
@@ -254,7 +254,7 @@ New components (all additive; no change to the ownership analysis):
 2. **`ranger_obj_new` / `ranger_obj_release` / `ranger_obj_retain` / str /
    ptrarray** emitted as WAT (or a tiny `ranger_mem_wasm.c` compiled to
    `wasm32-unknown-unknown` and linked). `release` walks the typedesc exactly as
-   `ranger_destroy_field` does. The existing `ng_LowIRRuntime.rgr` already shows
+   `ranger_destroy_field` does. The existing `LowIRRuntime.rgr` already shows
    the pattern of emitting runtime functions as target-agnostic LowIR — the same
    mechanism can emit these so they flow through the WAT writer unchanged.
 3. **Typedesc emission into a WASM data segment**: serialise each

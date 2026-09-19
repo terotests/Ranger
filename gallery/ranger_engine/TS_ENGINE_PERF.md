@@ -693,7 +693,7 @@ statement is about what is *linked*, not about a measurement.
 2. **The ptr-array element representation** — (3) and (4) together. Reaching a
    linked parser binary would give the first real size measurement.
 4. **The ~20 operator families for the engine.** Each needs a lowering in
-   `compiler/ng_LowIRBuilder.rgr`, not just template text: the `llvm` entries in
+   `compiler/LowIRBuilder.rgr`, not just template text: the `llvm` entries in
    `Lang.rgr` are s-expressions consumed by the LowIR builder's intrinsic
    dispatch. This is a project, and it should follow (1)–(3), not precede them.
 

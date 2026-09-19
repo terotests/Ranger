@@ -80,7 +80,7 @@ bound. Nothing in four editors has yet needed one.
 ## Two notes on scope that are still worth keeping
 
 **`shape` is sum types, and it is not generics.** It is in the parser
-(`compiler/ng_RangerFlowParser.rgr:4554`), desugars into case classes, and is
+(`compiler/RangerFlowParser.rgr:4554`), desugars into case classes, and is
 used for real in `gallery/game_engine/v2/interp/migrate/src/EvalValue.rgr`. So
 "`JsonValue` and `PlistValue` are hand-rolled variants with a `kind:string`
 field" is a `shape` problem. Don't let the two merge into one work item.

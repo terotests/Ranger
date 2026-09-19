@@ -119,16 +119,16 @@ are just written in the language of a fat class instead of declared to the compi
 
 | Construct | Where | What it gives | What it does not give |
 |---|---|---|---|
-| `union Name (A B C)` | `ng_RangerFlowParser.rgr:4718`; `RangerAppClassDesc.is_union` / `.is_union_of` (`:35` / `:66`) | A nominal set of existing classes usable as a type | No payload, no closedness guarantee, no exhaustiveness, no declared semantics |
+| `union Name (A B C)` | `RangerFlowParser.rgr:4718`; `RangerAppClassDesc.is_union` / `.is_union_of` (`:35` / `:66`) | A nominal set of existing classes usable as a type | No payload, no closedness guarantee, no exhaustiveness, no declared semantics |
 | `case v x:T { … }` | `lib/stdlib.rgr:149` (operator with a template per target) | Runtime narrowing to one member | Not a statement the compiler reasons about — no arm coverage analysis |
 | `is v _:Shape.Case` | `lib/stdlib.rgr`, right after `case` (see `SHAPES_IS_OPERATOR.md`) | The discriminant test alone, as an expression — no binding, no block | No narrowing: when the arm reads the payload, `case` is still the operator |
-| `record` | `ng_RangerFlowParser.rgr:3935`, `:3985`, `:4861` | A class with a synthesized keyword constructor | A reference type on every target — no inline payload |
-| `Enum N:int (…)` | `ng_RangerAppEnums.rgr` | A plain integer enum | No payload |
-| `systemunion` | `ng_RangerFlowParser.rgr:3909` | Unions over system classes | Same limits |
+| `record` | `RangerFlowParser.rgr:3935`, `:3985`, `:4861` | A class with a synthesized keyword constructor | A reference type on every target — no inline payload |
+| `Enum N:int (…)` | `RangerAppEnums.rgr` | A plain integer enum | No payload |
+| `systemunion` | `RangerFlowParser.rgr:3909` | Unions over system classes | Same limits |
 
 `record`'s implementation is worth calling out for a different reason: it desugars by
 **synthesizing Ranger source and re-parsing it** (`buildRecordConstructor`,
-`ng_RangerFlowParser.rgr:3985` — it builds a `Constructor (…)` string, feeds it to
+`RangerFlowParser.rgr:3985` — it builds a `Constructor (…)` string, feeds it to
 `RangerLispParser`, and walks the result). That is the cheapest possible route for
 stage S1 of this plan: a shape can be lowered to constructs every writer already
 handles, with no writer touched at all.
@@ -183,7 +183,7 @@ evidence for how each target will carry a `shape`:
   shared value.
 
   One trap worth recording: `Any` is itself a union of **every** declared class
-  (`ng_RangerFlowParser.rgr:4404`), so "members of a union are shared" has to skip
+  (`RangerFlowParser.rgr:4404`), so "members of a union are shared" has to skip
   it by name — without that exclusion every class in every Rust program becomes
   `Rc<RefCell<T>>`. The same exclusion keeps the trait out of programs that declare
   no union of their own. The cost is that a `case` narrowing on an `:Any`-typed
@@ -200,7 +200,7 @@ evidence for how each target will carry a `shape`:
   the type, which Go rejects outright. The template now emits `_ = binding`.
 
 - **C++.** The `variant.hpp` shim installed next to the generated source
-  (`bin/variant.hpp`, copied by `installFile`, `ng_LiveCompiler.rgr:210`) declared
+  (`bin/variant.hpp`, copied by `installFile`, `LiveCompiler.rgr:210`) declared
   `mpark::variant` and `mpark::get` but not `mpark::holds_alternative`, which is
   exactly what the `case` template emits.
 
@@ -312,7 +312,7 @@ Three consequences the compiler gets for free:
 
 Groups may nest (`PropertyCarrier does Reference`). They may not overlap in v1: a case
 belongs to at most one group chain. Overlapping groups are a lattice, and a lattice
-needs a real subtyping algorithm in `ng_RangerArgMatch.rgr` — not a v1 problem.
+needs a real subtyping algorithm in `RangerArgMatch.rgr` — not a v1 problem.
 
 ### 3.3 Value and reference semantics — implemented (S4, §6.3)
 
@@ -402,7 +402,7 @@ if (v is EvHandle.Reference) { … }              ; group test
 
 Keyword construction (`EvHandle.Array items xs declaredLength 4`) should reuse
 `record`'s existing keyword-argument path (`expandRecordCtorArgsIfNeeded`,
-`ng_RangerFlowParser.rgr:3947`) rather than growing a second one.
+`RangerFlowParser.rgr:3947`) rather than growing a second one.
 
 ### 3.6 Methods — shape, group and case
 
@@ -597,7 +597,7 @@ ShapeGroupDesc
   methods[]      RangerAppFunctionDesc
 ```
 
-`stableTag` matters for the serialize path (`ng_RangerSerializeClass.rgr`) and for any
+`stableTag` matters for the serialize path (`RangerSerializeClass.rgr`) and for any
 on-disk or cross-process representation: variant order in the source must not silently
 renumber a persisted tag. Assign in declaration order, never reorder, and let a future
 `@(tag 7)` pin it explicitly.
@@ -606,13 +606,13 @@ renumber a persisted tag. Assign in declaration order, never reorder, and let a 
 
 | Stage | File | Hook |
 |---|---|---|
-| Registration | `ng_RangerFlowParser.rgr:4718` | next to `union` / `systemunion` in the top-level walker |
-| Statement dispatch | `ng_RangerFlowParser.rgr:~590` | a `case 'shape'` beside `'class'` / `'record'` |
-| Descriptor storage | `ng_RangerAppClassDesc.rgr` | `is_shape`, `shape_of`, `shape_cases`, `shape_groups` beside `is_union` (`:35`) and `is_record` (`:32`) |
-| Type identity / lookup | `TTypeRegistry.rgr`, `ng_RangerAppWriterContext.rgr:1249` | `EvHandle`, `EvHandle.Number` and `EvHandle.Reference` all resolve as types; `b_multitype` must know a shape is multi-typed |
-| Argument matching | `ng_RangerArgMatch.rgr:111`, `:450`, `:551` | a case matches its shape and each of its groups (the union rules generalize) |
-| Exhaustiveness | new pass, invoked where `ng_StaticAnalysis.rgr` runs | needs the full `ShapeDesc` and the arm list; a pure IR pass, no target knowledge |
-| Lowering | `ng_RangerFlowParser.rgr:3985` style | synthesize Ranger source for S1; per-writer emitters from S4 |
+| Registration | `RangerFlowParser.rgr:4718` | next to `union` / `systemunion` in the top-level walker |
+| Statement dispatch | `RangerFlowParser.rgr:~590` | a `case 'shape'` beside `'class'` / `'record'` |
+| Descriptor storage | `RangerAppClassDesc.rgr` | `is_shape`, `shape_of`, `shape_cases`, `shape_groups` beside `is_union` (`:35`) and `is_record` (`:32`) |
+| Type identity / lookup | `TTypeRegistry.rgr`, `RangerAppWriterContext.rgr:1249` | `EvHandle`, `EvHandle.Number` and `EvHandle.Reference` all resolve as types; `b_multitype` must know a shape is multi-typed |
+| Argument matching | `RangerArgMatch.rgr:111`, `:450`, `:551` | a case matches its shape and each of its groups (the union rules generalize) |
+| Exhaustiveness | new pass, invoked where `StaticAnalysis.rgr` runs | needs the full `ShapeDesc` and the arm list; a pure IR pass, no target knowledge |
+| Lowering | `RangerFlowParser.rgr:3985` style | synthesize Ranger source for S1; per-writer emitters from S4 |
 | Codegen | each `ng_Ranger*ClassWriter.rgr` | only for targets whose representation is not the S1 desugaring |
 
 ### 4.3 Representation selection
@@ -699,10 +699,10 @@ Where the S0 changes live:
 | Change | File |
 |---|---|
 | Rust / Dart narrowing templates, Go `_ = binding` | `lib/stdlib.rgr` (mirrored in `compiler/stdlib.rgr`) |
-| Rust union type, `RgNarrow` trait in the header | `compiler/ng_RangerRustClassWriter.rgr` |
-| Union members shared; narrowed binding is a shared local | `compiler/ng_StaticAnalysis.rgr` |
-| Kotlin union type | `compiler/ng_RangerKotlinClassWriter.rgr` |
-| Dart union type, no `?` on `dynamic` | `compiler/ng_RangerDartClassWriter.rgr` |
+| Rust union type, `RgNarrow` trait in the header | `compiler/RangerRustClassWriter.rgr` |
+| Union members shared; narrowed binding is a shared local | `compiler/StaticAnalysis.rgr` |
+| Kotlin union type | `compiler/RangerKotlinClassWriter.rgr` |
+| Dart union type, no `?` on `dynamic` | `compiler/RangerDartClassWriter.rgr` |
 | C++ shim | `bin/variant.hpp` (and the copy under `gallery/invaders/`) |
 | Fixture and tests | `tests/fixtures/union_case.rgr`, `tests/union-narrowing.test.ts`, `tests/compiler-cpp.test.ts` |
 
@@ -749,7 +749,7 @@ toolchain exists, and skipped — not silently passed — where one does not.
 ### 6.1 How S1 lowers a shape
 
 `shape` never reaches a writer. The flow parser rewrites it before class
-collection (`DesugarShapes`, `ng_RangerFlowParser.rgr`), so everything downstream
+collection (`DesugarShapes`, `RangerFlowParser.rgr`), so everything downstream
 sees ordinary declarations:
 
 ```ranger
@@ -1278,11 +1278,11 @@ Open questions worth settling before S1:
 1. **Nested shape declarations** — is `shape PropertySlot` allowed inside
    `shape EvHandle`, or must it be top level? (Top level in v1 is simpler and loses
    nothing.)
-2. **Serialization.** `@serialize(true)` (`ng_RangerSerializeClass.rgr`) needs a rule
+2. **Serialization.** `@serialize(true)` (`RangerSerializeClass.rgr`) needs a rule
    for shapes: `stableTag` in the wire form, or the variant name? Name is more robust
    to reordering, tag is smaller.
 3. **`Any` interaction.** `Any` is itself a union of every declared class
-   (`ng_RangerFlowParser.rgr:4404`). Do shape cases join it? They should not — a shape
+   (`RangerFlowParser.rgr:4404`). Do shape cases join it? They should not — a shape
    case is not independently constructible outside its family. S0 already had to
    exclude `Any` by name twice on the Rust target (§5.1); a shape must not add a third
    place where the universal union has to be special-cased, which argues for giving it
@@ -1395,8 +1395,8 @@ closed. See §3.6 for the source-level contract. Implementation order:
 | Milestone | Deliverable | Primary files |
 |---|---|---|
 | **C0** | Language contract + canonical fixture | `PLAN_SHAPES.md`, `tests/fixtures/shape_group_methods.rgr` |
-| **C1** | `ShapeViewDesc` (shape / group / case views with allowed-case lists); subtyping remains union-based for portable lowering | `ng_RangerAppClassDesc.rgr`, parser maps |
-| **C2** | Parse `fn`/`sfn` in group and case bodies; nested `group A does B`; bodyless = required | `ng_RangerFlowParser.rgr` |
+| **C1** | `ShapeViewDesc` (shape / group / case views with allowed-case lists); subtyping remains union-based for portable lowering | `RangerAppClassDesc.rgr`, parser maps |
+| **C2** | Parse `fn`/`sfn` in group and case bodies; nested `group A does B`; bodyless = required | `RangerFlowParser.rgr` |
 | **C3** | Required-method completeness; exact signature match; `@(override)` on replacing a default | shape finalization inside `expandShape` |
 | **C4** | Portable ops lowering: `Shape_Group__ops` dispatchers, `Shape_Case__ops` impls | `attachShapeMethods` / new helpers in the flow parser |
 | **C5** | Group field projection (get/set via generated accessors) | `GetProperty` / `WriteVRef` / `cmdAssign` rewrite to ops |

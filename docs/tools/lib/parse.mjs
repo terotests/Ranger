@@ -18,7 +18,7 @@ import path from "node:path";
 import { loadCompilerApi } from "./compiler.mjs";
 import { ROOT } from "./paths.mjs";
 
-/** RangerNodeType values that the type printer needs (compiler/ng_RangerAppEnums.rgr). */
+/** RangerNodeType values that the type printer needs (compiler/RangerAppEnums.rgr). */
 export const NodeType = {
   Array: 6,
   Hash: 7,

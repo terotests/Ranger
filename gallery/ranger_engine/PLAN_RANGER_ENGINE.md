@@ -61,7 +61,7 @@ RgModule ─── tier 1: RgVM, a two-bank register machine
 `RgLower` walks the same `RangerAppClassDesc` / `RangerAppFunctionDesc` /
 `CodeNode` shapes every language writer walks, so it inherits name resolution,
 overload selection and type inference instead of re-deriving them. That is what
-keeps it at ~2000 lines rather than ~8000 (`ng_LowIRBuilder.rgr`, for
+keeps it at ~2000 lines rather than ~8000 (`LowIRBuilder.rgr`, for
 comparison, is 7939 and covers a narrower language subset for LLVM).
 
 ### Why a register machine with two banks
@@ -159,7 +159,7 @@ their own hidden functions so the existing call-count heuristic sees them.
 ### 3. Tier 3: WebAssembly
 
 Everything needed already exists in the repository:
-`ng_WATWriter.rgr` emits WAT from Low IR, `wabt` is a devDependency, and
+`WATWriter.rgr` emits WAT from Low IR, `wabt` is a devDependency, and
 `npm run test:llvm` already assembles WAT and runs it under
 `WebAssembly.Instance`. Two routes:
 

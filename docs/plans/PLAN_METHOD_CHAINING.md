@@ -26,8 +26,8 @@ Ketjutusinfra on **osittain toteutettu**, mutta hajallaan ja epätäydellinen:
 
 | Komponentti | Tiedosto | Rooli |
 |-------------|----------|-------|
-| Ketjumuunnos (call-polku) | `ng_RangerFlowParser.rgr` → `cmdLocalCall` | Muuttaa `obj.foo() .bar()` → sisäkkäiset `call`-nodet |
-| Ketjumuunnos (lausepolku) | `ng_RangerFlowParser.rgr` → `fixExpressionAssignmentChains` | `def x (obj.foo().bar())` ja vastaavat |
+| Ketjumuunnos (call-polku) | `RangerFlowParser.rgr` → `cmdLocalCall` | Muuttaa `obj.foo() .bar()` → sisäkkäiset `call`-nodet |
+| Ketjumuunnos (lausepolku) | `RangerFlowParser.rgr` → `fixExpressionAssignmentChains` | `def x (obj.foo().bar())` ja vastaavat |
 | Ketjumerkinnät | `CodeNode.is_part_of_chain`, `tag = "chainroot"` | Ohittaa duplikaattien walkin |
 | Duplikaattilogiikka | `ng_parser_std_match.rgr`, `ng_FlowWork.rgr` | Vanhempia kopioita samasta ideasta |
 | Koodigenerointi | `ng_RangerGenericClassWriter.CreateCallExpression` | Odottaa `has_call` + `call recv method args` -rakennetta |
@@ -139,7 +139,7 @@ Codegen:
 ### Vaihtoehto A (suositus): erillinen `ChainDesugarPass`
 
 - Ajetaan `RangerFlowParser`-walkin jälkeen, ennen typecheckiä
-- Yksi tiedosto: `ng_ChainDesugar.rgr`
+- Yksi tiedosto: `ChainDesugar.rgr`
 - Korvaa `fixExpressionAssignmentChains` + `cmdLocalCall`-ketjuosion ajan myötä
 
 ### Vaihtoehto B: postfix-parseri
@@ -171,7 +171,7 @@ Codegen:
 2. `finalizeAsCallChainRoot` estää `hasNewOper`-skipin codegenissa
 3. `scripts/patch-chain-desugar.js` säilyttää toteutuksen `npm run compile` -jälkeen
 
-**Tiedostot:** `ng_CodeNodeCompilerExtensions.rgr`, `ng_RangerFlowParser.rgr` (`cmdNew`), `bin/output.js`
+**Tiedostot:** `CodeNodeCompilerExtensions.rgr`, `RangerFlowParser.rgr` (`cmdNew`), `bin/output.js`
 
 ### Vaihe 2 – Tyyppipäättely ketjun läpi (1–2 pv) ✅
 
@@ -182,7 +182,7 @@ Codegen:
 2. `cmdCall`: receiverin `clDesc` → `eval_type_name` kun tyyppi puuttuu
 3. Desugar-receiver: trimmatty `this.copy()` (säilyttää `hasNewOper` / luokkatiedot)
 
-**Tiedostot:** `ng_RangerFlowParser.rgr`, `bin/output.js`
+**Tiedostot:** `RangerFlowParser.rgr`, `bin/output.js`
 
 ---
 
@@ -250,7 +250,7 @@ Huom: `.add(3)` ja `.add("Hello")` resolvoituvat **eri overloadeihin**; ketjun *
 - [ ] Target-testit: **Go**, **LLVM** (kieliä ilman overloadingia)
 - [ ] Dokumentoi writer-kohtainen strategia taulukkoon (yllä)
 
-**Tiedostot:** `ng_RangerFlowParser.rgr` (`cmdCall`, `stdParamMatch`), `ng_RangerGenericClassWriter.rgr`, `ng_RangerGolangClassWriter.rgr`, `ng_LowIRBuilder.rgr`, `tests/compiler-chain.test.ts`
+**Tiedostot:** `RangerFlowParser.rgr` (`cmdCall`, `stdParamMatch`), `RangerGenericClassWriter.rgr`, `RangerGolangClassWriter.rgr`, `LowIRBuilder.rgr`, `tests/compiler-chain.test.ts`
 
 **Riskit:**
 - Ketju jossa overload palauttaa **eri luokan** kuin receiver – tyyppipäättelyn pitää seurata varianttia, ei alkuperäistä `new`-tyyppiä
@@ -318,7 +318,7 @@ class ChainOperatorSubstring {
 - [ ] Virhe: tuntematon `.foo()` ilman operaattoria/metodia; väärät arg-tyypit
 - [ ] Dokumentoi suhde `PLAN_STATIC_ANALYSIS.md` / tulevaan trait-tyyppiin
 
-**Tiedostot:** `ng_ChainDesugar.rgr` (tai laajennus `cmdLocalCall`/`tryDesugar`), `ng_parser_std_match.rgr`, `compiler/Lang.rgr`, `ng_LiveCompiler.rgr`, `ng_RangerGenericClassWriter.rgr`
+**Tiedostot:** `ChainDesugar.rgr` (tai laajennus `cmdLocalCall`/`tryDesugar`), `ng_parser_std_match.rgr`, `compiler/Lang.rgr`, `LiveCompiler.rgr`, `RangerGenericClassWriter.rgr`
 
 **Riippuvuudet:**
 - Voidaan aloittaa yksinkertaisella tapauksella (yksi operaattori, ei overload) ennen 2b:tä
@@ -332,7 +332,7 @@ class ChainOperatorSubstring {
 
 ### Vaihe 3 – Yhtenäinen ChainDesugar-passi (3–5 pv)
 
-- [ ] Uusi `ng_ChainDesugar.rgr`:
+- [ ] Uusi `ChainDesugar.rgr`:
   - Tunnista ketju: peräkkäiset `.method` / `.method(args)` -lapset
   - Tunnista operaattoriketju: `.op` jossa `op` ∈ `Lang.rgr` (vaihe 2c)
   - Rakenna sisäkkäinen `call`- / `oper`-puu (metodi + operaattori + sekamuoto)
@@ -354,7 +354,7 @@ class ChainOperatorSubstring {
 ### Vaihe 5 – Parser-refaktorointi (valinnainen, pitkä)
 
 - [ ] Postfix `PostfixExpr = Primary { ('.' IDENT ['(' Args ')']) }`
-- [ ] Integroi `ng_parser_v2.rgr` tai flow-parserin infix-taulukkoon
+- [ ] Integroi `RangerLispParser.rgr` tai flow-parserin infix-taulukkoon
 - [ ] Yhtenäistä `is_direct_method_call` vs `has_call` vs `chainroot`
 
 ---

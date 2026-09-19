@@ -1,6 +1,6 @@
 # PLAN_OWNERSHIP_SOUNDNESS — make the ownership summary true, and the C++ borrow safe
 
-Question: the ownership inference (`compiler/ng_StaticAnalysis.rgr`, from
+Question: the ownership inference (`compiler/StaticAnalysis.rgr`, from
 `analyzeOwnershipAll`) decides `borrowed` / `moved` / `shared` / `unknown` per
 parameter, and the C++ writer turns a `borrowed` object parameter into
 `const std::shared_ptr<T>&` (PLAN_CODEGEN_OWNERSHIP, finding 1). Is the summary
@@ -91,7 +91,7 @@ pins the call-time object. That restores the reference semantics of the
 language and the lifetime guarantee, and keeps the optimization free for the
 common case.
 
-`cppNeedsCallTempCopy` in `ng_RangerCppClassWriter.rgr`; applied in
+`cppNeedsCallTempCopy` in `RangerCppClassWriter.rgr`; applied in
 `writeFnCall` and `writeNewCall`.
 
 **Result.** Both probe programs now print the same text on JS and on C++, and

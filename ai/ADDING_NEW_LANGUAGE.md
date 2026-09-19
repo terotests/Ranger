@@ -11,9 +11,9 @@ This guide documents the steps required to add a new compilation target language
 Adding a new language target requires changes to multiple files:
 
 1. **Lang.rgr** - Add language to targets list and operator templates
-2. **ng_RangerXxxClassWriter.rgr** - Create the code generator class
-3. **ng_RangerLanguageWriters.rgr** - Import the new class writer
-4. **ng_LiveCompiler.rgr** - Register the language writer in initWriter
+2. **RangerXxxClassWriter.rgr** - Create the code generator class
+3. **RangerLanguageWriters.rgr** - Import the new class writer
+4. **LiveCompiler.rgr** - Register the language writer in initWriter
 5. **VirtualCompiler.rgr** - Add to allowed_languages and file extension handling
 6. **Tests** - Create test helpers and test file
 
@@ -34,7 +34,7 @@ targets {
 
 ### Step 2: Create the Class Writer
 
-Create `compiler/ng_RangerXxxClassWriter.rgr` (e.g., `ng_RangerKotlinClassWriter.rgr`).
+Create `compiler/RangerXxxClassWriter.rgr` (e.g., `RangerKotlinClassWriter.rgr`).
 
 The class writer must:
 
@@ -99,15 +99,15 @@ fn getTypeString:string (type_string:string) {
 
 ### Step 3: Import the Class Writer
 
-In `compiler/ng_RangerLanguageWriters.rgr`, add the import:
+In `compiler/RangerLanguageWriters.rgr`, add the import:
 
 ```ranger
-Import "ng_RangerKotlinClassWriter.rgr"
+Import "RangerKotlinClassWriter.rgr"
 ```
 
 ### Step 4: Register in LiveCompiler
 
-In `compiler/ng_LiveCompiler.rgr`, find the `initWriter` function and add a case:
+In `compiler/LiveCompiler.rgr`, find the `initWriter` function and add a case:
 
 ```ranger
 fn initWriter:void (ctx:RangerAppWriterContext) {
@@ -269,9 +269,9 @@ npm run test:kotlin
 ## Checklist
 
 - [ ] Added to `Lang.rgr` targets block
-- [ ] Created `ng_RangerXxxClassWriter.rgr`
-- [ ] Added import to `ng_RangerLanguageWriters.rgr`
-- [ ] Added case to `ng_LiveCompiler.rgr` initWriter
+- [ ] Created `RangerXxxClassWriter.rgr`
+- [ ] Added import to `RangerLanguageWriters.rgr`
+- [ ] Added case to `LiveCompiler.rgr` initWriter
 - [ ] Added to `VirtualCompiler.rgr` allowed_languages
 - [ ] Added file extension case in `VirtualCompiler.rgr`
 - [ ] Added templates for essential operators in `Lang.rgr`
@@ -284,7 +284,7 @@ npm run test:kotlin
 ## Tips
 
 1. **Start Simple**: Implement basic operators first (`print`, `def`, `=`, `+`)
-2. **Use Existing Writers as Reference**: Look at `ng_RangerGolangClassWriter.rgr` or `ng_RangerRustClassWriter.rgr`
+2. **Use Existing Writers as Reference**: Look at `RangerGolangClassWriter.rgr` or `RangerRustClassWriter.rgr`
 3. **Test Incrementally**: Compile simple programs and inspect the output
 4. **Check Default Templates**: Many operators have `*` (default) templates that may work for your language
 5. **Handle Optionals**: Consider how your language handles nullable/optional values

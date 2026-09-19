@@ -36,7 +36,7 @@ if [[ ! -f "$ROOT/bin/output.js" ]]; then
 fi
 
 # Rebuild compiler when LowIR target definitions change.
-if [[ "$ROOT/compiler/ng_LowIRTarget.rgr" -nt "$ROOT/bin/output.js" ]]; then
+if [[ "$ROOT/compiler/LowIRTarget.rgr" -nt "$ROOT/bin/output.js" ]]; then
   echo "==> Rebuilding Ranger compiler (target definitions changed)"
   (cd "$ROOT" && npm run compile --silent)
 fi

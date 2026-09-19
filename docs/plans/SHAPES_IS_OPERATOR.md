@@ -180,7 +180,7 @@ the codegen assertions in the test, not on a run.
 `main` as `$Probe->row(...)` — a member call on an undefined variable. The
 param-desc branch of `writeVRef` was missing the leading-class check the plain-ns
 branch already had, so it always wrote `$name->`. Fixed in
-`ng_RangerPHPClassWriter.rgr`; PHP now emits `T::hello(...)` and runs both
+`RangerPHPClassWriter.rgr`; PHP now emits `T::hello(...)` and runs both
 probes correctly. Nothing to do with shapes — a seven-line class with one `sfn`
 reproduced it.
 

@@ -161,7 +161,7 @@ On this container, with SDL2 2.30 and mesa, and no display:
   dates including a leap day and a century boundary, all correct.
 
 This needed a compiler fix to get to, and that fix is in this branch.
-`CreateUnions` in `compiler/ng_RangerCppClassWriter.rgr` named every class the
+`CreateUnions` in `compiler/RangerCppClassWriter.rgr` named every class the
 program knows in the `r_union_Any` variant while the forward declarations came
 from `writeClass`, which runs only for classes the program emits — so one
 documentation-only class in `gallery/vela` that nothing calls was eliminated

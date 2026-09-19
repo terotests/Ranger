@@ -590,9 +590,9 @@ npx vitest run tests/compiler-sourcemap.test.ts
 
 **Implementation notes** (for compiler hackers)
 
-- `compiler/ng_SourceMap.rgr` — `SourceMapBuilder`, VLQ encoder, `addMappingFromNode()` uses `node.getLine()` + `node.code.getColumn(sp)` (not stale `node.row`).
-- `compiler/ng_writer.rgr` — `lineNumber` / `columnNumber` on emit, `walkNodeStack`, `outMapped()`, `.map` write in `CodeFileSystem.saveTo`.
-- Flag: `compiler/ng_Compiler.rgr` → `flag sourcemap`; enabled in `VirtualCompiler.rgr` via `fileSystem.enableSourceMaps()`.
+- `compiler/SourceMap.rgr` — `SourceMapBuilder`, VLQ encoder, `addMappingFromNode()` uses `node.getLine()` + `node.code.getColumn(sp)` (not stale `node.row`).
+- `compiler/CodeWriter.rgr` — `lineNumber` / `columnNumber` on emit, `walkNodeStack`, `outMapped()`, `.map` write in `CodeFileSystem.saveTo`.
+- Flag: `compiler/Compiler.rgr` → `flag sourcemap`; enabled in `VirtualCompiler.rgr` via `fileSystem.enableSourceMaps()`.
 
 ## Getting started with Hello World
 
@@ -1633,7 +1633,7 @@ are Ranger source under `compiler/`. Changing them means compiling the compiler
 with itself:
 
 ```bash
-npm run compile      # compiler/ng_Compiler.rgr -> bin/output.js, and copies Lang.rgr to bin/
+npm run compile      # compiler/Compiler.rgr -> bin/output.js, and copies Lang.rgr to bin/
 npm test             # the suite runs against the compiler you just built
 ```
 
