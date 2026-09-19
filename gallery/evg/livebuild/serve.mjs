@@ -262,6 +262,9 @@ function main() {
       lastDoc = readSessionDoc() || framed.doc;
       lastKind = kind;
       const frame = framed.events.find((e) => e && e.t === "frame") || {};
+      // The seed is a laid-out screen like any other, so it answers the same
+      // question: is anything overlapping, off the page, or crowded?
+      const measured = framed.events.find((e) => e && e.t === "measure") || null;
       send(
         res,
         200,
@@ -275,6 +278,7 @@ function main() {
           added: 0,
           nodes: frame.nodes || 0,
           list: frame.list || { cmds: [] },
+          measure: measured,
         }),
       );
       return;

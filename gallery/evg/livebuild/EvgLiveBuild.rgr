@@ -22,7 +22,7 @@
 ;   {"t":"ops","applied":N,"ops":[...]}
 ;   {"t":"code","text":"..."}
 ;   {"t":"frame","ncmds":N,"added":N,"list":{...}}
-;   {"t":"measure","count":N,"findings":[...]}
+;   {"t":"measure","count":N,"findings":[...],"bottomFree":N}
 ;   {"t":"done","ok":true,"ncmds":N}
 ;
 ; ==============================================================================
@@ -33,6 +33,7 @@ Import "pkg:evg/EVGTreeJson.rgr"
 Import "pkg:evg/EVGLayout.rgr"
 Import "pkg:evg/EVGDisplayList.rgr"
 Import "pkg:evg/EVGInspect.rgr"
+Import "pkg:evg/EVGMeasure.rgr"
 Import "pkg:evg/EVGUnit.rgr"
 
 class EvgLiveBuild {
@@ -269,45 +270,17 @@ sfn main:void () {
         this.emitLine(out)
     }
 
+    ; What the layout is, in numbers — the same check the agent runs from the
+    ; CLI (`EVGMeasure`), not a smaller copy of it. This used to test only the
+    ; page edges, so a screen whose cards sat on top of each other streamed
+    ; `"count":0` while the picture showed the pile.
     fn emitMeasure:void () {
-        def l (new EVGLayout())
-        l.setPageSize((to_double pageW) (to_double pageH))
-        l.layout(root)
-        insp.build(root)
-        def found:[string]
-        def w:double (to_double pageW)
-        def h:double (to_double pageH)
-        def i:int 0
-        while (i < (insp.count())) {
-            def path:string (insp.pathAt(i))
-            def hit@(optional):EVGElement (insp.elementAt(path))
-            if ((null? hit) == false) {
-                def el:EVGElement (unwrap hit)
-                def right:double (el.calculatedX + el.calculatedWidth)
-                def bottom:double (el.calculatedY + el.calculatedHeight)
-                if (right > (w + 0.5)) {
-                    push found (path + " overflows right")
-                }
-                if (bottom > (h + 0.5)) {
-                    push found (path + " overflows bottom")
-                }
-            }
-            i = (i + 1)
-        }
-        findings = (array_length found)
-        def out:string "{\"t\":\"measure\",\"count\":"
-        out = (out + (to_string findings))
-        out = (out + ",\"findings\":[")
-        def k:int 0
-        while (k < findings) {
-            if (k > 0) {
-                out = (out + ",")
-            }
-            out = (out + (EVGTreeJson.str((itemAt found k))))
-            k = (k + 1)
-        }
-        out = (out + "]}")
-        this.emitLine(out)
+        def m (new EVGMeasure())
+        m.look(root pageW pageH "")
+        findings = (array_length m.findings)
+        def body:string (m.json(false))
+        def inner:string (substring body 1 (strlen body))
+        this.emitLine(("{\"t\":\"measure\"," + inner))
     }
 
     fn emitDone:void () {

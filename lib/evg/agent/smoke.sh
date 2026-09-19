@@ -30,6 +30,20 @@ echo "$found" | grep -q '"count":4' || fail "measure did not find the four defec
 npm run --silent agent -- measure lib/evg/agent/fixtures/card.evg.json --width=600 --height=400 \
   | grep -q '"count":0' || fail "measure reported a defect in a sound document"
 
+# the numbers, not just the verdict: an overlap says by how much, and a sound
+# document still says how much room is left under its content
+echo "$found" | grep -q 'overlap by 100×40' || fail "overlap did not carry the amount: $found"
+npm run --silent agent -- measure lib/evg/agent/fixtures/card.evg.json --width=600 --height=400 \
+  | grep -q '"bottomFree"' || fail "measure did not report the free space"
+
+# --boxes: where each node really is, and how far the next one starts
+boxes=$(npm run --silent agent -- measure lib/evg/agent/fixtures/card.evg.json --boxes --at=0)
+echo "$boxes" | grep -q '"gapNext"' || fail "--boxes did not report a distance: $boxes"
+echo "$boxes" | grep -q '"x":' || fail "--boxes did not report positions"
+if npm run --silent agent -- measure lib/evg/agent/fixtures/card.evg.json | grep -q '"boxes"'; then
+  fail "boxes should cost nothing unless asked for"
+fi
+
 # patch: applies, writes, and the inverse puts it back
 cp lib/evg/agent/fixtures/card.evg.json "$work/doc.json"
 cat > "$work/ops.json" <<'JSON'
@@ -41,6 +55,21 @@ JSON
 npm run --silent agent -- patch "$work/doc.json" "$work/ops.json" | grep -q '"applied":2' \
   || fail "patch did not apply"
 npm run --silent agent -- outline "$work/doc.json" | grep -q 'Invoices' || fail "the edit did not land"
+
+# patch answers with the layout it produced, without being asked: an agent that
+# patches and stops has changed a picture it cannot see
+cat > "$work/tint.json" <<'JSON'
+{"ops":[
+  {"op":"set-prop","at":"0/0","prop":"background-color","value":"rgb(255,251,235)"}
+]}
+JSON
+cp lib/evg/agent/fixtures/broken.evg.json "$work/broken.json"
+told=$(npm run --silent agent -- patch "$work/broken.json" "$work/tint.json")
+echo "$told" | grep -q '"layout"' || fail "patch did not report the layout: $told"
+echo "$told" | grep -q 'overlap by' \
+  || fail "patch did not name the defect in the document it just wrote: $told"
+echo "$told" | grep -q '"count":4' \
+  || fail "patch's layout count is not the measure's: $told"
 
 cat > "$work/undo.json" <<'JSON'
 {"ops":[

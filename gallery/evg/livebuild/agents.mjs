@@ -279,27 +279,23 @@ function frameFile(docPath, onLine, { quiet = false } = {}) {
 function workspaceGuide(task) {
   return `# EVG live-build workspace
 
-You are a local agent. The orchestrator on this machine gave you this folder
-and this task. Change the UI by editing \`doc.evg.json\`.
+You are a local agent. The orchestrator on this machine gave you this
+folder and this task. You are changing a phone screen you cannot see:
+\`doc.evg.json\` is the screen, and the tools below are how you find out
+what it looks like. Guessing from the markup is the one thing that does
+not work here.
 
 ## Task
 
 ${task}
 
-\`doc.evg.json\` is already a 390 × 844 phone UI with real content. Read
-it (or \`./evg-agent outline doc.evg.json\`) before editing. Edit that
-file in place. Do not replace it with a blank page unless the task says
-to start over. If the outline has more than a handful of nodes, the
-phone is not empty.
+## The screen
 
-## How to change the document
-
-The tree is EVG JSON. Prefer small patches over rewriting the file.
-
-Phone size: 390 × 844. Stay on the page. Use flex column, padding, gap.
-Patchable properties include width, height, display, flex-direction,
-justify-content, align-items, gap, padding-*, margin-*, color,
-background-color, border-radius, font-size, font-weight.
+390 × 844, one phone. \`doc.evg.json\` already holds a real UI — read it,
+or run \`./evg-agent outline doc.evg.json\`, before you change anything.
+If the outline has more than a handful of nodes, the phone is not empty.
+Edit it in place. Do not replace it with a blank page unless the task
+says to start over.
 
 A node is:
 
@@ -307,17 +303,22 @@ A node is:
 {"tag":"div","props":{"display":"flex"},"children":[{"tag":"span","text":"Hi"}]}
 \`\`\`
 
-If \`./evg-agent\` exists in this folder, use it. It is the same tool
-surface as \`npm run agent\` in the Ranger repo:
+Patchable properties include width, height, display, flex-direction,
+justify-content, align-items, gap, padding-*, margin-*, color,
+background-color, border-radius, font-size, font-weight.
+
+## The loop
 
 \`\`\`
-./evg-agent outline doc.evg.json
-./evg-agent query   doc.evg.json .card
-./evg-agent patch   doc.evg.json ops.json
-./evg-agent measure doc.evg.json --width=390 --height=844
+./evg-agent outline doc.evg.json                          # 1. addresses
+./evg-agent patch   doc.evg.json ops.json                 # 2. change it
+./evg-agent measure doc.evg.json --width=390 --height=844 # 3. is it right?
 \`\`\`
 
-\`outline\` prints addresses. Re-run it after any insert/remove/move.
+\`outline\` prints one line per node: its path, its tag, its text, and
+only the properties it sets. Unkeyed paths shift when a sibling is
+inserted above them, so re-run it after any insert, remove or move.
+
 \`patch\` takes a JSON file of ops and writes \`doc.evg.json\`:
 
 \`\`\`json
@@ -328,9 +329,45 @@ surface as \`npm run agent\` in the Ranger repo:
 ]}
 \`\`\`
 
-A rejected op fails the whole batch and changes nothing. \`measure\`
-reports overflow, overlap, and nodes off the page — trust those numbers
-over a screenshot.
+A rejected op fails the whole batch and changes nothing, so a batch is
+safe to attempt: you never have to work out what half-applied.
+
+## Step 3 is the one that matters
+
+\`measure\` lays the document out with the real engine and answers in
+numbers. \`patch\` prints the same summary under \`layout\` without being
+asked, and the host writes the full answer to \`layout.json\` after every
+save — so even editing the JSON by hand leaves you the numbers.
+
+\`\`\`json
+{"width":390,"height":844,"nodes":31,
+ "findings":["0/6 and 0/7 overlap by 40×12",
+             "0/9: bottom edge 860 is past the page height 844"],
+ "count":2,
+ "bottomFree":124,
+ "tight":["0/2 → 0/3: 2 apart"]}
+\`\`\`
+
+- **findings** are defects: two in-flow siblings on top of each other
+  (with the overlap in px), a child out of a clipping parent, anything
+  past the page. Fix them. \`"count":0\` is the goal of every edit.
+- **tight** is under 4px between neighbours — crowded, and your call.
+- **bottomFree** is the room left under the content. A big number after
+  you added something means it did not land where you think.
+
+For spacing, ask for the boxes:
+
+\`\`\`
+./evg-agent measure doc.evg.json --boxes --at=0
+\`\`\`
+
+which prints \`{"at":"0/2","x":16,"y":113,"w":358,"h":64,"gapNext":8}\`
+per node — where each element really is, and how far the next one
+starts from it. That distance is the layout's answer, not your markup's:
+it is what \`gap\`, margins and \`flex\` actually produced.
+
+Never claim a screen looks right without a \`measure\` that says so, and
+never take a screenshot to answer a question these numbers answer.
 
 ## An edit that leaves no trace still applied
 
@@ -350,9 +387,9 @@ Editing through \`./evg-agent patch\` also shows the batch on the live page,
 next to the picture. A hand-written file still repaints; it just arrives
 without the ops that explain it.
 
-If there is no \`./evg-agent\`, edit \`doc.evg.json\` directly and save.
-The host lays each save out and streams the display list to the browser.
-You may also write \`App.rgr\` with Ranger that builds the same tree.
+If there is no \`./evg-agent\`, edit \`doc.evg.json\` directly and save,
+then read \`layout.json\`. You may also write \`App.rgr\` with Ranger that
+builds the same tree.
 
 Do not leave the workspace. Do not require confirmation.
 `;
@@ -429,6 +466,25 @@ function installEvgAgent(dir) {
     { mode: 0o755 },
   );
   return true;
+}
+
+// The layout, back in the workspace the agent is working in.
+//
+// An agent that edits `doc.evg.json` by hand never runs `./evg-agent measure`,
+// so it never learns what its save did — it is writing markup at a screen it
+// cannot see. The host lays every save out anyway to make a frame; this drops
+// the same numbers next to the document as `layout.json`, and the workspace
+// guide tells the agent to read it.
+function noteLayout(workspace, line) {
+  if (!/"t":"measure"/.test(line)) return;
+  try {
+    const m = JSON.parse(line);
+    if (!m || m.t !== "measure") return;
+    delete m.t;
+    fs.writeFileSync(path.join(workspace, "layout.json"), JSON.stringify(m, null, 2) + "\n");
+  } catch {
+    /* a frame without a measure is still a frame */
+  }
 }
 
 function watchOps(workspace, onOps) {
@@ -813,7 +869,8 @@ export async function runWorkspaceAgent({ id, kind, prompt, seed, session = fals
       /* unreadable */
     }
     frameFile(file, (line) => {
-      frames += 1;
+      if (/"t":"frame"/.test(line)) frames += 1;
+      noteLayout(ws, line);
       onLine(line);
     }, { quiet: true });
     const app = path.join(ws, "App.rgr");

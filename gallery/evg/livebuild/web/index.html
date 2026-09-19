@@ -97,6 +97,14 @@
     font-variant-numeric: tabular-nums;
   }
   .meta b { color: var(--accent); font-weight: 650; }
+  .meta b.bad { color: var(--warn); }
+  /* The layout numbers, next to the picture they are about. A model cannot
+     see the screen; this is the part of it that can be read. */
+  .findings {
+    margin-top: 8px; max-width: 414px; text-align: center;
+    color: var(--muted); font-size: 11.5px; line-height: 1.5;
+  }
+  .findings .bad { color: var(--warn); }
   .side {
     display: grid; grid-template-rows: 1.1fr 1fr 1.1fr; min-height: 0;
   }
@@ -163,7 +171,9 @@
       <span>delta <b id="added">0</b></span>
       <span>nodes <b id="nodes">0</b></span>
       <span>tokens <b id="ntok">0</b></span>
+      <span>layout <b id="lay">—</b></span>
     </div>
+    <div class="findings" id="findings"></div>
   </div>
   <div class="side">
     <section>
@@ -249,6 +259,7 @@ async function loadSeed(kind) {
   const d = await (await fetch("/seed?kind=" + encodeURIComponent(kind))).json();
   current = d.kind || kind;
   paintFrame(d);
+  paintMeasure(d.measure);
   $("added").textContent = "seed";
   $("kindLabel").textContent = current;
   $("think").innerHTML = '<span class="empty">This phone is the live document. Type a change and press Follow up — it edits this screen. Start-over chips (Dashboard / Empty) wipe it.</span>';
@@ -260,6 +271,37 @@ async function loadSeed(kind) {
   pendingBreak = false;
   atParagraphStart = true;
   spin(false);
+}
+
+// `measure` is the layout answering for itself: what overlaps and by how much,
+// what left the page, how close two things are, how much room is left. It is
+// streamed after every frame and was going nowhere until now.
+function paintMeasure(m) {
+  if (!m) {
+    $("lay").textContent = "—";
+    $("lay").className = "";
+    $("findings").textContent = "";
+    return;
+  }
+  const n = m.count || 0;
+  $("lay").textContent = n ? String(n) : "ok";
+  $("lay").className = n ? "bad" : "";
+  const room = Number.isFinite(m.bottomFree) ? `${m.bottomFree}px free below the content` : "";
+  const bad = (m.findings || []).slice(0, 3);
+  const near = (m.tight || []).slice(0, 2);
+  $("findings").replaceChildren();
+  for (const text of bad) {
+    const el = document.createElement("div");
+    el.className = "bad";
+    el.textContent = text;
+    $("findings").appendChild(el);
+  }
+  const rest = [...near, room].filter(Boolean).join(" · ");
+  if (rest) {
+    const el = document.createElement("div");
+    el.textContent = rest;
+    $("findings").appendChild(el);
+  }
 }
 
 function paintFrame(d) {
@@ -285,6 +327,7 @@ function start(keepPicture) {
   $("nodes").textContent = keepPicture ? $("nodes").textContent : "0";
   $("ntok").textContent = "0";
   $("kindLabel").textContent = "";
+  paintMeasure(null);
   $("go").disabled = true;
   if (!keepPicture) $("screen").replaceChildren();
   const prompt = $("prompt").value.trim() || current;
@@ -347,6 +390,7 @@ function start(keepPicture) {
     $("added").textContent = "+" + String(d.added || 0);
     paintFrame(d);
   });
+  on("measure", paintMeasure);
   on("error", (d) => {
     $("think").append("\n\nerror: " + (d.text || "failed"));
     pendingBreak = true;

@@ -108,8 +108,17 @@ named for `t`.
 | `ops` | the `EVGPatch` batch that just applied |
 | `code` | `App.rgr` so far |
 | `frame` | `{width,height,ncmds,added,nodes,list}` — `list` is `EVGDisplayList.toJson()` |
-| `measure` | overflow / off-page findings after the last frame |
+| `measure` | the layout in numbers after the last frame — findings with amounts, `bottomFree`, `tight` |
 | `done` | `ok`, step count, command count |
+
+The page shows `measure` under the phone: **layout ok** or the number of
+findings, then what they are. The same answer is written into a workspace
+agent's folder as `layout.json` after every save, because an agent that edits
+`doc.evg.json` by hand is otherwise writing markup at a screen it cannot see.
+The checks are `EVGMeasure` in `lib/evg`, shared with `npm run agent --
+measure`, so the page and the agent cannot disagree about whether a screen is
+right — the server used to carry a smaller copy that only tested the page
+edges, and it reported a clean screen while the cards sat on each other.
 
 `ops` comes from the recipe, and from a workspace agent whenever it edits
 through `./evg-agent patch` — the shim in the workspace records each applied

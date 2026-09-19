@@ -171,6 +171,35 @@ if (fs.existsSync(path.join(root, "lib/evg/bin/evg_agent.js"))) {
   console.log("  ops         skipped — lib/evg/bin/evg_agent.js is not built (npm run agent)");
 }
 
+// The layout, left in the workspace where an agent that edits the file by hand
+// will find it, and the same numbers on the wire for the page.
+{
+  resetSession("dashboard");
+  const seen = [];
+  await runTask({
+    agent: "mock",
+    kind: "dashboard",
+    prompt: "measure me",
+    session: true,
+    onLine: (line) => seen.push(JSON.parse(line)),
+  });
+  const file = path.join(sessionDir(), "layout.json");
+  if (!fs.existsSync(file)) throw new Error("no layout.json in the workspace after a save");
+  const saved = JSON.parse(fs.readFileSync(file, "utf8"));
+  if (!Number.isFinite(saved.count) || !Number.isFinite(saved.nodes)) {
+    throw new Error("layout.json carries no numbers: " + JSON.stringify(saved));
+  }
+  const streamed = seen.filter((e) => e.t === "measure").at(-1);
+  if (!streamed) throw new Error("no measure event reached the page");
+  if (streamed.count !== saved.count || streamed.nodes !== saved.nodes) {
+    throw new Error("the page and the workspace disagree about the layout");
+  }
+  console.log(
+    `  layout      layout.json + measure agree — ${saved.nodes} nodes, ` +
+      `${saved.count} findings, ${saved.bottomFree}px free`,
+  );
+}
+
 const selfWs = fs.mkdtempSync(path.join(os.tmpdir(), "evg-self-"));
 fs.writeFileSync(
   path.join(selfWs, "doc.evg.json"),

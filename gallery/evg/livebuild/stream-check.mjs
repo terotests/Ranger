@@ -85,13 +85,27 @@ function check(kind) {
     if (f.ncmds < prev) throw new Error(`${kind}: display list shrank`);
     prev = f.ncmds;
   }
+  // The recipe's own screens have to pass the same measure the agent reads:
+  // a demo that streams "count":0 while the cards sit on each other teaches
+  // the wrong thing to everything downstream of it.
+  const measured = events.filter((e) => e.t === "measure").at(-1);
+  if (!measured || measured.count !== 0) {
+    throw new Error(`${kind}: the finished screen has findings ${JSON.stringify(measured)}`);
+  }
+  if (!Number.isFinite(measured.bottomFree)) {
+    throw new Error(`${kind}: measure did not report the free space`);
+  }
+  if (measured.width !== 390 || measured.height !== 844) {
+    throw new Error(`${kind}: measured at ${measured.width}×${measured.height}`);
+  }
   const done = events.filter((e) => e.t === "done").at(-1);
   if (!done.ok) throw new Error(`${kind}: done.ok is false ${JSON.stringify(done)}`);
   if (done.findings !== 0) throw new Error(`${kind}: measure findings ${done.findings}`);
   const tokens = events.filter((e) => e.t === "token");
   if (tokens.length < 20) throw new Error(`${kind}: only ${tokens.length} tokens`);
   console.log(
-    `  ${kind.padEnd(10)} ${frames.length} frames, ${done.ncmds} cmds, ${tokens.length} tokens`,
+    `  ${kind.padEnd(10)} ${frames.length} frames, ${done.ncmds} cmds, ` +
+      `${tokens.length} tokens, ${measured.bottomFree}px free`,
   );
 }
 

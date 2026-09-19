@@ -57,10 +57,17 @@ tag, or a path).
 ]}
 ```
 
-Three things to know, because they change how you write ops:
+Four things to know, because they change how you write ops:
 
 - **A rejected op fails the whole batch and changes nothing.** So a batch is
   safe to attempt — you never have to work out what half-applied.
+- **An applied op can leave no trace in the file.** A document carries only what
+  differs from a fresh element of that tag, and EVG's defaults are not CSS's —
+  a div is `flex-direction: column`, `display: block`. Setting a property to its
+  default removes the line instead of adding one, and `outline` stops showing
+  it, while the node really did change. `patch` lists those ops under
+  `atDefault`. A property you set and then cannot find is that, not a lost
+  edit — do not route around it with different markup.
 - **Only properties the engine implements are accepted.** `aspect-ratio` and
   friends are rejected with a reason. Do not work around a rejection by writing
   the value somewhere else; report it.
@@ -74,13 +81,31 @@ accepted on the way in.
 
 ```bash
 npm run agent -- measure <doc.evg.json> --width=600 --height=400
-{"findings":["0/0/0 overflows its parent to the right by 200"],"count":1}
+{"width":600,"height":400,"nodes":12,
+ "findings":["0/0 and 0/1 overlap by 100×40",
+             "0/0/0 overflows its parent to the right by 200"],
+ "count":2,"bottomFree":124,"tight":["0/2 → 0/3: 2 apart"]}
 ```
 
 It lays the document out and reports text past its box, siblings on top of each
-other, and nodes off the page. **Use this instead of rendering a PNG to check
-correctness** — it is exact and costs a fraction of the tokens. Render only to
-judge how something looks.
+other (with the overlap in px), and nodes off the page. **Use this instead of
+rendering a PNG to check correctness** — it is exact and costs a fraction of
+the tokens. Render only to judge how something looks.
+
+`bottomFree` is the room left under the content and `tight` is neighbours under
+4px apart — neither is a defect, both are what the screen actually is. `patch`
+prints the same summary under `layout` without being asked, so an edit answers
+with what it did to the layout.
+
+When spacing is the question, ask for the boxes:
+
+```bash
+npm run agent -- measure <doc.evg.json> --boxes --at=0/2
+{…,"boxes":[{"at":"0/2","x":16,"y":113,"w":358,"h":64,"gapNext":8}]}
+```
+
+`gapNext` is the distance the layout produced, not the one the markup asked
+for — the number to read before changing a `gap` or a margin.
 
 One exception, and it matters because it is the case you will hit with charts:
 on a **diagram** — anything exported from RangerFlow — every node is absolutely
