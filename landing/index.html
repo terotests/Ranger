@@ -137,13 +137,13 @@
           With Ranger, the shared logic has one source file and is compiled to
           both Swift and Kotlin.
         </p>
-        <pre class="code code--plain" role="img" aria-label="Shared Ranger source compiles down to Swift and Kotlin. SwiftUI and Compose stay native on each side."><code>shared Ranger source
-        ↓
-   ┌────┴────┐
-   ↓         ↓
- Swift     Kotlin
-   ↓         ↓
-SwiftUI   Compose</code></pre>
+        <pre class="code code--plain code--diagram" role="img" aria-label="Shared Ranger source compiles down to Swift and Kotlin. SwiftUI and Compose stay native on each side."><code>shared Ranger source
+         |
+    +----+----+
+    |         |
+  Swift     Kotlin
+    |         |
+ SwiftUI   Compose</code></pre>
         <p>
           The platform UI stays native. Only the logic that should behave the
           same on both platforms is shared.
@@ -178,8 +178,8 @@ SwiftUI   Compose</code></pre>
       <div class="col reveal">
         <p class="label">One implementation to maintain</p>
         <p>If a rule changes, you change it once:</p>
-        <pre class="code code--plain" role="img" aria-label="Pricing.rgr compiles to Pricing.swift and Pricing.kt."><code>Pricing.rgr
-    ↓ compile
+        <pre class="code code--plain code--diagram" role="img" aria-label="Pricing.rgr compiles to Pricing.swift and Pricing.kt."><code>Pricing.rgr
+    | compile
 Pricing.swift
 Pricing.kt</code></pre>
         <p>
