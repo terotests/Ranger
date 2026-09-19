@@ -121,6 +121,25 @@ node lib/evg/bin/evg_image_tool.js photo.png --out=photo --width=180
 {"width":320,"height":221,"layers":8,"colors":[{"hex":"#E3C8A6","share":0.223}, …]}
 ```
 
+## Next: an app, not a picture of one
+
+This page designs ONE screen. [`PLAN_LIVE_APP.md`](PLAN_LIVE_APP.md) is the
+next step — several pages, a statechart that owns which one you are on, and a
+press that goes back into it — and its first stage is built:
+
+```sh
+npm run livebuild:app:build     # compile the tool
+npm run livebuild:app           # the fixture app, and a broken one
+node gallery/evg/bin/evg_app.js check gallery/evg/livebuild/fixtures/app
+```
+
+An app is `machine.json` and one `pages/<state>.evg.json` per state — data,
+not code, so the agent changes it with the same `patch` and `measure` it
+already uses. An element's `id` is the event its press sends, `{key}` in a
+text node is filled from the machine's context, and `check` walks every state
+the machine can reach: a state with no page, a page no state renders and an id
+that is not an event are the three defects an agent cannot see and this names.
+
 ## The wire
 
 One JSON object per line. The HTTP door copies each line onto an SSE event

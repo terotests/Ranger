@@ -1,0 +1,651 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; evg_app — an app made of a machine and some pages, walked without a browser
+; ==============================================================================
+;
+;   evg_app states <app>                 every state, its page, its events
+;   evg_app press  <app> EVENT…          send events, print where each lands
+;   evg_app check  <app> [--width=390 --height=844]
+;   evg_app render <app> [EVENT…] [--out=FILE]
+;
+; PLAN_LIVE_APP.md, stage S1. The live-build demo designs ONE screen, and a
+; screen with a tab bar that does nothing is a picture of an app. This is the
+; smallest thing that is not: a statechart owns which page you are on, a page
+; is an EVG document, and an element's `id` is the event its press sends.
+;
+; --- WHY THERE IS NO RANGER IN AN APP -----------------------------------------
+;
+; The obvious design has the agent write a program. This one has it write
+; `machine.json` and `pages/<state>.evg.json` — the two things it already
+; knows how to change, with `patch` and `outline` and `measure`. Nothing is
+; compiled, so nothing can fail to compile; the app runs the moment the files
+; exist. Code comes when data runs out, and an app that only switches screens
+; never gets there.
+;
+; --- WHY `check` IS THE POINT -------------------------------------------------
+;
+; An app has more than one screen, so it has more than one screen to get
+; wrong, and an agent that can see only the page it just edited will leave the
+; other four broken. Three defects are invisible without this and fatal with
+; it: a state whose page does not exist, a page no state renders, and an id
+; that is not an event — a dead button looks exactly like a live one.
+; ==============================================================================
+
+Import "../../../lib/ranger-dir.rgr"
+Import "../../statechart/src/Statechart.rgr"
+Import "../../statechart/src/StatechartJson.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGInspect.rgr"
+Import "pkg:evg/EVGMeasure.rgr"
+Import "pkg:evg/EVGTreeJson.rgr"
+
+class EvgAppTool {
+    def insp:EVGInspect (new EVGInspect())
+    def chart@(optional):Statechart
+    def appDir:string ""
+    def pageW:int 390
+    def pageH:int 844
+
+    Constructor () {
+    }
+
+    sfn m@(main):void () {
+        def t (new EvgAppTool())
+        t.run()
+    }
+
+    fn usage:void () {
+        print "evg_app — a machine, some pages, and the checks between them"
+        print ""
+        print "  states <app>                 every state, its page, its events"
+        print "  press  <app> EVENT…          send events, print where each lands"
+        print "  check  <app> [--width=N] [--height=N]"
+        print "  render <app> [EVENT…] [--out=FILE]   the page for the state those events reach"
+        print ""
+        print "An app is <app>/machine.json and <app>/pages/<state>.evg.json."
+    }
+
+    fn run:void () {
+        def argc:int (shell_arg_cnt)
+        if (argc < 2) {
+            this.usage()
+            return
+        }
+        def verb:string (shell_arg 0)
+        appDir = (shell_arg 1)
+        pageW = (EvgAppTool.intFlag("--width" 390))
+        pageH = (EvgAppTool.intFlag("--height" 844))
+
+        def text@(optional):string (EvgAppTool.slurp(appDir + "/machine.json"))
+        if (null? text) {
+            print (("{\"error\":\"no machine at " + appDir) + "/machine.json\"}")
+            return
+        }
+        def loaded:Statechart (StatechartJson.load((unwrap text)))
+        chart = loaded
+
+        if (verb == "states") {
+            this.states(loaded)
+            return
+        }
+        if (verb == "press") {
+            this.press(loaded)
+            return
+        }
+        if (verb == "check") {
+            this.check(loaded)
+            return
+        }
+        if (verb == "render") {
+            this.render(loaded)
+            return
+        }
+        this.usage()
+    }
+
+    ; --- states ---------------------------------------------------------------
+
+    fn states:void (sc:Statechart) {
+        def out:string "{\"id\":"
+        out = (out + (EVGTreeJson.str(sc.id)))
+        out = ((out + ",\"initial\":") + (EVGTreeJson.str(sc.initial)))
+        out = (out + ",\"states\":[")
+        def n:int (array_length sc.states)
+        def i:int 0
+        while (i < n) {
+            def st:ScState (itemAt sc.states i)
+            if (i > 0) {
+                out = (out + ",")
+            }
+            out = (out + "\n  {\"state\":")
+            out = (out + (EVGTreeJson.str(st.path)))
+            out = ((out + ",\"page\":") + (EVGTreeJson.str(this.pageOf(st.path))))
+            out = ((out + ",\"hasPage\":") + (EvgAppTool.boolText((EvgAppTool.exists(this.pageOf(st.path))))))
+            out = ((out + ",\"events\":") + (EvgAppTool.strArray(this.eventsOf(sc st.path))))
+            out = (out + "}")
+            i = (i + 1)
+        }
+        if (n > 0) {
+            out = (out + "\n")
+        }
+        out = ((out + "],\"count\":") + (to_string n))
+        out = (out + "}")
+        print out
+    }
+
+    ; Every event this state answers to, its ancestors' and the machine's own
+    ; included — the same walk the runner does when it decides what a press
+    ; means, so the list cannot promise something the machine would ignore.
+    fn eventsOf:[string] (sc:Statechart path:string) {
+        def out:[string]
+        def here@(mutable):string path
+        def guard@(mutable):int 0
+        while ((strlen here) > 0) {
+            if (guard > 16) {
+                here = ""
+            } {
+                def st:ScState (sc.stateAt(here))
+                EvgAppTool.pushEvents(out st.transitions)
+                here = st.parent
+                guard = (guard + 1)
+            }
+        }
+        EvgAppTool.pushEvents(out sc.transitions)
+        return out
+    }
+
+    sfn pushEvents:void (out:[string] ts:[ScTransition]) {
+        def i:int 0
+        while (i < (array_length ts)) {
+            def t:ScTransition (itemAt ts i)
+            if ((strlen t.event) > 0) {
+                if ((EvgAppTool.mentions(out t.event)) == false) {
+                    push out t.event
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; --- press ----------------------------------------------------------------
+
+    fn press:void (sc:Statechart) {
+        def runner (new ScRunner)
+        runner.start(sc)
+        def out:string "{\"from\":"
+        out = (out + (EVGTreeJson.str(runner.state)))
+        out = (out + ",\"steps\":[")
+        def argc:int (shell_arg_cnt)
+        def wrote:int 0
+        def i:int 2
+        while (i < argc) {
+            def ev:string (shell_arg i)
+            if ((indexOf ev "--") == 0) {
+            } {
+                def before:string runner.state
+                def took:boolean (runner.send((ScEvent.of(ev))))
+                if (wrote > 0) {
+                    out = (out + ",")
+                }
+                out = (out + "\n  {\"event\":")
+                out = (out + (EVGTreeJson.str(ev)))
+                out = ((out + ",\"taken\":") + (EvgAppTool.boolText(took)))
+                out = ((out + ",\"state\":") + (EVGTreeJson.str(runner.state)))
+                out = ((out + ",\"page\":") + (EVGTreeJson.str(this.pageOf(runner.state))))
+                ; An event the machine ignores is the most common wrong answer
+                ; and the quietest: the screen simply does not change.
+                if (took == false) {
+                    out = (out + ",\"note\":\"the machine ignored it in ")
+                    out = ((out + before) + "\"")
+                }
+                out = (out + "}")
+                wrote = (wrote + 1)
+            }
+            i = (i + 1)
+        }
+        if (wrote > 0) {
+            out = (out + "\n")
+        }
+        out = (out + "],\"state\":")
+        out = (out + (EVGTreeJson.str(runner.state)))
+        out = (out + ",\"context\":")
+        out = (out + (EvgAppTool.contextJson(runner)))
+        out = (out + "}")
+        print out
+    }
+
+    ; --- render ---------------------------------------------------------------
+
+    ; The page the app is showing after those presses, with the context filled
+    ; in — one document, ready for a painter. This is the verb a browser host
+    ; calls; `press` is the same walk without the picture.
+    fn render:void (sc:Statechart) {
+        def runner (new ScRunner)
+        runner.start(sc)
+        def argc:int (shell_arg_cnt)
+        def i:int 2
+        while (i < argc) {
+            def ev:string (shell_arg i)
+            if ((indexOf ev "--") == 0) {
+            } {
+                def ignored:boolean (runner.send((ScEvent.of(ev))))
+            }
+            i = (i + 1)
+        }
+        def file:string (this.pageOf(runner.state))
+        def text@(optional):string (EvgAppTool.slurp(file))
+        if (null? text) {
+            print (("{\"error\":\"no page for state " + runner.state) + "\"}")
+            return
+        }
+        def root@(optional):EVGElement (EVGTreeJson.fromText((unwrap text)))
+        if (null? root) {
+            print (("{\"error\":\"not an EVG document: " + file) + "\"}")
+            return
+        }
+        def tree:EVGElement (unwrap root)
+        this.bind(tree runner)
+        def doc:string (EVGTreeJson.toText(tree))
+        def out:string (EvgAppTool.textFlag("--out" ""))
+        if ((strlen out) > 0) {
+            EvgAppTool.spit(out doc)
+            def m (new EVGMeasure())
+            m.look(tree pageW pageH "")
+            def line:string "{\"state\":"
+            line = (line + (EVGTreeJson.str(runner.state)))
+            line = ((line + ",\"wrote\":") + (EVGTreeJson.str(out)))
+            line = ((line + ",\"layout\":") + (m.summary(3)))
+            print (line + "}")
+            return
+        }
+        print doc
+    }
+
+    ; --- check ----------------------------------------------------------------
+
+    fn check:void (sc:Statechart) {
+        def runner (new ScRunner)
+        runner.start(sc)
+        def problems:[string]
+        def reports:[string]
+        def used:[string]
+        def n:int (array_length sc.states)
+        def i:int 0
+        while (i < n) {
+            def st:ScState (itemAt sc.states i)
+            ; A compound state is never entered itself — the runner lands on a
+            ; leaf inside it — so asking it for a page would report a screen
+            ; nobody can reach as missing.
+            if ((this.isLeaf(sc st.path)) == false) {
+            } {
+                def file:string (this.pageOf(st.path))
+                push used file
+                if ((EvgAppTool.exists(file)) == false) {
+                    push problems ((("state \"" + st.path) + "\" has no page: ") + file)
+                } {
+                    push reports (this.checkPage(sc st.path file runner problems))
+                }
+            }
+            i = (i + 1)
+        }
+        this.unusedPages(used problems)
+
+        def out:string "{\"states\":"
+        out = (out + (to_string n))
+        out = (out + ",\"pages\":[")
+        def k:int 0
+        while (k < (array_length reports)) {
+            if (k > 0) {
+                out = (out + ",")
+            }
+            out = (out + "\n  ")
+            out = (out + (itemAt reports k))
+            k = (k + 1)
+        }
+        if ((array_length reports) > 0) {
+            out = (out + "\n")
+        }
+        out = (out + "],\"problems\":")
+        out = (out + (EvgAppTool.strArray(problems)))
+        out = ((out + ",\"count\":") + (to_string (array_length problems)))
+        out = (out + "}")
+        print out
+    }
+
+    ; One page: does it read, does it lay out, and is every id on it an event
+    ; this state answers to?
+    fn checkPage:string (sc:Statechart path:string file:string runner:ScRunner problems:[string]) {
+        def out:string "{\"state\":"
+        out = (out + (EVGTreeJson.str(path)))
+        def text@(optional):string (EvgAppTool.slurp(file))
+        if (null? text) {
+            push problems (("page \"" + file) + "\" cannot be read")
+            return (out + ",\"error\":\"unreadable\"}")
+        }
+        def root@(optional):EVGElement (EVGTreeJson.fromText((unwrap text)))
+        if (null? root) {
+            push problems (("page \"" + file) + "\" is not an EVG document")
+            return (out + ",\"error\":\"not an EVG document\"}")
+        }
+        def tree:EVGElement (unwrap root)
+        this.bind(tree runner)
+
+        def m (new EVGMeasure())
+        m.look(tree pageW pageH "")
+        out = (out + ",\"layout\":")
+        out = (out + (m.summary(3)))
+        def j:int 0
+        while (j < (array_length m.findings)) {
+            push problems (((path + ": ") + (itemAt m.findings j)))
+            j = (j + 1)
+        }
+        def a:int 0
+        while (a < (array_length m.align)) {
+            push problems (((path + ": ") + (itemAt m.align a)))
+            a = (a + 1)
+        }
+
+        def events:[string] (this.eventsOf(sc path))
+        def ids:[string]
+        this.idsOf(tree ids)
+        def dead:[string]
+        def k:int 0
+        while (k < (array_length ids)) {
+            def id:string (itemAt ids k)
+            if ((EvgAppTool.mentions(events id)) == false) {
+                push dead id
+                push problems ((((path + ": #") + id) + " is not an event this state takes"))
+            }
+            k = (k + 1)
+        }
+        out = ((out + ",\"ids\":") + (to_string (array_length ids)))
+        if ((array_length dead) > 0) {
+            out = ((out + ",\"dead\":") + (EvgAppTool.strArray(dead)))
+        }
+        return (out + "}")
+    }
+
+    ; A page file no state renders. Work that went nowhere, or a state that was
+    ; renamed and left its screen behind.
+    fn unusedPages:void (used:[string] problems:[string]) {
+        def dir:string (appDir + "/pages")
+        def names:[string] (list_dir_files dir)
+        def i:int 0
+        while (i < (array_length names)) {
+            def name:string (itemAt names i)
+            if ((EvgAppTool.endsIn(name ".evg.json"))) {
+                def full:string ((dir + "/") + name)
+                if ((EvgAppTool.mentions(used full)) == false) {
+                    push problems (("page \"" + name) + "\" is not the page of any state")
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; --- the tree -------------------------------------------------------------
+
+    ; `{key}` in a text node is filled from the machine's context. A key the
+    ; context does not have is left as it was written: a missing binding should
+    ; look wrong on the screen, not look empty.
+    fn bind:void (el:EVGElement runner:ScRunner) {
+        if ((strlen el.textContent) > 0) {
+            el.textContent = (this.fill(el.textContent runner))
+        }
+        def i:int 0
+        while (i < (array_length el.children)) {
+            this.bind((itemAt el.children i) runner)
+            i = (i + 1)
+        }
+    }
+
+    fn fill:string (text:string runner:ScRunner) {
+        def out@(mutable):string ""
+        def i@(mutable):int 0
+        def n:int (strlen text)
+        while (i < n) {
+            def c:int (charAt text i)
+            if (c == 123) {
+                def close@(mutable):int (0 - 1)
+                def j@(mutable):int (i + 1)
+                while (j < n) {
+                    if ((charAt text j) == 125) {
+                        if (close < 0) {
+                            close = j
+                        }
+                    }
+                    j = (j + 1)
+                }
+                if (close < 0) {
+                    out = (out + (substring text i (i + 1)))
+                    i = (i + 1)
+                } {
+                    def key:string (substring text (i + 1) close)
+                    def val:string (EvgAppTool.plain((runner.json(key))))
+                    if ((strlen val) == 0) {
+                        out = (out + (substring text i (close + 1)))
+                    } {
+                        out = (out + val)
+                    }
+                    i = (close + 1)
+                }
+            } {
+                out = (out + (substring text i (i + 1)))
+                i = (i + 1)
+            }
+        }
+        return out
+    }
+
+    fn idsOf:void (el:EVGElement out:[string]) {
+        if ((strlen el.id) > 0) {
+            if ((EvgAppTool.mentions(out el.id)) == false) {
+                push out el.id
+            }
+        }
+        def i:int 0
+        while (i < (array_length el.children)) {
+            this.idsOf((itemAt el.children i) out)
+            i = (i + 1)
+        }
+    }
+
+    ; --- small things ---------------------------------------------------------
+
+    fn pageOf:string (path:string) {
+        return (((appDir + "/pages/") + path) + ".evg.json")
+    }
+
+    ; A state with children is a place the runner passes through, not one it
+    ; stops at.
+    fn isLeaf:boolean (sc:Statechart path:string) {
+        def i:int 0
+        while (i < (array_length sc.states)) {
+            def st:ScState (itemAt sc.states i)
+            if (st.parent == path) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; A JSON scalar as a person would read it: the quotes off a string, and
+    ; nothing else touched.
+    sfn plain:string (json:string) {
+        def n:int (strlen json)
+        if (n == 0) {
+            return ""
+        }
+        if (json == "null") {
+            return ""
+        }
+        if ((charAt json 0) == 34) {
+            if ((charAt json (n - 1)) == 34) {
+                return (substring json 1 (n - 1))
+            }
+        }
+        return json
+    }
+
+    sfn contextJson:string (runner:ScRunner) {
+        def out:string "{"
+        def i:int 0
+        while (i < (array_length runner.keys)) {
+            if (i > 0) {
+                out = (out + ",")
+            }
+            out = (out + (EVGTreeJson.str((itemAt runner.keys i))))
+            out = (out + ":")
+            out = (out + (runner.json((itemAt runner.keys i))))
+            i = (i + 1)
+        }
+        return (out + "}")
+    }
+
+    sfn mentions:boolean (list:[string] want:string) {
+        def i:int 0
+        while (i < (array_length list)) {
+            if ((itemAt list i) == want) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn endsIn:boolean (text:string tail:string) {
+        def n:int (strlen text)
+        def t:int (strlen tail)
+        if (n < t) {
+            return false
+        }
+        return ((substring text (n - t) n) == tail)
+    }
+
+    sfn boolText:string (v:boolean) {
+        if v {
+            return "true"
+        }
+        return "false"
+    }
+
+    sfn strArray:string (items:[string]) {
+        def out:string "["
+        def i:int 0
+        while (i < (array_length items)) {
+            if (i > 0) {
+                out = (out + ",")
+            }
+            out = (out + "\n  ")
+            out = (out + (EVGTreeJson.str((itemAt items i))))
+            i = (i + 1)
+        }
+        if ((array_length items) > 0) {
+            out = (out + "\n")
+        }
+        return (out + "]")
+    }
+
+    sfn intFlag:int (name:string fallback:int) {
+        def argc:int (shell_arg_cnt)
+        def head:string (name + "=")
+        def h:int (strlen head)
+        def i:int 0
+        while (i < argc) {
+            def a:string (shell_arg i)
+            if ((strlen a) > h) {
+                if ((substring a 0 h) == head) {
+                    def v:string (substring a h (strlen a))
+                    def out@(mutable):int 0
+                    def seen@(mutable):int 0
+                    def k@(mutable):int 0
+                    while (k < (strlen v)) {
+                        def d:int (indexOf "0123456789" (substring v k (k + 1)))
+                        if (d < 0) {
+                            k = (strlen v)
+                        } {
+                            out = ((out * 10) + d)
+                            seen = (seen + 1)
+                            k = (k + 1)
+                        }
+                    }
+                    if (seen > 0) {
+                        return out
+                    }
+                    return fallback
+                }
+            }
+            i = (i + 1)
+        }
+        return fallback
+    }
+
+    sfn lastSlash:int (path:string) {
+        def at@(mutable):int (0 - 1)
+        def i@(mutable):int 0
+        while (i < (strlen path)) {
+            if ((charAt path i) == 47) {
+                at = i
+            }
+            i = (i + 1)
+        }
+        return at
+    }
+
+    sfn exists:boolean (path:string) {
+        def cut:int (EvgAppTool.lastSlash(path))
+        def dir:string "."
+        def name@(mutable):string path
+        if (cut >= 0) {
+            dir = (substring path 0 cut)
+            name = (substring path (cut + 1) (strlen path))
+        }
+        return (file_exists dir name)
+    }
+
+    sfn textFlag:string (name:string fallback:string) {
+        def argc:int (shell_arg_cnt)
+        def head:string (name + "=")
+        def h:int (strlen head)
+        def i:int 0
+        while (i < argc) {
+            def a:string (shell_arg i)
+            if ((strlen a) > h) {
+                if ((substring a 0 h) == head) {
+                    return (substring a h (strlen a))
+                }
+            }
+            i = (i + 1)
+        }
+        return fallback
+    }
+
+    sfn spit:void (path:string data:string) {
+        def cut:int (EvgAppTool.lastSlash(path))
+        def dir:string "."
+        def name@(mutable):string path
+        if (cut >= 0) {
+            dir = (substring path 0 cut)
+            name = (substring path (cut + 1) (strlen path))
+        }
+        write_file dir name data
+    }
+
+    sfn slurp@(optional):string (path:string) {
+        def cut:int (EvgAppTool.lastSlash(path))
+        def dir:string "."
+        def name@(mutable):string path
+        if (cut >= 0) {
+            dir = (substring path 0 cut)
+            name = (substring path (cut + 1) (strlen path))
+        }
+        if ((file_exists dir name) == false) {
+            def missing@(optional):string
+            return missing
+        }
+        def text@(optional):string (read_file dir name)
+        return text
+    }
+}
