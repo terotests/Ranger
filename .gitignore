@@ -239,3 +239,17 @@ pkg/bin/
 # Intermediate of build:dist:module; dist/api.js and dist/api.d.ts are the
 # artifacts that ship.
 compiler/bin/api.ts
+
+# Compiler experiments run from the repository root. `node bin/output.js x.rgr`
+# writes the source's JavaScript next to it and a copy into bin/, and those
+# copies used to get committed -- nine of them, plus the .go/.rs/.ll/.zip a
+# target run leaves behind. The test suite lives in tests/; anything compiled
+# from the root is scratch.
+/*.rgr
+/*.js
+/*.go
+/*.rs
+/*.ll
+/*.zip
+/bin/test_*
+/rustc_errors.txt
