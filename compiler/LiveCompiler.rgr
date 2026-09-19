@@ -1692,13 +1692,33 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
           def idx:int cmdArg.int_value
           if ((array_length node.children) >= idx) {
             def arg:CodeNode (itemAt node.children idx)
+            def tn:string ""
             def p@(optional):RangerAppParamDesc (this.findParamDesc( arg ctx wr))
-            def nameNode:CodeNode (unwrap p.nameNode)
-
-            def tn:string nameNode.array_type
-            wr.out((this.getTypeString(tn ctx)) false)
-
-
+            if (!null? p) {
+              def pDesc:RangerAppParamDesc (unwrap p)
+              def nnOpt@(optional):CodeNode pDesc.nameNode
+              if (!null? nnOpt) {
+                def nameNode:CodeNode (unwrap nnOpt)
+                tn = nameNode.array_type
+              }
+            }
+            ; the desc is not always where the element type is: a local
+            ; declared `def xs:[Item]` carries it on the node the flow parser
+            ; typed, not on the declaration's name node. Without these two
+            ; `(atype N)` wrote nothing at all, which is a template that
+            ; silently produced `Comparator<>` on Java 7.
+            if ((strlen tn) == 0) {
+              tn = arg.eval_array_type
+            }
+            if ((strlen tn) == 0) {
+              tn = arg.array_type
+            }
+            ; langWriter, not this: LiveCompiler.getTypeString is a stub that
+            ; returns "", so `(atype N)` wrote NOTHING on every target --
+            ; `Comparator<>` with an empty type argument. The element of a
+            ; collection is a boxed type where the target has one, which is
+            ; what getObjectTypeString answers.
+            wr.out((langWriter.getObjectTypeString(tn ctx)) false)
           }
         }
       }

@@ -25258,6 +25258,26 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           return tn;
         };
         getObjectTypeString2 (type_string, ctx, wr) {
+          if ( type_string.length > 2 ) {
+            if ( type_string.indexOf("[") == 0 ) {
+              const jInner = type_string.substring(1, (type_string.length - 1) );
+              const jColon = jInner.indexOf(":");
+              if ( jColon >= 0 ) {
+                const jKey = jInner.substring(0, jColon );
+                const jVal = jInner.substring((jColon + 1), jInner.length );
+                return ((("HashMap<" + this.getObjectTypeString2(
+                  jKey,
+                  ctx,
+                  wr
+                )) + ",") + this.getObjectTypeString2(jVal, ctx, wr)) + ">";
+              }
+              return ("ArrayList<" + this.getObjectTypeString2(
+                jInner,
+                ctx,
+                wr
+              )) + ">";
+            }
+          }
           switch (type_string ) { 
             case "int" : 
               return "Integer";
@@ -25569,6 +25589,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           }
           const max_len = node.ns.length;
           if ( node.nsp.length > 0 ) {
+            let firstIsBoxed = false;
             for ( let i = 0; i < node.nsp.length; i++) {
               var p = node.nsp[i];
               if ( i == 0 ) {
@@ -25587,9 +25608,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   }
                   continue;
                 }
-                if ( p_captured_mutable ) {
-                  wr.out("[0]", false);
-                }
+                firstIsBoxed = p_captured_mutable;
               }
               if ( i > 0 ) {
                 wr.out(".", false);
@@ -25601,6 +25620,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   wr.out(this.adjustType(p.name), false);
                 } else {
                   wr.out(this.adjustType(node.ns[i]), false);
+                }
+              }
+              if ( i == 0 ) {
+                if ( firstIsBoxed ) {
+                  wr.out("[0]", false);
                 }
               }
               if ( i < max_len - 1 ) {
@@ -72420,14 +72444,27 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                 const idx_31 = cmdArg.int_value;
                                                 if ( node.children.length >= idx_31 ) {
                                                   const arg_29 = node.children[idx_31];
+                                                  let tn_1 = "";
                                                   const p_4 = this.findParamDesc(
                                                     arg_29,
                                                     ctx,
                                                     wr
                                                   );
-                                                  const nameNode = p_4.nameNode;
-                                                  const tn_1 = nameNode.array_type;
-                                                  wr.out(this.getTypeString(tn_1, ctx), false);
+                                                  if ( (typeof(p_4) !== "undefined" && p_4 != null )  ) {
+                                                    const pDesc = p_4;
+                                                    const nnOpt = pDesc.nameNode;
+                                                    if ( (typeof(nnOpt) !== "undefined" && nnOpt != null )  ) {
+                                                      const nameNode = nnOpt;
+                                                      tn_1 = nameNode.array_type;
+                                                    }
+                                                  }
+                                                  if ( tn_1.length == 0 ) {
+                                                    tn_1 = arg_29.eval_array_type;
+                                                  }
+                                                  if ( tn_1.length == 0 ) {
+                                                    tn_1 = arg_29.array_type;
+                                                  }
+                                                  wr.out(this.langWriter.getObjectTypeString(tn_1, ctx), false);
                                                 }
                                                 break;
                                             };

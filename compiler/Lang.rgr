@@ -5116,7 +5116,12 @@ def r_div_f64(a, b):
                 swift3 ( "if ( " (e 1) " != nil ) {" nl I (block 2) i nl "}" nl )
                 swift6 ( "if ( " (e 1) " != nil ) {" nl I (block 2) i nl "}" nl )
                 kotlin ( "if ( " (e 1) " != null ) {" nl I (block 2) i nl "}" nl )
-                java7 ( "if ( " (e 1) ".isPresent()) {" nl I (block 2) i nl "}" nl )
+                ; NOT Optional.isPresent(): java.util.Optional is Java 8, and
+                ; an optional on this target is a nullable reference or a boxed
+                ; primitive -- which is what `null?` already compares against.
+                ; The six `isPresent()` entries were the only thing that
+                ; disagreed, and each one was a "cannot find symbol".
+                java7 ( "if ( " (e 1) " != null) {" nl I (block 2) i nl "}" nl )
                 csharp ( "if ( " (e 1) " != null) {" nl I (block 2) i nl "}" nl )
                 php ( "if ( isset( " (e 1) " ) ) {" nl I (block 2) i nl "}" nl )
                 go ( "if ( " (e 1) ".has_value) {" nl I (block 2) i nl "}" nl )
@@ -5135,7 +5140,7 @@ def r_div_f64(a, b):
                 swift3 ( "if ( " (e 1) " != nil ) {" nl I (block 2) i nl "}" nl )
                 swift6 ( "if ( " (e 1) " != nil ) {" nl I (block 2) i nl "}" nl )
                 kotlin ( "if ( " (e 1) " != null ) {" nl I (block 2) i nl "}" nl )
-                java7 ( "if ( " (e 1) ".isPresent()) {" nl I (block 2) i nl "}" nl )
+                java7 ( "if ( " (e 1) " != null) {" nl I (block 2) i nl "}" nl )
                 csharp ( "if ( " (e 1) " != null) {" nl I (block 2) i nl "}" nl )
                 php ( "if ( isset( " (e 1) " ) ) {" nl I (block 2) i nl "}" nl )
                 go ( "if ( " (e 1) ".has_value) {" nl I (block 2) i nl "}" nl )
@@ -5155,7 +5160,7 @@ def r_div_f64(a, b):
                 ranger ( "if ( " (e 1) " ) {" I nl (block 2) i nl "} {" nl I (block 3) i "}" nl)
                 php ( "if ( isset(" (e 1) ") ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 scala ( "if ( " (e 1) ".isDefined ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
-                java7 ( "if ( " (e 1) ".isPresent() ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
+                java7 ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 csharp ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 kotlin ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 rust ( "if " (e 1) ".is_some() {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
@@ -5174,7 +5179,7 @@ def r_div_f64(a, b):
                 ranger ( "if ( " (e 1) " ) {" I nl (block 2) i nl "} {" nl I (block 3) i "}" nl)
                 php ( "if ( isset(" (e 1) ") ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 scala ( "if ( " (e 1) ".isDefined ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
-                java7 ( "if ( " (e 1) ".isPresent() ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
+                java7 ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 csharp ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 kotlin ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 rust ( "if " (e 1) ".is_some() {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
@@ -5195,7 +5200,7 @@ def r_div_f64(a, b):
                 swift6 ( "if ( " (e 1) " != nil ) {" nl I (block 2) i nl "}" nl )
                 kotlin ( "if ( " (e 1) " != null ) {" nl I (block 2) i nl "}" nl )
                 dart ( "if ( " (e 1) " != null ) {" nl I (block 2) i nl "}" nl )
-                java7 ( "if ( " (e 1) ".isPresent()) {" nl I (block 2) i nl "}" nl )
+                java7 ( "if ( " (e 1) " != null) {" nl I (block 2) i nl "}" nl )
                 csharp ( "if ( " (e 1) " != null) {" nl I (block 2) i nl "}" nl )
                 ; go ( "" (e 1 ) " == nil " ) 
                 ; is_some
@@ -5214,7 +5219,7 @@ def r_div_f64(a, b):
                 ranger ( "if ( " (e 1) " ) {" I nl (block 2) i nl "} {" nl I (block 3) i "}" nl)
                 php ( "if ( isset(" (e 1) ") ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 scala ( "if ( " (e 1) ".isDefined ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
-                java7 ( "if ( " (e 1) ".isPresent() ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
+                java7 ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 csharp ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 kotlin ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 dart ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl )
@@ -6542,7 +6547,7 @@ static void r_buffer_write_file(String path, String filename, byte[] data) {
                 )
                 python ( "open(" (e 1) " + '/' + " (e 2) ", 'wb').write(" (e 3) ")" )
                 swift6 ( "try? Data(" (e 3) ").write(to: URL(fileURLWithPath: " (e 1) " + \"/\" + " (e 2) "))" (imp "Foundation") )
-                csharp ( "System.IO.File.WriteAllBytes(" (e 1) " + \"/\" + " (e 2) ", " (e 3) ")" )
+                csharp ( "System.IO.File.WriteAllBytes(" (e 1) " + \"/\" + " (e 2) ", " (e 3) ");" )
                 kotlin ( "java.io.File(" (e 1) " + \"/\" + " (e 2) ").writeBytes(" (e 3) ")" )
                 dart ( (imp "dart:io") "File((" (e 1) ") + \"/\" + (" (e 2) ")).writeAsBytesSync(" (e 3) ")" )
                 php ( "file_put_contents(" (e 1) " . '/' . " (e 2) ", " (e 3) "->d);" )
@@ -6597,7 +6602,7 @@ static byte[] r_buffer_read_file(String path, String filename) {
                 java7 ( "System.arraycopy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ");" )
                 python ( (e 1) "[" (e 2) ":" (e 2) "+" (e 5) "] = " (e 3) "[" (e 4) ":" (e 4) "+" (e 5) "]" )
                 swift6 ( (e 1) ".replaceSubrange(Int(" (e 2) ")..<Int(" (e 2) "+" (e 5) "), with: " (e 3) "[Int(" (e 4) ")..<Int(" (e 4) "+" (e 5) ")])" )
-                csharp ( "Array.Copy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ")" )
+                csharp ( "Array.Copy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ");" )
                 kotlin ( "System.arraycopy(" (e 3) ", " (e 4) ", " (e 1) ", " (e 2) ", " (e 5) ")" )
                 php ( "r_buf_copy(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ");" )
             }
@@ -6749,7 +6754,7 @@ static byte[] r_buffer_read_file(String path, String filename) {
                 java7 ( "System.arraycopy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ")" )
                 python ( (e 1) "[" (e 2) ":" (e 2) "+" (e 5) "] = " (e 3) "[" (e 4) ":" (e 4) "+" (e 5) "]" )
                 swift6 ( (e 1) ".replaceSubrange(Int(" (e 2) ")..<Int(" (e 2) "+" (e 5) "), with: " (e 3) "[Int(" (e 4) ")..<Int(" (e 4) "+" (e 5) ")])" )
-                csharp ( "Array.Copy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ")" )
+                csharp ( "Array.Copy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ");" )
                 kotlin ( "System.arraycopy(" (e 3) ", " (e 4) ", " (e 1) ", " (e 2) ", " (e 5) ")" )
             }
         }
@@ -6876,7 +6881,7 @@ static byte[] r_buffer_read_file(String path, String filename) {
                 java7 ( "System.arraycopy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ")" )
                 python ( (e 1) "[" (e 2) ":" (e 2) "+" (e 5) "] = " (e 3) "[" (e 4) ":" (e 4) "+" (e 5) "]" )
                 swift6 ( (e 1) ".replaceSubrange(Int(" (e 2) ")..<Int(" (e 2) "+" (e 5) "), with: " (e 3) "[Int(" (e 4) ")..<Int(" (e 4) "+" (e 5) ")])" )
-                csharp ( "Array.Copy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ")" )
+                csharp ( "Array.Copy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ");" )
                 kotlin ( "System.arraycopy(" (e 3) ", " (e 4) ", " (e 1) ", " (e 2) ", " (e 5) ")" )
             }
         }
@@ -7637,7 +7642,10 @@ func r_last_index_of(_ s: String, _ needle: String) -> Int {
                 cpp( "((unsigned char)" (e 1) ".at(0))")
                 dart ( (e 1) ".codeUnitAt(0)" )
                 php ( "ord(" (e 1) ")") 
-                java7 ( "((" (e 1) ".getBytes())[0])") 
+                ; getBytes() answers byte[], and a Ranger char is an int:
+                  ; `Integer ch = (...)[0]` does not compile without the widening
+                  ; cast, because Java boxes byte to Byte, not to Integer.
+                java7 ( "((int)(" (e 1) ".getBytes())[0])") 
                 swift3 ( "UInt8( (  NSString(string: " (e 1) " )     ).character( at: 0 ) )" (imp "Foundation"))
                 swift3 ( "UInt8( String( " (e 1) ".characters[" (e 1) ".startIndex]))! ")
                 swift6 ( "r_char_at(" (e 1) ", 0)"
@@ -8366,6 +8374,9 @@ def r_str_to_double(s):
                 ranger ( "(join " (e 1) " " (e 2) ")")          
                 java7 ( "joinStrings(" (e 1 ) ", " (e 2) ")" 
                     (imp "java.lang.StringBuilder")
+                    ; the helper takes an ArrayList, so the file that gets the
+                    ; helper needs the import even when nothing else in it does
+                    (imp "java.util.*")
 (create_polyfill "
 static String joinStrings(ArrayList<String> list, String delimiter) 
 {
@@ -9593,6 +9604,23 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                 ; .toMutableList(): sortedWith answers a read only List, and every
                 ; array in the writer is a MutableList
                 kotlin ( (e 1) ".sortedWith(Comparator { __a, __b -> (" (e 2) ")(__a, __b).toInt() }).toMutableList()" )
+                ; Java 7 has no lambdas and no statement expressions, so the
+                ; callback arrives as a LambdaSignature object and the sort
+                ; itself is a helper. Collections.sort is in place, and `sort`
+                ; leaves its argument alone on every other target, so the
+                ; helper sorts a COPY. Without this entry there was no java7
+                ; template at all and the operator did not match: the compiler
+                ; could not be rendered to Java at all, stopping at
+                ; "Could not match argument types for sort" in FlowCollect.
+                java7 ( "r_sort_copy(" (e 1) ", new java.util.Comparator<" (atype 1) ">() { public int compare(" (atype 1) " __a, " (atype 1) " __b) { return (" (e 2) ").run(__a, __b).intValue(); } })" (imp "java.util.*")
+(create_polyfill "
+static <T> ArrayList<T> r_sort_copy(ArrayList<T> list, java.util.Comparator<T> cmp) {
+  ArrayList<T> copy = new ArrayList<T>(list);
+  java.util.Collections.sort(copy, cmp);
+  return copy;
+}
+")
+                )
                 ; `..sort` is a cascade, so the expression is the sorted COPY --
                 ; `sort` leaves its argument alone on every other target.
                 dart ( "(" (typeof 1) ".from(" (e 1) ")..sort((__a, __b) => (" (e 2) ")(__a, __b)))" )
@@ -10914,7 +10942,7 @@ std::string r_cpp_str_to_uppercase(const std::string& original)
                 csharp ( (e 1) " != null  && " (e 2) " != null") 
 
                 php ( "isset("(e 1) ") && isset(" (e 2) ")") 
-                java7 ( (e 1) ".isPresent()  && " (e 2) ".isPresent()") 
+                java7 ( (e 1) " != null  && " (e 2) " != null") 
                 rust ( (e 1) ".is_some()  && " (e 2) ".is_some()") 
                 swift3 ( (e 1) " != nil  && " (e 2) " != nil") 
                 swift6 ( (e 1) " != nil  && " (e 2) " != nil") 
@@ -10932,7 +10960,7 @@ std::string r_cpp_str_to_uppercase(const std::string& original)
                 ranger ( "(" (e 1) " && " (e 2) ")" ) 
                 php ( (e 1) " && isset(" (e 2) ")") 
                 scala ( (e 1) " && " (e 2) ".isDefined") 
-                java7 ( (e 1) " && " (e 2) ".isPresent()") 
+                java7 ( (e 1) " && " (e 2) " != null") 
                 csharp ( (e 1) " && " (e 2) " != null") 
 
                 rust ( (e 1) " && " (e 2) ".is_some()") 
@@ -10952,7 +10980,7 @@ std::string r_cpp_str_to_uppercase(const std::string& original)
                 ranger ( "(" (e 1) " && " (e 2) ")" ) 
                 php ( "isset("(e 1) ") && " (e 2) ) 
                 scala ( ""(e 1) ".isDefined && " (e 2) ) 
-                java7 ( ""(e 1) ".isPresent() && " (e 2) ) 
+                java7 ( ""(e 1) " != null && " (e 2) ) 
                 csharp ( ""(e 1) " != null && " (e 2) ) 
 
                 rust ( ""(e 1) ".is_some() && " (e 2) ) 

@@ -37,6 +37,25 @@ class RangerJava7ClassWriter {
   }
 
   fn getObjectTypeString2:string (type_string:string ctx:RangerAppWriterContext wr:CodeWriter) {
+    ; A map whose VALUE is itself a collection arrives here in the RANGER
+    ; spelling -- `[string]` for an array, `[string:int]` for a map -- because
+    ; the caller reads the raw array_type/key_type off the node. It used to be
+    ; written through untouched, so `def m:[string:[string]]` became
+    ; `HashMap<String,[string]>`, which is not Java. The compiler's own flow
+    ; parser has fifteen of those, which is why its Java rendering never
+    ; reached javac.
+    if ((strlen type_string) > 2) {
+      if ((indexOf type_string "[") == 0) {
+        def jInner:string (substring type_string 1 ((strlen type_string) - 1))
+        def jColon:int (indexOf jInner ":")
+        if (jColon >= 0) {
+          def jKey:string (substring jInner 0 jColon)
+          def jVal:string (substring jInner (jColon + 1) (strlen jInner))
+          return ((("HashMap<" + (this.getObjectTypeString2(jKey ctx wr))) + ",") + (this.getObjectTypeString2(jVal ctx wr))) + ">"
+        }
+        return (("ArrayList<" + (this.getObjectTypeString2(jInner ctx wr))) + ">")
+      }
+    }
     switch type_string {
       case "int" {
         return "Integer"
@@ -378,6 +397,12 @@ class RangerJava7ClassWriter {
     }
     def max_len:int (array_length node.ns)
     if ((array_length node.nsp) > 0) {
+      ; A captured mutable local is a one-element array on Java 7, so reading
+      ; it is `name[0]`. The subscript used to be written BEFORE the first
+      ; segment -- `[0]stdCode.children.add(...)`, which is not an expression
+      ; at all. It belongs after that segment's name and before the dot the
+      ; next one writes.
+      def firstIsBoxed:boolean false
       for node.nsp p:RangerAppParamDesc i {
 
         if (i == 0) {
@@ -397,9 +422,7 @@ class RangerJava7ClassWriter {
             }            
             continue
           } 
-          if( p_captured_mutable ) {
-            wr.out("[0]" false)
-          }
+          firstIsBoxed = p_captured_mutable
         }
 
         if (i > 0) {
@@ -412,6 +435,11 @@ class RangerJava7ClassWriter {
             wr.out((this.adjustType(p.name)) false)
           } {
             wr.out((this.adjustType((itemAt node.ns i))) false)
+          }
+        }
+        if (i == 0) {
+          if firstIsBoxed {
+            wr.out("[0]" false)
           }
         }
         if (i < (max_len - 1) ) {
