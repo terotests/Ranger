@@ -1,0 +1,2582 @@
+; SPDX-License-Identifier: MIT
+
+; `CustomOperator` -- every operator template Lang.rgr declares for Rust, and
+; the operand writers it reaches for: parenthesising, bit and comparison
+; operands, format strings, and the `&`/`&mut` an argument already carries.
+
+extension RangerRustClassWriter {
+
+  fn opWritesOwnParens:boolean (opName:string node:CodeNode ctx:RangerAppWriterContext) {
+    if (opName == "bit_and") { return true }
+    if (opName == "bit_or") { return true }
+    if (opName == "bit_xor") { return true }
+    if (opName == "bit_shl") { return true }
+    if (opName == "bit_shr") { return true }
+    if (opName == "bit_ushr") { return true }
+    if (opName == "bit_not") { return true }
+    if (opName == "itemAt") { return true }
+    ; NOTE: cast tails (to_int, to_double, array_length) must NOT be here:
+    ; `args.len() as i64 < 2` parses `i64 <` as generic arguments, so the
+    ; walker's parens around a cast in a comparison are load-bearing. The
+    ; argument-slot and operand suppression already keep them out of the
+    ; positions clippy warns about.
+    if (opName == "+") {
+      if (node.eval_type == RangerNodeType.String) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn rustWriteBitOperand:void (o:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def oo:CodeNode (this.rustUnwrapParens(o))
+    def bare:boolean false
+    if (oo.value_type == RangerNodeType.Integer) { bare = true }
+    if (oo.value_type == RangerNodeType.Double) { bare = true }
+    if (oo.value_type == RangerNodeType.VRef) { bare = true }
+    ctx.setInExpr()
+    if (bare == false) {
+      wr.out("(" false)
+    }
+    wr.suppress_expr_parens = true
+    this.WalkNode(oo ctx wr)
+    wr.suppress_expr_parens = false
+    if (bare == false) {
+      wr.out(")" false)
+    }
+    ctx.unsetInExpr()
+  }
+
+  fn rustArgIsAlreadyRef:boolean (nVal:CodeNode) {
+    ; a static-string read is a &str value already — a & on it would pass
+    ; &&str and hold a borrow of the receiver through the call (E0502)
+    if (this.rustStaticStrRead(nVal)) {
+      return true
+    }
+    if (nVal.value_type != RangerNodeType.VRef) {
+      return false
+    }
+    if ((array_length nVal.ns) > 1) {
+      return false
+    }
+    if nVal.hasParamDesc {
+      def rp:RangerAppParamDesc nVal.paramDesc
+      if (rp.rust_borrow_type == 1) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn rustArgIsBareThis:boolean (nValIn:CodeNode) {
+    if rust_receiverless_method {
+      return false
+    }
+    ; the argument arrives wrapped in its own expression node
+    def nVal:CodeNode (this.rustUnwrapParens(nValIn))
+    if (nVal.vref == "this") {
+      return true
+    }
+    if ((array_length nVal.ns) == 1) {
+      if ((itemAt nVal.ns 0) == "this") {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn rustArgIsPlainMutPath:boolean (nValIn:CodeNode) {
+    def pmp:CodeNode (this.rustUnwrapParens(nValIn))
+    if pmp.hasFnCall {
+      return false
+    }
+    if pmp.has_call {
+      return false
+    }
+    if ((array_length pmp.children) > 0) {
+      return false
+    }
+    ; a BARE member name is a path too — `zone` is written
+    ; `__self_rc.borrow().zone`
+    return ((array_length pmp.ns) > 0)
+  }
+
+  fn rustWriteMutArgPrefix:void (nVal:CodeNode wr:CodeWriter) {
+    if (this.rustArgIsAlreadyMutRef(nVal)) {
+      return
+    }
+    if (this.rustArgIsBareThis(nVal)) {
+      wr.out("&mut *" false)
+      return
+    }
+    wr.out("&mut " false)
+  }
+
+  fn rustArgIsAlreadyMutRef:boolean (nVal:CodeNode) {
+    if (nVal.value_type != RangerNodeType.VRef) {
+      return false
+    }
+    if ((array_length nVal.ns) > 1) {
+      return false
+    }
+    if nVal.hasParamDesc {
+      def rp:RangerAppParamDesc nVal.paramDesc
+      if (rp.is_class_variable == false) {
+        if (rp.rust_borrow_type == 2) {
+          return true
+        }
+        ; a mut-reference PARAMETER — locals with the flag stay plain
+        if (rp.needs_cpp_reference && (rp.init_cnt == 0)) {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
+  fn rustWriteCmpOperand:void (o:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def oo:CodeNode (this.rustUnwrapParens(o))
+    if (oo.value_type == RangerNodeType.String) {
+      wr.out(((("\"" + (this.EncodeString(oo ctx wr))) + "\"")) false)
+      return
+    }
+    ; a &mut String operand derefs to compare as String; a read-only borrow
+    ; is &str and compares against every string shape without a deref
+    if (((oo.expression == false) && oo.hasParamDesc) && ((array_length oo.ns) == 1)) {
+      def cmpP:RangerAppParamDesc oo.paramDesc
+      if (cmpP.rust_borrow_type == 2) {
+        def cmpNN@(optional):CodeNode cmpP.nameNode
+        if (!null? cmpNN) {
+          def cmpN:CodeNode (unwrap cmpNN)
+          if (cmpN.type_name == "string") {
+            wr.out("*" false)
+          }
+        }
+      }
+    }
+    ctx.setInExpr()
+    this.WalkNode(oo ctx wr)
+    ctx.unsetInExpr()
+  }
+
+  fn rustWriteCastOperandF64:void (o:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def oo:CodeNode (this.rustUnwrapParens(o))
+    if (oo.value_type == RangerNodeType.Integer) {
+      wr.out((("" + oo.int_value) + ".0") false)
+      return
+    }
+    this.rustWriteBitOperand(oo ctx wr)
+    wr.out(" as f64" false)
+  }
+
+  fn rustUnwrapParens:CodeNode (node:CodeNode) {
+    def cur:CodeNode node
+    while (cur.expression && ((array_length cur.children) == 1)) {
+      cur = (cur.getFirst())
+    }
+    return cur
+  }
+
+  fn rustCollectConcatOperands:void (node:CodeNode out:[CodeNode]) {
+    def cur:CodeNode (this.rustUnwrapParens(node))
+    if ((array_length cur.children) == 3) {
+      def opN:CodeNode (cur.getFirst())
+      if ((opN.vref == "+") && (cur.eval_type == RangerNodeType.String)) {
+        this.rustCollectConcatOperands((cur.getSecond()) out)
+        this.rustCollectConcatOperands((cur.getThird()) out)
+        return
+      }
+    }
+    ; A NO-ARGUMENT operator call is an expression holding one bare name,
+    ; the same shape as a parenthesised variable, so unwrapping it threw the
+    ; call away and left the operator's name to be written as if it were a
+    ; value — `format!("{}{}", ansi_green, text)` with no `ansi_green` in
+    ; scope. A name that resolves to a variable has a desc; one that does
+    ; not is the operator, and it keeps its wrapper so WalkNode expands it.
+    if (node.expression && ((array_length node.children) == 1)) {
+      push out node
+      return
+    }
+    push out cur
+  }
+
+  fn rustFmtInline:boolean (o:CodeNode) {
+    if (o.value_type != RangerNodeType.String) {
+      return false
+    }
+    if ((indexOf o.string_value "{") >= 0) {
+      return false
+    }
+    if ((indexOf o.string_value "}") >= 0) {
+      return false
+    }
+    return true
+  }
+
+  fn rustStripToString:CodeNode (o:CodeNode) {
+    if ((array_length o.children) == 2) {
+      def sfc:CodeNode (o.getFirst())
+      if (sfc.vref == "to_string") {
+        def sarg:CodeNode (this.rustUnwrapParens((o.getSecond())))
+        if ((((sarg.eval_type == RangerNodeType.Integer) || (sarg.eval_type == RangerNodeType.Double)) || (sarg.eval_type == RangerNodeType.Boolean)) || (sarg.eval_type == RangerNodeType.String)) {
+          return sarg
+        }
+      }
+    }
+    return o
+  }
+
+  fn writeRustFormatOps:void (ops:[CodeNode] ctx:RangerAppWriterContext wr:CodeWriter) {
+    wr.out("\"" false)
+    for ops o:CodeNode i {
+      if (this.rustFmtInline(o)) {
+        wr.out((this.EncodeString(o ctx wr)) false)
+      } {
+        wr.out("{}" false)
+      }
+    }
+    wr.out("\"" false)
+    for ops o:CodeNode i {
+      if ((this.rustFmtInline(o)) == false) {
+        wr.out(", " false)
+        def oo:CodeNode (this.rustStripToString(o))
+        ctx.setInExpr()
+        wr.suppress_expr_parens = true
+        wr.in_format_args = true
+        this.WalkNode(oo ctx wr)
+        wr.in_format_args = false
+        wr.suppress_expr_parens = false
+        ctx.unsetInExpr()
+      }
+    }
+  }
+
+  fn rustPlainScalarPath:boolean (n:CodeNode) {
+    if (n.hasFnCall || n.has_call) {
+      return false
+    }
+    if ((array_length n.ns) == 0) {
+      return false
+    }
+    for n.nsp seg:RangerAppParamDesc si {
+      if seg.rust_needs_rc_wrap {
+        return false
+      }
+      if seg.is_optional {
+        return false
+      }
+      def segNN@(optional):CodeNode seg.nameNode
+      if (!null? segNN) {
+        def segN:CodeNode (unwrap segNN)
+        if (segN.hasFlag("weak")) {
+          return false
+        }
+      }
+    }
+    return true
+  }
+
+  fn rustTryCompoundAssign:boolean (left:CodeNode right:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if ((this.rustPlainScalarPath(left)) == false) {
+      return false
+    }
+    def rr:CodeNode (this.rustUnwrapParens(right))
+    if ((array_length rr.children) != 3) {
+      return false
+    }
+    if ((rr.eval_type != RangerNodeType.Integer) && (rr.eval_type != RangerNodeType.Double)) {
+      return false
+    }
+    def opN:CodeNode (rr.getFirst())
+    def op:string opN.vref
+    if (op == "bit_shl") { op = "<<" }
+    if (op == "bit_shr") { op = ">>" }
+    if (op == "bit_and") { op = "&" }
+    if (op == "bit_or") { op = "|" }
+    if (op == "bit_xor") { op = "^" }
+    if ((((((((op != "+") && (op != "-")) && (op != "*")) && (op != "/")) && (op != "<<")) && (op != ">>")) && (op != "&")) && ((op != "|") && (op != "^"))) {
+      return false
+    }
+    def firstOperand:CodeNode (this.rustUnwrapParens((rr.getSecond())))
+    if ((this.rustPlainScalarPath(firstOperand)) == false) {
+      return false
+    }
+    ; a cell field has no place to put the `+=`
+    if (this.rustNodeIsCellField(left)) {
+      return false
+    }
+    if ((array_length firstOperand.ns) != (array_length left.ns)) {
+      return false
+    }
+    for left.ns part:string pi {
+      if ((itemAt firstOperand.ns pi) != part) {
+        return false
+      }
+    }
+    ; the target of a compound assignment is WRITTEN, so a field of a
+    ; receiverless method's own object takes the mutable borrow here
+    ctx.setInLhs()
+    this.WriteVRef(left ctx wr)
+    ctx.unsetInLhs()
+    wr.out(((" " + op) + "= ") false)
+    ctx.setInExpr()
+    this.WalkNode((rr.getThird()) ctx wr)
+    ctx.unsetInExpr()
+    wr.out(";" true)
+    return true
+  }
+
+  fn rustArgNeedsCellWrap:boolean (arg:RangerAppParamDesc nVal:CodeNode ctx:RangerAppWriterContext) {
+    if (arg.rust_needs_rc_wrap == false) {
+      return false
+    }
+    def acNN@(optional):CodeNode arg.nameNode
+    if (null? acNN) {
+      return false
+    }
+    def acN:CodeNode (unwrap acNN)
+    if (((strlen acN.array_type) > 0) || ((strlen acN.key_type) > 0)) {
+      return false
+    }
+    return ((this.rustInitRcState(nVal ctx)) == 0)
+  }
+
+  fn rustWalkOperand:void (n:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if ((strlen n.rust_use_tmpvar) > 0) {
+      wr.out(n.rust_use_tmpvar false)
+      n.rust_use_tmpvar = ""
+      return
+    }
+    this.WalkNode(n ctx wr)
+  }
+
+  fn rustIsIndexedWriteOp:boolean (n:string) {
+    if (n == "set_at") { return true }
+    if (n == "buffer_set") { return true }
+    if (n == "int_buffer_set") { return true }
+    if (n == "double_buffer_set") { return true }
+    return false
+  }
+
+  fn rustExprMentionsName:boolean (node:CodeNode name:string) {
+    if (node.vref == name) {
+      return true
+    }
+    if ((array_length node.ns) > 0) {
+      if ((itemAt node.ns 0) == name) {
+        return true
+      }
+    }
+    for node.children ch:CodeNode i {
+      if (this.rustExprMentionsName(ch name)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn rustArgIsOutParam:boolean (node:CodeNode idx:int) {
+    if (null? node.fnDesc) {
+      return false
+    }
+    def opFd:RangerAppFunctionDesc (unwrap node.fnDesc)
+    if ((array_length opFd.params) <= idx) {
+      return false
+    }
+    def opParam:RangerAppParamDesc (itemAt opFd.params idx)
+    if opParam.needs_cpp_reference {
+      return true
+    }
+    return (opParam.rust_borrow_type == 2)
+  }
+
+  fn beforeOperatorStatement:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if ((array_length node.children) < 3) {
+      return
+    }
+    def bosFc:CodeNode (node.getFirst())
+    ; An `if` CONDITION is a statement position too — a `let` can be written
+    ; before the `if` — but it is WALKED at expression level, so the call
+    ; path's own hoist never runs there. `if (toolbar.pressItem(toolbar.hot))`
+    ; held a Ref on the toolbar's cell while the callee took `borrow_mut()` of
+    ; the same one: a run-time `already borrowed` that rustc cannot see,
+    ; because the borrows are of a RefCell and not of the struct. The same
+    ; call written `def t (toolbar.at(toolbar.hot))` was hoisted all along.
+    ;
+    ; `while` is deliberately not included. Its condition runs again every
+    ; turn and a temporary lifted out of it would not.
+    if (bosFc.vref == "if") {
+      if ((array_length node.children) >= 2) {
+        def bosCond:CodeNode (node.getSecond())
+        if ((this.rustNodeIsLambda(bosCond)) == false) {
+          this.rustExtractSelfCallConflicts(bosCond ctx wr)
+        }
+      }
+      return
+    }
+    if ((this.rustIsMutatingOpName(bosFc.vref)) == false) {
+      return
+    }
+    def bosTarget:CodeNode (node.getSecond())
+    def bosOwn:boolean (this.rustNodeIsOwnPath(bosTarget ctx))
+    ; the two names an operand can collide with: the COLLECTION being written
+    ; — `self.ends[self.ends.len() - 1] = i` — and the HANDLE the path goes
+    ; through — `c.ringEnds.push(c.pts.len())`, where both borrows are of
+    ; `c`'s own cell and the second one panics at run time.
+    def bosLen:int (array_length bosTarget.ns)
+    def bosRoot:string bosTarget.vref
+    if (bosLen > 0) {
+      bosRoot = (itemAt bosTarget.ns (bosLen - 1))
+    }
+    def bosHandle:string ""
+    if (bosLen >= 2) {
+      if ((itemAt bosTarget.ns 0) != "this") {
+        bosHandle = (itemAt bosTarget.ns 0)
+      }
+    }
+    if ((bosOwn == false) && ((strlen bosHandle) == 0)) {
+      return
+    }
+    for node.children bosArg:CodeNode bosI {
+      if (bosI > 1) {
+        def bosReal:CodeNode (this.rustUnwrapParens(bosArg))
+        def bosHoist:boolean false
+        if bosOwn {
+          bosHoist = (this.rustIsSelfCallNode(bosReal))
+        }
+        ; …and the INDEX of an indexed write that reads the very collection
+        ; it writes: `self.ends[self.ends.len() - 1] = i` holds a shared and
+        ; a mutable borrow of one field at once.
+        if (bosHoist == false) {
+          if (bosI == 2) {
+            if (this.rustIsIndexedWriteOp(bosFc.vref)) {
+              if ((strlen bosRoot) > 0) {
+                if (this.rustExprMentionsName(bosArg bosRoot)) {
+                  bosHoist = true
+                }
+              }
+            }
+          }
+        }
+        ; …and in a RECEIVERLESS method the target is written through
+        ; `__self_rc.borrow_mut()`, so ANY operand that reaches through the
+        ; same handle is a run-time `already borrowed`: `set domainIndex
+        ; value (array_length domainValues)` touches two different fields
+        ; and one cell. rustc cannot see this one — the borrows are of a
+        ; RefCell, not of the struct.
+        if (bosHoist == false) {
+          if (rust_receiverless_method && bosOwn) {
+            if ((array_length bosReal.children) > 0) {
+              if (this.containsSelfReference(bosArg)) {
+                bosHoist = true
+              }
+            }
+          }
+        }
+        ; …and any COMPUTED operand that reads through the same name. Only a
+        ; computed one: a bare name may be a slice of the very buffer the
+        ; operator means to read in place, and hoisting that MOVES it.
+        if (bosHoist == false) {
+          if ((array_length bosReal.children) > 0) {
+            if ((strlen bosHandle) > 0) {
+              if (this.rustExprMentionsName(bosArg bosHandle)) {
+                bosHoist = true
+              }
+            }
+            if (bosHoist == false) {
+              if ((strlen bosRoot) > 0) {
+                if (this.rustExprMentionsName(bosArg bosRoot)) {
+                  bosHoist = true
+                }
+              }
+            }
+          }
+        }
+        if bosHoist {
+          this.rustExtractSelfCallConflicts(bosReal ctx wr)
+          def bosTmp:string (ctx.rustGetTempVar())
+          wr.out((("let mut " + bosTmp) + " = ") false)
+          ctx.setInExpr()
+          this.WalkNode(bosReal ctx wr)
+          ctx.unsetInExpr()
+          ; the temporary has to OWN what it holds — the Ref the operand was
+          ; read through is gone by the time the operator runs, and the value
+          ; the operand names is not the temporary's to move. `set
+          ; treeChildCall fname ((st.getSecond()).vref)` hoisted the field
+          ; read and then moved the String out of its `Ref` (E0507). The
+          ; sibling hoist below already spells this; only a COMPUTED operand
+          ; reaches here, so a bare name is never cloned into a copy of
+          ; itself.
+          if (this.rustStrRefRead(bosReal)) {
+            wr.out(".to_string()" false)
+          } {
+            if (this.rustArgIsNameRead(bosReal)) {
+              wr.out(".clone()" false)
+            }
+          }
+          wr.out(";" true)
+          bosArg.rust_use_tmpvar = bosTmp
+        }
+      }
+    }
+  }
+
+  fn CustomOperator:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def fc:CodeNode (node.getFirst())
+    def cmd:string fc.vref
+
+    ; `(cast x to:Sub)` where Sub extends a class that has children: the value
+    ; is Rc<RefCell<dyn ParentTrait>> and the name it is bound to declares
+    ; Rc<RefCell<Sub>>. No safe conversion exists between the two, so the
+    ; helper checks the concrete type through Any and rebuilds the Rc. Any
+    ; other cast passes through, as it did before.
+    if (cmd == "cast") {
+      if ((array_length node.children) >= 3) {
+        def castArg:CodeNode (node.getSecond())
+        def castTgt:CodeNode (node.getThird())
+        def castTName:string castTgt.type_name
+        if ((strlen castTName) == 0) {
+          castTName = castTgt.eval_type_name
+        }
+        def castTrait:string ""
+        if ((strlen castTName) > 0) {
+          if (ctx.isDefinedClass(castTName)) {
+            def castTC:RangerAppClassDesc (ctx.findClass(castTName))
+            if ((this.rustTypeIsOwnHandle(castTName ctx)) == false) {
+              for castTC.extends_classes castP:string castPi {
+                if (ctx.isDefinedClass(castP)) {
+                  def castPC:RangerAppClassDesc (ctx.findClass(castP))
+                  if castPC.is_extended_by_children {
+                    castTrait = castPC.name
+                  }
+                }
+              }
+            }
+          }
+        }
+        def castDown:boolean false
+        if ((strlen castTrait) > 0) {
+          def castSrcT:string (this.rustArgValueTypeName(castArg))
+          if (this.rustTypeIsOwnHandle(castSrcT ctx)) {
+            castDown = true
+          }
+        }
+        if castDown {
+          wr.out((((("rg_downcast::<" + castTName) + ", dyn ") + castTrait) + "Trait>(&(") false)
+          ctx.setInExpr()
+          this.WalkNode(castArg ctx wr)
+          ctx.unsetInExpr()
+          wr.out("))" false)
+        } {
+          ; every other cast passes its value through, as the template did
+          ctx.setInExpr()
+          this.WalkNode(castArg ctx wr)
+          ctx.unsetInExpr()
+        }
+        return
+      }
+      ; a malformed cast still has to write something
+      if ((array_length node.children) >= 2) {
+        ctx.setInExpr()
+        this.WalkNode((node.getSecond()) ctx wr)
+        ctx.unsetInExpr()
+      }
+      return
+    }
+
+    ; print flattens a string chain into the format string:
+    ; `println!("first name {}", names[0])` — not a join of to_strings
+    if (cmd == "print") {
+      def arg:CodeNode (node.getSecond())
+      def pops:[CodeNode]
+      this.rustCollectConcatOperands(arg pops)
+      ; a print of nothing but an empty literal is `println!()`
+      def all_empty:boolean true
+      for pops po:CodeNode poi {
+        if ((po.value_type != RangerNodeType.String) || ((strlen po.string_value) > 0)) {
+          all_empty = false
+        }
+      }
+      if all_empty {
+        wr.out("println!();" true)
+        return
+      }
+      wr.out("println!(" false)
+      this.writeRustFormatOps(pops ctx wr)
+      wr.out(");" true)
+      return
+    }
+
+    ; the bit operators: one pair around the whole, each operand bare when
+    ; it is atomic or writes its own parens, `( … )` otherwise — never the
+    ; stacked `((oldVal) | (((1) << (bit))))` shape of the old templates
+    if ((((((cmd == "bit_and") || (cmd == "bit_or")) || (cmd == "bit_xor")) || (cmd == "bit_shl")) || (cmd == "bit_shr")) || (cmd == "bit_not")) {
+      if (cmd == "bit_not") {
+        wr.out("(!" false)
+        this.rustWriteBitOperand((node.getSecond()) ctx wr)
+        wr.out(")" false)
+        return
+      }
+      def bopStr:string "&"
+      if (cmd == "bit_or") { bopStr = "|" }
+      if (cmd == "bit_xor") { bopStr = "^" }
+      if (cmd == "bit_shl") { bopStr = "<<" }
+      if (cmd == "bit_shr") { bopStr = ">>" }
+      ; the caller may already delimit this emission — an argument slot, a
+      ; wrapped operand of another custom — and then the pair is clippy's
+      ; double_parens
+      def bit_outer:boolean (wr.current_op_no_parens == false)
+      if bit_outer {
+        wr.out("(" false)
+      }
+      this.rustWriteBitOperand((node.getSecond()) ctx wr)
+      wr.out(((" " + bopStr) + " ") false)
+      this.rustWriteBitOperand((node.getThird()) ctx wr)
+      if bit_outer {
+        wr.out(")" false)
+      }
+      return
+    }
+
+    ; to_int floors: `(x).floor() as i64`, with the operand bare when
+    ; atomic — never the doubled `((…))` of the template form
+    ; String::contains takes a Pattern: a literal passes bare, anything
+    ; else borrows — a String BY VALUE is no Pattern (E0277)
+    if (cmd == "contains") {
+      ctx.setInExpr()
+      this.WalkNode((node.getSecond()) ctx wr)
+      ctx.unsetInExpr()
+      wr.out(".contains(" false)
+      def csub:CodeNode (this.rustUnwrapParens((node.getThird())))
+      if (csub.value_type == RangerNodeType.String) {
+        wr.out((("\"" + (this.EncodeString(csub ctx wr))) + "\"") false)
+      } {
+        wr.out("&" false)
+        ctx.setInExpr()
+        this.WalkNode(csub ctx wr)
+        ctx.unsetInExpr()
+      }
+      wr.out(")" false)
+      return
+    }
+
+    if (cmd == "to_int") {
+      this.rustWriteBitOperand((node.getSecond()) ctx wr)
+      wr.out(".floor() as i64" false)
+      return
+    }
+
+    ; int / int gives a double: each operand is `x as f64`, an integer
+    ; literal is the f64 literal itself
+    if (cmd == "/") {
+      this.rustWriteCastOperandF64((node.getSecond()) ctx wr)
+      wr.out(" / " false)
+      this.rustWriteCastOperandF64((node.getThird()) ctx wr)
+      return
+    }
+
+    ; substring: skip/take — the take count drops a literal-zero start
+    ; instead of emitting `x - 0`
+    if (cmd == "substring") {
+      ctx.setInExpr()
+      this.WalkNode((node.getSecond()) ctx wr)
+      def subStart:CodeNode (this.rustUnwrapParens((node.getThird())))
+      def subEnd:CodeNode (this.rustUnwrapParens((itemAt node.children 3)))
+      def startIsZero:boolean false
+      if (subStart.value_type == RangerNodeType.Integer) {
+        if (subStart.int_value == 0) {
+          startIsZero = true
+        }
+      }
+      wr.out(".chars()" false)
+      if (startIsZero == false) {
+        wr.out(".skip(" false)
+        if (subStart.value_type == RangerNodeType.Integer) {
+          wr.out(("" + subStart.int_value) false)
+        } {
+          wr.out("(" false)
+          wr.suppress_expr_parens = true
+          this.WalkNode(subStart ctx wr)
+          wr.suppress_expr_parens = false
+          wr.out(") as usize" false)
+        }
+        wr.out(")" false)
+      }
+      wr.out(".take(" false)
+      if startIsZero {
+        if (subEnd.value_type == RangerNodeType.Integer) {
+          wr.out(("" + subEnd.int_value) false)
+        } {
+          wr.out("(" false)
+          wr.suppress_expr_parens = true
+          this.WalkNode(subEnd ctx wr)
+          wr.suppress_expr_parens = false
+          wr.out(") as usize" false)
+        }
+      } {
+        ; Each side gets its OWN parens: with the outer parens suppressed,
+        ; an additive operand pair like end=(i + 2) start=(i + 1) printed as
+        ; `i + 2 - i + 1`, which is 3, not 1 — $& in a replace template was
+        ; read as a 3-char slice and never matched.
+        wr.out("((" false)
+        wr.suppress_expr_parens = true
+        this.WalkNode(subEnd ctx wr)
+        wr.suppress_expr_parens = false
+        wr.out(") - (" false)
+        wr.suppress_expr_parens = true
+        this.WalkNode(subStart ctx wr)
+        wr.suppress_expr_parens = false
+        wr.out(")) as usize" false)
+      }
+      wr.out(").collect::<String>()" false)
+      ctx.unsetInExpr()
+      return
+    }
+
+    ; strfromcode: a char is Display — inside a format! argument the
+    ; .to_string() is dropped
+    if (cmd == "strfromcode") {
+      def sfcInFmt:boolean wr.in_format_args
+      wr.out("char::from_u32(" false)
+      this.rustWriteBitOperand((node.getSecond()) ctx wr)
+      wr.out(" as u32).unwrap_or('\\0')" false)
+      if (sfcInFmt == false) {
+        wr.out(".to_string()" false)
+      }
+      return
+    }
+
+    ; a >= lo && a <= hi is a range containment
+    if (cmd == "&&") {
+      def rcL:CodeNode (this.rustUnwrapParens((node.getSecond())))
+      def rcR:CodeNode (this.rustUnwrapParens((node.getThird())))
+      def rc_ok:boolean false
+      if (((array_length rcL.children) == 3) && ((array_length rcR.children) == 3)) {
+        def rcLop:CodeNode (rcL.getFirst())
+        def rcRop:CodeNode (rcR.getFirst())
+        if ((rcLop.vref == ">=") && (rcRop.vref == "<=")) {
+          def rcLv:CodeNode (this.rustUnwrapParens((rcL.getSecond())))
+          def rcRv:CodeNode (this.rustUnwrapParens((rcR.getSecond())))
+          if ((this.rustPlainScalarPath(rcLv)) && (this.rustPlainScalarPath(rcRv))) {
+            if ((array_length rcLv.ns) == (array_length rcRv.ns)) {
+              rc_ok = true
+              for rcLv.ns rcPart:string rcPi {
+                if ((itemAt rcRv.ns rcPi) != rcPart) {
+                  rc_ok = false
+                }
+              }
+            }
+          }
+        }
+      }
+      if rc_ok {
+        wr.out("(" false)
+        ctx.setInExpr()
+        wr.suppress_expr_parens = true
+        this.WalkNode((rcL.getThird()) ctx wr)
+        wr.suppress_expr_parens = false
+        wr.out("..=" false)
+        wr.suppress_expr_parens = true
+        this.WalkNode((rcR.getThird()) ctx wr)
+        wr.suppress_expr_parens = false
+        wr.out(").contains(&" false)
+        this.WalkNode((rcL.getSecond()) ctx wr)
+        wr.out(")" false)
+        ctx.unsetInExpr()
+        return
+      }
+      ctx.setInExpr()
+      this.WalkNode((node.getSecond()) ctx wr)
+      wr.out(" && " false)
+      this.WalkNode((node.getThird()) ctx wr)
+      ctx.unsetInExpr()
+      return
+    }
+
+    ; to_double of an integer literal is the f64 literal itself; anything
+    ; else is `x as f64` with parens only when the operand needs them
+    if (cmd == "to_double") {
+      def tdArg:CodeNode (this.rustUnwrapParens((node.getSecond())))
+      if (tdArg.value_type == RangerNodeType.Integer) {
+        wr.out((("" + tdArg.int_value) + ".0") false)
+        return
+      }
+      this.rustWriteBitOperand(tdArg ctx wr)
+      wr.out(" as f64" false)
+      return
+    }
+
+    ; string equality: a literal operand compares as `&str` — building a
+    ; String just to compare it is clippy's cmp_owned. A comparison with an
+    ; empty literal is `.is_empty()`, and a boolean compared to a literal
+    ; is the value itself or its negation.
+    if ((cmd == "==") || (cmd == "!=")) {
+      def cmpL:CodeNode (this.rustUnwrapParens((node.getSecond())))
+      def cmpR:CodeNode (this.rustUnwrapParens((node.getThird())))
+      ; boolean == literal
+      if (cmpR.value_type == RangerNodeType.Boolean) {
+        def cmpNeg:boolean (cmpR.boolean_value == false)
+        if (cmd == "!=") {
+          cmpNeg = (cmpNeg == false)
+        }
+        if cmpNeg {
+          wr.out("!" false)
+        }
+        this.rustWriteBitOperand(cmpL ctx wr)
+        return
+      }
+      ; string ==/!= "" is (!)x.is_empty()
+      if (cmpR.value_type == RangerNodeType.String) {
+        if ((strlen cmpR.string_value) == 0) {
+          if (cmd == "!=") {
+            wr.out("!" false)
+          }
+          this.rustWriteBitOperand(cmpL ctx wr)
+          wr.out(".is_empty()" false)
+          return
+        }
+      }
+      ; two handles of a shared class compare by IDENTITY — that is what
+      ; `==` on an object means in every other target, where the handle is a
+      ; pointer, a reference or a shared_ptr. Rust will not compare two Rcs
+      ; at all (E0369), so the comparison goes through Rc::ptr_eq.
+      def cmpShared:boolean false
+      if (this.rustClassIsShared((this.rustArgValueTypeName(cmpL)) ctx)) {
+        cmpShared = true
+      }
+      if (this.rustClassIsShared((this.rustArgValueTypeName(cmpR)) ctx)) {
+        cmpShared = true
+      }
+      if cmpShared {
+        if (cmd == "!=") {
+          wr.out("!(" false)
+        }
+        this.rustWriteCmpOperand(cmpL ctx wr)
+        wr.out(".rg_identical(&" false)
+        this.rustWriteCmpOperand(cmpR ctx wr)
+        wr.out(")" false)
+        if (cmd == "!=") {
+          wr.out(")" false)
+        }
+        return
+      }
+      this.rustWriteCmpOperand(cmpL ctx wr)
+      wr.out((((" " + cmd) + " ")) false)
+      this.rustWriteCmpOperand(cmpR ctx wr)
+      return
+    }
+
+    ; string + as format! — the whole chain in one call
+    if (cmd == "+") {
+      def cops:[CodeNode]
+      this.rustCollectConcatOperands((node.getSecond()) cops)
+      this.rustCollectConcatOperands((node.getThird()) cops)
+      wr.out("format!(" false)
+      this.writeRustFormatOps(cops ctx wr)
+      wr.out(")" false)
+      return
+    }
+
+    ; Handle assignment operations in Rust
+    if (cmd == "=") {
+      def left:CodeNode (node.getSecond())
+      def right:CodeNode (node.getThird())
+
+      ; a CELL field is written through the cell, so the whole statement
+      ; changes shape: `f.set(v)` rather than `f = v`. The right side is
+      ; walked as an ordinary expression — a read of another cell field
+      ; picks up its own `.get()` on the way.
+      if (this.rustNodeIsCellField(left)) {
+        def cellLP:RangerAppParamDesc (unwrap (this.rustCellFieldDesc(left)))
+        def cellCopy:boolean (this.rustCellIsCopy(cellLP))
+        ; the VALUE first, into a temporary. Naming the field as the receiver
+        ; borrows the object for the whole statement, and the value beside it
+        ; is often a call on the same object (E0502).
+        def cellTmp:string (ctx.rustGetTempVar())
+        wr.out((("{ let " + cellTmp) + " = ") false)
+        ctx.setInExpr()
+        wr.suppress_expr_parens = true
+        this.WalkNode(right ctx wr)
+        wr.suppress_expr_parens = false
+        ctx.unsetInExpr()
+        if (this.rustCellIsString(cellLP)) {
+          wr.out(".to_string()" false)
+        }
+        ; an Option read out of another object's cell is borrowed, and the
+        ; slot takes ownership of what goes into it
+        if (this.rustCellIsCopy(cellLP)) {
+        } {
+          if ((this.rustCellIsString(cellLP)) == false) {
+            wr.out(".clone()" false)
+          }
+        }
+        wr.out("; " false)
+        ctx.setInLhs()
+        rust_in_cell_assign = true
+        this.WriteVRef(left ctx wr)
+        rust_in_cell_assign = false
+        ctx.unsetInLhs()
+        if cellCopy {
+          wr.out(((".set(" + cellTmp) + "); }") true)
+        } {
+          wr.out(((".replace(" + cellTmp) + "); }") true)
+        }
+        return
+      }
+
+      ; `pos = pos + 1` is `pos += 1` when the target is a plain scalar
+      ; path — no cell, no optional, no weak segment — and the right side
+      ; starts from the same path. Anything less plain falls through to the
+      ; full assignment machinery below.
+      if (this.rustTryCompoundAssign(left right ctx wr)) {
+        return
+      }
+
+      ; a promoted static-string target (rust_static_str): the analysis
+      ; guarantees the value is a bare literal or another static read — the
+      ; assignment is a pointer copy, no allocation, no clone
+      if (this.rustStaticStrRead(left)) {
+        ctx.setInExpr()
+        ctx.setInLhs()
+        this.WalkNode(left ctx wr)
+        ctx.unsetInLhs()
+        wr.out(" = " false)
+        this.rustWriteStaticStrValue(right ctx wr)
+        wr.out(";" true)
+        ctx.unsetInExpr()
+        return
+      }
+
+      ; Check if left side is an optional field with self-referential type
+      def is_optional:boolean false
+      def is_self_ref:boolean false
+      def is_weak:boolean false  ; True if LHS field has @(weak) annotation
+      def field_type_name:string ""
+      def left_is_self_field:boolean false
+      def left_is_array:boolean false
+      def left_is_trait_type:boolean false  ; True if LHS field type is a trait (parent class)
+      def curr_class_is_trait_related:boolean false  ; True if current class is trait parent or extends one
+      
+      ; Check if current class is trait-related
+      def ucAssign@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+      if (!null? ucAssign) {
+        def currCAssign:RangerAppClassDesc (unwrap ucAssign)
+        if currCAssign.is_extended_by_children {
+          curr_class_is_trait_related = true
+        }
+        if (curr_class_is_trait_related == false) {
+          for currCAssign.extends_classes extParentNameA:string epiA {
+            def extParentClassA@(optional):RangerAppClassDesc (ctx.findClass(extParentNameA))
+            if (!null? extParentClassA) {
+              def epcA:RangerAppClassDesc (unwrap extParentClassA)
+              if epcA.is_extended_by_children {
+                curr_class_is_trait_related = true
+              }
+            }
+          }
+        }
+      }
+      
+      if left.hasParamDesc {
+        def pp:RangerAppParamDesc left.paramDesc
+        is_optional = pp.is_optional
+        left_is_self_field = pp.is_class_variable
+        def nameN@(optional):CodeNode pp.nameNode
+        if (!null? nameN) {
+          def nn:CodeNode (unwrap nameN)
+          field_type_name = nn.type_name
+          ; an uninitialized member COLLECTION carries is_optional on its
+          ; desc but the Rust field is a plain Vec/HashMap, never Option —
+          ; a Some(…) around its assignment is E0308
+          if is_optional {
+            if (((strlen nn.array_type) > 0) || ((strlen nn.key_type) > 0)) {
+              is_optional = false
+            }
+          }
+          ; Check if field has weak annotation. A `@(weak)` LOCAL is no cycle
+          ; risk — nothing outlives the scope holding it — so it keeps the
+          ; Rc, and only a FIELD stores the downgraded handle. Downgrading
+          ; into a local made it disagree with every reader of it.
+          if (nn.hasFlag("weak")) {
+            if pp.is_class_variable {
+              ; …and a weak COLLECTION field is a plain Vec or map: the
+              ; annotation there is about the ELEMENTS, so downgrading the
+              ; container gave the field a Weak<RefCell<Vec<…>>> that no
+              ; reader of it expected
+              if (((strlen nn.array_type) == 0) && ((strlen nn.key_type) == 0)) {
+                is_weak = true
+              }
+            }
+          }
+          ; Check if field is an array type 
+          if (nn.value_type == RangerNodeType.Array) {
+            left_is_array = true
+          }
+          ; Check if field type equals the class that owns this property (self-referential)
+          def oc@(optional):RangerAppClassDesc pp.propertyClass
+          if (!null? oc) {
+            def ownerClass:RangerAppClassDesc (unwrap oc)
+            if (ownerClass.name == field_type_name) {
+              is_self_ref = true
+            }
+          }
+          ; Check if the field type is a trait type (parent class that is extended)
+          def fieldTypeClass@(optional):RangerAppClassDesc (ctx.findClass(field_type_name))
+          if (!null? fieldTypeClass) {
+            def ftc:RangerAppClassDesc (unwrap fieldTypeClass)
+            if ftc.is_extended_by_children {
+              left_is_trait_type = true
+            }
+          }
+        }
+        ; Debug output for problematic assignments - disabled
+        ; if is_optional {
+        ;   def dbg_is_arr:string "false"
+        ;   if left_is_array {
+        ;     dbg_is_arr = "true"
+        ;   }
+        ;   print ("DEBUG: Assignment has is_optional=true, field=" + field_type_name + " left_is_array=" + dbg_is_arr)
+        ; }
+      }
+      
+      ; Arrays are not optional even if pp.is_optional says so - this can happen due to 
+      ; how some array fields are inferred
+      if left_is_array {
+        is_optional = false
+      }
+      
+      ; Check if right side is a variable that should be cloned
+      ; Clone when: assigning a non-primitive VRef to a field (the var may be used later)
+      def should_clone_rhs:boolean false
+      ; A NAME that holds an Rc is cloned into whatever it is assigned to.
+      ; The assignment moves it otherwise, and the name almost always stays
+      ; live afterwards — `p.nameNode = arg` then `f(arg)` is the ordinary
+      ; shape. An Rc clone is a refcount bump, which is what the assignment
+      ; means in every other target.
+      def rightInner:CodeNode (this.rustUnwrapParens(right))
+      if (rightInner.expression == false) {
+        def rcRTypeName:string rightInner.eval_type_name
+        if ((strlen rcRTypeName) == 0) {
+          rcRTypeName = rightInner.type_name
+        }
+        if rightInner.hasParamDesc {
+          def rcRP:RangerAppParamDesc (unwrap rightInner.paramDesc)
+          def rcRNN@(optional):CodeNode rcRP.nameNode
+          if (!null? rcRNN) {
+            def rcRN:CodeNode (unwrap rcRNN)
+            if ((strlen rcRTypeName) == 0) {
+              rcRTypeName = rcRN.type_name
+            }
+          }
+        }
+        if ((strlen rcRTypeName) > 0) {
+          if (this.rustClassIsShared(rcRTypeName ctx)) {
+            should_clone_rhs = true
+          }
+        }
+      }
+      def rhs_is_string:boolean false
+      def rhs_is_object:boolean false
+      def rhs_is_optional:boolean false
+      def rhs_is_array:boolean false
+      ; a str-reference right side (static string / borrowed &str parameter)
+      ; converts into an owned String slot with .to_string(), never .clone()
+      def rhs_str_ref:boolean (this.rustStrRefRead(right))
+      
+      ; Debug: Check what kind of node the right side is
+      ; print ("DEBUG right: value_type=" + (node_type_as_string right.value_type) + " hasParamDesc=" + (if right.hasParamDesc "true" "false"))
+      
+      ; For field access like specifier.local, check the evalType which should tell us if it's optional
+      if right.hasParamDesc {
+        def rp:RangerAppParamDesc right.paramDesc
+        ; Also check for objects
+        def rNameN@(optional):CodeNode rp.nameNode
+        if (!null? rNameN) {
+          def rnn:CodeNode (unwrap rNameN)
+          if (rnn.type_name == "string") {
+            rhs_is_string = true
+          }
+          def rv_type:RangerNodeType rnn.value_type
+          if ((rv_type == RangerNodeType.Object) || (rv_type == RangerNodeType.VRef)) {
+            rv_type = (rnn.typeNameAsType(ctx))
+          }
+          if (rv_type == RangerNodeType.Object) {
+            rhs_is_object = true
+          }
+          if (rv_type == RangerNodeType.Array) {
+            rhs_is_object = true
+            rhs_is_array = true
+          }
+          ; a Hash is a plain HashMap the same way (phantom-optional),
+          ; and clones like an array when read whole
+          if ((rv_type == RangerNodeType.Hash) || ((strlen rnn.key_type) > 0)) {
+            rhs_is_object = true
+            rhs_is_array = true
+          }
+          ; …and a BUFFER is a Vec too. Reading one out of a borrow moves
+          ; it — `out.imageBytes = shape.imageBytes` was "cannot move out
+          ; of dereference of `Ref<'_, T>`" while the String field beside
+          ; it cloned.
+          if (((rv_type == RangerNodeType.Buffer) || (rv_type == RangerNodeType.IntBuffer)) || (rv_type == RangerNodeType.DoubleBuffer)) {
+            rhs_is_object = true
+            rhs_is_array = true
+          }
+          if (rv_type == RangerNodeType.CharBuffer) {
+            rhs_is_object = true
+            rhs_is_array = true
+          }
+        }
+        ; Set rhs_is_optional only if it's actually optional and NOT an array
+        ; Arrays in Rust are Vec<T>, not Option<Vec<T>>
+        if rp.is_optional {
+          if (rhs_is_array == false) {
+            rhs_is_optional = true
+          }
+        }
+        ; Clone if RHS is used more than once (based on ref_cnt)
+        ; or if it's being assigned to a field (it might be used again)
+        if left_is_self_field {
+          if (rhs_is_string || rhs_is_object) {
+            should_clone_rhs = true
+          }
+        }
+        ; Also clone strings/objects when assigning between local variables
+        ; because the source variable might be used later
+        if rhs_is_string {
+          should_clone_rhs = true
+        }
+        if rhs_is_object {
+          should_clone_rhs = true  
+        }
+        ; Clone optional fields when assigning to prevent partial move
+        if rhs_is_optional {
+          should_clone_rhs = true
+        }
+        ; But don't clone if RHS type has trait object fields (no Clone derive)
+        ; — unless the NAME holds an Rc, where the clone is of the handle and
+        ; asks nothing of the type inside it. Suppressing it there moved the
+        ; name into the assignment and broke every later use of it.
+        def rhsIsRcHandle:boolean false
+        if rp.rust_needs_rc_wrap {
+          def rcNN3@(optional):CodeNode rp.nameNode
+          if (!null? rcNN3) {
+            def rcN3:CodeNode (unwrap rcNN3)
+            if (((strlen rcN3.array_type) == 0) && ((strlen rcN3.key_type) == 0)) {
+              if (rcN3.hasFlag("weak") == false) {
+                rhsIsRcHandle = true
+              }
+            }
+          }
+        }
+        if should_clone_rhs {
+          if (rhs_is_object && (rhsIsRcHandle == false)) {
+            def rNameN2@(optional):CodeNode rp.nameNode
+            if (!null? rNameN2) {
+              def rnn2:CodeNode (unwrap rNameN2)
+              def rhsTypeName2:string rnn2.type_name
+              if ((strlen rhsTypeName2) > 0) {
+                def rhsTypeClass2@(optional):RangerAppClassDesc (ctx.findClass(rhsTypeName2))
+                if (!null? rhsTypeClass2) {
+                  def rtc2:RangerAppClassDesc (unwrap rhsTypeClass2)
+                  ; Check if this class has trait object fields
+                  for rtc2.variables pvar2:RangerAppParamDesc i2 {
+                    def pNameN2@(optional):CodeNode pvar2.nameNode
+                    if (!null? pNameN2) {
+                      def pnn2:CodeNode (unwrap pNameN2)
+                      def pTypeName2:string pnn2.type_name
+                      if ((strlen pTypeName2) > 0) {
+                        def pTypeClass2@(optional):RangerAppClassDesc (ctx.findClass(pTypeName2))
+                        if (!null? pTypeClass2) {
+                          def ptc2:RangerAppClassDesc (unwrap pTypeClass2)
+                          if ptc2.is_extended_by_children {
+                            ; This class has trait object fields, can't clone
+                            should_clone_rhs = false
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      
+      if (right.value_type == RangerNodeType.VRef) {
+        if right.hasParamDesc {
+          def rp:RangerAppParamDesc right.paramDesc
+          def rNameN@(optional):CodeNode rp.nameNode
+          if (!null? rNameN) {
+            def rnn:CodeNode (unwrap rNameN)
+            if (rnn.type_name == "string") {
+              rhs_is_string = true
+            }
+            def rv_type:RangerNodeType rnn.value_type
+            if ((rv_type == RangerNodeType.Object) || (rv_type == RangerNodeType.VRef)) {
+              rv_type = (rnn.typeNameAsType(ctx))
+            }
+            if (rv_type == RangerNodeType.Object) {
+              rhs_is_object = true
+            }
+            if (rv_type == RangerNodeType.Array) {
+              rhs_is_object = true
+              rhs_is_array = true
+            }
+            ; a Hash is a plain HashMap the same way (phantom-optional),
+            ; and clones like an array when read whole
+            if ((rv_type == RangerNodeType.Hash) || ((strlen rnn.key_type) > 0)) {
+              rhs_is_object = true
+              rhs_is_array = true
+            }
+          }
+          ; Set rhs_is_optional only if it's actually optional and NOT an array
+          ; Arrays in Rust are Vec<T>, not Option<Vec<T>>
+          if rp.is_optional {
+            if (rhs_is_array == false) {
+              rhs_is_optional = true
+            }
+          }
+          ; Clone if RHS is used more than once (based on ref_cnt)
+          ; or if it's being assigned to a field (it might be used again)
+          if left_is_self_field {
+            if (rhs_is_string || rhs_is_object) {
+              should_clone_rhs = true
+            }
+          }
+          ; Also clone strings/objects when assigning between local variables
+          ; because the source variable might be used later
+          if rhs_is_string {
+            should_clone_rhs = true
+          }
+          if rhs_is_object {
+            should_clone_rhs = true  
+          }
+          ; Clone optional fields when assigning to prevent partial move
+          if rhs_is_optional {
+            should_clone_rhs = true
+          }
+          ; But don't clone if RHS type has trait object fields (no Clone
+          ; derive) — unless the NAME holds an Rc, where the clone is of the
+          ; handle and asks nothing of the type inside it.
+          def rhsIsRcHandle2:boolean false
+          if rp.rust_needs_rc_wrap {
+            def rcNN4@(optional):CodeNode rp.nameNode
+            if (!null? rcNN4) {
+              def rcN4:CodeNode (unwrap rcNN4)
+              if (((strlen rcN4.array_type) == 0) && ((strlen rcN4.key_type) == 0)) {
+                if (rcN4.hasFlag("weak") == false) {
+                  rhsIsRcHandle2 = true
+                }
+              }
+            }
+          }
+          if should_clone_rhs {
+            if (rhs_is_object && (rhsIsRcHandle2 == false)) {
+              def rNameN3@(optional):CodeNode rp.nameNode
+              if (!null? rNameN3) {
+                def rnn3:CodeNode (unwrap rNameN3)
+                def rhsTypeName3:string rnn3.type_name
+                if ((strlen rhsTypeName3) > 0) {
+                  def rhsTypeClass3@(optional):RangerAppClassDesc (ctx.findClass(rhsTypeName3))
+                  if (!null? rhsTypeClass3) {
+                    def rtc3:RangerAppClassDesc (unwrap rhsTypeClass3)
+                    ; Check if this class has trait object fields
+                    for rtc3.variables pvar3:RangerAppParamDesc i3 {
+                      def pNameN3@(optional):CodeNode pvar3.nameNode
+                      if (!null? pNameN3) {
+                        def pnn3:CodeNode (unwrap pNameN3)
+                        def pTypeName3:string pnn3.type_name
+                        if ((strlen pTypeName3) > 0) {
+                          def pTypeClass3@(optional):RangerAppClassDesc (ctx.findClass(pTypeName3))
+                          if (!null? pTypeClass3) {
+                            def ptc3:RangerAppClassDesc (unwrap pTypeClass3)
+                            if ptc3.is_extended_by_children {
+                              ; This class has trait object fields, can't clone
+                              should_clone_rhs = false
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      
+      ; Check if RHS is already a Rc<dyn Trait> (parameter with trait object type)
+      def rhs_is_already_boxed_trait:boolean false
+      ; `this` as a value is __self_rc, the receiver's own handle — wrapping
+      ; it gave Rc<RefCell<Rc<RefCell<T>>>> at every field that stores the
+      ; writer back into something it owns.
+      def rhsThisInner:CodeNode (this.rustUnwrapParens(right))
+      if (rhsThisInner.vref == "this") {
+        if ((this.rustInitRcState(right ctx)) == 2) {
+          rhs_is_already_boxed_trait = true
+        }
+      }
+      ; …and so does any EXPRESSION of a trait-parent type — an element read
+      ; out of a [ParamDesc], an unwrap, an upgrade. The handle IS the type,
+      ; so a cell around one holds an Rc rather than the object.
+      if (right.expression && (right.hasNewOper == false)) {
+        if (this.rustTypeIsOwnHandle((this.rustArgValueTypeName(right)) ctx)) {
+          rhs_is_already_boxed_trait = true
+        }
+      }
+      ; A CALL that returns a class with children already hands back the
+      ; whole Rc<RefCell<dyn XTrait>> handle — only a name was checked here,
+      ; so `f = ctx.getVariableDef(n)` was wrapped a second time and the
+      ; result was an Rc holding an Rc.
+      if (!null? right.fnDesc) {
+        def rhsFn:RangerAppFunctionDesc (unwrap right.fnDesc)
+        def rhsFnNN@(optional):CodeNode rhsFn.nameNode
+        if (!null? rhsFnNN) {
+          def rhsFnN:CodeNode (unwrap rhsFnNN)
+          if (((strlen rhsFnN.array_type) == 0) && ((strlen rhsFnN.key_type) == 0)) {
+            if (this.rustTypeIsOwnHandle(rhsFnN.type_name ctx)) {
+              rhs_is_already_boxed_trait = true
+              should_clone_rhs = false
+            }
+          }
+        }
+      }
+      if (right.value_type == RangerNodeType.VRef) {
+        if right.hasParamDesc {
+          def rhsP:RangerAppParamDesc right.paramDesc
+          def rhsNameN@(optional):CodeNode rhsP.nameNode
+          if (!null? rhsNameN) {
+            def rhsNN:CodeNode (unwrap rhsNameN)
+            def rhsTypeName:string rhsNN.type_name
+            if ((strlen rhsTypeName) > 0) {
+              def rhsTypeClass@(optional):RangerAppClassDesc (ctx.findClass(rhsTypeName))
+              if (!null? rhsTypeClass) {
+                def rtc:RangerAppClassDesc (unwrap rhsTypeClass)
+                if rtc.is_extended_by_children {
+                  ; RHS is a parameter of trait object type, already Rc<dyn Trait>
+                  rhs_is_already_boxed_trait = true
+                  should_clone_rhs = false
+                }
+              }
+            }
+          }
+        }
+      }
+      
+      ; An assignment through a shared cell whose right side also reads a
+      ; shared cell must not hold borrow_mut and borrow at once: when two
+      ; names hold one object that panics (`RefCell already borrowed`). The
+      ; right side goes to a temporary first, so the borrows never overlap.
+      def preeval_rhs:boolean false
+      def preeval_name:string ""
+      ; an optional shared field is covered too: assigning
+      ; `self.f = Some(self.f...borrow_mut().mk(...))` holds the borrow
+      ; across the assignment (E0506) unless the right side lands in a
+      ; temporary first. Only the plain shared shape — the Box / RefCell
+      ; wrap variants keep their non-preeval branches.
+      def preeval_opt_ok:boolean true
+      if is_optional {
+        if is_self_ref {
+          preeval_opt_ok = false
+        }
+        if curr_class_is_trait_related {
+          preeval_opt_ok = false
+        }
+        if ((this.rustClassIsShared(field_type_name ctx)) == false) {
+          preeval_opt_ok = false
+        }
+      }
+      if ((((is_weak == false) && (rhs_is_optional == false)) && (left_is_trait_type == false)) && preeval_opt_ok) {
+        if ((array_length left.ns) >= 2) {
+          if ((array_length left.nsp) > 0) {
+            def lhsRootP:RangerAppParamDesc (itemAt left.nsp 0)
+            if lhsRootP.rust_needs_rc_wrap {
+              if (this.rustRhsReadsSharedCell(right)) {
+                preeval_rhs = true
+              }
+            }
+          }
+        } {
+          ; a bare Rc-wrapped name reassigned from a read through a cell:
+          ; the Ref temporary of the read must not span the assignment
+          if left.hasParamDesc {
+            def lhsBareP:RangerAppParamDesc left.paramDesc
+            if lhsBareP.rust_needs_rc_wrap {
+              if (this.rustRhsReadsSharedCell(right)) {
+                preeval_rhs = true
+              }
+            }
+          }
+        }
+      }
+      ; …and a walk that steps a name onto its own field — `cc = cc.parent`
+      ; — has to go through a temporary whatever the optionality: the Ref
+      ; taken to read `cc.parent` is still live when `cc` is stored into.
+      if ((preeval_rhs == false) && (is_weak == false)) {
+        if ((left_is_trait_type == false) && preeval_opt_ok) {
+          if ((array_length left.ns) == 1) {
+            if (this.rustExprReadsThrough(right (itemAt left.ns 0))) {
+              preeval_rhs = true
+            }
+          }
+        }
+      }
+      ; …and in a RECEIVERLESS method `this.field = …` is written
+      ; `__self_rc.borrow_mut().field = …`. Rust evaluates the assignment's
+      ; PLACE first, so that RefMut is live while the right side runs, and a
+      ; right side that reaches through the same handle is a run-time
+      ; `already borrowed` — the one class of bug rustc cannot catch here.
+      ; `__self_rc.borrow_mut().cmapFormat = readUInt16(__self_rc,
+      ; __self_rc.borrow().cmapOffset)` panicked on the first font the page
+      ; loaded. The right side goes to a temporary first.
+      if ((preeval_rhs == false) && rust_receiverless_method) {
+        if (((is_weak == false) && (left_is_trait_type == false)) && preeval_opt_ok) {
+          if (this.rustNodeIsOwnPath(left ctx)) {
+            if (this.containsSelfReference(right)) {
+              preeval_rhs = true
+            }
+          }
+        }
+      }
+      if preeval_rhs {
+        ; the right side itself may nest a self-call conflict
+        ; (`this.f(this.g(...))`) — its inner call goes to a temporary
+        ; of its own before the pre-evaluation `let` (E0502)
+        this.rustExtractSelfCallConflicts(right ctx wr)
+        preeval_name = (ctx.rustGetTempVar())
+        wr.out((("let " + preeval_name) + " = ") false)
+        ctx.setInExpr()
+        ; PLAN_SHAPES S5: the slot is a Rust enum, so a member value is wrapped
+        ; in its variant — and when the right side goes to a temporary, the
+        ; WRAP goes with it. The assignment below has only `= <name>` left to
+        ; write, so a temporary holding the bare member is stored into a slot
+        ; of the family type: "expected `union_EvalValue`, found
+        ; `EvalValue_Map`". `body = (new EvalValue.Map(…))` inside a
+        ; receiverless method is the shape that showed it.
+        ; The guards mirror the non-preeval site below exactly — it wraps only
+        ; on the non-optional path — so this changes where the wrap is written,
+        ; never whether one is.
+        def preevalWroteUnion:boolean false
+        if (is_optional == false) {
+          preevalWroteUnion = (this.rustWriteUnionValue(field_type_name right ctx wr))
+          if preevalWroteUnion {
+            if rhs_is_optional {
+              wr.out(".unwrap()" false)
+            }
+          }
+        }
+        if (preevalWroteUnion == false) {
+          this.WalkNode(right ctx wr)
+          if should_clone_rhs {
+            if rhs_str_ref {
+              wr.out(".to_string()" false)
+            } {
+              wr.out(".clone()" false)
+            }
+          }
+        }
+        ctx.unsetInExpr()
+        wr.out(";" true)
+      }
+
+      ctx.setInExpr()
+      ctx.setInLhs()  ; Mark that we're in LHS of assignment (for Rust as_mut vs as_ref)
+      this.WalkNode(left ctx wr)
+      ctx.unsetInLhs()
+      
+      ; Handle weak reference assignments - use Rc::downgrade() to create Weak pointer
+      if is_weak {
+        ; `x.weakField = this` inside a shared class: the enclosing method
+        ; holds the receiver's Rc as __self_rc (rustNeedsSelfRc is true by
+        ; construction, because this very statement uses `this` as a value),
+        ; and the downgrade of that Rc is the live back reference.
+        if (right.vref == "this") {
+          def wcc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+          if (!null? wcc) {
+            def wcl:RangerAppClassDesc (unwrap wcc)
+            if (this.rustClassIsShared(wcl.name ctx)) {
+              if is_optional {
+                wr.out(" = Some(Rc::downgrade(__self_rc));" true)
+              } {
+                wr.out(" = Rc::downgrade(__self_rc);" true)
+              }
+              ctx.unsetInExpr()
+              return
+            }
+          }
+        }
+        ; Check if RHS is a parameter that's already Rc<RefCell<T>> (rust_needs_rc_wrap)
+        def rhs_is_rc_wrapped:boolean false
+        ; …as does any expression the state machine calls an owned handle: an
+        ; element read out of a Vec of Rc, a map get, an upgrade. Wrapping
+        ; one gave Rc::downgrade(&Rc::new(RefCell::new(<an Rc>))) -- a Weak
+        ; pointing at a fresh cell holding a handle, not at the object.
+        if ((this.rustInitRcState(right ctx)) == 2) {
+          rhs_is_rc_wrapped = true
+        }
+        ; A CALL returning a shared class already hands back the Rc, so it
+        ; is downgraded as it stands. Wrapping it made
+        ; `Rc::downgrade(&Rc::new(RefCell::new(f(…))))` — a cell around a
+        ; cell, and a Weak pointing at a handle rather than at the object.
+        ; Downgrading the call's own Rc is sound: the value it came from is
+        ; owned elsewhere, which is what makes the field weak in the first
+        ; place.
+        if (!null? right.fnDesc) {
+          def rhsWFn:RangerAppFunctionDesc (unwrap right.fnDesc)
+          def rhsWFnNN@(optional):CodeNode rhsWFn.nameNode
+          if (!null? rhsWFnNN) {
+            def rhsWFnN:CodeNode (unwrap rhsWFnNN)
+            if (((strlen rhsWFnN.array_type) == 0) && ((strlen rhsWFnN.key_type) == 0)) {
+              if (this.rustClassIsShared(rhsWFnN.type_name ctx)) {
+                rhs_is_rc_wrapped = true
+              }
+            }
+          }
+        }
+        ; …and whether that Rc sits inside an Option. Rc::downgrade takes an
+        ; `&Rc`, so an optional source has to be opened first: `&x` on an
+        ; `Option<Rc<…>>` is a reference to the Option.
+        def rhs_is_optional_rc:boolean false
+        if right.hasParamDesc {
+          def rhsParam:RangerAppParamDesc right.paramDesc
+          if rhsParam.rust_needs_rc_wrap {
+            rhs_is_rc_wrapped = true
+            if rhsParam.is_optional {
+              def rhsNN@(optional):CodeNode rhsParam.nameNode
+              if (!null? rhsNN) {
+                def rhsN:CodeNode (unwrap rhsNN)
+                if (((strlen rhsN.array_type) == 0) && ((strlen rhsN.key_type) == 0)) {
+                  rhs_is_optional_rc = true
+                }
+              }
+            }
+          }
+        }
+
+        ; A weak FIELD on the right is already a Weak handle — copying one
+        ; weak field into another is a clone, not a downgrade, and
+        ; Rc::downgrade has no `&Weak` overload to take it.
+        def rhs_is_weak_field:boolean false
+        if right.hasParamDesc {
+          def rhsWP:RangerAppParamDesc right.paramDesc
+          if rhsWP.is_class_variable {
+            def rhsWNN@(optional):CodeNode rhsWP.nameNode
+            if (!null? rhsWNN) {
+              def rhsWN:CodeNode (unwrap rhsWNN)
+              if (rhsWN.hasFlag("weak")) {
+                if (((strlen rhsWN.array_type) == 0) && ((strlen rhsWN.key_type) == 0)) {
+                  rhs_is_weak_field = true
+                }
+              }
+            }
+          }
+        }
+        if rhs_is_weak_field {
+          rust_in_weak_unwrap = true
+          if is_optional {
+            wr.out(" = " false)
+            this.WalkNode(right ctx wr)
+            wr.out(".clone();" true)
+          } {
+            wr.out(" = " false)
+            this.WalkNode(right ctx wr)
+            wr.out(".clone().unwrap();" true)
+          }
+          rust_in_weak_unwrap = false
+          ctx.unsetInExpr()
+          return
+        }
+
+        if rhs_is_rc_wrapped {
+          def dgOpen:string "&"
+          def dgClose:string ""
+          if rhs_is_optional_rc {
+            dgOpen = ""
+            dgClose = ".as_ref().unwrap()"
+          }
+          ; RHS is already Rc<RefCell<T>>, just downgrade it directly — and
+          ; a SUBCLASS handle is coerced to the trait object first, or the
+          ; Weak points at the concrete type the field is not declared with.
+          ; Downgrading the coerced temporary is sound: it addresses the same
+          ; allocation the original Rc does.
+          def wkCoerce:string (this.rustTraitCoerceName(field_type_name right ctx))
+          if ((strlen wkCoerce) > 0) {
+            dgOpen = "&("
+            dgClose = (dgClose + (((".clone() as Rc<RefCell<dyn " + wkCoerce) + "Trait>>)")))
+          }
+          if is_optional {
+            wr.out((" = Some(Rc::downgrade(" + dgOpen) false)
+            this.WalkNode(right ctx wr)
+            wr.out((dgClose + "));") true)
+          } {
+            wr.out((" = Rc::downgrade(" + dgOpen) false)
+            this.WalkNode(right ctx wr)
+            wr.out((dgClose + ");") true)
+          }
+        } {
+          ; RHS is a raw value, need to wrap in Rc::new(RefCell::new(...)) first
+          ; WARNING: This creates a temporary Rc that goes out of scope immediately,
+          ; making the Weak reference invalid! This pattern should be avoided.
+          ; The proper fix is to ensure the caller passes an Rc<RefCell<T>>.
+          if is_optional {
+            wr.out(" = Some(Rc::downgrade(&Rc::new(RefCell::new(" false)
+            this.WalkNode(right ctx wr)
+            if should_clone_rhs {
+              wr.out(".clone()" false)
+            }
+            wr.out("))));" true)
+          } {
+            wr.out(" = Rc::downgrade(&Rc::new(RefCell::new(" false)
+            this.WalkNode(right ctx wr)
+            if should_clone_rhs {
+              wr.out(".clone()" false)
+            }
+            wr.out(")));" true)
+          }
+        }
+        ctx.unsetInExpr()
+        return
+      }
+      
+      if is_optional {
+        ; a pre-evaluated right side already owns its value (clone
+        ; applied at the temporary) — move it in, mirroring the standard
+        ; Some(…) branch below
+        if preeval_rhs {
+          ; …and if that value is already an Option it goes in as it is:
+          ; a Some() around it would nest one Option inside another
+          if (this.rustExprIsOptional(right ctx)) {
+            wr.out(((" = " + preeval_name) + ";") true)
+          } {
+            wr.out(((" = Some(" + preeval_name) + ");") true)
+          }
+          ctx.unsetInExpr()
+          return
+        }
+        if rhs_is_optional {
+          ; Both sides are optional - just clone the RHS, don't wrap with Some()
+          def optCoerce:string (this.rustTraitCoerceName(field_type_name right ctx))
+          wr.out(" = " false)
+          this.WalkNode(right ctx wr)
+          if ((strlen optCoerce) > 0) {
+            wr.out(((".clone().map(|__u| __u as Rc<RefCell<dyn " + optCoerce) + "Trait>>);") true)
+          } {
+            wr.out(".clone();" true)
+          }
+        } {
+          if is_self_ref {
+            if (this.rustClassIsShared(field_type_name ctx)) {
+              ; an Rc field provides the indirection a Box used to — and a
+              ; RAW value still takes its cell here, as it does at every
+              ; other shared target. Cloning one calls the CLASS's own
+              ; `clone` method, which is not Rc::clone at all.
+              def selfRefRaw:boolean ((this.rustInitRcState(right ctx)) == 0)
+              wr.out(" = Some(" false)
+              if selfRefRaw {
+                wr.out("Rc::new(RefCell::new(" false)
+              }
+              this.WalkNode(right ctx wr)
+              if selfRefRaw {
+                wr.out("))" false)
+                wr.out(");" true)
+              } {
+                wr.out(".clone());" true)
+              }
+            } {
+              ; Assignment to self-referential optional field: needs Some(Box::new(value.clone()))
+              wr.out(" = Some(Box::new(" false)
+              this.WalkNode(right ctx wr)
+              wr.out(".clone()));" true)
+            }
+          } {
+            if left_is_trait_type {
+              if rhs_is_already_boxed_trait {
+                ; RHS is already Rc<RefCell<dyn Trait>>, clone the Rc for
+                ; shared ownership — and if it is already an Option too
+                ; (a call whose return is `@(optional)`) it goes in whole,
+                ; or the Some() nests one Option inside another
+                if (this.rustExprIsOptional(right ctx)) {
+                  wr.out(" = " false)
+                  this.WalkNode(right ctx wr)
+                  wr.out(".clone();" true)
+                } {
+                  wr.out(" = Some(" false)
+                  this.WalkNode(right ctx wr)
+                  wr.out(".clone());" true)
+                }
+              } {
+                def traitCoerceOpt:string (this.rustTraitCoerceRoot(right field_type_name ctx))
+                if ((strlen traitCoerceOpt) > 0) {
+                  wr.out(" = Some(" false)
+                  this.WalkNode(right ctx wr)
+                  wr.out(((".clone() as Rc<RefCell<dyn " + traitCoerceOpt) + "Trait>>);") true)
+                } {
+                  ; Assignment to trait type field: needs Some(Rc::new(RefCell::new(value)))
+                  wr.out(" = Some(Rc::new(RefCell::new(" false)
+                  this.WalkNode(right ctx wr)
+                  if should_clone_rhs {
+                    wr.out(".clone()" false)
+                  }
+                  wr.out(")));" true)
+                }
+              }
+            } {
+              ; Check if this is a non-trait optional object field in a trait-related class
+              ; Such fields are wrapped in Option<RefCell<T>>
+              def needs_refcell_wrap_assign:boolean false
+              if curr_class_is_trait_related {
+                ; Check if field type is an object type (not primitive)
+                def fieldTypeClassAssign@(optional):RangerAppClassDesc (ctx.findClass(field_type_name))
+                if (!null? fieldTypeClassAssign) {
+                  needs_refcell_wrap_assign = true
+                }
+              }
+              ; A field of a shared class already holds the Rc — writeStructField
+              ; gives it Option<Rc<RefCell<X>>> and never the extra cell — so a
+              ; RefCell::new here made the value one cell deeper than the slot.
+              if (this.rustClassIsShared(field_type_name ctx)) {
+                needs_refcell_wrap_assign = false
+              }
+              if needs_refcell_wrap_assign {
+                ; Optional assignment to RefCell-wrapped field: Some(RefCell::new(value))
+                wr.out(" = Some(RefCell::new(" false)
+                this.WalkNode(right ctx wr)
+                if should_clone_rhs {
+                  wr.out(".clone()" false)
+                }
+                wr.out("));" true)
+              } {
+                ; Standard optional assignment: wrap with Some() — unless
+                ; the right side is ALREADY an Option. `classDesc =
+                ; (ctx.getCurrentClass())` calls a method whose return is
+                ; `@(weak optional)`, and a Some() around that gives an
+                ; Option holding an Option.
+                def rhsAlreadyOption:boolean (this.rustExprIsOptional(right ctx))
+                ; A field of a shared class holds Option<Rc<RefCell<T>>>, so
+                ; a RAW value on the right — `x = (new CodeNode …)` hands
+                ; back the bare struct — takes the cell here. A right side
+                ; that is already a handle goes in as it is.
+                def optAssignRcWrap:boolean false
+                if (rhsAlreadyOption == false) {
+                  if (this.rustClassIsShared(field_type_name ctx)) {
+                    if ((this.rustInitRcState(right ctx)) == 0) {
+                      optAssignRcWrap = true
+                    }
+                  }
+                }
+                if rhsAlreadyOption {
+                  wr.out(" = " false)
+                } {
+                  wr.out(" = Some(" false)
+                }
+                if optAssignRcWrap {
+                  wr.out("Rc::new(RefCell::new(" false)
+                }
+                this.WalkNode(right ctx wr)
+                if should_clone_rhs {
+                  if rhs_str_ref {
+                    wr.out(".to_string()" false)
+                  } {
+                    wr.out(".clone()" false)
+                  }
+                }
+                if optAssignRcWrap {
+                  wr.out("))" false)
+                }
+                if rhsAlreadyOption {
+                  wr.out(";" true)
+                } {
+                  wr.out(");" true)
+                }
+              }
+            }
+          }
+        }
+      } {
+        ; Non-optional assignment
+        wr.out(" = " false)
+        ; PLAN_SHAPES S5: the slot is a Rust enum, so a member value is wrapped
+        ; in its variant here, exactly as a call argument is
+        if (preeval_rhs == false) {
+          if (this.rustWriteUnionValue(field_type_name right ctx wr)) {
+            if rhs_is_optional {
+              wr.out(".unwrap()" false)
+            }
+            wr.out(";" true)
+            ctx.unsetInExpr()
+            return
+          }
+        }
+        ; A shared-class target holds the Rc, so a RAW value on the right —
+        ; `module = (new LowIRModule)` hands back the bare struct — takes its
+        ; cell here, exactly as the optional branch does.
+        def plainAssignRcWrap:boolean false
+        if ((preeval_rhs == false) && (left_is_trait_type == false)) {
+          if (this.rustClassIsShared(field_type_name ctx)) {
+            if (this.rustLhsHoldsRc(left)) {
+              if ((this.rustInitRcState(right ctx)) == 0) {
+                plainAssignRcWrap = true
+              }
+            }
+          }
+        }
+        if left_is_trait_type {
+          def traitCoerce:string ""
+          if (rhs_is_already_boxed_trait == false) {
+            traitCoerce = (this.rustTraitCoerceRoot(right field_type_name ctx))
+          }
+          if ((strlen traitCoerce) > 0) {
+            wr.out("(" false)
+            this.WalkNode(right ctx wr)
+            wr.out(((".clone() as Rc<RefCell<dyn " + traitCoerce) + "Trait>>)") false)
+          } {
+          if rhs_is_already_boxed_trait {
+            ; RHS is already Rc<RefCell<dyn Trait>>, clone for shared ownership
+            this.WalkNode(right ctx wr)
+            wr.out(".clone()" false)
+          } {
+            wr.out("Rc::new(RefCell::new(" false)
+            this.WalkNode(right ctx wr)
+            if should_clone_rhs {
+              wr.out(".clone()" false)
+            }
+            wr.out("))" false)
+          }
+          }
+        } {
+          if preeval_rhs {
+            wr.out(preeval_name false)
+          } {
+            if plainAssignRcWrap {
+              wr.out("Rc::new(RefCell::new(" false)
+            }
+            this.WalkNode(right ctx wr)
+            if should_clone_rhs {
+              if rhs_str_ref {
+                wr.out(".to_string()" false)
+              } {
+                wr.out(".clone()" false)
+              }
+            }
+            if plainAssignRcWrap {
+              wr.out("))" false)
+            }
+          }
+        }
+        ; If RHS is optional but LHS is not, need to unwrap
+        if rhs_is_optional {
+          wr.out(".unwrap()" false)
+        }
+        wr.out(";" true)
+      }
+      ctx.unsetInExpr()
+      return
+    }
+
+    if (cmd == "return") {
+      def cnt:int (array_length node.children)
+      if (cnt > 1) {
+        def retVal:CodeNode (node.getSecond())
+        
+        ; Check if the return value is a function call with nested self method calls
+        ; Pattern: return this.method1(this.method2(...), ...) 
+        ; In Rust this causes double-borrow - we need to extract inner self calls first
+        if retVal.hasFnCall {
+          def retFc:CodeNode (retVal.getFirst())
+          def isSelfCall:boolean false
+          if (has retFc.ns) {
+            def firstPart:string (itemAt retFc.ns 0)
+            if (firstPart == "this") {
+              isSelfCall = true
+            }
+          }
+          
+          if isSelfCall {
+            ; Check arguments for nested self method calls
+            def givenArgs:CodeNode (retVal.getSecond())
+            def tempVars:[string]
+            def tempIdx:int 0
+            
+            for givenArgs.children arg:CodeNode i {
+              if arg.hasFnCall {
+                def argFc:CodeNode (arg.getFirst())
+                if (has argFc.ns) {
+                  def argFirstPart:string (itemAt argFc.ns 0)
+                  if (argFirstPart == "this") {
+                    ; Found nested self call - extract to temp var
+                    def tmpName:string (ctx.rustGetTempVar())
+                    wr.out(("let " + tmpName + " = ") false)
+                    ctx.setInExpr()
+                    this.WalkNode(arg ctx wr)
+                    ctx.unsetInExpr()
+                    wr.out(";" true)
+                    push tempVars tmpName
+                    tempIdx = tempIdx + 1
+                  } {
+                    push tempVars ""
+                  }
+                } {
+                  push tempVars ""
+                }
+              } {
+                push tempVars ""
+              }
+            }
+            
+            ; Now emit the return with temp vars substituted
+            if (tempIdx > 0) {
+              wr.out("return " false)
+              ; This branch writes the call itself rather than going through
+              ; writeFnCall, so it has to make the same static-or-method
+              ; choice: a callee whose body never touches `this` is emitted
+              ; with no receiver, and `self.m(…)` for one is "an associated
+              ; function, not a method".
+              def retStatic:boolean false
+              def retStaticName:string ""
+              if (!null? retVal.fnDesc) {
+                def retFnD:RangerAppFunctionDesc (unwrap retVal.fnDesc)
+                ; …and a method that carries the hidden `__self_rc` is
+                ; receiverless too, not only one that never touches `this`.
+                ; The same question the other call sites ask.
+                def retNoRecv:boolean retFnD.rust_can_be_static
+                if (retNoRecv == false) {
+                  def retBody@(optional):CodeNode retFnD.fnBody
+                  if (!null? retBody) {
+                    def retFnCtxO@(optional):RangerAppWriterContext retFnD.fnCtx
+                    def retFnCtx:RangerAppWriterContext ctx
+                    if (!null? retFnCtxO) {
+                      retFnCtx = (unwrap retFnCtxO)
+                    }
+                    if ((this.rustMethodNeedsReceiver(retFnD (unwrap retBody) retFnCtx ctx)) == false) {
+                      retNoRecv = true
+                    }
+                  }
+                }
+                if retNoRecv {
+                  def retCC@(optional):RangerAppClassDesc retFnD.container_class
+                  if (!null? retCC) {
+                    def retCCD:RangerAppClassDesc (unwrap retCC)
+                    retStatic = true
+                    retStaticName = retCCD.name
+                  }
+                }
+              }
+              if retStatic {
+                wr.out(((retStaticName + "::") + (this.adjustType((itemAt retFc.ns ((array_length retFc.ns) - 1))))) false)
+              } {
+                this.WriteVRef(retFc ctx wr)
+              }
+              wr.out("(" false)
+              ; a receiverless method still takes the hidden receiver handle
+              def retSelfRc:boolean (this.writeSelfRcReceiverArg(retVal retFc ctx wr))
+              for retVal.fnDesc.params arg:RangerAppParamDesc i {
+                if ((i > 0) || retSelfRc) {
+                  wr.out(", " false)
+                }
+                ; an immutable-borrow parameter takes & — for the extracted
+                ; temporary and for a direct argument alike
+                def retArgRef:boolean (arg.rust_borrow_type == 1)
+                def tmpVar:string (itemAt tempVars i)
+                if ((strlen tmpVar) > 0) {
+                  if retArgRef {
+                    wr.out("&" false)
+                  }
+                  wr.out(tmpVar false)
+                } {
+                  def n@(optional):CodeNode (itemAt givenArgs.children i)
+                  if (!null? n) {
+                    def nVal:CodeNode (unwrap n)
+                ; a freshly constructed union member takes its cell here
+                if (this.rustWriteUnionArg(arg nVal ctx wr)) {
+                  continue _
+                }
+                    ; pre-extracted argument: substitute, never re-evaluate
+                    if ((strlen nVal.rust_use_tmpvar) > 0) {
+                      if retArgRef {
+                        wr.out("&" false)
+                      } {
+                        ; a borrowed parameter takes a reference to the temp
+                        if (arg.rust_borrow_type == 1) {
+                          wr.out("&" false)
+                        }
+                      }
+                      wr.out(nVal.rust_use_tmpvar false)
+                      nVal.rust_use_tmpvar = ""
+                      continue _
+                    }
+                    def borrowedLitDone3:boolean false
+                    if retArgRef {
+                      ; a string literal passes bare (the parameter is &str)
+                      borrowedLitDone3 = (this.rustTryBareStrLitArg(nVal ctx wr))
+                      if (borrowedLitDone3 == false) {
+                        if ((this.rustArgIsAlreadyRef(nVal)) == false) {
+                          wr.out("&" false)
+                        }
+                      }
+                    }
+                    if (borrowedLitDone3 == false) {
+                      ctx.setInExpr()
+                      wr.suppress_expr_parens = true
+                      this.WalkNode(nVal ctx wr)
+                      wr.suppress_expr_parens = false
+                      ctx.unsetInExpr()
+                    }
+                    ; Clone if needed for strings/objects
+                    def argNameN:CodeNode (unwrap arg.nameNode)
+                    if (((argNameN.type_name == "string") && (nVal.value_type == RangerNodeType.VRef)) && (retArgRef == false)) {
+                      if (this.rustStrRefRead(nVal)) {
+                        wr.out(".to_string()" false)
+                      } {
+                        wr.out(".clone()" false)
+                      }
+                    }
+                  }
+                }
+              }
+              wr.out(")" false)
+              ; Add clone for return value if needed
+              def tn:string retVal.eval_type_name
+              if ((tn == "string") || (retVal.eval_type == RangerNodeType.Object)) {
+                wr.out(".clone()" false)
+              }
+              wr.out(";" true)
+              return
+            }
+          }
+        }
+        
+        ; Default case - no nested self calls or not a self call.
+        ; A self-call conflict may hide under a static or expression
+        ; wrapper (`EvalValue.number(this.f(this.g(...)))`) — pull the
+        ; inner calls out before the return is written (E0499/E0502)
+        this.rustExtractSelfCallConflicts(retVal ctx wr)
+        ; The last statement of the body is the tail expression: `x`, not
+        ; `return x;` — the marker was set when the body walk began. A tail
+        ; that borrows a body local keeps the statement form (E0597).
+        if (node.rust_is_tail_return && (this.rustTailBorrowsLocal(retVal))) {
+          node.rust_is_tail_return = false
+        }
+        if (node.rust_is_tail_return == false) {
+          wr.out("return " false)
+        }
+        ; PLAN_SHAPES S5: the slot is a Rust enum, so a member value returned
+        ; from a function of the family is wrapped in its variant here
+        ; rustWriteUnionValue manages the expression context itself; wrapping it
+        ; in another setInExpr/unsetInExpr pair leaves the walk in statement
+        ; context, and the value writes its own line ending
+        if ((strlen rustFnReturnsUnion) > 0) {
+          if (this.rustWriteUnionValue(rustFnReturnsUnion retVal ctx wr)) {
+            if node.rust_is_tail_return {
+              wr.out("" true)
+            } {
+              wr.out(";" true)
+            }
+            return
+          }
+        }
+        ; A function whose return type is a shared class hands back the
+        ; Rc, and a `new` produces the bare struct — `return (new CodeNode …)`
+        ; from a `:CodeNode` function was the struct where the handle was
+        ; declared. Anything that already evaluates to a handle passes
+        ; through untouched.
+        def retNeedsRcWrap:boolean false
+        if (!null? rustFnReturnNameNode) {
+          def rfNN:CodeNode (unwrap rustFnReturnNameNode)
+          if (((strlen rfNN.array_type) == 0) && ((strlen rfNN.key_type) == 0)) {
+            if (rfNN.hasFlag("optional") == false) {
+              if (this.rustClassIsShared(rfNN.type_name ctx)) {
+                if ((this.rustInitRcState(retVal ctx)) == 0) {
+                  retNeedsRcWrap = true
+                }
+              }
+            }
+          }
+        }
+        ; 0 = no coercion, 1 = a bare handle, 2 = an Option around one
+        def retTraitCoerce:int 0
+        def retTraitName:string ""
+        if (!null? rustFnReturnNameNode) {
+          def rtNN:CodeNode (unwrap rustFnReturnNameNode)
+          if (((strlen rtNN.array_type) == 0) && ((strlen rtNN.key_type) == 0)) {
+            if (this.rustTypeIsOwnHandle(rtNN.type_name ctx)) {
+              def retValT:string (this.rustArgValueTypeName(retVal))
+              if ((strlen retValT) > 0) {
+                if (retValT != rtNN.type_name) {
+                  if ((this.rustTypeIsOwnHandle(retValT ctx)) == false) {
+                    if (this.rustClassIsShared(retValT ctx)) {
+                      retTraitName = rtNN.type_name
+                      if (rtNN.hasFlag("optional")) {
+                        retTraitCoerce = 2
+                      } {
+                        retTraitCoerce = 1
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+        if retNeedsRcWrap {
+          wr.out("Rc::new(RefCell::new(" false)
+        }
+        ctx.setInExpr()
+        this.WalkNode(retVal ctx wr)
+        ctx.unsetInExpr()
+        if retNeedsRcWrap {
+          wr.out("))" false)
+        }
+        ; Add .clone() for non-primitive types (String, objects, arrays, etc.)
+        ; Check if the return value needs cloning based on its evaluated type
+        def tn:string retVal.eval_type_name
+        def needs_ret_clone:boolean false
+        if ((tn == "string") || (retVal.eval_type == RangerNodeType.Object)) {
+          needs_ret_clone = true
+        }
+        ; Arrays also need cloning when returning from self fields
+        if (retVal.eval_type == RangerNodeType.Array) {
+          needs_ret_clone = true
+        }
+        ; If returning a VRef (variable reference), check if it's a self field
+        if (retVal.value_type == RangerNodeType.VRef) {
+          if retVal.hasParamDesc {
+            def rp:RangerAppParamDesc retVal.paramDesc
+            if rp.is_class_variable {
+              ; Returning a self field - clone unless primitive
+              def rNameN@(optional):CodeNode rp.nameNode
+              if (!null? rNameN) {
+                def rnn:CodeNode (unwrap rNameN)
+                def rv_type:RangerNodeType rnn.value_type
+                if ((rv_type == RangerNodeType.Object) || (rv_type == RangerNodeType.VRef)) {
+                  rv_type = (rnn.typeNameAsType(ctx))
+                }
+                if ((rv_type == RangerNodeType.Object) || (rv_type == RangerNodeType.Array) || (rv_type == RangerNodeType.Buffer) || (rv_type == RangerNodeType.IntBuffer)) {
+                  needs_ret_clone = true
+                }
+              }
+            }
+          }
+        }
+        ; a borrowed slice parameter returned as owned: `.clone()` of
+        ; `&[T]` is still `&[T]` — the owned Vec takes `.to_vec()`
+        def ret_to_vec:boolean false
+        if (retVal.value_type == RangerNodeType.VRef) {
+          if retVal.hasParamDesc {
+            def rbp:RangerAppParamDesc retVal.paramDesc
+            if (rbp.rust_borrow_type > 0) {
+              def rbNN@(optional):CodeNode rbp.nameNode
+              if (!null? rbNN) {
+                def rbN:CodeNode (unwrap rbNN)
+                if ((strlen rbN.array_type) > 0) {
+                  ret_to_vec = true
+                }
+              }
+            }
+          }
+        }
+        if ret_to_vec {
+          wr.out(".to_vec()" false)
+        } {
+          if needs_ret_clone {
+            ; a str reference (static string / borrowed &str param) returned
+            ; as owned String converts; .clone() would return the &str
+            if (this.rustStrRefRead(retVal)) {
+              wr.out(".to_string()" false)
+            } {
+              wr.out(".clone()" false)
+            }
+          }
+        }
+        ; a SUBCLASS handle returned where the declared return is the trait
+        ; parent needs the unsizing coercion — `Rc<RefCell<Sub>>` is not
+        ; `Rc<RefCell<dyn ParentTrait>>` until it is cast
+        if (retTraitCoerce > 0) {
+          if (retTraitCoerce == 2) {
+            wr.out(((".map(|__u| __u as Rc<RefCell<dyn " + retTraitName) + "Trait>>)") false)
+          } {
+            wr.out(((" as Rc<RefCell<dyn " + retTraitName) + "Trait>>") false)
+          }
+        }
+        if node.rust_is_tail_return {
+          wr.out("" true)
+        } {
+          wr.out(";" true)
+        }
+      } {
+        ; a bare `return;` as the last statement says nothing — drop it
+        if (node.rust_is_tail_return == false) {
+          wr.out("return;" true)
+        }
+      }
+      return
+    }
+
+    ; Handle clear for optional objects - need to unwrap before calling clear()
+    if (cmd == "clear") {
+      def target:CodeNode (node.getSecond())
+      def is_optional_target:boolean false
+      
+      ; Check if target is an optional field
+      if target.hasParamDesc {
+        def pp:RangerAppParamDesc target.paramDesc
+        if pp.is_optional {
+          ; Check it's not an array (arrays handled differently)
+          def nameN@(optional):CodeNode pp.nameNode
+          if (!null? nameN) {
+            def nn:CodeNode (unwrap nameN)
+            if (nn.value_type != RangerNodeType.Array) {
+              is_optional_target = true
+            }
+          }
+        }
+      }
+      
+      if is_optional_target {
+        ; For optional objects, unwrap then call clear
+        ; Check if the owning class is trait-related (uses Option<RefCell<T>>)
+        def clear_needs_borrow_mut:boolean false
+        if target.hasParamDesc {
+          def clearPp:RangerAppParamDesc target.paramDesc
+          def clearOwnerClass@(optional):RangerAppClassDesc clearPp.propertyClass
+          ; If propertyClass is null, fall back to current class (self field)
+          if (null? clearOwnerClass) {
+            if clearPp.is_class_variable {
+              clearOwnerClass = (ctx.getCurrentClass())
+            }
+          }
+          if (!null? clearOwnerClass) {
+            def clearOwnerC:RangerAppClassDesc (unwrap clearOwnerClass)
+            if clearOwnerC.is_extended_by_children {
+              clear_needs_borrow_mut = true
+            }
+            if (clear_needs_borrow_mut == false) {
+              for clearOwnerC.extends_classes clearExtParent:string clearEpi {
+                def clearExtParentClass@(optional):RangerAppClassDesc (ctx.findClass(clearExtParent))
+                if (!null? clearExtParentClass) {
+                  def clearEpc:RangerAppClassDesc (unwrap clearExtParentClass)
+                  if clearEpc.is_extended_by_children {
+                    clear_needs_borrow_mut = true
+                  }
+                }
+              }
+            }
+          }
+        }
+        ctx.setInExpr()
+        this.WalkNode(target ctx wr)
+        if clear_needs_borrow_mut {
+          wr.out(".as_ref().unwrap().borrow_mut().clear();" true)
+        } {
+          wr.out(".as_mut().unwrap().clear();" true)
+        }
+        ctx.unsetInExpr()
+      } {
+        ; A Rust Vec clears with .clear(); the target is written through, so
+        ; an Rc<RefCell> segment on its path borrows mutably.
+        ctx.setInExpr()
+        ctx.setInLhs()
+        rust_lhs_is_receiver = true
+        this.WalkNode(target ctx wr)
+        rust_lhs_is_receiver = false
+        ctx.unsetInLhs()
+        wr.out(".clear();" true)
+        ctx.unsetInExpr()
+      }
+      return
+    }
+
+    ; Vec::remove takes &mut self, so an Rc<RefCell> segment on the target's
+    ; path has to borrow mutably. The Lang.rgr template writes the same call
+    ; but walks the target as a read, which left `node.borrow().children`
+    ; where `node.borrow_mut().children` was needed. array_extract is the
+    ; same call used for its return value.
+    ; indexOf answers -1 when the item is absent, and how it compares
+    ; depends on the element. Rc<RefCell<T>> implements PartialEq only when
+    ; T does, and the generated structs derive none — but an Rc in a Ranger
+    ; array is a handle, and "is this one in there" is an identity question.
+    ; Anything else compares by value, through clones so that a reference on
+    ; either side collapses.
+    if (cmd == "indexOf") {
+      def ioArr:CodeNode (node.getSecond())
+      def ioItem:CodeNode (node.getThird())
+      def ioElem:string ioArr.array_type
+      if ((strlen ioElem) == 0) {
+        if ioArr.hasParamDesc {
+          def ioP:RangerAppParamDesc (unwrap ioArr.paramDesc)
+          def ioPNN@(optional):CodeNode ioP.nameNode
+          if (!null? ioPNN) {
+            def ioPN:CodeNode (unwrap ioPNN)
+            ioElem = ioPN.array_type
+          }
+        }
+      }
+      ctx.setInExpr()
+      wr.out("(" false)
+      this.WalkNode(ioArr ctx wr)
+      if (this.rustClassIsShared(ioElem ctx)) {
+        wr.out(".iter().position( |__r| Rc::ptr_eq(__r, &(" false)
+        this.WalkNode(ioItem ctx wr)
+        wr.out(")) )" false)
+      } {
+        wr.out(".iter().position( |__r| __r.clone() == (" false)
+        this.WalkNode(ioItem ctx wr)
+        wr.out(").clone() )" false)
+      }
+      wr.out(".map(|__i| __i as i64).unwrap_or(-1))" false)
+      ctx.unsetInExpr()
+      if ((ctx.expressionLevel()) == 0) {
+        wr.out(";" true)
+      }
+      return
+    }
+
+    if ((cmd == "remove_index") || (cmd == "array_extract")) {
+      def rmTarget:CodeNode (node.getSecond())
+      def rmIndex:CodeNode (node.getThird())
+      ctx.setInExpr()
+      ctx.setInLhs()
+      rust_lhs_is_receiver = true
+      this.WalkNode(rmTarget ctx wr)
+      rust_lhs_is_receiver = false
+      ctx.unsetInLhs()
+      wr.out(".remove((" false)
+      this.WalkNode(rmIndex ctx wr)
+      wr.out(") as usize)" false)
+      ctx.unsetInExpr()
+      if ((ctx.expressionLevel()) == 0) {
+        wr.out(";" true)
+      }
+      return
+    }
+
+    if (cmd == "push") {
+      def left:CodeNode (node.getSecond())
+      def right:CodeNode (node.getThird())
+      
+      ; Get the array type to check if it's a string array
+      def arr_type:string ""
+      if left.hasParamDesc {
+        def pp:RangerAppParamDesc left.paramDesc
+        arr_type = pp.nameNode.array_type
+      }
+      
+      ; Check if the pushed value might be used after this (needs cloning)
+      def needs_clone:boolean false
+      if (right.value_type == RangerNodeType.VRef) {
+        if right.hasParamDesc {
+          def rp:RangerAppParamDesc right.paramDesc
+          ; Clone if ref_cnt > 1 (used more than once) or if it's a string/object
+          if (rp.ref_cnt > 1) {
+            needs_clone = true
+          }
+          ; Always clone strings since they don't implement Copy
+          if (arr_type == "string") {
+            needs_clone = true
+          }
+        }
+      }
+      
+      ; Write the push operation. The target is written through, so an
+      ; Rc<RefCell> segment on its path must borrow mutably.
+      ctx.setInExpr()
+      ctx.setInLhs()
+      rust_lhs_is_receiver = true
+      this.WalkNode(left ctx wr)
+      rust_lhs_is_receiver = false
+      ctx.unsetInLhs()
+      wr.out(".push(" false)
+      ; an element of a shared class is an Rc: wrap a raw value, clone a
+      ; wrapped name, take an owned Rc as it is
+      if (this.rustClassIsShared(arr_type ctx)) {
+        def push_rc_state:int (this.rustInitRcState(right ctx))
+        if (push_rc_state == 0) {
+          wr.out("Rc::new(RefCell::new(" false)
+          this.rustWalkOperand(right ctx wr)
+          wr.out("))" false)
+        }
+        if (push_rc_state == 1) {
+          this.rustWalkOperand(right ctx wr)
+          wr.out(".clone()" false)
+        }
+        if (push_rc_state == 2) {
+          this.rustWalkOperand(right ctx wr)
+          ; …unless it is only a REFERENCE to a handle — the element the Vec
+          ; keeps has to be an owned Rc
+          if (this.rustValueIsBorrowedHandle(right ctx)) {
+            wr.out(".clone()" false)
+          }
+        }
+        ctx.unsetInExpr()
+        wr.out(");" true)
+        return
+      }
+      this.rustWalkOperand(right ctx wr)
+      
+      ; Add .to_string() if pushing to a string array and the value is a string literal
+      if (arr_type == "string") {
+        if (right.value_type == RangerNodeType.String) {
+          wr.out(".to_string()" false)
+        }
+      }
+      ; Clone when needed to avoid move errors — never for a Copy scalar
+      if (((arr_type == "int") || (arr_type == "double")) || (arr_type == "boolean")) {
+        needs_clone = false
+      }
+      if needs_clone {
+        ; a str-reference value (static string / borrowed &str param) makes
+        ; the owned element with .to_string()
+        if ((arr_type == "string") && (this.rustStrRefRead(right))) {
+          wr.out(".to_string()" false)
+        } {
+          ; a borrowed slice into an owned Vec element -- pushing `r:[string]`
+          ; into `rows:[[string]]`. `.clone()` of a `&[T]` is another `&[T]`,
+          ; so the owned element takes `.to_vec()`. Reached whenever the
+          ; element type is itself a collection, which is what a generic class
+          ; instantiated at an array type produces.
+          if (this.rustSliceRefRead(right)) {
+            wr.out(".to_vec()" false)
+          } {
+            wr.out(".clone()" false)
+          }
+        }
+      } {
+        if ((arr_type == "string") && (this.rustStrRefRead(right))) {
+          wr.out(".to_string()" false)
+        }
+        ; Add .clone() when pushing objects to arrays (the pushed value may be used later)
+        if (right.value_type == RangerNodeType.VRef) {
+          if (arr_type != "string") {
+            if (arr_type != "int") {
+              if (arr_type != "double") {
+                if (arr_type != "boolean") {
+                  if (this.rustSliceRefRead(right)) {
+                    wr.out(".to_vec()" false)
+                  } {
+                    wr.out(".clone()" false)
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      ctx.unsetInExpr()
+      wr.out(");" true)
+      return
+    }
+
+    ; Handle unwrap for optional types - need to dereference Box for self-referential types
+    ; and handle Weak references with upgrade()
+    if (cmd == "unwrap") {
+      def arg:CodeNode (node.getSecond())
+      
+      ; Check if the inner type is a self-referential Box
+      def needs_deref:boolean false
+      def is_self_field:boolean false
+      def is_weak_ref:boolean false
+      def inner_type:string ""
+      
+      if arg.hasParamDesc {
+        def pp:RangerAppParamDesc arg.paramDesc
+        ; Check if this is a class variable (self field)
+        is_self_field = pp.is_class_variable
+        def nameN@(optional):CodeNode pp.nameNode
+        if (!null? nameN) {
+          def nn:CodeNode (unwrap nameN)
+          inner_type = nn.type_name
+          ; Check if this is a weak reference. Only a FIELD holds a Weak; a
+          ; `@(weak)` local keeps the Rc, so upgrading one is an upgrade of
+          ; something that was never downgraded.
+          if (nn.hasFlag("weak")) {
+            if pp.is_class_variable {
+              is_weak_ref = true
+            }
+          }
+          ; Check if field type equals the class that owns this property (self-referential)
+          def oc@(optional):RangerAppClassDesc pp.propertyClass
+          if (!null? oc) {
+            def ownerClass:RangerAppClassDesc (unwrap oc)
+            if (ownerClass.name == inner_type) {
+              needs_deref = true
+            }
+          }
+        }
+      }
+      
+      ; an Rc field of a shared class provides its own indirection: no Box
+      if (this.rustClassIsShared(inner_type ctx)) {
+        needs_deref = false
+      }
+
+      ctx.setInExpr()
+      
+      ; Handle weak references - need to upgrade() to get Rc, then borrow_mut() to access value
+      if is_weak_ref {
+        ; this handler writes the upgrade itself, so the path writer must
+        ; leave the field alone while the argument is walked
+        rust_in_weak_unwrap = true
+        this.WalkNode(arg ctx wr)
+        rust_in_weak_unwrap = false
+        ; A weak field of a shared class upgrades to the Rc itself
+        ; (PLAN_RUST_OWNERSHIP 2b): the unwrapped value stays
+        ; Rc<RefCell<T>>, and use sites borrow it like any shared name.
+        if (this.rustClassIsShared(inner_type ctx)) {
+          wr.out(".clone().unwrap().upgrade().unwrap()" false)
+          ctx.unsetInExpr()
+          return
+        }
+        if is_self_field {
+          ; Clone the Option<Weak<...>> first, then upgrade and borrow
+          wr.out(".clone().unwrap().upgrade().unwrap().borrow_mut()" false)
+        } {
+          wr.out(".unwrap().upgrade().unwrap().borrow_mut()" false)
+        }
+        ctx.unsetInExpr()
+        return
+      }
+      
+      if needs_deref {
+        wr.out("(*" false)
+        this.WalkNode(arg ctx wr)
+        ; Clone self fields before unwrap to avoid moving out of self
+        if is_self_field {
+          wr.out(".clone().unwrap())" false)
+        } {
+          wr.out(".unwrap())" false)
+        }
+      } {
+        this.WalkNode(arg ctx wr)
+        ; Clone self fields before unwrap to avoid moving out of self.
+        ; A bare optional LOCAL clones too: unwrap takes the Option by
+        ; value, and a name unwrapped inside a loop or reused later is
+        ; gone after the move (E0382).
+        def unwrap_bare_local:boolean false
+        if ((arg.expression == false) && (arg.value_type == RangerNodeType.VRef)) {
+          if ((array_length arg.ns) <= 1) {
+            unwrap_bare_local = true
+          }
+        }
+        ; an Option of a Copy scalar copies by itself — cloning it is
+        ; clippy's clone_on_copy
+        if unwrap_bare_local {
+          if (inner_type == "int") { unwrap_bare_local = false }
+          if (inner_type == "double") { unwrap_bare_local = false }
+          if (inner_type == "boolean") { unwrap_bare_local = false }
+          if (inner_type == "char") { unwrap_bare_local = false }
+          if (TTypeRegistry.isIntAlias(inner_type)) { unwrap_bare_local = false }
+          if (TTypeRegistry.isFloatAlias(inner_type)) { unwrap_bare_local = false }
+        }
+        if (is_self_field || unwrap_bare_local) {
+          wr.out(".clone().unwrap()" false)
+        } {
+          wr.out(".unwrap()" false)
+        }
+      }
+      ctx.unsetInExpr()
+      return
+    }
+  }
+
+}

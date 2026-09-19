@@ -1,0 +1,2028 @@
+; SPDX-License-Identifier: MIT
+
+; `writeClass` and everything that puts a struct on the page: its fields and
+; their types, the trait a shared class is reached through, the accessor pair
+; a trait field needs, and the Rc state a constructor has to set up.
+
+extension RangerRustClassWriter {
+
+  fn rustMethodInTraitIface:boolean (cl:RangerAppClassDesc name:string ctx:RangerAppWriterContext) {
+    if cl.is_extended_by_children {
+      return true
+    }
+    for cl.extends_classes tiParent:string tiPi {
+      def tiPC@(optional):RangerAppClassDesc (ctx.findClass(tiParent))
+      if (!null? tiPC) {
+        def tiC:RangerAppClassDesc (unwrap tiPC)
+        if tiC.is_extended_by_children {
+          if (has tiC.defined_methods name) {
+            return true
+          }
+        }
+      }
+    }
+    return false
+  }
+
+  fn rustClassMethodKnownShared:boolean (cls:RangerAppClassDesc name:string ctx:RangerAppWriterContext) {
+    def kmRootO@(optional):RangerAppClassDesc (this.rustTraitRootOf(cls ctx))
+    if (!null? kmRootO) {
+      def kmRoot:RangerAppClassDesc (unwrap kmRootO)
+      if (has kmRoot.method_variants name) {
+        this.rustFillTraitMutations(kmRoot ctx)
+        return ((has kmRoot.rust_trait_mut name) == false)
+      }
+    }
+    if ((has cls.method_variants name) == false) {
+      def kmM@(optional):RangerAppFunctionDesc (cls.findMethod(name))
+      if (null? kmM) {
+        return false
+      }
+      def kmMD:RangerAppFunctionDesc (unwrap kmM)
+      return (kmMD.rust_mut_self == false)
+    }
+    def kmVs:RangerAppMethodVariants (get cls.method_variants name)
+    if ((array_length kmVs.variants) == 0) {
+      return false
+    }
+    for kmVs.variants kmV:RangerAppFunctionDesc kmVi {
+      if kmV.rust_mut_self {
+        return false
+      }
+    }
+    return true
+  }
+
+  fn rustCollectInheritedVars:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext seen:[string:boolean] into:[RangerAppParamDesc]) {
+    for cl.extends_classes pName:string i {
+      if (ctx.isDefinedClass(pName)) {
+        def pc:RangerAppClassDesc (ctx.findClass(pName))
+        for pc.variables pvar:RangerAppParamDesc j {
+          if (has seen pvar.name) {
+          } {
+            set seen pvar.name true
+            push into pvar
+          }
+        }
+        this.rustCollectInheritedVars(pc ctx seen into)
+      }
+    }
+  }
+
+  fn rustAllStructVars:[RangerAppParamDesc] (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    def res:[RangerAppParamDesc]
+    def seen:[string:boolean]
+    ; The class's own declarations go in first and win. Neither order is
+    ; right while a subclass may restate a parent's field with a different
+    ; strength: RangerAppParamDesc declares `nameNode` strong and
+    ; RangerAppFunctionDesc restates it `@(weak)`, an inherited method body
+    ; is emitted into every subclass's impl unchanged (the body of
+    ; RangerAppParamDesc::isAllocatedType lands in RangerAppFunctionDesc's
+    ; impl and reads `self.nameNode` there), and a trait accessor's
+    ; signature comes from the parent while its body reads the subclass's
+    ; slot. Letting the parent win fixes those two and breaks more
+    ; elsewhere — measured twice, 1708 -> 1879 and 869 -> 1141. The real
+    ; repair is to stop restating fields with a different strength.
+    for cl.variables pvar:RangerAppParamDesc i {
+      set seen pvar.name true
+      push res pvar
+    }
+    this.rustCollectInheritedVars(cl ctx seen res)
+    return res
+  }
+
+  fn writeStructFieldType:void (p:RangerAppParamDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    rust_writing_field_type = true
+    this.writeStructFieldTypeInner(p ctx wr)
+    rust_writing_field_type = false
+  }
+
+  fn writeStructFieldTypeInner:void (p:RangerAppParamDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    if p.rust_interior_cell {
+      def cellNameN:CodeNode (unwrap p.nameNode)
+      if (this.rustCellIsCopy(p)) {
+        wr.out("std::cell::Cell<" false)
+        this.writeTypeDef(cellNameN ctx wr)
+        wr.out(">" false)
+        return
+      }
+      if (this.rustCellIsString(p)) {
+        wr.out("RefCell<String>" false)
+        return
+      }
+      if (this.rustCellIsCollection(p)) {
+        wr.out("RefCell<" false)
+        this.writeTypeDef(cellNameN ctx wr)
+        wr.out(">" false)
+        return
+      }
+      wr.out("RefCell<Option<" false)
+      wr.out((this.rustSharedTypeString(cellNameN.type_name ctx)) false)
+      wr.out(">>" false)
+      return
+    }
+    def nameN:CodeNode (unwrap p.nameNode)
+    ; A field of a shared class holds the Rc (PLAN_RUST_OWNERSHIP 2b). A
+    ; weak field keeps its Weak form, and a collection wraps its element
+    ; inside writeTypeDef instead.
+    def shared_field:boolean false
+    if p.rust_needs_rc_wrap {
+      if (nameN.hasFlag("weak") == false) {
+        if (((strlen nameN.array_type) == 0) && ((strlen nameN.key_type) == 0)) {
+          shared_field = true
+        }
+      }
+    }
+    if shared_field {
+      if p.is_optional {
+        wr.out((("Option<" + (this.rustSharedTypeString(nameN.type_name ctx))) + ">") false)
+      } {
+        wr.out((this.rustSharedTypeString(nameN.type_name ctx)) false)
+      }
+    } {
+      if p.rust_static_str {
+        ; a never-computed string: a pointer to the literal, Copy, no
+        ; allocation on any assignment (rust_static_str)
+        wr.out("&'static str" false)
+      } {
+        this.writeTypeDef(nameN ctx wr)
+      }
+    }
+  }
+
+  fn rustSegThroughTrait:boolean (node:CodeNode idx:int ctx:RangerAppWriterContext) {
+    if (idx < 1) {
+      return false
+    }
+    if ((array_length node.nsp) <= idx) {
+      return false
+    }
+    def owner:RangerAppParamDesc (itemAt node.nsp (idx - 1))
+    def ownerNN@(optional):CodeNode owner.nameNode
+    if (null? ownerNN) {
+      return false
+    }
+    def onn:CodeNode (unwrap ownerNN)
+    ; a collection segment yields its element, so the owner's own class name
+    ; is not what the next segment is read out of
+    if (((strlen onn.array_type) > 0) || ((strlen onn.key_type) > 0)) {
+      return false
+    }
+    if ((this.rustTypeIsOwnHandle(onn.type_name ctx)) == false) {
+      return false
+    }
+    ; only a FIELD comes from an accessor. A method segment keeps its own
+    ; name — routing one through rgf_… produced `x.rgf_getStrength_mut()()`,
+    ; an accessor that does not exist called as if it returned a function.
+    def ownerCls@(optional):RangerAppClassDesc (ctx.findClass(onn.type_name))
+    if (null? ownerCls) {
+      return false
+    }
+    def oc:RangerAppClassDesc (unwrap ownerCls)
+    def seg:RangerAppParamDesc (itemAt node.nsp idx)
+    def fv@(optional):RangerAppParamDesc (oc.findVariable(seg.name))
+    if (null? fv) {
+      return false
+    }
+    return true
+  }
+
+  fn writeStructField (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if node.hasParamDesc {
+      def nn:CodeNode (itemAt node.children 1)
+      def p:RangerAppParamDesc (unwrap nn.paramDesc)
+      wr.out(((this.adjustType(p.compiledName)) + " : ") false)
+      this.writeStructFieldType(p ctx wr)
+      wr.out(", " true)
+    }
+  }
+
+  fn writeTraitFieldAccessorDecls:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    for cl.variables pvar:RangerAppParamDesc i {
+      def acc:string (this.rustFieldAccessorName(pvar))
+      if ((this.rustFieldIsCopyScalar(pvar ctx)) || (this.rustFieldIsPlainString(pvar ctx))) {
+        wr.out((("fn " + acc) + "(&self) -> ") false)
+      } {
+        wr.out((("fn " + acc) + "(&self) -> &") false)
+      }
+      this.writeStructFieldType(pvar ctx wr)
+      wr.out(";" true)
+      wr.out((("fn " + acc) + "_mut(&mut self) -> &mut ") false)
+      this.writeStructFieldType(pvar ctx wr)
+      wr.out(";" true)
+    }
+  }
+
+  fn writeTraitFieldAccessorImpls:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    for cl.variables pvar:RangerAppParamDesc i {
+      def acc:string (this.rustFieldAccessorName(pvar))
+      def fld:string (this.adjustType(pvar.compiledName))
+      if (this.rustFieldIsPlainString(pvar ctx)) {
+        wr.out((("fn " + acc) + "(&self) -> ") false)
+        this.writeStructFieldType(pvar ctx wr)
+        wr.out(((" { self." + fld) + ".clone() }") true)
+      } {
+      if (this.rustFieldIsCopyScalar(pvar ctx)) {
+        wr.out((("fn " + acc) + "(&self) -> ") false)
+        this.writeStructFieldType(pvar ctx wr)
+        wr.out(((" { self." + fld) + " }") true)
+      } {
+        wr.out((("fn " + acc) + "(&self) -> &") false)
+        this.writeStructFieldType(pvar ctx wr)
+        wr.out(((" { &self." + fld) + " }") true)
+      }
+      }
+      wr.out((("fn " + acc) + "_mut(&mut self) -> &mut ") false)
+      this.writeStructFieldType(pvar ctx wr)
+      wr.out(((" { &mut self." + fld) + " }") true)
+    }
+  }
+
+  fn rustClassIsShared:boolean (typeName:string ctx:RangerAppWriterContext) {
+    if ((strlen typeName) == 0) {
+      return false
+    }
+    if (ctx.hasCompilerFlag("rust-value-classes")) {
+      return false
+    }
+    def typeClass@(optional):RangerAppClassDesc (ctx.findClass(typeName))
+    if (null? typeClass) {
+      return false
+    }
+    def tc:RangerAppClassDesc (unwrap typeClass)
+    ; A union itself is Rc<dyn Any> already — never wrap it again. Its MEMBERS
+    ; are marked shared by StaticAnalyzer.analyzeClassSharing, so they arrive
+    ; here through rust_needs_ref_semantics like any other shared class.
+    if tc.is_union {
+      return false
+    }
+    return (tc.rust_needs_ref_semantics)
+  }
+
+  fn rustNeedsSelfRc:boolean (fnDesc:RangerAppFunctionDesc ctx:RangerAppWriterContext) {
+    ; precomputed by StaticAnalyzer.computeSelfRcNeeds: the direct users of
+    ; `this` as a value plus, transitively, every method that self-calls one
+    return (fnDesc.rust_needs_self_rc)
+  }
+
+  fn rustEnclosingMethod:RangerAppFunctionDesc (fnDesc:RangerAppFunctionDesc) {
+    def res:RangerAppFunctionDesc fnDesc
+    def rounds:int 0
+    while (res.is_lambda && (rounds < 30)) {
+      rounds = rounds + 1
+      if (null? res.insideFn) {
+        return res
+      }
+      res = (unwrap res.insideFn)
+    }
+    return res
+  }
+
+  fn rustInitRcState:int (value:CodeNode ctx:RangerAppWriterContext) {
+    ; A class that has subclasses is written as Rc<RefCell<dyn XTrait>>
+    ; everywhere — the handle IS the type — so any value of one is already
+    ; an owned Rc, whether it is a name, an element read or a call result.
+    ; Only `new` hands back the bare struct.
+    ; A NAME keeps its state-1 answer: it is a handle somebody else owns, and
+    ; sharing it means cloning the Rc.
+    if (value.expression && (value.hasNewOper == false)) {
+      if (this.rustTypeIsOwnHandle((this.rustArgValueTypeName(value)) ctx)) {
+        return 2
+      }
+    }
+    if (value.expression == false) {
+      ; `this` as a VALUE is written as __self_rc, which IS the owned Rc —
+      ; wrapping it gave Rc<RefCell<Rc<RefCell<T>>>> at every site that
+      ; passes or stores the receiver
+      if (value.vref == "this") {
+        def trCls@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+        if (!null? trCls) {
+          def trC:RangerAppClassDesc (unwrap trCls)
+          if (this.rustClassIsShared(trC.name ctx)) {
+            return 2
+          }
+        }
+      }
+      if value.hasParamDesc {
+        def ip:RangerAppParamDesc value.paramDesc
+        if ip.rust_needs_rc_wrap {
+          return 1
+        }
+      }
+      return 0
+    }
+    ; a macro expansion can wrap its result in an extra pair of parens
+    if ((array_length value.children) == 1) {
+      def only:CodeNode (value.getFirst())
+      ; …and a bare NAME in parens is still that name — `def ctx (in_ctx)`
+      ; answered from the parens' evaluated type instead, which says "an
+      ; owned Rc" and drops the clone the aliasing binding needs
+      if (only.expression || (only.value_type == RangerNodeType.VRef)) {
+        return (this.rustInitRcState(only ctx))
+      }
+    }
+    ; a `new` produces the raw struct and still needs the wrap; any other
+    ; expression whose value is a shared class — an element read, a map get,
+    ; a call — already evaluates to an owned Rc under the flag
+    if (value.hasNewOper == false) {
+      if (this.rustClassIsShared(value.eval_type_name ctx)) {
+        return 2
+      }
+    }
+    ; a call that returns a shared class already hands out an owned Rc —
+    ; but a `new` carries a call node of its own (the constructor) and still
+    ; produces the raw struct
+    if (value.hasFnCall && (value.hasNewOper == false)) {
+      if (!null? value.fnDesc) {
+        def cfd:RangerAppFunctionDesc (unwrap value.fnDesc)
+        if (!null? cfd.nameNode) {
+          def rt:CodeNode (unwrap cfd.nameNode)
+          if (((strlen rt.array_type) == 0) && ((strlen rt.key_type) == 0)) {
+            if (this.rustClassIsShared(rt.type_name ctx)) {
+              return 2
+            }
+          }
+        }
+      }
+    }
+    if ((array_length value.children) >= 2) {
+      def first:CodeNode (value.getFirst())
+      if (first.vref == "unwrap") {
+        def arg:CodeNode (value.getSecond())
+        if arg.hasParamDesc {
+          def pp:RangerAppParamDesc arg.paramDesc
+          if (!null? pp.nameNode) {
+            def nn:CodeNode (unwrap pp.nameNode)
+            if (nn.hasFlag("weak")) {
+              if (this.rustClassIsShared(nn.type_name ctx)) {
+                return 2
+              }
+            }
+            ; unwrap of a strong optional field of a shared class:
+            ; .clone().unwrap() gives an owned Rc as well
+            if pp.rust_needs_rc_wrap {
+              if (((strlen nn.array_type) == 0) && ((strlen nn.key_type) == 0)) {
+                return 2
+              }
+            }
+          }
+        }
+      }
+    }
+    return 0
+  }
+
+  fn rustSelfRcParamType:string (fnDesc:RangerAppFunctionDesc ctx:RangerAppWriterContext) {
+    if (null? fnDesc.container_class) {
+      return ""
+    }
+    def scc:RangerAppClassDesc (unwrap fnDesc.container_class)
+    def sccName:string scc.name
+    if scc.is_extended_by_children {
+      return (("dyn " + scc.name) + "Trait")
+    }
+    for scc.extends_classes sccP:string sccPi {
+      if (ctx.isDefinedClass(sccP)) {
+        def sccPC:RangerAppClassDesc (ctx.findClass(sccP))
+        if sccPC.is_extended_by_children {
+          if (has sccPC.defined_methods fnDesc.name) {
+            sccName = (("dyn " + sccPC.name) + "Trait")
+          }
+        }
+      }
+    }
+    return sccName
+  }
+
+  fn rustSelfRcCoerceTo:string (fc:CodeNode fnDesc:RangerAppFunctionDesc ctx:RangerAppWriterContext) {
+    def want:string (this.rustSelfRcParamType(fnDesc ctx))
+    if ((strlen want) < 5) {
+      return ""
+    }
+    if ((substring want 0 4) != "dyn ") {
+      return ""
+    }
+    def nsLen:int (array_length fc.ns)
+    if (nsLen < 2) {
+      return ""
+    }
+    ; the class the receiver is declared as: `this` is the enclosing class,
+    ; anything else is the desc of the segment the method hangs off
+    def rcvType:string ""
+    if (((itemAt fc.ns 0) == "this") && (nsLen == 2)) {
+      def ccOpt@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+      if (null? ccOpt) {
+        return ""
+      }
+      def ccCls:RangerAppClassDesc (unwrap ccOpt)
+      rcvType = ccCls.name
+    } {
+      if ((array_length fc.nsp) < (nsLen - 1)) {
+        return ""
+      }
+      def rcvD:RangerAppParamDesc (itemAt fc.nsp (nsLen - 2))
+      def rcvNN@(optional):CodeNode rcvD.nameNode
+      if (null? rcvNN) {
+        return ""
+      }
+      def rcvN:CodeNode (unwrap rcvNN)
+      if (((strlen rcvN.array_type) > 0) || ((strlen rcvN.key_type) > 0)) {
+        return ""
+      }
+      rcvType = rcvN.type_name
+    }
+    if ((strlen rcvType) == 0) {
+      return ""
+    }
+    ; a receiver that is ITSELF written as a trait object already has the
+    ; declared type — nothing to coerce
+    if (this.rustTypeIsOwnHandle(rcvType ctx)) {
+      return ""
+    }
+    if ((this.rustClassIsShared(rcvType ctx)) == false) {
+      return ""
+    }
+    return want
+  }
+
+  fn writeSelfRcReceiverArg:boolean (node:CodeNode fc:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if (null? node.fnDesc) {
+      rust_last_recv_tmp = ""
+      return false
+    }
+    if ((this.rustNeedsSelfRc((unwrap node.fnDesc) ctx)) == false) {
+      rust_last_recv_tmp = ""
+      return false
+    }
+    ; the receiver was hoisted a moment ago: the same local IS the handle
+    if ((strlen rust_last_recv_tmp) > 0) {
+      wr.out(("&" + rust_last_recv_tmp) false)
+      rust_last_recv_tmp = ""
+      return true
+    }
+    def nsLen:int (array_length fc.ns)
+    if (nsLen < 2) {
+      ; the receiver is an expression the writer cannot name, so there is no
+      ; Rc to pass; a silent skip would be a rustc error about a missing
+      ; argument, so say what to do instead
+      ctx.addError(node "This method stores `this`, so its Rust form needs the receiver's Rc. Bind the receiver to a variable first: def recv:T (expr) — then recv.method(...).")
+      return false
+    }
+    def root:string (itemAt fc.ns 0)
+    if ((root == "this") && (nsLen == 2)) {
+      ; a self-call: the caller holds the Rc, because computeSelfRcNeeds
+      ; marked it transitively. From a constructor there is no Rc to hold —
+      ; the object is not in its cell yet — so the call cannot be written.
+      def cm@(optional):RangerAppFunctionDesc (ctx.getCurrentMethod())
+      if (!null? cm) {
+        def cmf:RangerAppFunctionDesc (this.rustEnclosingMethod((unwrap cm)))
+        if (cmf.rust_needs_self_rc == false) {
+          ctx.addError(node "A method that stores `this` cannot be called from here on Rust: the constructor runs before the object is inside its Rc. Call it on the constructed value instead.")
+          return false
+        }
+      }
+      def selfCoerce:string (this.rustSelfRcCoerceTo(fc (unwrap node.fnDesc) ctx))
+      if ((strlen selfCoerce) > 0) {
+        wr.out((("&(__self_rc.clone() as Rc<RefCell<" + selfCoerce) + ">>)") false)
+      } {
+        wr.out("__self_rc" false)
+      }
+      return true
+    }
+    ; build the receiver path: a bare member roots at self, and a strong
+    ; optional segment holds Option<Rc<…>> — reach the Rc with
+    ; .as_ref().unwrap() so the hidden __self_rc argument is the live Rc
+    ; `thisName`, not the literal "self": a constructor body calls its
+    ; receiver `me`, and a hidden-argument path that said `self` there
+    ; referred to the module keyword in a function with no self parameter.
+    def path:string ""
+    def segIdx:int 0
+    if (root == "this") {
+      path = (this.rustThisPathPrefix(ctx))
+      segIdx = 1
+    }
+    while (segIdx < (nsLen - 1)) {
+      def segName:string (this.adjustType((itemAt fc.ns segIdx)))
+      def haveSegD:boolean false
+      def segOptional:boolean false
+      def segMember:boolean false
+      ; the path descs can be missing — the front end fills `nsp` only where
+      ; it resolved the whole path. A bare member name still answers from
+      ; the class, and without it an `@(optional)` field went into the
+      ; hidden argument as the Option rather than the Rc inside it.
+      if ((array_length fc.nsp) <= segIdx) {
+        if (segIdx == 0) {
+          def fbClsO@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+          if (!null? fbClsO) {
+            def fbCls:RangerAppClassDesc (unwrap fbClsO)
+            def fbVarO@(optional):RangerAppParamDesc (fbCls.findVariable((itemAt fc.ns 0)))
+            if (!null? fbVarO) {
+              def fbVar:RangerAppParamDesc (unwrap fbVarO)
+              segMember = true
+              if fbVar.is_optional {
+                def fbNNO@(optional):CodeNode fbVar.nameNode
+                if (!null? fbNNO) {
+                  def fbNN:CodeNode (unwrap fbNNO)
+                  if (((strlen fbNN.array_type) == 0) && ((strlen fbNN.key_type) == 0)) {
+                    segOptional = true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      if ((array_length fc.nsp) > segIdx) {
+        def segD:RangerAppParamDesc (itemAt fc.nsp segIdx)
+        haveSegD = true
+        segMember = segD.is_class_variable
+        ; the receiver itself is written through WriteVRef, which prefers the
+        ; de-shadowed compiledName (`left` → `left_1`); the hidden-arg path
+        ; must follow it or it names a variable that no longer exists (E0425)
+        if ((strlen segD.compiledName) > 0) {
+          segName = (this.adjustType(segD.compiledName))
+        }
+        ; a field reached through a parent-typed reference comes from the
+        ; trait's accessor here as well — `dyn Trait` has no fields, so the
+        ; bare name is "no field `nameNode` on type `dyn …Trait`" (E0609)
+        if (this.rustSegThroughTrait(fc segIdx ctx)) {
+          segName = ((this.rustFieldAccessorName(segD)) + "()")
+        }
+        if segD.is_optional {
+          def sdNN@(optional):CodeNode segD.nameNode
+          def segColl:boolean false
+          if (!null? sdNN) {
+            def sdN:CodeNode (unwrap sdNN)
+            if (((strlen sdN.array_type) > 0) || ((strlen sdN.key_type) > 0)) {
+              segColl = true
+            }
+          }
+          if (segColl == false) {
+            segOptional = true
+          }
+        }
+      }
+      if ((strlen path) == 0) {
+        if segMember {
+          path = (((this.rustThisPathPrefix(ctx)) + ".") + segName)
+        } {
+          path = segName
+        }
+      } {
+        path = ((path + ".") + segName)
+      }
+      if segOptional {
+        path = (path + ".as_ref().unwrap()")
+      }
+      ; a WEAK segment holds a Weak, and the hidden argument has to be a
+      ; live Rc — `&self.compiler…parser.as_ref().unwrap()` was a `&&Weak`.
+      ; The upgraded Rc is a temporary that lives to the end of the
+      ; statement, which is as long as the call it is an argument to.
+      if haveSegD {
+        def segWkD:RangerAppParamDesc (itemAt fc.nsp segIdx)
+        def segWkNN@(optional):CodeNode segWkD.nameNode
+        if (!null? segWkNN) {
+          def segWkN:CodeNode (unwrap segWkNN)
+          if (segWkN.hasFlag("weak")) {
+            ; only a FIELD holds a Weak — the same rule the path writer and
+            ; the assignment side follow
+            if segWkD.is_class_variable {
+              if (((strlen segWkN.array_type) == 0) && ((strlen segWkN.key_type) == 0)) {
+                path = (path + ".upgrade().unwrap()")
+              }
+            }
+          }
+        }
+      }
+      ; a segment that holds an Rc has to be borrowed before the next field
+      ; is read out of it — the handle has no fields of its own. The Ref this
+      ; makes lives to the end of the statement, which is exactly as long as
+      ; the argument it is being built for.
+      if (segIdx < (nsLen - 2)) {
+        if haveSegD {
+          def segRcD:RangerAppParamDesc (itemAt fc.nsp segIdx)
+          if segRcD.rust_needs_rc_wrap {
+            def segRcNN@(optional):CodeNode segRcD.nameNode
+            if (!null? segRcNN) {
+              def segRcN:CodeNode (unwrap segRcNN)
+              ; a weak segment borrows too: the `.upgrade().unwrap()` written
+              ; above already turned it back into an Rc, and a `@(weak)` local
+              ; never held anything else
+              if (((strlen segRcN.array_type) == 0) && ((strlen segRcN.key_type) == 0)) {
+                path = (path + ".borrow()")
+              }
+            }
+          }
+        }
+      }
+      segIdx = segIdx + 1
+    }
+    def pathCoerce:string (this.rustSelfRcCoerceTo(fc (unwrap node.fnDesc) ctx))
+    if ((strlen pathCoerce) > 0) {
+      wr.out((((("&(" + path) + ".clone() as Rc<RefCell<") + pathCoerce) + ">>)") false)
+    } {
+      wr.out(("&" + path) false)
+    }
+    return true
+  }
+
+  fn writeRustReceiver:void (mutSelf:boolean wr:CodeWriter) {
+    rust_receiver_written = true
+    if mutSelf {
+      wr.out("&mut self" false)
+    } {
+      wr.out("&self" false)
+    }
+  }
+
+  fn writeTraitForwardArgs:void (variant:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter lead:boolean) {
+    def wroteAny:boolean lead
+    if (this.rustNeedsSelfRc(variant ctx)) {
+      if wroteAny {
+        wr.out(", " false)
+      }
+      wroteAny = true
+      wr.out("__self_rc" false)
+    }
+    for variant.params arg:RangerAppParamDesc pi {
+      if (arg.nameNode.hasFlag("keyword")) {
+        continue
+      }
+      if wroteAny {
+        wr.out(", " false)
+      }
+      wroteAny = true
+      wr.out((this.adjustType(arg.compiledName)) false)
+    }
+  }
+
+  fn writeSingletonAccessor:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    wr.newline()
+    wr.out("pub fn __singleton(" false)
+    def sgWritten:int 0
+    if cl.has_constructor {
+      def sgc@(optional):RangerAppFunctionDesc cl.constructor_fn
+      if (!null? sgc) {
+        def sgcF:RangerAppFunctionDesc (unwrap sgc)
+        for sgcF.params arg:RangerAppParamDesc i {
+          if (arg.nameNode.hasFlag("keyword")) {
+            continue
+          }
+          if (sgWritten > 0) {
+            wr.out(", " false)
+          }
+          sgWritten = sgWritten + 1
+          wr.out((arg.name + " : ") false)
+          def sgNameN:CodeNode (unwrap arg.nameNode)
+          this.writeTypeDef(sgNameN ctx wr)
+        }
+      }
+    }
+    wr.out(((") -> Rc<RefCell<" + cl.name) + ">> {") true)
+    wr.indent(1)
+    wr.out(((("thread_local!(static __SINGLETON: RefCell<Option<Rc<RefCell<" + cl.name) + ">>>> = RefCell::new(None));")) true)
+    wr.out("__SINGLETON.with(|s| {" true)
+    wr.indent(1)
+    wr.out("let mut slot = s.borrow_mut();" true)
+    wr.out("if slot.is_none() {" true)
+    wr.indent(1)
+    wr.out((("*slot = Some(Rc::new(RefCell::new(" + cl.name) + "::new(") false)
+    def sgFwd:int 0
+    if cl.has_constructor {
+      def sgc2@(optional):RangerAppFunctionDesc cl.constructor_fn
+      if (!null? sgc2) {
+        def sgc2F:RangerAppFunctionDesc (unwrap sgc2)
+        for sgc2F.params arg:RangerAppParamDesc i {
+          if (arg.nameNode.hasFlag("keyword")) {
+            continue
+          }
+          if (sgFwd > 0) {
+            wr.out(", " false)
+          }
+          sgFwd = sgFwd + 1
+          wr.out(arg.name false)
+        }
+      }
+    }
+    wr.out("))));" true)
+    wr.indent(-1)
+    wr.out("}" true)
+    wr.out("slot.as_ref().unwrap().clone()" true)
+    wr.indent(-1)
+    wr.out("})" true)
+    wr.indent(-1)
+    wr.out("}" true)
+  }
+
+  fn writeClass (node:CodeNode ctx:RangerAppWriterContext orig_wr:CodeWriter) {
+    def ucl@(optional):RangerAppClassDesc node.clDesc
+    if (null? ucl) {
+      return
+    }
+    def cl:RangerAppClassDesc (unwrap ucl)
+    
+    ; Save previous class and set current class for self-referential type detection
+    def prevClass@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+    ctx.setCurrentClass(cl)
+    
+    def wr:CodeWriter orig_wr
+    
+    ; Write file header with allow directives for common warnings.
+    ; The lines go into the "before_imports" slice: an inner attribute (#![..])
+    ; has to precede every item in the file, and an (imp "...") from an operator
+    ; template writes a `use` line ahead of the class content. Written here they
+    ; ended up after that line and rustc rejected the file.
+    if (fileHeaderWritten == false) {
+      def header:CodeWriter (wr.getTag("before_imports"))
+      header.out("#![allow(unused_parens)]" true)
+      header.out("#![allow(unused_mut)]" true)
+      header.out("#![allow(unused_variables)]" true)
+      header.out("#![allow(unused_assignments)]" true)
+      header.out("#![allow(non_snake_case)]" true)
+      header.out("#![allow(dead_code)]" true)
+      header.out("// The clippy allows below cover shapes that mirror the Ranger source" true)
+      header.out("// itself - statement-level clamp chains, nested ifs, function arity and" true)
+      header.out("// type names - which the transpiler must not rewrite or rename." true)
+      header.out("#![allow(clippy::manual_clamp)]" true)
+      header.out("#![allow(clippy::collapsible_if)]" true)
+      header.out("#![allow(clippy::too_many_arguments)]" true)
+      header.out("#![allow(clippy::upper_case_acronyms)]" true)
+      ; ptr_arg still fires on borrowed COLLECTION params (&Vec<T> of
+      ; non-scalar elements); borrowed strings are &str already
+      header.out("#![allow(clippy::ptr_arg)]" true)
+      header.out("" true)
+      header.out("use std::rc::Rc;" true)
+      ; Weak only reaches the output through a @(weak) field; without one
+      ; the use line is rustc's unused_imports warning on every file
+      def anyWeakField:boolean false
+      def hdrRoot:RangerAppWriterContext (ctx.getRoot())
+      for hdrRoot.definedClasses hcl:RangerAppClassDesc hci {
+        def hclSpecial:boolean (((((hcl.is_system || hcl.is_trait) || hcl.is_template) || hcl.is_operator_class) || hcl.is_generic_instance) || hcl.is_union)
+        if (hclSpecial == false) {
+          for hcl.variables hv:RangerAppParamDesc hvi {
+            def hvNN@(optional):CodeNode hv.nameNode
+            if (!null? hvNN) {
+              def hvN:CodeNode (unwrap hvNN)
+              if (hvN.hasFlag("weak")) {
+                anyWeakField = true
+              }
+            }
+          }
+        }
+      }
+      if anyWeakField {
+        header.out("use std::rc::Weak;" true)
+      }
+      header.out("use std::cell::RefCell;" true)
+      ; …but `Cell` is NOT imported. A program is free to declare a class of
+      ; its own by that name, and the import made the two collide — `struct
+      ; Cell` against `use std::cell::Cell` is "the name `Cell` is defined
+      ; multiple times", and every later mention resolved to the std type
+      ; instead ("field `value` is private", "missing generics"). The interior
+      ; cell spells the std type in full at its two use sites, as the pool
+      ; header already does with UnsafeCell, so nothing is brought into scope
+      ; to be shadowed. It also drops an unused-import warning from every
+      ; generated program that has no interior cell at all.
+      header.out("" true)
+      ; D-UNION (PLAN_SHAPES.md S5): a union is a real Rust enum, one variant
+      ; per member, each holding that member's cell. A `case` narrowing is then
+      ; an `if let` on the tag — no trait object, no downcast, and a closed set
+      ; the compiler can see. The enum is `Clone` because a union value passes
+      ; as a clone of the handle, exactly as the Rc did.
+      ;
+      ; `Any` is the compiler's own union of every declared class, so it is not
+      ; written: the enum would name every class in the program.
+      def unionNames:[string] (this.sealableUnionNames(ctx))
+      for unionNames uname:string uni {
+        def ucl:RangerAppClassDesc (hdrRoot.findClass(uname))
+        header.out("#[derive(Clone)]" true)
+        header.out(("pub enum " + (this.unionInterfaceName(uname)) + " {") true)
+        for ucl.is_union_of mname:string mi {
+          ; a case that holds only scalars rides INSIDE the variant — no cell,
+          ; no allocation; a reference case keeps its Rc<RefCell<T>>
+          if (this.rustClassIsShared(mname ctx)) {
+            header.out(("    " + mname + "(Rc<RefCell<" + mname + ">>),") true)
+          } {
+            header.out(("    " + mname + "(" + mname + "),") true)
+          }
+        }
+        header.out("}" true)
+      }
+      ; --- identity of a value of the family --------------------------------
+      ; `identical` asks whether two names hold the same object. On this target
+      ; that was `Rc::ptr_eq`, which an enum cannot be handed — so the operator
+      ; did not build at all for a value of a closed family. It goes through a
+      ; trait instead, so the same spelling serves both a shared class and a
+      ; family, and the answer follows the family's own split: a reference case
+      ; is the same object, a value case has no object to share (it rides
+      ; inside the tag) and answers on its content.
+      ; the trait is written for every program: `identical` on a plain shared
+      ; class goes through it too, so one spelling serves both
+      ; A Ranger `cast` from a parent-typed handle down to a subclass one.
+      ; Rust has no dynamic_pointer_cast: Rc<RefCell<dyn Trait>> and
+      ; Rc<RefCell<Concrete>> are different pointer shapes, so the conversion
+      ; checks the concrete type through Any and then rebuilds the Rc around
+      ; the same allocation — which is what Rc::<dyn Any>::downcast does in
+      ; std. Every generated trait carries RgAnyRef so the check is available
+      ; whatever the trait object is.
+      header.out("pub trait RgAnyRef { fn rg_as_any(&self) -> &dyn std::any::Any; }" true)
+      header.out("fn rg_downcast<T: 'static, D: ?Sized + RgAnyRef>(v: &Rc<RefCell<D>>) -> Rc<RefCell<T>> {" true)
+      header.out("    assert!(v.borrow().rg_as_any().is::<T>(), \"invalid downcast\");" true)
+      header.out("    let p = Rc::into_raw(v.clone()) as *const () as *const RefCell<T>;" true)
+      header.out("    unsafe { Rc::from_raw(p) }" true)
+      header.out("}" true)
+      header.out("pub trait RgIdentical { fn rg_identical(&self, other: &Self) -> bool; }" true)
+      header.out("impl<T: ?Sized> RgIdentical for Rc<RefCell<T>> {" true)
+      header.out("    fn rg_identical(&self, other: &Self) -> bool { Rc::ptr_eq(self, other) }" true)
+      header.out("}" true)
+      if ((array_length unionNames) > 0) {
+        for unionNames uname:string uni2 {
+          def ucl2:RangerAppClassDesc (hdrRoot.findClass(uname))
+          def ename:string (this.unionInterfaceName(uname))
+          header.out((("impl RgIdentical for " + ename) + " {") true)
+          header.out("    fn rg_identical(&self, other: &Self) -> bool {" true)
+          header.out("        match (self, other) {" true)
+          for ucl2.is_union_of mname2:string mi2 {
+            if (this.rustClassIsShared(mname2 ctx)) {
+              def armS:string ((("            (" + ename) + "::") + mname2) + "(a), "
+              armS = ((((armS + ename) + "::") + mname2) + "(b)) => Rc::ptr_eq(a, b),")
+              header.out(armS true)
+            } {
+              def armV:string ((("            (" + ename) + "::") + mname2) + "(a), "
+              armV = ((((armV + ename) + "::") + mname2) + "(b)) => a == b,")
+              header.out(armV true)
+            }
+          }
+          header.out("            _ => false," true)
+          header.out("        }" true)
+          header.out("    }" true)
+          header.out("}" true)
+        }
+      }
+      if ((array_length unionNames) > 0) {
+        header.out("" true)
+      }
+      if (ctx.hasCompilerFlag("native-fast-alloc")) {
+        header.out("// -native-fast-alloc: thread-local size-class freelist over the system" true)
+        header.out("// allocator. Interpreter-style workloads spend a third of their time in" true)
+        header.out("// malloc/free; freed blocks park in per-size lists (32-byte classes up" true)
+        header.out("// to 1024 bytes) and are handed straight back. Memory is never returned" true)
+        header.out("// to the OS - fine for a benchmark or tool process, wrong for a daemon." true)
+        header.out("struct RgPoolAlloc;" true)
+        header.out("const RG_POOL_CLASSES: usize = 32;" true)
+        header.out("std::thread_local! {" true)
+        header.out("    static RG_POOL_HEADS: std::cell::UnsafeCell<[usize; RG_POOL_CLASSES + 1]> =" true)
+        header.out("        const { std::cell::UnsafeCell::new([0usize; RG_POOL_CLASSES + 1]) };" true)
+        header.out("}" true)
+        header.out("#[allow(unused_unsafe)]" true)
+        header.out("unsafe impl std::alloc::GlobalAlloc for RgPoolAlloc {" true)
+        header.out("    unsafe fn alloc(&self, layout: std::alloc::Layout) -> *mut u8 {" true)
+        header.out("        let size = layout.size();" true)
+        header.out("        if size > 0 && size <= 1024 && layout.align() <= 16 {" true)
+        header.out("            let class = (size + 31) >> 5;" true)
+        header.out("            let took = RG_POOL_HEADS.try_with(|h| {" true)
+        header.out("                let heads = unsafe { &mut *h.get() };" true)
+        header.out("                let head = heads[class];" true)
+        header.out("                if head != 0 {" true)
+        header.out("                    heads[class] = unsafe { *(head as *mut usize) };" true)
+        header.out("                    return head as *mut u8;" true)
+        header.out("                }" true)
+        header.out("                std::ptr::null_mut()" true)
+        header.out("            });" true)
+        header.out("            if let Ok(p) = took {" true)
+        header.out("                if !p.is_null() {" true)
+        header.out("                    return p;" true)
+        header.out("                }" true)
+        header.out("            }" true)
+        header.out("            let l = unsafe { std::alloc::Layout::from_size_align_unchecked(class << 5, 16) };" true)
+        header.out("            return unsafe { std::alloc::System.alloc(l) };" true)
+        header.out("        }" true)
+        header.out("        unsafe { std::alloc::System.alloc(layout) }" true)
+        header.out("    }" true)
+        header.out("    unsafe fn dealloc(&self, ptr: *mut u8, layout: std::alloc::Layout) {" true)
+        header.out("        let size = layout.size();" true)
+        header.out("        if size > 0 && size <= 1024 && layout.align() <= 16 {" true)
+        header.out("            let class = (size + 31) >> 5;" true)
+        header.out("            let parked = RG_POOL_HEADS.try_with(|h| {" true)
+        header.out("                let heads = unsafe { &mut *h.get() };" true)
+        header.out("                unsafe { *(ptr as *mut usize) = heads[class] };" true)
+        header.out("                heads[class] = ptr as usize;" true)
+        header.out("            });" true)
+        header.out("            if parked.is_ok() {" true)
+        header.out("                return;" true)
+        header.out("            }" true)
+        header.out("            let l = unsafe { std::alloc::Layout::from_size_align_unchecked(class << 5, 16) };" true)
+        header.out("            unsafe { std::alloc::System.dealloc(ptr, l) };" true)
+        header.out("            return;" true)
+        header.out("        }" true)
+        header.out("        unsafe { std::alloc::System.dealloc(ptr, layout) }" true)
+        header.out("    }" true)
+        header.out("}" true)
+        header.out("#[global_allocator]" true)
+        header.out("static RG_POOL_ALLOC: RgPoolAlloc = RgPoolAlloc;" true)
+        header.out("" true)
+      }
+      header.out("// FxHash (rustc-hash style): these maps are keyed by short program" true)
+      header.out("// strings; SipHash's DoS resistance cost ~14% of all instructions in" true)
+      header.out("// map-heavy code. Swap back to std's default by deleting the alias." true)
+      header.out("#[derive(Default, Clone)]" true)
+      header.out("struct FxHasher { hash: u64 }" true)
+      header.out("impl std::hash::Hasher for FxHasher {" true)
+      header.out("    #[inline]" true)
+      header.out("    fn write(&mut self, bytes: &[u8]) {" true)
+      header.out("        const SEED: u64 = 0x517cc1b727220a95;" true)
+      header.out("        let mut b = bytes;" true)
+      header.out("        while b.len() >= 8 {" true)
+      header.out("            let v = u64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]);" true)
+      header.out("            self.hash = (self.hash.rotate_left(5) ^ v).wrapping_mul(SEED);" true)
+      header.out("            b = &b[8..];" true)
+      header.out("        }" true)
+      header.out("        for &x in b {" true)
+      header.out("            self.hash = (self.hash.rotate_left(5) ^ (x as u64)).wrapping_mul(SEED);" true)
+      header.out("        }" true)
+      header.out("    }" true)
+      header.out("    #[inline]" true)
+      header.out("    fn finish(&self) -> u64 { self.hash }" true)
+      header.out("}" true)
+      header.out("// Insertion-ordered map (mirrors the C++ rg_ordered_map): entries in a" true)
+      header.out("// vector plus an open-addressed FxHash index. Lookups hash once; keys()" true)
+      header.out("// iterates in INSERTION order, which is what JS key enumeration needs." true)
+      header.out("// Aliased over the HashMap name so declarations stay untouched." true)
+      header.out("#[derive(Clone)]" true)
+      header.out("struct RgOrderedMap<K, V> {" true)
+      header.out("    entries: Vec<(K, V)>," true)
+      header.out("    index: Vec<i32>," true)
+      header.out("}" true)
+      header.out("impl<K, V> Default for RgOrderedMap<K, V> {" true)
+      header.out("    fn default() -> Self { RgOrderedMap { entries: Vec::new(), index: Vec::new() } }" true)
+      header.out("}" true)
+      ; `for (k, v) in map` is how the hash form of the for loop is written,
+      ; and it needs the map to be iterable. Insertion order is the order the
+      ; entries are held in, which is the order every other target walks a
+      ; Ranger hash in.
+      header.out("impl<K, V> IntoIterator for RgOrderedMap<K, V> {" true)
+      header.out("    type Item = (K, V);" true)
+      header.out("    type IntoIter = std::vec::IntoIter<(K, V)>;" true)
+      header.out("    fn into_iter(self) -> Self::IntoIter { self.entries.into_iter() }" true)
+      header.out("}" true)
+      header.out("impl<'a, K, V> IntoIterator for &'a RgOrderedMap<K, V> {" true)
+      header.out("    type Item = &'a (K, V);" true)
+      header.out("    type IntoIter = std::slice::Iter<'a, (K, V)>;" true)
+      header.out("    fn into_iter(self) -> Self::IntoIter { self.entries.iter() }" true)
+      header.out("}" true)
+      header.out("impl<K: std::hash::Hash + Eq, V> RgOrderedMap<K, V> {" true)
+      header.out("    fn rg_hash<Q: std::hash::Hash + ?Sized>(k: &Q) -> u64 {" true)
+      header.out("        let mut h = FxHasher::default();" true)
+      header.out("        k.hash(&mut h);" true)
+      header.out("        std::hash::Hasher::finish(&h)" true)
+      header.out("    }" true)
+      header.out("    fn slot<Q>(&self, k: &Q) -> i32 where K: std::borrow::Borrow<Q>, Q: std::hash::Hash + Eq + ?Sized {" true)
+      header.out("        if self.index.is_empty() { return -1; }" true)
+      header.out("        let mask = self.index.len() - 1;" true)
+      header.out("        let mut h = (Self::rg_hash(k) as usize) & mask;" true)
+      header.out("        loop {" true)
+      header.out("            let s = self.index[h];" true)
+      header.out("            if s == -1 { return -1; }" true)
+      header.out("            if self.entries[s as usize].0.borrow() == k { return s; }" true)
+      header.out("            h = (h + 1) & mask;" true)
+      header.out("        }" true)
+      header.out("    }" true)
+      header.out("    fn rehash(&mut self) {" true)
+      header.out("        let mut cap = 8usize;" true)
+      header.out("        while cap < (self.entries.len() + 1) * 2 { cap <<= 1; }" true)
+      header.out("        self.index.clear();" true)
+      header.out("        self.index.resize(cap, -1);" true)
+      header.out("        for i in 0..self.entries.len() {" true)
+      header.out("            let mut h = (Self::rg_hash(&self.entries[i].0) as usize) & (cap - 1);" true)
+      header.out("            while self.index[h] != -1 { h = (h + 1) & (cap - 1); }" true)
+      header.out("            self.index[h] = i as i32;" true)
+      header.out("        }" true)
+      header.out("    }" true)
+      header.out("    fn insert(&mut self, k: K, v: V) -> Option<V> {" true)
+      header.out("        let s = self.slot(&k);" true)
+      header.out("        if s != -1 { return Some(std::mem::replace(&mut self.entries[s as usize].1, v)); }" true)
+      header.out("        self.entries.push((k, v));" true)
+      header.out("        if self.index.is_empty() || (self.entries.len() + 1) * 2 > self.index.len() {" true)
+      header.out("            self.rehash();" true)
+      header.out("        } else {" true)
+      header.out("            let mask = self.index.len() - 1;" true)
+      header.out("            let mut h = (Self::rg_hash(&self.entries[self.entries.len() - 1].0) as usize) & mask;" true)
+      header.out("            while self.index[h] != -1 { h = (h + 1) & mask; }" true)
+      header.out("            self.index[h] = (self.entries.len() - 1) as i32;" true)
+      header.out("        }" true)
+      header.out("        None" true)
+      header.out("    }" true)
+      header.out("    fn get<Q>(&self, k: &Q) -> Option<&V> where K: std::borrow::Borrow<Q>, Q: std::hash::Hash + Eq + ?Sized {" true)
+      header.out("        let s = self.slot(k);" true)
+      header.out("        if s == -1 { None } else { Some(&self.entries[s as usize].1) }" true)
+      header.out("    }" true)
+      header.out("    fn contains_key<Q>(&self, k: &Q) -> bool where K: std::borrow::Borrow<Q>, Q: std::hash::Hash + Eq + ?Sized {" true)
+      header.out("        self.slot(k) != -1" true)
+      header.out("    }" true)
+      header.out("    fn keys(&self) -> impl Iterator<Item = &K> { self.entries.iter().map(|e| &e.0) }" true)
+      header.out("    fn len(&self) -> usize { self.entries.len() }" true)
+      header.out("    fn clear(&mut self) {" true)
+      header.out("        self.entries.clear();" true)
+      header.out("        for s in self.index.iter_mut() { *s = -1; }" true)
+      header.out("    }" true)
+      header.out("}" true)
+      header.out("type HashMap<K, V> = RgOrderedMap<K, V>;" true)
+      ; Every other string operator on this target counts CHARACTERS:
+      ; `strlen` is chars().count(), `charAt` is chars().nth(), `substring`
+      ; skips and takes characters. `str::find` counts BYTES, so an
+      ; `indexOf` handed straight to `charAt` pointed past the character it
+      ; found the moment anything non-ASCII stood before it. An OOXML parser
+      ; reading a slide with "Hameenlinna" spelled with an umlaut in it
+      ; sliced the rest of the document one byte short per accent and
+      ; dropped every shape after the first. These three do the conversion
+      ; once, in one place.
+      header.out("fn rg_index_of(s: &str, key: &str) -> i64 {" true)
+      header.out("    match s.find(key) { Some(b) => s[..b].chars().count() as i64, None => -1 }" true)
+      header.out("}" true)
+      header.out("fn rg_index_of_from(s: &str, key: &str, start: i64) -> i64 {" true)
+      header.out("    if start <= 0 { return rg_index_of(s, key); }" true)
+      header.out("    let b0 = match s.char_indices().nth(start as usize) { Some((b, _)) => b, None => return -1 };" true)
+      header.out("    match s[b0..].find(key) { Some(b) => start + s[b0..b0 + b].chars().count() as i64, None => -1 }" true)
+      header.out("}" true)
+      header.out("fn rg_last_index_of(s: &str, key: &str) -> i64 {" true)
+      header.out("    match s.rfind(key) { Some(b) => s[..b].chars().count() as i64, None => -1 }" true)
+      header.out("}" true)
+      header.out("" true)
+      ; receiver-mutability pre-pass: every plain class method's
+      ; &self / &mut self verdict lands on its desc BEFORE any emission,
+      ; so call sites in earlier-emitted classes borrow the receiver's
+      ; cell in the matching mode. Trait-related classes keep the
+      ; conservative default (&mut) — their emission special-cases.
+      ;
+      ; It runs to a FIXPOINT. A method that calls a mutating method on a
+      ; field mutates through this struct too, and the answer for the
+      ; field's class is not settled when the class holding the field is
+      ; read — so the first pass answers the old question, and every
+      ; further pass may only turn a `&self` into a `&mut self`. That is
+      ; monotone, so it converges; the round cap is a backstop, not a plan.
+      def mutPass:int 0
+      def mutChanged:boolean true
+      while ((mutPass < 12) && mutChanged) {
+        mutChanged = false
+        rust_field_call_mut_ready = (mutPass > 0)
+        ; the family answer is cached on the trait root, and this pass is
+        ; about to ask it again with more known
+        if (mutPass > 0) {
+          for hdrRoot.definedClasses rcl:RangerAppClassDesc rci {
+            rcl.rust_trait_mut_ready = false
+          }
+        }
+      for hdrRoot.definedClasses mcl:RangerAppClassDesc mci {
+        def mclSpecial:boolean (((((mcl.is_system || mcl.is_trait) || mcl.is_template) || mcl.is_operator_class) || mcl.is_generic_instance) || mcl.is_union)
+        ; a trait-related class keeps &mut self on every method of the trait
+        ; interface whatever its body does, so its verdict is that — but the
+        ; verdict still has to be RECORDED, or a call site reads the
+        ; conservative default and borrows mutably where the signature says
+        ; &self, which is a run-time panic rather than a compile error
+        def mclTraitRel:boolean (mcl.is_extended_by_children || ((array_length mcl.extends_classes) > 0))
+        if (mclSpecial == false) {
+          def mDirect:[string:boolean]
+          def mGraph:[string:MethodCallList]
+          this.buildClassMutationGraph(mcl ctx mDirect mGraph)
+          this.buildInheritedMutationGraph(mcl ctx mDirect mGraph)
+          this.markTraitIfaceMutations(mcl ctx mDirect)
+          for mcl.methods mm:RangerAppFunctionDesc mmi {
+            def mmB@(optional):CodeNode mm.fnBody
+            if (!null? mmB) {
+              def mmCtxO@(optional):RangerAppWriterContext mm.fnCtx
+              def mmCtx:RangerAppWriterContext ctx
+              if (!null? mmCtxO) {
+                mmCtx = (unwrap mmCtxO)
+              }
+              ; the SAME question the emission asks, so a call site and the
+              ; signature it calls agree on the borrow — they used to differ
+              ; whenever the receiver decision was not the strict one, and a
+              ; borrow_mut() where the callee takes &self is a run-time panic
+              def mmMut:boolean false
+              if (this.rustMethodNeedsReceiver(mm (unwrap mmB) mmCtx ctx)) {
+                ; a trait-interface method reads the family's answer, which
+                ; markTraitIfaceMutations has already put into mDirect
+                mmMut = (this.methodMutatesThis(mm.name mDirect mGraph))
+                ; …and the verdict only ever rises, which is what makes the
+                ; rounds terminate
+                if (mutPass > 0) {
+                  if mm.rust_mut_self {
+                    mmMut = true
+                  }
+                }
+              }
+              if (mmMut != mm.rust_mut_self) {
+                mutChanged = true
+              }
+              mm.rust_mut_self = mmMut
+            }
+          }
+          ; …and onto the variants, which is the set the emission writes from.
+          ; The variant's answer WINS: it is the descriptor the signature is
+          ; written from, and the two sets can disagree about whether the
+          ; method carries the hidden handle.
+          for mcl.defined_variants mvName:string mvi {
+            def mVs2:RangerAppMethodVariants (get mcl.method_variants mvName)
+            for mVs2.variants mv:RangerAppFunctionDesc mvj {
+              def mvB@(optional):CodeNode mv.fnBody
+              if (!null? mvB) {
+                def mvCtxO@(optional):RangerAppWriterContext mv.fnCtx
+                def mvCtx:RangerAppWriterContext ctx
+                if (!null? mvCtxO) {
+                  mvCtx = (unwrap mvCtxO)
+                }
+                def mvMut:boolean false
+                if (this.rustMethodNeedsReceiver(mv (unwrap mvB) mvCtx ctx)) {
+                  mvMut = (this.methodMutatesThis(mv.name mDirect mGraph))
+                  if (mutPass > 0) {
+                    if mv.rust_mut_self {
+                      mvMut = true
+                    }
+                  }
+                }
+                if (mvMut != mv.rust_mut_self) {
+                  mutChanged = true
+                }
+                mv.rust_mut_self = mvMut
+                def mvOther@(optional):RangerAppFunctionDesc (mcl.findMethod(mv.name))
+                if (!null? mvOther) {
+                  def mvOtherD:RangerAppFunctionDesc (unwrap mvOther)
+                  mvOtherD.rust_mut_self = mvMut
+                }
+              }
+            }
+          }
+        }
+        ; rust_can_be_static tells a CALL site to write `Class::m(…)` rather
+        ; than `self.m(…)`, and it was only set while the class was being
+        ; written — so any call site emitted before that class reached the
+        ; writer said `self.m(…)` for a method emitted without a receiver.
+        ; It is a property of the body alone, so it is settled here for
+        ; every class, ahead of the first call site.
+        ; A trait method and the inherent method each impl forwards to share
+        ; one signature. The forwarding is written from the PARENT's variant,
+        ; so a parent that takes the hidden __self_rc while the child's own
+        ; variant does not passes an argument too many. These are the
+        ; descriptors the writer emits from -- cl.methods holds different
+        ; ones, which is why aligning through those changed nothing.
+        for mcl.extends_classes mclParent:string mclPi {
+          if (ctx.isDefinedClass(mclParent)) {
+            def mclPC:RangerAppClassDesc (ctx.findClass(mclParent))
+            if mclPC.is_extended_by_children {
+              for mclPC.defined_variants pvName:string pvi {
+                if (has mcl.method_variants pvName) {
+                  def pMVs:RangerAppMethodVariants (get mclPC.method_variants pvName)
+                  def cMVs:RangerAppMethodVariants (get mcl.method_variants pvName)
+                  ; …and the other way too: a CHILD that takes the hidden
+                  ; argument is forwarded to from a signature the parent's
+                  ; variant shaped, so a parent that does not take one leaves
+                  ; the call an argument short. Both directions run over
+                  ; every class twice, so a parent lit by a later child still
+                  ; reaches the children settled before it.
+                  for pMVs.variants pV:RangerAppFunctionDesc pvj {
+                    for cMVs.variants cV:RangerAppFunctionDesc cvj {
+                      if (pV.rust_needs_self_rc || cV.rust_needs_self_rc) {
+                        pV.rust_needs_self_rc = true
+                        cV.rust_needs_self_rc = true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+        for mcl.methods scm:RangerAppFunctionDesc scmi {
+          def scmB@(optional):CodeNode scm.fnBody
+          if (!null? scmB) {
+            def scmCtxO@(optional):RangerAppWriterContext scm.fnCtx
+            def scmCtx:RangerAppWriterContext ctx
+            if (!null? scmCtxO) {
+              scmCtx = (unwrap scmCtxO)
+            }
+            scm.rust_can_be_static = ((this.fnBodyUsesThis((unwrap scmB) scmCtx)) == false)
+          }
+        }
+      }
+        mutPass = (mutPass + 1)
+      }
+      ; every class has an answer now, so the emission may ask the same
+      ; question of a call through a field as the pre-pass did
+      rust_field_call_mut_ready = true
+      ; A second sweep, so the flag a late child raised on its parent reaches
+      ; the siblings whose turn had already passed.
+      for hdrRoot.definedClasses aCl:RangerAppClassDesc aCi {
+        this.alignTraitSelfRcNeeds(aCl ctx)
+      }
+      fileHeaderWritten = true
+    }
+    
+    ; the class's own fields plus everything it inherits: Rust copies no
+    ; layout down, so this is what the struct, the literal and the Clone
+    ; question all work from
+    def allStructVars:[RangerAppParamDesc] (this.rustAllStructVars(cl ctx))
+
+    ; Check if class has trait object fields (cannot derive Clone) — its own
+    ; and the ones it holds INLINE, however deep
+    def hasTraitObjectField:boolean (this.rustClassBlocksClone(cl ctx 0))
+    
+    if hasTraitObjectField {
+      ; Don't derive Clone for structs with trait object fields
+      wr.out("// Cannot derive Clone due to trait object fields" true)
+    } {
+      ; a case carried inside the tag compares by content, so it derives the
+      ; comparison the generated RgIdentical arm uses
+      if (this.rustUnionValueCase(cl ctx)) {
+        wr.out("#[derive(Clone, PartialEq)]" true)
+      } {
+        wr.out("#[derive(Clone)]" true)
+      }
+    }
+    wr.out((("struct " + cl.name) + " { ") true)
+    wr.indent(1)
+    for allStructVars pvar:RangerAppParamDesc i {
+      def pnode:CodeNode (unwrap pvar.node)
+      this.writeStructField(pnode ctx wr)
+    }
+    wr.indent(-1)
+    wr.out("}" true)
+    wr.out((("impl " + cl.name) + " { ") true)
+    wr.indent(1)
+    thisName = "me"
+    wr.out("" true)
+    wr.out("pub fn new(" false)
+    if cl.has_constructor {
+      def constr@(optional):RangerAppFunctionDesc cl.constructor_fn
+      if (!null? constr) {
+        def c:RangerAppFunctionDesc (unwrap constr)
+        ; The keyword marker of a record constructor has a name and no type;
+        ; only a language with keyword arguments writes it, and Rust has none.
+        def written 0
+        for c.params arg:RangerAppParamDesc i {
+          if (arg.nameNode.hasFlag("keyword")) {
+            continue
+          }
+          if (written > 0) {
+            wr.out(", " false)
+          }
+          written = written + 1
+          wr.out((arg.name + " : ") false)
+          def nameN:CodeNode (unwrap arg.nameNode)
+          ; A parameter of a shared class carries the Rc, exactly as an
+          ; ordinary method parameter does. Without this the constructor of
+          ; `record Box { def held:Node }` took a bare `Node` while every call
+          ; site had an `Rc<RefCell<Node>>` and the field wanted one too — two
+          ; E0308s that no `record` with a class-typed field could avoid.
+          def ctorArgShared:boolean false
+          if arg.rust_needs_rc_wrap {
+            if (nameN.hasFlag("weak") == false) {
+              if (((strlen nameN.array_type) == 0) && ((strlen nameN.key_type) == 0)) {
+                ctorArgShared = true
+              }
+            }
+          }
+          if ctorArgShared {
+            wr.out((this.rustSharedTypeString(nameN.type_name ctx)) false)
+          } {
+            this.writeTypeDef(nameN ctx wr)
+          }
+        }
+      }
+    }
+    wr.out(((") ->  " + cl.name) + " {") true)
+    wr.indent(1)
+    wr.newline()
+    ; without a constructor body the struct literal IS the tail expression;
+    ; `let mut me = …; me` right after it is clippy's let_and_return
+    def ctor_needs_me:boolean false
+    if cl.has_constructor {
+      def cnm@(optional):RangerAppFunctionDesc cl.constructor_fn
+      if (!null? cnm) {
+        def cnmF:RangerAppFunctionDesc (unwrap cnm)
+        def cnmB@(optional):CodeNode cnmF.fnBody
+        if (!null? cnmB) {
+          def cnmBB:CodeNode (unwrap cnmB)
+          if ((array_length cnmBB.children) > 0) {
+            ctor_needs_me = true
+          }
+        }
+      }
+    }
+    if ctor_needs_me {
+      wr.out((("let mut me = " + cl.name) + " { ") true)
+    } {
+      wr.out((cl.name + " { ") true)
+    }
+    wr.indent(1)
+    ; the literal has to name every field the struct declares, inherited ones
+    ; included — Rust has no partial struct literal
+    for allStructVars pvar:RangerAppParamDesc i {
+      def nn@(optional):CodeNode pvar.node
+      if (!null? nn) {
+        def node:CodeNode (unwrap nn)
+        if ((array_length node.children) > 2) {
+          def valueNode:CodeNode (itemAt node.children 2)
+          wr.out(((this.adjustType(pvar.compiledName)) + ":") false)
+          if pvar.rust_interior_cell {
+            if (this.rustCellIsCopy(pvar)) {
+              wr.out("std::cell::Cell::new(" false)
+            } {
+              wr.out("RefCell::new(" false)
+            }
+          }
+          ; a strong field of a shared class holds the Rc: wrap the initializer
+          def init_rc_wrap:boolean false
+          def fldRcState:int 0
+          if pvar.rust_needs_rc_wrap {
+            def pvNN:CodeNode (unwrap pvar.nameNode)
+            if (pvNN.hasFlag("weak") == false) {
+              if (((strlen pvNN.array_type) == 0) && ((strlen pvNN.key_type) == 0)) {
+                if (pvar.is_optional == false) {
+                  init_rc_wrap = true
+                  ; a static call / element read of a shared class already
+                  ; yields the Rc — wrapping again double-wraps (E0308)
+                  fldRcState = (this.rustInitRcState(valueNode ctx))
+                  if (fldRcState != 0) {
+                    init_rc_wrap = false
+                  }
+                }
+              }
+            }
+          }
+          if init_rc_wrap {
+            wr.out("Rc::new(RefCell::new(" false)
+          }
+          ; PLAN_SHAPES S5: a union-typed field is a Rust enum, so an
+          ; initializer that is one MEMBER of the family is wrapped in its
+          ; variant — `load:Payload_None::new()` alone is E0308
+          def fldTypeName:string ""
+          def pvNameOpt@(optional):CodeNode pvar.nameNode
+          if (!null? pvNameOpt) {
+            def pvName:CodeNode (unwrap pvNameOpt)
+            fldTypeName = pvName.type_name
+          }
+          def wroteUnionInitFld:boolean false
+          if (init_rc_wrap == false) {
+            if (pvar.rust_static_str == false) {
+              ctx.setInExpr()
+              wroteUnionInitFld = (this.rustWriteUnionValue(fldTypeName valueNode ctx wr))
+              ctx.unsetInExpr()
+            }
+          }
+          if (wroteUnionInitFld == false) {
+            if pvar.rust_static_str {
+              ; a static-string field initializes from the bare literal
+              this.rustWriteStaticStrValue(valueNode ctx wr)
+            } {
+              ctx.setInExpr()
+              this.WalkNode(valueNode ctx wr)
+              ctx.unsetInExpr()
+            }
+          }
+          if init_rc_wrap {
+            wr.out("))" false)
+          }
+          if (fldRcState == 1) {
+            wr.out(".clone()" false)
+          }
+          if pvar.rust_interior_cell {
+            if (this.rustCellIsCopy(pvar)) {
+              wr.out(")" false)
+            } {
+              wr.out(".to_string())" false)
+            }
+          }
+          wr.out(", " true)
+        } {
+          ; Initialize array fields with Vec::new()
+          if (pvar.isArray()) {
+            if pvar.rust_interior_cell {
+              wr.out(((this.adjustType(pvar.compiledName)) + ": RefCell::new(Vec::new()), ") true)
+            } {
+              wr.out(((this.adjustType(pvar.compiledName)) + ": Vec::new(), ") true)
+            }
+          } {
+            ; A hash field is a HashMap, never an Option: without this branch
+            ; the constructor wrote `None` into a HashMap field and rustc
+            ; rejected the struct literal.
+            if (pvar.isHash()) {
+              if pvar.rust_interior_cell {
+                wr.out(((this.adjustType(pvar.compiledName)) + ": RefCell::new(HashMap::default()), ") true)
+              } {
+                wr.out(((this.adjustType(pvar.compiledName)) + ": HashMap::default(), ") true)
+              }
+            } {
+              ; Initialize optional fields with None
+              if pvar.is_optional {
+                if pvar.rust_interior_cell {
+                  wr.out(((this.adjustType(pvar.compiledName)) + ": RefCell::new(None), ") true)
+                } {
+                  wr.out(((this.adjustType(pvar.compiledName)) + ": None, ") true)
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    wr.indent(-1)
+    if ctor_needs_me {
+      wr.out("};" true)
+      wr.newline()
+      def constr@(optional):RangerAppFunctionDesc cl.constructor_fn
+      if (!null? constr) {
+        def c:RangerAppFunctionDesc (unwrap constr)
+        def subCtx@(optional):RangerAppWriterContext c.fnCtx
+        if (!null? subCtx) {
+          def sCtx:RangerAppWriterContext (unwrap subCtx)
+          sCtx.is_function = true
+          def fnB:CodeNode (unwrap c.fnBody)
+          this.WalkNode(fnB sCtx wr)
+        }
+      }
+      wr.out("me" true)
+    } {
+      wr.out("}" true)
+    }
+    wr.indent(-1)
+    wr.out("}" true)
+    if (cl.isSingletonClass()) {
+      this.writeSingletonAccessor(cl ctx wr)
+    }
+    thisName = "self"
+
+    ; Build call graph for mutation analysis (detects transitive mutations via method calls)
+    def directMutations:[string:boolean]
+    def callGraph:[string:MethodCallList]
+    this.buildClassMutationGraph(cl ctx directMutations callGraph)
+    this.buildInheritedMutationGraph(cl ctx directMutations callGraph)
+    this.markTraitIfaceMutations(cl ctx directMutations)
+    
+    for cl.static_methods variant:RangerAppFunctionDesc i {
+      def vnn:CodeNode (unwrap variant.nameNode)
+      if (vnn.hasFlag("main")) {
+        continue _
+      }
+      wr.out((("pub fn " + variant.name) + "(") false)
+      this.writeArgsDef(variant ctx wr)
+      this.writeRustFnClose(variant ctx wr)
+      wr.out(" {" true)
+      wr.indent(1)
+      wr.newline()
+      def subCtx@(optional):RangerAppWriterContext variant.fnCtx
+      if (!null? subCtx) {
+        def sCtx:RangerAppWriterContext (unwrap subCtx)
+        sCtx.is_function = true
+        def fnB:CodeNode (unwrap variant.fnBody)
+        rustFnReturnsUnion = (this.rustUnionReturnOf(variant ctx))
+        rustFnReturnNameNode = variant.nameNode
+        this.walkRustFnBody(fnB sCtx wr)
+        rustFnReturnsUnion = ""
+      }
+      wr.newline()
+      wr.indent(-1)
+      wr.out("}" true)
+    }
+    for cl.defined_variants fnVar:string i {
+      def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
+      for mVs.variants variant:RangerAppFunctionDesc i {
+        ; Check if this method uses 'this' - if not, emit as static (no self)
+        ; This avoids E0499 errors when calling with &mut self.field arguments
+        def fnB@(optional):CodeNode variant.fnBody
+        def method_uses_this:boolean true
+        def method_mutates_this:boolean true  ; Default to true for safety
+        if (!null? fnB) {
+          ; Use the function's context for proper member variable lookup
+          def fnCtx@(optional):RangerAppWriterContext variant.fnCtx
+          def useCtx:RangerAppWriterContext ctx
+          if (!null? fnCtx) {
+            useCtx = (unwrap fnCtx)
+          }
+          ; a method that only ever reaches itself THROUGH its handle needs no
+          ; receiver, and dropping it is what lets a self-aliasing handle —
+          ; `def root (this.getRoot())` where the root IS this object — be
+          ; written to at run time
+          method_uses_this = (this.rustMethodNeedsReceiver(variant (unwrap fnB) useCtx ctx))
+          ; Only check for mutation if the method uses this
+          if method_uses_this {
+            ; Use call graph for transitive mutation detection
+            method_mutates_this = (this.methodMutatesThis(variant.name directMutations callGraph))
+          }
+        }
+        ; Mark on the function descriptor so writeFnCall knows to use static call.
+        ; NOTE: some call sites honour this and write `Class::m(…)`, so the
+        ; definition cannot simply always take a receiver -- forcing that was
+        ; measured at 429 -> 869. The remaining `self.m(…)` mismatches are
+        ; call sites that do NOT ask; the repair belongs there.
+        variant.rust_can_be_static = (method_uses_this == false)
+        
+        wr.out((("fn " + (this.adjustType(variant.name))) + "(") false)
+        if method_uses_this {
+          ; For trait parent classes (is_extended_by_children), use &self for trait methods
+          ; because mutation happens through RefCell when called via the trait
+          ; Only apply to methods that are part of the trait interface
+          def method_is_in_trait:boolean false
+          if cl.is_extended_by_children {
+            ; This is a trait parent class - its own methods are the trait interface
+            method_is_in_trait = true
+          } {
+            ; Check if this class extends a trait parent and if this method is in the trait
+            for cl.extends_classes extParentName:string epi {
+              def extParentClass@(optional):RangerAppClassDesc (ctx.findClass(extParentName))
+              if (!null? extParentClass) {
+                def epc:RangerAppClassDesc (unwrap extParentClass)
+                if epc.is_extended_by_children {
+                  ; Check if this method is defined in the parent's trait
+                  ; interface. BOTH maps: the trait declaration is written
+                  ; from method_variants, so a name that is only there still
+                  ; gets a trait signature this inherent method must match.
+                  if (has epc.defined_methods variant.name) {
+                    method_is_in_trait = true
+                  }
+                  if (has epc.method_variants variant.name) {
+                    method_is_in_trait = true
+                  }
+                }
+              }
+            }
+          }
+          ; the verdict is recorded on both descriptor sets as it is written,
+          ; so a call site reads what the signature actually says
+          def emittedMut:boolean method_mutates_this
+          ; A method the TRAIT declares takes the family's answer, whatever
+          ; this one body does: the trait signature, the forwarding impl and
+          ; this inherent method are one signature in three places. The root
+          ; is asked directly — scanning extends_classes for the name went
+          ; through a different descriptor map than the trait declaration is
+          ; written from, so the two disagreed for exactly the methods only
+          ; one map had.
+          def emRootO@(optional):RangerAppClassDesc (this.rustTraitRootOf(cl ctx))
+          if (!null? emRootO) {
+            def emRoot:RangerAppClassDesc (unwrap emRootO)
+            def emInTrait:boolean (has emRoot.method_variants variant.name)
+            if (has emRoot.defined_methods variant.name) {
+              emInTrait = true
+            }
+            if emInTrait {
+              this.rustFillTraitMutations(emRoot ctx)
+              emittedMut = (has emRoot.rust_trait_mut variant.name)
+            }
+          } {
+            if method_is_in_trait {
+              emittedMut = true
+            }
+          }
+          variant.rust_mut_self = emittedMut
+          def emOther@(optional):RangerAppFunctionDesc (cl.findMethod(variant.name))
+          if (!null? emOther) {
+            def emOtherD:RangerAppFunctionDesc (unwrap emOther)
+            emOtherD.rust_mut_self = emittedMut
+          }
+          this.writeRustReceiver(emittedMut wr)
+        } {
+          variant.rust_mut_self = false
+          def emOther2@(optional):RangerAppFunctionDesc (cl.findMethod(variant.name))
+          if (!null? emOther2) {
+            def emOther2D:RangerAppFunctionDesc (unwrap emOther2)
+            emOther2D.rust_mut_self = false
+          }
+        }
+        this.writeArgsDef(variant ctx wr)
+        this.writeRustFnClose(variant ctx wr)
+        wr.out(" {" true)
+        wr.indent(1)
+        wr.newline()
+        def subCtx@(optional):RangerAppWriterContext variant.fnCtx
+        if (!null? subCtx) {
+          def sCtx:RangerAppWriterContext (unwrap subCtx)
+          sCtx.is_function = true
+          def fnBNode:CodeNode (unwrap variant.fnBody)
+          rustFnReturnsUnion = (this.rustUnionReturnOf(variant ctx))
+          rustFnReturnNameNode = variant.nameNode
+          rust_receiverless_method = (method_uses_this == false)
+          rust_emit_class_name = cl.name
+          ; every other spelling of a receiver goes through thisName, so it
+          ; becomes the borrow itself — one that lasts for the statement the
+          ; call is in and no longer
+          def savedThisName:string thisName
+          if rust_receiverless_method {
+            ; the SHARED form is the fallback: it nests with the borrows a
+            ; caller may hold, and getting it wrong is a compile error rather
+            ; than a panic. A call site that knows the callee mutates writes
+            ; the mutable form itself — see rustThisPrefix.
+            thisName = "__self_rc.borrow_mut()"
+          }
+          this.walkRustFnBody(fnBNode sCtx wr)
+          thisName = savedThisName
+          rust_receiverless_method = false
+          rust_emit_class_name = ""
+          rustFnReturnsUnion = ""
+        }
+        wr.newline()
+        wr.indent(-1)
+        wr.out("}" true)
+      }
+    }
+    wr.indent(-1)
+    wr.out("}" true)
+    
+    ; Generate inherited methods from parent classes
+    if ((array_length cl.extends_classes) > 0) {
+      for cl.extends_classes parentName:string pi {
+        def parentClass@(optional):RangerAppClassDesc (ctx.findClass(parentName))
+        if (!null? parentClass) {
+          def pc:RangerAppClassDesc (unwrap parentClass)
+          
+          ; Build call graph for parent class (for mutation analysis)
+          def parentDirectMutations:[string:boolean]
+          def parentCallGraph:[string:MethodCallList]
+          this.buildClassMutationGraph(pc ctx parentDirectMutations parentCallGraph)
+          this.buildInheritedMutationGraph(pc ctx parentDirectMutations parentCallGraph)
+          this.markTraitIfaceMutations(pc ctx parentDirectMutations)
+          
+          wr.out(("impl " + cl.name + " {") true)
+          wr.indent(1)
+          wr.out(("// Inherited methods from parent class " + parentName) true)
+          ; Iterate through parent's methods
+          for pc.defined_variants fnVar:string i {
+            def mVs:RangerAppMethodVariants (get pc.method_variants fnVar)
+            for mVs.variants variant:RangerAppFunctionDesc i {
+              ; Skip if child has this method (child overrides it)
+              if (has cl.defined_methods variant.name) {
+                continue
+              }
+              ; Generate the inherited method
+              def fnB@(optional):CodeNode variant.fnBody
+              def method_uses_this:boolean true
+              def method_mutates_this:boolean true  ; Default to true for safety
+              if (!null? fnB) {
+                def fnCtx@(optional):RangerAppWriterContext variant.fnCtx
+                def useCtx:RangerAppWriterContext ctx
+                if (!null? fnCtx) {
+                  useCtx = (unwrap fnCtx)
+                }
+                method_uses_this = (this.rustMethodNeedsReceiver(variant (unwrap fnB) useCtx ctx))
+                rust_emit_class_name = cl.name
+                ; Only check for mutation if the method uses this
+                if method_uses_this {
+                  ; Use call graph for transitive mutation detection
+                  method_mutates_this = (this.methodMutatesThis(variant.name parentDirectMutations parentCallGraph))
+                }
+              }
+              variant.rust_can_be_static = (method_uses_this == false)
+              
+              wr.out((("fn " + (this.adjustType(variant.name))) + "(") false)
+              if method_uses_this {
+                ; A trait parent used to force `&mut self` here whatever the
+                ; body does. The family answer is on the descriptor now, and
+                ; the trait declaration reads the same one, so an inherited
+                ; copy and the impl that forwards to it agree.
+                if pc.is_extended_by_children {
+                  ; ask the ROOT, not the descriptor: this inherited copy can
+                  ; be written before the parent's own emission has settled
+                  ; its descriptors, and the trait declaration this copy has
+                  ; to match is written from the root
+                  this.rustFillTraitMutations(pc ctx)
+                  this.writeRustReceiver((has pc.rust_trait_mut variant.name) wr)
+                } {
+                  if method_mutates_this {
+                    this.writeRustReceiver(true wr)
+                  } {
+                    this.writeRustReceiver(false wr)
+                  }
+                }
+              }
+              this.writeArgsDef(variant ctx wr)
+              this.writeRustFnClose(variant ctx wr)
+              wr.out(" {" true)
+              wr.indent(1)
+              wr.newline()
+              def subCtx@(optional):RangerAppWriterContext variant.fnCtx
+              if (!null? subCtx) {
+                def sCtx:RangerAppWriterContext (unwrap subCtx)
+                sCtx.is_function = true
+                def fnBNode:CodeNode (unwrap variant.fnBody)
+                rustFnReturnsUnion = (this.rustUnionReturnOf(variant ctx))
+                ; the same declaration the inherent copy walks with. Without
+                ; it `return (new ToolItem)` from a `:ToolItem` method came
+                ; out as the bare struct where the handle was declared —
+                ; the copy compiled and the inherited one did not.
+                rustFnReturnNameNode = variant.nameNode
+                rust_receiverless_method = (method_uses_this == false)
+                rust_emit_class_name = cl.name
+                def savedInhThisName:string thisName
+                if rust_receiverless_method {
+                  thisName = "__self_rc.borrow_mut()"
+                }
+                this.walkRustFnBody(fnBNode sCtx wr)
+                thisName = savedInhThisName
+                rust_receiverless_method = false
+                rust_emit_class_name = ""
+                rustFnReturnsUnion = ""
+              }
+              wr.newline()
+              wr.indent(-1)
+              wr.out("}" true)
+            }
+          }
+          wr.indent(-1)
+          wr.out("}" true)
+        }
+      }
+    }
+    
+    ; every class that takes part in a trait family carries the Any handle the
+    ; downcast helper checks — the trait requires it, so this has to be there
+    ; for the parent and for every subclass, and exactly once for each
+    def rgAnyNeeded:boolean cl.is_extended_by_children
+    if (rgAnyNeeded == false) {
+      for cl.extends_classes rgAnyP:string rgAnyPi {
+        if (ctx.isDefinedClass(rgAnyP)) {
+          def rgAnyPC:RangerAppClassDesc (ctx.findClass(rgAnyP))
+          if rgAnyPC.is_extended_by_children {
+            rgAnyNeeded = true
+          }
+        }
+      }
+    }
+    if rgAnyNeeded {
+      wr.out("" true)
+      wr.out((("impl RgAnyRef for " + cl.name) + " { fn rg_as_any(&self) -> &dyn std::any::Any { self } }") true)
+    }
+
+    ; Generate trait if this class is extended by other classes (for Rust polymorphism)
+    if cl.is_extended_by_children {
+      wr.out("" true)
+      wr.out(("pub trait " + cl.name + "Trait: RgAnyRef {") true)
+      wr.indent(1)
+      this.writeTraitFieldAccessorDecls(cl ctx wr)
+      ; Add method signatures only (no default implementations)
+      ; Traits use &mut self to allow mutation through the trait interface
+      ; This is necessary because Ranger methods can always mutate state
+      for cl.defined_variants fnVar:string i {
+        def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
+        for mVs.variants variant:RangerAppFunctionDesc i {
+          ; The receiver follows the FAMILY's answer: `&mut self` only where
+          ; some implementation of this method mutates its own object. It used
+          ; to be `&mut self` unconditionally, which meant every call through
+          ; a trait handle took the cell for the whole call — and the writers
+          ; call back into each other, so that was a panic rather than a
+          ; borrow. The parameter list comes from writeArgsDef, the same code
+          ; the inherent method uses: a bare writeTypeDef here gave the trait
+          ; `changer : CodeNode` where the method it forwards to takes
+          ; `Rc<RefCell<CodeNode>>`, and every forwarding body was an E0308.
+          wr.out(("fn " + (this.adjustType(variant.name)) + "(") false)
+          this.rustFillTraitMutations(cl ctx)
+          this.writeRustReceiver((has cl.rust_trait_mut variant.name) wr)
+          rust_in_trait_decl = true
+          this.writeArgsDef(variant ctx wr)
+          rust_in_trait_decl = false
+          this.writeRustFnClose(variant ctx wr)
+          wr.out(";" true)
+        }
+      }
+      wr.indent(-1)
+      wr.out("}" true)
+      
+      ; Implement the trait for this class itself
+      wr.out(("impl " + cl.name + "Trait for " + cl.name + " {") true)
+      wr.indent(1)
+      this.writeTraitFieldAccessorImpls(cl ctx wr)
+      for cl.defined_variants fnVar:string i {
+        def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
+        for mVs.variants variant:RangerAppFunctionDesc i {
+          ; …and the impl matches the declaration
+          wr.out(("fn " + (this.adjustType(variant.name)) + "(") false)
+          this.writeRustReceiver((has cl.rust_trait_mut variant.name) wr)
+          this.writeArgsDef(variant ctx wr)
+          this.writeRustFnClose(variant ctx wr)
+          wr.out(" {" true)
+          wr.indent(1)
+          ; Check if method is static - if so, don't pass self
+          if variant.rust_can_be_static {
+            wr.out(((cl.name + "::" + (this.adjustType(variant.name))) + "(") false)
+            this.writeTraitForwardArgs(variant ctx wr false)
+          } {
+            wr.out(((cl.name + "::" + (this.adjustType(variant.name))) + "(self") false)
+            this.writeTraitForwardArgs(variant ctx wr true)
+          }
+          wr.out(")" true)
+          wr.indent(-1)
+          wr.out("}" true)
+        }
+      }
+      wr.indent(-1)
+      wr.out("}" true)
+    }
+    
+    ; If this class extends a parent class, implement the parent's trait
+    if ((array_length cl.extends_classes) > 0) {
+      for cl.extends_classes parentName:string pi {
+        def parentClass@(optional):RangerAppClassDesc (ctx.findClass(parentName))
+        if (!null? parentClass) {
+          def pc:RangerAppClassDesc (unwrap parentClass)
+          if pc.is_extended_by_children {
+            wr.out(("impl " + parentName + "Trait for " + cl.name + " {") true)
+            wr.indent(1)
+            ; the parent's fields, served out of this subclass's own layout
+            this.writeTraitFieldAccessorImpls(pc ctx wr)
+            ; Implement ALL parent trait methods
+            for pc.defined_variants fnVar:string i {
+              def mVs:RangerAppMethodVariants (get pc.method_variants fnVar)
+              for mVs.variants variant:RangerAppFunctionDesc i {
+                ; …and so does a subclass implementing the parent's trait
+                wr.out(("fn " + (this.adjustType(variant.name)) + "(") false)
+                this.rustFillTraitMutations(pc ctx)
+                this.writeRustReceiver((has pc.rust_trait_mut variant.name) wr)
+                this.writeArgsDef(variant ctx wr)
+                this.writeRustFnClose(variant ctx wr)
+                wr.out(" {" true)
+                wr.indent(1)
+                ; Determine if we should use the child's version or inherited version
+                ; and whether the method is static
+                def isStatic:boolean variant.rust_can_be_static
+                ; NOTE: the call goes to the CHILD's inherent method, but the
+                ; forwarding uses the PARENT's descriptor for the argument
+                ; list -- the impl's own signature came from the parent too,
+                ; and __self_rc is only in scope when the parent declared it.
+                ; Switching to the child's descriptor at this one site costs
+                ; more than it saves (159 -> 165); the two are made to agree
+                ; in the analysis instead, by alignTraitSelfRcNeeds.
+                if (has cl.defined_methods variant.name) {
+                  ; Child overrides - check child's method for static status
+                  if (has cl.method_variants variant.name) {
+                    def cmvs:RangerAppMethodVariants (get cl.method_variants variant.name)
+                    if ((array_length cmvs.variants) > 0) {
+                      def childVariant:RangerAppFunctionDesc (at cmvs.variants 0)
+                      isStatic = childVariant.rust_can_be_static
+                    }
+                  }
+                }
+                ; Generate the call
+                if isStatic {
+                  wr.out(((cl.name + "::" + (this.adjustType(variant.name))) + "(") false)
+                  this.writeTraitForwardArgs(variant ctx wr false)
+                } {
+                  wr.out(((cl.name + "::" + (this.adjustType(variant.name))) + "(self") false)
+                  this.writeTraitForwardArgs(variant ctx wr true)
+                }
+                wr.out(")" true)
+                wr.indent(-1)
+                wr.out("}" true)
+              }
+            }
+            wr.indent(-1)
+            wr.out("}" true)
+          }
+        }
+      }
+    }
+    
+    for cl.static_methods variant:RangerAppFunctionDesc i {
+      def nn:CodeNode (unwrap variant.nameNode)
+      if ((nn.hasFlag("main")) && (nn.code.filename == (ctx.getRootFile()))) {
+        ; A Ranger `main:int` body ends in `return <code>`, but Rust's `fn main`
+        ; returns (), so the body was emitted verbatim into a signature that
+        ; could not accept it:
+        ;   error[E0308]: expected `()`, found integer
+        ; Run the body as a closure and hand its value to process::exit -- that
+        ; is precisely what `return 0` from a C/C++ main means, so the exit code
+        ; now survives to the shell instead of failing to compile.
+        ; A `main:void` needs none of this and is emitted as before.
+        def mainReturns:boolean (((strlen nn.type_name) > 0) && (nn.type_name != "void"))
+        ; The body runs on a thread with a large stack. Rust gives the main
+        ; thread 8MB, and a recursive-descent walk over a real program — which
+        ; is what this language is for — overflows it, with `fatal runtime
+        ; error: stack overflow` and no diagnostic. A spawned thread's stack
+        ; size is ours to choose, so the entry point becomes a shim.
+        wr.out("fn main() {" true)
+        wr.indent(1)
+        wr.out("let __rg_main_thread = std::thread::Builder::new().stack_size(512 * 1024 * 1024)" true)
+        wr.out("  .spawn(__rg_main_body).expect(\"could not start the main thread\");" true)
+        wr.out("__rg_main_thread.join().expect(\"main thread panicked\");" true)
+        wr.indent(-1)
+        wr.out("}" true)
+        wr.out("fn __rg_main_body() {" true)
+        wr.indent(1)
+        wr.newline()
+        if mainReturns {
+          wr.out("let __rg_exit_code = (|| {" true)
+          wr.indent(1)
+          wr.newline()
+        }
+        def subCtx@(optional):RangerAppWriterContext variant.fnCtx
+        if (!null? subCtx) {
+          def sCtx:RangerAppWriterContext (unwrap subCtx)
+          sCtx.is_function = true
+          def fnB:CodeNode (unwrap variant.fnBody)
+          rustFnReturnsUnion = (this.rustUnionReturnOf(variant ctx))
+          this.walkRustFnBody(fnB sCtx wr)
+          rustFnReturnsUnion = ""
+        }
+        if mainReturns {
+          wr.newline()
+          wr.indent(-1)
+          wr.out("})();" true)
+          wr.out("std::process::exit(__rg_exit_code as i32);" true)
+        }
+        wr.newline()
+        wr.indent(-1)
+        wr.out("}" true)
+      }
+    }
+    ; A free `fn main` is attached to a class as an ordinary method and no
+    ; crate main was emitted, so the file failed with E0601: `main` function
+    ; not found. When the program declares no `sfn m@(main)`, the free main
+    ; becomes the crate entry.
+    if ((this.rustProgramHasMainFlag(ctx)) == false) {
+      if (has cl.defined_methods "main") {
+        def freeMVs:RangerAppMethodVariants (get cl.method_variants "main")
+        for freeMVs.variants variant:RangerAppFunctionDesc fmvi {
+          if ((array_length variant.params) == 0) {
+            def fmNN@(optional):CodeNode variant.nameNode
+            if (!null? fmNN) {
+              def fmN:CodeNode (unwrap fmNN)
+              if ((fmN.code.filename) == (ctx.getRootFile())) {
+                wr.out("fn main() {" true)
+                wr.indent(1)
+                if variant.rust_can_be_static {
+                  wr.out((cl.name + "::main();") true)
+                } {
+                  wr.out((("let mut __rg_main = " + cl.name) + "::new();") true)
+                  wr.out("__rg_main.main();" true)
+                }
+                wr.indent(-1)
+                wr.out("}" true)
+              }
+            }
+          }
+        }
+      }
+    }
+    ; Restore previous class context
+    if (!null? prevClass) {
+      ctx.setCurrentClass((unwrap prevClass))
+    }
+  }
+
+  fn rustProgramHasMainFlag:boolean (ctx:RangerAppWriterContext) {
+    def root:RangerAppWriterContext (ctx.getRoot())
+    for root.definedClasses rcl:RangerAppClassDesc rci {
+      for rcl.static_methods sm:RangerAppFunctionDesc smi {
+        def smNN@(optional):CodeNode sm.nameNode
+        if (!null? smNN) {
+          def smN:CodeNode (unwrap smNN)
+          if (smN.hasFlag("main")) {
+            return true
+          }
+        }
+      }
+    }
+    return false
+  }
+
+  fn rustClassBlocksClone:boolean (cl:RangerAppClassDesc ctx:RangerAppWriterContext depth:int) {
+    if (depth > 6) {
+      return false
+    }
+    def cbcVars:[RangerAppParamDesc] (this.rustAllStructVars(cl ctx))
+    for cbcVars pvar:RangerAppParamDesc i {
+      def nameN@(optional):CodeNode pvar.nameNode
+      if (!null? nameN) {
+        def nn:CodeNode (unwrap nameN)
+        ; a CLOSURE field is Box<dyn FnMut(…)>, which is no more Clone than
+        ; a trait object is
+        def clFldT:RangerNodeType nn.value_type
+        if (nn.eval_type != RangerNodeType.NoType) {
+          clFldT = nn.eval_type
+        }
+        if (clFldT == RangerNodeType.ExpressionType) {
+          return true
+        }
+        ; a map's value type lives in array_type as well, and a Vec or a
+        ; HashMap is Clone exactly when its element is
+        def cbcT:string nn.type_name
+        if ((strlen nn.array_type) > 0) {
+          cbcT = nn.array_type
+        }
+        if ((strlen cbcT) > 0) {
+          if (ctx.isDefinedClass(cbcT)) {
+            def tc:RangerAppClassDesc (ctx.findClass(cbcT))
+            if tc.is_extended_by_children {
+              return true
+            }
+            if ((this.rustClassIsShared(cbcT ctx)) == false) {
+              if (tc.name != cl.name) {
+                if (this.rustClassBlocksClone(tc ctx (depth + 1))) {
+                  return true
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    return false
+  }
+
+}
