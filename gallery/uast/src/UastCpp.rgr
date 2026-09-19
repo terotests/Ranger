@@ -12,6 +12,7 @@
 Import "UastFrontend.rgr"
 Import "UastSemantic.rgr"
 Import "UastKind.rgr"
+Import "JsDoc.rgr"
 Import "../../cpp_parser/cpp_parser.rgr"
 Import "../../../lib/ranger-dir.rgr"
 Import "UastDirOps.rgr"
@@ -934,7 +935,7 @@ class UastCpp {
         while (j < i) {
             def c:CppToken (itemAt tokens j)
             if ((c.tokenType == "LineComment") || (c.tokenType == "BlockComment")) {
-                push parts (this.commentLine(c.value))
+                push parts c.value
                 lastEnd = c.end
             }
             j = (j + 1)
@@ -945,7 +946,7 @@ class UastCpp {
         if (this.hasBlankLine(lastEnd start)) {
             return ""
         }
-        return (join parts "\n")
+        return (JsDoc.asComment((join parts "\n")))
     }
 
     fn hasBlankLine:boolean (fromPos:int toPos:int) {

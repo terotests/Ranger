@@ -1,0 +1,265 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; JsDocTest.rgr — JSDoc comment parser vs jsdoc-parse / doctrine shape.
+; ============================================================================
+;
+; jsdoc-parse (https://www.npmjs.com/package/jsdoc-parse) transforms JSDoc3
+; doclets. Its fixtures are comment strings plus the fields it keeps
+; (`description`, `classdesc`, `tags[].title`). These cases are those
+; comments, plus the doctrine README example and the Immer.produce block
+; that used to land raw in the CodeGraph hover card.
+;
+; Compile Ranger → ES6 and run:
+;
+;   npm run uast:jsdoc
+; ============================================================================
+
+Import "../src/JsDoc.rgr"
+
+class JsDocChecker {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        this.ok((name + " (got '" + got + "' want '" + want + "')") (got == want))
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        this.ok((name + " (got " + (to_string got) + " want " + (to_string want) + ")") (got == want))
+    }
+
+    fn report:int () {
+        print ""
+        print (("passed " + (to_string passed)) + ", failed " + (to_string failed))
+        if (failed > 0) {
+            return 1
+        }
+        return 0
+    }
+}
+
+class JsDocTest {
+    sfn main:void () {
+        def c (new JsDocChecker)
+        JsDocTest.testEmpty(c)
+        JsDocTest.testJsdocParseChainableClass(c)
+        JsDocTest.testJsdocParseChainableMethod(c)
+        JsDocTest.testDoctrineParam(c)
+        JsDocTest.testAddNumbers(c)
+        JsDocTest.testOptionalDefault(c)
+        JsDocTest.testImmerProduce(c)
+        JsDocTest.testLineComment(c)
+        JsDocTest.testTokenInterior(c)
+        JsDocTest.testAliases(c)
+        JsDocTest.testMultilineDescription(c)
+        JsDocTest.testExample(c)
+        JsDocTest.testCategory(c)
+        def code:int (c.report())
+        if (code != 0) {
+            exit 1
+        }
+    }
+
+    ; jsdoc-parse test/fixture/jsdoc-input.json — first doclet.
+    sfn testJsdocParseChainableClass:void (c:JsDocChecker) {
+        print "== jsdoc-parse Chainable @class / @classdesc"
+        def raw:string "/**\n@class\n@classdesc has a chainable method\n*/"
+        def doc:JsDoc (JsDoc.parse(raw))
+        c.eqStr("description empty" doc.description "")
+        c.ok("has @class" (doc.mentionsTag("class")))
+        c.ok("has @classdesc" (doc.mentionsTag("classdesc")))
+        def cd@(optional):JsDocTag (doc.tagNamed("classdesc"))
+        c.ok("classdesc present" (!null? cd))
+        if (!null? cd) {
+            def t:JsDocTag (unwrap cd)
+            c.eqStr("classdesc text" t.description "has a chainable method")
+        }
+        c.eqStr("overview falls back to classdesc" (doc.overviewText()) "has a chainable method")
+        c.eqStr("asComment is the overview" (JsDoc.asComment(raw)) "has a chainable method")
+    }
+
+    ; jsdoc-parse test/fixture/jsdoc-input.json — Chainable#method.
+    sfn testJsdocParseChainableMethod:void (c:JsDocChecker) {
+        print "== jsdoc-parse Chainable#method @chainable"
+        def raw:string "/**\n returns itself\n @chainable\n */"
+        def doc:JsDoc (JsDoc.parse(raw))
+        c.eqStr("description" doc.description "returns itself")
+        c.ok("has @chainable" (doc.mentionsTag("chainable")))
+        def ch@(optional):JsDocTag (doc.tagNamed("chainable"))
+        if (!null? ch) {
+            def t:JsDocTag (unwrap ch)
+            c.eqStr("chainable text empty" t.description "")
+        }
+        c.eqStr("overview is the description" (doc.overviewText()) "returns itself")
+        c.eqStr("flag tags stay out of asComment" (JsDoc.asComment(raw)) "returns itself")
+    }
+
+    ; doctrine README — nested object type, no param description.
+    sfn testDoctrineParam:void (c:JsDocChecker) {
+        print "== doctrine @param {{ok:String}} userName"
+        def raw:string "/**\n * This function comment is parsed by doctrine.\n * @param {{ok:String}} userName\n */"
+        def doc:JsDoc (JsDoc.parse(raw))
+        c.eqStr("description" doc.description "This function comment is parsed by doctrine.")
+        c.eqInt("one param" (doc.tagCount("param")) 1)
+        def p@(optional):JsDocTag (doc.tagNamed("param"))
+        c.ok("param present" (!null? p))
+        if (!null? p) {
+            def t:JsDocTag (unwrap p)
+            c.eqStr("param name" t.name "userName")
+            c.eqStr("param type" t.typeName "{ok:String}")
+            c.eqStr("param description empty" t.description "")
+        }
+    }
+
+    sfn testAddNumbers:void (c:JsDocChecker) {
+        print "== @param / @returns"
+        def raw:string "/**\n * Add two numbers.\n * @param {number} a left\n * @param {number} b right\n * @returns {number} the sum\n */"
+        def doc:JsDoc (JsDoc.parse(raw))
+        c.eqStr("description" doc.description "Add two numbers.")
+        c.eqInt("two params" (doc.tagCount("param")) 2)
+        def a@(optional):JsDocTag (doc.tagNamed("param"))
+        if (!null? a) {
+            def ta:JsDocTag (unwrap a)
+            c.eqStr("first param name" ta.name "a")
+            c.eqStr("first param type" ta.typeName "number")
+            c.eqStr("first param desc" ta.description "left")
+        }
+        def ret@(optional):JsDocTag (doc.tagNamed("returns"))
+        c.ok("has returns" (!null? ret))
+        if (!null? ret) {
+            def tr:JsDocTag (unwrap ret)
+            c.eqStr("returns type" tr.typeName "number")
+            c.eqStr("returns desc" tr.description "the sum")
+        }
+        def text:string (doc.commentText())
+        c.ok("comment keeps the overview" ((indexOf text "Add two numbers.") == 0))
+        c.ok("comment has @param a" ((indexOf text "@param a — left") >= 0))
+        c.ok("comment has @param b" ((indexOf text "@param b — right") >= 0))
+        c.ok("comment has @returns" ((indexOf text "@returns the sum") >= 0))
+        c.ok("comment has no star prefix" ((indexOf text "\n*") < 0))
+        c.ok("comment has no {number}" ((indexOf text "{number}") < 0))
+    }
+
+    sfn testOptionalDefault:void (c:JsDocChecker) {
+        print "== optional [name=default]"
+        def raw:string "/**\n * Greet someone.\n * @param {string} [name=\"world\"] who to greet\n */"
+        def doc:JsDoc (JsDoc.parse(raw))
+        def p@(optional):JsDocTag (doc.tagNamed("param"))
+        c.ok("param present" (!null? p))
+        if (!null? p) {
+            def t:JsDocTag (unwrap p)
+            c.eqStr("name" t.name "name")
+            c.ok("optional" t.optional)
+            c.eqStr("default" t.defaultValue "\"world\"")
+            c.eqStr("desc" t.description "who to greet")
+            c.eqStr("type" t.typeName "string")
+        }
+    }
+
+    ; The hover card that used to dump raw JSDoc stars and @param braces.
+    sfn testImmerProduce:void (c:JsDocChecker) {
+        print "== Immer.produce hover block"
+        def raw:string "/**\n * The current Immer draft from produce is always a proxy.\n * @param {Object} base\n * @param {Function} recipe\n * @param {Object} [patchListener]\n * @returns {Object}\n */"
+        def doc:JsDoc (JsDoc.parse(raw))
+        c.eqStr("description" doc.description "The current Immer draft from produce is always a proxy.")
+        c.eqInt("three params" (doc.tagCount("param")) 3)
+        def p@(optional):JsDocTag (doc.tagNamed("param"))
+        if (!null? p) {
+            def t:JsDocTag (unwrap p)
+            c.eqStr("base name" t.name "base")
+            c.eqStr("base type" t.typeName "Object")
+        }
+        def last:JsDocTag (itemAt doc.tags 2)
+        c.eqStr("optional name" last.name "patchListener")
+        c.ok("patchListener optional" last.optional)
+        def text:string (JsDoc.asComment(raw))
+        c.ok("overview first" ((indexOf text "The current Immer draft") == 0))
+        c.ok("no leading star" ((indexOf text "*") < 0))
+        c.ok("no {Object}" ((indexOf text "{Object}") < 0))
+        c.ok("no {Function}" ((indexOf text "{Function}") < 0))
+        c.ok("param names without braces" ((indexOf text "@param base") >= 0))
+        c.ok("returns without a type-only line" ((indexOf text "@returns") < 0))
+    }
+
+    sfn testLineComment:void (c:JsDocChecker) {
+        print "== plain // token interior"
+        def raw:string " Cyclic redundancy used while writing local headers."
+        def doc:JsDoc (JsDoc.parse(raw))
+        c.eqStr("description" doc.description "Cyclic redundancy used while writing local headers.")
+        c.eqInt("no tags" (array_length doc.tags) 0)
+        c.eqStr("asComment" (JsDoc.asComment(raw)) "Cyclic redundancy used while writing local headers.")
+    }
+
+    sfn testTokenInterior:void (c:JsDocChecker) {
+        print "== ts_lexer BlockComment interior"
+        def raw:string "*\n * returns itself\n * @chainable\n "
+        def doc:JsDoc (JsDoc.parse(raw))
+        c.eqStr("description" doc.description "returns itself")
+        c.ok("chainable" (doc.mentionsTag("chainable")))
+    }
+
+    sfn testAliases:void (c:JsDocChecker) {
+        print "== @arg / @return aliases"
+        def raw:string "/**\n * @arg {string} x a value\n * @return {boolean}\n */"
+        def doc:JsDoc (JsDoc.parse(raw))
+        c.eqInt("param from @arg" (doc.tagCount("param")) 1)
+        c.eqInt("returns from @return" (doc.tagCount("returns")) 1)
+        def p@(optional):JsDocTag (doc.tagNamed("param"))
+        if (!null? p) {
+            def t:JsDocTag (unwrap p)
+            c.eqStr("arg name" t.name "x")
+            c.eqStr("arg desc" t.description "a value")
+        }
+    }
+
+    sfn testMultilineDescription:void (c:JsDocChecker) {
+        print "== multiline description"
+        def raw:string "/**\n * Line one.\n * Line two.\n */"
+        def doc:JsDoc (JsDoc.parse(raw))
+        c.eqStr("description" doc.description "Line one.\nLine two.")
+    }
+
+    sfn testExample:void (c:JsDocChecker) {
+        print "== @example continuation"
+        def raw:string "/**\n * Add.\n * @example\n * add(1, 2)\n */"
+        def doc:JsDoc (JsDoc.parse(raw))
+        def ex@(optional):JsDocTag (doc.tagNamed("example"))
+        c.ok("example present" (!null? ex))
+        if (!null? ex) {
+            def t:JsDocTag (unwrap ex)
+            c.eqStr("example body" t.description "add(1, 2)")
+        }
+        c.ok("comment keeps @example" ((indexOf (doc.commentText()) "@example add(1, 2)") >= 0))
+    }
+
+    sfn testCategory:void (c:JsDocChecker) {
+        print "== jsdoc-parse extra @category"
+        def raw:string "/**\n * A helper.\n * @category Utils\n */"
+        def doc:JsDoc (JsDoc.parse(raw))
+        def cat@(optional):JsDocTag (doc.tagNamed("category"))
+        c.ok("category present" (!null? cat))
+        if (!null? cat) {
+            def t:JsDocTag (unwrap cat)
+            c.eqStr("category text" t.description "Utils")
+        }
+    }
+
+    sfn testEmpty:void (c:JsDocChecker) {
+        print "== empty"
+        def doc:JsDoc (JsDoc.parse(""))
+        c.eqStr("description" doc.description "")
+        c.eqInt("no tags" (array_length doc.tags) 0)
+        c.eqStr("asComment" (JsDoc.asComment("")) "")
+        c.eqStr("overview" (JsDoc.overview("   ")) "")
+    }
+}

@@ -323,6 +323,7 @@
     "uast:ranger": "bash scripts/rgr-suite.sh ./gallery/uast/tests/UastRangerTest.rgr ./gallery/uast/bin UastRangerTest.js",
     "uast:ts": "bash scripts/rgr-suite.sh ./gallery/uast/tests/UastTsTest.rgr ./gallery/uast/bin UastTsTest.js",
     "uast:cpp": "bash scripts/rgr-suite.sh ./gallery/uast/tests/UastCppTest.rgr ./gallery/uast/bin UastCppTest.js",
+    "uast:jsdoc": "bash scripts/rgr-suite.sh ./gallery/uast/tests/JsDocTest.rgr ./gallery/uast/bin JsDocTest.js",
     "uast:analyze": "bash scripts/rgr-suite.sh ./gallery/uast/tools/UastAnalyze.rgr ./gallery/uast/bin UastAnalyze.js",
     "rangerflow:force": "npm run rangerflow:build && node ./gallery/rangerflow/bin/rangerflow_demo.js --force",
     "rangerflow:drag": "npm run rangerflow:build && node ./gallery/rangerflow/bin/rangerflow_demo.js --drag",

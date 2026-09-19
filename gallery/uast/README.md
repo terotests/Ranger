@@ -29,6 +29,7 @@ npm run uast:test      # schema, scopes/refs, workspace imports, shared calls
 npm run uast:ranger    # compatibility vs CodeGraphBuilder + ZipWriter spec
 npm run uast:ts        # ts_parser → ZipWriter.ts + fromDir (no tsc)
 npm run uast:cpp       # cpp_parser → zip_writer.hpp (C++17, no clang)
+npm run uast:jsdoc     # JSDoc comment parser (jsdoc-parse / doctrine shape)
 npm run uast:analyze -- gallery/uast/fixtures
 npm run uast:analyze -- gallery/uast/fixtures/cpp
 ```
@@ -63,10 +64,12 @@ types. Only `UastRanger` may.
 | `src/UastRanger.rgr` | compiler context → `FrontendResult` |
 | `src/UastQuery.rgr` | class / method / field lookup, `refTarget` |
 | `src/UastTypeScript.rgr` | `TSNode.nodeType` → UAST kind |
+| `src/JsDoc.rgr` | JSDoc comment parser (`description` + `@tags`); used by the TS/C++ frontends |
 | `src/UastTs.rgr` | ts_parser → `FrontendResult` (no compiler, no `tsc`); `fromDir` |
 | `src/UastCpp.rgr` | cpp_parser → `FrontendResult` (no compiler, no `clang`); `fromDir` |
 | `src/UastReport.rgr` | PLAN §11 metrics |
 | `tools/UastAnalyze.rgr` | CLI: TypeScript or C++ tree → report + CodeGraph projector |
+| `fixtures/jsdoc_produce.ts` | JSDoc on a function / class / method (overview, not raw stars) |
 | `fixtures/zip_writer.ts` | the TypeScript twin of that fixture |
 | `fixtures/cpp/zip_writer.hpp` | the C++17 twin (`this->crc.update`) |
 | `fixtures/foo_a.ts`, `foo_b.ts` | two-file import/export + missing module |
