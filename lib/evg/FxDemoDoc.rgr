@@ -1,0 +1,173 @@
+; SPDX-License-Identifier: MIT
+
+; ==============================================================================
+; FxDemo — the demo page's document, written as a stylesheet
+; ==============================================================================
+;
+; This program exists to prove the half of `fx-demo.html` that a browser cannot:
+; that the effects on that page are DECLARED, in CSS, on named elements, and
+; that everything the painter needs comes out of the engine rather than out of
+; the page's own JavaScript.
+;
+;   npm run evg:fx:doc      writes lib/evg/gl/fx-demo.js
+;
+; What it writes is one assignment — `window.EVG_FX_DEMO = {…}` — holding the
+; display list this document lays out to, effects and all. The page paints it
+; and drives it and adds nothing to it: no box, no parameter, no trigger.
+; Change `SHEET` below, run the script, reload, and the sky is somewhere else.
+;
+; A `.js` and not a `.json` because the page has to work from `file://`, where
+; `fetch` is refused and a script tag is not.
+; ==============================================================================
+
+Import "EVGElement.rgr"
+Import "EVGStyleSheet.rgr"
+Import "EVGLayout.rgr"
+Import "EVGDisplayList.rgr"
+
+class FxDemoDoc {
+
+    sfn pageWidth:double () { return 900.0 }
+    sfn pageHeight:double () { return 560.0 }
+
+    ; THE WHOLE OF THE EFFECT WIRING IS IN HERE.
+    ;
+    ; `#sky` is a starfield that runs on its own clock. `#pool` and `#pool2`
+    ; are ripples that only exist when somebody touches them — two of them, to
+    ; show that the effect belongs to the box and not to the page: press one
+    ; and the other is not disturbed.
+    sfn sheet:string () {
+        return (""
+            ; CLASS SELECTORS, because that is what this stylesheet matches.
+            ; The class says WHAT a box is; the `id` beside it says WHICH ONE,
+            ; and the id is the name the effect instance goes out under — so
+            ; a host drives "pool2" while the sheet styles every `.pool` at
+            ; once.
+            + ".page { background-color: rgb(8,9,20); }"
+            + ".sky {"
+            + "  background-color: rgb(6,7,20);"
+            + "  evg-surface-effect: starfield;"
+            + "  evg-effect-on: always press;"
+            + "  evg-fx-density: 1.6;"
+            + "  evg-fx-nebula: 0.8;"
+            + "  evg-fx-speed: 7;"
+            + "  evg-fx-angle: 200;"
+            + "  evg-fx-hue: 228;"
+            + "  evg-fx-hue2: 305;"
+            + "  evg-fx-seed: 5;"
+            + "}"
+            + ".title { color: rgb(240,242,255); font-size: 34px; }"
+            + ".sub { color: rgb(168,176,214); font-size: 15px; }"
+            + ".pool {"
+            + "  background-color: rgb(22,26,52);"
+            + "  border-radius: 18px;"
+            + "  evg-surface-effect: ripple;"
+            + "  evg-effect-on: press drag;"
+            + "  evg-ripple-speed: 240;"
+            + "  evg-ripple-strength: 9;"
+            + "  evg-ripple-decay: 1.5;"
+            + "}"
+            ; A PANE OF GLASS OVER THE SKY. Four declarations and three of
+            ; them are ordinary CSS: the shape, the frosting and the tint are
+            ; `border-radius`, `backdrop-filter` and `background-color`, and
+            ; only the refraction is the effect. It is a BACKDROP effect, so
+            ; it runs where this element paints and the label inside it is
+            ; drawn afterwards — sharp, over a bent sky.
+            + ".glass {"
+            + "  background-color: rgba(255,255,255,0.07);"
+            + "  border-radius: 30px;"
+            + "  backdrop-filter: blur(9px);"
+            + "  evg-surface-effect: liquid-glass;"
+            + "  evg-fx-thickness: 30;"
+            + "  evg-fx-strength: 40;"
+            + "  evg-fx-disperse: 0.09;"
+            + "  evg-fx-shine: 0.7;"
+            + "}"
+            + ".glass-title { color: rgb(255,255,255); font-size: 19px; }"
+            + ".glass-note { color: rgb(214,220,248); font-size: 13px; }"
+            + ".label { color: rgb(226,230,248); font-size: 15px; }"
+            + ".note { color: rgb(150,158,196); font-size: 13px; }"
+            + ".plain { background-color: rgb(22,26,52); border-radius: 18px; }"
+        )
+    }
+
+    sfn text:EVGElement (id:string cls:string words:string x:double y:double) {
+        def el (EVGElement.createDiv())
+        el.id = id
+        el.className = cls
+        el.textContent = words
+        el.setAttribute("position" "absolute")
+        el.setAttribute("left" ((to_string x) + "px"))
+        el.setAttribute("top" ((to_string y) + "px"))
+        return el
+    }
+
+    sfn box:EVGElement (id:string cls:string x:double y:double w:double h:double) {
+        def el (EVGElement.createDiv())
+        el.id = id
+        el.className = cls
+        el.setAttribute("position" "absolute")
+        el.setAttribute("left" ((to_string x) + "px"))
+        el.setAttribute("top" ((to_string y) + "px"))
+        el.setAttribute("width" ((to_string w) + "px"))
+        el.setAttribute("height" ((to_string h) + "px"))
+        return el
+    }
+
+    sfn document:EVGElement () {
+        def root (new EVGElement())
+        root.id = "page"
+        root.className = "page"
+        root.setAttribute("width" ((to_string (FxDemoDoc.pageWidth())) + "px"))
+        root.setAttribute("height" ((to_string (FxDemoDoc.pageHeight())) + "px"))
+
+        ; The sky, and its own words ON TOP of it — the reason a source effect
+        ; is drawn at the element's background rather than over the element.
+        def sky:EVGElement (FxDemoDoc.box("sky" "sky" 0.0 0.0 (FxDemoDoc.pageWidth()) 320.0))
+        sky.addChild((FxDemoDoc.text("title" "title" "A sky, declared in the stylesheet" 48.0 42.0)))
+        sky.addChild((FxDemoDoc.text("sub" "sub" "evg-surface-effect: starfield, and this line is painted over it" 48.0 92.0)))
+        ; The pane is a CHILD OF THE SKY, so it is painted after the stars
+        ; and refracts them, and its own two lines are painted after it.
+        def glass:EVGElement (FxDemoDoc.box("glass" "glass" 520.0 48.0 320.0 210.0))
+        glass.addChild((FxDemoDoc.text("gt" "glass-title" "Liquid glass" 32.0 34.0)))
+        glass.addChild((FxDemoDoc.text("gn" "glass-note" "evg-surface-effect: liquid-glass" 32.0 70.0)))
+        glass.addChild((FxDemoDoc.text("gn2" "glass-note" "the sky bends at the rim; this line does not" 32.0 94.0)))
+        sky.addChild(glass)
+        root.addChild(sky)
+
+        ; Two pools and a plain card. The pools ripple where they are pressed;
+        ; the card does not, and nothing about the card had to say so.
+        def a:EVGElement (FxDemoDoc.box("pool" "pool" 48.0 368.0 250.0 150.0))
+        def b:EVGElement (FxDemoDoc.box("pool2" "pool" 325.0 368.0 250.0 150.0))
+        def c:EVGElement (FxDemoDoc.box("plain" "plain" 602.0 368.0 250.0 150.0))
+        root.addChild(a)
+        root.addChild(b)
+        root.addChild(c)
+        root.addChild((FxDemoDoc.text("t1" "label" "Press me" 72.0 400.0)))
+        root.addChild((FxDemoDoc.text("n1" "note" "evg-effect-on: press drag" 72.0 428.0)))
+        root.addChild((FxDemoDoc.text("t2" "label" "And me, separately" 349.0 400.0)))
+        root.addChild((FxDemoDoc.text("n2" "note" "one effect per box, not per page" 349.0 428.0)))
+        root.addChild((FxDemoDoc.text("t3" "label" "Not me" 626.0 400.0)))
+        root.addChild((FxDemoDoc.text("n3" "note" "no effect declared" 626.0 428.0)))
+
+        def sheet (new EVGStyleSheet())
+        sheet.parse((FxDemoDoc.sheet()))
+        sheet.setViewport((FxDemoDoc.pageWidth()) (FxDemoDoc.pageHeight()) false)
+        sheet.applyTree(root "")
+        return root
+    }
+
+    sfn main:void () {
+        def root:EVGElement (FxDemoDoc.document())
+        def lay (new EVGLayout())
+        lay.setPageSize((FxDemoDoc.pageWidth()) (FxDemoDoc.pageHeight()))
+        lay.layout(root)
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(root)
+        print ("// Written by `npm run evg:fx:doc` from lib/evg/gl/FxDemoDoc.rgr — do not edit.")
+        print ("window.EVG_FX_DEMO = { width: " + (to_string (FxDemoDoc.pageWidth()))
+            + ", height: " + (to_string (FxDemoDoc.pageHeight()))
+            + ", list: " + (dl.toJson()) + " };")
+    }
+}

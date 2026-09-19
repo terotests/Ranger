@@ -117,6 +117,21 @@ class EVGDrawCmd {
     ; loses only the softening — which is the right failure. A separate
     ; "blur this region" command would leave such a backend with a hole.
     def backdropBlur:double 0.0
+    ; The EFFECT INSTANCE this rectangle belongs to, by name, or "" for the
+    ; rectangle that carries none — which is every rectangle on nearly every
+    ; page ever drawn.
+    ;
+    ; A NAME and not an index, because the commands of a clean subtree are
+    ; KEPT and re-emitted from the cache without the walk that built them: an
+    ; index into an array rebuilt this frame would point at whatever happens
+    ; to be there now. The name is the element's own `id`, so it survives the
+    ; cache, a reflow, and being read by a person.
+    ;
+    ; WHY ON THE RECTANGLE. The effect has to be drawn SOMEWHERE in paint
+    ; order — a starfield behind a card's text is not the same picture as one
+    ; over it — and paint order is what the command stream is. This is where
+    ; the element's own background sits, so this is where its effect goes.
+    def effectId:string ""
     ; Optional drop shadow under RECT / PATH
     def hasShadow:boolean false
     def shadowX:double 0.0
@@ -2111,7 +2126,20 @@ class EVGDisplayList {
         effectXs = noX
         effectYs = noY
         effectAges = noT
+        clear fxIds
+        clear fxKinds
+        clear fxTriggers
+        clear fxX
+        clear fxY
+        clear fxW
+        clear fxH
+        clear fxRadius
+        clear fxParamStart
+        clear fxParamCount
+        clear fxParamNames
+        clear fxParamValues
         this.readEffect(root)
+        this.collectEffects(root)
         this.walk(root)
         def i:int 0
         while (i < (array_length deferredOverlays)) {
@@ -2736,6 +2764,12 @@ class EVGDisplayList {
                 EVGDisplayList.applyGradient(c el)
             }
             c.backdropBlur = el.backdropBlur
+            ; An ELEMENT-SCOPED EFFECT rides the element's own background,
+            ; which is where it belongs in paint order: the element's picture
+            ; first, then the effect, then its children on top.
+            if ((strlen el.surfaceEffect) > 0) {
+                c.effectId = el.effectRuntimeId
+            }
             EVGDisplayList.applyShadow(c el)
             this.addCmd(c)
             painted = true
@@ -2793,6 +2827,30 @@ class EVGDisplayList {
                 cb.backdropBlur = el.backdropBlur
                 EVGDisplayList.applyShadow(cb el)
                 this.addCmd(cb)
+            }
+            ; AN EFFECT ON A BOX THAT PAINTS NOTHING, which is the ordinary
+            ; case: a starfield is declared on an empty div and the stars are
+            ; the background. Same transparent carrier the filter above uses,
+            ; and a backend that has never heard of effects draws nothing,
+            ; which is exactly right.
+            if ((strlen el.surfaceEffect) > 0) {
+                def cf (new EVGDrawCmd())
+                cf.kind = 0
+                cf.x = x
+                cf.y = y
+                cf.w = w
+                cf.h = h
+                cf.radius = radius
+                cf.perCorner = perCorner
+                if perCorner {
+                    cf.radius = rTL
+                    cf.radiusTR = rTR
+                    cf.radiusBR = rBR
+                    cf.radiusBL = rBL
+                }
+                cf.a = 0.0
+                cf.effectId = el.effectRuntimeId
+                this.addCmd(cf)
             }
         }
 
@@ -3417,6 +3475,36 @@ class EVGDisplayList {
     def effectLightY:double 0.0
     def effectLightZ:double 1.0
 
+    ; --- AND THE SAME THING PER ELEMENT ---------------------------------------
+    ;
+    ; Everything above is the ORIGINAL surface effect: one per document, over
+    ; the whole page, its drops pushed in by the application. It stays exactly
+    ; as it was — `landing/`, the dashboard demo and their gates all draw
+    ; through it.
+    ;
+    ; This is the general form. Every element carrying `evg-surface-effect`
+    ; becomes one INSTANCE here, with the box the layout gave it, the trigger
+    ; the sheet declared and whatever `evg-fx-*` parameters were written on
+    ; it. The display list does not know what any of them mean — `ripple` and
+    ; `starfield` are strings here — and that is the point: a renderer plugin
+    ; the engine has never heard of gets its parameters through unharmed.
+    ;
+    ; Parallel arrays, and the parameters in one flat pair with a start and a
+    ; count per instance, because an array of objects would be an allocation
+    ; per frame for a page that has two of these.
+    def fxIds:[string]
+    def fxKinds:[string]
+    def fxTriggers:[string]
+    def fxX:[double]
+    def fxY:[double]
+    def fxW:[double]
+    def fxH:[double]
+    def fxRadius:[double]
+    def fxParamStart:[int]
+    def fxParamCount:[int]
+    def fxParamNames:[string]
+    def fxParamValues:[double]
+
     ; Pick the effect up off the tree. The first element that names one wins:
     ; a surface has one post-process, and two would be a question about order
     ; that nobody asked.
@@ -3458,6 +3546,91 @@ class EVGDisplayList {
         }
     }
 
+    ; --- THE EFFECT INSTANCES -------------------------------------------------
+    ;
+    ; Every element that names an effect, in tree order, with the box the
+    ; layout gave it. Pruned by `paintHasEffect` exactly as `readEffect` above
+    ; is: a page with no effect on it pays one comparison at the root.
+    fn collectEffects:void (el:EVGElement) {
+        if ((strlen el.surfaceEffect) > 0) {
+            this.addEffect(el)
+        }
+        if ((el.paintHasEffect == false) && ((strlen el.surfaceEffect) == 0)) {
+            return
+        }
+        def i:int 0
+        while (i < (el.getChildCount())) {
+            this.collectEffects((el.getChild(i)))
+            i = (i + 1)
+        }
+    }
+
+    ; One parameter on the instance being built, unless it already has one
+    ; under that name. The page's own `evg-fx-*` are pushed first and the
+    ; kind's defaults after, so what the author wrote wins and the JSON
+    ; carries each name once.
+    fn pushParam:void (start:int key:string value:double) {
+        def i:int start
+        while (i < (array_length fxParamNames)) {
+            if ((itemAt fxParamNames i) == key) {
+                return
+            }
+            i = (i + 1)
+        }
+        push fxParamNames key
+        push fxParamValues value
+    }
+
+    fn addEffect:void (el:EVGElement) {
+        ; ITS NAME. The element's `id` when it has one, so a host can drive
+        ; "hero-sky" by the name the document uses for it. Without one it is
+        ; positional and changes the moment another effect is declared above
+        ; it — which is why an effect meant to be driven should carry an id,
+        ; and why this does not silently pretend otherwise.
+        def id:string el.id
+        if ((strlen id) == 0) {
+            id = ("fx" + (to_string (array_length fxIds)))
+        }
+        el.effectRuntimeId = id
+        push fxIds id
+        push fxKinds el.surfaceEffect
+        push fxTriggers el.effectTrigger
+        push fxX el.calculatedX
+        push fxY el.calculatedY
+        push fxW el.calculatedWidth
+        push fxH el.calculatedHeight
+        push fxRadius el.box.borderRadiusPx
+        def start:int (array_length fxParamNames)
+        push fxParamStart start
+        def i:int 0
+        while (i < (array_length el.fxNames)) {
+            this.pushParam(start (itemAt el.fxNames i) (itemAt el.fxValues i))
+            i = (i + 1)
+        }
+        ; THE RIPPLE'S OWN PROPERTIES, AS PARAMETERS. `evg-ripple-speed` was
+        ; a named field back when the ripple was the only effect there was.
+        ; An element-scoped ripple reads the same numbers through the generic
+        ; channel, so a page that already styles a ripple keeps styling it the
+        ; way it always did and the plugin sees one kind of parameter.
+        if (el.surfaceEffect == "ripple") {
+            this.pushParam(start "speed" el.rippleSpeed)
+            this.pushParam(start "width" el.rippleWidth)
+            this.pushParam(start "strength" el.rippleStrength)
+            this.pushParam(start "decay" el.rippleDecay)
+            this.pushParam(start "highlight" el.rippleHighlight)
+            this.pushParam(start "rings" el.rippleRings)
+            this.pushParam(start "stagger" el.rippleStagger)
+            this.pushParam(start "falloff" el.rippleFalloff)
+            this.pushParam(start "shine" el.rippleShine)
+            this.pushParam(start "gloss" el.rippleGloss)
+            this.pushParam(start "bump" el.rippleBump)
+            this.pushParam(start "lightX" el.rippleLightX)
+            this.pushParam(start "lightY" el.rippleLightY)
+            this.pushParam(start "lightZ" el.rippleLightZ)
+        }
+        push fxParamCount ((array_length fxParamNames) - start)
+    }
+
     fn toJson:string () {
         def out:string "{"
         if ((strlen effectKind) > 0) {
@@ -3489,6 +3662,47 @@ class EVGDisplayList {
                 (EVGDisplayList.num(effectLightY)) + "," +
                 (EVGDisplayList.num(effectLightZ)) + "]")
             out = (out + "},")
+        }
+        ; THE ELEMENT-SCOPED EFFECTS, which is the general form of the block
+        ; above: one entry per element that declared one, each with the box
+        ; the layout gave it and whatever parameters were written on it. A
+        ; page with none writes nothing here, so every golden file that
+        ; predates this is the string it always was.
+        if ((array_length fxIds) > 0) {
+            out = (out + "\"effects\":[")
+            def fi:int 0
+            while (fi < (array_length fxIds)) {
+                if (fi > 0) {
+                    out = (out + ",")
+                }
+                out = (out + "{\"id\":" + (EVGDisplayList.jsonString((itemAt fxIds fi))))
+                out = (out + ",\"kind\":" + (EVGDisplayList.jsonString((itemAt fxKinds fi))))
+                if ((strlen (itemAt fxTriggers fi)) > 0) {
+                    out = (out + ",\"on\":" + (EVGDisplayList.jsonString((itemAt fxTriggers fi))))
+                }
+                out = (out + ",\"box\":[" + (EVGDisplayList.num((itemAt fxX fi))))
+                out = (out + "," + (EVGDisplayList.num((itemAt fxY fi))))
+                out = (out + "," + (EVGDisplayList.num((itemAt fxW fi))))
+                out = (out + "," + (EVGDisplayList.num((itemAt fxH fi))) + "]")
+                if ((itemAt fxRadius fi) > 0.0) {
+                    out = (out + ",\"r\":" + (EVGDisplayList.num((itemAt fxRadius fi))))
+                }
+                out = (out + ",\"p\":{")
+                def ps:int (itemAt fxParamStart fi)
+                def pn:int (itemAt fxParamCount fi)
+                def pi:int 0
+                while (pi < pn) {
+                    if (pi > 0) {
+                        out = (out + ",")
+                    }
+                    out = (out + (EVGDisplayList.jsonString((itemAt fxParamNames (ps + pi)))))
+                    out = (out + ":" + (EVGDisplayList.num((itemAt fxParamValues (ps + pi)))))
+                    pi = (pi + 1)
+                }
+                out = (out + "}}")
+                fi = (fi + 1)
+            }
+            out = (out + "],")
         }
         ; The camera on the envelope, not a field per command. Written only
         ; when there is one, so a list with no view is the string it always
@@ -3587,6 +3801,9 @@ class EVGDisplayList {
                     out = out + ",\"rox\":" + (EVGDisplayList.num(c.rotOriginX))
                     out = out + ",\"roy\":" + (EVGDisplayList.num(c.rotOriginY))
                 }
+            }
+            if ((strlen c.effectId) > 0) {
+                out = out + ",\"efx\":" + (EVGDisplayList.jsonString(c.effectId))
             }
             if (c.backdropBlur > 0.0) {
                 out = out + ",\"bb\":" + (EVGDisplayList.num(c.backdropBlur))
