@@ -1,0 +1,95 @@
+<!doctype html>
+<!--
+  Element-scoped surface effects, live.
+
+    npm run evg:fx:doc    writes lib/evg/gl/fx-demo.js from the Ranger document
+    npm run evg:fx:demo   →  http://localhost:8099/fx-demo.html
+
+  WHAT THIS PAGE DOES NOT DO is as much the point as what it does. It does not
+  say where the sky is, how fast it drifts, which boxes ripple, what starts a
+  ripple, or how strong one is. All of that is in lib/evg/FxDemoDoc.rgr, in a
+  stylesheet, on elements with names — and it arrives here as
+  `window.EVG_FX_DEMO`, the display list that document lays out to.
+
+  The page is three things: a canvas, a driver that turns pointer events into
+  effect events, and a loop that draws while anything is moving.
+-->
+<meta charset="utf-8">
+<title>EVG surface effects</title>
+<style>
+  body {
+    margin: 0;
+    background: #0a0b14;
+    color: #aeb6d8;
+    font: 14px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 18px;
+    padding: 28px 16px 48px;
+  }
+  canvas { border-radius: 16px; box-shadow: 0 24px 60px rgba(0, 0, 0, .55); touch-action: none; max-width: 100%; }
+  .wrap { max-width: 900px; width: 100%; }
+  pre {
+    background: #11131f;
+    border: 1px solid #1e2133;
+    border-radius: 12px;
+    padding: 14px 16px;
+    overflow: auto;
+    color: #c6cdf0;
+    font-size: 12.5px;
+  }
+  b { color: #e6ebff; font-weight: 600; }
+  .status { font-variant-numeric: tabular-nums; color: #6f78a0; }
+</style>
+<div class="wrap">
+  <canvas id="c" width="900" height="560"></canvas>
+  <p>Press the two dark cards. Press the sky. The page below is the document that decides all of it.</p>
+  <pre id="sheet"></pre>
+  <p class="status" id="status"></p>
+</div>
+<script src="./fx-demo.js"></script>
+<script type="module">
+  import { prepareDisplayList, surfaceEffectNames } from "./evg-webgl.js";
+  import { createEffectDriver, attachEffectPointer } from "./evg-fx.js";
+
+  const doc = window.EVG_FX_DEMO;
+  const canvas = document.getElementById("c");
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  canvas.width = doc.width * dpr;
+  canvas.height = doc.height * dpr;
+  canvas.style.width = doc.width + "px";
+  canvas.style.height = doc.height + "px";
+  const gl = canvas.getContext("webgl2", { antialias: true, alpha: false });
+
+  // The effects this document asks for, with what the sheet said about each —
+  // printed rather than hard-coded, because nothing on this page knows them.
+  document.getElementById("sheet").textContent = (doc.list.effects || [])
+    .map((e) => `#${e.id} { evg-surface-effect: ${e.kind}; evg-effect-on: ${e.on || "(the app)"} }\n` +
+      `   box from the layout: ${e.box.map(Math.round).join(", ")}\n` +
+      `   ${Object.entries(e.p).map(([k, v]) => `evg-fx-${k}: ${v}`).join("; ")}`)
+    .join("\n\n");
+
+  const fx = createEffectDriver();
+  // The frame is built once and drawn many times: an effect moving changes no
+  // box, no glyph and no buffer — only the numbers the plugin reads.
+  const frame = prepareDisplayList(gl, doc, { dpr });
+
+  let raf = 0;
+  let last = 0;
+  const draw = (now) => {
+    raf = 0;
+    const dt = last ? now - last : 16;
+    last = now;
+    const busy = fx.tick(dt, doc.list);
+    frame.draw();
+    document.getElementById("status").textContent =
+      `${surfaceEffectNames().join(", ")} registered · ` +
+      (doc.list.effects || []).map((e) => `${e.id}: ${(e.events || []).length} in flight`).join(" · ");
+    if (busy) schedule();
+  };
+  const schedule = () => { if (!raf) raf = requestAnimationFrame(draw); };
+
+  attachEffectPointer(canvas, fx, schedule);
+  schedule();
+</script>

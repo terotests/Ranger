@@ -354,6 +354,44 @@ class EVGElement {
     def rippleYs:[double]
     def rippleAges:[double]
 
+    ; --- WHICH BOX, AND WHAT STARTS IT ----------------------------------------
+    ;
+    ; `evg-surface-effect` above says WHAT to run. These two say WHERE and
+    ; WHEN, and they are the whole difference between an effect a page has and
+    ; an effect a page's code has to remember to drive.
+    ;
+    ; WHERE is this element's own border box: an effect declared on a card is
+    ; the card's, and the display list carries the box the layout gave it, so
+    ; nothing downstream has to be told a rectangle somebody typed.
+    ;
+    ; WHEN is `evg-effect-on`, a list of the pointer things that feed it —
+    ; `press`, `drag`, `hover` — or `always` for one that runs on its own
+    ; clock and needs no pointer at all. The default is EMPTY, which means the
+    ; application drives it, and that is what the original ripple did from the
+    ; page's own `pointerdown`: the property is how a page stops having to.
+    ;
+    ; Nothing in EVG reads this. It is written into the display list and read
+    ; by the host's effect driver, for the same reason `cursor` is: what a
+    ; pointer is belongs to whatever owns the pointer.
+    def effectTrigger:string ""
+
+    ; --- THE PARAMETERS, FOR AN EFFECT THIS FILE HAS NEVER HEARD OF -----------
+    ;
+    ; `evg-ripple-speed` above is a field because the ripple was the only
+    ; effect there was. The second effect cannot be — a starfield's density
+    ; and a glitch's jitter are not fields on every element in the document,
+    ; and a renderer plugin nobody has written yet cannot have its fields
+    ; declared here in advance.
+    ;
+    ; So: `evg-fx-<name>: <number>` lands in this pair of parallel arrays
+    ; under `<name>`, travels through the display list untouched, and means
+    ; whatever the plugin that reads it says it means. Two arrays rather than
+    ; a map because the order is the order they were written in, and a JSON
+    ; writer that reorders keys between two runs makes every golden file a
+    ; coin toss.
+    def fxNames:[string]
+    def fxValues:[double]
+
     ; --- SCROLLING ------------------------------------------------------------
     ;
     ; How far the content inside this element is pushed up and left. Set by the
@@ -475,6 +513,17 @@ class EVGElement {
     ; might, and in a page that has none walked all of it and found nothing.
     ; It was 11% of a scroll frame doing exactly that.
     def paintHasEffect:boolean false
+    ; The name the display list's effect pass gave this element's instance on
+    ; the last build — the element's own `id` when it has one. Written there
+    ; and read by the walk a moment later, so the rectangle that carries the
+    ; effect and the instance it refers to cannot disagree about its name.
+    ;
+    ; IN-FLIGHT STATE, and `adoptFrom` deliberately does not carry it across a
+    ; reconcile: `EVGDisplayList.build` names every instance again before the
+    ; walk that reads them, so a kept element's stale name and a fresh
+    ; element's empty one come to exactly the same thing one build later.
+    ; `scripts/check-evg-adopt.mjs` holds that decision on the record.
+    def effectRuntimeId:string ""
 
     ; --- WHERE THE ELEMENT'S OWN TEXT SITS INSIDE IT --------------------------
     ;
@@ -3171,6 +3220,9 @@ class EVGElement {
         rippleXs = other.rippleXs
         rippleYs = other.rippleYs
         rippleAges = other.rippleAges
+        effectTrigger = other.effectTrigger
+        fxNames = other.fxNames
+        fxValues = other.fxValues
         scrollTop = other.scrollTop
         scrollLeft = other.scrollLeft
         scrollWidth = other.scrollWidth
@@ -3506,6 +3558,37 @@ class EVGElement {
             }
         }
         return u
+    }
+
+    ; --- the generic effect parameters ---------------------------------------
+    ;
+    ; Last write wins, in place, so a rule that restates a parameter replaces
+    ; it rather than appending a second one the reader would have to know to
+    ; ignore.
+    fn setFx:void (key:string value:double) {
+        def i:int 0
+        while (i < (array_length fxNames)) {
+            if ((itemAt fxNames i) == key) {
+                set fxValues i value
+                return
+            }
+            i = (i + 1)
+        }
+        push fxNames key
+        push fxValues value
+    }
+
+    ; What was written under `key`, or the fallback. The plugin's defaults are
+    ; the plugin's business — this only answers whether the page said anything.
+    fn fxValue:double (key:string fallback:double) {
+        def i:int 0
+        while (i < (array_length fxNames)) {
+            if ((itemAt fxNames i) == key) {
+                return (itemAt fxValues i)
+            }
+            i = (i + 1)
+        }
+        return fallback
     }
 
     fn setAttribute:void (name:string value:string) {
@@ -4148,6 +4231,21 @@ class EVGElement {
         if (name == "evg-surface-effect") {
             surfaceEffect = value
             return
+        }
+        if (name == "evg-effect-on") {
+            effectTrigger = value
+            return
+        }
+        ; `evg-fx-<name>` — anything at all, under whatever name the plugin
+        ; that reads it chose. Matched by PREFIX and not against a list,
+        ; because the list is not in this file and never will be.
+        if ((strlen name) > 7) {
+            def head:string (substring name 0 7)
+            if (head == "evg-fx-") {
+                def key:string (substring name 7 (strlen name))
+                this.setFx(key (EVGElement.numberOr(value 0.0)))
+                return
+            }
         }
         if (name == "evg-ripple-speed") {
             rippleSpeed = (EVGElement.numberOr(value rippleSpeed))
