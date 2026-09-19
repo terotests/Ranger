@@ -106,18 +106,18 @@ impl Message__ops {
     if let union_Message::Message_Ping(__ea0) = &a { /* union case */
       if let union_Message::Message_Ping(__eb0) = &b { /* union case */
         return true;
-      };
+      }
       return false;
-    };
+    }
     if let union_Message::Message_Text(__ea1) = &a { /* union case */
       if let union_Message::Message_Text(__eb1) = &b { /* union case */
         if  __ea1.borrow().body != __eb1.borrow().body {
           return false;
         }
         return true;
-      };
+      }
       return false;
-    };
+    }
     if let union_Message::Message_Move(__ea2) = &a { /* union case */
       if let union_Message::Message_Move(__eb2) = &b { /* union case */
         if  __ea2.dx != __eb2.dx {
@@ -127,9 +127,9 @@ impl Message__ops {
           return false;
         }
         return true;
-      };
+      }
       return false;
-    };
+    }
     false
   }
   pub fn notEquals(a : &union_Message, b : &union_Message) -> bool {
@@ -159,15 +159,17 @@ impl EnumsMain {
   }
   fn describe(&self, m : &union_Message) -> String {
     let mut out : String = "?".to_string();
-    if let union_Message::Message_Ping(__match0) = &m { /* union case */
-      out = "ping".to_string();
-    };
-    if let union_Message::Message_Text(t) = &m { /* union case */
-      out = format!("{}{}", "text:".to_string(), t.borrow().body);
-    };
-    if let union_Message::Message_Move(mv) = &m { /* union case */
-      out = format!("{}{}{}{}", "move:".to_string(), mv.dx, ",".to_string(), mv.dy);
-    };
+    match &m {
+      union_Message::Message_Ping(__match0) => {
+        out = "ping".to_string();
+      }
+      union_Message::Message_Text(t) => {
+        out = format!("{}{}", "text:".to_string(), t.borrow().body);
+      }
+      union_Message::Message_Move(mv) => {
+        out = format!("{}{}{}{}", "move:".to_string(), mv.dx, ",".to_string(), mv.dy);
+      }
+    }
     out.clone()
   }
 }

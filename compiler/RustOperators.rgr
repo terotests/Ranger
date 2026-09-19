@@ -525,6 +525,13 @@ extension RangerRustClassWriter {
     def fc:CodeNode (node.getFirst())
     def cmd:string fc.vref
 
+    ; a shape narrowing: an `if let`, or one arm of a real `match` when
+    ; FlowShape marked this run as a complete one (RustUnion)
+    if (cmd == "case") {
+      this.rustWriteUnionCase(node ctx wr)
+      return
+    }
+
     ; `(cast x to:Sub)` where Sub extends a class that has children: the value
     ; is Rc<RefCell<dyn ParentTrait>> and the name it is bound to declares
     ; Rc<RefCell<Sub>>. No safe conversion exists between the two, so the

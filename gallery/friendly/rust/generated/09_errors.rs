@@ -86,18 +86,18 @@ impl Guarded__ops {
           return false;
         }
         return true;
-      };
+      }
       return false;
-    };
+    }
     if let union_Guarded::Guarded_Err(__ea1) = &a { /* union case */
       if let union_Guarded::Guarded_Err(__eb1) = &b { /* union case */
         if  __ea1.borrow().message != __eb1.borrow().message {
           return false;
         }
         return true;
-      };
+      }
       return false;
-    };
+    }
     false
   }
   pub fn notEquals(a : &union_Guarded, b : &union_Guarded) -> bool {
@@ -124,12 +124,14 @@ impl Guard {
   }
   fn describe(&self, g : &union_Guarded) -> String {
     let mut out : String = "?".to_string();
-    if let union_Guarded::Guarded_Ok(o) = &g { /* union case */
-      out = format!("{}{}", "ok:".to_string(), o.value);
-    };
-    if let union_Guarded::Guarded_Err(e) = &g { /* union case */
-      out = format!("{}{}", "err:".to_string(), e.borrow().message);
-    };
+    match &g {
+      union_Guarded::Guarded_Ok(o) => {
+        out = format!("{}{}", "ok:".to_string(), o.value);
+      }
+      union_Guarded::Guarded_Err(e) => {
+        out = format!("{}{}", "err:".to_string(), e.borrow().message);
+      }
+    }
     out.clone()
   }
 }

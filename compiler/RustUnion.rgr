@@ -188,3 +188,91 @@ extension RangerRustClassWriter {
   }
 
 }
+
+extension RangerRustClassWriter {
+
+  ; --- a shape `match` as a Rust `match` (PLAN_RUST_SEMANTIC_IDIOMS E) --------
+  ; `match` is desugared in FlowShape into one `case` narrowing per arm, spliced
+  ; as consecutive siblings, because that is the shape every target can write.
+  ; Rust has a real `match`, and the desugar marks the run so this writer can
+  ; put it back together: `match_head` opens it, `match_arm` is each arm,
+  ; `match_tail` closes it, and `match_total` says the arms cover the whole enum
+  ; so no wildcard is needed.
+  ;
+  ; The narrowings are written one statement at a time, so the opening `match`
+  ; and the closing brace are emitted by different calls — which is why the head
+  ; and tail marks exist rather than one node holding the arms. The binding and
+  ; the forked context are already in place: `case` is declared
+  ; `_@(newcontext):void (arg@(union):T item@(define):T code:block)`, so the
+  ; generic machinery has declared `item` before any template or custom runs.
+  ; `(typeof 1)` on the scrutinee: the template op reads the PARAM DESC's name
+  ; node when there is one, and the raw node otherwise. Writing the raw node for
+  ; a parameter emits nothing at all, which came out as `::Message_Ping`.
+  fn rustWriteScrutineeType:void (scrut:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if scrut.hasParamDesc {
+      def sNN@(optional):CodeNode scrut.paramDesc.nameNode
+      if (!null? sNN) {
+        def sN:CodeNode (unwrap sNN)
+        this.writeTypeDef(sN ctx wr)
+        return
+      }
+    }
+    this.writeTypeDef(scrut ctx wr)
+  }
+
+  fn rustWriteUnionCase:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if ((array_length node.children) < 4) {
+      return
+    }
+    def scrut:CodeNode (node.getSecond())
+    def bind:CodeNode (itemAt node.children 2)
+    def body:CodeNode (itemAt node.children 3)
+
+    if ((node.hasFlag("match_arm")) == false) {
+      ; a `case` written by hand, or a match a target could not prove complete:
+      ; the `if let` this always emitted
+      wr.out("if let " false)
+      this.rustWriteScrutineeType(scrut ctx wr)
+      wr.out((("::" + bind.type_name) + "(") false)
+      this.WalkNode(bind ctx wr)
+      wr.out(") = &" false)
+      this.WalkNode(scrut ctx wr)
+      wr.out(" { /* union case */" true)
+      wr.indent(1)
+      this.rustWriteCaseBody(body ctx wr)
+      wr.indent(-1)
+      wr.out("}" true)
+      return
+    }
+
+    if (node.hasFlag("match_head")) {
+      wr.out("match &" false)
+      this.WalkNode(scrut ctx wr)
+      wr.out(" {" true)
+      wr.indent(1)
+    }
+    this.rustWriteScrutineeType(scrut ctx wr)
+    wr.out((("::" + bind.type_name) + "(") false)
+    this.WalkNode(bind ctx wr)
+    wr.out(") => {" true)
+    wr.indent(1)
+    this.rustWriteCaseBody(body ctx wr)
+    wr.indent(-1)
+    wr.out("}" true)
+    if (node.hasFlag("match_tail")) {
+      ; an arm set that covers the shape but not the generated enum — a match
+      ; over a GROUP — still needs the rest of the enum answered for
+      if ((node.hasFlag("match_total")) == false) {
+        wr.out("_ => {}" true)
+      }
+      wr.indent(-1)
+      wr.out("}" true)
+    }
+  }
+
+  fn rustWriteCaseBody:void (body:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def sCtx:RangerAppWriterContext (ctx.fork())
+    sCtx.restartExpressionLevel()
+    this.WalkNode(body sCtx wr)
+  }
+}

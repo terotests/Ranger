@@ -86,18 +86,18 @@ impl ParseOutcome__ops {
           return false;
         }
         return true;
-      };
+      }
       return false;
-    };
+    }
     if let union_ParseOutcome::ParseOutcome_Err(__ea1) = &a { /* union case */
       if let union_ParseOutcome::ParseOutcome_Err(__eb1) = &b { /* union case */
         if  __ea1.borrow().message != __eb1.borrow().message {
           return false;
         }
         return true;
-      };
+      }
       return false;
-    };
+    }
     false
   }
   pub fn notEquals(a : &union_ParseOutcome, b : &union_ParseOutcome) -> bool {
@@ -140,12 +140,14 @@ impl Lookup {
   }
   fn describe(&self, r : &union_ParseOutcome) -> String {
     let mut out : String = "?".to_string();
-    if let union_ParseOutcome::ParseOutcome_Ok(o) = &r { /* union case */
-      out = format!("{}{}", "ok:".to_string(), o.value);
-    };
-    if let union_ParseOutcome::ParseOutcome_Err(e) = &r { /* union case */
-      out = format!("{}{}", "err:".to_string(), e.borrow().message);
-    };
+    match &r {
+      union_ParseOutcome::ParseOutcome_Ok(o) => {
+        out = format!("{}{}", "ok:".to_string(), o.value);
+      }
+      union_ParseOutcome::ParseOutcome_Err(e) => {
+        out = format!("{}{}", "err:".to_string(), e.borrow().message);
+      }
+    }
     out.clone()
   }
 }

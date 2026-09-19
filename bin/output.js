@@ -21233,6 +21233,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       const body = matchNode.getThird();
       let armCases = [];
       let covered = [];
+      let matchIsComplete = false;
+      let matchIsTotal = false;
       let shapeName = "";
       let generated = [];
       let armIndex = 0;
@@ -21354,6 +21356,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           };
           if ( missingCount > 0 ) {
             ctx.addError(matchNode, ((("match on " + shapeName) + " does not cover ") + missing) + " — every case of a shape must be handled");
+          } else {
+            const allShapeCases = ( Object.prototype.hasOwnProperty.call(this.shapeCases, shapeName) ? this.shapeCases[shapeName] : undefined );
+            matchIsTotal = covered.length == allShapeCases.length;
+            matchIsComplete = true;
           }
         }
       }
@@ -21371,6 +21377,29 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         insertAt = insertAt + 1;
         gi = gi + 1;
       };
+      if ( matchIsComplete ) {
+        matchNode.setFlag("match_arm");
+        matchNode.setFlag("match_head");
+        if ( matchIsTotal ) {
+          matchNode.setFlag("match_total");
+        }
+        const lastIdx = gcnt - 1;
+        let mi2 = 1;
+        while (mi2 < gcnt) {
+          const gnode = generated[mi2];
+          gnode.setFlag("match_arm");
+          if ( matchIsTotal ) {
+            gnode.setFlag("match_total");
+          }
+          mi2 = mi2 + 1;
+        };
+        if ( gcnt > 1 ) {
+          const lastNode = generated[lastIdx];
+          lastNode.setFlag("match_tail");
+        } else {
+          matchNode.setFlag("match_tail");
+        }
+      }
     };
     setShapeRef (node, replacement) {
       node.vref = replacement;
@@ -37045,6 +37074,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               CustomOperator (node, ctx, wr) {
                 const fc = node.getFirst();
                 const cmd = fc.vref;
+                if ( cmd == "case" ) {
+                  this.rustWriteUnionCase(node, ctx, wr);
+                  return;
+                }
                 if ( cmd == "cast" ) {
                   if ( node.children.length >= 3 ) {
                     const castArg = node.getSecond();
@@ -41071,6 +41104,65 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                   ctx,
                                   wr
                                 );
+                              };
+                              rustWriteScrutineeType (scrut, ctx, wr) {
+                                if ( scrut.hasParamDesc ) {
+                                  const sNN = scrut.paramDesc.nameNode;
+                                  if ( (typeof(sNN) !== "undefined" && sNN != null )  ) {
+                                    const sN = sNN;
+                                    this.writeTypeDef(sN, ctx, wr);
+                                    return;
+                                  }
+                                }
+                                this.writeTypeDef(scrut, ctx, wr);
+                              };
+                              rustWriteUnionCase (node, ctx, wr) {
+                                if ( node.children.length < 4 ) {
+                                  return;
+                                }
+                                const scrut = node.getSecond();
+                                const bind = node.children[2];
+                                const body = node.children[3];
+                                if ( node.hasFlag("match_arm") == false ) {
+                                  wr.out("if let ", false);
+                                  this.rustWriteScrutineeType(scrut, ctx, wr);
+                                  wr.out(("::" + bind.type_name) + "(", false);
+                                  this.WalkNode(bind, ctx, wr);
+                                  wr.out(") = &", false);
+                                  this.WalkNode(scrut, ctx, wr);
+                                  wr.out(" { /* union case */", true);
+                                  wr.indent(1);
+                                  this.rustWriteCaseBody(body, ctx, wr);
+                                  wr.indent(-1);
+                                  wr.out("}", true);
+                                  return;
+                                }
+                                if ( node.hasFlag("match_head") ) {
+                                  wr.out("match &", false);
+                                  this.WalkNode(scrut, ctx, wr);
+                                  wr.out(" {", true);
+                                  wr.indent(1);
+                                }
+                                this.rustWriteScrutineeType(scrut, ctx, wr);
+                                wr.out(("::" + bind.type_name) + "(", false);
+                                this.WalkNode(bind, ctx, wr);
+                                wr.out(") => {", true);
+                                wr.indent(1);
+                                this.rustWriteCaseBody(body, ctx, wr);
+                                wr.indent(-1);
+                                wr.out("}", true);
+                                if ( node.hasFlag("match_tail") ) {
+                                  if ( node.hasFlag("match_total") == false ) {
+                                    wr.out("_ => {}", true);
+                                  }
+                                  wr.indent(-1);
+                                  wr.out("}", true);
+                                }
+                              };
+                              rustWriteCaseBody (body, ctx, wr) {
+                                const sCtx = ctx.fork();
+                                sCtx.restartExpressionLevel();
+                                this.WalkNode(body, sCtx, wr);
                               };
                             }
                             class RangerKotlinClassWriter  extends RangerGenericClassWriter {

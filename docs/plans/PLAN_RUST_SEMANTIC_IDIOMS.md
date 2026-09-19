@@ -324,6 +324,33 @@ Fixes shapes, `Result`-shaped code, data-carrying enums and readability at once.
 
 ### E. `match` over a shape → a Rust `match`
 
+**Status: done.** `describe` on study 03 is now
+
+```rust
+match &m {
+  union_Message::Message_Ping(__match0) => { out = "ping".to_string(); }
+  union_Message::Message_Text(t)        => { out = format!(…); }
+  union_Message::Message_Move(mv)       => { out = format!(…); }
+}
+```
+
+with no wildcard, because the arms cover the enum. The Rust rendering of the
+compiler carries **91** of these and no `if let union_` at all.
+
+The desugar still runs — it is what the other nine targets need — but it now
+marks the run it produces: `match_head` on the first narrowing, `match_arm` on
+each, `match_tail` on the last, and `match_total` when the arms cover the whole
+generated enum rather than just a group. The Rust `case` template hands off to
+[`RustUnion.rustWriteUnionCase`](../../compiler/RustUnion.rgr), which reads the
+marks and emits either an arm or the `if let` a hand-written `case` still gets.
+The binding and the forked scope are already in place by then: `case` is
+declared `_@(newcontext):void (arg@(union):T item@(define):T code:block)`, so
+the generic machinery has declared the narrowed name before any template or
+custom runs.
+
+**Expression-form `match` is still open**, and it is what `?` in **H** needs.
+This item is the statement form.
+
 **Where.** `expandMatchesInFn` /
 [`expandMatch`](../../compiler/FlowShape.rgr#L1630) desugars `match` into a
 chain of `is` narrowings *before any writer sees it*, and it already computes
@@ -659,7 +686,7 @@ document. Both recorded so they are decisions rather than omissions.
 | P0 | **B** refuse lossy `try` | **done**, flag for the compiler's own 12 sites | no |
 | P0 | **C1** refuse trait-as-type | **done** | no |
 | P1 | **D** value semantics for shape payloads | medium, shared with C++ | helps |
-| P1 | **E** real `match` arms | medium | helps |
+| P1 | **E** real `match` arms (statement form) | **done** | helps |
 | P1 | **F** real `enum` + use-site casts | **done** | no |
 | P1 | **G** reachability-driven helpers | **done** | no |
 | P2 | **H** portable `Result` + propagation | large, cross-target | no |
