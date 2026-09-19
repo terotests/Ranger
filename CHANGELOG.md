@@ -66,11 +66,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **The public site title is "Save time. Keep one source."** The front page
-  heading, its document title and Open Graph title, the documentation
-  `<title>` suffix (`Page | Save time. Keep one source.`), and the
-  playground tab title all use that line. The docs header still says
-  Ranger.
+- **The public site title is "Rewrite? Use Ranger."** The front page
+  heading is two lines — "Rewrite?" then gold "Use Ranger." — and the
+  document title, Open Graph title, documentation `<title>` suffix
+  (`Page | Rewrite? Use Ranger.`), and playground tab title all use that
+  line. The docs header still says Ranger.
 
 - **Getting started step 03 is the edit loop, not the old exit-status bug.**
   The front page's path is now: start from the starter, compile the targets,
