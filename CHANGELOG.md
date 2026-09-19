@@ -306,6 +306,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Generated-code quality scores are recomputed on this compiler.**
+  The twelve `gallery/friendly` studies were compiled again after native
+  loops (#1024), C++ value records, behaviour-only traits as interfaces,
+  and the C++/Rust optional fixes. Rank is now Kotlin 76, Dart 73, C# 72,
+  Python 67, Swift 64, Rust 61, PHP 59, TypeScript 59, JavaScript 58,
+  Java 58, Scala 57, C++ 54, Go 48. PHP and Scala still emit index loops.
+
 - **The front-page Targets section is generated-code quality status.**
   The heading is "Generated code quality": an index of the thirteen
   official source back ends, a score table, and the same two lists for
