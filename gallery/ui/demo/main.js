@@ -395,6 +395,20 @@ effects.init(EFFECTS_CSS);
 // effect and costs nothing on the nineteen that do not.
 const fxDriver = createEffectDriver();
 let fxLastTick = 0;
+// The effects this demo's document declares, and which of them the rail has
+// switched off. Read OUT OF THE LIST rather than written here: the page does
+// not know what effects exist, only that the stylesheet declared some and what
+// each one is called.
+const fxDeclared = (() => {
+  try {
+    return (JSON.parse(effects.displayListJson()).effects || [])
+      .map((e) => `${e.id} · ${e.kind}`);
+  } catch (e) {
+    return [];
+  }
+})();
+const fxLabelId = (label) => label.split(" · ")[0];
+const fxOff = new Set();
 let lastDashHover = "";
 let lastResizeHover = "";
 let lastTreeHover = "";
@@ -1743,6 +1757,15 @@ function paint() {
     // the driver keys its state by the element's id, so a list parsed afresh
     // every paint keeps a ripple that is still travelling.
     if (list.effects && list.effects.length > 0) {
+      // What the rail switched off, applied to the instances this paint. The
+      // list is parsed afresh every frame, so the flag is set here rather than
+      // kept on an object that will not survive to the next one.
+      for (const e of list.effects) e.off = fxOff.has(e.id);
+      // Published for the same reason `__lastList` and `__lastStats` are:
+      // something driving this page from outside has to be able to ask. The
+      // flag is set on the PARSED list, so it is not in `__lastList` — which
+      // is the string the demo produced, before this page touched it.
+      window.__lastEffects = list.effects.map((e) => ({ id: e.id, kind: e.kind, off: !!e.off }));
       const now = performance.now();
       const dt = fxLastTick ? Math.min(now - fxLastTick, 100) : 16;
       fxLastTick = now;
@@ -2032,6 +2055,18 @@ radios(
     syncMotionClock();
     syncTextSession();
     // The demo that just arrived may be one that moves by itself.
+    startClock();
+  },
+);
+boxes(
+  document.getElementById("fxswitches"),
+  fxDeclared,
+  (v) => !fxOff.has(fxLabelId(v)),
+  (v) => {
+    const id = fxLabelId(v);
+    if (fxOff.has(id)) fxOff.delete(id); else fxOff.add(id);
+    // Switching one back ON has to start the clock again: the page stopped
+    // asking for frames when the last moving thing was turned off.
     startClock();
   },
 );

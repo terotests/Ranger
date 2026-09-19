@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A switch per effect in the gallery rail**, beside the demo it belongs to.
+  The list is built from the DISPLAY LIST rather than from names written into
+  the page: it knows that the stylesheet declared four effects and what each is
+  called, and nothing more. Turning one off sets the flag the painter reads —
+  the pass is skipped, the shader never runs, a press on a sleeping card goes
+  nowhere, and nothing is rebuilt to stop drawing one shader. The ordinary CSS
+  stays: switch the glass off and the card is still a rounded, tinted,
+  `backdrop-filter`-blurred box, which is the clearest way to see where the
+  effect ends and the stylesheet begins. `page-check` drives the switch in a
+  real page and holds the painter to it — one pass fewer with the sky off, and
+  back again.
+
 - **The surface effects are on the published gallery page** —
   [`/ui/demo/?demo=effects`](https://terotests.github.io/Ranger/ui/demo/?demo=effects).
   Every other demo there is a control measured against the component it copies;

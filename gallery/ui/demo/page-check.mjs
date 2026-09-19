@@ -930,6 +930,51 @@ console.log("--- the title bar is rounded only at the top ---");
     rc && rc[0] > 0 && rc[1] > 0 && rc[2] === 0 && rc[3] === 0, JSON.stringify(rc));
 }
 
+console.log("--- the effects demo has a switch per effect ---");
+{
+  // The rail is built from the DISPLAY LIST — the page does not know what
+  // effects exist — and a switch sets a flag the painter reads. What a node
+  // check cannot say is that any of that is wired up in a real page.
+  await page.click('#demos input[value="effects"]');
+  await page.waitForTimeout(300);
+  const switches = await page.evaluate(() =>
+    [...document.querySelectorAll("#fxswitches input")].map((i) => i.value));
+  ok("one switch per effect the stylesheet declared",
+    switches.length === 4 && switches.every((v) => /^fx-(sky|glass|pool-a|pool-b) · /.test(v)),
+    switches.join(" | "));
+
+  const drawn = () => page.evaluate(() =>
+    (window.__lastEffects || []).map((e) => `${e.id}:${e.off ? "off" : "on"}`).join(","));
+  // And what the PAINTER did with them, which is the claim that matters: a
+  // switched-off effect is not a dim one, it is a pass that did not run.
+  const passes = () => page.evaluate(() => (window.__lastStats || {}).fxDrawn);
+  ok("all of them on to begin with",
+    (await drawn()) === "fx-sky:on,fx-glass:on,fx-pool-a:on,fx-pool-b:on", await drawn());
+  const before = await passes();
+  ok("and the painter runs a pass for the two that are always on", before === 2, String(before));
+
+  problems.length = 0;
+  await page.evaluate(() => {
+    const i = [...document.querySelectorAll("#fxswitches input")].find((n) => n.value.startsWith("fx-sky"));
+    i.click();
+  });
+  await page.waitForTimeout(300);
+  ok("switching one off marks that instance and no other",
+    (await drawn()) === "fx-sky:off,fx-glass:on,fx-pool-a:on,fx-pool-b:on", await drawn());
+  ok("and the painter draws one pass fewer", (await passes()) === before - 1,
+    `${before} passes with the sky on, ${await passes()} with it off`);
+  ok("and draws without an error", problems.length === 0, [...new Set(problems)].join("; "));
+
+  await page.evaluate(() => {
+    const i = [...document.querySelectorAll("#fxswitches input")].find((n) => n.value.startsWith("fx-sky"));
+    i.click();
+  });
+  await page.waitForTimeout(300);
+  ok("and back on again",
+    (await drawn()) === "fx-sky:on,fx-glass:on,fx-pool-a:on,fx-pool-b:on", await drawn());
+  ok("with its pass back too", (await passes()) === before, String(await passes()));
+}
+
 console.log("--- the dashboard has three palettes ---");
 {
   // The theme radio, in a real page. What the node-level check cannot say is
