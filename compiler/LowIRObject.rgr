@@ -1,0 +1,1145 @@
+; SPDX-License-Identifier: MIT
+
+; Objects: allocating one, calling a method on it, laying its fields out in
+; bytes, and the virtual dispatcher a class with subclasses needs.
+
+extension LowIRBuilderPass {
+
+  fn canLowerMethod:boolean (fnDesc:RangerAppFunctionDesc) {
+    if (fnDesc.name == "Constructor") {
+      for fnDesc.params p:RangerAppParamDesc i {
+        if (this.isKeywordMarkerParam(p)) {
+          continue
+        }
+        if (null? p.nameNode) {
+          return false
+        }
+        def pn (unwrap p.nameNode)
+        def paramTypeName (this.varTypeName(pn))
+        if (false == (this.isLowerableParamType(paramTypeName))) {
+          return false
+        }
+      }
+      return true
+    }
+    if (null? fnDesc.nameNode) {
+      return false
+    }
+    def retNode (unwrap fnDesc.nameNode)
+    def retTypeName (this.varTypeName(retNode))
+    def retType (LowIRUtil.typeFromRanger(retTypeName))
+    def voidType:string "void"
+    if ((strlen retType) == 0) {
+      if (fnDesc.name == "Constructor") {
+        retType = voidType
+      } {
+        if (LowIRUtil.isStringType(retTypeName)) {
+          retType = "i8*"
+        } {
+          if (LowIRUtil.isArrayTypeName(retTypeName)) {
+            retType = this.irModule.ptrType
+          } {
+            if ((strlen retTypeName) > 0) {
+              if (LowIRUtil.isSupportedPrimitive(retTypeName) == false) {
+                retType = this.irModule.ptrType
+              } {
+                return false
+              }
+            } {
+              return false
+            }
+          }
+        }
+      }
+    }
+    for fnDesc.params p:RangerAppParamDesc i {
+      if (null? p.nameNode) {
+        return false
+      }
+      def pn (unwrap p.nameNode)
+      if (this.isLambdaTypeNode(pn)) {
+        continue
+      }
+      def paramTypeName (this.varTypeName(pn))
+      if (false == (this.isLowerableParamType(paramTypeName))) {
+        return false
+      }
+    }
+    return true
+  }
+
+  fn isObjectTypeName:boolean (typeName:string) {
+    if ((strlen typeName) == 0) {
+      return false
+    }
+    if (LowIRUtil.isStringType(typeName)) {
+      return false
+    }
+    if (LowIRUtil.isArrayTypeName(typeName)) {
+      return false
+    }
+    if (LowIRUtil.isBufferTypeName(typeName)) {
+      return false
+    }
+    if (LowIRUtil.isSupportedPrimitive(typeName)) {
+      return false
+    }
+    ; An enum is an int. Counting it as an object made every call returning one
+    ; look like a reference the caller owns, and the scope end handed the enum
+    ; VALUE to ranger_obj_release.
+    if (this.isEnumTypeName(typeName)) {
+      return false
+    }
+    return true
+  }
+
+  fn lowerTypeDesc:void (st:LowIRStruct target:LowIRTarget) {
+    def td@(lives):LowIRTypeDesc (new LowIRTypeDesc())
+    td.className = st.name
+    td.size = (this.structByteSize(st.name this.irModule))
+    def fi:int 0
+    for st.fields f:LowIRField i {
+      def kind:int 9
+      if (f.isString) {
+        kind = 0
+      } {
+        if (f.isObject) {
+          kind = 1
+        } {
+          if (f.isPtrArray) {
+            kind = 2
+          } {
+            ; A string-keyed MAP field had no kind at all, so destroying an
+            ; object leaked its map AND every value in it. An EvalContext's
+            ; `bindings` is one of these: each JS call bound its arguments into a
+            ; map that was never freed, leaking one value per argument per call.
+            if (f.isStringMap) {
+              kind = 3
+            } {
+              ; An int-keyed reference map field: same story as kind 3, other
+              ; runtime. Without a kind, destroying the object leaks the map and
+              ; every reference in it.
+              if (f.isIntMap) {
+                kind = 4
+              }
+            }
+          }
+        }
+      }
+      if (kind != 9) {
+        def fd@(lives):LowIRTypeFieldDesc (new LowIRTypeFieldDesc())
+        fd.offset = (this.fieldByteOffset(st.name fi this.irModule))
+        fd.kind = kind
+        ; Object fields (kind=1) and ptr-array fields (kind=2) default to BORROW
+        ; (owned=0): they typically alias memory owned elsewhere (array elements,
+        ; other nodes, a collection passed in and stored into a field). The
+        ; destructor must not recursively free them (would double-free when the
+        ; original owner also releases). String fields (kind=0) stay owned, since
+        ; each object holds its own strdup'd copy. Borrow analysis (Vaihe 3) can
+        ; later promote provably-owned object/array fields back to owned.
+        ; Every field kind holds a COUNTED reference: emitFieldStoreOnEx retains
+        ; on store, so destruction has to release. Retaining on store while
+        ; leaving the field a borrow leaked one reference per assignment --
+        ; `new C(i)` in a loop leaked its instance, because `this.v = v` and the
+        ; protoRef store each added a reference nothing ever gave back.
+        fd.owned = 1
+        push td.fields fd
+      }
+      fi = fi + 1
+    }
+    push this.irModule.typeDescs td
+    this.usedMemRuntime = true
+    this.ensureMemExtern(target)
+  }
+
+  fn fieldByteOffset:int (className:string fieldIndex:int module:LowIRModule) {
+    for module.structs st:LowIRStruct i {
+      if (st.name != className) {
+        continue
+      }
+      def size:int 0
+      def fi:int 0
+      for st.fields f:LowIRField i {
+        ; Align to THIS field before answering for it. The check used to come
+        ; first, so a field following a narrower one reported the unaligned
+        ; running total: in a struct laid out { .. i32, i64 .. } the i64 was
+        ; reported at 44 where LLVM puts it at 48. Every reader of these offsets
+        ; then straddled two fields -- the object destructor read a garbage
+        ; pointer out of the seam and called free() on it.
+        def fsize:int 4
+        def falign:int 4
+        if (f.irType != "i32") {
+          fsize = 8
+          falign = 8
+        }
+        def rem:int (size % falign)
+        if (rem != 0) {
+          size = size + (falign - rem)
+        }
+        if (fi == fieldIndex) {
+          return size
+        }
+        size = size + fsize
+        fi = fi + 1
+      }
+    }
+    return 0
+  }
+
+  fn emitFieldStoreOnEx:void (className:string structPtr:string fieldName:string value:string srcIsFresh:boolean lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def idx (this.findFieldIndex(className fieldName this.irModule))
+    def fieldPtr (builder.emitGep(className structPtr idx))
+    def ftype (this.fieldIrTypeFor(className fieldName))
+    def isWasmObjField:boolean false
+    if (this.objRcEnabled(lctx)) {
+      if (this.memEnabled(lctx) == false) {
+        if (this.fieldIsObjectSlot(className fieldName)) {
+          isWasmObjField = true
+        }
+      }
+    }
+    if (this.memEnabled(lctx)) {
+      ; Array and object fields hold COUNTED references. Retain before
+      ; releasing the old value: storing a value over itself would otherwise
+      ; free it. A freshly-constructed `new T` arrives with the only reference
+      ; and is moved in, so it is not retained.
+      if (this.fieldIsPtrArraySlot(className fieldName)) {
+        if (srcIsFresh == false) {
+          this.emitPtrArrayRetain(value lctx)
+        }
+      }
+      if (this.fieldIsStringMapSlot(className fieldName)) {
+        if (srcIsFresh == false) {
+          this.emitSMapRetain(value lctx)
+        }
+      }
+      if (this.fieldIsObjectSlot(className fieldName)) {
+        if (srcIsFresh == false) {
+          this.emitObjRetainPtr(value lctx)
+        }
+      }
+      def oldRaw (builder.emitLoad(ftype fieldPtr))
+      this.emitReleaseFieldValue(className fieldName oldRaw lctx)
+    } {
+      ; freestanding WASM RC: release the old value this field held before
+      ; overwriting it (string field: str_release its dup'd copy; object field:
+      ; obj_release its retained/owned reference). Field is zero-initialised by
+      ; obj_new, so the first store sees 0 and the release is a no-op.
+      if (this.wasmStrEnabled(lctx)) {
+        if (this.fieldIsStringSlot(className fieldName)) {
+          def oldRawW (builder.emitLoad(ftype fieldPtr))
+          this.emitReleaseFieldValue(className fieldName oldRawW lctx)
+        }
+      }
+      if isWasmObjField {
+        def oldObj (builder.emitLoad(ftype fieldPtr))
+        this.emitObjReleasePtr(oldObj lctx)
+      }
+    }
+    def storeVal:string value
+    if (this.fieldIsStringSlot(className fieldName)) {
+      def owned (this.emitStrdupExpr(value lctx))
+      storeVal = (builder.emitPtrToInt(owned))
+    } {
+      if (this.fieldIsBoolSlot(className fieldName)) {
+        storeVal = (builder.emitZextI1ToI32(value))
+      } {
+        ; Object field on WASM: retain a borrowed reference (a fresh `new` is
+        ; moved in as-is). libc keeps borrow semantics (no retain).
+        if isWasmObjField {
+          if (srcIsFresh == false) {
+            this.emitObjRetainPtr(value lctx)
+          }
+        }
+        storeVal = value
+      }
+    }
+    builder.emitStore(ftype storeVal fieldPtr)
+  }
+
+  fn fieldObjectClassName:string (className:string fieldName:string lctx:LowIRLowerContext) {
+    def appCtx (unwrap lctx.ctx)
+    if (false == (has appCtx.definedClasses className)) {
+      return ""
+    }
+    def cl (unwrap (get appCtx.definedClasses className))
+    ; INHERITED fields too: `cl.node.children` walks through RangerAppClassDesc's
+    ; `node`, which is declared on the base class. Without this the chain
+    ; resolved to nothing and the array read emitted a bare `%cl.node.children`.
+    def allVars (this.collectStructVars(cl appCtx))
+    for allVars v:RangerAppParamDesc i {
+      if (v.name == fieldName) {
+        if (null? v.nameNode) {
+          return ""
+        }
+        def nn (unwrap v.nameNode)
+        def tn:string nn.type_name
+        if ((strlen tn) > 0) {
+          if (has appCtx.definedClasses tn) {
+            return tn
+          }
+        }
+        return ""
+      }
+    }
+    return ""
+  }
+
+  fn newTargetClassName:string (node:CodeNode lctx:LowIRLowerContext) {
+    if (!null? node.clDesc) {
+      def cl (unwrap node.clDesc)
+      return cl.name
+    }
+    if ((array_length node.children) < 2) {
+      return ""
+    }
+    def appCtx (unwrap lctx.ctx)
+    def sec (node.getSecond())
+    def nm:string sec.vref
+    if ((strlen nm) > 0) {
+      if (has appCtx.definedClasses nm) {
+        return nm
+      }
+    }
+    ; Fall back to the node's resolved type (e.g. when `new` appears as a call
+    ; argument and its class-name child is not a plain vref).
+    def tn:string node.eval_type_name
+    if ((strlen tn) > 0) {
+      if (has appCtx.definedClasses tn) {
+        return tn
+      }
+    }
+    def tn2:string node.type_name
+    if ((strlen tn2) > 0) {
+      if (has appCtx.definedClasses tn2) {
+        return tn2
+      }
+    }
+    return ""
+  }
+
+  fn initArrayFieldsInObject:void (className:string objPtr:string lctx:LowIRLowerContext) {
+    for this.irModule.structs st:LowIRStruct i {
+      if (st.name != className) {
+        continue
+      }
+      for st.fields f:LowIRField i {
+        if f.isStringMap {
+          def smVal:string (this.fieldArrayElemType(className f.name lctx))
+          def sm (this.emitSMapNewKind((this.smapValueOwnKind(smVal)) lctx))
+          this.emitFieldStoreOnEx(className objPtr f.name sm true lctx)
+          continue
+        }
+        ; An int-keyed reference map field needs the same constructor
+        ; allocation; without it every put wrote into a null map.
+        if f.isIntMap {
+          this.ensureIMapExterns()
+          def imVal:string (this.fieldArrayElemType(className f.name lctx))
+          def imArgs:[string]
+          def imTypes:[string]
+          push imArgs (lctx.builder.emitConst("i32" (to_string (this.imapValueOwnKind(imVal)))))
+          push imTypes "i32"
+          def im (lctx.builder.emitCall("RtIMap_new_kind" "i64" imArgs imTypes))
+          this.emitFieldStoreOnEx(className objPtr f.name im true lctx)
+          continue
+        }
+        if (f.isPtrArray == false) {
+          continue
+        }
+        def cap (lctx.builder.emitConst("i32" "4"))
+        def args:[string]
+        def argTypes:[string]
+        push args cap
+        push argTypes "i32"
+        this.usedPtrArrayRuntime = true
+        def desc (lctx.builder.emitCall("RtPtrArray_new" lctx.ptrType args argTypes))
+        ; The flag word is the element KIND (0 plain / 1 object / 2 string).
+        ; Hardcoding 1 made a [string] field array release each element as an
+        ; object, reading memory before a plain malloc'd buffer.
+        def fElem:string (this.fieldArrayElemType(className f.name lctx))
+        def kindLit:string "1"
+        if (LowIRUtil.isStringType(fElem)) {
+          kindLit = "2"
+        }
+        if (fElem == "int") {
+          kindLit = "0"
+        }
+        if ((fElem == "double") || (fElem == "float")) {
+          kindLit = "0"
+        }
+        if (fElem == "boolean") {
+          kindLit = "0"
+        }
+        def one (lctx.builder.emitConst("i32" kindLit))
+        lctx.builder.emitStoreI32At(desc (this.ptrArrayOwnedOff(lctx)) one)
+        ; freshly constructed: the field takes over its single reference
+        this.emitFieldStoreOnEx(className objPtr f.name desc true lctx)
+      }
+    }
+  }
+
+  fn structByteSize:int (className:string module:LowIRModule) {
+    for module.structs st:LowIRStruct i {
+      if (st.name != className) {
+        continue
+      }
+      def size:int 0
+      for st.fields f:LowIRField i {
+        def fsize:int 4
+        def falign:int 4
+        if (f.irType != "i32") {
+          fsize = 8
+          falign = 8
+        }
+        def rem:int (size % falign)
+        if (rem != 0) {
+          size = size + (falign - rem)
+        }
+        size = size + fsize
+      }
+      def remEnd:int (size % 8)
+      if (remEnd != 0) {
+        size = size + (8 - remEnd)
+      }
+      return size
+    }
+    return 0
+  }
+
+  fn lowerNewObject:string (className:string argsNodeIn:CodeNode lctx:LowIRLowerContext) {
+    def argsNode:CodeNode (this.newArgListOf(argsNodeIn))
+    def builder (lctx.builder)
+    def byteCnt (this.structByteSize(className this.irModule))
+    if (byteCnt == 0) {
+      def fieldCnt (this.structFieldCount(className this.irModule))
+      byteCnt = fieldCnt * 4
+      if (lctx.ptrType == "i64") {
+        byteCnt = fieldCnt * 8
+      }
+    }
+    def bytes (builder.emitConst("i32" ("" + byteCnt)))
+    def heapAddr:string ""
+    def memTarget (LowIRTarget.resolve((unwrap lctx.ctx)))
+    if (memTarget.usesLibc) {
+      this.usedMemRuntime = true
+      this.ensureMemExtern(memTarget)
+      def dtorArg:string ""
+      dtorArg = ("ptr @" + className + "_typeDesc")
+      def newArgs:[string]
+      def newArgTypes:[string]
+      push newArgs bytes
+      push newArgTypes "i32"
+      push newArgs dtorArg
+      push newArgTypes ""
+      def newSig:string ("i32, ptr")
+      heapAddr = (builder.emitCallWithSig("ranger_obj_new" lctx.ptrType newSig newArgs newArgTypes))
+    } {
+      if (this.objRcEnabled(lctx)) {
+        ; WASM free-list RC: ranger_obj_new(size, typeDesc). typeDesc points at
+        ; the class descriptor in the static data segment when the class has
+        ; owned (string) fields, so obj_release -> destroyFields frees them; 0
+        ; otherwise (nothing to recurse). The runtime prepends the rc/size/type
+        ; header and returns the body pointer.
+        def tdArg:string ""
+        if (this.classHasOwnedFields(className)) {
+          tdArg = (builder.emitTypeDescPtr(className))
+        } {
+          tdArg = (builder.emitConst("i32" "0"))
+        }
+        def wArgs:[string]
+        def wArgTypes:[string]
+        push wArgs bytes
+        push wArgTypes "i32"
+        push wArgs tdArg
+        push wArgTypes "i32"
+        heapAddr = (builder.emitCall("ranger_obj_new" lctx.ptrType wArgs wArgTypes))
+      } {
+        heapAddr = (builder.emitHeapAlloc(bytes))
+      }
+    }
+    def objSlot (builder.emitIntToStructPtr(className heapAddr))
+    this.initFieldDefaultsInObject(className objSlot lctx)
+    def ctorDesc@(optional):RangerAppFunctionDesc
+    if (!null? lctx.ctx) {
+      def appCtx (unwrap lctx.ctx)
+      if (has appCtx.definedClasses className) {
+        def cl (unwrap (get appCtx.definedClasses className))
+        if cl.has_constructor {
+          if (!null? cl.constructor_fn) {
+            ctorDesc = (unwrap cl.constructor_fn)
+          }
+        }
+        ; ...but only when the class really HAS one. RangerFlowParser has an
+        ; ordinary method named `Constructor` (its handler for the keyword),
+        ; and taking that for a constructor made `new RangerFlowParser()` call
+        ; a four-parameter function with one argument.
+        if (null? ctorDesc) {
+          if cl.has_constructor {
+            for cl.methods m:RangerAppFunctionDesc i {
+              if (m.name == "Constructor") {
+                ctorDesc = m
+              }
+            }
+          }
+        }
+      }
+    }
+    if (!null? ctorDesc) {
+      def ctorName (LowIRUtil.mangleMethod(className "Constructor"))
+      def args:[string]
+      def argTypes:[string]
+      push args objSlot
+      push argTypes (LowIRUtil.structPtrType(className))
+      ; Walk the PARAMETERS and index the arguments, the way the C++ writer
+      ; does: the front end expands a record constructor call to one argument
+      ; per parameter, keyword markers included, and the signature drops those.
+      ; The front end expands a record constructor call to one argument per
+      ; parameter and flags the arguments that stand where a keyword marker
+      ; does (cmdNew). Those carry no value and the signature drops them, so
+      ; the call must drop them too. A shape's generated case marks the
+      ; ARGUMENT without marking the parameter, so both sides are asked.
+      def ctorFnDesc:RangerAppFunctionDesc (unwrap ctorDesc)
+      def paramCnt:int (array_length ctorFnDesc.params)
+      def argIdx:int 0
+      for argsNode.children arg:CodeNode i {
+        def isMarker:boolean (arg.hasFlag("keyword"))
+        if (argIdx < paramCnt) {
+          if (this.isKeywordMarkerParam((itemAt ctorFnDesc.params argIdx))) {
+            isMarker = true
+          }
+        }
+        if (isMarker == false) {
+          push args (this.lowerExpr(arg lctx))
+          push argTypes (this.paramIrTypeFromDesc(argIdx ctorFnDesc lctx))
+        }
+        argIdx = argIdx + 1
+      }
+      def voidType:string "void"
+      builder.emitCall(ctorName voidType args argTypes)
+    } {
+      this.initArrayFieldsInObject(className objSlot lctx)
+    }
+    return heapAddr
+  }
+
+  fn lowerSingletonAccessor:void (cl:RangerAppClassDesc appCtx:RangerAppWriterContext) {
+    def builder@(lives):LowIRBuilder (new LowIRBuilder(this.irModule))
+    builder.reset()
+    def lctx@(lives):LowIRLowerContext (new LowIRLowerContext())
+    lctx.ctx = appCtx
+    lctx.builder = builder
+    lctx.target = (LowIRTarget.resolve(appCtx))
+    lctx.ptrType = lctx.target.ptrType
+    def emptySlots:[string:string]
+    lctx.slots = emptySlots
+    def emptySlotTypes:[string:string]
+    lctx.slotTypes = emptySlotTypes
+    def emptyObjects:[string:string]
+    lctx.objectSlots = emptyObjects
+    def emptyCollections:[string:string]
+    lctx.collectionSlots = emptyCollections
+    def emptyElemTypes:[string:string]
+    lctx.ptrArrayElemTypes = emptyElemTypes
+    def emptyOwned:[string]
+    def emptyParamNames:[string]
+    lctx.paramNames = emptyParamNames
+    def emptyCaptured:[string]
+    lctx.capturedNames = emptyCaptured
+    lctx.ownedObjectLocals = emptyOwned
+    def emptyColl:[string]
+    lctx.ownedCollectionLocals = emptyColl
+    def emptyStr:[string]
+    lctx.ownedStringLocals = emptyStr
+    def emptyPending:[string]
+    lctx.pendingStringTemps = emptyPending
+    def emptyObjPending:[string]
+    lctx.pendingObjectTemps = emptyObjPending
+    def emptyBoxCand:[string:int]
+    lctx.boxedCandidates = emptyBoxCand
+    def emptyBoxed:[string:int]
+    lctx.boxedLocals = emptyBoxed
+    def emptyBoxTypes:[string:string]
+    lctx.boxedTypes = emptyBoxTypes
+    def emptyEscaped:[string:string]
+    lctx.escapedLocals = emptyEscaped
+    lctx.currentRetType = cl.name
+    lctx.llvmRetType = lctx.ptrType
+
+    push this.irModule.singletonClasses cl.name
+    def globalName:string ("singleton_" + cl.name)
+
+    ; empty args node (no-arg constructor) built from the class's own AST node
+    def factory@(weak optional):CodeNode
+    if (!null? cl.classNode) {
+      factory = cl.classNode
+    } {
+      factory = cl.nameNode
+    }
+    def argsNode:CodeNode ((unwrap factory).newVRefNode(""))
+
+    def initLabel (builder.freshLabel("sgl_init"))
+    def retLabel (builder.freshLabel("sgl_ret"))
+    builder.startBlock("entry")
+    def cur (builder.emitGlobalGet(globalName))
+    def zero (builder.emitConst(lctx.ptrType "0"))
+    def isZero (builder.emitIcmpTyped("eq" lctx.ptrType cur zero))
+    builder.terminateBrIf(isZero initLabel retLabel)
+
+    ; The global keeps its own reference, so each caller gets a COUNTED one --
+    ; on both paths. Without this the first caller to bind the result to a local
+    ; released the singleton at scope end and every later use read freed memory.
+    builder.startBlock(initLabel)
+    def obj (this.lowerNewObject(cl.name argsNode lctx))
+    builder.emitGlobalSet(globalName obj)
+    if (this.memEnabled(lctx)) {
+      this.emitObjRetainPtr(obj lctx)
+    }
+    builder.terminateRet(lctx.ptrType obj)
+
+    builder.startBlock(retLabel)
+    if (this.memEnabled(lctx)) {
+      this.emitObjRetainPtr(cur lctx)
+    }
+    builder.terminateRet(lctx.ptrType cur)
+
+    def fnName (LowIRUtil.mangleMethod(cl.name "__singleton"))
+    def params:[LowIRParam]
+    builder.finishFunction(fnName lctx.ptrType params false false)
+  }
+
+  fn lowerShapeCase:void (node:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def valNode (node.getSecond())
+    def itemNode (node.getThird())
+    def bodyNode (itemAt node.children 3)
+    def caseClass:string (this.shapeCaseClassName(itemNode))
+    if ((this.moduleHasTypeDesc(caseClass)) == false) {
+      return
+    }
+    def val (this.lowerExpr(valNode lctx))
+    def cond (this.emitShapeKindTest(val caseClass lctx))
+    def armLabel (builder.freshLabel("case_arm"))
+    def endLabel (builder.freshLabel("case_end"))
+    builder.terminateBrIf(cond armLabel endLabel)
+    builder.startBlock(armLabel)
+    def itemName:string itemNode.vref
+    ; `_` is the placeholder the `is`-style spelling uses; it binds nothing
+    if ((strlen itemName) > 0) {
+      if (itemName != "_") {
+        push lctx.shadowStack itemName
+        def prevSlot:string (this.shadowBind(itemName lctx.ptrType val lctx))
+        set lctx.objectSlots itemName caseClass
+        this.lowerBlock(bodyNode lctx)
+        this.restoreShadow(itemName prevSlot lctx)
+        removeLast lctx.shadowStack
+      } {
+        this.lowerBlock(bodyNode lctx)
+      }
+    } {
+      this.lowerBlock(bodyNode lctx)
+    }
+    def armBlock (unwrap builder.currentBlock)
+    if (armBlock.termKind == "") {
+      builder.terminateBr(endLabel)
+    }
+    builder.startBlock(endLabel)
+  }
+
+  fn tryLowerObjectCall:string (node:CodeNode lctx:LowIRLowerContext) {
+    if ((array_length node.children) < 2) {
+      return ""
+    }
+    if node.has_call {
+      if ((array_length node.children) > 3) {
+        def recv (node.getSecond())
+        def meth (node.getThird())
+        ; A receiver that is itself a CALL has no name to resolve, so it is
+        ; lowered here and handed to lowerInstanceCallOn as a pointer.
+        if ((strlen recv.vref) == 0) {
+          if ((recv.has_call || recv.is_direct_method_call) || recv.hasFnCall) {
+            def rp (this.lowerCall(recv lctx))
+            if ((strlen rp) > 0) {
+              def rcls2:string ""
+              if (!null? recv.fnDesc) {
+                def rfd (unwrap recv.fnDesc)
+                if (!null? rfd.nameNode) {
+                  def rnn (unwrap rfd.nameNode)
+                  rcls2 = rnn.type_name
+                }
+              }
+              def rptr (lctx.builder.emitIntToStructPtr(rcls2 rp))
+              this.exprRecvPtr = rptr
+              recv.eval_type_name = rcls2
+              return (this.finishObjectCall((this.lowerInstanceCallOn(node "" recv meth.vref lctx))))
+            }
+          }
+          ; ...and a receiver that is an OPERATOR expression (`(itemAt xs i)`,
+          ; `(property o f)`) is lowered the same way. Without this the receiver
+          ; pointer stayed empty and the call was emitted as `inttoptr i64 %`.
+          def opRecvCls:string (this.exprRecvClassName(recv lctx))
+          ; Last resort: the FRONT END already resolved which method this is, so
+          ; its declaring class is the receiver's class. exprRecvClassName only
+          ; knows a handful of expression shapes, and a receiver it cannot name
+          ; used to be emitted as a null pointer -- `(at item.children 0).copy()`
+          ; in the flow parser's EnterVarDef extension called CodeNode.copy on 0.
+          if ((strlen opRecvCls) == 0) {
+            if (!null? node.fnDesc) {
+              def rfd2 (unwrap node.fnDesc)
+              if (!null? rfd2.container_class) {
+                def ccn:string rfd2.container_class.name
+                if (this.isObjectTypeName(ccn)) {
+                  opRecvCls = ccn
+                }
+              }
+            }
+          }
+          if ((strlen opRecvCls) > 0) {
+            def orv (this.lowerExpr(recv lctx))
+            if ((strlen orv) > 0) {
+              def orp (lctx.builder.emitIntToStructPtr(opRecvCls orv))
+              this.exprRecvPtr = orp
+              recv.eval_type_name = opRecvCls
+              return (this.finishObjectCall((this.lowerInstanceCallOn(node "" recv meth.vref lctx))))
+            }
+          }
+        }
+        if (has lctx.objectSlots recv.vref) {
+          recv.eval_type_name = (unwrap (get lctx.objectSlots recv.vref))
+          return (this.finishObjectCall((this.lowerInstanceCallOn(node recv.vref recv meth.vref lctx))))
+        }
+      }
+    }
+    def callee (node.getFirst())
+    def argsNode (node.getSecond())
+    def v:string callee.vref
+    def dotPos:int (indexOf v ".")
+    if (dotPos >= 0) {
+      def parts:[string] (strsplit v ".")
+      def nparts:int (array_length parts)
+      if (nparts >= 3) {
+        ; Chained receiver: a.b.method() where a.b is an object field expression.
+        def methName (itemAt parts (nparts - 1))
+        def recvPrefix (this.joinDotPrefix(parts (nparts - 1)))
+        def rcls (this.resolveObjectClassChain(recvPrefix lctx))
+        if ((strlen rcls) > 0) {
+          callee.eval_type_name = rcls
+          return (this.finishObjectCall((this.lowerInstanceCallOn(node recvPrefix callee methName lctx))))
+        }
+      }
+      if ((array_length parts) >= 2) {
+        def recvName (itemAt parts 0)
+        if (recvName == "this") {
+          def methName (itemAt parts 1)
+          callee.eval_type_name = lctx.className
+          return (this.finishObjectCall((this.lowerInstanceCallOn(node recvName callee methName lctx))))
+        }
+        if (has lctx.objectSlots recvName) {
+          def methName (itemAt parts 1)
+          callee.eval_type_name = (unwrap (get lctx.objectSlots recvName))
+          return (this.finishObjectCall((this.lowerInstanceCallOn(node recvName callee methName lctx))))
+        }
+        def fcls (this.fieldReceiverClass(recvName lctx))
+        if ((strlen fcls) > 0) {
+          def methName (itemAt parts 1)
+          callee.eval_type_name = fcls
+          return (this.finishObjectCall((this.lowerInstanceCallOn(node recvName callee methName lctx))))
+        }
+      }
+    }
+    if (callee.value_type == RangerNodeType.VRef) {
+      if (has lctx.objectSlots callee.vref) {
+        return (this.finishObjectCall((this.lowerInstanceCallOn(node callee.vref callee node.vref lctx))))
+      }
+    }
+    return ""
+  }
+
+  fn methodOwnerClassIn:string (className:string methodName:string appCtx:RangerAppWriterContext depth:int) {
+    if (depth > 16) {
+      return className
+    }
+    if ((has appCtx.definedClasses className) == false) {
+      return className
+    }
+    def cl (unwrap (get appCtx.definedClasses className))
+    for cl.methods m:RangerAppFunctionDesc i {
+      if (m.name == methodName) {
+        return className
+      }
+    }
+    for cl.extends_classes baseName:string bi {
+      def found:string (this.methodOwnerClassIn(baseName methodName appCtx (depth + 1)))
+      if (found != baseName) {
+        return found
+      }
+      if (appCtx.isDefinedClass(baseName)) {
+        def bcl (appCtx.findClass(baseName))
+        for bcl.methods bm:RangerAppFunctionDesc bj {
+          if (bm.name == methodName) {
+            return baseName
+          }
+        }
+      }
+    }
+    return className
+  }
+
+  fn topmostDeclaringClass:string (className:string methodName:string appCtx:RangerAppWriterContext depth:int) {
+    if (depth > 16) {
+      return className
+    }
+    if ((has appCtx.definedClasses className) == false) {
+      return className
+    }
+    def cl (unwrap (get appCtx.definedClasses className))
+    for cl.extends_classes baseName:string bi {
+      if (appCtx.isDefinedClass(baseName)) {
+        def up:string (this.topmostDeclaringClass(baseName methodName appCtx (depth + 1)))
+        if ((strlen up) > 0) {
+          if (up != baseName) {
+            return up
+          }
+          def bcl (appCtx.findClass(baseName))
+          for bcl.methods bm:RangerAppFunctionDesc bj {
+            if (bm.name == methodName) {
+              return baseName
+            }
+          }
+        }
+      }
+    }
+    return className
+  }
+
+  fn collectVirtualMethods:void (appCtx:RangerAppWriterContext) {
+    ; Pass one: any method whose declaring class is NOT the topmost declarer of
+    ; that name is an override, and makes the topmost one a dispatch point.
+    for appCtx.definedClassList cName:string ci {
+      if (cName == "RangerStaticMethods") {
+        continue _
+      }
+      def cl (unwrap (get appCtx.definedClasses cName))
+      if ((this.classIsLowered(cl)) == false) {
+        continue
+      }
+      for cl.methods m:RangerAppFunctionDesc mi {
+        if (m.name == "Constructor") {
+          continue
+        }
+        def top:string (this.topmostDeclaringClass(cName m.name appCtx 0))
+        if (top == cName) {
+          continue
+        }
+        def key:string (this.virtualKeyOf(top m.name))
+        if (has this.virtualIsKey key) {
+          continue
+        }
+        set this.virtualIsKey key true
+        push this.virtualKeys key
+        def emptyCases:[string]
+        set this.virtualCases key emptyCases
+        ; The base declaration carries the signature every override shares.
+        def topCl (unwrap (get appCtx.definedClasses top))
+        for topCl.methods tm:RangerAppFunctionDesc ti {
+          if (tm.name == m.name) {
+            set this.virtualDescOf key tm
+          }
+        }
+      }
+    }
+    ; Pass two: for each dispatch point, every class that inherits from it gets
+    ; an arm naming the implementation it should actually run. A class that
+    ; inherits without overriding still needs one when an intermediate class in
+    ; its ancestry overrides.
+    for this.virtualKeys key:string ki {
+      def parts:[string] (strsplit key "|")
+      if ((array_length parts) != 2) {
+        continue
+      }
+      def top:string (itemAt parts 0)
+      def meth:string (itemAt parts 1)
+      def cases:[string]
+      for appCtx.definedClassList dName:string di {
+        if (dName == "RangerStaticMethods") {
+          continue _
+        }
+        if (dName == top) {
+          continue
+        }
+        def dcl (unwrap (get appCtx.definedClasses dName))
+        if ((this.classIsLowered(dcl)) == false) {
+          continue
+        }
+        if ((this.classInheritsFrom(dName top appCtx 0)) == false) {
+          continue
+        }
+        def impl:string (this.methodOwnerClassIn(dName meth appCtx 0))
+        if (impl == top) {
+          continue
+        }
+        if ((has appCtx.definedClasses impl) == false) {
+          continue
+        }
+        push cases dName
+        set this.virtualImplOf (this.virtualKeyOf(dName meth)) impl
+      }
+      set this.virtualCases key cases
+    }
+  }
+
+  fn emitOneVirtualDispatcher:void (top:string meth:string fnDesc:RangerAppFunctionDesc cases:[string] appCtx:RangerAppWriterContext) {
+    def builder@(lives):LowIRBuilder (new LowIRBuilder(this.irModule))
+    builder.reset()
+    def pt:string this.irModule.ptrType
+    def voidType:string "void"
+    def retType:string voidType
+    if (!null? fnDesc.nameNode) {
+      retType = (this.llvmTypeForRanger((this.varTypeName((unwrap fnDesc.nameNode))) pt))
+    }
+
+    def params:[LowIRParam]
+    def selfParam@(lives):LowIRParam (new LowIRParam())
+    selfParam.name = "self"
+    selfParam.irType = (LowIRUtil.structPtrType(top))
+    push params selfParam
+    def argNames:[string]
+    def argTypes:[string]
+    def pi:int 0
+    for fnDesc.params p:RangerAppParamDesc i {
+      def lp@(lives):LowIRParam (new LowIRParam())
+      lp.name = ("a" + ("" + pi))
+      def pn (unwrap p.nameNode)
+      def ptn (this.varTypeName(pn))
+      lp.irType = (this.llvmTypeForRanger(ptn pt))
+      if (this.isLambdaTypeNode(pn)) {
+        lp.irType = pt
+      }
+      push params lp
+      push argNames ("%" + lp.name)
+      push argTypes lp.irType
+      pi = pi + 1
+    }
+
+    builder.startBlock("entry")
+    def typeParams:[string]
+    push typeParams pt
+    this.ensureExternDecl("ranger_obj_type" pt typeParams false)
+    def selfArgs:[string]
+    def selfArgTypes:[string]
+    push selfArgs "%self"
+    push selfArgTypes (LowIRUtil.structPtrType(top))
+    def rtType (builder.emitCall("ranger_obj_type" pt selfArgs selfArgTypes))
+
+    for cases dName:string di {
+      def implKey:string (this.virtualKeyOf(dName meth))
+      if ((has this.virtualImplOf implKey) == false) {
+        continue
+      }
+      def impl:string (unwrap (get this.virtualImplOf implKey))
+      def tdp (builder.emitTypeDescPtr(dName))
+      def hit (builder.emitIcmpTyped("eq" pt rtType tdp))
+      def bodyL (builder.freshLabel("vd_hit"))
+      def nextL (builder.freshLabel("vd_next"))
+      builder.terminateBrIf(hit bodyL nextL)
+      builder.startBlock(bodyL)
+      this.emitDispatchTailCall(builder impl meth retType argNames argTypes)
+      builder.startBlock(nextL)
+    }
+    ; nothing matched: the object is the base class itself, or a subclass that
+    ; inherits the base implementation unchanged.
+    this.emitDispatchTailCall(builder top meth retType argNames argTypes)
+    builder.finishFunction((this.virtualDispatcherName(top meth)) retType params false false)
+  }
+
+  fn lowerInstanceCallOn:string (node:CodeNode receiverName:string recvNode:CodeNode methodName:string lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def objPtr:string ""
+    def className:string recvNode.eval_type_name
+    def haveExprRecv:boolean false
+    if ((strlen this.exprRecvPtr) > 0) {
+      objPtr = this.exprRecvPtr
+      this.exprRecvPtr = ""
+      haveExprRecv = true
+    }
+    if haveExprRecv {
+    } {
+    if (receiverName == "this") {
+      objPtr = lctx.selfPtr
+      className = lctx.className
+    } {
+      if ((strlen className) == 0) {
+        if (has lctx.objectSlots receiverName) {
+          className = (unwrap (get lctx.objectSlots receiverName))
+        }
+      }
+      ; Resolve a class-field receiver (e.g. a field named like a systemclass)
+      ; by loading the field; resolveObjectPtr handles slots, fields, and self.
+      ; Dotted receivers (e.g. "huffman.dcTable0") resolve through the chain.
+      if ((indexOf receiverName ".") >= 0) {
+        className = (this.resolveObjectClassChain(receiverName lctx))
+      } {
+        if ((strlen className) == 0) {
+          className = (this.resolveObjectClass(receiverName lctx))
+        }
+      }
+      objPtr = (this.resolveObjectPtrChain(receiverName className lctx))
+    }
+    }
+    def methName (this.resolveMethodName(node methodName))
+    if (!null? node.fnDesc) {
+      def fd (unwrap node.fnDesc)
+      methName = fd.name
+      if ((strlen className) == 0) {
+        className = fd.container_class.name
+      }
+    }
+    ; Methods are NOT inherited into the derived class's emitted functions --
+    ; each is emitted once, under the name of the class that declares it. A
+    ; call to an inherited method has to name that class or it references a
+    ; function the module does not contain.
+    def ownerCls:string (this.methodOwnerClass(className methName lctx))
+    ; A receiver whose class the backend could not work out -- a capture inside
+    ; a hoisted lambda whose layout was never built -- used to mangle the
+    ; ARGUMENT's name into a callee (`@arg_lambdaFnDesc`), a function nothing
+    ; defines. Emitting nothing keeps the module valid; the call is lost, which
+    ; is the known limit of closures on this backend (see TARGET_NOTES.md).
+    if ((strlen ownerCls) == 0) {
+      def missRet:string "i32"
+      if (!null? node.fnDesc) {
+        if (!null? node.fnDesc.nameNode) {
+          def mrn (unwrap node.fnDesc.nameNode)
+          missRet = (this.llvmTypeForRanger(mrn.type_name lctx.ptrType))
+        }
+      }
+      if (missRet == "void") {
+        return ""
+      }
+      if (missRet == "i8*") {
+        return "null"
+      }
+      if (missRet == "f64") {
+        return (builder.emitConst("f64" "0.0"))
+      }
+      return (builder.emitConst(missRet "0"))
+    }
+    def fnName (LowIRUtil.mangleMethod(ownerCls methName))
+    ; The receiver's STATIC class only names the declaration; when a subclass
+    ; overrides it the object decides, so the call goes through the generated
+    ; dispatcher instead. The dispatch point is the topmost class declaring the
+    ; method -- the same one any base-typed reference resolves to.
+    if (this.hasVirtualDispatcher(ownerCls methName)) {
+      fnName = (this.virtualDispatcherName(ownerCls methName))
+    }
+    def voidType:string "void"
+    def retType:string "i32"
+    if (!null? node.fnDesc) {
+      if (!null? node.fnDesc.nameNode) {
+        def rn (unwrap node.fnDesc.nameNode)
+        retType = (this.llvmTypeForRanger(rn.type_name lctx.ptrType))
+      }
+    } {
+      if ((methName == "push") || (methName == "put") || (methName == "putAt") || (methName == "storeI32")) {
+        retType = voidType
+      }
+    }
+    def args:[string]
+    def argTypes:[string]
+    ; A receiver the resolution could not work out (a captured name inside a
+    ; hoisted lambda whose capture layout was never built) used to be emitted
+    ; as an empty operand -- `call void @f(%struct.X* , …)`, which does not
+    ; parse. A null keeps the module valid and localises the failure.
+    if ((strlen objPtr) == 0) {
+      objPtr = (builder.emitIntToStructPtr(ownerCls (builder.emitConst(lctx.ptrType "0"))))
+    }
+    push args objPtr
+    push argTypes (LowIRUtil.structPtrType(ownerCls))
+    def argsNode (this.callArgsNode(node))
+    def argIdx:int 0
+    for argsNode.children arg:CodeNode i {
+      def argVal:string ""
+      def wantT:string ""
+      if (!null? node.fnDesc) {
+        argVal = (this.lowerCallArgValue(arg argIdx (unwrap node.fnDesc) lctx))
+        wantT = (this.paramIrTypeFromDesc(argIdx (unwrap node.fnDesc) lctx))
+      } {
+        argVal = (this.lowerExpr(arg lctx))
+        wantT = (this.argIrType(arg lctx))
+      }
+      push args (this.coerceArg(argVal wantT lctx))
+      push argTypes wantT
+      argIdx = argIdx + 1
+    }
+    def callRes (builder.emitCall(fnName retType args argTypes))
+    this.registerCallObjectTemp(node callRes lctx)
+    return callRes
+  }
+
+  fn lowerInstanceCall:string (node:CodeNode lctx:LowIRLowerContext) {
+    def objNode@(optional):CodeNode
+    def methodName:string node.vref
+    if node.is_direct_method_call {
+      objNode = (node.getFirst())
+      if ((array_length node.children) > 2) {
+        def methodNode (node.getSecond())
+        methodName = methodNode.vref
+      }
+    } {
+      if ((array_length node.children) > 3) {
+        objNode = (node.getSecond())
+        def methodNode (node.getThird())
+        methodName = methodNode.vref
+      }
+    }
+    if (null? objNode) {
+      def builder (lctx.builder)
+      return (builder.emitConst("i32" "0"))
+    }
+    def obj (unwrap objNode)
+    return (this.lowerInstanceCallOn(node obj.vref obj methodName lctx))
+  }
+
+  fn calleeReceiverIsUnknown:boolean (callee:CodeNode lctx:LowIRLowerContext) {
+    if (null? lctx.ctx) {
+      return false
+    }
+    def appCtx0 (unwrap lctx.ctx)
+    ; The namespace form carries the same risk: `arg.lambdaFnDesc` inside a
+    ; lambda body resolved to ns ["arg" "lambdaFnDesc"] and mangled into a
+    ; callee, and `arg` is a local, not a class.
+    if ((array_length callee.ns) >= 2) {
+      def ns0 (itemAt callee.ns 0)
+      if (has appCtx0.definedClasses ns0) {
+        return false
+      }
+      if (ns0 == "this") {
+        return false
+      }
+      return true
+    }
+    def v:string callee.vref
+    if ((indexOf v ".") < 0) {
+      return false
+    }
+    def parts:[string] (strsplit v ".")
+    if ((array_length parts) < 2) {
+      return false
+    }
+    def p0 (itemAt parts 0)
+    if (p0 == "this") {
+      return false
+    }
+    if (null? lctx.ctx) {
+      return false
+    }
+    def appCtx (unwrap lctx.ctx)
+    if (has appCtx.definedClasses p0) {
+      return false
+    }
+    if (has lctx.slots p0) {
+      return true
+    }
+    return true
+  }
+
+}

@@ -1,0 +1,425 @@
+; SPDX-License-Identifier: MIT
+
+; Releasing what a scope owns. LowIR has no garbage collector, so every owned
+; string, collection and object has a release emitted where its scope ends.
+
+extension LowIRBuilderPass {
+
+  fn emitReleaseFieldValue:void (className:string fieldName:string rawVal:string lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def voidType:string "void"
+    def args:[string]
+    def argTypes:[string]
+    ; string fields carry a dup'd private copy on both the libc (memEnabled) and
+    ; freestanding-WASM (wasmStrEnabled) paths, so both release it on overwrite.
+    if (this.fieldIsStringSlot(className fieldName)) {
+      if ((this.memEnabled(lctx)) || (this.wasmStrEnabled(lctx))) {
+        def i8p (builder.emitIntToI8Ptr(rawVal lctx.ptrType))
+        push args i8p
+        push argTypes "i8*"
+        builder.emitCall("ranger_str_release" voidType args argTypes)
+      }
+      return
+    }
+    ; remaining field kinds (buffer) are libc-only
+    if (this.memEnabled(lctx) == false) {
+      return
+    }
+    if (this.fieldIsBufferSlot(className fieldName)) {
+      push args rawVal
+      push argTypes lctx.ptrType
+      builder.emitCall("ranger_buffer_release" voidType args argTypes)
+      return
+    }
+    ; Object and ptr-array fields hold COUNTED references (emitFieldStoreOnEx
+    ; retains on store), so overwriting one drops its reference. Treating them
+    ; as pure borrows meant nothing a field pointed at was ever released --
+    ; 798554 objects allocated and 2 freed in one benchmark loop.
+    if (this.fieldIsPtrArraySlot(className fieldName)) {
+      push args rawVal
+      push argTypes lctx.ptrType
+      builder.emitCall("ranger_ptrarray_release" voidType args argTypes)
+      return
+    }
+    if (this.fieldIsIntMapSlot(className fieldName)) {
+      if (this.memEnabled(lctx)) {
+        this.ensureIMapExterns()
+        def imArgs:[string]
+        def imTypes:[string]
+        push imArgs rawVal
+        push imTypes "i64"
+        def voidIM:string "void"
+        builder.emitCall("RtIMap_free" voidIM imArgs imTypes)
+      }
+      return
+    }
+    if (this.fieldIsStringMapSlot(className fieldName)) {
+      push args rawVal
+      push argTypes lctx.ptrType
+      this.ensureSMapExterns()
+      builder.emitCall("RtSMap_free" voidType args argTypes)
+      return
+    }
+    if (this.fieldIsObjectSlot(className fieldName)) {
+      this.emitObjReleasePtr(rawVal lctx)
+    }
+  }
+
+  fn releaseOwnedLocal:void (varName:string lctx:LowIRLowerContext) {
+    if (this.objRcEnabled(lctx) == false) {
+      return
+    }
+    if (has lctx.escapedLocals varName) {
+      return
+    }
+    if (false == (has lctx.slots varName)) {
+      return
+    }
+    ; A name REDECLARED with a scalar type later in the same function ends up
+    ; with a non-pointer slot; releasing it would hand an i32 to obj_release.
+    ; The object binding lost its slot, so there is nothing left to release.
+    if (has lctx.slotTypes varName) {
+      def slotT:string (unwrap (get lctx.slotTypes varName))
+      if (slotT != lctx.ptrType) {
+        return
+      }
+    }
+    def builder (lctx.builder)
+    def voidType:string "void"
+    def val (this.loadSlotRaw(varName lctx.ptrType lctx))
+    def args:[string]
+    def argTypes:[string]
+    push args val
+    push argTypes lctx.ptrType
+    builder.emitCall("ranger_obj_release" voidType args argTypes)
+  }
+
+  fn releaseOwnedString:void (varName:string lctx:LowIRLowerContext) {
+    if (this.strRcEnabled(lctx) == false) {
+      return
+    }
+    if (has lctx.escapedLocals varName) {
+      return
+    }
+    if (false == (has lctx.slots varName)) {
+      return
+    }
+    def builder (lctx.builder)
+    def voidType:string "void"
+    def val (this.loadSlotRaw(varName "i8*" lctx))
+    def args:[string]
+    def argTypes:[string]
+    push args val
+    push argTypes "i8*"
+    builder.emitCall("ranger_str_release" voidType args argTypes)
+    ; NULL the slot, exactly as releaseAndClearOwnedLocal does for objects. A
+    ; string local declared inside a branch of a loop body -- `def esc:string
+    ; (substring body i (i + 1))` under an `if` -- is released at the end of
+    ; EVERY iteration, so an iteration that skipped the branch would otherwise
+    ; free the pointer the previous iteration already freed.
+    if (has lctx.slots varName) {
+      def slot (unwrap (get lctx.slots varName))
+      builder.emitStore("i8*" "null" slot)
+    }
+  }
+
+  fn releaseOwnedCollectionLocal:void (varName:string lctx:LowIRLowerContext) {
+    if (has lctx.escapedLocals varName) {
+      return
+    }
+    if (false == (has lctx.slots varName)) {
+      return
+    }
+    def desc (this.loadSlotRaw(varName lctx.ptrType lctx))
+    def args:[string]
+    def argTypes:[string]
+    push args desc
+    push argTypes lctx.ptrType
+    ; dispatch by collection kind: maps free desc+keys+vals via RtMap_free;
+    ; ptr-arrays (int and object) free backing+desc (+ element RC) via
+    ; ranger_ptrarray_release.
+    def relFn:string "ranger_ptrarray_release"
+    if ((this.collectionKind(varName lctx)) == "map") {
+      relFn = "RtMap_free"
+    }
+    if ((this.collectionKind(varName lctx)) == "smap") {
+      relFn = "RtSMap_free"
+    }
+    if ((this.collectionKind(varName lctx)) == "imap") {
+      relFn = "RtIMap_free"
+    }
+    lctx.builder.emitCall(relFn "void" args argTypes)
+  }
+
+  fn emitOwnedStringInit:string (varName:string valNode:CodeNode strPtr:string lctx:LowIRLowerContext) {
+    if (this.isCapturedName(varName lctx)) {
+      return (this.emitStrdupExpr(strPtr lctx))
+    }
+    if (this.wasmStrEnabled(lctx) == false) {
+      ; libc: always take a private copy -- the value may be a literal, a field,
+      ; or another local -- and record the local so scope exit frees that copy.
+      ; Storing a string into a field dups it again (emitFieldStoreOnEx) and a
+      ; returned local is marked escaped, so this copy is genuinely the local's.
+      def libcOwned (this.emitStrdupExpr(strPtr lctx))
+      if (this.strRcEnabled(lctx)) {
+        if (this.isOwnedStringLocal(varName lctx) == false) {
+          push lctx.ownedStringLocals varName
+        }
+      }
+      return libcOwned
+    }
+    def owned strPtr
+    if ((this.exprIsFreshString(valNode lctx)) == false) {
+      owned = (this.emitStrdupExpr(strPtr lctx))
+    } {
+      ; owning a fresh temp directly: move it out of the statement arena so it is
+      ; not double-freed (the local's scope-end release now owns its lifetime).
+      this.claimStringTemp(strPtr lctx)
+    }
+    if (this.isOwnedStringLocal(varName lctx) == false) {
+      push lctx.ownedStringLocals varName
+    }
+    return owned
+  }
+
+  fn emitOwnedStringReassign:string (varName:string valNode:CodeNode strPtr:string lctx:LowIRLowerContext) {
+    ; Assigning to a CAPTURED string: the closure record owns the buffer the
+    ; slot came from, so releasing it here frees what the record's typedesc
+    ; frees again -- and registering the name would release the new value on
+    ; every exit path, including the one where the assignment never ran. A
+    ; private copy is stored and left to leak, which is the safe direction
+    ; while the write-back to the closure is still missing.
+    if (this.isCapturedName(varName lctx)) {
+      return (this.emitStrdupExpr(strPtr lctx))
+    }
+    if (this.wasmStrEnabled(lctx) == false) {
+      ; Copy FIRST, then free what the slot held. The other order breaks `s = s`
+      ; and any assignment whose right-hand side still reads the old buffer.
+      def libcNew (this.emitStrdupExpr(strPtr lctx))
+      if (this.strRcEnabled(lctx)) {
+        if (this.isOwnedStringLocal(varName lctx)) {
+          this.releaseOwnedString(varName lctx)
+        } {
+          push lctx.ownedStringLocals varName
+        }
+      }
+      return libcNew
+    }
+    if (this.isOwnedStringLocal(varName lctx)) {
+      this.releaseOwnedString(varName lctx)
+    }
+    def owned strPtr
+    if ((this.exprIsFreshString(valNode lctx)) == false) {
+      owned = (this.emitStrdupExpr(strPtr lctx))
+    } {
+      this.claimStringTemp(strPtr lctx)
+    }
+    if (this.isOwnedStringLocal(varName lctx) == false) {
+      push lctx.ownedStringLocals varName
+    }
+    return owned
+  }
+
+  fn emitOwnershipSummary:void (lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def objCount (array_length lctx.ownedObjectLocals)
+    def collCount (array_length lctx.ownedCollectionLocals)
+    if ((objCount + collCount) == 0) {
+      return
+    }
+    builder.emitComment("ownership[manual]: scope-exit disposition")
+    for lctx.ownedObjectLocals name:string i {
+      if (has lctx.escapedLocals name) {
+        builder.emitComment(("  owned object '" + name + "' -> escaped (moved/returned), caller owns"))
+      } {
+        builder.emitComment(("  owned object '" + name + "' -> released"))
+      }
+    }
+    for lctx.ownedCollectionLocals name:string i {
+      if (has lctx.escapedLocals name) {
+        builder.emitComment(("  owned array '" + name + "' -> escaped, caller owns"))
+      } {
+        builder.emitComment(("  owned array '" + name + "' -> released (elements freed)"))
+      }
+    }
+  }
+
+  fn emitReleaseOwnedLocals:void (lctx:LowIRLowerContext) {
+    def memTarget (LowIRTarget.resolve((unwrap lctx.ctx)))
+    if (this.objRcEnabled(lctx) == false) {
+      return
+    }
+    if (this.strictOwnershipEnabled(lctx)) {
+      this.emitOwnershipSummary(lctx)
+    }
+    for lctx.ownedObjectLocals name:string i {
+      this.releaseOwnedLocal(name lctx)
+    }
+    ; owned string locals (freestanding WASM): free per-scope temporaries so a
+    ; frame's throwaway strings don't accumulate on the heap.
+    for lctx.ownedStringLocals sname:string si {
+      this.releaseOwnedString(sname lctx)
+    }
+    ; owned collections: freed on the libc path and on freestanding WASM (-wasmrc,
+    ; where their storage is on the free-list heap). ranger_ptrarray_release frees
+    ; the backing store + descriptor and, when the descriptor is element-owned
+    ; (object arrays), releases each element.
+    if (memTarget.usesLibc == false) {
+      if ((this.wasmCollectionRcEnabled(lctx)) == false) {
+        return
+      }
+    }
+    for lctx.ownedCollectionLocals name:string i {
+      this.releaseOwnedCollectionLocal(name lctx)
+    }
+  }
+
+  fn popReslots:void (mark:int lctx:LowIRLowerContext) {
+    def cnt (array_length lctx.reslotNames)
+    while (cnt > mark) {
+      def last:int (cnt - 1)
+      def nm:string (itemAt lctx.reslotNames last)
+      def ps:string (itemAt lctx.reslotPrevSlots last)
+      def pt:string (itemAt lctx.reslotPrevTypes last)
+      if ((itemAt lctx.reslotOwnedStr last) == 0) {
+        lctx.ownedStringLocals = (this.withoutName(lctx.ownedStringLocals nm))
+      }
+      if ((itemAt lctx.reslotOwnedObj last) == 0) {
+        lctx.ownedObjectLocals = (this.withoutName(lctx.ownedObjectLocals nm))
+      }
+      if ((itemAt lctx.reslotOwnedColl last) == 0) {
+        lctx.ownedCollectionLocals = (this.withoutName(lctx.ownedCollectionLocals nm))
+      }
+      set lctx.slots nm ps
+      if ((strlen pt) > 0) {
+        set lctx.slotTypes nm pt
+      }
+      removeLast lctx.reslotNames
+      removeLast lctx.reslotPrevSlots
+      removeLast lctx.reslotPrevTypes
+      removeLast lctx.reslotOwnedStr
+      removeLast lctx.reslotOwnedObj
+      removeLast lctx.reslotOwnedColl
+      cnt = cnt - 1
+    }
+  }
+
+  fn emitLoopBodyReleases:void (lctx:LowIRLowerContext) {
+    if ((this.memEnabled(lctx)) == false) {
+      return
+    }
+    def n (array_length lctx.ownedObjectLocals)
+    def k lctx.loopOwnedMark
+    while (< k n) {
+      this.releaseAndClearOwnedLocal((itemAt lctx.ownedObjectLocals k) lctx)
+      k = (+ k 1)
+    }
+    def cn (array_length lctx.ownedCollectionLocals)
+    def ck lctx.loopOwnedCollMark
+    while (< ck cn) {
+      this.releaseAndClearOwnedCollection((itemAt lctx.ownedCollectionLocals ck) lctx)
+      ck = (+ ck 1)
+    }
+    ; Owned string locals leave through a jump too. releaseOwnedString NULLs the
+    ; slot, so the bottom-of-body release on the fall-through path sees NULL
+    ; rather than a pointer this one already freed.
+    def sn (array_length lctx.ownedStringLocals)
+    def sk lctx.loopOwnedStrMark
+    while (< sk sn) {
+      this.releaseOwnedString((itemAt lctx.ownedStringLocals sk) lctx)
+      sk = (+ sk 1)
+    }
+  }
+
+  fn releaseAndClearOwnedLocal:void (varName:string lctx:LowIRLowerContext) {
+    this.releaseOwnedLocal(varName lctx)
+    if (has lctx.escapedLocals varName) {
+      return
+    }
+    if (false == (has lctx.slots varName)) {
+      return
+    }
+    if ((this.slotHoldsObject(varName lctx)) == false) {
+      return
+    }
+    def slot (unwrap (get lctx.slots varName))
+    def zero (lctx.builder.emitConst(lctx.ptrType "0"))
+    lctx.builder.emitStore(lctx.ptrType zero slot)
+  }
+
+  fn releaseAndClearOwnedCollection:void (varName:string lctx:LowIRLowerContext) {
+    this.releaseOwnedCollectionLocal(varName lctx)
+    if (has lctx.escapedLocals varName) {
+      return
+    }
+    if (false == (has lctx.slots varName)) {
+      return
+    }
+    def slot (unwrap (get lctx.slots varName))
+    def zero (lctx.builder.emitConst(lctx.ptrType "0"))
+    lctx.builder.emitStore(lctx.ptrType zero slot)
+  }
+
+  fn releaseLoopBodyOwned:void (ownedBefore:int ownedStrBefore:int ownedCollBefore:int lctx:LowIRLowerContext) {
+    def ctx (unwrap lctx.ctx)
+    ; Per-iteration release is not a WASM nicety -- it is the difference between
+    ; a loop that holds one object and one that holds a million. Gating it on
+    ; -wasmrc meant every object a native loop body created stayed alive until
+    ; the FUNCTION returned: an interpreter loop leaked one EvalValue per
+    ; iteration, so a benchmark grew ~100 MB/s and never finished.
+    if (this.memEnabled(lctx)) {
+    } {
+      if ((ctx.hasCompilerFlag("wasmrc")) == false) {
+        return
+      }
+    }
+    def n (array_length lctx.ownedObjectLocals)
+    if (n > ownedBefore) {
+      def k ownedBefore
+      while (< k n) {
+        this.releaseAndClearOwnedLocal((itemAt lctx.ownedObjectLocals k) lctx)
+        k = (+ k 1)
+      }
+      def kept:[string]
+      def j 0
+      while (< j ownedBefore) {
+        push kept (itemAt lctx.ownedObjectLocals j)
+        j = (+ j 1)
+      }
+      lctx.ownedObjectLocals = kept
+    }
+    ; same per-iteration release for owned string locals introduced in the body
+    def sn (array_length lctx.ownedStringLocals)
+    if (sn > ownedStrBefore) {
+      def sk ownedStrBefore
+      while (< sk sn) {
+        this.releaseOwnedString((itemAt lctx.ownedStringLocals sk) lctx)
+        sk = (+ sk 1)
+      }
+      def keptS:[string]
+      def sj 0
+      while (< sj ownedStrBefore) {
+        push keptS (itemAt lctx.ownedStringLocals sj)
+        sj = (+ sj 1)
+      }
+      lctx.ownedStringLocals = keptS
+    }
+    ; same per-iteration release for owned collection locals introduced in the body
+    def cn (array_length lctx.ownedCollectionLocals)
+    if (cn > ownedCollBefore) {
+      def ck ownedCollBefore
+      while (< ck cn) {
+        this.releaseAndClearOwnedCollection((itemAt lctx.ownedCollectionLocals ck) lctx)
+        ck = (+ ck 1)
+      }
+      def keptC:[string]
+      def cj 0
+      while (< cj ownedCollBefore) {
+        push keptC (itemAt lctx.ownedCollectionLocals cj)
+        cj = (+ cj 1)
+      }
+      lctx.ownedCollectionLocals = keptC
+    }
+  }
+
+}

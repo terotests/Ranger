@@ -1,0 +1,1480 @@
+; SPDX-License-Identifier: MIT
+
+; Lowering a statement: the dispatcher, and the control flow that has to become
+; blocks and branches before LLVM can see it.
+
+extension LowIRBuilderPass {
+
+  fn lowerForMap:boolean (node:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def cnt (array_length node.children)
+    if (cnt < 4) {
+      return false
+    }
+    def hashNode (node.getSecond())
+    if (hashNode.value_type != RangerNodeType.VRef) {
+      return false
+    }
+    def desc (this.smapDescFromVref(hashNode.vref lctx))
+    if ((strlen desc) == 0) {
+      return false
+    }
+    ; 5 children -> `for m item:T key {}`, 4 -> `for m key {}`
+    def hasItem:boolean (cnt > 4)
+    def itemNode (node.getThird())
+    def keyNode:CodeNode itemNode
+    def bodyNode (itemAt node.children 3)
+    if hasItem {
+      keyNode = (itemAt node.children 3)
+      bodyNode = (itemAt node.children 4)
+    }
+    def keyName:string keyNode.vref
+    def nRest:[string]
+    def nTypes:[string]
+    def n (this.emitSMapCall("RtSMap_size" "i32" desc nRest nTypes lctx))
+    def iSlot (builder.emitAlloca("i32" (builder.freshTemp("formapi"))))
+    def zero (builder.emitConst("i32" "0"))
+    builder.emitStore("i32" zero iSlot)
+    def condL (builder.freshLabel("formap_cond"))
+    def bodyL (builder.freshLabel("formap_body"))
+    def incL (builder.freshLabel("formap_inc"))
+    def exitL (builder.freshLabel("formap_exit"))
+    builder.terminateBr(condL)
+
+    builder.startBlock(condL)
+    def iNow (builder.emitLoad("i32" iSlot))
+    def more (builder.emitIcmp("slt" iNow n))
+    builder.terminateBrIf(more bodyL exitL)
+
+    builder.startBlock(bodyL)
+    def iCur (builder.emitLoad("i32" iSlot))
+    def kRest:[string]
+    def kTypes:[string]
+    push kRest iCur
+    push kTypes "i32"
+    def keyPtr (this.emitSMapCall("RtSMap_keyAt" "i8*" desc kRest kTypes lctx))
+    ; The key is the MAP's own buffer, borrowed for the body. It is not
+    ; registered as an owned string local: releasing it would free the map's key.
+    ; Both names SHADOW anything outside the loop, for the same reason the
+    ; array loop shadows its index.
+    push lctx.shadowStack keyName
+    def prevKeySlot:string (this.shadowBind(keyName "i8*" keyPtr lctx))
+    def prevItemSlotM:string ""
+    def itemNameM:string ""
+    if hasItem {
+      def vRest:[string]
+      def vTypes:[string]
+      push vRest keyPtr
+      push vTypes "i8*"
+      def rawVal (this.emitSMapCall("RtSMap_get" "i64" desc vRest vTypes lctx))
+      def vKind (this.smapValueKind(hashNode.vref lctx))
+      def itemName:string itemNode.vref
+      itemNameM = itemName
+      push lctx.shadowStack itemName
+      if (vKind == "int") {
+        prevItemSlotM = (this.shadowBind(itemName "i32" (builder.emitCast("trunc" "i32" "i64" rawVal)) lctx))
+      } {
+        if (vKind == "string") {
+          prevItemSlotM = (this.shadowBind(itemName "i8*" (builder.emitIntToI8Ptr(rawVal lctx.ptrType)) lctx))
+        } {
+          prevItemSlotM = (this.shadowBind(itemName lctx.ptrType rawVal lctx))
+          def itemClass (this.resolveItemClass(itemNode))
+          if ((strlen itemClass) > 0) {
+            set lctx.objectSlots itemName itemClass
+          }
+        }
+      }
+    }
+    def savedBreak:string lctx.breakLabel
+    def savedCont:string lctx.continueLabel
+    def savedMark:int lctx.loopOwnedMark
+    def savedMarkColl:int lctx.loopOwnedCollMark
+    def savedMarkStr:int lctx.loopOwnedStrMark
+    lctx.breakLabel = exitL
+    lctx.continueLabel = incL
+    lctx.loopOwnedMark = (array_length lctx.ownedObjectLocals)
+    lctx.loopOwnedCollMark = (array_length lctx.ownedCollectionLocals)
+    lctx.loopOwnedStrMark = (array_length lctx.ownedStringLocals)
+    this.lowerBlock(bodyNode lctx)
+    lctx.breakLabel = savedBreak
+    lctx.continueLabel = savedCont
+    lctx.loopOwnedMark = savedMark
+    lctx.loopOwnedCollMark = savedMarkColl
+    lctx.loopOwnedStrMark = savedMarkStr
+    def bodyBb (unwrap builder.currentBlock)
+    if (bodyBb.termKind == "") {
+      builder.terminateBr(incL)
+    }
+
+    builder.startBlock(incL)
+    def iAt (builder.emitLoad("i32" iSlot))
+    def one (builder.emitConst("i32" "1"))
+    builder.emitStore("i32" (builder.emitBin("add" "i32" iAt one)) iSlot)
+    builder.terminateBr(condL)
+
+    builder.startBlock(exitL)
+    if hasItem {
+      this.restoreShadow(itemNameM prevItemSlotM lctx)
+      removeLast lctx.shadowStack
+    }
+    this.restoreShadow(keyName prevKeySlot lctx)
+    removeLast lctx.shadowStack
+    return true
+  }
+
+  fn lowerFor:void (node:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    if (this.lowerForMap(node lctx)) {
+      return
+    }
+    if ((array_length node.children) <= 4) {
+      return
+    }
+    def listNode (node.getSecond())
+    def itemNode (node.getThird())
+    def bodyNode (itemAt node.children 4)
+    def idxNode (itemAt node.children 3)
+    def idxName (this.forIndexName(idxNode))
+    def desc (this.loadArrayDescExpr(listNode lctx))
+    this.usedPtrArrayRuntime = true
+    def lenArgs:[string]
+    def lenTypes:[string]
+    push lenArgs desc
+    push lenTypes lctx.ptrType
+    def zero (builder.emitConst("i32" "0"))
+    ; The loop's own index and item SHADOW anything of the same name outside
+    ; it: nested `for … i` is ordinary Ranger, and sharing one slot let the
+    ; inner loop reset the outer counter.
+    push lctx.shadowStack idxName
+    def prevIdxSlot:string (this.shadowBind(idxName "i32" zero lctx))
+    def condLabel (builder.freshLabel("for_cond"))
+    def bodyLabel (builder.freshLabel("for_body"))
+    def exitLabel (builder.freshLabel("for_exit"))
+    def incLabel (builder.freshLabel("for_inc"))
+    builder.terminateBr(condLabel)
+    builder.startBlock(condLabel)
+    ; The length is read HERE, once per iteration, not once before the loop.
+    ; JavaScript's `i < arr.length` and C++'s `i < v.size()` are both
+    ; re-evaluated, so a body that grows or shrinks the array it is walking --
+    ; which expandShapesInScope does, inserting the classes a shape desugars to
+    ; into the very list it is iterating -- sees the new elements on every
+    ; target except this one, where the loop stopped at the old count.
+    def len (builder.emitCall("RtPtrArray_len" "i32" lenArgs lenTypes))
+    def idxVal (this.loadSlot(idxName "i32" lctx))
+    def cond (builder.emitIcmp("slt" idxVal len))
+    builder.terminateBrIf(cond bodyLabel exitLabel)
+    builder.startBlock(bodyLabel)
+    def elemArgs:[string]
+    def elemTypes:[string]
+    push elemArgs desc
+    push elemTypes lctx.ptrType
+    push elemArgs idxVal
+    push elemTypes "i32"
+    def elemAddr (builder.emitCall("RtPtrArray_get" lctx.ptrType elemArgs elemTypes))
+    def itemName:string itemNode.vref
+    def itemClass (this.resolveItemClass(itemNode))
+    ; A STRING element is a pointer to everything that consumes it -- strdup,
+    ; sprintf, strcmp, the map runtime. Binding it into a pointer-sized INTEGER
+    ; slot made the declared type (string) and the slot type (i64) disagree, and
+    ; every consumer then received an i64 where it wanted i8*.
+    def itemIsString:boolean (LowIRUtil.isStringType(itemNode.type_name))
+    push lctx.shadowStack itemName
+    def prevItemSlot:string ""
+    if itemIsString {
+      def elemStr (builder.emitIntToI8Ptr(elemAddr lctx.ptrType))
+      prevItemSlot = (this.shadowBind(itemName "i8*" elemStr lctx))
+    } {
+      ; A `[int]` / `[boolean]` / `[double]` element is stored widened in the
+      ; array's pointer-sized slot. Binding the raw i64 gave the loop variable
+      ; the wrong type: `for bytes b:int i { this.hexByte(b) }` passed an i64
+      ; to a parameter declared i32.
+      def elemTn:string (this.arrayElemTypeName(listNode lctx))
+      if ((strlen elemTn) == 0) {
+        elemTn = itemNode.type_name
+      }
+      if (elemTn == "int") {
+        prevItemSlot = (this.shadowBind(itemName "i32" (builder.emitCast("trunc" "i32" "i64" elemAddr)) lctx))
+      } {
+        if (elemTn == "char") {
+          prevItemSlot = (this.shadowBind(itemName "i32" (builder.emitCast("trunc" "i32" "i64" elemAddr)) lctx))
+        } {
+          if (elemTn == "boolean") {
+            prevItemSlot = (this.shadowBind(itemName "i1" (this.toI1((builder.emitCast("trunc" "i32" "i64" elemAddr)) lctx)) lctx))
+          } {
+            if ((elemTn == "double") || (elemTn == "float")) {
+              prevItemSlot = (this.shadowBind(itemName "f64" (builder.emitCast("bitcast" "f64" "i64" elemAddr)) lctx))
+            } {
+              prevItemSlot = (this.shadowBind(itemName lctx.ptrType elemAddr lctx))
+            }
+          }
+        }
+      }
+    }
+    ; Not for a string item: objectSlots forces loadSlot to the POINTER type,
+    ; which would read the i8* slot back as an integer.
+    if (itemIsString == false) {
+      if ((strlen itemClass) > 0) {
+        set lctx.objectSlots itemName itemClass
+      }
+    }
+    def savedBreakF:string lctx.breakLabel
+    def savedContF:string lctx.continueLabel
+    def savedMarkF:int lctx.loopOwnedMark
+    def savedMarkCollF:int lctx.loopOwnedCollMark
+    lctx.breakLabel = exitLabel
+    ; `continue` in a for-loop runs the INCREMENT, or the loop never advances.
+    lctx.continueLabel = incLabel
+    ; This for-loop lowering does not itself scope-release body locals, so a
+    ; jump out of it has nothing extra to drop.
+    lctx.loopOwnedMark = (array_length lctx.ownedObjectLocals)
+    lctx.loopOwnedCollMark = (array_length lctx.ownedCollectionLocals)
+    ; Strings need the same mark. Left at an enclosing loop's value, a `break`
+    ; inside this for-loop would release -- and NULL -- string locals belonging
+    ; to the loop around it, which then reads NULL for the rest of its body.
+    def savedMarkStrF:int lctx.loopOwnedStrMark
+    lctx.loopOwnedStrMark = (array_length lctx.ownedStringLocals)
+    this.lowerBlock(bodyNode lctx)
+    lctx.breakLabel = savedBreakF
+    lctx.continueLabel = savedContF
+    lctx.loopOwnedMark = savedMarkF
+    lctx.loopOwnedCollMark = savedMarkCollF
+    lctx.loopOwnedStrMark = savedMarkStrF
+    def bodyBb (unwrap builder.currentBlock)
+    if (bodyBb.termKind == "") {
+      builder.terminateBr(incLabel)
+    }
+    builder.startBlock(incLabel)
+    def idxEnd (this.loadSlot(idxName "i32" lctx))
+    def one (builder.emitConst("i32" "1"))
+    def idxNext (builder.emitBin("add" "i32" idxEnd one))
+    def idxSlot (unwrap (get lctx.slots idxName))
+    builder.emitStore("i32" idxNext idxSlot)
+    builder.terminateBr(condLabel)
+    builder.startBlock(exitLabel)
+    ; the loop's names go out of scope here
+    this.restoreShadow(itemName prevItemSlot lctx)
+    this.restoreShadow(idxName prevIdxSlot lctx)
+    removeLast lctx.shadowStack
+    removeLast lctx.shadowStack
+  }
+
+  fn nodeAssignsToName:boolean (node:CodeNode name:string) {
+    if (this.isAssignNode(node)) {
+      def lhs (node.getSecond())
+      if (lhs.vref == name) {
+        return true
+      }
+    }
+    if node.infix_operator {
+      if (!null? node.infix_node) {
+        def inx (unwrap node.infix_node)
+        if (this.isAssignNode(inx)) {
+          def lhs2 (inx.getSecond())
+          if (lhs2.vref == name) {
+            return true
+          }
+        }
+      }
+    }
+    for node.children c:CodeNode i {
+      if (this.nodeAssignsToName(c name)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn lowerBlock:void (block:CodeNode lctx:LowIRLowerContext) {
+    def reslotMark:int (array_length lctx.reslotNames)
+    this.lowerBlockBody(block lctx)
+    this.popReslots(reslotMark lctx)
+  }
+
+  fn lowerStmtList:void (stmts:[CodeNode] lctx:LowIRLowerContext) {
+    def n (array_length stmts)
+    def si:int 0
+    while (si < n) {
+      if (this.blockClosed(lctx)) {
+        return
+      }
+      this.lowerStmt((itemAt stmts si) lctx)
+      si = si + 1
+    }
+  }
+
+  fn lowerBlockBody:void (block:CodeNode lctx:LowIRLowerContext) {
+    if block.is_block_node {
+      def childCnt (array_length block.children)
+      if (childCnt > 0) {
+        this.lowerStmtList(block.children lctx)
+        return
+      }
+      if (has block.register_expressions) {
+        this.lowerStmtList(block.register_expressions lctx)
+      }
+      return
+    }
+    if block.expression {
+      def childCnt (array_length block.children)
+      if (childCnt > 0) {
+        this.lowerStmtList(block.children lctx)
+        return
+      }
+    }
+    if (has block.register_expressions) {
+      this.lowerStmtList(block.register_expressions lctx)
+      return
+    }
+    this.lowerStmt(block lctx)
+  }
+
+  fn lowerStmt:void (node:CodeNode lctx:LowIRLowerContext) {
+    if node.disabled_node {
+      return
+    }
+    ; Both arenas are statement-scoped on every target that has them. The libc
+    ; path used to skip the STRING flush, which was fine only while it also
+    ; registered nothing; once it does, a temp registered inside an `if` branch
+    ; stays pending until some later `return` flushes it -- from a block the
+    ; producing branch does not dominate, so the release read an undefined
+    ; pointer. Flushing where the temps were produced keeps that impossible.
+    if (this.strRcEnabled(lctx) == false) {
+      this.lowerStmtDispatch(node lctx)
+      return
+    }
+    def strMark (array_length lctx.pendingStringTemps)
+    def objMark (array_length lctx.pendingObjectTemps)
+    this.lowerStmtDispatch(node lctx)
+    if (!null? lctx.builder.currentBlock) {
+      def curBlock (unwrap lctx.builder.currentBlock)
+      if (curBlock.termKind == "") {
+        this.flushStringTempsFrom(strMark lctx)
+        this.flushObjectTempsFrom(objMark lctx)
+      }
+    }
+  }
+
+  fn lowerStmtDispatch:void (node:CodeNode lctx:LowIRLowerContext) {
+    if node.disabled_node {
+      return
+    }
+    if (this.isAssignNode(node)) {
+      this.lowerAssign(node lctx)
+      return
+    }
+    if node.infix_operator {
+      if (!null? node.infix_node) {
+        def infix (unwrap node.infix_node)
+        if infix.has_operator {
+          def opName (infix.getOperator())
+          if (opName == "=") {
+            this.lowerAssign(infix lctx)
+            return
+          }
+        }
+      }
+    }
+    if node.hasVarDef {
+      this.lowerVarDef(node lctx)
+      return
+    }
+    if node.has_operator {
+      def opName (node.getOperator())
+      if (opName == "return") {
+        this.lowerReturn(node lctx)
+        return
+      }
+      if (opName == "if") {
+        this.lowerIf(node lctx)
+        return
+      }
+      if (opName == "case") {
+        if ((array_length node.children) > 3) {
+          this.lowerShapeCase(node lctx)
+          return
+        }
+      }
+      ; `throw x` -- there is no unwinding here, and the front end already
+      ; refuses a throw that is not inside a `try`, so the throw is a branch to
+      ; that try's catch block with the message left where error_msg can find
+      ; it. Without a lowering the statement was dropped and control ran ON past
+      ; the throw into the rest of the try body, which every other target skips.
+      if (opName == "throw") {
+        this.lowerThrow(node lctx)
+        return
+      }
+      if (opName == "while") {
+        this.lowerWhile(node lctx)
+        return
+      }
+      if (opName == "=") {
+        this.lowerAssign(node lctx)
+        return
+      }
+      if (opName == "set") {
+        if (this.nodeIsJson((node.getSecond()) lctx)) {
+          this.lowerJsonSet(node lctx)
+          return
+        }
+        this.lowerCollectionSet(node lctx)
+        return
+      }
+      if (opName == "case") {
+        if (this.lowerJsonCase(node lctx)) {
+          return
+        }
+      }
+      if (opName == "print") {
+        this.lowerPrint(node lctx)
+        return
+      }
+      if (opName == "write") {
+        this.lowerWrite(node lctx)
+        return
+      }
+      if (opName == "exit") {
+        this.lowerExit(node lctx)
+        return
+      }
+      ; set_exit_code defers the status on the targets that buffer stdout;
+      ; a libc program flushes at exit, so it is the same call here.
+      if (opName == "set_exit_code") {
+        this.lowerExit(node lctx)
+        return
+      }
+      if (opName == "sleep_ms") {
+        this.lowerSleepMs(node lctx)
+        return
+      }
+      if (opName == "clear_screen") {
+        this.lowerClearScreen(node lctx)
+        return
+      }
+      if (opName == "hide_cursor") {
+        this.lowerHideCursor(node lctx)
+        return
+      }
+      if (opName == "show_cursor") {
+        this.lowerShowCursor(node lctx)
+        return
+      }
+      if (opName == "move_cursor") {
+        this.lowerMoveCursor(node lctx)
+        return
+      }
+      if (opName == "for") {
+        this.lowerFor(node lctx)
+        return
+      }
+      if (opName == "break") {
+        this.lowerLoopJump(lctx.breakLabel lctx)
+        return
+      }
+      if (opName == "continue") {
+        this.lowerLoopJump(lctx.continueLabel lctx)
+        return
+      }
+      if (opName == "push") {
+        if (this.nodeIsJson((node.getSecond()) lctx)) {
+          this.lowerJsonPush(node lctx)
+          return
+        }
+        this.lowerPush(node lctx)
+        return
+      }
+      if (opName == "create_dir") {
+        this.lowerCreateDir(node lctx)
+        return
+      }
+      if (opName == "write_file") {
+        this.lowerWriteFile(node lctx)
+        return
+      }
+      if (opName == "nullify") {
+        this.lowerNullify(node lctx)
+        return
+      }
+      ; `try { … } { … }` -- this backend has no unwinding, so the try block
+      ; runs and the catch block is not written, exactly as the Rust target
+      ; does. `try` carries a `*` template, so it matched here all along and
+      ; then reached no lowering at all: the whole block was DROPPED. The
+      ; compiler wraps its entire pipeline in one, which is why the native
+      ; build printed its header and then stopped without a diagnostic.
+      ; `switch v { case a { … } … default { … } }`. There is no jump table
+      ; here: the cases become an if / else-if chain, which is what the `*`
+      ; template's C `switch` means anyway (every Ranger case ends in a break).
+      ;
+      ; `switch` carried a `*` template and no lowering, so the whole statement
+      ; -- every case with it -- was DROPPED. The compiler's writers are
+      ; switch-driven, so the native build wrote out bare identifiers and
+      ; nothing else.
+      if (opName == "switch") {
+        this.lowerSwitch(node lctx)
+        return
+      }
+      if (opName == "try") {
+        this.lowerTry(node lctx)
+        return
+      }
+      if (opName == "insert") {
+        this.lowerArrayInsert(node lctx)
+        return
+      }
+      if (opName == "remove") {
+        this.lowerArrayRemove(node lctx)
+        return
+      }
+      ; `remove_index xs i` is `remove` under the name the array overload uses.
+      if (opName == "remove_index") {
+        this.lowerArrayRemove(node lctx)
+        return
+      }
+      ; `removeLast` and `clear` carried only text templates, so on this
+      ; backend they compiled to NOTHING -- a silent no-op. The compiler pops
+      ; the last path segment with removeLast when it builds its library search
+      ; path, so every candidate directory still had the file name on it.
+      if (opName == "removeLast") {
+        this.lowerArrayRemoveLast(node lctx)
+        return
+      }
+      if (opName == "clear") {
+        this.lowerArrayClear(node lctx)
+        return
+      }
+      if (opName == "on_keypress") {
+        this.lowerOnKeypress(node lctx)
+        return
+      }
+    }
+    if node.has_lambda_call {
+      this.lowerLambdaCall(node lctx)
+      return
+    }
+    if (node.has_call || node.is_direct_method_call) {
+      this.lowerCall(node lctx)
+      return
+    }
+    if node.hasFnCall {
+      this.lowerExpr(node lctx)
+      return
+    }
+    if node.has_operator {
+      this.lowerExpr(node lctx)
+      return
+    }
+    if node.expression {
+      this.lowerStmtList(node.children lctx)
+    }
+  }
+
+  fn lowerVarDef:void (node:CodeNode lctx:LowIRLowerContext) {
+    def nameNode0 (node.getSecond())
+    def varName0:string nameNode0.vref
+    this.noteRedeclaration(varName0 nameNode0 lctx)
+    this.lowerVarDefBody(node lctx)
+    ; Not every declaration reaches a bindSlot (a `def` of a type this backend
+    ; does not model falls through). Consume the request so it cannot fire on
+    ; some later assignment to the same name and silently move it off its slot.
+    this.takeForceFresh(varName0 lctx)
+  }
+
+  fn lowerVarDefBody:void (node:CodeNode lctx:LowIRLowerContext) {
+    def nameNode (node.getSecond())
+    def varName:string nameNode.vref
+    def valNode@(optional):CodeNode
+    def cnt (array_length node.children)
+    if (cnt > 2) {
+      def last (itemAt node.children (cnt - 1))
+      valNode = last
+    }
+    if (null? valNode) {
+      if (this.isIntArrayTypeNode(nameNode)) {
+        def emptyArr (this.emitPtrArrayNewEmpty(lctx 0))
+        this.bindPtrArraySlot(varName emptyArr lctx false)
+        set lctx.ptrArrayElemTypes varName "int"
+        return
+      }
+      ; a [string] array owns str-releasable elements (kind 2); check before the
+      ; general object-array case, which also matches non-int element types.
+      if (this.isStringArrayTypeNode(nameNode)) {
+        def emptyStrArr (this.emitPtrArrayNewEmpty(lctx 2))
+        this.bindPtrArraySlot(varName emptyStrArr lctx true)
+        set lctx.ptrArrayElemTypes varName "string"
+        return
+      }
+      ; a [double] array holds plain values (elemKind 0): its slots are bit
+      ; patterns, not objects, so nothing is released per element.
+      if (this.isPlainValueArrayTypeNode(nameNode)) {
+        def emptyPlainArr (this.emitPtrArrayNewEmpty(lctx 0))
+        this.bindPtrArraySlot(varName emptyPlainArr lctx false)
+        set lctx.ptrArrayElemTypes varName nameNode.array_type
+        return
+      }
+      if (this.isObjectPtrArrayTypeNode(nameNode)) {
+        def emptyPtrArr (this.emitPtrArrayNewEmpty(lctx 1))
+        this.bindPtrArraySlot(varName emptyPtrArr lctx true)
+        set lctx.ptrArrayElemTypes varName nameNode.array_type
+        return
+      }
+      if (this.isStringKeyMapTypeNode(nameNode)) {
+        def newSMap (this.emitSMapNewKind((this.smapValueOwnKind(nameNode.array_type)) lctx))
+        this.bindCollectionSlot(varName "smap" newSMap lctx)
+        set lctx.smapValueTypes varName nameNode.array_type
+        return
+      }
+      if (this.isIntKeyValueMapTypeNode(nameNode)) {
+        this.ensureIMapExterns()
+        def ikArgs:[string]
+        def ikTypes:[string]
+        push ikArgs (lctx.builder.emitConst("i32" (to_string (this.imapValueOwnKind(nameNode.array_type)))))
+        push ikTypes "i32"
+        def newIMap (lctx.builder.emitCall("RtIMap_new_kind" "i64" ikArgs ikTypes))
+        this.bindCollectionSlot(varName "imap" newIMap lctx)
+        set lctx.imapValueTypes varName nameNode.array_type
+        return
+      }
+      if (this.isIntIntMapTypeNode(nameNode)) {
+        def eight (lctx.builder.emitConst("i32" "8"))
+        def newMap (this.emitRtMapNew(eight lctx))
+        this.bindCollectionSlot(varName "map" newMap lctx)
+        return
+      }
+      ; `def none@(optional):SomeClass` — an object local declared with no value
+      ; is NULL. Without a slot the name has no LLVM value at all and any later
+      ; read (`return none`) emitted a bare %none that is never defined.
+      def tnNoInit:string (this.varTypeName(nameNode))
+      ; `def res@(optional):string` with no value: bind a NULL i8* slot now, the
+      ; same way the object case below does. Without a slot the first
+      ; assignment invented one, and the type it guessed was i32 -- so a later
+      ; `res = someString` stored a pointer into a 32-bit slot.
+      if (LowIRUtil.isStringType(tnNoInit)) {
+        this.bindSlot(varName "i8*" "null" lctx)
+        return
+      }
+      ; The same for a declared PRIMITIVE with no value (`def d@(optional):double`):
+      ; the first assignment would otherwise invent an i32 slot for it.
+      if (LowIRUtil.isSupportedPrimitive(tnNoInit)) {
+        def primIr:string (LowIRUtil.typeFromRanger(tnNoInit))
+        def zeroTxt:string "0"
+        if (primIr == "f64") {
+          zeroTxt = "0.0"
+        }
+        this.bindSlot(varName primIr (lctx.builder.emitConst(primIr zeroTxt)) lctx)
+        return
+      }
+      if ((strlen tnNoInit) > 0) {
+        if (this.isObjectTypeName(tnNoInit)) {
+          def nullObj (lctx.builder.emitConst(lctx.ptrType "0"))
+          set lctx.objectSlots varName tnNoInit
+          this.bindSlot(varName lctx.ptrType nullObj lctx)
+          return
+        }
+      }
+      return
+    }
+    def val (unwrap valNode)
+    if (this.isArrayLiteralValue(nameNode val)) {
+      def litElem0:string (this.arrayLiteralElemType(nameNode val lctx))
+      def litArr0 (this.lowerArrayLiteral(nameNode val lctx))
+      def litOwned0:boolean true
+      if (litElem0 == "int") { litOwned0 = false }
+      if (litElem0 == "boolean") { litOwned0 = false }
+      if (litElem0 == "double") { litOwned0 = false }
+      if (litElem0 == "float") { litOwned0 = false }
+      if (litElem0 == "char") { litOwned0 = false }
+      this.bindPtrArraySlot(varName litArr0 lctx litOwned0)
+      if ((strlen litElem0) > 0) {
+        set lctx.ptrArrayElemTypes varName litElem0
+      }
+      return
+    }
+    if val.has_operator {
+      def valOp (val.getOperator())
+      ; `def ks:[string] (keys m)` yields a fresh pointer-array of strings. The
+      ; element type has to be recorded or every later `itemAt ks i` reads a raw
+      ; integer where a string pointer is wanted.
+      if (valOp == "keys") {
+        def kArr (this.lowerSMapKeys(val lctx))
+        this.bindPtrArraySlot(varName kArr lctx true)
+        set lctx.ptrArrayElemTypes varName "string"
+        return
+      }
+      if (valOp == "make") {
+        def made (this.lowerCollectionMake(val lctx))
+        if (this.isObjectPtrArrayTypeNode(nameNode)) {
+          this.bindPtrArraySlot(varName made lctx true)
+        } {
+          this.bindPtrArraySlot(varName made lctx false)
+          set lctx.ptrArrayElemTypes varName "int"
+        }
+        return
+      }
+    }
+    if (val.has_call || val.is_direct_method_call || val.hasFnCall) {
+      def callTmp (this.lowerCall(val lctx))
+      def irTypeFromCall:string "i32"
+      def typeName (this.varTypeName(nameNode))
+      if ((strlen typeName) == 0) {
+        if (!null? val.fnDesc) {
+          if (!null? val.fnDesc.nameNode) {
+            def retNode (unwrap val.fnDesc.nameNode)
+            typeName = (this.varTypeName(retNode))
+          }
+        }
+      }
+      if ((strlen typeName) > 0) {
+        irTypeFromCall = (this.llvmTypeForRanger(typeName lctx.ptrType))
+        if (this.isObjectTypeName(typeName)) {
+          set lctx.objectSlots varName typeName
+          ; The callee handed over a reference; this local owns it and releases
+          ; it at scope end. Without this `def v:T (this.f())` -- the shape every
+          ; line of an evaluator has -- kept its object alive forever.
+          if (this.objRcEnabled(lctx)) {
+            ; Claim it either way. The claim is not about ownership -- it takes
+            ; the value OUT of the statement arena, which would otherwise free
+            ; it at the end of this statement while the local still names it.
+            ; Only the scope-end RELEASE is about ownership, and a JSON value
+            ; has no object header for that to be handed.
+            this.claimObjectTemp(callTmp lctx)
+            if (this.isRefCountedObjectType(typeName)) {
+              if (this.isOwnedObjectLocal(varName lctx) == false) {
+                push lctx.ownedObjectLocals varName
+              }
+            }
+          }
+        }
+      }
+      ; L3 applies to a call result too: a local that a capturing lambda
+      ; assigns to is promoted here as well, after objectSlots has recorded its
+      ; class so field reads through the cell still know what they are reading.
+      if (this.objRcEnabled(lctx)) {
+        if (has lctx.boxedCandidates varName) {
+          if (this.isBoxableIrType(irTypeFromCall)) {
+            this.bindBoxedLocal(varName irTypeFromCall (this.boxInitValue(irTypeFromCall callTmp lctx)) lctx)
+            return
+          }
+        }
+      }
+      ; A call returning a collection ([T] / [int] / map) yields a descriptor
+      ; pointer. Register it as a collection slot so for/array_length/itemAt work;
+      ; the caller takes ownership (escaped from callee) and releases at scope end.
+      ; A [string] local has to be recognised BEFORE the general object-array
+      ; case, which also matches non-int element types -- the same ordering the
+      ; no-initialiser branch above documents. Without it the element type went
+      ; unrecorded for `def names:[string] (this.collect())`, and every later
+      ; question about the element ("is it a string?") answered no: reads were
+      ; left as raw integers and `(itemAt a i) == (itemAt a j)` compiled to an
+      ; integer icmp rather than a string comparison.
+      if (this.isStringArrayTypeNode(nameNode)) {
+        this.bindPtrArraySlot(varName callTmp lctx true)
+        set lctx.ptrArrayElemTypes varName "string"
+        return
+      }
+      if (this.isPlainValueArrayTypeNode(nameNode)) {
+        this.bindPtrArraySlot(varName callTmp lctx false)
+        set lctx.ptrArrayElemTypes varName nameNode.array_type
+        return
+      }
+      if (this.isObjectPtrArrayTypeNode(nameNode)) {
+        this.bindPtrArraySlot(varName callTmp lctx true)
+        ; record the ELEMENT type: without it an `itemAt` read out of this local
+        ; looked scalar and was widened with `zext i32` over an i64 address.
+        set lctx.ptrArrayElemTypes varName nameNode.array_type
+        return
+      }
+      if (this.isIntArrayTypeNode(nameNode)) {
+        this.bindPtrArraySlot(varName callTmp lctx false)
+        set lctx.ptrArrayElemTypes varName "int"
+        return
+      }
+      if (this.isStringKeyMapTypeNode(nameNode)) {
+        this.bindCollectionSlot(varName "smap" callTmp lctx)
+        set lctx.smapValueTypes varName nameNode.array_type
+        return
+      }
+      if (this.isIntIntMapTypeNode(nameNode)) {
+        this.bindCollectionSlot(varName "map" callTmp lctx)
+        return
+      }
+      ; A STRING result takes a private copy, exactly as every other binding
+      ; path does (emitOwnedStringInit). Skipping it here was harmless only
+      ; while objects were never freed: a getter that returns a borrowed field
+      ; (`toPropertyKey` ends in `return v.stringValue`) handed back a pointer
+      ; into an EvalValue that the statement arena then released, so the local
+      ; was reading freed memory -- property keys came back as garbage bytes.
+      if (irTypeFromCall == "i8*") {
+        callTmp = (this.emitOwnedStringInit(varName val callTmp lctx))
+      }
+      this.bindSlot(varName irTypeFromCall callTmp lctx)
+      return
+    }
+    if val.hasNewOper {
+      def clsName (this.newTargetClassName(val lctx))
+      if ((strlen clsName) > 0) {
+        def argsNode (val.getThird())
+        if (this.isOwnedObjectLocal(varName lctx)) {
+          this.releaseOwnedLocal(varName lctx)
+        }
+        def objPtr (this.lowerNewObject(clsName argsNode lctx))
+        set lctx.objectSlots varName clsName
+        if (this.isOwnedObjectLocal(varName lctx) == false) {
+          push lctx.ownedObjectLocals varName
+        }
+        ; bindSlot zero-inits new pointer slots at entry, so an owned object
+        ; local defined only in a conditional branch is NULL (not garbage) on
+        ; skipped paths and the scope-end release is a safe no-op.
+        this.bindSlot(varName lctx.ptrType objPtr lctx)
+        return
+      }
+    }
+    ; a lambda local holds a closure record (RC object) — release it at scope end
+    if val.has_lambda {
+      def rec (this.lowerLambdaValue(val lctx))
+      ; the local now owns the record: claim it out of the statement arena so it
+      ; is not double-freed (scope-end release owns its lifetime).
+      this.claimObjectTemp(rec lctx)
+      if (this.objRcEnabled(lctx)) {
+        if (this.isOwnedObjectLocal(varName lctx) == false) {
+          push lctx.ownedObjectLocals varName
+        }
+      }
+      this.bindSlot(varName lctx.ptrType rec lctx)
+      return
+    }
+    ; A collection-typed local initialised by an OPERATOR expression
+    ; (`def parts:[string] (strsplit s sep)`) also needs its slot registered as
+    ; a ptr-array WITH its element type. Without it every later `itemAt parts i`
+    ; came back as a raw integer where a string pointer was wanted.
+    if (this.isStringArrayTypeNode(nameNode)) {
+      def sArrV (this.lowerExpr(val lctx))
+      this.retainAliasedArray(val sArrV lctx)
+      this.bindPtrArraySlot(varName sArrV lctx true)
+      set lctx.ptrArrayElemTypes varName "string"
+      return
+    }
+    if (this.isPlainValueArrayTypeNode(nameNode)) {
+      def plainArrV (this.lowerExpr(val lctx))
+      this.retainAliasedArray(val plainArrV lctx)
+      this.bindPtrArraySlot(varName plainArrV lctx false)
+      set lctx.ptrArrayElemTypes varName nameNode.array_type
+      return
+    }
+    if (this.isObjectPtrArrayTypeNode(nameNode)) {
+      def oArrV (this.lowerExpr(val lctx))
+      this.retainAliasedArray(val oArrV lctx)
+      this.bindPtrArraySlot(varName oArrV lctx true)
+      set lctx.ptrArrayElemTypes varName nameNode.array_type
+      return
+    }
+    def tmp (this.lowerExpr(val lctx))
+    def typeName (this.varTypeName(nameNode))
+    def irType (this.llvmTypeForRanger(typeName lctx.ptrType))
+    if (val.value_type == RangerNodeType.Boolean) {
+      irType = "i1"
+    }
+    ; L3: a value local mutated by a capturing lambda is promoted to a shared
+    ; heap cell (RC object, td=0). Both this scope and the closure reference the
+    ; cell; reads/writes go through it, and it is freed once (RC balances the
+    ; scope-end release against the closure's retain-on-capture).
+    if (this.objRcEnabled(lctx)) {
+      if (has lctx.boxedCandidates varName) {
+        if (this.isBoxableIrType(irType)) {
+          ; The class has to be recorded BEFORE the promotion. A method call or
+          ; a field read on the name resolves through objectSlots, and the
+          ; object branch that would set it is below here and never reached --
+          ; so `calledItem.copy()` on a boxed receiver resolved to nothing and
+          ; lowered to a null, which CodeNode.fromList then pushed into a list.
+          if (this.isObjectTypeName(typeName)) {
+            set lctx.objectSlots varName typeName
+          }
+          this.bindBoxedLocal(varName irType (this.boxInitValue(irType tmp lctx)) lctx)
+          return
+        }
+      }
+    }
+    if (this.isObjectTypeName(typeName)) {
+      set lctx.objectSlots varName typeName
+      ; EVERY object local holds a counted reference, borrowed or not. A local
+      ; that merely aliased a field (`def out:T scriptReturnValue`) dangled the
+      ; moment that field was overwritten later in the same function -- the
+      ; overwrite released the only reference while the local still named it.
+      if ((this.memEnabled(lctx)) && (this.isRefCountedObjectType(typeName))) {
+        this.claimObjectTemp(tmp lctx)
+        if ((this.exprCarriesFreshRef(val lctx)) == false) {
+          this.emitObjRetainPtr(tmp lctx)
+        }
+        if (this.isOwnedObjectLocal(varName lctx) == false) {
+          push lctx.ownedObjectLocals varName
+        }
+      }
+    }
+    if (irType == "i8*") {
+      tmp = (this.emitOwnedStringInit(varName val tmp lctx))
+    }
+    ; A double-typed local initialized from an integer-valued expression: widen
+    ; the i32 result to double so the slot store types match.
+    if (irType == "f64") {
+      if ((this.exprIsF64(val)) == false) {
+        tmp = (lctx.builder.emitCast("sitofp" "f64" "i32" tmp))
+      }
+    }
+    ; An `int` local initialized from a 64-bit operator result (file_mtime) has
+    ; an i32 slot; narrow the value the way the C++ target's implicit
+    ; conversion does, rather than storing an i64 into an i32 slot.
+    if (irType == "i32") {
+      if (this.exprIsI64Operator(val)) {
+        tmp = (lctx.builder.emitCast("trunc" "i32" "i64" tmp))
+      }
+    }
+    ; A JSON-typed initialiser (`def o (unwrap values)`) records its class, so
+    ; that keys / array_length / set on the name reach the JSON runtime.
+    def jsonTn:string (this.jsonTypeNameOfNode(val lctx))
+    if ((strlen jsonTn) > 0) {
+      set lctx.objectSlots varName jsonTn
+    }
+    ; A declared `boolean` local holds an i1. Several sources answer a wider
+    ; integer -- a `[string:boolean]` map read comes back through the int path
+    ; -- so narrow rather than store an i32 into an i1 slot.
+    if (irType == "i1") {
+      if ((lctx.builder.emittedType(tmp)) != "i1") {
+        if ((this.exprProducesI1(val lctx)) == false) {
+          tmp = (this.toI1(tmp lctx))
+        }
+      }
+    }
+    this.bindSlot(varName irType tmp lctx)
+  }
+
+  fn lowerAssign:void (node:CodeNode lctx:LowIRLowerContext) {
+    def lhs (node.getSecond())
+    def rhs (itemAt node.children 2)
+    def varName:string lhs.vref
+    def builder (lctx.builder)
+    def tmp:string ""
+    def newCls:string ""
+    if rhs.hasNewOper {
+      newCls = (this.newTargetClassName(rhs lctx))
+      if ((strlen newCls) == 0) {
+        newCls = (this.assignTargetFieldClass(varName lctx))
+      }
+    }
+    if ((strlen newCls) > 0) {
+      tmp = (this.lowerNewObject(newCls (rhs.getThird()) lctx))
+    } {
+      tmp = (this.lowerExpr(rhs lctx))
+    }
+    ; L3: a boxed value local — write through the shared heap cell so the closure
+    ; that captured it observes the mutation (and vice versa).
+    if (has lctx.boxedLocals varName) {
+      def cellPtr (this.loadSlotRaw(varName lctx.ptrType lctx))
+      def logT:string (this.boxedCellType(varName lctx))
+      def wrote:string (this.widenForBoxCell(tmp logT lctx))
+      ; A REFERENCE written into the cell is now held by the cell, so it has to
+      ; be claimed out of the statement arena -- otherwise the arena frees it at
+      ; the end of this very statement and the cell is left pointing at memory
+      ; that has been handed back. `s = (s + x)` inside a lambda read as garbage
+      ; because of exactly this. The value it replaces is not released: this
+      ; backend leaks a replaced capture rather than risk freeing one that the
+      ; enclosing scope still names.
+      if (logT == "i8*") {
+        this.claimStringTemp(wrote lctx)
+      } {
+        if (logT == lctx.ptrType) {
+          this.claimObjectTemp(wrote lctx)
+        }
+      }
+      builder.emitStoreTypedAt(cellPtr 0 wrote (this.boxedStorageType(logT)))
+      return
+    }
+    def irType:string "i32"
+    if ((indexOf varName ".") >= 0) {
+      def parts:[string] (strsplit varName ".")
+      if ((array_length parts) >= 2) {
+        ; The target field is the LAST segment; everything before it is the
+        ; receiver chain. For `h.pos.x` the receiver is `h.pos` (resolved by
+        ; loading each intermediate object field) and the field is `x`. Using
+        ; only the first two segments stored into `h.pos` itself, dropping `.x`.
+        def n:int (array_length parts)
+        def recvPrefix:string (this.joinDotPrefix(parts (n - 1)))
+        def fld (itemAt parts (n - 1))
+        def cls (this.resolveObjectClassChain(recvPrefix lctx))
+        if ((strlen cls) > 0) {
+          def sptr (this.resolveObjectPtrChain(recvPrefix cls lctx))
+          ; An object field RETAINS what it is given (emitFieldStoreOnEx), so
+          ; the local keeps its own reference and is released normally. This
+          ; used to mark the local escaped -- correct under the old borrow/move
+          ; model, but once the field started retaining it meant the local's
+          ; reference was never given back: one leak per `field = local`, which
+          ; is what every `o.key = value` did through assignMember.
+          ; A string field takes a dup'd private copy (emitFieldStoreOn), so an
+          ; owned string local stored into it is NOT consumed. An object field on
+          ; WASM retains a borrowed value / moves a fresh `new` (rhs.hasNewOper).
+          this.emitFieldStoreOnEx(cls sptr fld tmp rhs.hasNewOper lctx)
+          return
+        }
+      }
+    }
+    if (this.resolvesToField(varName lctx)) {
+      ; NOTE: do not zext boolean rhs here. emitFieldStore ->
+      ; emitFieldStoreOn already widens an i1 value to the i32 storage slot
+      ; for boolean fields. Pre-zexting produced an invalid double
+      ; "zext i1 <i32> to i32" (the receiver "recv.fld" path above never did
+      ; this, which is why only bare field assignments miscompiled).
+      this.emitFieldStoreOnEx(lctx.className lctx.selfPtr varName tmp rhs.hasNewOper lctx)
+      return
+    }
+    if (has lctx.slots varName) {
+      def slot (unwrap (get lctx.slots varName))
+      ; An object assigned into a local slot is no longer a loose statement
+      ; temp -- the slot holds it past the end of this statement, so the arena
+      ; must not release it. An owned local keeps a counted reference: a
+      ; borrowed right-hand side is retained, and the value the slot held BEFORE
+      ; is released, because the local has stopped being one of its owners.
+      ;
+      ; Skipping that release leaked one reference per overwrite. `def target
+      ; context` … `target = (context.varScope())` is the shape: the local
+      ; retained `context`, then dropped the pointer without giving the
+      ; reference back, orphaning a scope on every `var` declaration the engine
+      ; processed. Retain-before-release keeps `x = x` safe.
+      if (this.memEnabled(lctx)) {
+        if (this.slotHoldsObject(varName lctx)) {
+          this.claimObjectTemp(tmp lctx)
+          if (this.isOwnedObjectLocal(varName lctx)) {
+            if ((this.exprCarriesFreshRef(rhs lctx)) == false) {
+              this.emitObjRetainPtr(tmp lctx)
+            }
+            this.releaseOwnedLocal(varName lctx)
+          }
+        }
+      }
+      ; An array local reassigned to another array becomes an owner of the new
+      ; one and stops owning the old. Storing the descriptor without adjusting
+      ; either count left two locals releasing the same array.
+      if (this.memEnabled(lctx)) {
+        if ((this.collectionKind(varName lctx)) == "ptr_array") {
+          if (this.isOwnedCollectionLocal(varName lctx)) {
+            this.emitPtrArrayRetain(tmp lctx)
+            this.releaseOwnedCollectionLocal(varName lctx)
+          }
+        }
+      }
+      ; release-before-reassign: `x = (new T)` on an owned object local must free
+      ; the previous object first (the new one is already allocated in `tmp`).
+      ; releaseOwnedLocal self-gates on objRcEnabled + escaped, and loads the
+      ; slot's current (old) value.
+      if (rhs.hasNewOper) {
+        if (has lctx.objectSlots varName) {
+          if (this.isOwnedObjectLocal(varName lctx)) {
+            this.releaseOwnedLocal(varName lctx)
+          }
+        }
+      }
+      ; MOVE, not copy: `left = nullish` between two owned object locals leaves
+      ; both slots pointing at one object, and each would release it at scope
+      ; end. Marking the source escaped hands ownership to the destination, so
+      ; the object is freed exactly once -- by whoever still owns it.
+      ;
+      ; Without this, a function that builds a node and assigns it to the local
+      ; it returns (the shape every precedence level of an expression parser is
+      ; written in) freed the node it had just returned, and the caller then
+      ; wrote through a dangling pointer.
+      if (rhs.value_type == RangerNodeType.VRef) {
+        if (this.isOwnedObjectLocal(rhs.vref lctx)) {
+          set lctx.escapedLocals rhs.vref "1"
+        }
+      }
+      def storeType (irType)
+      if (has lctx.slotTypes varName) {
+        storeType = (unwrap (get lctx.slotTypes varName))
+      }
+      if (rhs.value_type == RangerNodeType.Boolean) {
+        if (storeType != "i1") {
+          tmp = (builder.emitZextI1ToI32(tmp))
+          storeType = "i32"
+        }
+      }
+      if (storeType == "i8*") {
+        tmp = (this.emitOwnedStringReassign(varName rhs tmp lctx))
+      }
+      ; A boolean SLOT holds an i1. Several right-hand sides answer a wider
+      ; integer -- a `[string:boolean]` map read comes back through the int
+      ; path -- so narrow rather than store an i32 into an i1 slot.
+      if (storeType == "i1") {
+        if ((builder.emittedType(tmp)) != "i1") {
+          tmp = (this.toI1(tmp lctx))
+        }
+      }
+      builder.emitStore(storeType tmp slot)
+      return
+    }
+    this.bindSlot(varName irType tmp lctx)
+  }
+
+  fn lowerReturn:void (node:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def voidType:string "void"
+    def retType:string lctx.llvmRetType
+    if ((array_length node.children) > 1) {
+      def valNode (node.getSecond())
+      ; A REFERENCE result (object or collection) is counted, so the rule is
+      ; uniform and needs no analysis of where the value came from: the returned
+      ; reference is retained here and every local keeps releasing normally. The
+      ; one exception is an expression that already CARRIES a fresh reference --
+      ; a call result or a `new` -- which is handed straight through.
+      ;
+      ; Trying instead to classify each returned expression as owned-or-borrowed
+      ; is what broke: `return this.x` freed the field, and the list of shapes
+      ; to recognise (fields, parameters, elements, unwraps, conditionals) never
+      ; ends.
+      def retObj:boolean (this.isObjectTypeName(lctx.currentRetType))
+      ; A MAP type also starts with "[", but an RtSMap carries no refcount --
+      ; retaining one wrote through a ptr-array descriptor's rc field onto
+      ; unrelated bytes of the map and corrupted it. Maps stay a MOVE.
+      def retArr:boolean false
+      if (LowIRUtil.isArrayTypeName(lctx.currentRetType)) {
+        if ((indexOf lctx.currentRetType ":") < 0) {
+          retArr = true
+        }
+      }
+      def retCounted:boolean false
+      if (this.memEnabled(lctx)) {
+        if (retObj || retArr) {
+          retCounted = true
+        }
+        ; The declared return type is not always usable -- an @(optional) return
+        ; can arrive without one -- so also count the case that matters: the
+        ; returned name is a local this scope RETAINED when it bound it. Marking
+        ; such a local escaped instead skips that release, so every lookup that
+        ; found its binding (`def found (get bindings name)` … `return found`)
+        ; leaked exactly one reference.
+        if (valNode.value_type == RangerNodeType.VRef) {
+          if (this.isOwnedObjectLocal(valNode.vref lctx)) {
+            if (this.slotHoldsObject(valNode.vref lctx)) {
+              retCounted = true
+              retObj = true
+            }
+          }
+        }
+      }
+      if (valNode.value_type == RangerNodeType.VRef) {
+        ; A returned local escapes: the caller now owns it, so it must not be
+        ; released here. A boxed value local (L3) is the exception: `return
+        ; count` copies the VALUE out through the cell, so the cell itself does
+        ; NOT escape. A counted reference does not escape either -- it is
+        ; retained below, and the local releases its own reference as usual.
+        if (has lctx.boxedLocals valNode.vref) {
+        } {
+          if (retCounted) {
+          } {
+            set lctx.escapedLocals valNode.vref "1"
+          }
+        }
+      }
+      def tmp:string ""
+      ; `return ([] "a" "b" …)` -- an array literal with no declaration to read
+      ; its type from. Without this the literal fell through to lowerExpr,
+      ; which answered its FIRST ELEMENT: UnicodeProps.names() returned an i8*
+      ; from a function declared to return a ptr-array, which does not even
+      ; parse. The argument position had the same hole (see lowerCallArgValue).
+      def builtArrayLit:boolean false
+      if retArr {
+        if (this.isArrayLiteralShape(valNode)) {
+          def retElem:string (this.arrayElemTypeOfTypeName(lctx.currentRetType))
+          if ((strlen retElem) > 0) {
+            this.usedPtrArrayRuntime = true
+            tmp = (this.lowerArrayLiteralTyped(retElem valNode lctx))
+            builtArrayLit = true
+          }
+        }
+      }
+      if (builtArrayLit == false) {
+        if (valNode.has_call || valNode.is_direct_method_call) {
+          tmp = (this.lowerCall(valNode lctx))
+        } {
+          tmp = (this.lowerExpr(valNode lctx))
+        }
+      }
+      if (retCounted) {
+        if ((this.exprCarriesFreshRef(valNode lctx)) == false) {
+          if retObj {
+            this.emitObjRetainPtr(tmp lctx)
+          } {
+            this.emitPtrArrayRetain(tmp lctx)
+          }
+        }
+      }
+      ; the returned value escapes to the caller: claim it out of the statement
+      ; arena so it is not freed, then release the remaining intermediates (e.g.
+      ; the int->string temps of `return ("a" + n)`) before the terminator.
+      this.claimStringTemp(tmp lctx)
+      this.flushStringTempsFrom(0 lctx)
+      ; a returned closure record escapes; release the rest (inline lambda args)
+      this.claimObjectTemp(tmp lctx)
+      this.flushObjectTempsFrom(0 lctx)
+      this.emitReleaseOwnedLocals(lctx)
+      ; A boolean function returns i1, but plenty of boolean-valued
+      ; expressions arrive as i32 -- a `[string:boolean]` map read comes back
+      ; through the int path, for one. Narrow rather than emit `ret i1 <i32>`.
+      if (retType == "i1") {
+        if ((builder.emittedType(tmp)) != "i1") {
+          if ((this.exprProducesI1(valNode lctx)) == false) {
+            tmp = (this.toI1(tmp lctx))
+          }
+        }
+      } {
+        ; Width coercion against what was actually emitted. A lambda body whose
+        ; declared result is `int` can end in a pointer-sized read, and
+        ; `ret i32 <i64 value>` does not assemble.
+        def emittedRet:string (builder.emittedType(tmp))
+        if ((strlen emittedRet) > 0) {
+          if (emittedRet != retType) {
+            if ((retType == "i32") && (emittedRet == "i64")) {
+              tmp = (builder.emitCast("trunc" "i32" "i64" tmp))
+            }
+            if ((retType == "i64") && (emittedRet == "i32")) {
+              tmp = (builder.emitCast("zext" "i64" "i32" tmp))
+            }
+            if ((retType == "i64") && (emittedRet == "i1")) {
+              tmp = (builder.emitCast("zext" "i64" "i1" tmp))
+            }
+            if ((retType == "i32") && (emittedRet == "i1")) {
+              tmp = (builder.emitZextI1ToI32(tmp))
+            }
+          }
+        }
+      }
+      builder.terminateRet(retType tmp)
+    } {
+      this.emitReleaseOwnedLocals(lctx)
+      if (retType == voidType) {
+        builder.terminateRet(voidType "")
+      } {
+        def zero:string "0"
+        def retVal (builder.emitConst("i32" zero))
+        builder.terminateRet(retType retVal)
+      }
+    }
+  }
+
+  fn lowerThrow:void (node:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    this.irModule.usesErrorMsg = true
+    if ((array_length node.children) > 1) {
+      def msg (this.lowerExpr((node.getSecond()) lctx))
+      ; the message outlives this statement -- the catch block reads it after
+      ; the branch -- so it is copied out of the statement arena
+      def owned (this.emitStrdupExpr(msg lctx))
+      builder.emitGlobalSet("__rg_error_msg" (builder.emitPtrToInt(owned)))
+    }
+    if ((strlen lctx.catchLabel) > 0) {
+      builder.terminateBr(lctx.catchLabel)
+      def deadL:string (builder.freshLabel("after_throw"))
+      builder.startBlock(deadL)
+      return
+    }
+    ; no enclosing try: the front end rejects this, but a module that reached
+    ; here anyway must not simply carry on
+    this.ensureExternDecl("abort" "void" (this.emptyStrList()) false)
+    def aArgs:[string]
+    def aTypes:[string]
+    builder.emitCall("abort" "void" aArgs aTypes)
+    def deadL2:string (builder.freshLabel("after_throw"))
+    builder.terminateBr(deadL2)
+    builder.startBlock(deadL2)
+  }
+
+  fn lowerTry:void (node:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def cnt (array_length node.children)
+    if (cnt < 2) {
+      return
+    }
+    def tryBlock (node.getSecond())
+    def catchL (builder.freshLabel("catch"))
+    def endL (builder.freshLabel("try_end"))
+    def savedCatch:string lctx.catchLabel
+    lctx.catchLabel = catchL
+    this.lowerBlock(tryBlock lctx)
+    lctx.catchLabel = savedCatch
+    if (!null? builder.currentBlock) {
+      def tb (unwrap builder.currentBlock)
+      if (tb.termKind == "") {
+        builder.terminateBr(endL)
+      }
+    }
+    builder.startBlock(catchL)
+    if (cnt > 2) {
+      def catchBlock (node.getThird())
+      this.lowerBlock(catchBlock lctx)
+    }
+    if (!null? builder.currentBlock) {
+      def cb (unwrap builder.currentBlock)
+      if (cb.termKind == "") {
+        builder.terminateBr(endL)
+      }
+    }
+    builder.startBlock(endL)
+  }
+
+  fn lowerSwitch:void (node:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    if ((array_length node.children) < 3) {
+      return
+    }
+    def subjNode (node.getSecond())
+    def caseList (node.getThird())
+    def subj (this.lowerExpr(subjNode lctx))
+    def endL (builder.freshLabel("switch_end"))
+    def defaultBlock@(optional):CodeNode
+    def savedBreak:string lctx.breakLabel
+    lctx.breakLabel = endL
+    for caseList.children arm:CodeNode ai {
+      if ((array_length arm.children) < 2) {
+        continue
+      }
+      def head:string (arm.getVRefAt(0))
+      if (head == "default") {
+        defaultBlock = (arm.getSecond())
+        continue
+      }
+      if (head != "case") {
+        continue
+      }
+      def caseVal (arm.getSecond())
+      def bodyNode (arm.getThird())
+      def hit (this.emitSwitchCaseTest(subj subjNode caseVal lctx))
+      def bodyL (builder.freshLabel("case_body"))
+      def nextL (builder.freshLabel("case_next"))
+      builder.terminateBrIf(hit bodyL nextL)
+      builder.startBlock(bodyL)
+      this.lowerBlock(bodyNode lctx)
+      def bb (unwrap builder.currentBlock)
+      if (bb.termKind == "") {
+        builder.terminateBr(endL)
+      }
+      builder.startBlock(nextL)
+    }
+    if (!null? defaultBlock) {
+      this.lowerBlock((unwrap defaultBlock) lctx)
+      def dbb (unwrap builder.currentBlock)
+      if (dbb.termKind == "") {
+        builder.terminateBr(endL)
+      }
+    } {
+      builder.terminateBr(endL)
+    }
+    builder.startBlock(endL)
+    lctx.breakLabel = savedBreak
+  }
+
+  fn lowerIf:void (node:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def condNode (node.getSecond())
+    def thenNode (node.getThird())
+    def condMark (array_length lctx.pendingStringTemps)
+    def objCondMark (array_length lctx.pendingObjectTemps)
+    def cond (this.lowerCond(condNode lctx))
+    ; a fresh string temp built in the condition (e.g. (("a"+x) == y)) is dead
+    ; once the i1 is computed; free it here, in the pre-branch block where it is
+    ; still valid, rather than leaking to the merge block.
+    this.flushStringTempsFrom(condMark lctx)
+    this.flushObjectTempsFrom(objCondMark lctx)
+    def thenTag:string "then"
+    def elseTag:string "else"
+    def mergeTag:string "merge"
+    def thenLabel (builder.freshLabel(thenTag))
+    def elseLabel (builder.freshLabel(elseTag))
+    def mergeLabel (builder.freshLabel(mergeTag))
+
+    def hasElse:boolean false
+    if ((array_length node.children) > 3) {
+      hasElse = true
+    }
+
+    if hasElse {
+      builder.terminateBrIf(cond thenLabel elseLabel)
+    } {
+      builder.terminateBrIf(cond thenLabel mergeLabel)
+    }
+
+    builder.startBlock(thenLabel)
+    this.lowerBlock(thenNode lctx)
+    def thenBlock (unwrap builder.currentBlock)
+    if (thenBlock.termKind == "") {
+      builder.terminateBr(mergeLabel)
+    }
+
+    if hasElse {
+      def elseNode@(optional):CodeNode
+      if ((array_length node.children) > 3) {
+        elseNode = (itemAt node.children 3)
+      }
+      if (!null? elseNode) {
+        builder.startBlock(elseLabel)
+        this.lowerBlock((unwrap elseNode) lctx)
+        def elseBlock (unwrap builder.currentBlock)
+        if (elseBlock.termKind == "") {
+          builder.terminateBr(mergeLabel)
+        }
+      }
+    }
+
+    builder.startBlock(mergeLabel)
+  }
+
+  fn lowerWhile:void (node:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def condNode (node.getSecond())
+    def bodyNode (node.getThird())
+    def condTag:string "while_cond"
+    def bodyTag:string "while_body"
+    def exitTag:string "while_exit"
+    def condLabel (builder.freshLabel(condTag))
+    def bodyLabel (builder.freshLabel(bodyTag))
+    def exitLabel (builder.freshLabel(exitTag))
+
+    builder.terminateBr(condLabel)
+    builder.startBlock(condLabel)
+    def condMark (array_length lctx.pendingStringTemps)
+    def objCondMark (array_length lctx.pendingObjectTemps)
+    def cond (this.lowerCond(condNode lctx))
+    ; free per-iteration condition string temps in the condition block (runs each
+    ; iteration), so a loop whose test builds a string doesn't leak every turn.
+    this.flushStringTempsFrom(condMark lctx)
+    this.flushObjectTempsFrom(objCondMark lctx)
+    builder.terminateBrIf(cond bodyLabel exitLabel)
+
+    ; snapshot owned-object and owned-string locals so any declared INSIDE the
+    ; loop body are released once per iteration (block scope), not leaked until
+    ; function end — critical for per-frame throwaway strings.
+    def ownedBefore (array_length lctx.ownedObjectLocals)
+    def ownedStrBefore (array_length lctx.ownedStringLocals)
+    def ownedCollBefore (array_length lctx.ownedCollectionLocals)
+
+    builder.startBlock(bodyLabel)
+    def savedBreakW:string lctx.breakLabel
+    def savedContW:string lctx.continueLabel
+    def savedMarkW:int lctx.loopOwnedMark
+    def savedMarkStrW:int lctx.loopOwnedStrMark
+    def savedMarkCollW:int lctx.loopOwnedCollMark
+    lctx.breakLabel = exitLabel
+    lctx.continueLabel = condLabel
+    lctx.loopOwnedMark = ownedBefore
+    lctx.loopOwnedStrMark = ownedStrBefore
+    lctx.loopOwnedCollMark = ownedCollBefore
+    this.lowerBlock(bodyNode lctx)
+    lctx.breakLabel = savedBreakW
+    lctx.continueLabel = savedContW
+    lctx.loopOwnedMark = savedMarkW
+    lctx.loopOwnedStrMark = savedMarkStrW
+    lctx.loopOwnedCollMark = savedMarkCollW
+    def bodyBlock (unwrap builder.currentBlock)
+    if (bodyBlock.termKind == "") {
+      this.releaseLoopBodyOwned(ownedBefore ownedStrBefore ownedCollBefore lctx)
+      builder.terminateBr(condLabel)
+    }
+
+    builder.startBlock(exitLabel)
+  }
+
+}

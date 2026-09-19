@@ -1,0 +1,1618 @@
+; SPDX-License-Identifier: MIT
+
+; Arrays, string maps and int maps: the literal, the element type, the pointer
+; arithmetic of a get and a set, and the JSON reader built on top of them.
+
+extension LowIRBuilderPass {
+
+  fn emitPtrArrayLenOrBufferLen:string (bufVal:string lctx:LowIRLowerContext) {
+    return (lctx.builder.emitPtrLoadTyped(bufVal "i32"))
+  }
+
+  fn pushItemNeedsWiden:boolean (itemNode:CodeNode lctx:LowIRLowerContext) {
+    ; `this` lowers to a ptrtoint and is already pointer sized, so widening it
+    ; emitted `zext i32 <i64 value>`. exprIsObjectPtr only recognises named
+    ; locals, and `this` is a parameter, not a slot.
+    if (itemNode.value_type == RangerNodeType.VRef) {
+      if (itemNode.vref == "this") {
+        return false
+      }
+    }
+    if (this.exprIsObjectPtr(itemNode lctx)) {
+      return false
+    }
+    if (this.exprIsPtrSizedRead(itemNode lctx)) {
+      return false
+    }
+    if (this.exprIsStringish(itemNode lctx)) {
+      return false
+    }
+    if (this.exprIsF64(itemNode)) {
+      return false
+    }
+    ; Last resort, from the node's own TYPE: a static call answering a class
+    ; (`CodeNode.fromList(...)`) has no fnDesc for the tests above to read, and
+    ; widening its i64 result emitted `zext i32 <i64 value>`.
+    if ((this.argIrType(itemNode lctx)) == lctx.ptrType) {
+      if (lctx.ptrType != "i32") {
+        return false
+      }
+    }
+    return true
+  }
+
+  fn arrayElemTypeName:string (arrNode:CodeNode lctx:LowIRLowerContext) {
+    if ((strlen arrNode.array_type) > 0) {
+      return arrNode.array_type
+    }
+    if (arrNode.value_type == RangerNodeType.VRef) {
+      def vr:string arrNode.vref
+      if ((indexOf vr ".") >= 0) {
+        def parts:[string] (strsplit vr ".")
+        def np:int (array_length parts)
+        if (np >= 2) {
+          ; The receiver is everything before the last segment, so a chain such
+          ; as `callArgs.parent.children` resolves. Reading only the first two
+          ; segments answered "" and `indexOf` over it went to the STRING
+          ; helper with an array descriptor.
+          def recv:string (this.joinDotPrefix(parts (np - 1)))
+          def fld (itemAt parts (np - 1))
+          def cls (this.resolveObjectClassChain(recv lctx))
+          if ((strlen cls) > 0) {
+            return (this.fieldArrayElemType(cls fld lctx))
+          }
+        }
+        return ""
+      }
+      if (this.resolvesToField(vr lctx)) {
+        return (this.fieldArrayElemType(lctx.className vr lctx))
+      }
+      if (has lctx.ptrArrayElemTypes vr) {
+        return (unwrap (get lctx.ptrArrayElemTypes vr))
+      }
+    }
+    return ""
+  }
+
+  fn nodeIsArrayExpr:boolean (node:CodeNode lctx:LowIRLowerContext) {
+    if (node.value_type == RangerNodeType.Array) {
+      return true
+    }
+    if (LowIRUtil.isArrayTypeName(node.type_name)) {
+      return true
+    }
+    if (LowIRUtil.isArrayTypeName(node.eval_type_name)) {
+      return true
+    }
+    if (node.value_type == RangerNodeType.VRef) {
+      if (has lctx.ptrArrayElemTypes node.vref) {
+        return true
+      }
+      if (has lctx.collectionSlots node.vref) {
+        return true
+      }
+      if ((strlen (this.arrayElemTypeName(node lctx))) > 0) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn lowerArrayIndexOf:string (node:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def arrNode (node.getSecond())
+    def valNode (node.getThird())
+    def desc (this.loadArrayDescExpr(arrNode lctx))
+    def needle (this.lowerExpr(valNode lctx))
+    def elemIsStr:boolean (LowIRUtil.isStringType((this.arrayElemTypeName(arrNode lctx))))
+    ; The array's slots are pointer sized. Widen only a value that really is
+    ; 32 bits: `this` is already an i64 (ptrtoint), and zext'ing it emitted
+    ; `zext i32 <i64 value>`.
+    if (elemIsStr == false) {
+      if ((this.argIrType(valNode lctx)) == "i32") {
+        if (this.exprProducesI1(valNode lctx)) {
+          needle = (builder.emitCast("zext" "i64" "i1" needle))
+        } {
+          needle = (builder.emitCast("zext" "i64" "i32" needle))
+        }
+      }
+    }
+    this.usedPtrArrayRuntime = true
+    def lenArgs:[string]
+    def lenTypes:[string]
+    push lenArgs desc
+    push lenTypes lctx.ptrType
+    def n (builder.emitCall("RtPtrArray_len" "i32" lenArgs lenTypes))
+    def zero (builder.emitConst("i32" "0"))
+    def one (builder.emitConst("i32" "1"))
+    def minusOne (builder.emitConst("i32" "-1"))
+    def iSlot (builder.emitAlloca("i32" (builder.freshTemp("aidxi"))))
+    def rSlot (builder.emitAlloca("i32" (builder.freshTemp("aidxr"))))
+    builder.emitStore("i32" zero iSlot)
+    builder.emitStore("i32" minusOne rSlot)
+    def condL (builder.freshLabel("aidx_cond"))
+    def bodyL (builder.freshLabel("aidx_body"))
+    def hitL (builder.freshLabel("aidx_hit"))
+    def nextL (builder.freshLabel("aidx_next"))
+    def doneL (builder.freshLabel("aidx_done"))
+    builder.terminateBr(condL)
+    builder.startBlock(condL)
+    def iNow (builder.emitLoad("i32" iSlot))
+    builder.terminateBrIf((builder.emitIcmp("slt" iNow n)) bodyL doneL)
+    builder.startBlock(bodyL)
+    def iCur (builder.emitLoad("i32" iSlot))
+    def gArgs:[string]
+    def gTypes:[string]
+    push gArgs desc
+    push gTypes lctx.ptrType
+    push gArgs iCur
+    push gTypes "i32"
+    def elem (builder.emitCall("RtPtrArray_get" lctx.ptrType gArgs gTypes))
+    def same:string ""
+    if elemIsStr {
+      ; string elements compare by CONTENT, the way `indexOf` does on every
+      ; other target
+      def elemPtr (builder.emitIntToI8Ptr(elem lctx.ptrType))
+      def cmpPs:[string]
+      push cmpPs "i8*"
+      push cmpPs "i8*"
+      ; libc has strcmp; only the freestanding WASM runtime needs its own.
+      def elemCmpFn:string "strcmp"
+      if (this.wasmStrEnabled(lctx)) {
+        elemCmpFn = "ranger_str_cmp"
+      }
+      this.ensureExternDecl(elemCmpFn "i32" cmpPs false)
+      def cArgs:[string]
+      def cTypes:[string]
+      push cArgs elemPtr
+      push cTypes "i8*"
+      push cArgs needle
+      push cTypes "i8*"
+      def cmpV (builder.emitCall(elemCmpFn "i32" cArgs cTypes))
+      same = (builder.emitIcmp("eq" cmpV zero))
+    } {
+      ; both operands are pointer-sized array slots
+      same = (builder.emitIcmpTyped("eq" lctx.ptrType elem needle))
+    }
+    builder.terminateBrIf(same hitL nextL)
+    builder.startBlock(hitL)
+    builder.emitStore("i32" (builder.emitLoad("i32" iSlot)) rSlot)
+    builder.terminateBr(doneL)
+    builder.startBlock(nextL)
+    def iAt (builder.emitLoad("i32" iSlot))
+    builder.emitStore("i32" (builder.emitBin("add" "i32" iAt one)) iSlot)
+    builder.terminateBr(condL)
+    builder.startBlock(doneL)
+    return (builder.emitLoad("i32" rSlot))
+  }
+
+  fn arrayElemTypeOfTypeName:string (typeName:string) {
+    def n:int (strlen typeName)
+    if (n < 3) {
+      return ""
+    }
+    if ((charAt typeName 0) != (ccode "[")) {
+      return ""
+    }
+    if ((charAt typeName (n - 1)) != (ccode "]")) {
+      return ""
+    }
+    def inner:string (substring typeName 1 (n - 1))
+    if ((indexOf inner ":") >= 0) {
+      return ""
+    }
+    return inner
+  }
+
+  fn arrayLiteralElemType:string (nameNode:CodeNode node:CodeNode lctx:LowIRLowerContext) {
+    if ((strlen nameNode.array_type) > 0) {
+      return nameNode.array_type
+    }
+    if ((strlen node.array_type) > 0) {
+      return node.array_type
+    }
+    if ((array_length node.children) > 0) {
+      def first (itemAt node.children 0)
+      if (first.value_type == RangerNodeType.String) {
+        return "string"
+      }
+      if (first.value_type == RangerNodeType.Integer) {
+        return "int"
+      }
+      if (first.value_type == RangerNodeType.Double) {
+        return "double"
+      }
+      if ((strlen first.eval_type_name) > 0) {
+        return first.eval_type_name
+      }
+      if ((strlen first.type_name) > 0) {
+        return first.type_name
+      }
+    }
+    return ""
+  }
+
+  fn lowerArrayLiteral:string (nameNode:CodeNode node:CodeNode lctx:LowIRLowerContext) {
+    return (this.lowerArrayLiteralTyped((this.arrayLiteralElemType(nameNode node lctx)) node lctx))
+  }
+
+  fn lowerArrayLiteralTyped:string (elemType:string node:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def kind:int 1
+    if (LowIRUtil.isStringType(elemType)) {
+      kind = 2
+    }
+    if (elemType == "int") { kind = 0 }
+    if (elemType == "boolean") { kind = 0 }
+    if (elemType == "double") { kind = 0 }
+    if (elemType == "float") { kind = 0 }
+    if (elemType == "char") { kind = 0 }
+    this.usedPtrArrayRuntime = true
+    def desc (this.emitPtrArrayNewEmpty(lctx kind))
+    if true {
+      for node.children el:CodeNode i {
+        def v (this.lowerExpr(el lctx))
+        if (kind == 2) {
+          def owned:string v
+          if (this.memEnabled(lctx)) {
+            owned = (this.emitStrdupExpr(v lctx))
+          }
+          v = (builder.emitPtrToInt(owned))
+        } {
+          if (lctx.ptrType == "i64") {
+            if (this.pushValueNeedsWiden(el v lctx)) {
+              if (this.exprProducesI1(el lctx)) {
+                v = (builder.emitCast("zext" "i64" "i1" v))
+              } {
+                v = (builder.emitCast("zext" "i64" "i32" v))
+              }
+            }
+          }
+        }
+        def args:[string]
+        def argTypes:[string]
+        push args desc
+        push argTypes lctx.ptrType
+        push args v
+        push argTypes lctx.ptrType
+        def voidT:string "void"
+        builder.emitCall("RtPtrArray_push" voidT args argTypes)
+      }
+    }
+    return desc
+  }
+
+  fn lowerPush:void (node:CodeNode lctx:LowIRLowerContext) {
+    def arrNode (node.getSecond())
+    def itemNode (node.getThird())
+    def desc (this.loadArrayDescExpr(arrNode lctx))
+    def itemAddr:string ""
+    if itemNode.hasNewOper {
+      def itemCls (this.newTargetClassName(itemNode lctx))
+      if ((strlen itemCls) == 0) {
+        itemCls = (this.arrayElemTypeName(arrNode lctx))
+      }
+      if ((strlen itemCls) > 0) {
+        itemAddr = (this.lowerNewObject(itemCls (itemNode.getThird()) lctx))
+      } {
+        itemAddr = (this.lowerExpr(itemNode lctx))
+      }
+    } {
+      itemAddr = (this.lowerExpr(itemNode lctx))
+    }
+    ; A ptr-array stores pointer-sized (i64) INTEGERS. An int element is computed
+    ; as i32, so widen it; an object element is already an integer address; a
+    ; string element is a POINTER and has to be converted, which is the mirror of
+    ; the inttoptr emitPtrArrayElemGet does on the way out. Pushing one without
+    ; the conversion passed `i64 <ptr value>`, which clang rejects.
+    if (lctx.ptrType == "i64") {
+      if (this.pushValueNeedsWiden(itemNode itemAddr lctx)) {
+        ; A boolean element arrives as i1, an int one as i32 -- widen from
+        ; whichever it really is, the way lowerCollectionSet already did.
+        if (this.exprProducesI1(itemNode lctx)) {
+          itemAddr = (lctx.builder.emitCast("zext" "i64" "i1" itemAddr))
+        } {
+          itemAddr = (lctx.builder.emitCast("zext" "i64" "i32" itemAddr))
+        }
+      } {
+        if (LowIRUtil.isStringType((this.arrayElemTypeName(arrNode lctx)))) {
+          ; The array OWNS its string elements (element kind 2 -- released with
+          ; the array), so it stores a private copy. Storing the pointer as-is
+          ; made the array own a literal or a borrowed local, and freeing that
+          ; on release crashed.
+          def ownedStr:string itemAddr
+          if (this.memEnabled(lctx)) {
+            ownedStr = (this.emitStrdupExpr(itemAddr lctx))
+          }
+          itemAddr = (lctx.builder.emitPtrToInt(ownedStr))
+        }
+        if (this.arrayElemIsDouble(arrNode lctx)) {
+          itemAddr = (lctx.builder.emitCast("bitcast" "i64" "f64" itemAddr))
+        }
+      }
+    }
+    ; Freestanding WASM [string] array: the array owns a dup'd private copy of
+    ; each element (like a string field), freed via str_release on array release.
+    ; The source value keeps its own lifetime (arena temp / owned local).
+    if (this.wasmStrEnabled(lctx)) {
+      if (LowIRUtil.isStringType((this.arrayElemTypeName(arrNode lctx)))) {
+        def dupStr (this.emitStrdupExpr(itemAddr lctx))
+        def sArgs:[string]
+        def sArgTypes:[string]
+        push sArgs desc
+        push sArgTypes lctx.ptrType
+        push sArgs dupStr
+        push sArgTypes lctx.ptrType
+        this.usedPtrArrayRuntime = true
+        lctx.builder.emitCall("RtPtrArray_push" "void" sArgs sArgTypes)
+        return
+      }
+    }
+    def args:[string]
+    def argTypes:[string]
+    push args desc
+    push argTypes lctx.ptrType
+    push args itemAddr
+    push argTypes lctx.ptrType
+    def voidType:string "void"
+    ; An array whose ELEMENT TYPE is a class owns its elements: release frees
+    ; each one. Ownership therefore has to be decided by the ARRAY, not by the
+    ; shape of the pushed expression -- `push arr (itemAt other i)` took the
+    ; plain path and stored an element the array had never retained, so freeing
+    ; the array over-released it.
+    def elemIsObject:boolean (this.isObjectTypeName((this.arrayElemTypeName(arrNode lctx))))
+    if ((this.exprIsObjectPtr(itemNode lctx)) || elemIsObject) {
+      if ((this.memEnabled(lctx)) || (this.wasmCollectionRcEnabled(lctx))) {
+        ; On the native path the array RETAINS what it is given, so nothing is
+        ; moved and no local is escaped. Escaping is per-NAME while ownership is
+        ; per-VALUE: a local pushed once and then reassigned kept the escape for
+        ; the rest of the function, which silently disabled the release of every
+        ; later value it held. That is what leaked one reference per property
+        ; assignment -- `result` in assignMember is pushed early and reassigned
+        ; on the plain-property path further down.
+        def isMove:boolean false
+        if ((this.memEnabled(lctx)) == false) {
+          if (itemNode.value_type == RangerNodeType.VRef) {
+            if (this.isOwnedObjectLocal(itemNode.vref lctx)) {
+              isMove = true
+            }
+          }
+        }
+        ; A freshly-constructed `new T()` pushed directly has rc=1 and no other
+        ; owner, so it is moved (the array owns that single reference and frees it
+        ; on release) rather than retained — retaining would leave rc=1 after the
+        ; array releases, leaking it. WASM only, to keep the libc path unchanged.
+        def freshNew:boolean false
+        if itemNode.hasNewOper {
+          if (this.wasmCollectionRcEnabled(lctx)) {
+            freshNew = true
+          }
+        }
+        if (isMove || freshNew) {
+          if (itemNode.value_type == RangerNodeType.VRef) {
+            set lctx.escapedLocals itemNode.vref "1"
+          }
+          this.usedPtrArrayRuntime = true
+          lctx.builder.emitCall("RtPtrArray_push" voidType args argTypes)
+          return
+        }
+        if (this.memEnabled(lctx)) {
+          this.usedMemRuntime = true
+          this.ensureMemExtern((LowIRTarget.resolve((unwrap lctx.ctx))))
+        }
+        lctx.builder.emitCall("ranger_ptrarray_push_owned" voidType args argTypes)
+        return
+      }
+    }
+    this.usedPtrArrayRuntime = true
+    lctx.builder.emitCall("RtPtrArray_push" voidType args argTypes)
+  }
+
+  fn imapDescFromVref:string (vref:string lctx:LowIRLowerContext) {
+    if ((this.collectionKind(vref lctx)) == "imap") {
+      return (this.loadCollectionDesc(vref lctx))
+    }
+    if ((indexOf vref ".") >= 0) {
+      def parts:[string] (strsplit vref ".")
+      if ((array_length parts) >= 2) {
+        def recv (itemAt parts 0)
+        def fld (itemAt parts 1)
+        def cls (this.resolveObjectClass(recv lctx))
+        if ((strlen cls) > 0) {
+          if (this.fieldIsIntMapSlot(cls fld)) {
+            return (this.emitFieldLoadOn(cls (this.resolveObjectPtrChain(recv cls lctx)) fld lctx))
+          }
+        }
+      }
+      return ""
+    }
+    if ((strlen lctx.className) > 0) {
+      if (this.fieldIsIntMapSlot(lctx.className vref)) {
+        return (this.emitFieldLoad(vref lctx))
+      }
+    }
+    return ""
+  }
+
+  fn imapValueKind:string (vref:string lctx:LowIRLowerContext) {
+    if (has lctx.imapValueTypes vref) {
+      def t:string (unwrap (get lctx.imapValueTypes vref))
+      if (LowIRUtil.isStringType(t)) {
+        return "string"
+      }
+      if (LowIRUtil.isSupportedPrimitive(t)) {
+        return "int"
+      }
+      return "object"
+    }
+    return "object"
+  }
+
+  fn imapValueOwnKind:int (typeName:string) {
+    if (LowIRUtil.isStringType(typeName)) {
+      return 2
+    }
+    if (LowIRUtil.isSupportedPrimitive(typeName)) {
+      return 0
+    }
+    return 1
+  }
+
+  fn smapValueOwnKind:int (valueTypeName:string) {
+    ; Objects are refcounted, so owning one is always safe.
+    if (this.isObjectTypeName(valueTypeName)) {
+      return 1
+    }
+    ; A STRING value is owned too (kind 2): the runtime copies it on put and
+    ; frees the copy on overwrite or removal. Storing the caller's pointer
+    ; instead -- what this used to do -- left the map holding memory the
+    ; caller freed at the end of the statement, which is how `-o=hello2.js`
+    ; came back out of the compiler's own parameter map as another string.
+    if (LowIRUtil.isStringType(valueTypeName)) {
+      return 2
+    }
+    ; An ARRAY value is owned too (kind 3). A `[string:[string]]` used to be
+    ; kind 0: the map stored the descriptor without a retain while the local it
+    ; was built in was released at scope end, so the map was left pointing at a
+    ; freed array -- reading one back handed RtPtrArray_get whatever had reused
+    ; that memory.
+    if (LowIRUtil.isArrayTypeName(valueTypeName)) {
+      return 3
+    }
+    return 0
+  }
+
+  fn lowerSMapKeys:string (node:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def collNode (node.getSecond())
+    def desc (this.smapDescFromVref(collNode.vref lctx))
+    def outArr (this.emitPtrArrayNewEmpty(lctx 2))
+    def nRest:[string]
+    def nTypes:[string]
+    def n (this.emitSMapCall("RtSMap_size" "i32" desc nRest nTypes lctx))
+
+    ; A UNIQUE slot name: two `keys` calls in one function shared a fixed name
+    ; and defined the same SSA value twice, the way %heap_next used to.
+    def iSlot (builder.emitAlloca("i32" (builder.freshTemp("smapki"))))
+    def zero (builder.emitConst("i32" "0"))
+    builder.emitStore("i32" zero iSlot)
+    def condL (builder.freshLabel("smap_keys_cond"))
+    def bodyL (builder.freshLabel("smap_keys_body"))
+    def doneL (builder.freshLabel("smap_keys_done"))
+    builder.terminateBr(condL)
+
+    builder.startBlock(condL)
+    def iNow (builder.emitLoad("i32" iSlot))
+    def more (builder.emitIcmp("slt" iNow n))
+    builder.terminateBrIf(more bodyL doneL)
+
+    builder.startBlock(bodyL)
+    def iCur (builder.emitLoad("i32" iSlot))
+    def kRest:[string]
+    def kTypes:[string]
+    push kRest iCur
+    push kTypes "i32"
+    def keyPtr (this.emitSMapCall("RtSMap_keyAt" "i8*" desc kRest kTypes lctx))
+    ; RtSMap_keyAt hands back the MAP's own key buffer. The result array owns
+    ; its elements (kind 2) and frees them on release, so it takes a private
+    ; copy -- otherwise releasing the key list freed the map's keys under it.
+    def keyOwned:string keyPtr
+    if (this.memEnabled(lctx)) {
+      keyOwned = (this.emitStrdupExpr(keyPtr lctx))
+    }
+    ; The array stores pointer-sized integers, so the key pointer converts in --
+    ; the same direction emitPtrArrayElemGet converts back out.
+    def keyInt (builder.emitPtrToInt(keyOwned))
+    def pArgs:[string]
+    def pTypes:[string]
+    push pArgs outArr
+    push pTypes lctx.ptrType
+    push pArgs keyInt
+    push pTypes lctx.ptrType
+    this.usedPtrArrayRuntime = true
+    def voidT:string "void"
+    builder.emitCall("RtPtrArray_push" voidT pArgs pTypes)
+    def one (builder.emitConst("i32" "1"))
+    def iNext (builder.emitBin("add" "i32" iCur one))
+    builder.emitStore("i32" iNext iSlot)
+    builder.terminateBr(condL)
+
+    builder.startBlock(doneL)
+    return outArr
+  }
+
+  fn jsonTypeNameOfNode:string (node:CodeNode lctx:LowIRLowerContext) {
+    def tn:string ""
+    if (node.value_type == RangerNodeType.VRef) {
+      if (has lctx.objectSlots node.vref) {
+        tn = (unwrap (get lctx.objectSlots node.vref))
+      }
+    }
+    if ((strlen tn) == 0) {
+      tn = node.eval_type_name
+    }
+    if ((strlen tn) == 0) {
+      tn = node.type_name
+    }
+    if (LowIRUtil.isJsonTypeName(tn)) {
+      return tn
+    }
+    ; `(json_object)` / `(getObject o k)` in operand position: the operator
+    ; itself says what comes back, and an inline call has no declared type.
+    if node.has_operator {
+      def op (node.getOperator())
+      ; `(unwrap v)` keeps the type of what is inside. The generated
+      ; fromDictionary is written as `def o (unwrap values)`, so without this
+      ; `keys o` went to the string-map runtime instead of the JSON one.
+      if (op == "unwrap") {
+        return (this.jsonTypeNameOfNode((node.getSecond()) lctx))
+      }
+      if (op == "json_object") { return "JSONDataObject" }
+      if (op == "json_array") { return "JSONArrayObject" }
+      if (op == "getObject") { return "JSONDataObject" }
+      if (op == "getArray") { return "JSONArrayObject" }
+      if (op == "getValue") { return "JSONValueUnion" }
+      if (op == "asArray") { return "JSONArrayObject" }
+      if (op == "from_string") { return "JSONDataObject" }
+    }
+    return ""
+  }
+
+  fn lowerJsonNew:string (fnName:string lctx:LowIRLowerContext) {
+    def ps:[string]
+    def args:[string]
+    def argTypes:[string]
+    return (this.emitJsonCall(fnName "i64" args argTypes ps lctx))
+  }
+
+  fn lowerJsonGet:string (node:CodeNode fnName:string retIr:string cRet:string lctx:LowIRLowerContext) {
+    def objNode (node.getSecond())
+    def keyNode (node.getThird())
+    def obj (this.lowerExpr(objNode lctx))
+    def key (this.lowerExpr(keyNode lctx))
+    def ps:[string]
+    push ps "i64"
+    push ps "i8*"
+    def args:[string]
+    def argTypes:[string]
+    push args obj
+    push argTypes "i64"
+    push args key
+    push argTypes "i8*"
+    return (this.emitJsonCall(fnName cRet args argTypes ps lctx))
+  }
+
+  fn lowerJsonSet:void (node:CodeNode lctx:LowIRLowerContext) {
+    def objNode (node.getSecond())
+    def keyNode (node.getThird())
+    def valNode (itemAt node.children 3)
+    def obj (this.lowerExpr(objNode lctx))
+    def key (this.lowerExpr(keyNode lctx))
+    def val (this.lowerExpr(valNode lctx))
+    def kind (this.jsonValueKind(valNode lctx))
+    def fnName:string "RtJson_set_int"
+    def valIr:string "i64"
+    if (kind == "str") {
+      fnName = "RtJson_set_str"
+      valIr = "i8*"
+    }
+    if (kind == "bool") {
+      fnName = "RtJson_set_bool"
+      valIr = "i32"
+      val = (lctx.builder.emitCast("zext" "i32" "i1" val))
+    }
+    if (kind == "double") {
+      fnName = "RtJson_set_double"
+      valIr = "f64"
+    }
+    if (kind == "json") {
+      fnName = "RtJson_set_value"
+      valIr = "i64"
+    }
+    if (kind == "int") {
+      val = (lctx.builder.emitCast("sext" "i64" "i32" val))
+    }
+    def ps:[string]
+    push ps "i64"
+    push ps "i8*"
+    push ps valIr
+    def args:[string]
+    def argTypes:[string]
+    push args obj
+    push argTypes "i64"
+    push args key
+    push argTypes "i8*"
+    push args val
+    push argTypes valIr
+    def voidT:string "void"
+    this.emitJsonCall(fnName voidT args argTypes ps lctx)
+  }
+
+  fn lowerJsonPush:void (node:CodeNode lctx:LowIRLowerContext) {
+    def arrNode (node.getSecond())
+    def valNode (node.getThird())
+    def arr (this.lowerExpr(arrNode lctx))
+    def val (this.lowerExpr(valNode lctx))
+    def kind (this.jsonValueKind(valNode lctx))
+    def fnName:string "RtJson_push_int"
+    def valIr:string "i64"
+    if (kind == "str") {
+      fnName = "RtJson_push_str"
+      valIr = "i8*"
+    }
+    if (kind == "bool") {
+      fnName = "RtJson_push_bool"
+      valIr = "i32"
+      val = (lctx.builder.emitCast("zext" "i32" "i1" val))
+    }
+    if (kind == "double") {
+      fnName = "RtJson_push_double"
+      valIr = "f64"
+    }
+    if (kind == "json") {
+      fnName = "RtJson_push_value"
+      valIr = "i64"
+    }
+    if (kind == "int") {
+      val = (lctx.builder.emitCast("sext" "i64" "i32" val))
+    }
+    def ps:[string]
+    push ps "i64"
+    push ps valIr
+    def args:[string]
+    def argTypes:[string]
+    push args arr
+    push argTypes "i64"
+    push args val
+    push argTypes valIr
+    def voidT:string "void"
+    this.emitJsonCall(fnName voidT args argTypes ps lctx)
+  }
+
+  fn lowerJson1:string (node:CodeNode fnName:string cRet:string lctx:LowIRLowerContext) {
+    def vNode (node.getSecond())
+    def v (this.lowerExpr(vNode lctx))
+    def ps:[string]
+    push ps "i64"
+    def args:[string]
+    def argTypes:[string]
+    push args v
+    push argTypes "i64"
+    return (this.emitJsonCall(fnName cRet args argTypes ps lctx))
+  }
+
+  fn lowerJsonGetValue:string (node:CodeNode lctx:LowIRLowerContext) {
+    def arrNode (node.getSecond())
+    def idxNode (node.getThird())
+    def arr (this.lowerExpr(arrNode lctx))
+    def idx (this.lowerExpr(idxNode lctx))
+    def ps:[string]
+    push ps "i64"
+    push ps "i32"
+    def args:[string]
+    def argTypes:[string]
+    push args arr
+    push argTypes "i64"
+    push args idx
+    push argTypes "i32"
+    return (this.emitJsonCall("RtJson_get_value" "i64" args argTypes ps lctx))
+  }
+
+  fn lowerJsonCase:boolean (node:CodeNode lctx:LowIRLowerContext) {
+    def cnt (array_length node.children)
+    if (cnt < 4) {
+      return false
+    }
+    def valNode (node.getSecond())
+    def bindNode (node.getThird())
+    def bodyNode (itemAt node.children 3)
+    if ((this.nodeIsJson(valNode lctx)) == false) {
+      return false
+    }
+    def wantKind (this.jsonCaseKindFor(bindNode.type_name))
+    if (wantKind < 0) {
+      return false
+    }
+    def builder (lctx.builder)
+    def v (this.lowerExpr(valNode lctx))
+    def kps:[string]
+    push kps "i64"
+    def kArgs:[string]
+    def kTypes:[string]
+    push kArgs v
+    push kTypes "i64"
+    def kind (this.emitJsonCall("RtJson_kind" "i32" kArgs kTypes kps lctx))
+    def want (builder.emitConst("i32" (to_string wantKind)))
+    def hit (builder.emitIcmp("eq" kind want))
+    def bodyL (builder.freshLabel("json_case_body"))
+    def doneL (builder.freshLabel("json_case_done"))
+    builder.terminateBrIf(hit bodyL doneL)
+    builder.startBlock(bodyL)
+    def bindName:string bindNode.vref
+    def ps1:[string]
+    push ps1 "i64"
+    def vArgs:[string]
+    def vTypes:[string]
+    push vArgs v
+    push vTypes "i64"
+    if (wantKind == 4) {
+      def sv (this.emitJsonCall("RtJson_value_str" "i8*" vArgs vTypes ps1 lctx))
+      this.bindSlot(bindName "i8*" sv lctx)
+    } {
+      if (wantKind == 2) {
+        def iv (this.emitJsonCall("RtJson_value_int" "i64" vArgs vTypes ps1 lctx))
+        this.bindSlot(bindName "i32" (builder.emitCast("trunc" "i32" "i64" iv)) lctx)
+      } {
+        if (wantKind == 3) {
+          def dv (this.emitJsonCall("RtJson_value_double" "f64" vArgs vTypes ps1 lctx))
+          this.bindSlot(bindName "f64" dv lctx)
+        } {
+          if (wantKind == 1) {
+            def bv (this.emitJsonCall("RtJson_value_bool" "i32" vArgs vTypes ps1 lctx))
+            this.bindSlot(bindName "i1" (this.toI1(bv lctx)) lctx)
+          } {
+            ; an object or an array: the handle itself, narrowed by the tag
+            this.bindSlot(bindName "i64" v lctx)
+            set lctx.objectSlots bindName bindNode.type_name
+          }
+        }
+      }
+    }
+    this.lowerBlock(bodyNode lctx)
+    def bodyBb (unwrap builder.currentBlock)
+    if (bodyBb.termKind == "") {
+      builder.terminateBr(doneL)
+    }
+    builder.startBlock(doneL)
+    return true
+  }
+
+  fn lowerArraySort:string (node:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def arrNode (node.getSecond())
+    def cbNode (node.getThird())
+    def srcDesc (this.loadArrayDescExpr(arrNode lctx))
+    def env (this.lowerExpr(cbNode lctx))
+    def fnIdx (builder.emitPtrLoad(env))
+    def sig:string ("i32," + lctx.ptrType + "," + lctx.ptrType + ":i32")
+    this.addLambdaSig(sig)
+    this.usedPtrArrayRuntime = true
+    def out (this.emitPtrArrayNewEmpty(lctx 0))
+
+    def lenArgs:[string]
+    def lenTypes:[string]
+    push lenArgs srcDesc
+    push lenTypes lctx.ptrType
+    def n (builder.emitCall("RtPtrArray_len" "i32" lenArgs lenTypes))
+
+    ; --- copy the source into the result ---
+    def ci (builder.emitAlloca("i32" (builder.freshTemp("sortci"))))
+    def zero (builder.emitConst("i32" "0"))
+    def one (builder.emitConst("i32" "1"))
+    builder.emitStore("i32" zero ci)
+    def cCond (builder.freshLabel("sort_copy_cond"))
+    def cBody (builder.freshLabel("sort_copy_body"))
+    def cDone (builder.freshLabel("sort_copy_done"))
+    builder.terminateBr(cCond)
+    builder.startBlock(cCond)
+    def ciNow (builder.emitLoad("i32" ci))
+    builder.terminateBrIf((builder.emitIcmp("slt" ciNow n)) cBody cDone)
+    builder.startBlock(cBody)
+    def ciCur (builder.emitLoad("i32" ci))
+    def gArgs:[string]
+    def gTypes:[string]
+    push gArgs srcDesc
+    push gTypes lctx.ptrType
+    push gArgs ciCur
+    push gTypes "i32"
+    def elem (builder.emitCall("RtPtrArray_get" lctx.ptrType gArgs gTypes))
+    def pArgs:[string]
+    def pTypes:[string]
+    push pArgs out
+    push pTypes lctx.ptrType
+    push pArgs elem
+    push pTypes lctx.ptrType
+    def voidT:string "void"
+    builder.emitCall("RtPtrArray_push" voidT pArgs pTypes)
+    builder.emitStore("i32" (builder.emitBin("add" "i32" ciCur one)) ci)
+    builder.terminateBr(cCond)
+    builder.startBlock(cDone)
+
+    ; --- insertion sort over the copy ---
+    ; for (i = 1; i < n; i++) { v = out[i]; j = i - 1
+    ;   while (j >= 0 && cb(out[j], v) > 0) { out[j+1] = out[j]; j-- }
+    ;   out[j+1] = v }
+    def iSlot (builder.emitAlloca("i32" (builder.freshTemp("sorti"))))
+    def jSlot (builder.emitAlloca("i32" (builder.freshTemp("sortj"))))
+    def vSlot (builder.emitAlloca(lctx.ptrType (builder.freshTemp("sortv"))))
+    builder.emitStore("i32" one iSlot)
+    def oCond (builder.freshLabel("sort_out_cond"))
+    def oBody (builder.freshLabel("sort_out_body"))
+    def oDone (builder.freshLabel("sort_out_done"))
+    builder.terminateBr(oCond)
+    builder.startBlock(oCond)
+    def iNow (builder.emitLoad("i32" iSlot))
+    builder.terminateBrIf((builder.emitIcmp("slt" iNow n)) oBody oDone)
+
+    builder.startBlock(oBody)
+    def iCur (builder.emitLoad("i32" iSlot))
+    def viArgs:[string]
+    def viTypes:[string]
+    push viArgs out
+    push viTypes lctx.ptrType
+    push viArgs iCur
+    push viTypes "i32"
+    builder.emitStore(lctx.ptrType (builder.emitCall("RtPtrArray_get" lctx.ptrType viArgs viTypes)) vSlot)
+    builder.emitStore("i32" (builder.emitBin("sub" "i32" iCur one)) jSlot)
+    def wCond (builder.freshLabel("sort_in_cond"))
+    def wTest (builder.freshLabel("sort_in_test"))
+    def wBody (builder.freshLabel("sort_in_body"))
+    def wDone (builder.freshLabel("sort_in_done"))
+    builder.terminateBr(wCond)
+
+    builder.startBlock(wCond)
+    def jNow (builder.emitLoad("i32" jSlot))
+    builder.terminateBrIf((builder.emitIcmp("sge" jNow zero)) wTest wDone)
+
+    builder.startBlock(wTest)
+    def jCur (builder.emitLoad("i32" jSlot))
+    def ljArgs:[string]
+    def ljTypes:[string]
+    push ljArgs out
+    push ljTypes lctx.ptrType
+    push ljArgs jCur
+    push ljTypes "i32"
+    def leftV (builder.emitCall("RtPtrArray_get" lctx.ptrType ljArgs ljTypes))
+    def vNow (builder.emitLoad(lctx.ptrType vSlot))
+    def cArgs:[string]
+    def cTypes:[string]
+    push cArgs env
+    push cTypes lctx.ptrType
+    push cArgs leftV
+    push cTypes lctx.ptrType
+    push cArgs vNow
+    push cTypes lctx.ptrType
+    def cmpRes (builder.emitCallIndirect("i32" sig cArgs cTypes fnIdx))
+    builder.terminateBrIf((builder.emitIcmp("sgt" cmpRes zero)) wBody wDone)
+
+    builder.startBlock(wBody)
+    def jAt (builder.emitLoad("i32" jSlot))
+    def sjArgs:[string]
+    def sjTypes:[string]
+    push sjArgs out
+    push sjTypes lctx.ptrType
+    push sjArgs jAt
+    push sjTypes "i32"
+    def moved (builder.emitCall("RtPtrArray_get" lctx.ptrType sjArgs sjTypes))
+    def setArgs:[string]
+    def setTypes:[string]
+    push setArgs out
+    push setTypes lctx.ptrType
+    push setArgs (builder.emitBin("add" "i32" jAt one))
+    push setTypes "i32"
+    push setArgs moved
+    push setTypes lctx.ptrType
+    builder.emitCall("RtPtrArray_set" voidT setArgs setTypes)
+    builder.emitStore("i32" (builder.emitBin("sub" "i32" jAt one)) jSlot)
+    builder.terminateBr(wCond)
+
+    builder.startBlock(wDone)
+    def jEnd (builder.emitLoad("i32" jSlot))
+    def vEnd (builder.emitLoad(lctx.ptrType vSlot))
+    def fArgs:[string]
+    def fTypes:[string]
+    push fArgs out
+    push fTypes lctx.ptrType
+    push fArgs (builder.emitBin("add" "i32" jEnd one))
+    push fTypes "i32"
+    push fArgs vEnd
+    push fTypes lctx.ptrType
+    builder.emitCall("RtPtrArray_set" voidT fArgs fTypes)
+    def iEnd (builder.emitLoad("i32" iSlot))
+    builder.emitStore("i32" (builder.emitBin("add" "i32" iEnd one)) iSlot)
+    builder.terminateBr(oCond)
+
+    builder.startBlock(oDone)
+    return out
+  }
+
+  fn lowerArrayInsert:void (node:CodeNode lctx:LowIRLowerContext) {
+    def arrNode (node.getSecond())
+    def idxNode (node.getThird())
+    def valNode (itemAt node.children 3)
+    def desc (this.loadArrayDescExpr(arrNode lctx))
+    def idx (this.lowerExpr(idxNode lctx))
+    def val (this.lowerExpr(valNode lctx))
+    ; the array's slots are pointer sized: widen a 32-bit element the same way
+    ; lowerPush does, and convert a string pointer to its integer form.
+    if (this.pushValueNeedsWiden(valNode val lctx)) {
+      if (this.exprProducesI1(valNode lctx)) {
+        val = (lctx.builder.emitCast("zext" "i64" "i1" val))
+      } {
+        val = (lctx.builder.emitCast("zext" "i64" "i32" val))
+      }
+    } {
+      if (LowIRUtil.isStringType((this.arrayElemTypeName(arrNode lctx)))) {
+        def ownedStr:string val
+        if (this.memEnabled(lctx)) {
+          ownedStr = (this.emitStrdupExpr(val lctx))
+        }
+        val = (lctx.builder.emitPtrToInt(ownedStr))
+      }
+    }
+    def ps:[string]
+    push ps "i64"
+    push ps "i32"
+    push ps "i64"
+    def voidT:string "void"
+    this.ensureExternDecl("ranger_ptrarray_insert" voidT ps false)
+    def args:[string]
+    def argTypes:[string]
+    push args desc
+    push argTypes lctx.ptrType
+    push args idx
+    push argTypes "i32"
+    push args val
+    push argTypes lctx.ptrType
+    lctx.builder.emitCall("ranger_ptrarray_insert" voidT args argTypes)
+  }
+
+  fn lowerArrayRemove:void (node:CodeNode lctx:LowIRLowerContext) {
+    this.emitArrayRemoveCall(node lctx)
+  }
+
+  fn lowerArrayRemoveLast:void (node:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def arrNode (node.getSecond())
+    def desc (this.loadArrayDescExpr(arrNode lctx))
+    this.usedPtrArrayRuntime = true
+    def lenArgs:[string]
+    def lenTypes:[string]
+    push lenArgs desc
+    push lenTypes lctx.ptrType
+    def n (builder.emitCall("RtPtrArray_len" "i32" lenArgs lenTypes))
+    def one (builder.emitConst("i32" "1"))
+    def last (builder.emitBin("sub" "i32" n one))
+    def ps:[string]
+    push ps "i64"
+    push ps "i32"
+    this.ensureExternDecl("ranger_ptrarray_remove" "i64" ps false)
+    def args:[string]
+    def argTypes:[string]
+    push args desc
+    push argTypes lctx.ptrType
+    push args last
+    push argTypes "i32"
+    builder.emitCall("ranger_ptrarray_remove" lctx.ptrType args argTypes)
+  }
+
+  fn lowerArrayClear:void (node:CodeNode lctx:LowIRLowerContext) {
+    def arrNode (node.getSecond())
+    def desc (this.loadArrayDescExpr(arrNode lctx))
+    def ps:[string]
+    push ps "i64"
+    def voidT:string "void"
+    this.ensureExternDecl("ranger_ptrarray_clear" voidT ps false)
+    def args:[string]
+    def argTypes:[string]
+    push args desc
+    push argTypes lctx.ptrType
+    lctx.builder.emitCall("ranger_ptrarray_clear" voidT args argTypes)
+  }
+
+  fn lowerArrayExtract:string (node:CodeNode lctx:LowIRLowerContext) {
+    def raw (this.emitArrayRemoveCall(node lctx))
+    def arrNode (node.getSecond())
+    def et:string (this.arrayElemTypeName(arrNode lctx))
+    if (LowIRUtil.isStringType(et)) {
+      return (lctx.builder.emitIntToI8Ptr(raw lctx.ptrType))
+    }
+    if (et == "int") {
+      return (lctx.builder.emitCast("trunc" "i32" "i64" raw))
+    }
+    if (et == "boolean") {
+      return (this.toI1((lctx.builder.emitCast("trunc" "i32" "i64" raw)) lctx))
+    }
+    return raw
+  }
+
+  fn lowerArrayReverse:string (node:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def arrNode (node.getSecond())
+    def srcDesc (this.loadArrayDescExpr(arrNode lctx))
+    this.usedPtrArrayRuntime = true
+    def out (this.emitPtrArrayNewEmpty(lctx 0))
+    def lenArgs:[string]
+    def lenTypes:[string]
+    push lenArgs srcDesc
+    push lenTypes lctx.ptrType
+    def n (builder.emitCall("RtPtrArray_len" "i32" lenArgs lenTypes))
+    def one (builder.emitConst("i32" "1"))
+    def zero (builder.emitConst("i32" "0"))
+    def iSlot (builder.emitAlloca("i32" (builder.freshTemp("revi"))))
+    builder.emitStore("i32" (builder.emitBin("sub" "i32" n one)) iSlot)
+    def condL (builder.freshLabel("rev_cond"))
+    def bodyL (builder.freshLabel("rev_body"))
+    def doneL (builder.freshLabel("rev_done"))
+    builder.terminateBr(condL)
+    builder.startBlock(condL)
+    def iNow (builder.emitLoad("i32" iSlot))
+    builder.terminateBrIf((builder.emitIcmp("sge" iNow zero)) bodyL doneL)
+    builder.startBlock(bodyL)
+    def iCur (builder.emitLoad("i32" iSlot))
+    def gArgs:[string]
+    def gTypes:[string]
+    push gArgs srcDesc
+    push gTypes lctx.ptrType
+    push gArgs iCur
+    push gTypes "i32"
+    def elem (builder.emitCall("RtPtrArray_get" lctx.ptrType gArgs gTypes))
+    def pArgs:[string]
+    def pTypes:[string]
+    push pArgs out
+    push pTypes lctx.ptrType
+    push pArgs elem
+    push pTypes lctx.ptrType
+    def voidT:string "void"
+    builder.emitCall("RtPtrArray_push" voidT pArgs pTypes)
+    builder.emitStore("i32" (builder.emitBin("sub" "i32" iCur one)) iSlot)
+    builder.terminateBr(condL)
+    builder.startBlock(doneL)
+    return out
+  }
+
+  fn arrayElemIsDouble:boolean (arrNode:CodeNode lctx:LowIRLowerContext) {
+    def et:string (this.arrayElemTypeName(arrNode lctx))
+    if (et == "double") { return true }
+    if (et == "float") { return true }
+    return false
+  }
+
+  fn emitPtrArrayNewEmpty:string (lctx:LowIRLowerContext elemKind:int) {
+    this.usedPtrArrayRuntime = true
+    def builder (lctx.builder)
+    ; Start SMALL and let RtPtrArray_reserve grow it. Every array used to be
+    ; born with room for 256 elements -- 2 KB of backing store apiece -- and the
+    ; JS engine builds two per object, so a benchmark allocating millions of
+    ; objects moved gigabytes through malloc and spent its whole runtime in the
+    ; kernel rather than interpreting.
+    def cap (builder.emitConst("i32" "4"))
+    def args:[string]
+    def argTypes:[string]
+    push args cap
+    push argTypes "i32"
+    def desc (builder.emitCall("RtPtrArray_new" lctx.ptrType args argTypes))
+    if (elemKind > 0) {
+      def kindC (builder.emitConst("i32" ("" + elemKind)))
+      builder.emitStoreI32At(desc (this.ptrArrayOwnedOff(lctx)) kindC)
+    }
+    return desc
+  }
+
+  fn ptrArrayOwnedOff:int (lctx:LowIRLowerContext) {
+    def capOff (this.arrayCapOff(lctx))
+    return (capOff + 4)
+  }
+
+  fn lowerCollectionMake:string (node:CodeNode lctx:LowIRLowerContext) {
+    def sizeNode (node.getThird())
+    def cap (this.lowerExpr(sizeNode lctx))
+    def innerNode (node.getSecond())
+    if (this.isObjectPtrArrayTypeNode(innerNode)) {
+      this.usedPtrArrayRuntime = true
+      def builder (lctx.builder)
+      def args:[string]
+      def argTypes:[string]
+      push args cap
+      push argTypes "i32"
+      return (builder.emitCall("RtPtrArray_new" lctx.ptrType args argTypes))
+    }
+    ; [int] arrays are also stored as ptr-arrays (8-byte slots) for a single,
+    ; consistent representation across make / push / at / set / for.
+    this.usedPtrArrayRuntime = true
+    def iargs:[string]
+    def iargTypes:[string]
+    push iargs cap
+    push iargTypes "i32"
+    return (lctx.builder.emitCall("RtPtrArray_new" lctx.ptrType iargs iargTypes))
+  }
+
+  fn lowerCollectionGet:string (node:CodeNode lctx:LowIRLowerContext) {
+    def collNode (node.getSecond())
+    def keyNode (node.getThird())
+    def varName:string collNode.vref
+    def kind (this.collectionKind(varName lctx))
+    def desc (this.loadCollectionDesc(varName lctx))
+    def key (this.lowerExpr(keyNode lctx))
+    def gsm (this.smapDescFromVref(varName lctx))
+    if ((strlen gsm) > 0) {
+      def gRest:[string]
+      def gTypes:[string]
+      push gRest (this.strKeyPtr(keyNode key lctx))
+      push gTypes "i8*"
+      def gres (this.emitSMapCall("RtSMap_get" "i64" gsm gRest gTypes lctx))
+      def gkind (this.smapValueKind(varName lctx))
+      if (gkind == "int") {
+        return (lctx.builder.emitCast("trunc" "i32" "i64" gres))
+      }
+      if (gkind == "string") {
+        return (lctx.builder.emitIntToI8Ptr(gres lctx.ptrType))
+      }
+      return gres
+    }
+    def gim (this.imapDescFromVref(varName lctx))
+    if ((strlen gim) > 0) {
+      def giRest:[string]
+      def giTypes:[string]
+      push giRest (this.widenToI64(key keyNode lctx))
+      push giTypes "i64"
+      def gires (this.emitIMapCall("RtIMap_get" "i64" gim giRest giTypes lctx))
+      def gikind (this.imapValueKind(varName lctx))
+      if (gikind == "int") {
+        return (lctx.builder.emitCast("trunc" "i32" "i64" gires))
+      }
+      if (gikind == "string") {
+        return (lctx.builder.emitIntToI8Ptr(gires lctx.ptrType))
+      }
+      return gires
+    }
+    if (kind == "map") {
+      return (this.emitRtMapGet(desc key lctx))
+    }
+    return (this.emitPtrArrayElemGet(desc key collNode lctx))
+  }
+
+  fn lowerCollectionLen:string (node:CodeNode lctx:LowIRLowerContext) {
+    def collNode (node.getSecond())
+    if (collNode.value_type == RangerNodeType.VRef) {
+      def pdesc (this.ptrArrayDescFromVref(collNode.vref lctx))
+      if ((strlen pdesc) > 0) {
+        return (this.emitPtrArrayLen(pdesc lctx))
+      }
+    } {
+      ; An EXPRESSION collection: `(array_length (keys m))`. Every lookup below
+      ; is by NAME, and an expression has none -- the descriptor came back
+      ; empty and the length load read offset 8 of nothing.
+      return (this.emitPtrArrayLen((this.lowerExpr(collNode lctx)) lctx))
+    }
+    def varName:string collNode.vref
+    def desc (this.loadCollectionDesc(varName lctx))
+    def lsm (this.smapDescFromVref(varName lctx))
+    if ((strlen lsm) > 0) {
+      def lRest:[string]
+      def lTypes:[string]
+      return (this.emitSMapCall("RtSMap_size" "i32" lsm lRest lTypes lctx))
+    }
+    def lim (this.imapDescFromVref(varName lctx))
+    if ((strlen lim) > 0) {
+      def liRest:[string]
+      def liTypes:[string]
+      return (this.emitIMapCall("RtIMap_size" "i32" lim liRest liTypes lctx))
+    }
+    return (this.emitRtArrayLen(desc lctx))
+  }
+
+  fn lowerCollectionHas:string (node:CodeNode lctx:LowIRLowerContext) {
+    def collNode (node.getSecond())
+    def keyNode (node.getThird())
+    def varName:string collNode.vref
+    def desc (this.loadCollectionDesc(varName lctx))
+    def key (this.lowerExpr(keyNode lctx))
+    def hsm (this.smapDescFromVref(varName lctx))
+    if ((strlen hsm) > 0) {
+      def hRest:[string]
+      def hTypes:[string]
+      push hRest (this.strKeyPtr(keyNode key lctx))
+      push hTypes "i8*"
+      return (this.toI1((this.emitSMapCall("RtSMap_has" "i32" hsm hRest hTypes lctx)) lctx))
+    }
+    def him (this.imapDescFromVref(varName lctx))
+    if ((strlen him) > 0) {
+      def hiRest:[string]
+      def hiTypes:[string]
+      push hiRest (this.widenToI64(key keyNode lctx))
+      push hiTypes "i64"
+      return (this.toI1((this.emitIMapCall("RtIMap_has" "i32" him hiRest hiTypes lctx)) lctx))
+    }
+    return (this.emitRtMapHas(desc key lctx))
+  }
+
+  fn lowerCollectionSet:void (node:CodeNode lctx:LowIRLowerContext) {
+    def collNode (node.getSecond())
+    def keyNode (node.getThird())
+    def valNode@(optional):CodeNode
+    if ((array_length node.children) > 3) {
+      valNode = (itemAt node.children 3)
+    }
+    if (null? valNode) {
+      return
+    }
+    def key (this.lowerExpr(keyNode lctx))
+    def val (this.lowerExpr((unwrap valNode) lctx))
+    if (collNode.value_type == RangerNodeType.VRef) {
+      def varName:string collNode.vref
+      def kind (this.collectionKind(varName lctx))
+      def sim (this.imapDescFromVref(varName lctx))
+      if ((strlen sim) > 0) {
+        def siRest:[string]
+        def siTypes:[string]
+        push siRest (this.widenToI64(key keyNode lctx))
+        push siTypes "i64"
+        def sival:string val
+        def sikind (this.imapValueKind(varName lctx))
+        if (sikind == "int") {
+          if (this.exprProducesI1((unwrap valNode) lctx)) {
+            sival = (lctx.builder.emitCast("zext" "i64" "i1" val))
+          } {
+            sival = (lctx.builder.emitCast("zext" "i64" "i32" val))
+          }
+        }
+        if (sikind == "string") {
+          sival = (lctx.builder.emitPtrToInt(val))
+        }
+        push siRest sival
+        push siTypes "i64"
+        def voidI:string "void"
+        this.emitIMapCall("RtIMap_set" voidI sim siRest siTypes lctx)
+        return
+      }
+      def ssm (this.smapDescFromVref(varName lctx))
+      if ((strlen ssm) > 0) {
+        def sdesc:string ssm
+        def sRest:[string]
+        def sTypes:[string]
+        push sRest (this.strKeyPtr(keyNode key lctx))
+        push sTypes "i8*"
+        def sval:string val
+        def skind (this.smapValueKind(varName lctx))
+        if (skind == "int") {
+          ; A `[string:boolean]` value arrives as i1, an int one as i32; widen
+          ; from whichever it actually is.
+          if (this.exprProducesI1((unwrap valNode) lctx)) {
+            sval = (lctx.builder.emitCast("zext" "i64" "i1" val))
+          } {
+            sval = (lctx.builder.emitCast("zext" "i64" "i32" val))
+          }
+        }
+        if (skind == "string") {
+          sval = (lctx.builder.emitPtrToInt(val))
+        }
+        push sRest sval
+        push sTypes "i64"
+        def _sp (this.emitSMapCall("RtSMap_put" "void" sdesc sRest sTypes lctx))
+        return
+      }
+      if (kind == "map") {
+        def mdesc (this.loadCollectionDesc(varName lctx))
+        this.emitRtMapPut(mdesc key val lctx)
+        return
+      }
+      if (kind == "array") {
+        def adesc (this.loadCollectionDesc(varName lctx))
+        this.emitRtArraySet(adesc key val lctx)
+        return
+      }
+      if (kind == "ptr_array") {
+        def pdesc (this.loadSlot(varName lctx.ptrType lctx))
+        this.emitPtrArrayElemSet(pdesc key val collNode lctx)
+        return
+      }
+      def fdesc (this.ptrArrayDescFromVref(varName lctx))
+      if ((strlen fdesc) > 0) {
+        this.emitPtrArrayElemSet(fdesc key val collNode lctx)
+        return
+      }
+    }
+    def desc (this.loadPtrArrayDescExpr(collNode lctx))
+    this.emitPtrArrayElemSet(desc key val collNode lctx)
+  }
+
+  fn smapDescFromVref:string (vref:string lctx:LowIRLowerContext) {
+    if ((this.collectionKind(vref lctx)) == "smap") {
+      return (this.loadCollectionDesc(vref lctx))
+    }
+    if ((indexOf vref ".") >= 0) {
+      def parts:[string] (strsplit vref ".")
+      if ((array_length parts) >= 2) {
+        def recv (itemAt parts 0)
+        def fld (itemAt parts 1)
+        def cls (this.resolveObjectClass(recv lctx))
+        if ((strlen cls) > 0) {
+          if (this.fieldIsStringMapSlot(cls fld)) {
+            return (this.emitFieldLoadOn(cls (this.resolveObjectPtrChain(recv cls lctx)) fld lctx))
+          }
+        }
+      }
+      return ""
+    }
+    if (this.resolvesToField(vref lctx)) {
+      if (this.fieldIsStringMapSlot(lctx.className vref)) {
+        return (this.emitFieldLoad(vref lctx))
+      }
+    }
+    return ""
+  }
+
+  fn isStringMapVref:boolean (vref:string lctx:LowIRLowerContext) {
+    if (has lctx.smapValueTypes vref) {
+      return true
+    }
+    if ((this.collectionKind(vref lctx)) == "smap") {
+      return true
+    }
+    if ((indexOf vref ".") >= 0) {
+      def parts:[string] (strsplit vref ".")
+      def n:int (array_length parts)
+      if (n >= 2) {
+        def recv:string (this.joinDotPrefix(parts (n - 1)))
+        def fld (itemAt parts (n - 1))
+        def cls (this.resolveObjectClassChain(recv lctx))
+        if ((strlen cls) > 0) {
+          return (this.fieldIsStringMapSlot(cls fld))
+        }
+      }
+      return false
+    }
+    if (this.resolvesToField(vref lctx)) {
+      return (this.fieldIsStringMapSlot(lctx.className vref))
+    }
+    return false
+  }
+
+  fn smapValueKind:string (vref:string lctx:LowIRLowerContext) {
+    ; A LOCAL string map records its value type on the context (no field to
+    ; carry it), so answer from there before looking for a class field.
+    if (has lctx.smapValueTypes vref) {
+      def lvt:string (unwrap (get lctx.smapValueTypes vref))
+      if (lvt == "int") { return "int" }
+      if (lvt == "boolean") { return "int" }
+      if (LowIRUtil.isStringType(lvt)) { return "string" }
+      return ""
+    }
+    def cls:string ""
+    def fld:string ""
+    if ((indexOf vref ".") >= 0) {
+      def parts:[string] (strsplit vref ".")
+      if ((array_length parts) >= 2) {
+        cls = (this.resolveObjectClass((itemAt parts 0) lctx))
+        fld = (itemAt parts 1)
+      }
+    } {
+      if (this.resolvesToField(vref lctx)) {
+        cls = lctx.className
+        fld = vref
+      }
+    }
+    if ((strlen cls) == 0) {
+      return ""
+    }
+    for this.irModule.structs st:LowIRStruct i {
+      if (st.name != cls) {
+        continue
+      }
+      for st.fields f:LowIRField i {
+        if (f.name == fld) {
+          if f.isStringMapInt { return "int" }
+          if f.isStringMapStr { return "string" }
+          return ""
+        }
+      }
+    }
+    return ""
+  }
+
+  fn smapValueIsInt:boolean (vref:string lctx:LowIRLowerContext) {
+    if (has lctx.smapValueTypes vref) {
+      return ((this.smapValueKind(vref lctx)) == "int")
+    }
+    def cls:string ""
+    def fld:string ""
+    if ((indexOf vref ".") >= 0) {
+      def parts:[string] (strsplit vref ".")
+      if ((array_length parts) >= 2) {
+        cls = (this.resolveObjectClass((itemAt parts 0) lctx))
+        fld = (itemAt parts 1)
+      }
+    } {
+      if (this.resolvesToField(vref lctx)) {
+        cls = lctx.className
+        fld = vref
+      }
+    }
+    if ((strlen cls) == 0) {
+      return false
+    }
+    for this.irModule.structs st:LowIRStruct i {
+      if (st.name != cls) {
+        continue
+      }
+      for st.fields f:LowIRField i {
+        if (f.name == fld) {
+          return f.isStringMapInt
+        }
+      }
+    }
+    return false
+  }
+
+  fn ptrArrayDescFromVref:string (vref:string lctx:LowIRLowerContext) {
+    if ((indexOf vref ".") >= 0) {
+      def parts:[string] (strsplit vref ".")
+      if ((array_length parts) < 2) {
+        return ""
+      }
+      ; The receiver is EVERYTHING before the last segment, so a chain such as
+      ; `cl.node.children` resolves too. Reading only parts 0 and 1 made a
+      ; three-deep array reference produce a bare `%cl.node.children`.
+      def n:int (array_length parts)
+      def recv:string (this.joinDotPrefix(parts (n - 1)))
+      def fld (itemAt parts (n - 1))
+      def cls (this.resolveObjectClassChain(recv lctx))
+      if ((strlen cls) == 0) {
+        return ""
+      }
+      if (this.fieldIsPtrArraySlot(cls fld) == false) {
+        return ""
+      }
+      def sptr (this.resolveObjectPtrChain(recv cls lctx))
+      return (this.emitFieldLoadOn(cls sptr fld lctx))
+    }
+    if (this.resolvesToField(vref lctx)) {
+      if (this.fieldIsPtrArraySlot(lctx.className vref)) {
+        return (this.emitFieldLoad(vref lctx))
+      }
+    }
+    if (has lctx.collectionSlots vref) {
+      def kind (unwrap (get lctx.collectionSlots vref))
+      if (kind == "ptr_array") {
+        return (this.loadSlot(vref lctx.ptrType lctx))
+      }
+    }
+    return ""
+  }
+
+  fn emitPtrArrayLen:string (desc:string lctx:LowIRLowerContext) {
+    this.usedPtrArrayRuntime = true
+    def args:[string]
+    def argTypes:[string]
+    push args desc
+    push argTypes lctx.ptrType
+    return (lctx.builder.emitCall("RtPtrArray_len" "i32" args argTypes))
+  }
+
+  fn ptrArrayElemIsInt:boolean (arrNode:CodeNode lctx:LowIRLowerContext) {
+    if (arrNode.array_type == "int") {
+      return true
+    }
+    if (arrNode.value_type == RangerNodeType.VRef) {
+      def vr:string arrNode.vref
+      if ((indexOf vr ".") >= 0) {
+        def parts:[string] (strsplit vr ".")
+        if ((array_length parts) >= 2) {
+          def recv (itemAt parts 0)
+          def fld (itemAt parts 1)
+          def cls (this.resolveObjectClass(recv lctx))
+          if ((strlen cls) > 0) {
+            if ((this.fieldArrayElemType(cls fld lctx)) == "int") {
+              return true
+            }
+          }
+        }
+        return false
+      }
+      if (this.resolvesToField(vr lctx)) {
+        if ((this.fieldArrayElemType(lctx.className vr lctx)) == "int") {
+          return true
+        }
+      }
+      if (has lctx.ptrArrayElemTypes vr) {
+        if ((unwrap (get lctx.ptrArrayElemTypes vr)) == "int") {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
+  fn emitPtrArrayElemGet:string (desc:string idx:string arrNode:CodeNode lctx:LowIRLowerContext) {
+    this.usedPtrArrayRuntime = true
+    def args:[string]
+    def argTypes:[string]
+    push args desc
+    push argTypes lctx.ptrType
+    push args idx
+    push argTypes "i32"
+    def raw (lctx.builder.emitCall("RtPtrArray_get" lctx.ptrType args argTypes))
+    if (lctx.ptrType == "i64") {
+      if (this.ptrArrayElemIsInt(arrNode lctx)) {
+        return (lctx.builder.emitCast("trunc" "i32" "i64" raw))
+      }
+      ; A pointer array stores pointer-sized INTEGERS. A string element is a
+      ; pointer to every consumer of it -- ranger_strdup, concat, compare -- so
+      ; it is converted back on the way out. The write side does the mirror, and
+      ; a push(get(x)) round trip folds to a no-op.
+      if (LowIRUtil.isStringType((this.arrayElemTypeName(arrNode lctx)))) {
+        return (lctx.builder.emitIntToI8Ptr(raw lctx.ptrType))
+      }
+      if (this.arrayElemIsDouble(arrNode lctx)) {
+        return (lctx.builder.emitCast("bitcast" "f64" "i64" raw))
+      }
+      ; A `[boolean]` element is stored widened; every consumer of a boolean on
+      ; this backend wants an i1. Without this `def isStatic:boolean (itemAt
+      ; flags i)` stored the raw i64 into an i1 slot.
+      if ((this.arrayElemTypeName(arrNode lctx)) == "boolean") {
+        return (this.toI1((lctx.builder.emitCast("trunc" "i32" "i64" raw)) lctx))
+      }
+    }
+    return raw
+  }
+
+  fn emitPtrArrayElemSet:void (desc:string idx:string val:string arrNode:CodeNode lctx:LowIRLowerContext) {
+    this.usedPtrArrayRuntime = true
+    def storeVal:string val
+    if (lctx.ptrType == "i64") {
+      if (this.ptrArrayElemIsInt(arrNode lctx)) {
+        storeVal = (lctx.builder.emitCast("zext" "i64" "i32" val))
+      } {
+        if (LowIRUtil.isStringType((this.arrayElemTypeName(arrNode lctx)))) {
+          def ownedSet:string val
+          if (this.memEnabled(lctx)) {
+            ownedSet = (this.emitStrdupExpr(val lctx))
+          }
+          storeVal = (lctx.builder.emitPtrToInt(ownedSet))
+        }
+        if (this.arrayElemIsDouble(arrNode lctx)) {
+          storeVal = (lctx.builder.emitCast("bitcast" "i64" "f64" val))
+        }
+        ; An object array OWNS its elements (kind 1 -- released with the array),
+        ; so a stored element gains a reference. push goes through
+        ; ranger_ptrarray_push_owned, which already retains; set did not.
+        if (this.isObjectTypeName((this.arrayElemTypeName(arrNode lctx)))) {
+          this.emitObjRetainPtr(storeVal lctx)
+        }
+      }
+    }
+    def args:[string]
+    def argTypes:[string]
+    push args desc
+    push argTypes lctx.ptrType
+    push args idx
+    push argTypes "i32"
+    push args storeVal
+    push argTypes lctx.ptrType
+    def voidType:string "void"
+    lctx.builder.emitCall("RtPtrArray_set" voidType args argTypes)
+  }
+
+  fn emitPtrArrayRetain:void (desc:string lctx:LowIRLowerContext) {
+    def relParams:[string]
+    push relParams lctx.ptrType
+    this.ensureExternDecl("ranger_ptrarray_retain" "void" relParams false)
+    def args:[string]
+    def argTypes:[string]
+    push args desc
+    push argTypes lctx.ptrType
+    lctx.builder.emitCall("ranger_ptrarray_retain" "void" args argTypes)
+  }
+
+}
