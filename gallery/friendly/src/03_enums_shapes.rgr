@@ -1,0 +1,70 @@
+; Study 03 — enums, data-carrying variants, match
+;
+; The Rust I want:
+;   enum Color { Red, Green, Blue }
+;   enum Message {
+;       Ping,
+;       Text { body: String },
+;       Move { dx: i64, dy: i64 },
+;   }
+;   match msg {
+;       Message::Ping => ...,
+;       Message::Text { body } => ...,
+;       Message::Move { dx, dy } => ...,
+;   }
+;
+; Ranger `Enum` is a C-style tag. `shape` is the data-carrying family and is
+; what the Rust writer is supposed to lower to a native enum.
+
+Enum Color (
+    Red
+    Green
+    Blue
+)
+
+shape Message {
+    case Ping
+    case Text {
+        def body:string ""
+    }
+    case Move {
+        def dx:int 0
+        def dy:int 0
+    }
+}
+
+class EnumsMain {
+    fn colorName:string (c:Color) {
+        if (c == Color.Red) {
+            return "red"
+        }
+        if (c == Color.Green) {
+            return "green"
+        }
+        return "blue"
+    }
+
+    fn describe:string (m:Message) {
+        def out:string "?"
+        match m {
+            Ping {
+                out = "ping"
+            }
+            Text t {
+                out = ("text:" + t.body)
+            }
+            Move mv {
+                out = (("move:" + (to_string mv.dx)) + ("," + (to_string mv.dy)))
+            }
+        }
+        return out
+    }
+
+    sfn main:void () {
+        def app:EnumsMain (new EnumsMain())
+        print ("color " + (app.colorName(Color.Green)))
+        print (app.describe((new Message.Ping())))
+        print (app.describe((new Message.Text("hi"))))
+        print (app.describe((new Message.Move(2 3))))
+    }
+}

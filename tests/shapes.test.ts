@@ -106,7 +106,8 @@ describe("shapes (closed variant families)", () => {
       // identityOf only READS r, so it takes it by reference — the borrowed
       // union parameter of bb2fffe2, not the by-value `mut r` this pinned
       // when the group enum was introduced two days earlier.
-      expect(result.code).toContain("fn identityOf(&self, r : &union_Value_Ref)");
+      // identifiers are snake_case on this target (PLAN_RUST_SEMANTIC_IDIOMS L)
+      expect(result.code).toContain("fn identity_of(&self, r : &union_Value_Ref)");
       expect(result.code).toContain("pub enum union_Value_Ref");
       // the group is a type, never a data struct of its own (ops class is ok)
       expect(result.code).not.toMatch(/struct Value_Ref\s*\{/);
@@ -631,7 +632,8 @@ describe("shapes (closed variant families)", () => {
         `${FIXTURES_DIR}/shape_group_parent_widen.rgr`
       );
       expect(result.success).toBe(true);
-      expect(result.code).toContain("widen_to_Value_Printable");
+      // the generated helper is an identifier, so it is snake_case too
+      expect(result.code).toContain("widen_to_value_printable");
     });
 
     it("runs a group default and an @(override)", () => {

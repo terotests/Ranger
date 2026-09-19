@@ -1638,6 +1638,8 @@ extension RangerFlowParser {
     ; --- read the arms ---
     def armCases:[string]
     def covered:[string]
+    def matchIsComplete:boolean false
+    def matchIsTotal:boolean false
     def shapeName:string ""
     def generated:[CodeNode]
     def armIndex:int 0
@@ -1764,6 +1766,18 @@ extension RangerFlowParser {
         }
         if (missingCount > 0) {
           ctx.addError(matchNode (((("match on " + shapeName) + " does not cover ") + missing) + " — every case of a shape must be handled"))
+        } {
+          ; …and when nothing is missing, this chain of narrowings IS a match
+          ; over the whole family. A target with a real `match` can fuse it back
+          ; (PLAN_RUST_SEMANTIC_IDIOMS E): the desugar is what every target
+          ; needs, and the fact that it was exhaustive is computed here and was
+          ; then thrown away. `all` is the set the arms had to cover — the
+          ; shape's cases, or a group's when the scrutinee is one — so a match
+          ; over a group is complete for the group and still needs a wildcard
+          ; arm against the full enum.
+          def allShapeCases:[string] (unwrap (get shapeCases shapeName))
+          matchIsTotal = ((array_length covered) == (array_length allShapeCases))
+          matchIsComplete = true
         }
       }
     }
@@ -1781,6 +1795,34 @@ extension RangerFlowParser {
       insert parent.children insertAt (itemAt generated gi)
       insertAt = insertAt + 1
       gi = gi + 1
+    }
+    ; the marks a fusing target reads. The narrowings are consecutive siblings
+    ; and the first one IS the match node, so head and tail bracket the run.
+    if matchIsComplete {
+      matchNode.setFlag("match_arm")
+      matchNode.setFlag("match_head")
+      if matchIsTotal {
+        matchNode.setFlag("match_total")
+      }
+      def lastIdx:int (gcnt - 1)
+      def mi2:int 1
+      while (mi2 < gcnt) {
+        def gnode:CodeNode (itemAt generated mi2)
+        gnode.setFlag("match_arm")
+        if matchIsTotal {
+          gnode.setFlag("match_total")
+        }
+        mi2 = mi2 + 1
+      }
+      ; the tail carries `match_total` too: it is the node that decides whether
+      ; a wildcard arm is needed, and for anything but a one-arm match it is not
+      ; the same node as the head
+      if (gcnt > 1) {
+        def lastNode:CodeNode (itemAt generated lastIdx)
+        lastNode.setFlag("match_tail")
+      } {
+        matchNode.setFlag("match_tail")
+      }
     }
   }
 

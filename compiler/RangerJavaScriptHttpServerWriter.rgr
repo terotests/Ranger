@@ -1,0 +1,304 @@
+; SPDX-License-Identifier: MIT
+
+; =============================================================================
+; RangerJavaScriptHttpServerWriter -- HTTP server code generation for es6
+; =============================================================================
+;
+; The JavaScript half of what RangerGolangHttpServerWriter does for Go: a class
+; annotated `@(HttpServer)`, methods annotated `@(GET "/path")`, `@(POST …)`,
+; `@(PUT …)`, `@(DELETE …)` or `@(SSE "/path")`, and `start server <port>` in
+; main.
+;
+; WHY THIS FILE EXISTS. `start` had an es6 template that emitted
+; `server.start(port)` -- a method call on a class that has no `start` method,
+; because nothing ever generated one. So every Ranger HTTP server compiled
+; cleanly to JavaScript, printed its startup line, and died on the next
+; statement with `TypeError: server.start is not a function`. ISSUES.md #93.
+;
+; NO DEPENDENCY. The generated server is node's own `http` module plus an
+; adapter, not Express. The `http_*` operator templates were written against an
+; Express-shaped API -- `res.status(…)`, `res.send(…)`, `req.query[…]` -- so
+; something has to provide that shape; a generated adapter does, and adding a
+; package.json dependency to make a language feature work does not.
+;
+; The adapter is also where the two targets are made to agree. `http_get_path`
+; is `r.URL.Path` on Go, so the wrapped request's `url` is the path WITHOUT the
+; query string -- node's raw `req.url` has it. `http_get_param` is
+; `r.PathValue(name)` on Go, which reads a `{name}` segment of the route
+; pattern, so the adapter matches the same `{name}` syntax.
+
+class RangerJavaScriptHttpServerWriter {
+
+    Constructor () {
+    }
+
+    ; --- reading the annotations ---------------------------------------------
+    ;
+    ; Same shapes the Go writer reads, so a program that routes on one target
+    ; routes identically on the other.
+
+    fn isHttpServerClass:boolean (cl:RangerAppClassDesc) {
+        if (null? cl.nameNode) {
+            return false
+        }
+        return (cl.nameNode.hasFlag("HttpServer"))
+    }
+
+    fn getRouteMethod:string (fnDesc:RangerAppFunctionDesc) {
+        if (null? fnDesc.nameNode) {
+            return ""
+        }
+        def nameNode:CodeNode fnDesc.nameNode
+        if (nameNode.hasFlag("GET")) {
+            return "GET"
+        }
+        if (nameNode.hasFlag("POST")) {
+            return "POST"
+        }
+        if (nameNode.hasFlag("PUT")) {
+            return "PUT"
+        }
+        if (nameNode.hasFlag("DELETE")) {
+            return "DELETE"
+        }
+        if (nameNode.hasFlag("SSE")) {
+            return "SSE"
+        }
+        return ""
+    }
+
+    fn getRoutePath:string (fnDesc:RangerAppFunctionDesc) {
+        if (null? fnDesc.nameNode) {
+            return "/"
+        }
+        def nameNode:CodeNode fnDesc.nameNode
+        def method:string (this.getRouteMethod(fnDesc))
+        if ((strlen method) == 0) {
+            return "/"
+        }
+        return (nameNode.getFlagSiblingString(method "/"))
+    }
+
+    ; The name to call the method by in the emitted JavaScript. `compiledName`
+    ; is the renamed form where the author's name is a JavaScript keyword; every
+    ; other call site in this writer reads it, and a route handler that ignored
+    ; it would call a method that does not exist under that spelling.
+    fn methodNameOf:string (fnDesc:RangerAppFunctionDesc) {
+        if ((strlen fnDesc.compiledName) > 0) {
+            return fnDesc.compiledName
+        }
+        return fnDesc.name
+    }
+
+    ; --- the adapter ----------------------------------------------------------
+    ;
+    ; Written at the `start` site rather than at file scope: `start` is a
+    ; statement in main, one server per program, and the Go writer emits its
+    ; `mux := …` in exactly the same place.
+
+    fn writeAdapter:void (wr:CodeWriter hasSSE:boolean) {
+        wr.out("const __rgr_http = require(\"http\");" true)
+        wr.newline()
+
+        wr.out("// Route patterns use `{name}` segments, as Go's ServeMux does, so" true)
+        wr.out("// http_get_param reads the same thing on both targets." true)
+        wr.out("function __rgr_matchRoute(pattern, path) {" true)
+        wr.indent(1)
+        wr.out("const p = pattern.split(\"/\");" true)
+        wr.out("const q = path.split(\"/\");" true)
+        wr.out("if (p.length !== q.length) { return null; }" true)
+        wr.out("const params = {};" true)
+        wr.out("for (let i = 0; i < p.length; i++) {" true)
+        wr.indent(1)
+        wr.out("const seg = p[i];" true)
+        wr.out("if (seg.length > 2 && seg[0] === \"{\" && seg[seg.length - 1] === \"}\") {" true)
+        wr.indent(1)
+        wr.out("params[seg.slice(1, -1)] = decodeURIComponent(q[i]);" true)
+        wr.out("continue;" true)
+        wr.indent(-1)
+        wr.out("}" true)
+        wr.out("if (seg !== q[i]) { return null; }" true)
+        wr.indent(-1)
+        wr.out("}" true)
+        wr.out("return params;" true)
+        wr.indent(-1)
+        wr.out("}" true)
+        wr.newline()
+
+        wr.out("function __rgr_wrapRequest(raw, path, params, query) {" true)
+        wr.indent(1)
+        wr.out("return {" true)
+        wr.indent(1)
+        wr.out("method: raw.method," true)
+        wr.out("// the PATH, not the raw url: http_get_path is r.URL.Path on Go" true)
+        wr.out("url: path," true)
+        wr.out("params: params," true)
+        wr.out("query: query," true)
+        wr.out("headers: { get: function (name) { return raw.headers[String(name).toLowerCase()] || \"\"; } }," true)
+        wr.out("raw: raw," true)
+        wr.indent(-1)
+        wr.out("};" true)
+        wr.indent(-1)
+        wr.out("}" true)
+        wr.newline()
+
+        wr.out("// http_set_status / http_set_header / http_send are Express-shaped." true)
+        wr.out("// node wants the head written before the body, so status and headers" true)
+        wr.out("// are held until send()." true)
+        wr.out("function __rgr_wrapResponse(raw) {" true)
+        wr.indent(1)
+        wr.out("let code = 200;" true)
+        wr.out("const headers = {};" true)
+        wr.out("return {" true)
+        wr.indent(1)
+        wr.out("status: function (c) { code = c; return this; }," true)
+        wr.out("setHeader: function (n, v) { headers[n] = v; return this; }," true)
+        wr.out("send: function (body) {" true)
+        wr.indent(1)
+        wr.out("if (raw.headersSent) { raw.end(); return; }" true)
+        wr.out("raw.writeHead(code, headers);" true)
+        wr.out("raw.end(body === undefined || body === null ? \"\" : body);" true)
+        wr.indent(-1)
+        wr.out("}," true)
+        wr.out("raw: raw," true)
+        wr.indent(-1)
+        wr.out("};" true)
+        wr.indent(-1)
+        wr.out("}" true)
+        wr.newline()
+
+        if hasSSE {
+            wr.out("function __rgr_wrapSSE(raw, rawRes) {" true)
+            wr.indent(1)
+            wr.out("let open = true;" true)
+            wr.out("rawRes.writeHead(200, {" true)
+            wr.indent(1)
+            wr.out("\"Content-Type\": \"text/event-stream\"," true)
+            wr.out("\"Cache-Control\": \"no-cache\"," true)
+            wr.out("\"Connection\": \"keep-alive\"," true)
+            wr.out("\"Access-Control-Allow-Origin\": \"*\"," true)
+            wr.indent(-1)
+            wr.out("});" true)
+            wr.out("raw.on(\"close\", function () { open = false; });" true)
+            wr.out("return {" true)
+            wr.indent(1)
+            wr.out("send: function (event, data) {" true)
+            wr.indent(1)
+            wr.out("if (!open) { return; }" true)
+            wr.out("rawRes.write(\"event: \" + event + \"\\ndata: \" + data + \"\\n\\n\");" true)
+            wr.indent(-1)
+            wr.out("}," true)
+            wr.out("isConnected: function () { return open; }," true)
+            wr.indent(-1)
+            wr.out("};" true)
+            wr.indent(-1)
+            wr.out("}" true)
+            wr.newline()
+        }
+    }
+
+    ; --- the server -----------------------------------------------------------
+
+    fn writeServerStart:void (serverArg:CodeNode node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter writer:RangerJavaScriptClassWriter) {
+        def paramDesc:RangerAppParamDesc serverArg.paramDesc
+        def className:string paramDesc.nameNode.type_name
+        if ((ctx.hasClass(className)) == false) {
+            wr.out(("/* start: could not find HttpServer class " + className + " */") true)
+            return
+        }
+        def cl:RangerAppClassDesc (ctx.findClass(className))
+        def serverName:string paramDesc.compiledName
+
+        ; The port is the third child of `start server <port>` -- a literal or a
+        ; variable, resolved exactly as the Go writer resolves it, so the two
+        ; targets take the same spelling.
+        def portExpr:string "8080"
+        if ((array_length node.children) >= 3) {
+            def portArg:CodeNode (itemAt node.children 2)
+            if ((strlen portArg.vref) > 0) {
+                portExpr = portArg.vref
+                if (false == (null? portArg.paramDesc)) {
+                    if ((strlen portArg.paramDesc.compiledName) > 0) {
+                        portExpr = portArg.paramDesc.compiledName
+                    }
+                }
+            } {
+                portExpr = (to_string portArg.int_value)
+            }
+        }
+
+        def hasSSE:boolean false
+        for cl.methods fnDesc:RangerAppFunctionDesc i {
+            if ((this.getRouteMethod(fnDesc)) == "SSE") {
+                hasSSE = true
+            }
+        }
+
+        wr.newline()
+        wr.out(("// HTTP server setup for " + cl.name) true)
+        this.writeAdapter(wr hasSSE)
+
+        wr.out("const __rgr_routes = [];" true)
+        def routeCount:int 0
+        for cl.methods fnDesc:RangerAppFunctionDesc i {
+            def method:string (this.getRouteMethod(fnDesc))
+            if ((strlen method) == 0) {
+                continue
+            }
+            def path:string (this.getRoutePath(fnDesc))
+            def isSSE:boolean (method == "SSE")
+            def sseText:string "false"
+            if isSSE {
+                sseText = "true"
+            }
+            def line:string ("__rgr_routes.push({ method: \"" + method + "\", pattern: \"" + path + "\", sse: " + sseText + ", name: \"" + (this.methodNameOf(fnDesc)) + "\" });")
+            wr.out(line true)
+            routeCount = routeCount + 1
+        }
+        if (routeCount == 0) {
+            wr.out("// no @(GET …) / @(SSE …) methods on this class: every request 404s" true)
+        }
+        wr.newline()
+
+        wr.out("const __rgr_server = __rgr_http.createServer(function (rawReq, rawRes) {" true)
+        wr.indent(1)
+        wr.out("const at = rawReq.url.indexOf(\"?\");" true)
+        wr.out("const path = at < 0 ? rawReq.url : rawReq.url.slice(0, at);" true)
+        wr.out("const query = {};" true)
+        wr.out("if (at >= 0) {" true)
+        wr.indent(1)
+        wr.out("for (const [k, v] of new URLSearchParams(rawReq.url.slice(at + 1))) { query[k] = v; }" true)
+        wr.indent(-1)
+        wr.out("}" true)
+        wr.newline()
+        wr.out("// A path that matches but with the wrong verb is 405, not 404 --" true)
+        wr.out("// the same distinction the Go writer makes." true)
+        wr.out("let pathMatched = false;" true)
+        wr.out("for (const route of __rgr_routes) {" true)
+        wr.indent(1)
+        wr.out("const params = __rgr_matchRoute(route.pattern, path);" true)
+        wr.out("if (params === null) { continue; }" true)
+        wr.out("pathMatched = true;" true)
+        wr.out("if (!route.sse && route.method !== rawReq.method) { continue; }" true)
+        if hasSSE {
+            wr.out("if (route.sse) {" true)
+            wr.indent(1)
+            wr.out((serverName + "[route.name](__rgr_wrapSSE(rawReq, rawRes));") true)
+            wr.out("return;" true)
+            wr.indent(-1)
+            wr.out("}" true)
+        }
+        wr.out((serverName + "[route.name](__rgr_wrapRequest(rawReq, path, params, query), __rgr_wrapResponse(rawRes));") true)
+        wr.out("return;" true)
+        wr.indent(-1)
+        wr.out("}" true)
+        wr.newline()
+        wr.out("rawRes.writeHead(pathMatched ? 405 : 404, { \"Content-Type\": \"text/plain\" });" true)
+        wr.out("rawRes.end(pathMatched ? \"Method not allowed\" : \"Not found\");" true)
+        wr.indent(-1)
+        wr.out("});" true)
+        wr.newline()
+        wr.out(("console.log(\"Server starting on http://localhost:\" + (" + portExpr + "));") true)
+        wr.out(("__rgr_server.listen(" + portExpr + ");") true)
+    }
+}

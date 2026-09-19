@@ -69,11 +69,59 @@ extension RangerFlowParser {
     }
   }
 
+  ; A Ranger form that the current target cannot express is a compile error, not
+  ; a licence to write something with different behaviour. The one case today is
+  ; Rust `try` / `catch`: Rust has no exceptions, so the Lang template writes the
+  ; try block and a comment where the catch belongs — the program compiles, rustc
+  ; accepts it, and the recovery path is simply gone. `throw` on its own stays
+  ; legal: `panic!` is a faithful lowering of an uncaught throw. It is the
+  ; DROPPED catch that changes the meaning of the program.
+  ;
+  ; `-rust-allow-dropped-catch` downgrades it to a printed notice per site. The
+  ; compiler's OWN sources need it: twelve catch blocks, each an
+  ; `addError(...)` reporting a parse failure, have been dropped from the Rust
+  ; rendering of the compiler all along — so the Rust selfhost build reports
+  ; those twelve errors as a panic rather than as an error list. That is debt to
+  ; pay down at those twelve sites, not a reason to let new code in silently,
+  ; and the scripts that build it pass the flag with a comment naming this.
+  fn CheckTargetSupport:void (node@(lives):CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if ((ctx.getTargetLangName()) != "rust") {
+      return
+    }
+    this.CheckNoLossyTry(node ctx (ctx.hasCompilerFlag("rust-allow-dropped-catch")))
+  }
+
+  fn CheckNoLossyTry:void (node@(lives):CodeNode ctx:RangerAppWriterContext allowed:boolean) {
+    if ((array_length node.children) == 3) {
+      def head:CodeNode (node.getFirst())
+      if (head.vref == "try") {
+        if ((array_length head.ns) < 2) {
+          def catchBlock:CodeNode (node.getThird())
+          if catchBlock.is_block_node {
+            if ((array_length catchBlock.children) > 0) {
+              if allowed {
+                print ("try[rust] dropped catch block in " + node.code.filename)
+              } {
+                ctx.addError(node "the Rust target has no exceptions and would drop this catch block. Return a value instead: a `shape` with Ok / Err cases, matched at the call site. `-rust-allow-dropped-catch` keeps the old behaviour and prints each site.")
+              }
+            }
+          }
+        }
+      }
+    }
+    for node.children ch@(lives):CodeNode i {
+      this.CheckNoLossyTry(ch ctx allowed)
+    }
+  }
+
   fn CollectMethods:void (node@(lives):CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
 
     ; the `doc { … }` tails come off first, so nothing below this line sees a
     ; declaration node with two extra children
     this.DetachDocBlocks(node ctx)
+    ; a form the target cannot express is refused here, before any writer can
+    ; quietly write something else instead
+    this.CheckTargetSupport(node ctx wr)
     ; shapes first: everything below this line sees ordinary records and unions
     this.DesugarShapes(node ctx wr)
     ; then tree literals, for the same reason: everything below this line sees
@@ -117,6 +165,33 @@ extension RangerFlowParser {
         })
       }
     })
+
+    ; PLAN_RUST_SEMANTIC_IDIOMS I: a BEHAVIOUR-ONLY trait — methods and no
+    ; fields — is the thing a Rust `trait` says. The mixin copy below still runs
+    ; and still gives each consumer its own method bodies; this records the
+    ; family the way `Extends(Base)` records one, which is what makes the Rust
+    ; writer emit `pub trait NamedTrait`, `impl NamedTrait for User` and
+    ; `Rc<RefCell<dyn NamedTrait>>`. A trait that CARRIES FIELDS stays a pure
+    ; mixin. Rust only: no other target needs the trait to be a type, and
+    ; marking the family there would turn a mixin into inheritance.
+    if ((ctx.getTargetLangName()) == "rust") {
+      for classesWithTraits tpoint:ClassJoinPoint ti {
+        def tcl:RangerAppClassDesc (unwrap tpoint.class_def)
+        def tNameNode@(lives):CodeNode (at tpoint.node.children 1)
+        def tName:string tNameNode.vref
+        if (ctx.isDefinedClass(tName)) {
+          def tDef:RangerAppClassDesc (ctx.findClass(tName))
+          if ((array_length tDef.variables) == 0) {
+            if ((array_length tDef.methods) > 0) {
+              tDef.is_extended_by_children = true
+              if ((indexOf tDef.child_classes tcl.name) < 0) {
+                push tDef.child_classes tcl.name
+              }
+            }
+          }
+        }
+      }
+    }
 
     for classesWithTraits point:ClassJoinPoint i {
       def cl:RangerAppClassDesc (unwrap point.class_def)
@@ -673,18 +748,9 @@ extension RangerFlowParser {
         }
       }
 
-      return
-
-      def instances:CodeNode (node.getThird())
-      def new_class@(lives):RangerAppClassDesc (new RangerAppClassDesc ())
-      new_class.name = nameNode.vref
-      new_class.nameNode = nameNode
-      ctx.addClass(nameNode.vref new_class)
-      new_class.is_system_union = true
-      for instances.children ch:CodeNode i {
-        push new_class.is_union_of ch.vref
-      }
-      nameNode.clDesc = new_class
+      ; What used to follow this `return` was an unreachable copy of the
+      ; `union` handler just below, differing only in is_system_union. Dead on
+      ; every target; javac is the only one that says so.
       return
     }
 

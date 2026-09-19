@@ -537,8 +537,9 @@ class tester {
       case "php" { return "php" }
       case "scala" { return "scala" }
       case "ll" { return "llvm" }
-      default { return "" }
     }
+    ; the `default` arm returned this too, and a statement after a switch
+    ; whose every arm returns is unreachable -- which javac rejects
     return ""
   }
 

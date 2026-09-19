@@ -1,0 +1,17 @@
+; EXPECT-ERROR: Undefined variable
+; Attempt — generic function
+;
+; The Rust I want: `fn identity<T>(x: T) -> T { x }`
+; Ranger `@params` is a class/trait feature. A free generic function is
+; rejected at compile time. Instantiate a generic class instead
+; (src/06_generics.rgr).
+
+fn identity @params(T):T (x:T) {
+    return x
+}
+
+class GenericFnMain {
+    sfn main:void () {
+        print ("" + (identity@(int)(3)))
+    }
+}

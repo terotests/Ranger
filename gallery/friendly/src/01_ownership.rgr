@@ -1,0 +1,90 @@
+; Study 01 — ownership, borrowing, shared mutation, weak back-edges
+;
+; The Rust I want:
+;   struct Point { x: i64, y: i64 }          // a value
+;   fn manhattan(p: &Point) -> i64
+;   let mut left = Counter { value: 0 };
+;   let alias = Rc::clone(&left);            // only when two names share
+;   parent: Option<Weak<RefCell<Node>>>      // cycle-breaking back pointer
+;   fn reading(&self) -> i64                 // no mut when the method only reads
+;
+; Ranger has no `self` / `&T` / `'a` spelling. The writer is supposed to infer
+; the same decisions from how names are used.
+
+record Point {
+    def x:int 0
+    def y:int 0
+}
+
+class PointOps {
+    fn manhattan:int (p:Point) {
+        def ax:int p.x
+        if (ax < 0) {
+            ax = (0 - ax)
+        }
+        def ay:int p.y
+        if (ay < 0) {
+            ay = (0 - ay)
+        }
+        return (ax + ay)
+    }
+
+    fn addPoints:Point (a:Point b:Point) {
+        return (new Point((a.x + b.x) (a.y + b.y)))
+    }
+}
+
+class Counter {
+    def value:int 0
+
+    fn reading:int () {
+        return value
+    }
+
+    fn add:void (amount:int) {
+        value = (value + amount)
+    }
+}
+
+class TreeNode {
+    def name:string ""
+    def kids:[TreeNode]
+    def parent@(weak optional):TreeNode
+
+    fn adopt:void (c:TreeNode) {
+        c.parent = this
+        push kids c
+    }
+
+    fn childCount:int () {
+        return (array_length kids)
+    }
+}
+
+class OwnershipMain {
+    sfn main:void () {
+        def ops:PointOps (new PointOps())
+        def origin:Point (new Point(3 4))
+        print ("manhattan " + (to_string (ops.manhattan(origin))))
+        def summed:Point (ops.addPoints(origin origin))
+        print ("sum.x " + (to_string summed.x))
+
+        def left:Counter (new Counter())
+        def alias:Counter left
+        alias.add(1)
+        print ("shared " + (to_string (left.reading())))
+
+        def root:TreeNode (new TreeNode())
+        root.name = "root"
+        def leaf:TreeNode (new TreeNode())
+        leaf.name = "leaf"
+        root.adopt(leaf)
+        print ("kids " + (to_string (root.childCount())))
+        if (null? leaf.parent) {
+            print "parent missing"
+        } {
+            def back:TreeNode (unwrap leaf.parent)
+            print ("parent " + back.name)
+        }
+    }
+}

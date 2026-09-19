@@ -1,0 +1,270 @@
+; SPDX-License-Identifier: MIT
+
+; EnumAnalysis.rgr
+;
+; Which Ranger `Enum`s can be written as a NATIVE enum of the target -- a Rust
+; `enum` or a C++ `enum class` -- rather than lowered to a bare integer. The
+; rules are the same for both, so the analysis lives here and each writer holds
+; one instance of it (see PLAN_RUST_SEMANTIC_IDIOMS item F).
+
+Import "RangerAppParamDesc.rgr"
+Import "RangerAppFunctionDesc.rgr"
+Import "RangerAppClassDesc.rgr"
+Import "RangerAppEnums.rgr"
+Import "CodeNode.rgr"
+Import "RangerAppWriterContext.rgr"
+
+class EnumNativeAnalysis {
+
+  ; "" is never a key, and an enum missing from the map is not native.
+  def nativeEnums:[string:boolean]
+  def computed:boolean false
+  ; what the diagnostic calls this target, and the type a fallback lowers to
+  def targetName:string "?"
+  def fallbackType:string "int"
+
+  ; A Ranger `Enum` is an integer on every target, so `Color.Green` reaches the
+  ; output as the literal `1` and `colorName` takes an `i64` / an `int`. The
+  ; name is gone, which is the loudest "this was generated" tell in the gallery
+  ; studies.
+  ;
+  ; It cannot simply become a native enum: Ranger source is free to do
+  ; arithmetic on an enum, index an array with one, use one as a map key or
+  ; round-trip one through @serialize, and neither a Rust `enum` nor a C++
+  ; `enum class` supports any of those without a cast. So the decision is per
+  ; enum and conservative -- emit the native form only when every use in the
+  ; program is one a native enum can carry, and keep the integer lowering for
+  ; the rest. `-strict-ownership` prints the verdict and its reason, the way
+  ; the sharing verdicts do, so a fallback is visible rather than mysterious.
+  ;
+  ; The safe uses are: a declaration of that type, an `Enum.Member` reference,
+  ; `==` / `!=` against something else of the same enum, an assignment whose
+  ; other side is the same enum, a `switch`/`case`, and a `return`. Everything
+  ; else -- every operator not in that list, and every call whose parameter is
+  ; not declared as this enum -- is a fallback. When in doubt, the integer.
+
+  fn nodeIsEnumOf:boolean (node:CodeNode enumName:string ctx:RangerAppWriterContext) {
+    if (node.eval_type == RangerNodeType.Enum) {
+      if (node.type_name == enumName) {
+        return true
+      }
+      if ((array_length node.ns) > 1) {
+        def rootName:string (itemAt node.ns 0)
+        if (rootName == enumName) {
+          return true
+        }
+      }
+      if (node.eval_type_name == enumName) {
+        return true
+      }
+      if (node.hasParamDesc) {
+        def pdNNe@(optional):CodeNode node.paramDesc.nameNode
+        if (!null? pdNNe) {
+          def pdNe:CodeNode (unwrap pdNNe)
+          if (pdNe.type_name == enumName) {
+            return true
+          }
+        }
+      }
+      ; an enum-typed node that names no enum at all: the writer cannot say
+      ; WHICH enum it is, so it counts against every one of them. Answering
+      ; "not this enum" here would let a genuinely unsafe use through, and the
+      ; cost of answering "yes" is a fallback to the lowering we already had.
+      if ((strlen node.type_name) == 0) {
+        if ((strlen node.eval_type_name) == 0) {
+          if ((array_length node.ns) < 2) {
+            return true
+          }
+        }
+      }
+    }
+    if (node.type_name == enumName) {
+      return true
+    }
+    return false
+  }
+
+  ; The enum a node names, or "" when it names none.
+  fn enumNameOf:string (node:CodeNode ctx:RangerAppWriterContext) {
+    ; `Color.Green` has the enum as its root; `node.eval_type` has an OBJECT as
+    ; its root, and reading that as an enum name reported the variable as the
+    ; enum being switched on. Only a root that is actually a declared enum
+    ; counts.
+    if ((array_length node.ns) > 1) {
+      def rootN:string (itemAt node.ns 0)
+      def re@(optional):RangerAppEnum ((ctx.getRoot()).getEnum(rootN))
+      if (!null? re) {
+        return rootN
+      }
+    }
+    if ((strlen node.type_name) > 0) {
+      return node.type_name
+    }
+    if ((strlen node.eval_type_name) > 0) {
+      return node.eval_type_name
+    }
+    if (node.hasParamDesc) {
+      def pdNNn@(optional):CodeNode node.paramDesc.nameNode
+      if (!null? pdNNn) {
+        def pdNn:CodeNode (unwrap pdNNn)
+        return pdNn.type_name
+      }
+    }
+    return ""
+  }
+
+  ; Every enum named by a `case` label inside this switch body.
+  fn collectCaseEnums:void (node:CodeNode found:[string:boolean]) {
+    if node.expression {
+      if ((array_length node.children) > 1) {
+        def h:CodeNode (node.getFirst())
+        if (h.vref == "case") {
+          def lbl:CodeNode (node.getSecond())
+          if ((array_length lbl.ns) > 1) {
+            set found (itemAt lbl.ns 0) true
+          }
+        }
+      }
+    }
+    for node.children ch:CodeNode i {
+      this.collectCaseEnums(ch found)
+    }
+  }
+
+  ; The operators an enum-typed operand may appear under. `switch` and `case`
+  ; carry the scrutinee and the labels; `=`, `def` and `return` place a value
+  ; into a slot that was declared with the type.
+  fn operandIsSafe:boolean (headVref:string) {
+    if (headVref == "==") { return true }
+    if (headVref == "!=") { return true }
+    if (headVref == "=") { return true }
+    if (headVref == "def") { return true }
+    if (headVref == "switch") { return true }
+    if (headVref == "case") { return true }
+    if (headVref == "return") { return true }
+    return false
+  }
+
+  ; Walks one function body. Answers the first reason this enum cannot be
+  ; native, or "" when it found none.
+  fn unsafeReason:string (node:CodeNode enumName:string ctx:RangerAppWriterContext) {
+    if node.expression {
+      if ((array_length node.children) > 0) {
+        def head:CodeNode (node.getFirst())
+        def hv:string head.vref
+        ; A `switch` whose case labels name a DIFFERENT enum than the scrutinee
+        ; compiles today only because both sides are integers and the members
+        ; happen to line up. `RangerAppParamDesc.getVarTypeName` in this very
+        ; compiler switches on a `RangerNodeRefType` field and labels its arms
+        ; `RangerContextVarType.NoType` / `.This` — the second arm means `Weak`.
+        ; A Rust enum has no such coincidence, so neither enum can be native.
+        if (hv == "switch") {
+          if ((array_length node.children) > 1) {
+            def scrut:CodeNode (node.getSecond())
+            def scrutEnum:string (this.enumNameOf(scrut ctx))
+            def caseEnums:[string:boolean]
+            this.collectCaseEnums(node caseEnums)
+            for (keys caseEnums) ce:string cei {
+              if (ce != scrutEnum) {
+                if ((ce == enumName) || (scrutEnum == enumName)) {
+                  return (("switched on `" + scrutEnum) + ("` with a `" + ce) + "` case label")
+                }
+              }
+            }
+          }
+        }
+        if ((this.operandIsSafe(hv)) == false) {
+          for node.children ch:CodeNode ci {
+            if (ci > 0) {
+              if (this.nodeIsEnumOf(ch enumName ctx)) {
+                if ((strlen hv) == 0) {
+                  return "used as a call receiver or argument"
+                }
+                return ("used under `" + hv + "`")
+              }
+            }
+          }
+        }
+      }
+    }
+    for node.children ch2:CodeNode ci2 {
+      def sub:string (this.unsafeReason(ch2 enumName ctx))
+      if ((strlen sub) > 0) {
+        return sub
+      }
+    }
+    return ""
+  }
+
+  fn compute:void (ctx:RangerAppWriterContext) {
+    if computed {
+      return
+    }
+    computed = true
+    def root:RangerAppWriterContext (ctx.getRoot())
+    def diag:boolean (ctx.hasCompilerFlag("strict-ownership"))
+    for (keys root.definedEnums) ename:string ei {
+      def reason:string ""
+      for root.definedClasses cl:RangerAppClassDesc ci {
+        if ((strlen reason) > 0) {
+          continue
+        }
+        if ((((cl.is_system || cl.is_trait) || cl.is_template) || cl.is_operator_class) || cl.is_union) {
+          continue
+        }
+        ; a serialized class reads and writes its fields as JSON numbers, and a
+        ; Rust enum is not a number there
+        if (cl.is_serialized) {
+          for cl.variables sv:RangerAppParamDesc svi {
+            def svNN@(optional):CodeNode sv.nameNode
+            if (!null? svNN) {
+              def svN:CodeNode (unwrap svNN)
+              if (svN.type_name == ename) {
+                reason = "a field of an @serialize class"
+              }
+            }
+          }
+        }
+        reason = (this.scanFns(cl.methods ename ctx reason))
+        reason = (this.scanFns(cl.static_methods ename ctx reason))
+      }
+      if ((strlen reason) == 0) {
+        set nativeEnums ename true
+        if diag {
+          print (((("enum[" + targetName) + "] ") + ename) + " -> native enum")
+        }
+      } {
+        if diag {
+          print (((((("enum[" + targetName) + "] ") + ename) + (" -> " + fallbackType)) + (" (" + reason)) + ")")
+        }
+      }
+    }
+  }
+
+  fn scanFns:string (fns:[RangerAppFunctionDesc] enumName:string ctx:RangerAppWriterContext reasonIn:string) {
+    def reason:string reasonIn
+    for fns m:RangerAppFunctionDesc mi {
+      if ((strlen reason) > 0) {
+        return reason
+      }
+      def mNodeOpt@(optional):CodeNode m.node
+      if (null? mNodeOpt) {
+        continue
+      }
+      def mNode:CodeNode (unwrap mNodeOpt)
+      reason = (this.unsafeReason(mNode enumName ctx))
+    }
+    return reason
+  }
+
+  fn isNative:boolean (enumName:string ctx:RangerAppWriterContext) {
+    if ((strlen enumName) == 0) {
+      return false
+    }
+    this.compute(ctx)
+    if (has nativeEnums enumName) {
+      return true
+    }
+    return false
+  }
+}

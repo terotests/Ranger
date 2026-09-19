@@ -1,0 +1,55 @@
+; EXPECT-ERROR: is not a type it can name
+;
+; Attempt — a Ranger `trait` used as a type
+;
+; The Rust I want:
+;   trait Named { fn label(&self) -> String; }
+;   impl Named for User { … }
+;   impl Named for Bot  { … }
+;   fn show(n: &dyn Named) -> String
+;
+; A Ranger `trait` is a MIXIN on the Rust target: its methods are copied into
+; each class that `does` it, and no Rust type of that name is ever declared.
+; The writer used to emit `fn show(mut n : &mut Named)` with no `Named` anywhere
+; in the file — accepted Ranger, and `rustc: E0425 cannot find type 'Named'`.
+; The C++ writer has the same hole (`std::shared_ptr<Named>`, no `class Named`);
+; ES6 is fine, because nothing there needs the type to exist.
+;
+; It is now refused, and the error names the spelling that does work: a class
+; with subclasses. `Extends(Base)` emits `pub trait BaseTrait`, `impl BaseTrait
+; for Child` and `Rc<RefCell<dyn BaseTrait>>`, rustc-clean — so the machinery is
+; there, and item I of docs/plans/PLAN_RUST_SEMANTIC_IDIOMS.md is routing `does`
+; into it rather than building anything new.
+
+trait Named {
+    def name:string ""
+    fn label:string () {
+        return name
+    }
+}
+
+class User {
+    does Named
+    def age:int 0
+}
+
+class Bot {
+    does Named
+    def id:int 0
+}
+
+class TraitAsType {
+    fn show:string (n:Named) {
+        return (n.label())
+    }
+
+    sfn main:void () {
+        def app:TraitAsType (new TraitAsType())
+        def u:User (new User())
+        u.name = "ada"
+        def b:Bot (new Bot())
+        b.name = "bot"
+        print (app.show(u))
+        print (app.show(b))
+    }
+}

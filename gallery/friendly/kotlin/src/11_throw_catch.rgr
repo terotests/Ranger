@@ -1,0 +1,50 @@
+; Study 11 (Kotlin only) — try / throw / catch
+;
+; The Kotlin I want:
+;   fun mustBePositive(value: Int): Int {
+;       if (value < 0) throw Exception("negative")
+;       return value
+;   }
+;   try { … } catch (e: Exception) { caught = e.message ?: e.toString() }
+;
+; Ranger's `throw` used to emit `throw "negative"` here, because Kotlin had no
+; template of its own and fell through to the generic one. A String is not a
+; Throwable, so kotlinc refused the file outright — the study that ranked the
+; targets recorded this as "does not kotlinc". `Exception(msg)` also puts the
+; text where the `error_msg` template already reads it, `e.message`.
+;
+; This is Kotlin-local rather than a shared study because the Rust target
+; REFUSES try/catch — it has no exceptions and would drop the catch block, so
+; the same program is ../../rust/attempts/09_throw_panics.rgr over there.
+; Swift has the same shape of problem as Kotlin had and the same fix landed for
+; it, but there is no swiftc on this machine, so it has no study of its own.
+
+class Guard {
+    fn mustBePositive@(throws):int (value:int) {
+        if (value < 0) {
+            throw "negative"
+        }
+        return value
+    }
+}
+
+class ThrowMain {
+    sfn main:void () {
+        def g:Guard (new Guard())
+        def caught:string "none"
+        try {
+            def ok:int (g.mustBePositive(3))
+            print ("try_ok " + (to_string ok))
+        } {
+            caught = (error_msg)
+        }
+        print ("after_ok " + caught)
+        try {
+            def bad:int (g.mustBePositive(0 - 1))
+            print ("try_bad " + (to_string bad))
+        } {
+            caught = (error_msg)
+        }
+        print ("after_bad " + caught)
+    }
+}

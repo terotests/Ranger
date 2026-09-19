@@ -1,0 +1,81 @@
+; Study 02 — Option and Result
+;
+; The Rust I want:
+;   fn find_name(...) -> Option<String>
+;   fn parse_int(text: &str) -> Result<i64, String>
+;   let shown = name.unwrap_or("unknown");
+;   let n = parse_int(s)?;
+;
+; Ranger has @(optional) / ?? / null? / unwrap. It has no Result, no `?`,
+; and no `if let`. A closed `shape` is the closest spelling of Result<T, E>
+; the language can write today.
+
+shape ParseOutcome {
+    case Ok {
+        def value:int 0
+    }
+    case Err {
+        def message:string ""
+    }
+}
+
+class Lookup {
+    fn findName@(optional):string (names:[string] key:string) {
+        ; A non-optional local cannot be returned from an optional function —
+        ; assign into an optional and return that (see lib/Shell.rgr).
+        def found@(optional):string
+        for names n:string i {
+            if (n == key) {
+                found = n
+                return found
+            }
+        }
+        return found
+    }
+
+    fn parseInt:ParseOutcome (text:string) {
+        if (text == "") {
+            return (new ParseOutcome.Err("empty"))
+        }
+        def parsed@(optional):int (str2int text)
+        if (null? parsed) {
+            return (new ParseOutcome.Err("not a number"))
+        }
+        return (new ParseOutcome.Ok((unwrap parsed)))
+    }
+
+    fn describe:string (r:ParseOutcome) {
+        def out:string "?"
+        match r {
+            Ok o {
+                out = ("ok:" + (to_string o.value))
+            }
+            Err e {
+                out = ("err:" + e.message)
+            }
+        }
+        return out
+    }
+
+}
+
+; An optional *parameter* of type string currently becomes
+; `Option<Option<String>>` on Rust and does not rustc. See
+; attempts/02_optional_string_param.rgr. `??` on a local is fine.
+
+class OptionResultMain {
+    sfn main:void () {
+        def box:Lookup (new Lookup())
+        def names:[string] ([] _:string ( "ada" "grace" ))
+        def hit@(optional):string (box.findName(names "ada"))
+        print ("found " + (?? hit "unknown"))
+        def miss@(optional):string (box.findName(names "alan"))
+        print ("miss " + (?? miss "unknown"))
+        if (null? miss) {
+            print "miss is empty"
+        }
+        print (box.describe((box.parseInt("42"))))
+        print (box.describe((box.parseInt(""))))
+        print (box.describe((box.parseInt("nope"))))
+    }
+}

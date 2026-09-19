@@ -205,7 +205,19 @@ describe("JSON operators", () => {
   it.skipIf(!isRustAvailable())(
     "round trips an object through text on Rust",
     () => {
-      const { compile, run } = compileAndRunRust(FIXTURE);
+      // -rust-allow-dropped-catch: `from_string` is @(throws) and the catch
+      // block is how a Ranger program notices bad input, so the fixture has
+      // one. Rust has no exceptions, so the Rust target drops it and a parse
+      // failure panics instead — which means JSON parsing has no error path at
+      // all on this target. The flag keeps that (known, pre-existing) behaviour
+      // and prints the site; this test checks the happy path, where the text
+      // was produced by `to_string` two lines earlier and cannot fail to parse.
+      // Removing the flag is item H of docs/plans/PLAN_RUST_SEMANTIC_IDIOMS.md.
+      const { compile, run } = compileAndRunRust(
+        FIXTURE,
+        undefined,
+        "-rust-allow-dropped-catch"
+      );
 
       expect(
         compile.success,

@@ -164,8 +164,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   again from it is a fixpoint.
 
 - **The front-page hero columns are "There is no Silver Bullet." and
-  "Less is More."** Ranger as a golden-file harness that emits ordinary
-  Swift, Kotlin and JavaScript, not a magic runtime.
+  "Stay Dry."** Ranger is more like golden — a golden-file harness that
+  emits ordinary Swift, Kotlin and JavaScript, not a magic runtime. The
+  definition sits as a small footnote under the first column.
 
 - **The gold Native section is "Native apps without duplicating the
   logic."** One source of shared logic compiled to Swift and Kotlin,
@@ -291,6 +292,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the list, and neither host has to reimplement it. The form claims the arrows
   back from the text bridge for that field alone (`ownsKey`), because there
   they walk the list rather than the caret.
+
+- **`evg:view:check` flaked in CI on a landing-only pull request.** The
+  suite draws each scene twice — once with the view baked into the list,
+  once with it on the camera — by rewriting one `file://` HTML file and
+  navigating to it. Chromium will sometimes answer the previous document
+  for that URL, `waitForFunction` sees the leftover `__DONE__`, and the
+  comparison reads the last framebuffer: one of thirty-one checks fails,
+  the rest pass. A unique query on each load is a different navigation;
+  `gl.finish()` lands before the read; a mismatch draws both sides again
+  before it is a failure. The gallery-editors runner also printed only
+  the last thirty lines of a failed suite, which hid the `FAIL` behind
+  later PASSes.
 
 - **The published compiler shipped a thinner `stdlib.rgr` than the one the
   tests ran against.** `compiler/stdlib.rgr` and `lib/stdlib.rgr` had drifted:

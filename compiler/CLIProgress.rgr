@@ -426,10 +426,10 @@ class CLIProgress {
             case "scala" {
                 return (this.red("Scala"))
             }
-            default {
-                return lang
-            }
         }
+        ; no `default` arm: it returned `lang`, which is what the line below
+        ; already does, and a switch whose every arm returns makes that line
+        ; unreachable -- which javac rejects and no other target minds.
         return lang
     }
     

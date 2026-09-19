@@ -568,11 +568,11 @@ operators {
                         (block 3)
                         nl i "}"
             ) 
-            rust (
-                (forkctx _ ) (def 2) "if let " (typeof 1) "::" (typeof 2) "(" (e 2) ") = &" (e 1) " { /* union case */" nl I
-                        (block 3)
-                        nl i "}"
-            )
+            ; PLAN_RUST_SEMANTIC_IDIOMS E: the writer decides between the `if
+            ; let` this used to be and an arm of a real `match`, because only it
+            ; can see whether FlowShape marked this narrowing as part of a
+            ; complete match. See RustUnion.rustWriteUnionCase.
+            rust ( (forkctx _ ) (def 2) (custom _) )
 
         }
     }

@@ -102,6 +102,8 @@ export function compileRanger(
     java7: ".java",
     llvm: ".ll",
     csharp: ".cs",
+    php: ".php",
+    scala: ".scala",
   };
   const ext = extMap[targetLang] || ".js";
   const outputFile = `${sourceBasename}${ext}`;
@@ -223,6 +225,8 @@ export function compileRangerWithFlags(
     java7: ".java",
     llvm: ".ll",
     csharp: ".cs",
+    php: ".php",
+    scala: ".scala",
   };
   const ext = extMap[language] || ".js";
   const outputFile = `${sourceBasename}${ext}`;
@@ -1672,9 +1676,10 @@ export function runRustFile(rustFile: string): RunResult {
  */
 export function compileAndRunRust(
   sourceFile: string,
-  outputDir?: string
+  outputDir?: string,
+  extraFlags?: string
 ): { compile: CompileResult; run?: RunResult } {
-  const compileResult = compileRangerToRust(sourceFile, outputDir);
+  const compileResult = compileRangerToRust(sourceFile, outputDir, extraFlags);
 
   if (!compileResult.success) {
     return { compile: compileResult };
