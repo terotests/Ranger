@@ -6404,6 +6404,8 @@ class ComponentEngine {
         if (jsxTag == "Label") { return "text" }
         if (jsxTag == "Image") { return "image" }
         if (jsxTag == "Path") { return "path" }
+        if (jsxTag == "Connector") { return "connector" }
+        if (jsxTag == "connector") { return "connector" }
         if (jsxTag == "Spacer") { return "spacer" }
         if (jsxTag == "Divider") { return "divider" }
         if (jsxTag == "div") { return "div" }

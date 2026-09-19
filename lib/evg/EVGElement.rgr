@@ -789,6 +789,52 @@ class EVGElement {
     ; lines are the reason this exists.
     def strokeDashArray:string ""
     def strokeDashOffset:double 0.0
+
+    ; ---------------------------------------------------------------------
+    ; Anchors and connectors
+    ; ---------------------------------------------------------------------
+    ;
+    ; `anchor-name` is CSS Anchor Positioning's own property: a name other
+    ; elements can point at, written `--orders` by convention. It is kept as
+    ; written, so `--orders` and `orders` are two different names, the way the
+    ; CSS one is.
+    def anchorName:string ""
+
+    ; A `connector` is a path whose `d` the LAYOUT writes. The author says
+    ; which two boxes it joins and how it should look; where those boxes end
+    ; up is the layout's business, and it is re-solved on every layout pass,
+    ; which is the whole point — a hand-placed `left: 171px` arrow is wrong
+    ; the moment the grid it was measured against reflows.
+    ;
+    ; `from`/`to` name an anchor (`--orders`) or an id (`#orders`).
+    def connectorFrom:string ""
+    def connectorTo:string ""
+    ; Which edge of the box to leave from and arrive at: left, right, top,
+    ; bottom, center — or `auto`, which picks the pair facing each other. Auto
+    ; is what makes the same connector correct in both a two-column desktop
+    ; layout and a stacked phone one.
+    def connectorFromSide:string "auto"
+    def connectorToSide:string "auto"
+    ; straight | orthogonal | bezier
+    def connectorRouting:string "straight"
+    ; A gap left between the box edge and the line's end, along the side's
+    ; own normal.
+    def connectorFromOffset:double 0.0
+    def connectorToOffset:double 0.0
+    ; none | triangle | open. `triangle` is filled, `open` is two strokes;
+    ; both follow the direction of the segment they sit on.
+    def arrowStart:string "none"
+    def arrowEnd:string "none"
+    def arrowSize:double 10.0
+    ; The heads, as their own `d`. They are kept OUT of `svgPath` because a
+    ; fill fills every subpath of the path it is on, closing each one
+    ; implicitly — an orthogonal shaft and its head on one path would come
+    ; back as a filled triangle of shaft. So the shaft is stroked and this is
+    ; filled, which is also what the two of them are.
+    def arrowPath:string ""
+    ; Set by the layout when it could not resolve `from` or `to`; the draw is
+    ; skipped rather than pointed at the origin.
+    def connectorResolved:boolean false
     
     ; Clip path (for any element)
     def clipPath:string ""
@@ -1542,6 +1588,39 @@ class EVGElement {
         }
     }
 
+    ; What an `arrowPath` is filled with: the stroke's own colour, because an
+    ; arrow whose head is a different colour from its shaft is a mistake far
+    ; more often than a choice. An explicit `fill` still wins.
+    fn arrowFillColor:EVGColor () {
+        def out:EVGColor (EVGColor.noColor())
+        if fillColor.isSet {
+            def f:EVGColor (unwrap fillColor)
+            out = f
+            return out
+        }
+        if strokeColor.isSet {
+            def st:EVGColor (unwrap strokeColor)
+            out = st
+        }
+        return out
+    }
+
+    ; Drawn as a vector path by every renderer. A `connector` is one: the
+    ; difference between it and a `path` is who wrote the `d`, which no
+    ; renderer has any reason to care about.
+    fn drawsPath:boolean () {
+        if (tagName == "path") {
+            return true
+        }
+        if (tagName == "Path") {
+            return true
+        }
+        if (tagName == "connector") {
+            return true
+        }
+        return false
+    }
+
     fn hasAbsolutePosition:boolean () {
         ; Fixed is out of flow by the same rule absolute is; where it differs
         ; is which box it is positioned against, which is the layout's business
@@ -1565,6 +1644,11 @@ class EVGElement {
         ; Check if element has absolute positioning
         ; Layer elements are always absolute (overlay parent)
         if ((tagName == "layer") || (tagName == "Layer")) {
+            return true
+        }
+        ; A connector is geometry over the layout, never in it: it joins two
+        ; boxes and must not push either of them about.
+        if (tagName == "connector") {
             return true
         }
         if left.isSet {
@@ -2946,6 +3030,19 @@ class EVGElement {
         fillRule = other.fillRule
         strokeDashArray = other.strokeDashArray
         strokeDashOffset = other.strokeDashOffset
+        anchorName = other.anchorName
+        connectorFrom = other.connectorFrom
+        connectorTo = other.connectorTo
+        connectorFromSide = other.connectorFromSide
+        connectorToSide = other.connectorToSide
+        connectorRouting = other.connectorRouting
+        connectorFromOffset = other.connectorFromOffset
+        connectorToOffset = other.connectorToOffset
+        arrowStart = other.arrowStart
+        arrowEnd = other.arrowEnd
+        arrowSize = other.arrowSize
+        arrowPath = other.arrowPath
+        connectorResolved = other.connectorResolved
         clipPath = other.clipPath
         className = other.className
         theme = other.theme
@@ -4035,6 +4132,63 @@ class EVGElement {
             return
         }
         
+        ; Anchors and connectors. `anchor-name` is CSS's; the rest belong to
+        ; the `connector` tag, which is EVG's own — CSS has no property that
+        ; draws a line between two elements.
+        if ((name == "anchor-name") || (name == "anchorName")) {
+            anchorName = (trim value)
+            return
+        }
+        if (name == "from") {
+            connectorFrom = (trim value)
+            return
+        }
+        if (name == "to") {
+            connectorTo = (trim value)
+            return
+        }
+        if ((name == "from-side") || (name == "fromSide")) {
+            connectorFromSide = (trim value)
+            return
+        }
+        if ((name == "to-side") || (name == "toSide")) {
+            connectorToSide = (trim value)
+            return
+        }
+        if (name == "routing") {
+            connectorRouting = (trim value)
+            return
+        }
+        if ((name == "from-offset") || (name == "fromOffset")) {
+            def fou:EVGUnit (this.unitOf(name value))
+            if fou.isSet {
+                connectorFromOffset = fou.pixels
+            }
+            return
+        }
+        if ((name == "to-offset") || (name == "toOffset")) {
+            def tou:EVGUnit (this.unitOf(name value))
+            if tou.isSet {
+                connectorToOffset = tou.pixels
+            }
+            return
+        }
+        if ((name == "arrow-start") || (name == "arrowStart")) {
+            arrowStart = (trim value)
+            return
+        }
+        if ((name == "arrow-end") || (name == "arrowEnd")) {
+            arrowEnd = (trim value)
+            return
+        }
+        if ((name == "arrow-size") || (name == "arrowSize")) {
+            def asu:EVGUnit (this.unitOf(name value))
+            if asu.isSet {
+                arrowSize = asu.pixels
+            }
+            return
+        }
+
         ; SVG Path attributes
         if ((name == "d") || (name == "svgPath")) {
             svgPath = value

@@ -1192,6 +1192,36 @@ class EVGDisplayList {
             this.addCmd(cf)
         }
 
+        ; A CONNECTOR'S HEADS, which are filled while its shaft is stroked.
+        ; They are a path of their own — see `EVGElement.arrowPath` — because
+        ; one path cannot be half filled: a fill closes every subpath it has,
+        ; and an orthogonal shaft closed is a triangle nobody asked for.
+        if ((strlen el.arrowPath) > 0) {
+            def hc:EVGColor (el.arrowFillColor())
+            if hc.isSet {
+                def hp (new SVGPathParser())
+                hp.parse(el.arrowPath)
+                def hb:PathBounds (hp.getBounds())
+                def hvb:ViewBoxRect (VectorViewBox.effectiveViewBox(el.viewBox hb.minX hb.minY hb.width hb.height))
+                def hm:Matrix2D (VectorViewBox.resolve(hvb w h el.preserveAspectRatio))
+                def hrings:[PathRing] (hp.flattenRings(steps hm.a hm.b hm.c hm.d (hm.e + x) (hm.f + y)))
+                if ((array_length hrings) > 0) {
+                    def ch (new EVGDrawCmd())
+                    ch.kind = 6
+                    ch.x = x
+                    ch.y = y
+                    ch.w = w
+                    ch.h = h
+                    ch.r = (hc.red())
+                    ch.g = (hc.green())
+                    ch.b = (hc.blue())
+                    ch.a = (hc.alpha())
+                    this.copyRings(ch hrings)
+                    this.addCmd(ch)
+                }
+            }
+        }
+
         if el.strokeColor.isSet {
             if (el.strokeWidth > 0.0) {
                 def sc:EVGColor el.strokeColor
@@ -2678,7 +2708,7 @@ class EVGDisplayList {
         ; true of a flat colour and always was — a path element carries it as
         ; `fill` and never as `background-color`, so nothing noticed until a
         ; gradient could be on both.
-        def paintsItsBox:boolean (el.tagName != "path")
+        def paintsItsBox:boolean ((el.drawsPath()) == false)
         if ((bgSet || gradOk) && paintsItsBox) {
             def c (new EVGDrawCmd())
             c.kind = 0
@@ -2800,7 +2830,7 @@ class EVGDisplayList {
         ; Vector paths. Flattened here, in page coordinates, because this is
         ; where the drawn size is known — a GPU backend gets rings of points
         ; and needs no path parser and no viewBox arithmetic of its own.
-        if (el.tagName == "path") {
+        if (el.drawsPath()) {
             this.walkPath(el x y w h)
         }
         ; Image

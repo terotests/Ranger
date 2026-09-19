@@ -641,7 +641,7 @@ class EVGHTMLRenderer {
         if ((el.tagName == "Image") || (el.tagName == "img") || (el.tagName == "image")) {
             return (this.renderImageWithParent(el elementId depth pf))
         }
-        if ((el.tagName == "Path") || (el.tagName == "path")) {
+        if (el.drawsPath()) {
             return (this.renderPathWithParent(el elementId depth pf))
         }
         if ((el.tagName == "Rect") || (el.tagName == "rect")) {
@@ -1753,6 +1753,16 @@ class EVGHTMLRenderer {
         }
         
         html = html + "/>\n"
+
+        ; A connector's heads are a second path: filled, unstroked. One path
+        ; cannot be half filled — see `EVGElement.arrowPath`.
+        if ((strlen el.arrowPath) > 0) {
+            def hc:EVGColor (el.arrowFillColor())
+            if hc.isSet {
+                html = html + (this.indent(depth + 1)) + "<path d=\"" + el.arrowPath + "\""
+                html = html + " fill=\"" + (hc.toCSSString()) + "\" stroke=\"none\"/>\n"
+            }
+        }
         
         html = html + (this.indent(depth)) + "</svg>\n"
         return html

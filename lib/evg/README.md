@@ -253,6 +253,54 @@ a dropdown, a tooltip, a menu panel.
 Overlays are placed after everything they anchor to has a rectangle, which is
 why a menu can be declared anywhere in the tree.
 
+### Connectors
+
+A `connector` is a line between two elements whose geometry the **layout**
+writes. `path` is the other half of the pair: there the author owns `d` and the
+layout owns nothing.
+
+| Property | Notes |
+| --- | --- |
+| `anchor-name` | names this element so a connector can point at it, as in CSS Anchor Positioning: `--orders` |
+| `from` / `to` | an `anchor-name` or an `#id` |
+| `from-side` / `to-side` | `left`, `right`, `top`, `bottom`, `center`, the four corners — or `auto` |
+| `routing` | `straight`, `orthogonal`, `bezier` |
+| `from-offset` / `to-offset` | a gap between the box edge and the line's end |
+| `arrow-start` / `arrow-end` | `none`, `open` (two strokes), `triangle` (filled) |
+| `arrow-size` | the head's length |
+
+It is drawn with the stroke vocabulary a path already has — `stroke`,
+`stroke-width`, `stroke-linecap`, `stroke-linejoin`, `stroke-dasharray`. There
+is no connector-specific styling and there should not be.
+
+```json
+{"tag": "div", "props": {"anchor-name": "--orders"}},
+{"tag": "div", "props": {"anchor-name": "--revenue"}},
+{"tag": "connector", "props": {
+  "from": "--orders", "to": "--revenue",
+  "stroke": "rgb(250,204,21)", "stroke-width": "3px",
+  "arrow-end": "triangle", "arrow-size": "10px"
+}}
+```
+
+`auto` is the point of the tag. The connector above leaves the right edge of
+one card and arrives at the left edge of the other while they sit side by side;
+reflow the same document to one column and it leaves the bottom and arrives at
+the top, because the sides are decided from where the boxes ended up rather
+than from where they were when the document was written. A `path` at
+`left: 171px` cannot do that, and that is what it was doing before.
+
+Connectors are solved after layout and after the overlay pass, so a line can
+point at anything, declared anywhere. What cannot be resolved is reported —
+`connector: nothing is called "--revenue"` — and draws nothing rather than a
+line to the origin. The heads are filled and the shaft is stroked, which is why
+they are separate paths internally (`EVGElement.arrowPath`): a fill closes every
+subpath it is given, and an orthogonal shaft closed is a triangle nobody asked
+for.
+
+See [`EVGConnector.rgr`](EVGConnector.rgr) and its test,
+`npm run evg:connector:test`.
+
 ### Interaction and meaning
 
 `transition` (see [Interaction](#interaction)), the ARIA surface (see
@@ -799,6 +847,7 @@ and the difference is what these are for.
 | `EVGElement.rgr` | the node: properties, `setAttribute`, inheritance, inline tracking |
 | `EVGLayout.rgr` | flow, flex, absolute positioning, overlays, scrolling, RTL |
 | `EVGGrid.rgr` | grid tracks, `repeat()`, `minmax()`, named areas, subgrid |
+| `EVGConnector.rgr` | connectors: a line between two elements, solved after layout |
 | `EVGBox.rgr` | the resolved box model |
 | `EVGUnit.rgr` | lengths and how they resolve |
 | `EVGStyleSheet.rgr` | the CSS subset, the cascade, `@media`, the style cache |

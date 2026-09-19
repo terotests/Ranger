@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Connectors: a line between two elements, drawn by the layout.** A
+  `connector` names two boxes (`from`/`to`, an `anchor-name` such as
+  `--orders` or an `#id`), and EVG writes its `d` on every layout pass from
+  the rectangles they came out as. `from-side`/`to-side` default to `auto`,
+  which picks the facing pair — so the same connector leaves the right edge
+  while two cards sit side by side and the bottom edge once the grid stacks
+  them on a phone. `routing` is `straight`, `orthogonal` or `bezier`;
+  `arrow-start`/`arrow-end` are `open` (stroked) or `triangle` (filled) at
+  `arrow-size`; everything else is the stroke vocabulary a `path` already
+  has. `path` is unchanged and still the right tool when the author owns the
+  geometry. [`lib/evg/EVGConnector.rgr`](lib/evg/EVGConnector.rgr),
+  `npm run evg:connector:test`.
+
 - **Erazer turns a UI screenshot into an EVG layout.** `gallery/erazer`
   grows colour regions, nests them, and guesses widget classes (button,
   text field, tab, menu, checkbox, slider, label, icon) instead of tracing the
@@ -127,6 +140,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     for every element it compares against.
 
 ### Fixed
+
+- **`position: absolute` was dropped inside a `display: grid` parent.**
+  `layoutGrid` left out-of-flow children out of the placement, which is
+  right — an absolute box takes no track — and then nothing laid them out at
+  all: the box kept zero size at (0,0), so an absolutely positioned `div`
+  vanished and a `path` drew its own coordinates in the page's top-left
+  corner with `left`/`top` ignored. The same element under a flex or block
+  parent was placed correctly, which made it look like a `path` bug. The
+  out-of-flow pass is now one function (`EVGLayout.layoutOutOfFlowChild`)
+  that both flow and grid run.
 
 - **An array literal survives a call whose result is dereferenced.**
   `(box.take(([] _:string ( "a" "b" )))).count()` emitted

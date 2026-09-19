@@ -530,7 +530,7 @@ class EVGPNGTool {
         ; handing it to the image decoder would only produce a "not a JPEG"
         ; complaint about a file nothing was wrong with.
         if ((strlen el.src) > 0) {
-            if ((el.tagName == "path") == false) {
+            if ((el.drawsPath()) == false) {
                 this.renderImage(el x y w h)
             }
         }
@@ -538,7 +538,7 @@ class EVGPNGTool {
         ; Vector paths. PLAN_VECTOR_IR.md Stage 2 / TODO_EVG "PNG 0.9": the
         ; raster target had no path support at all, so a <Path> that appeared
         ; in PDF and HTML was simply missing from the PNG.
-        if (el.tagName == "path") {
+        if (el.drawsPath()) {
             this.renderPath(el x y w h)
         }
 
@@ -850,6 +850,27 @@ class EVGPNGTool {
 
             def alpha:int (this.alphaOf(el fillColor.a))
             raster.fillAA(buf (fillColor.red()) (fillColor.green()) (fillColor.blue()) alpha rule)
+        }
+
+        ; A connector's heads: filled, while the shaft beside them is
+        ; stroked. See `EVGElement.arrowPath` for why they are not one path.
+        if ((strlen el.arrowPath) > 0) {
+            def hc:EVGColor (el.arrowFillColor())
+            if hc.isSet {
+                def hp (new SVGPathParser())
+                hp.parse(el.arrowPath)
+                def hrings:[PathRing] (hp.flattenRings(steps full.a full.b full.c full.d full.e full.f))
+                def hraster (new VectorRasterizer())
+                this.applyClip(hraster)
+                def hk:int 0
+                while (hk < (array_length hrings)) {
+                    def hring:PathRing (itemAt hrings hk)
+                    hraster.addRing(hring.pts)
+                    hk = (hk + 1)
+                }
+                def halpha:int (this.alphaOf(el hc.a))
+                hraster.fillAA(buf (hc.red()) (hc.green()) (hc.blue()) halpha (VectorRasterizer.nonZero()))
+            }
         }
 
         ; Stroke. Approximated as fillable geometry — see

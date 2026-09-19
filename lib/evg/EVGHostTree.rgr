@@ -609,7 +609,7 @@ class EVGHostTree {
         op.objectFit = el.objectFit
 
         ; Path: the source, for a host with a path renderer.
-        if (el.tagName == "path") {
+        if (el.drawsPath()) {
             op.d = el.svgPath
             op.svgSource = el.svgSource
             op.viewBox = el.viewBox
@@ -814,7 +814,7 @@ class EVGHostTree {
             s = (s + ",\"align\":" + (EVGHostTree.q(op.textAlign)) + ",\"c\":" + (EVGHostTree.color(op.textR op.textG op.textB op.textA)) + "}")
         }
         if ((strlen op.src) > 0) { s = (s + ",\"src\":" + (EVGHostTree.q(op.src)) + ",\"fit\":" + (EVGHostTree.q(op.objectFit))) }
-        if (op.tagName == "path") {
+        if ((op.tagName == "path") || (op.tagName == "connector")) {
             s = (s + ",\"shape\":{\"d\":" + (EVGHostTree.q(op.d)) + ",\"viewBox\":" + (EVGHostTree.q(op.viewBox)) + ",\"rule\":" + (EVGHostTree.q(op.fillRule)))
             if ((strlen op.svgSource) > 0) { s = (s + ",\"svg\":" + (EVGHostTree.q(op.svgSource))) }
             if op.hasFill { s = (s + ",\"fill\":" + (EVGHostTree.color(op.fillR op.fillG op.fillB op.fillA))) }

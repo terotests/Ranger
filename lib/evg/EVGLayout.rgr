@@ -8,6 +8,7 @@ Import "EVGImageMeasurer.rgr"
 Import "EVGGrid.rgr"
 Import "EVGReject.rgr"
 Import "EVGTextEngine.rgr"
+Import "EVGConnector.rgr"
 
 class EVGLayout {
     def measurer:EVGTextMeasurer
@@ -158,6 +159,16 @@ class EVGLayout {
         ; Then the overlays, once everything they anchor to has a rectangle.
         clear overlayErrors
         def anySurface:boolean (this.placeOverlaysIn(root))
+
+        ; The connectors, once every box they join has its final rectangle —
+        ; the overlay pass above is the last thing that moves one, and a line
+        ; solved before it would point at where a card used to be.
+        def connWarnings:[string] (EVGConnector.resolveAll(root))
+        def cwi:int 0
+        while (cwi < (array_length connWarnings)) {
+            this.warn((itemAt connWarnings cwi))
+            cwi = (cwi + 1)
+        }
 
         ; And where each subtree DRAWS, which is not where its box is: see
         ; `EVGElement.paintTop`. Last, because it is a union over final
@@ -1068,6 +1079,93 @@ class EVGLayout {
         return out
     }
 
+    ; An out-of-flow child — `position: fixed`, a `Layer`, or an absolutely
+    ; positioned box — sized and placed against this parent.
+    ;
+    ; Lifted out of `layoutChildren` because THE GRID NEVER RAN IT. `layoutGrid`
+    ; collects the in-flow items and skips `isAbsolute` ones, correctly, and then
+    ; nothing laid them out at all: an absolute child of a `display: grid`
+    ; container kept zero size at (0,0), so a box vanished and a `path` drew its
+    ; own coordinates in the page's top-left corner with `left`/`top` dropped.
+    ; The same child under a flex or block parent was placed correctly, which is
+    ; what made it look like a `path` bug rather than a grid one.
+    fn layoutOutOfFlowChild:void (parent:EVGElement child:EVGElement innerWidth:double innerHeight:double startX:double startY:double alongRow:boolean) {
+            ; A FIXED BOX IS POSITIONED AGAINST THE VIEWPORT, not against
+            ; this parent: its `top`, `right`, `bottom` and `left` and every
+            ; percentage inside it resolve against the page, and its origin
+            ; is the page's own (0,0) — so unlike an absolute child it is
+            ; NOT translated to the parent's content corner afterwards.
+            ; `applyScroll` then leaves it alone, which is the whole
+            ; difference between the two modes.
+            if (child.isFixedPosition()) {
+                child.unitsResolved = false
+                child.resolveUnits(child.viewportW child.viewportH)
+                def wasRowF:boolean layingOutAlongRow
+                def wasShrinkF:boolean columnCrossShrinks
+                layingOutAlongRow = alongRow
+                columnCrossShrinks = (this.crossShrinksUnder(parent))
+                this.layoutElement(child 0.0 0.0 child.viewportW child.viewportH)
+                layingOutAlongRow = wasRowF
+                columnCrossShrinks = wasShrinkF
+                ; The viewport's own origin. It is (0,0) for a page, so
+                ; this is a no-op for every host that has one viewport;
+                ; a stage with a frame per width moves the box onto its
+                ; frame, the same one translation the absolute branch
+                ; below makes for its own reason.
+                if ((child.viewportX != 0.0) || (child.viewportY != 0.0)) {
+                    this.translateSubtree(child child.viewportX child.viewportY)
+                }
+                return
+            }
+            ; Layer elements use parent's full dimensions, not inner dimensions
+            if ((child.tagName == "layer") || (child.tagName == "Layer")) {
+                ; Re-resolve Layer dimensions with parent's full width/height
+                child.unitsResolved = false
+                child.resolveUnits(parent.calculatedWidth parent.calculatedHeight)
+                
+                ; Set Layer's calculated dimensions to parent's full size
+                child.calculatedWidth = parent.calculatedWidth
+                child.calculatedHeight = parent.calculatedHeight
+                child.calculatedInnerWidth = (child.box.getInnerWidth(child.calculatedWidth))
+                child.calculatedInnerHeight = (child.box.getInnerHeight(child.calculatedHeight))
+                
+                ; Ensure height.isSet is true for alignment calculations.
+                ; Replace the unit rather than flipping the one that is
+                ; there: an unset height is the shared unset unit.
+                if child.height.isSet {
+                    child.height.pixels = child.calculatedHeight
+                } {
+                    child.height = (EVGUnit.px(child.calculatedHeight))
+                }
+                
+                this.layoutAbsolute(child parent.calculatedWidth parent.calculatedHeight)
+                ; Layer positions relative to parent's edge (0,0), not content area
+                child.calculatedX = child.calculatedX + parent.calculatedX
+                child.calculatedY = child.calculatedY + parent.calculatedY
+            } {
+                ; An absolutely positioned element is still an element: it
+                ; has a size. Nothing computed one — this branch called
+                ; layoutAbsolute, which sets x and y and nothing else — so
+                ; calculatedWidth stayed 0 for every one of them. A label
+                ; then had no box for text-align to align in, a rotation
+                ; "about its centre" turned about its left edge instead,
+                ; and a background painted nothing.
+                ;
+                ; So lay it out the way any other element is laid out, and
+                ; move the finished subtree into place afterwards: the
+                ; positions inside it are relative to the element, so one
+                ; translation carries all of them.
+                def wasRow0:boolean layingOutAlongRow
+                def wasShrink0:boolean columnCrossShrinks
+                layingOutAlongRow = alongRow
+                columnCrossShrinks = (this.crossShrinksUnder(parent))
+                this.layoutElement(child 0.0 0.0 innerWidth innerHeight)
+                layingOutAlongRow = wasRow0
+                columnCrossShrinks = wasShrink0
+                this.translateSubtree(child startX startY)
+            }
+    }
+
     fn layoutChildren:double (parent:EVGElement) {
         ; Layout all children using flow algorithm
         ; Returns total content height
@@ -1576,83 +1674,10 @@ class EVGLayout {
             ; Resolve child units
             child.resolveUnits(innerWidth innerHeight)
             
-            ; Skip absolute positioned elements in flow
+            ; Out of flow: fixed, a Layer, or absolutely positioned. One pass,
+            ; shared with the grid — see `layoutOutOfFlowChild`.
             if child.isAbsolute {
-                ; A FIXED BOX IS POSITIONED AGAINST THE VIEWPORT, not against
-                ; this parent: its `top`, `right`, `bottom` and `left` and every
-                ; percentage inside it resolve against the page, and its origin
-                ; is the page's own (0,0) — so unlike an absolute child it is
-                ; NOT translated to the parent's content corner afterwards.
-                ; `applyScroll` then leaves it alone, which is the whole
-                ; difference between the two modes.
-                if (child.isFixedPosition()) {
-                    child.unitsResolved = false
-                    child.resolveUnits(child.viewportW child.viewportH)
-                    def wasRowF:boolean layingOutAlongRow
-                    def wasShrinkF:boolean columnCrossShrinks
-                    layingOutAlongRow = (isColumn == false)
-                    columnCrossShrinks = (this.crossShrinksUnder(parent))
-                    this.layoutElement(child 0.0 0.0 child.viewportW child.viewportH)
-                    layingOutAlongRow = wasRowF
-                    columnCrossShrinks = wasShrinkF
-                    ; The viewport's own origin. It is (0,0) for a page, so
-                    ; this is a no-op for every host that has one viewport;
-                    ; a stage with a frame per width moves the box onto its
-                    ; frame, the same one translation the absolute branch
-                    ; below makes for its own reason.
-                    if ((child.viewportX != 0.0) || (child.viewportY != 0.0)) {
-                        this.translateSubtree(child child.viewportX child.viewportY)
-                    }
-                    i = i + 1
-                    continue
-                }
-                ; Layer elements use parent's full dimensions, not inner dimensions
-                if ((child.tagName == "layer") || (child.tagName == "Layer")) {
-                    ; Re-resolve Layer dimensions with parent's full width/height
-                    child.unitsResolved = false
-                    child.resolveUnits(parent.calculatedWidth parent.calculatedHeight)
-                    
-                    ; Set Layer's calculated dimensions to parent's full size
-                    child.calculatedWidth = parent.calculatedWidth
-                    child.calculatedHeight = parent.calculatedHeight
-                    child.calculatedInnerWidth = (child.box.getInnerWidth(child.calculatedWidth))
-                    child.calculatedInnerHeight = (child.box.getInnerHeight(child.calculatedHeight))
-                    
-                    ; Ensure height.isSet is true for alignment calculations.
-                    ; Replace the unit rather than flipping the one that is
-                    ; there: an unset height is the shared unset unit.
-                    if child.height.isSet {
-                        child.height.pixels = child.calculatedHeight
-                    } {
-                        child.height = (EVGUnit.px(child.calculatedHeight))
-                    }
-                    
-                    this.layoutAbsolute(child parent.calculatedWidth parent.calculatedHeight)
-                    ; Layer positions relative to parent's edge (0,0), not content area
-                    child.calculatedX = child.calculatedX + parent.calculatedX
-                    child.calculatedY = child.calculatedY + parent.calculatedY
-                } {
-                    ; An absolutely positioned element is still an element: it
-                    ; has a size. Nothing computed one — this branch called
-                    ; layoutAbsolute, which sets x and y and nothing else — so
-                    ; calculatedWidth stayed 0 for every one of them. A label
-                    ; then had no box for text-align to align in, a rotation
-                    ; "about its centre" turned about its left edge instead,
-                    ; and a background painted nothing.
-                    ;
-                    ; So lay it out the way any other element is laid out, and
-                    ; move the finished subtree into place afterwards: the
-                    ; positions inside it are relative to the element, so one
-                    ; translation carries all of them.
-                    def wasRow0:boolean layingOutAlongRow
-                    def wasShrink0:boolean columnCrossShrinks
-                    layingOutAlongRow = (isColumn == false)
-                    columnCrossShrinks = (this.crossShrinksUnder(parent))
-                    this.layoutElement(child 0.0 0.0 innerWidth innerHeight)
-                    layingOutAlongRow = wasRow0
-                    columnCrossShrinks = wasShrink0
-                    this.translateSubtree(child startX startY)
-                }
+                this.layoutOutOfFlowChild(parent child innerWidth innerHeight startX startY (isColumn == false))
                 i = i + 1
                 continue
             }
@@ -3002,6 +3027,28 @@ class EVGLayout {
         return (inner + (el.box.getHorizontalChrome()))
     }
 
+    ; The grid's out-of-flow children, once the tracks are sized.
+    ;
+    ; `layoutGrid` gathers the in-flow items and leaves an `isAbsolute` child
+    ; out of the placement, which is right — an absolute box takes no track.
+    ; What was missing is this: nothing laid it out afterwards either, so it
+    ; kept zero size at the page origin. `contentHeight` is the rows' own
+    ; height, used when the container has no definite one, so a percentage
+    ; offset resolves against the box the grid actually came out as.
+    fn layoutGridOutOfFlow:void (parent:EVGElement innerWidth:double contentHeight:double startX:double startY:double) {
+        def n:int (parent.getChildCount())
+        def i:int 0
+        while (i < n) {
+            def c:EVGElement (parent.getChild(i))
+            if c.isAbsolute {
+                c.unitsResolved = false
+                c.resolveUnits(innerWidth contentHeight)
+                this.layoutOutOfFlowChild(parent c innerWidth contentHeight startX startY true)
+            }
+            i = (i + 1)
+        }
+    }
+
     fn layoutGrid:double (parent:EVGElement) {
         def innerWidth:double parent.calculatedInnerWidth
         def innerHeight:double parent.calculatedInnerHeight
@@ -3175,6 +3222,9 @@ class EVGLayout {
         }
         def itemCount:int (array_length items)
         if (itemCount == 0) {
+            ; No tracks to size, but an overlay or a connector may still be
+            ; sitting here out of flow.
+            this.layoutGridOutOfFlow(parent innerWidth innerHeight startX startY)
             return 0.0
         }
 
@@ -3545,6 +3595,13 @@ class EVGLayout {
             s = (s + 1)
         }
         total = (total + rowGapTotal)
+
+        def absH:double innerHeight
+        if (absH <= 0.0) {
+            absH = total
+        }
+        this.layoutGridOutOfFlow(parent innerWidth absH startX startY)
+
         return total
     }
 

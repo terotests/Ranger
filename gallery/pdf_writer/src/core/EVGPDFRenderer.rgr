@@ -1887,7 +1887,7 @@ class EVGPDFRenderer {
         }
         
         ; Handle path element
-        if (el.tagName == "path") {
+        if (el.drawsPath()) {
             this.renderPath(el x pdfY w h)
         }
         
@@ -2205,6 +2205,21 @@ class EVGPDFRenderer {
         this.writePathOps(commands)
         
         this.writePaintOps((unwrap fillColor) (unwrap strokeColor) el.strokeWidth el.fillRule el.strokeDashArray el.strokeDashOffset)
+
+        ; A connector's heads, under the same transform: filled, no stroke,
+        ; no dash. Their own path because a fill closes every subpath it is
+        ; given — see `EVGElement.arrowPath`.
+        if ((strlen el.arrowPath) > 0) {
+            def hc:EVGColor (el.arrowFillColor())
+            if hc.isSet {
+                def hp (new SVGPathParser())
+                hp.parse(el.arrowPath)
+                def hcmds:[PathCommand] (hp.getCommands())
+                this.writePathOps(hcmds)
+                def noStroke:EVGColor (EVGColor.noColor())
+                this.writePaintOps(hc noStroke 0.0 "nonzero" "" 0.0)
+            }
+        }
 
         streamBuffer.writeString("Q\n")
     }

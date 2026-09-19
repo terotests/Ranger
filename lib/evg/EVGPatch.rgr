@@ -602,6 +602,12 @@ class EVGPatch {
         if (((name == "d") || (name == "view-box")) || (name == "fill-rule")) { return 1 }
         if (((name == "stroke-linecap") || (name == "stroke-linejoin")) || (name == "stroke-dasharray")) { return 1 }
         if ((name == "alt") || (name == "href")) { return 1 }
+        ; Anchors and connectors. The geometry ones are names and keywords;
+        ; the three lengths are plain numbers, the way `stroke-width` is.
+        if (((name == "anchor-name") || (name == "from")) || (name == "to")) { return 1 }
+        if (((name == "from-side") || (name == "to-side")) || (name == "routing")) { return 1 }
+        if ((name == "arrow-start") || (name == "arrow-end")) { return 1 }
+        if (((name == "arrow-size") || (name == "from-offset")) || (name == "to-offset")) { return 4 }
         ; An imported SVG document is its TEXT, held on the element and parsed
         ; by whoever draws it. Leaving it out cost the showcase's `svg` page
         ; every graphic on it while both audits reported the conversion clean —
@@ -687,6 +693,17 @@ class EVGPatch {
         push a "stroke-linecap"
         push a "stroke-linejoin"
         push a "stroke-dasharray"
+        push a "anchor-name"
+        push a "from"
+        push a "to"
+        push a "from-side"
+        push a "to-side"
+        push a "routing"
+        push a "arrow-start"
+        push a "arrow-end"
+        push a "arrow-size"
+        push a "from-offset"
+        push a "to-offset"
         push a "alt"
         push a "href"
         push a "fill"
@@ -779,8 +796,33 @@ class EVGPatch {
         if (n == "transition")             { return el.transitionSpec }
         if (n == "background-gradient")    { return el.backgroundGradient }
         if (n == "svg")                    { return el.svgSource }
-        if (n == "d")                      { return el.svgPath }
-        if (n == "view-box")               { return el.viewBox }
+        ; A CONNECTOR'S `d` AND `view-box` ARE THE LAYOUT'S, not the
+        ; document's. Writing them back would freeze the geometry the tag
+        ; exists to keep fluid — the file would carry the arrow measured at
+        ; one width, which is the hand-placed arrow all over again.
+        if (n == "d") {
+            if (el.tagName == "connector") {
+                return ""
+            }
+            return el.svgPath
+        }
+        if (n == "view-box") {
+            if (el.tagName == "connector") {
+                return ""
+            }
+            return el.viewBox
+        }
+        if (n == "anchor-name")            { return el.anchorName }
+        if (n == "from")                   { return el.connectorFrom }
+        if (n == "to")                     { return el.connectorTo }
+        if (n == "from-side")              { return el.connectorFromSide }
+        if (n == "to-side")                { return el.connectorToSide }
+        if (n == "routing")                { return el.connectorRouting }
+        if (n == "arrow-start")            { return el.arrowStart }
+        if (n == "arrow-end")              { return el.arrowEnd }
+        if (n == "arrow-size")             { return (EVGDisplayList.num(el.arrowSize)) }
+        if (n == "from-offset")            { return (EVGDisplayList.num(el.connectorFromOffset)) }
+        if (n == "to-offset")              { return (EVGDisplayList.num(el.connectorToOffset)) }
         if (n == "fill-rule")              { return el.fillRule }
         if (n == "stroke-linecap")         { return el.strokeLineCap }
         if (n == "stroke-linejoin")        { return el.strokeLineJoin }
@@ -991,6 +1033,50 @@ class EVGPatch {
         }
         if (n == "stroke-dasharray") {
             el.strokeDashArray = ""
+            return true
+        }
+        if (n == "anchor-name") {
+            el.anchorName = ""
+            return true
+        }
+        if (n == "from") {
+            el.connectorFrom = ""
+            return true
+        }
+        if (n == "to") {
+            el.connectorTo = ""
+            return true
+        }
+        if (n == "from-side") {
+            el.connectorFromSide = "auto"
+            return true
+        }
+        if (n == "to-side") {
+            el.connectorToSide = "auto"
+            return true
+        }
+        if (n == "routing") {
+            el.connectorRouting = "straight"
+            return true
+        }
+        if (n == "arrow-start") {
+            el.arrowStart = "none"
+            return true
+        }
+        if (n == "arrow-end") {
+            el.arrowEnd = "none"
+            return true
+        }
+        if (n == "arrow-size") {
+            el.arrowSize = 10.0
+            return true
+        }
+        if (n == "from-offset") {
+            el.connectorFromOffset = 0.0
+            return true
+        }
+        if (n == "to-offset") {
+            el.connectorToOffset = 0.0
             return true
         }
         if (n == "alt") {
@@ -1263,6 +1349,11 @@ class EVGPatch {
             return 2
         }
         if (((tag == "path") || (tag == "Path")) || (tag == "svg")) {
+            return 3
+        }
+        ; A connector IS a path — one whose `d` the layout writes rather than
+        ; the author. Everything downstream of here treats it as one.
+        if (tag == "connector") {
             return 3
         }
         if (tag == "Svg") {
