@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Compile the shared studies in src/ to one target, or to all of them.
-# Usage: bash gallery/friendly/compile.sh [all|rust|go|python|cpp|swift|kotlin|dart]
+# Usage: bash gallery/friendly/compile.sh [all|rust|go|python|cpp|swift|kotlin|dart|javascript|java]
 # The Ranger compiler exits 0 even on [FAIL]; this script treats that as failure.
 set -euo pipefail
 
@@ -45,14 +45,25 @@ compile_one() {
     if [[ "$lang" == "rust" ]]; then
       extra+=(-strict-ownership)
     fi
-    node "$COMPILER" -l="$ranger_lang" "${extra[@]}" "$src" -d="$out" -o="${name}${ext}" -nodecli >"$log" 2>&1
+    local dest="$out"
+    if [[ "$lang" == "java" ]]; then
+      dest="$out/$name"
+      mkdir -p "$dest"
+    fi
+    node "$COMPILER" -l="$ranger_lang" "${extra[@]}" "$src" -d="$dest" -o="${name}${ext}" -nodecli >"$log" 2>&1
     set -e
     if grep -E '\[FAIL\]|Compilation FAILED' "$log" >/dev/null; then
       echo "    Ranger compile FAILED — see $log"
       fail=1
       continue
     fi
-    if [[ ! -f "$out/${name}${ext}" ]]; then
+    if [[ "$lang" == "java" ]]; then
+      if ! ls "$dest"/*.java >/dev/null 2>&1; then
+        echo "    no $dest/*.java written"
+        fail=1
+        continue
+      fi
+    elif [[ ! -f "$out/${name}${ext}" ]]; then
       echo "    no $out/${name}${ext} written"
       fail=1
       continue
@@ -150,6 +161,43 @@ compile_one() {
         echo "    dart ok"
         cat "$out/${name}.out"
         ;;
+      javascript)
+        if ! node "$out/${name}.js" >"$out/${name}.out" 2>"$out/${name}.build.log"; then
+          echo "    node FAILED — see $out/${name}.build.log"
+          cat "$out/${name}.build.log" >&2
+          fail=1
+          continue
+        fi
+        echo "    node ok"
+        cat "$out/${name}.out"
+        ;;
+      java)
+        if ! command -v javac >/dev/null 2>&1; then
+          echo "    javac not on PATH — writer output only"
+          continue
+        fi
+        local classes="$bin/$name-classes"
+        mkdir -p "$classes"
+        if ! javac -d "$classes" "$dest"/*.java 2>"$out/${name}.build.log"; then
+          echo "    javac FAILED — see $out/${name}.build.log"
+          fail=1
+          continue
+        fi
+        echo "    javac ok"
+        local main_src
+        main_src="$(grep -l 'public static void main' "$dest"/*.java | head -1)"
+        if [[ -z "$main_src" ]]; then
+          echo "    no public static void main in $dest"
+          fail=1
+          continue
+        fi
+        local main_class
+        main_class="$(basename "$main_src" .java)"
+        if ! java -cp "$classes" "$main_class" | tee "$out/${name}.out"; then
+          echo "    run FAILED"
+          fail=1
+        fi
+        ;;
     esac
   done
   if [[ "$fail" -ne 0 ]]; then
@@ -170,12 +218,14 @@ run_target() {
     swift) compile_one swift .swift swift6 || overall=1 ;;
     kotlin) compile_one kotlin .kt kotlin || overall=1 ;;
     dart) compile_one dart .dart dart || overall=1 ;;
+    javascript) compile_one javascript .js es6 || overall=1 ;;
+    java) compile_one java .java java7 || overall=1 ;;
     *) echo "unknown target $1" >&2; overall=1 ;;
   esac
 }
 
 if [[ "$target" == "all" ]]; then
-  for t in rust go python cpp swift kotlin dart; do
+  for t in rust go python cpp swift kotlin dart javascript java; do
     run_target "$t"
   done
 else
