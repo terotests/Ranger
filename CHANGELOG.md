@@ -119,12 +119,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **The front-page Targets section is the idiom comparison table.**
-  Primary / Thinner / Experimental chips come out. The table has every
-  official source back end, including TypeScript (`T | undefined`,
-  union types, `export`), PHP and Scala. Swift 3, LLVM and WASM stay
-  out: they are an older dialect and two IR writers, not source you
-  check in.
+- **The front-page Targets section is a quality ranking.** The heading
+  is "Quality ranking": an index of the thirteen official source back
+  ends, the idiom table, and a short essay per language on what the
+  generated file already looks like and what still reads as a port.
+  The "Write for the strictest target" and "Extending it is not a
+  rebuild" boxes come out. Swift 3, LLVM and WASM stay out of the
+  table.
 
 - **The repository root, and the compiler folder, hold the product.** The root
   had 71 markdown files, nine compiled JavaScript files, eleven buffer and JPEG
