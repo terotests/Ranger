@@ -38,41 +38,33 @@ impl Stats {
   }
   fn total(xs : &[i64]) -> i64 {
     let mut acc : i64 = 0;
-    let __n_i = (xs.len() as i64);
-    for i in 0..__n_i {
-      let mut v = xs[i as usize];
+    for v in xs.iter().copied() {
       acc += v;
-    };
+    }
     acc
   }
   fn evenCount(xs : &[i64]) -> i64 {
     let mut n : i64 = 0;
-    let __n_i = (xs.len() as i64);
-    for i in 0..__n_i {
-      let mut v = xs[i as usize];
+    for v in xs.iter().copied() {
       if  v % 2 == 0 {
         n += 1;
       }
-    };
+    }
     n
   }
   fn doubled(xs : &[i64]) -> Vec<i64> {
     let mut out : Vec<i64> = Vec::new();
-    let __n_i = (xs.len() as i64);
-    for i in 0..__n_i {
-      let mut v = xs[i as usize];
+    for v in xs.iter().copied() {
       out.push(v * 2);
-    };
+    }
     out.clone()
   }
   fn applyEach(xs : &[i64], f : &mut dyn FnMut(i64) -> i64) -> Vec<i64> {
     let mut out : Vec<i64> = Vec::new();
-    let __n_i = (xs.len() as i64);
-    for i in 0..__n_i {
-      let mut v = xs[i as usize];
+    for v in xs.iter().copied() {
       let next : i64 = f(v);
       out.push(next);
-    };
+    }
     out.clone()
   }
 }

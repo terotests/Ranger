@@ -118,14 +118,12 @@ impl Lookup {
   }
   fn findName(names : &[String], key : &str) -> Option<String> {
     let mut found : Option<String> = None;
-    let __n_i = (names.len() as i64);
-    for i in 0..__n_i {
-      let mut n = names[i as usize].clone();
+    for n in names.iter().cloned() {
       if  n == key {
         found = Some(n.clone());
         return found.clone();
       }
-    };
+    }
     found.clone()
   }
   fn parseInt(text : &str) -> union_ParseOutcome {

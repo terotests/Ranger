@@ -580,6 +580,35 @@ this tier, and each of these is a design decision, not a detail.
 
 ### K. Fix the generated `for`, do not chase iterator chains
 
+**Status: done.** `for v in xs.iter().copied()` where the element is a Copy
+scalar, `.cloned()` otherwise, and the index form only where it is still needed.
+On the Rust rendering of the compiler that is **833 iterator loops to 507 index
+loops**, from 1340 index loops and none.
+
+Both forms bind an *owned* value, which is what makes the rewrite safe rather
+than merely shorter: the index loop wrote `let mut v = xs[i]` for a Copy scalar
+and `xs[i].clone()` otherwise, and `.copied()` / `.cloned()` bind exactly the
+same thing. Binding `&T` with a bare `.iter()` is what a human writes, but it
+changes every use of the name in the body — a different change.
+
+The index form stays when the body reads the index, or when it touches the
+collection at all. That second test has to cover every name the collection
+expression rests on, not just its last segment: `for lctx.ownedLocals …` rests
+on `lctx`, and a body that passes `lctx` on mutably is a borrow error even
+though it never says `ownedLocals`. Testing only the tail segment let five such
+loops through and cost five rustc errors on the selfhost build.
+
+Two things the first attempt got wrong, both invisible in the studies and both
+loud on the compiler's own 81 000 lines:
+
+- `(e N)` is not a bare `WalkNode`: it brackets the walk with `setInExpr`.
+  Without that a call operand is written as a *statement*, so
+  `(xs.allExamples(doc).len() as i64)` came out as `(self.allExamples(doc);`.
+- A bound name has to go through the walker, not out as a raw `vref`. A Ranger
+  local may be called `fn`, and `let mut fn = …` does not parse — the
+  reserved-word renaming lives in the walker.
+
+
 A loop that pushes is respectable Rust. The generated *shape* of the loop is
 what reads as machine output:
 
@@ -692,7 +721,7 @@ document. Both recorded so they are decisions rather than omissions.
 | P2 | **H** portable `Result` + propagation | large, cross-target | no |
 | P2 | **I** behaviour-only trait → Rust trait | medium | no |
 | P2 | **J** handle/data split | large, highest risk | yes |
-| P3 | **K** `for` lowering | small | no |
+| P3 | **K** `for` lowering | **done** | no |
 | P3 | **L** snake_case | blocked on serialize names | no |
 | P3 | **M** borrow-provenance inference | medium | yes |
 | P4 | **N** semantic interfaces | design | no |

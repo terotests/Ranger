@@ -37078,6 +37078,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   this.rustWriteUnionCase(node, ctx, wr);
                   return;
                 }
+                if ( cmd == "for" ) {
+                  this.rustWriteForLoop(node, ctx, wr);
+                  return;
+                }
                 if ( cmd == "cast" ) {
                   if ( node.children.length >= 3 ) {
                     const castArg = node.getSecond();
@@ -38772,6 +38776,174 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   ctx.unsetInExpr();
                   return;
                 }
+              };
+              rustWriteOperand (arg, ctx, wr) {
+                if ( arg.rust_use_tmpvar.length > 0 ) {
+                  wr.out(arg.rust_use_tmpvar, false);
+                  arg.rust_use_tmpvar = "";
+                  return;
+                }
+                ctx.setInExpr();
+                this.WalkNode(arg, ctx, wr);
+                ctx.unsetInExpr();
+              };
+              rustTreeMentions (node, name) {
+                if ( node.value_type == 11 ) {
+                  if ( node.vref == name ) {
+                    return true;
+                  }
+                }
+                if ( node.ns.length >= 2 ) {
+                  if ( node.ns[0] == name ) {
+                    return true;
+                  }
+                }
+                if ( node.vref == name ) {
+                  return true;
+                }
+                for ( let i = 0; i < node.children.length; i++) {
+                  var ch = node.children[i];
+                  if ( this.rustTreeMentions(ch, name) ) {
+                    return true;
+                  }
+                };
+                return false;
+              };
+              rustForItemIsCopyScalar (item) {
+                let tn = "";
+                if ( item.hasParamDesc ) {
+                  const ipd = item.paramDesc;
+                  const ipdNN = ipd.nameNode;
+                  if ( (typeof(ipdNN) !== "undefined" && ipdNN != null )  ) {
+                    const ipdN = ipdNN;
+                    tn = ipdN.type_name;
+                    if ( ipdN.array_type.length > 0 ) {
+                      tn = ipdN.array_type;
+                    }
+                  }
+                } else {
+                  tn = item.type_name;
+                  if ( item.array_type.length > 0 ) {
+                    tn = item.array_type;
+                  }
+                }
+                if ( tn == "int" ) {
+                  return true;
+                }
+                if ( tn == "double" ) {
+                  return true;
+                }
+                if ( tn == "boolean" ) {
+                  return true;
+                }
+                if ( tn == "char" ) {
+                  return true;
+                }
+                if ( TTypeRegistry.isIntAlias(tn) ) {
+                  return true;
+                }
+                if ( TTypeRegistry.isFloatAlias(tn) ) {
+                  return true;
+                }
+                return false;
+              };
+              rustForBodyTouchesCollection (body, coll) {
+                if ( coll.vref.length > 0 ) {
+                  if ( this.rustTreeMentions(body, coll.vref) ) {
+                    return true;
+                  }
+                }
+                for ( let si = 0; si < coll.ns.length; si++) {
+                  var seg = coll.ns[si];
+                  if ( seg.length > 0 ) {
+                    if ( this.rustTreeMentions(body, seg) ) {
+                      return true;
+                    }
+                  }
+                };
+                if ( coll.vref.length == 0 ) {
+                  if ( coll.ns.length == 0 ) {
+                    return true;
+                  }
+                }
+                return false;
+              };
+              rustWriteForLoop (node, ctx, wr) {
+                if ( node.children.length < 5 ) {
+                  return;
+                }
+                const coll = node.getSecond();
+                const item = node.children[2];
+                const idx = node.children[3];
+                const body = node.children[4];
+                const itemName = item.vref;
+                const idxName = idx.vref;
+                const itemIsCopy = this.rustForItemIsCopyScalar(item);
+                let useIter = true;
+                if ( useIter ) {
+                  if ( idxName.length > 0 ) {
+                    if ( this.rustTreeMentions(body, idxName) ) {
+                      useIter = false;
+                    }
+                  }
+                }
+                if ( useIter ) {
+                  if ( this.rustForBodyTouchesCollection(body, coll) ) {
+                    useIter = false;
+                  }
+                }
+                if ( useIter ) {
+                  let needsMut = false;
+                  if ( item.hasParamDesc ) {
+                    if ( item.paramDesc.set_cnt > 0 ) {
+                      needsMut = true;
+                    }
+                  }
+                  wr.out("for ", false);
+                  if ( needsMut ) {
+                    wr.out("mut ", false);
+                  }
+                  this.rustWriteOperand(item, ctx, wr);
+                  wr.out(" in ", false);
+                  this.rustWriteOperand(coll, ctx, wr);
+                  if ( itemIsCopy ) {
+                    wr.out(".iter().copied() {", true);
+                  } else {
+                    wr.out(".iter().cloned() {", true);
+                  }
+                  wr.indent(1);
+                  const iCtx = ctx.fork();
+                  iCtx.restartExpressionLevel();
+                  this.WalkNode(body, iCtx, wr);
+                  wr.indent(-1);
+                  wr.out("}", true);
+                  return;
+                }
+                const nName = "__n_" + idxName;
+                wr.out(("let " + nName) + " = (", false);
+                this.rustWriteOperand(coll, ctx, wr);
+                wr.out(".len() as i64);", true);
+                wr.out("for ", false);
+                this.rustWriteOperand(idx, ctx, wr);
+                wr.out(" in 0.." + nName, false);
+                wr.out(" {", true);
+                wr.indent(1);
+                wr.out("let mut ", false);
+                this.rustWriteOperand(item, ctx, wr);
+                wr.out(" = ", false);
+                this.rustWriteOperand(coll, ctx, wr);
+                wr.out("[", false);
+                this.rustWriteOperand(idx, ctx, wr);
+                wr.out(" as usize]", false);
+                if ( itemIsCopy == false ) {
+                  wr.out(".clone()", false);
+                }
+                wr.out(";", true);
+                const sCtx = ctx.fork();
+                sCtx.restartExpressionLevel();
+                this.WalkNode(body, sCtx, wr);
+                wr.indent(-1);
+                wr.out("}", true);
               };
               rustMethodInTraitIface (cl, name, ctx) {
                 if ( cl.is_extended_by_children ) {

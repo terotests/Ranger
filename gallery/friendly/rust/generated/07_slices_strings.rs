@@ -41,11 +41,9 @@ impl TextTools {
   }
   fn total(xs : &[i64]) -> i64 {
     let mut acc : i64 = 0;
-    let __n_i = (xs.len() as i64);
-    for i in 0..__n_i {
-      let mut v = xs[i as usize];
+    for v in xs.iter().copied() {
       acc += v;
-    };
+    }
     acc
   }
   fn firstChar(s : &str) -> String {

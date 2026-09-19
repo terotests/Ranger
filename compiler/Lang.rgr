@@ -5616,7 +5616,12 @@ case class customException(smth:String)  extends Exception
                 ; borrow alive for the whole loop, and a body that borrows the
                 ; same thing mutably cannot run. The temporary is named after
                 ; the index, so nested loops do not collide.
-                rust ( (forkctx _ ) (def 2) (def 3) "let __n_" (e 3) " = (" (e 1) ".len() as i64);" nl "for " (e 3) " in 0..__n_" (e 3) " {" nl I "let mut " (e 2) " = " (e 1) "[" (e 3) " as usize]" (cloneif 2) ";" nl (block 4) nl i "}" )
+                ; PLAN_RUST_SEMANTIC_IDIOMS K: the writer picks between the
+                ; index loop this used to be and `for v in xs.iter().copied()`
+                ; (or `.cloned()`), because only it can ask whether the body
+                ; reads the index or touches the collection.
+                ; See RustOperators.rustWriteForLoop.
+                rust ( (forkctx _ ) (def 2) (def 3) nl (custom _) )
 
                 ; idea of go for macro implementation, not working yet...         
                 go_idea  @macro(true) (nl 
