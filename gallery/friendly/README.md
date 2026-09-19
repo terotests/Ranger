@@ -128,7 +128,7 @@ Failed or target-specific attempts:
    `Exception`, Java / C# / JS / Dart / PHP exceptions. Today
    `try`/`throw` is silently wrong on Rust, Swift, and Kotlin.
 2. **`Enum` as a native enum** (`enum class`, `iota`, `IntEnum`, Swift
-   `enum`, Kotlin `enum class`, Dart `enum`), not an integer.
+   `enum`, Kotlin `enum class`, C# / Dart `enum`), not an integer.
 3. **`shape` match as the target’s match**, with string payloads stored
    by value where the target allows it (`when`, Dart 3 `switch`).
 4. **A field-free `trait` as the target’s interface** (`trait`,
