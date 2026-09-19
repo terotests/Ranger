@@ -355,6 +355,19 @@ it did instead was search the compiled tool for `#page`, `currentPage` and
 - a guide section for a workspace with no app, which says a document is one
   screen, that a press on a drawn tab does nothing, and what to run for more.
 
+**S3d — the runtime in the tab. ✅ built.**
+Running the app meant spawning `evg_app.js` once per press, which asks for a
+shell in the workspace, a Ranger clone behind it and a binary `bin/` does not
+carry. An agent talking to a server has none of those, and neither does a
+fresh clone. `EvgAppWeb.rgr` moves the data app into the browser: the host
+sends the machine and one document per state, and `EvgAppKit` — the same kit
+a code app runs on, with a `build` that parses a document instead of
+composing one — does the hit test, the transition and the next page in the
+tab. 40 presses and frames measure ~72ms there against ~310ms for one press
+through a process, and the number is not the point: no process, no tool, no
+shell is. A code app still needs the compiler, so it stays on the server, and
+the page labels which one it is showing.
+
 **S3b — ops instead of a list.** `EVGHostTree.build()` over the two trees and
 `evg-dom.js` as the host, so a press patches the nodes that changed. Nothing
 above it changes, which is the test that this seam was drawn in the right

@@ -451,30 +451,28 @@ to find by searching the tools for one. A press on a tab you draw does
 nothing, because a screen is a picture and a picture has no states. That
 is not missing; it is what a document is.
 
-**Several screens is an app**, and an app is one command away. Give
-everything that should be pressable an \`id\` — the tab bar's entries
-\`nav.<state>\`, one per screen the task asks for — and then:
+**Several screens is an app, and YOU DO NOT MAKE ONE — the ids do.**
+Give everything that should be pressable an \`id\` — the tab bar's
+entries \`nav.<state>\`, one per screen the task asks for. When the
+person presses Run, the host reads those ids off the screen, writes a
+state for each and gives every state a copy of the document to start
+from. There is no command for you to run and nothing to install.
 
-\`\`\`
-./evg-app init app --from=doc.evg.json
-\`\`\`
+So the whole of your job for a multi-screen task is:
 
-It reads those \`nav.*\` ids off the screen, writes \`app/machine.json\`
-with a state for each, and copies the document to
-\`app/pages/<state>.evg.json\` so every state starts from the screen you
-designed. Then each page is edited on its own — \`./evg-agent patch
-app/pages/map.evg.json ops.json\` — and pressing a tab moves the machine
-and changes the page.
+1. Design the screen, tab bar included.
+2. \`set-id\` every tab: \`nav.ruuhkat\`, \`nav.kartta\`, and so on. The
+   part after \`nav.\` becomes the state's name.
+3. Make the screens differ. Until the pages differ, a press moves the
+   machine and the screen stays the same, which looks exactly like a
+   dead button — it is the one failure worth expecting here.
 
-\`init\` tells you what it read and what is missing. If it says one state
-and zero ids, the screen has no ids yet: that is the thing to fix, not
-the tool.
-
-After it runs, this workspace is an app and the rules in
-\`./evg-app\` (run it with no arguments) apply: the machine owns the
-page, an element's \`id\` is the event its press sends, \`{key}\` in a
-text node is filled from the machine's context, and \`./evg-app check
-app\` walks every state.
+For step 3 the pages live at \`app/pages/<state>.evg.json\` once they
+exist, and \`./evg-agent patch\` edits one like any other document.
+\`./evg-app check app\` walks every state, measures each page, reads
+every id back against the machine, and names two states that share a
+document. If \`./evg-app\` is not in this workspace, say so — do not go
+looking for another way to switch screens, because there is not one.
 
 Only do this when the task asks for more than one screen. One screen is a
 document, and a document is what the live page shows.
@@ -1070,6 +1068,10 @@ export function resetSession(kind = "dashboard") {
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, "doc.evg.json"), seedDoc(kind));
   fs.writeFileSync(path.join(dir, "TASK.md"), "Seed: " + kind + "\n");
+  // A seed chip is "start over", and the app was made from the document that
+  // is being replaced. Left behind, Run would keep driving the old screens
+  // over the new phone — states named after tabs that are not there any more.
+  fs.rmSync(path.join(dir, "app"), { recursive: true, force: true });
   try {
     fs.unlinkSync(path.join(dir, ".cursor-follow"));
   } catch {

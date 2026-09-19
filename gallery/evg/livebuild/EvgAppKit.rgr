@@ -479,6 +479,59 @@ class EvgAppKit {
 
     ; A JSON scalar as a person would read it: the quotes off a string, and
     ; nothing else touched.
+    ; `{key}` in a text node, filled from the machine's context. A data app
+    ; needs this and a code app does not, but it belongs to the kit rather than
+    ; to the tool that reads files: the browser runs the same binding, and a
+    ; second copy of it there is a second set of rules.
+    fn bind:void (el:EVGElement) {
+        if ((strlen el.textContent) > 0) {
+            el.textContent = (this.fill(el.textContent))
+        }
+        def i:int 0
+        while (i < (array_length el.children)) {
+            this.bind((itemAt el.children i))
+            i = (i + 1)
+        }
+    }
+
+    fn fill:string (text:string) {
+        def out@(mutable):string ""
+        def i@(mutable):int 0
+        def n:int (strlen text)
+        while (i < n) {
+            def c:int (charAt text i)
+            if (c == 123) {
+                def close@(mutable):int (0 - 1)
+                def j@(mutable):int (i + 1)
+                while (j < n) {
+                    if ((charAt text j) == 125) {
+                        if (close < 0) {
+                            close = j
+                        }
+                    }
+                    j = (j + 1)
+                }
+                if (close < 0) {
+                    out = (out + (substring text i (i + 1)))
+                    i = (i + 1)
+                } {
+                    def key:string (substring text (i + 1) close)
+                    def val:string (EvgAppKit.plain((runner.json(key))))
+                    if ((strlen val) == 0) {
+                        out = (out + (substring text i (close + 1)))
+                    } {
+                        out = (out + val)
+                    }
+                    i = (close + 1)
+                }
+            } {
+                out = (out + (substring text i (i + 1)))
+                i = (i + 1)
+            }
+        }
+        return out
+    }
+
     sfn plain:string (json:string) {
         def n:int (strlen json)
         if (n == 0) {

@@ -154,7 +154,38 @@ try {
     null,
     { timeout: 20000 },
   );
+  if (!/in the tab/.test(second)) {
+    throw new Error(`the app ran on the server, not in the browser: ${second}`);
+  }
   console.log(`  run          ${first} → ${second}, and back to design mode`);
+
+  // The runtime in the tab, timed. A press that has to reach a process is
+  // ~300ms and needs a tool on the machine; this one is a function call. The
+  // number is not the point — "no process, no tool, no shell" is — but a
+  // press that quietly went back to the server would still pass everything
+  // above, and this is what notices.
+  await page.click("#run");
+  await page.waitForFunction(
+    () => (document.getElementById("kindLabel")?.textContent || "").includes("in the tab"),
+    null,
+    { timeout: 60000 },
+  );
+  const loop = await page.evaluate(() => {
+    const t0 = performance.now();
+    for (let i = 0; i < 40; i += 1) {
+      window.webApp.press(195, 790);
+      window.webApp.frame();
+    }
+    return Math.round(performance.now() - t0);
+  });
+  if (loop > 1500) throw new Error(`40 presses took ${loop}ms — something is leaving the tab`);
+  console.log(`  in the tab   40 presses and frames in ${loop}ms, no fetch in sight`);
+  await page.click("#run");
+  await page.waitForFunction(
+    () => document.getElementById("added")?.textContent === "seed",
+    null,
+    { timeout: 20000 },
+  );
 
   if (problems.length) {
     console.error(problems.join("\n"));

@@ -839,6 +839,7 @@
     "livebuild:app": "node gallery/evg/livebuild/app-check.mjs",
     "livebuild:codeapp": "node gallery/evg/livebuild/app-code-check.mjs",
     "livebuild:app:build": "bash scripts/rgr-suite.sh ./gallery/evg/livebuild/EvgAppTool.rgr ./gallery/evg/bin evg_app.js",
+    "livebuild:app:web": "cross-env RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/livebuild/EvgAppWeb.rgr -d=./gallery/evg/bin -o=evg_app_web.js",
     "evgjson:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/pdf_writer/src/tools/evg_json_tool.rgr -d=./gallery/pdf_writer/bin -o=evg_json_tool.js -nodecli",
     "agent:image": "bash scripts/rgr-suite.sh ./lib/evg/tools/evg_image_tool.rgr ./lib/evg/bin evg_image_tool.js",
     "agent:image:run": "node ./lib/evg/bin/evg_image_tool.js",

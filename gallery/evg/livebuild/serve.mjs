@@ -242,6 +242,80 @@ function main() {
 
   const isExample = () => !process.env.EVG_LIVEBUILD_APP && !ownApp();
 
+  // Run means run THIS phone. A document whose tabs already carry `nav.*` ids
+  // is one command away from being an app, and asking the agent to run that
+  // command was the wrong place to put it: the agent may be remote, may have
+  // no shell here, and on a fresh clone had no tool to run. The host has the
+  // repo and the document, so the host does it.
+  const autoInit = () => {
+    if (process.env.EVG_LIVEBUILD_APP || ownApp()) return "";
+    const doc = path.join(sessionDir(), "doc.evg.json");
+    if (!fs.existsSync(doc)) return "";
+    if (!/"id"\s*:\s*"nav\./.test(fs.readFileSync(doc, "utf8"))) return "";
+    const made = appTool("init", path.join(sessionDir(), "app"), `--from=${doc}`);
+    return made && made.error ? "" : ownApp();
+  };
+
+  // The app as DATA, for the runtime in the tab: the machine and one document
+  // per state, sent once. Everything after that — hit test, transition, the
+  // next page — happens in the browser, so a press costs no process and needs
+  // no tool on anybody's machine. A code app cannot go this way (its pages are
+  // a compiled program the server holds open), and says so.
+  const appData = () => {
+    const dir = appDir();
+    if (fs.existsSync(path.join(dir, "App.rgr"))) return { code: true, app: path.basename(dir) };
+    const machine = path.join(dir, "machine.json");
+    if (!fs.existsSync(machine)) return { error: `no machine.json in ${dir}` };
+    const pages = {};
+    const pageDir = path.join(dir, "pages");
+    if (fs.existsSync(pageDir)) {
+      for (const f of fs.readdirSync(pageDir)) {
+        if (f.endsWith(".evg.json")) pages[f.slice(0, -".evg.json".length)] = fs.readFileSync(path.join(pageDir, f), "utf8");
+      }
+    }
+    // Pages that are byte-identical. A press then moves the machine over a
+    // screen that does not change, which from the outside is a dead button —
+    // and `init` makes copies on purpose, so this is the normal state of a
+    // freshly made app, not a rare one.
+    const seen = new Map();
+    const copies = [];
+    for (const [state, text] of Object.entries(pages)) {
+      const first = seen.get(text);
+      if (first) copies.push([first, state]);
+      else seen.set(text, state);
+    }
+    return {
+      app: path.basename(dir),
+      example: isExample(),
+      machine: fs.readFileSync(machine, "utf8"),
+      pages,
+      copies,
+    };
+  };
+
+  // The runtime itself, compiled from EvgAppWeb.rgr. Built on demand and kept,
+  // like every other tool here — `bin/` is not in git, so "not built yet" is
+  // the state of a fresh clone rather than an error.
+  const webBin = path.join(repoRoot, "gallery/evg/bin/evg_app_web.js");
+  const buildWebRuntime = () => {
+    const src = path.join(repoRoot, "gallery/evg/livebuild/EvgAppWeb.rgr");
+    if (fs.existsSync(webBin) && fs.statSync(webBin).mtimeMs >= fs.statSync(src).mtimeMs) return webBin;
+    const r = spawnSync(
+      "node",
+      ["bin/output.js", "-es6", "gallery/evg/livebuild/EvgAppWeb.rgr", "-d=gallery/evg/bin", "-o=evg_app_web.js"],
+      {
+        cwd: repoRoot,
+        encoding: "utf8",
+        maxBuffer: 60 * 1024 * 1024,
+        env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr:./lib/stdops.rgr" },
+      },
+    );
+    if (!fs.existsSync(webBin)) {
+      throw new Error(`could not build the browser runtime:\n${`${r.stdout || ""}${r.stderr || ""}`.slice(-1200)}`);
+    }
+    return webBin;
+  };
+
   const appTool = (...args) => {
     if (!fs.existsSync(appBin)) {
       const built = spawnSync(
@@ -479,8 +553,26 @@ function main() {
         });
       return;
     }
+    if (url.pathname === "/app/web.js") {
+      try {
+        send(res, 200, "text/javascript; charset=utf-8", fs.readFileSync(buildWebRuntime()));
+      } catch (e) {
+        send(res, 500, "text/plain; charset=utf-8", String(e.message || e));
+      }
+      return;
+    }
+    if (url.pathname === "/app/data") {
+      autoInit();
+      try {
+        send(res, 200, "application/json; charset=utf-8", JSON.stringify(appData()));
+      } catch (e) {
+        send(res, 500, "application/json; charset=utf-8", JSON.stringify({ error: String(e.message || e) }));
+      }
+      return;
+    }
     if (url.pathname === "/app") {
       const reset = url.searchParams.get("reset") === "1";
+      autoInit();
       appLive(appDir(), { reset })
         .then((held) => {
           if (!held) {

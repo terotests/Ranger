@@ -895,6 +895,7 @@ class EvgAppTool {
             i = (i + 1)
         }
         this.unusedPages(used problems)
+        this.samePages(used problems)
         this.modelProblems(sc problems)
         this.memoryProblems(sc problems)
 
@@ -918,6 +919,55 @@ class EvgAppTool {
         out = ((out + ",\"count\":") + (to_string (array_length problems)))
         out = (out + "}")
         print out
+    }
+
+    ; Two states drawn by the same document. `init` makes every page a copy of
+    ; the screen on purpose — the app starts from what was designed — but a copy
+    ; that is never made its own is the defect nobody reports: the press lands,
+    ; the machine moves, the transition fires, and the screen is identical. It
+    ; is indistinguishable from a dead button, and it is the first thing to
+    ; check when somebody says the tabs do not work.
+    fn samePages:void (files:[string] problems:[string]) {
+        def n:int (array_length files)
+        ; One line per GROUP. A page already named in an earlier group would
+        ; otherwise be reported again from its own row, and the same fact
+        ; three times reads as three defects.
+        def claimed:[string]
+        def i:int 0
+        while (i < n) {
+            def a@(optional):string (EvgAppTool.slurp((itemAt files i)))
+            if ((null? a) || (EvgAppTool.mentions(claimed (itemAt files i)))) {
+            } {
+                def same:string ""
+                def j:int (i + 1)
+                while (j < n) {
+                    def b@(optional):string (EvgAppTool.slurp((itemAt files j)))
+                    if (null? b) {
+                    } {
+                        if ((unwrap a) == (unwrap b)) {
+                            same = (EvgAppTool.joined(same (EvgAppTool.lastName((itemAt files j)))))
+                            push claimed (itemAt files j)
+                        }
+                    }
+                    j = (j + 1)
+                }
+                if ((strlen same) > 0) {
+                    push problems ((((EvgAppTool.lastName((itemAt files i))) + " and ") + same) + " are the same document — a press moves the machine and the screen does not change, which looks exactly like a dead button")
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; The state a page file belongs to: `pages/map.evg.json` → `map`.
+    sfn lastName:string (file:string) {
+        def cut:int (EvgAppTool.lastSlash(file))
+        def name:string (substring file (cut + 1) (strlen file))
+        def tail:int (indexOf name ".evg.json")
+        if (tail > 0) {
+            return (substring name 0 tail)
+        }
+        return name
     }
 
     ; One page: does it read, does it lay out, and is every id on it an event

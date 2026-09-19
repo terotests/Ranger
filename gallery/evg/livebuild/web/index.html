@@ -549,7 +549,7 @@ async function runFetch(url, body) {
 function paintApp(d) {
   paintFrame(d);
   paintMeasure(d.layout ? { ...d.layout, findings: d.layout.findings || [] } : null);
-  $("kindLabel").textContent = `app · ${d.state}${d.code ? " · code" : ""}`;
+  $("kindLabel").textContent = `app · ${d.state}${d.code ? " · code" : d.local ? " · in the tab" : ""}`;
   $("added").textContent = d.took === false && d.pressed ? "no event" : "app";
   const lines = [];
   // The example app is not this session's phone, and saying so is the whole
@@ -559,6 +559,13 @@ function paintApp(d) {
     $("makeapp").hidden = false;
   } else {
     $("makeapp").hidden = true;
+  }
+  // A press that lands on an identical page looks like nothing happened. Say
+  // which states share a document, so the next ask to the agent is the right
+  // one — make the screens differ, not "the button is broken".
+  if ((d.copies || []).length) {
+    const pairs = d.copies.map(([a, b]) => `${a} = ${b}`).join(", ");
+    lines.push(["bad", `${pairs}: the same document, so a press moves the machine and the screen does not change`]);
   }
   if (d.pressed && d.took === false) {
     lines.push(["bad", `#${d.pressed || "nothing"} is not an event of ${d.state}`]);
@@ -590,7 +597,7 @@ async function makeApp() {
       "",
       "Ask the agent to give the tabs those ids and make each page its own — then press Run again.",
     ].filter(Boolean).join("\n\n");
-    paintApp(await runFetch("/app?reset=1"));
+    await enterRun();
   } catch (e) {
     $("think").append("\n\napp: " + (e.message || e));
   } finally {
@@ -601,6 +608,53 @@ async function makeApp() {
 
 $("makeapp").addEventListener("click", makeApp);
 
+// THE APP RUNS HERE, NOT ON THE SERVER.
+//
+// A data app is a machine and one document per state — data, all of it. The
+// host sends it once and the runtime compiled from EvgAppWeb.rgr does the
+// rest in this tab: hit test the laid-out page, send the id, build the page
+// for wherever the machine landed. A press is a function call, about 2ms,
+// and it needs no process, no tool and no shell on anybody's machine — which
+// is the point, because the agent that designed the screen may be on the
+// other side of a network with none of those.
+//
+// A code app is a compiled program the server imports and holds open, so it
+// stays on the server. `webApp` being null is how this page knows which it is
+// looking at, and nothing else changes.
+let webApp = null;
+let webData = null;
+let webEvents = [];
+
+// The bundle is a classic script and declares `class EvgAppWeb`, which makes a
+// global LEXICAL binding — not a property of `window`. Looking for it on
+// `window` finds nothing and falls back to the server, quietly, forever.
+const runtimeCtor = () => (typeof EvgAppWeb === "undefined" ? null : EvgAppWeb);
+
+async function loadWebRuntime(data) {
+  if (!runtimeCtor()) {
+    await new Promise((ok, no) => {
+      const s = document.createElement("script");
+      s.src = "/app/web.js";
+      s.onload = ok;
+      s.onerror = () => no(new Error("the browser runtime did not load"));
+      document.head.append(s);
+    });
+  }
+  const Ctor = runtimeCtor();
+  if (!Ctor) throw new Error("the browser runtime did not define EvgAppWeb");
+  const w = new Ctor();
+  if (!w.boot(data.machine)) throw new Error("the machine did not load");
+  for (const [state, doc] of Object.entries(data.pages || {})) w.put(state, doc);
+  window.webApp = w;
+  return w;
+}
+
+// One frame, from the runtime in this tab, in the shape paintApp takes.
+function webFrame(data, extra = {}) {
+  const f = JSON.parse(webApp.frame());
+  return { ...f, app: data.app, example: data.example, copies: data.copies, events: webEvents, local: true, ...extra };
+}
+
 async function enterRun() {
   runMode = true;
   if (es) { es.close(); es = null; }
@@ -609,11 +663,28 @@ async function enterRun() {
   $("go").disabled = true;
   $("think").innerHTML = '<span class="empty">Run mode: the machine owns the page. Press the phone — an element\'s id is the event it sends.</span>';
   $("ops").innerHTML = '<span class="empty">Design mode streams ops. Run mode sends events.</span>';
+  webApp = null;
+  webEvents = [];
   try {
-    paintApp(await runFetch("/app?reset=1"));
+    const data = await runFetch("/app/data");
+    if (data.code) {
+      paintApp(await runFetch("/app?reset=1"));
+      return;
+    }
+    webData = data;
+    webApp = await loadWebRuntime(data);
+    paintApp(webFrame(data));
   } catch (e) {
-    leaveRun();
-    $("think").append("\n\napp: " + (e.message || e));
+    // The runtime failing is not a reason to have no app: the server can
+    // still answer, slower. Falling back quietly would hide a broken build,
+    // so it says which one is running.
+    try {
+      paintApp(await runFetch("/app?reset=1"));
+      $("think").append("\n\nthe browser runtime did not start (" + (e.message || e) + ") — running on the server instead");
+    } catch (e2) {
+      leaveRun();
+      $("think").append("\n\napp: " + (e2.message || e2));
+    }
   }
 }
 
@@ -644,11 +715,16 @@ $("screen").addEventListener("click", async (ev) => {
     return;
   }
   const box = $("screen").getBoundingClientRect();
+  const x = Math.round(ev.clientX - box.left);
+  const y = Math.round(ev.clientY - box.top);
   try {
-    paintApp(await runFetch("/app/press", {
-      x: Math.round(ev.clientX - box.left),
-      y: Math.round(ev.clientY - box.top),
-    }));
+    if (webApp) {
+      const hit = JSON.parse(webApp.press(x, y));
+      if (hit.id && hit.takes) webEvents = [...webEvents, hit.id];
+      paintApp(webFrame(webData, { pressed: hit.id, took: hit.takes }));
+      return;
+    }
+    paintApp(await runFetch("/app/press", { x, y }));
   } catch (e) {
     $("think").append("\n\napp: " + (e.message || e));
   }

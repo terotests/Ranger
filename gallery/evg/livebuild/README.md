@@ -140,21 +140,34 @@ text node is filled from the machine's context, and `check` walks every state
 the machine can reach: a state with no page, a page no state renders and an id
 that is not an event are the three defects an agent cannot see and this names.
 
-A screen you designed becomes an app with one command. The tab bar's
-entries need ids first — `{"op":"set-id","at":"0/3/0","value":"nav.map"}` —
-and then:
+A screen you designed becomes an app by being pressed. Give the tab bar's
+entries ids — `{"op":"set-id","at":"0/3/0","value":"nav.map"}` — and **Run**
+does the rest: the host reads the `nav.*` ids off the screen, writes a state
+for each and copies the document to `pages/<state>.evg.json`, so every state
+starts from the screen that is already there. Nothing for the agent to run,
+and nothing to install. A document has no navigation in it, so an agent asked
+for four tabs will otherwise hunt for a `goto` that does not exist; the
+workspace guide says so before the hunt starts, and tells it the ids are the
+whole job.
+
+Every page starts as a copy, so the first thing to expect is a press that
+moves the machine over an identical screen — a dead button from the outside.
+`check` names the states that share a document and the live page says it
+under the phone.
+
+**The app runs in the tab.** `EvgAppWeb.rgr` compiles to a browser bundle the
+page loads once: the machine and one document per state go over as data, and
+from then on a press is a function call — hit test, transition, next page,
+about 2ms, no process and no tool on anybody's machine. That matters more
+than the speed: an agent on the other side of a network has no shell here,
+and a runtime that needed one was a runtime only this laptop could run. A
+CODE app is a compiled program the server holds open, so it stays on the
+server, and the page says which it is showing.
 
 ```sh
-./evg-app init app --from=doc.evg.json
+npm run livebuild:app:web    # build the browser runtime by hand; the server
+                             # builds it on demand
 ```
-
-reads the `nav.*` ids off the screen, writes a state for each and copies the
-document to `pages/<state>.evg.json`, so every state starts from the screen
-that is already there. The page's **Make this an app** button is the same
-call. Without it the phone stays a document, and a press on a tab does
-nothing — which is correct, and was the thing nobody was told: a document has
-no navigation in it, so an agent asked for four tabs will hunt for a `goto`
-that does not exist. The workspace guide now says so before the hunt starts.
 
 **Run** in the header hands the phone to that app: the machine owns which page
 is on screen, a click is a point the host turns into an event through

@@ -213,4 +213,26 @@ if (bad.count < 3) throw new Error(`three defects, ${bad.count} reported`);
 console.log(`  broken      ${bad.count} problems named: missing page, orphan page, dead id`);
 fs.rmSync(broken, { recursive: true, force: true });
 
+// Pages that are copies. `init` makes them on purpose and `check` has to say
+// so, because a press that moves the machine over an identical screen is what
+// a dead button looks like from the outside.
+{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "evg-app-copies-"));
+  fs.mkdirSync(path.join(dir, "pages"), { recursive: true });
+  const one = fs.readFileSync(path.join(here, "fixtures/app/pages/map.evg.json"), "utf8");
+  for (const st of ["a", "b"]) fs.writeFileSync(path.join(dir, `pages/${st}.evg.json`), one);
+  fs.writeFileSync(
+    path.join(dir, "machine.json"),
+    JSON.stringify({ id: "copies", initial: "a", states: { a: { on: { "nav.b": "b" } }, b: { on: { "nav.a": "a" } } } }),
+  );
+  const said = app("check", dir);
+  const copy = said.problems.find((p) => /same document/.test(p));
+  if (!copy) throw new Error(`identical pages went unreported: ${said.problems.join("; ")}`);
+  if (said.problems.filter((p) => /same document/.test(p)).length !== 1) {
+    throw new Error("the same fact was reported more than once");
+  }
+  console.log("  copies      two states, one document — named once, and it says what it looks like");
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
 console.log("ALL PASS — a machine, a page per state, a model that agrees with itself, a memory that does not rot");
