@@ -11788,7 +11788,10 @@ class ComponentEngine {
                     return (this.bcAssignStmt(ex prog))
                 }
                 if (ek == 7) {
-                    return (this.bcUpdateStmt(ex prog))
+                    if (this.bcUpdateStmt(ex prog)) {
+                        return true
+                    }
+                    return (this.bcUpdateMemberStmt(ex prog))
                 }
                 if (false == (this.bcExpr(ex prog))) {
                     return false
@@ -12722,6 +12725,49 @@ class ComponentEngine {
         return false
     }
 
+    ; `o.x++` / `o.x--` in STATEMENT position, where the result is discarded.
+    ; Only the local-slot form compiled, so a single `this.count--` sent the
+    ; whole enclosing body to the walker -- and in Richards the two hottest
+    ; functions are exactly that shape.
+    fn bcUpdateMemberStmt:boolean (node:TSNode prog:BcProgram) {
+        if (null? node.left) {
+            return false
+        }
+        def opd:TSNode (unwrap node.left)
+        if ((this.nodeKindOf(opd)) != 3) {
+            return false
+        }
+        if opd.computed {
+            return false
+        }
+        if opd.optional {
+            return false
+        }
+        if (null? opd.left) {
+            return false
+        }
+        def uName:string (this.bcMemberName(opd))
+        if ((strlen uName) == 0) {
+            return false
+        }
+        ; the names the compiled field ops refuse, for the reasons they give
+        if (uName == "length") { return false }
+        if (uName == "__proto__") { return false }
+        if (uName == "prototype") { return false }
+        if (uName == "caller") { return false }
+        if (uName == "arguments") { return false }
+        def uDir:int 0
+        if (node.value == "--") { uDir = 1 }
+        if ((node.value != "++") && (node.value != "--")) {
+            return false
+        }
+        if (false == (this.bcExpr((unwrap opd.left) prog))) {
+            return false
+        }
+        prog.emit(51 (((prog.addAtom(uName)) * 2) + uDir) 0 1)
+        return true
+    }
+
     ; The property NAME of a non-computed member node, "" when absent --
     ; same extraction the walker's dispatch uses.
     fn bcMemberName:string (node:TSNode) {
@@ -13058,7 +13104,31 @@ class ComponentEngine {
                 def mrecv:TSNode (unwrap callee.left)
                 if ((this.nodeKindOf(mrecv)) == 1) {
                     if ((prog.localIdxOf(mrecv.name)) < 0) {
-                        return false
+                        ; A receiver named by an OUTER binding -- `scheduler.run()`,
+                        ; `queue.addTo(x)` -- is loaded by op 10, which resolves
+                        ; through the caller's scope chain and falls back to the
+                        ; walker's own resolution on a miss, so it is as correct
+                        ; here as a local slot is. Rejecting it sent the whole
+                        ; enclosing body to the walker: it was the single most
+                        ; common reason a Richards body stayed walked.
+                        ; An engine GLOBAL stays out: `Math.floor(x)`,
+                        ; `JSON.parse(s)` and the constructor namespaces have
+                        ; call-site doors of their own on the walker.
+                        if (this.isEngineGlobalName(mrecv.name)) {
+                            return false
+                        }
+                        if (this.isBuiltinCtorName(mrecv.name)) {
+                            return false
+                        }
+                        if (this.isErrorCtorName(mrecv.name)) {
+                            return false
+                        }
+                        if nativeBridge {
+                            def mnb:EvalNativeBridge (unwrap nativeBridge)
+                            if (mnb.has(mrecv.name)) {
+                                return false
+                            }
+                        }
                     }
                 }
                 def mcn:string (this.bcMemberName(callee))
@@ -13132,6 +13202,68 @@ class ComponentEngine {
             ; word the not-a-function TypeError exactly as the walker does
             def cnAtom:int (prog.addAtom(callee.name))
             prog.emit(20 ((cnAtom * 256) + argc) 1 (argc + 1))
+            return true
+        }
+        ; `new F(a, b)` with the constructor named by a plain identifier. It
+        ; used to reject the whole enclosing BODY -- seven of Richards' 45
+        ; functions were walked for this one shape, and a walked body runs
+        ; about 4x slower than the same body on the VM. The construct itself
+        ; goes through the value path every other door uses, so classes,
+        ; built-ins and proxies behave exactly as they do on the walker.
+        if (k == 16) {
+            if (null? node.left) {
+                return false
+            }
+            def nctor:TSNode (unwrap node.left)
+            if ((this.nodeKindOf(nctor)) != 1) {
+                return false
+            }
+            ; Built-in constructor names keep the walker: `new Array(3)`,
+            ; `new RegExp(...)` and the error constructors each have a door of
+            ; their own there, and the value path does not reproduce them all.
+            if (this.isBuiltinCtorName(nctor.name)) {
+                return false
+            }
+            if (this.isErrorCtorName(nctor.name)) {
+                return false
+            }
+            if (this.isGlobalBuiltinCallName(nctor.name)) {
+                return false
+            }
+            if (this.isEngineGlobalName(nctor.name)) {
+                return false
+            }
+            if ((prog.localIdxOf(nctor.name)) < 0) {
+                if nativeBridge {
+                    def nnb:EvalNativeBridge (unwrap nativeBridge)
+                    if (nnb.has(nctor.name)) {
+                        return false
+                    }
+                }
+            }
+            def nargc:int (array_length node.children)
+            if (nargc > 250) {
+                return false
+            }
+            def nslot:int (prog.localIdxOf(nctor.name))
+            if (nslot >= 0) {
+                prog.emit(8 nslot 1 0)
+            } {
+                prog.emit(10 (prog.addAtom(nctor.name)) 1 0)
+            }
+            def nai:int 0
+            while (nai < nargc) {
+                def nan:TSNode (itemAt node.children nai)
+                if ((this.nodeKindOf(nan)) == 47) {
+                    return false
+                }
+                if (false == (this.bcExpr(nan prog))) {
+                    return false
+                }
+                nai = (nai + 1)
+            }
+            def nnAtom:int (prog.addAtom(nctor.name))
+            prog.emit(50 ((nnAtom * 256) + nargc) 1 (nargc + 1))
             return true
         }
         return false
@@ -13323,10 +13455,18 @@ class ComponentEngine {
         ; through here where the walker refused it. Sloppy-only: strict bodies
         ; never compile, so the TypeError stays the walker's to raise.
         if (obj.isArrayValue()) {
-            def afErr:string (this.writeRefusalError(obj name))
-            if ((strlen afErr) > 0) {
-                return
+            if (obj.writeRefusalPossible()) {
+                def afErr:string (this.writeRefusalError(obj name))
+                if ((strlen afErr) > 0) {
+                    return
+                }
             }
+        }
+        ; Per-KEY, because Object.prototype has an accessor (`__proto__`) and
+        ; the per-bag test below is therefore false for every ordinary object.
+        if (obj.chainSetterFreeFor(name)) {
+            obj.setMember(name v)
+            return
         }
         if (obj.chainAccessorFreeAt()) {
             obj.setMember(name v)
@@ -13443,9 +13583,14 @@ class ComponentEngine {
         ; the compiled store went straight into the dense items and
         ; `Object.freeze(a)[0] = 'Z'` took, while the same line at top level
         ; was correctly ignored.
-        def peErr:string (this.writeRefusalError(obj pk))
-        if ((strlen peErr) > 0) {
-            return
+        ; Only ask whether the write is refused when the receiver could refuse
+        ; one at all: the answer is a monotone flag, and the walk it replaces
+        ; ran on every compiled property store.
+        if (obj.writeRefusalPossible()) {
+            def peErr:string (this.writeRefusalError(obj pk))
+            if ((strlen peErr) > 0) {
+                return
+            }
         }
         if (obj.isArrayValue()) {
             ; the walker's element-vs-property routing, decided by the KEY
@@ -14110,6 +14255,128 @@ class ComponentEngine {
                 sp = (fnPos + 1)
                 continue
             }
+            ; `new F(...)`: the callee and its arguments are on the stack, and
+            ; the construct goes through the same value path Reflect.construct
+            ; and the walker's own `new` use, so a class, a bound function and
+            ; a proxy all behave as they do there.
+            if (op == 50) {
+                def nargc:int (bit_and a 255)
+                def nfnPos:int ((sp - nargc) - 1)
+                def nargs:[EvHandle]
+                def nci:int 0
+                while (nci < nargc) {
+                    push nargs (this.bcSlotBox(((nfnPos + 1) + nci)))
+                    nci = (nci + 1)
+                }
+                def nfnv:EvHandle (this.bcSlotBox(nfnPos))
+                def nOk:boolean (nfnv.isFunction())
+                if (false == nOk) {
+                    if (this.isProxyBackedValue(nfnv)) { nOk = true }
+                }
+                if (false == nOk) {
+                    def nn50:string (itemAt prog.atoms (idiv a 256))
+                    def _t50:EvHandle (this.throwSpecError("TypeError" (nn50 + " is not a constructor")))
+                    if (bcTryTop > tryBase) {
+                        bcTryTop = (bcTryTop - 1)
+                        pc = (itemAt bcTryPcs bcTryTop)
+                        sp = (itemAt bcTrySps bcTryTop)
+                        scriptThrew = false
+                        continue
+                    }
+                    bcTryTop = tryBase
+                    bcRetTag = 3
+                    return
+                }
+                bcSp = needTop
+                def nres:EvHandle (this.constructWithValues(nfnv nargs nfnv))
+                bcSp = base
+                if scriptThrew {
+                    if (bcTryTop > tryBase) {
+                        bcTryTop = (bcTryTop - 1)
+                        pc = (itemAt bcTryPcs bcTryTop)
+                        sp = (itemAt bcTrySps bcTryTop)
+                        scriptThrew = false
+                        continue
+                    }
+                    bcTryTop = tryBase
+                    bcRetTag = 3
+                    return
+                }
+                if scriptDidReturn {
+                    scriptDidReturn = false
+                }
+                this.bcSlotPut(nfnPos nres)
+                sp = (nfnPos + 1)
+                continue
+            }
+            ; `o.x++` / `o.x--` as a statement: ToNumber(o.x) plus or minus
+            ; one, stored back. Never a compound `+=`, which would concatenate
+            ; for a string property where the spec says NaN.
+            if (op == 51) {
+                def uName:string (itemAt prog.atoms (idiv a 2))
+                def uDelta:double 1.0
+                if ((bit_and a 1) == 1) {
+                    uDelta = (0.0 - 1.0)
+                }
+                sp = (sp - 1)
+                def uRecv:EvHandle (this.bcSlotBox(sp))
+                bcSp = needTop
+                def uOld:EvHandle (this.bcGetField(uRecv uName))
+                bcSp = base
+                if scriptThrew {
+                    if (bcTryTop > tryBase) {
+                        bcTryTop = (bcTryTop - 1)
+                        pc = (itemAt bcTryPcs bcTryTop)
+                        sp = (itemAt bcTrySps bcTryTop)
+                        scriptThrew = false
+                        continue
+                    }
+                    bcTryTop = tryBase
+                    bcRetTag = 3
+                    return
+                }
+                def uNew:EvHandle (EvValueBridge.taggedUndefined())
+                if (this.isBigIntValue(uOld)) {
+                    def uStep:BigNum (BigNum.fromInt(1))
+                    def uCur:BigNum (this.bigNumOf(uOld))
+                    def uNext:BigNum (uCur.add(uStep))
+                    if (uDelta < 0.0) {
+                        uNext = (uCur.sub(uStep))
+                    }
+                    uNew = (this.makeBigIntValue(uNext))
+                } {
+                    def uNum:double (this.toNumberOf(uOld))
+                    if scriptThrew {
+                        if (bcTryTop > tryBase) {
+                            bcTryTop = (bcTryTop - 1)
+                            pc = (itemAt bcTryPcs bcTryTop)
+                            sp = (itemAt bcTrySps bcTryTop)
+                            scriptThrew = false
+                            continue
+                        }
+                        bcTryTop = tryBase
+                        bcRetTag = 3
+                        return
+                    }
+                    uNew = (EvValueBridge.taggedNumber((uNum + uDelta)))
+                }
+                bcSp = needTop
+                this.bcPutField(uRecv uName uNew)
+                bcSp = base
+                if scriptThrew {
+                    if (bcTryTop > tryBase) {
+                        bcTryTop = (bcTryTop - 1)
+                        pc = (itemAt bcTryPcs bcTryTop)
+                        sp = (itemAt bcTrySps bcTryTop)
+                        scriptThrew = false
+                        continue
+                    }
+                    bcTryTop = tryBase
+                    bcRetTag = 3
+                    return
+                }
+                continue
+            }
             if (op == 9) {
                 sp = (sp - 1)
                 def t9:int (itemAt bcTags sp)
@@ -14462,7 +14729,12 @@ class ComponentEngine {
                     ; assignment is an own-data store -- on a marker-free
                     ; object; a proxy's write is its `set` trap
                     def oh31:EvHandle (itemAt bcStack (sp - 2))
-                    if ((oh31.chainAccessorFreeAt()) && (oh31.plainMarkerFreeObject())) {
+                    ; Per KEY: Object.prototype carries the `__proto__`
+                    ; accessor, so the per-bag test was false for every
+                    ; ordinary object and this fused store never ran. A key
+                    ; with a setter up the chain -- `__proto__` included --
+                    ; still takes the generic path below.
+                    if ((oh31.chainSetterFreeForAtom((itemAt prog.atomIds a))) && (oh31.plainMarkerFreeObject())) {
                         def vf31:EvHandle (this.bcSlotBox((sp - 1)))
                         ; the atom is already in the pool -- the load op has
                         ; used it since the fused member ops landed, while the

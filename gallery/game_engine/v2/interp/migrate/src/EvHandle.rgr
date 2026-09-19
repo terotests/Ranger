@@ -1415,8 +1415,11 @@ class EvHandle {
         if (depth > 16) {
             return (EvHandle.null())
         }
-        if (this.hasOwnGetter(key)) {
-            return (this.getOwnGetter(key))
+        ; same monotone skip as findSetter below
+        if (this.ownAccessorsEver()) {
+            if (this.hasOwnGetter(key)) {
+                return (this.getOwnGetter(key))
+            }
         }
         if (this.hasProto()) {
             def pr:EvHandle (this.protoOf())
@@ -1447,8 +1450,16 @@ class EvHandle {
         if (depth > 16) {
             return (EvHandle.null())
         }
-        if (this.hasOwnSetter(key)) {
-            return (this.getOwnSetter(key))
+        ; MONOTONE: a bag that never had an accessor put on it cannot hold a
+        ; setter for ANY key, so the per-key probe -- an atom mint off the key
+        ; string plus a hash lookup -- can be skipped whole. It matters because
+        ; Object.prototype DOES carry an accessor (`__proto__`), so the
+        ; chain-wide accessor-free test fails for every ordinary object and
+        ; this walk runs on every property write that is not caught earlier.
+        if (this.ownAccessorsEver()) {
+            if (this.hasOwnSetter(key)) {
+                return (this.getOwnSetter(key))
+            }
         }
         if (this.hasProto()) {
             def pr:EvHandle (this.protoOf())
@@ -1501,8 +1512,11 @@ class EvHandle {
         def propsOpt@(optional):EvPropertyBag (this.tryProps())
         if propsOpt {
             def props:EvPropertyBag (unwrap propsOpt)
-            if (props.hasAccessor(key)) {
-                return true
+            ; monotone skip, same as findGetter/findSetter
+            if props.everHadAccessor {
+                if (props.hasAccessor(key)) {
+                    return true
+                }
             }
         }
         if (this.hasProto()) {
@@ -2078,11 +2092,17 @@ class EvHandle {
                 def stepped:boolean false
                 case pr po:EvalValue.Object {
                     def pbag:EvPropertyBag po.properties
-                    if pbag.everHadAttrs {
-                        return false
-                    }
-                    if pbag.everHadAccessor {
-                        return false
+                    ; Per KEY, not per bag. Object.prototype carries an
+                    ; accessor (`__proto__`) and attribute-bearing methods, so
+                    ; a per-bag answer here is false for every ordinary object
+                    ; and the fast store never ran for anything at all. What
+                    ; actually matters is whether THIS key is defined on a bag
+                    ; that could refuse or intercept the write; a key the
+                    ; prototype does not hold cannot do either.
+                    if (pbag.everHadAttrs || pbag.everHadAccessor) {
+                        if (pbag.hasSlotAtom(ka)) {
+                            return false
+                        }
                     }
                     pr = pbag.prototype
                     stepped = true
@@ -2393,6 +2413,30 @@ class EvHandle {
         return false
     }
 
+    ; Could a write to this value be REFUSED at all? Every reason one can be --
+    ; an own accessor, an own attribute, a frozen or non-extensible bag -- is a
+    ; monotone flag on the bag, so one probe answers for every key at once. A
+    ; `false` here lets the store skip the refusal walk, which is otherwise
+    ; several probes and a key-string mint on every compiled property write.
+    ; A FUNCTION answers true whatever its bag says: `length` and `name` are
+    ; synthesised rather than stored, and both are non-writable.
+    fn writeRefusalPossible:boolean () {
+        if (this.isFunction()) {
+            return true
+        }
+        def propsOpt@(optional):EvPropertyBag (this.tryProps())
+        if propsOpt {
+            def props:EvPropertyBag (unwrap propsOpt)
+            if props.everHadAccessor { return true }
+            if props.everHadAttrs { return true }
+            if props.frozen { return true }
+            if props.sealed { return true }
+            if (false == props.extensible) { return true }
+            return false
+        }
+        return true
+    }
+
     fn arrayItemAt:EvHandle (i:int) {
         def _k:EvalValue body
         if (EvalValue.isArrayValue(_k)) {
@@ -2544,6 +2588,49 @@ class EvHandle {
         }
         return (EvHandle.hole())
     }
+    ; Is there NO setter for this key anywhere up the chain? Same walk as
+    ; chainAccessorFreeAt, except the accessor-free answer is decided per KEY
+    ; rather than per bag -- which is what the compiled store actually needs,
+    ; and what lets it answer `true` at all. Object.prototype carries the
+    ; `__proto__` accessor, so chainAccessorFreeAt is false for every ordinary
+    ; object and every compiled property write fell through to the generic
+    ; resolveSetterOn: a recursive walk that mints an EvHandle per prototype
+    ; level and probes the key at each. Here a level whose bag never had an
+    ; accessor costs one boolean, and no handle is minted at all.
+    fn chainSetterFreeFor:boolean (key:string) {
+        return (this.chainSetterFreeForAtom(((EvAtomTable.__singleton()).idOf(key))))
+    }
+    ; chainSetterFreeFor for a caller that already holds the atom id -- the
+    ; compiled store does, since the load ops put the name in the pool.
+    fn chainSetterFreeForAtom:boolean (ka:int) {
+        case body o:EvalValue.Object {
+            def bag:EvPropertyBag o.properties
+            def depth:int 0
+            while (depth < 17) {
+                if bag.everHadAccessor {
+                    if (bag.hasSetterAtom(ka)) {
+                        return false
+                    }
+                }
+                def pr:EvalValue bag.prototype
+                if (EvalValue.isHole(pr)) {
+                    return true
+                }
+                def stepped:boolean false
+                case pr po:EvalValue.Object {
+                    bag = po.properties
+                    stepped = true
+                }
+                if (false == stepped) {
+                    return false
+                }
+                depth = (depth + 1)
+            }
+            return false
+        }
+        return false
+    }
+
     ; The WRITE-side gate: true when the receiver is an object whose
     ; whole chain is accessor-free, so an assignment is a plain own-data
     ; store and the setter probe can be skipped.
