@@ -11,6 +11,24 @@ class RangerSwift6ClassWriter {
   def compiler:LiveCompiler
   def header_created:boolean false
   
+  ; PLAN_RUST_SEMANTIC_IDIOMS / friendly: a Ranger `fn f@(throws)` has to be
+  ; `func f() throws` in Swift, or `throw` inside it is a compile error. Ranger
+  ; already requires every call to such a function to sit inside a `try { }`
+  ; block (RangerFlowParser refuses one that does not), so the `throws` never
+  ; has to propagate to the caller: the caller's `do { } catch { }` is the try
+  ; block, and the call itself just needs the `try` keyword.
+  fn swiftThrowsMark:string (variant:RangerAppFunctionDesc) {
+    def nnOpt@(optional):CodeNode variant.nameNode
+    if (null? nnOpt) {
+      return ""
+    }
+    def nn:CodeNode (unwrap nnOpt)
+    if (nn.hasFlag("throws")) {
+      return " throws"
+    }
+    return ""
+  }
+
   fn adjustType:string (tn:string) {
     if (tn == "this") {
       return "self"
@@ -902,6 +920,25 @@ class RangerSwift6ClassWriter {
       def obj:CodeNode (node.getSecond())
       def method:CodeNode (node.getThird())
       def args:CodeNode (itemAt node.children 3)
+      ; a call to a `@(throws)` function needs the `try` keyword, and it goes
+      ; before the RECEIVER — `try g.mustBePositive(…)`, not `g.try …`. Ranger
+      ; has already refused any such call outside a `try { }` block, so the
+      ; enclosing `do { } catch { }` is there and nothing propagates.
+      ;
+      ; The keyword covers the two positions these calls take: the right side
+      ; of an assignment, and an argument. It is NOT enough to the right of a
+      ; binary operator — `"x " + (try f())` is "'try' cannot appear to the
+      ; right of a non-assignment operator" — and covering that needs the
+      ; keyword hoisted to the front of the statement, which is not visible
+      ; from here.
+      def throwFd@(optional):RangerAppFunctionDesc node.fnDesc
+      if (!null? throwFd) {
+      }
+      if (!null? throwFd) {
+        if ((strlen (this.swiftThrowsMark((unwrap throwFd)))) > 0) {
+          wr.out("try " false)
+        }
+      }
 
       ; PLAN_FORMAT.md phase 1b. `isSimpleClassCallReceiver` answers only for a
       ; receiver that NAMES A CLASS -- a static call -- so every instance call
@@ -979,6 +1016,20 @@ class RangerSwift6ClassWriter {
         if (fnName.type_name != "void") {
           wr.out("_ = " false)
         }
+      }
+      ; a call to a `@(throws)` function needs the `try` keyword, and it goes
+      ; before the RECEIVER — `try g.mustBePositive(…)`. Ranger has already
+      ; refused any such call outside a `try { }` block (RangerFlowParser), so
+      ; the enclosing `do { } catch { }` is there and the `throws` never has to
+      ; propagate to the caller.
+      ;
+      ; The keyword covers the positions these calls take here: the right side
+      ; of an assignment and an argument. It is NOT enough to the right of a
+      ; binary operator — `"x " + (try f())` is "'try' cannot appear to the
+      ; right of a non-assignment operator" — and covering that needs the
+      ; keyword at the front of the statement, which is not visible from here.
+      if (fnName.hasFlag("throws")) {
+        wr.out("try " false)
       }
       this.WriteVRef(fc ctx wr)
       wr.out("(" false)
@@ -1515,7 +1566,7 @@ class RangerSwift6ClassWriter {
       }
       wr.out((("class func " + variant.compiledName) + "(") false)
       this.writeArgsDef(variant ctx wr)
-      wr.out(") -> " false)
+      wr.out(((")" + (this.swiftThrowsMark(variant))) + " -> ") false)
       this.writeTypeDef( (unwrap variant.nameNode) ctx wr)
       wr.out(" {" true)
       wr.indent(1)
@@ -1592,7 +1643,7 @@ class RangerSwift6ClassWriter {
           this.writeArgsDef(variant ctx wr)
         }
         
-        wr.out(") -> " false)
+        wr.out(((")" + (this.swiftThrowsMark(variant))) + " -> ") false)
         this.writeTypeDef( (unwrap variant.nameNode) ctx wr)
         wr.out(" {" true)
         wr.indent(1)

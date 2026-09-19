@@ -12,8 +12,9 @@ bash gallery/friendly/compile.sh go       # one target
 ```
 
 A target folder may hold `src/` of its own, for a study the same program cannot
-express on every target — `rust/src/11_behaviour_traits.rgr` is one, because the
-C++ writer names a trait type it never declares. It may also hold `attempts/`:
+express on every target. There are two: `rust/src/11_behaviour_traits.rgr`,
+because the C++ writer names a trait type it never declares, and
+`kotlin/src/11_throw_catch.rgr`, because Rust refuses `try`/`catch` outright. It may also hold `attempts/`:
 forms *that* target cannot express.
 `compile.sh` requires each one to be **refused**, with the error it declares on
 its first line (`; EXPECT-ERROR: …`). A form the target cannot express has to
@@ -26,7 +27,7 @@ never code that does not exist. Only `rust/attempts/` exists today.
 | [Python](python/README.md) | `-l=python` → `python3` | ran |
 | [Dart](dart/README.md) | `-l=dart` → `dart run` | ran |
 | [Swift](swift/README.md) | `-l=swift6` → `swiftc` when present | writer only (`swiftc` not installed) |
-| [Kotlin](kotlin/README.md) | `-l=kotlin` → `kotlinc` + `java -jar` | ran |
+| [Kotlin](kotlin/README.md) | `-l=kotlin` → `kotlinc` + `java -jar` | ran (kotlinc 2.0.21) |
 | [C#](csharp/README.md) | `-l=csharp` → `mcs` + `mono` | ran |
 | [Java](java/README.md) | `-l=java7` → `javac` + `java` | ran |
 | [Go](go/README.md) | `-l=go` → `go build` | ran |
@@ -47,8 +48,8 @@ whether Ranger compiled.
 | 1 | [Python](python/README.md) | yes | Closest to the language. `None`, `raise`/`except`, `enumerate`, `__main__`. Looks like Python a human would debug. |
 | 2 | [JavaScript](javascript/README.md) | yes | The compiler’s own target. Objects share, `throw "…"` runs, arrays are arrays. Optional is verbose `typeof` / `undefined`. |
 | 3 | [Dart](dart/README.md) | yes | `T?`, `int Function(int)`, file-scope `main`, `throw "…"` runs. No Dart 3 `record` / `sealed` / `enum`. |
-| 4 | [Swift](swift/README.md) | writer only | `T?`, `??`, `weak var`, native `enum` for a `shape`. `throw` has no `throws` and would not `swiftc`. |
-| 5 | [Kotlin](kotlin/README.md) | yes | `T?`, `sealed interface`, `(Int) -> Int`. `throw "…"` is **not** `Throwable` — `kotlinc` rejects it. |
+| 4 | [Swift](swift/README.md) | writer only | `T?`, `??`, `weak var`, native `enum` for a `shape`. `throw` now emits `func … throws`, `try` at the call site and a small `Error` type — writer-checked, not `swiftc`-checked. |
+| 5 | [Kotlin](kotlin/README.md) | yes | `T?`, `sealed interface`, `(Int) -> Int`. `throw` is `Exception(msg)` now, kotlinc-clean and `error_msg`-correct. |
 | 6 | [C#](csharp/README.md) | yes | `int?`, `List<T>`, `Func<int, int>`, `interface` for a `shape`. `throw` wraps `ConfigurationErrorsException` and **runs**. `int` is 32-bit. |
 | 7 | [Java](java/README.md) | yes | Runs, and `throw` wraps `IllegalArgumentException`. Everything else is Java 7: `Integer` boxing, `Object` + `instanceof`, one file per class. |
 | 8 | [Go](go/README.md) | yes | Sharing is `*T`. Optional is `*GoNullable`. `try`/`throw` is `panic`/`recover`. Workable, not Go-like. |
@@ -143,8 +144,10 @@ Forms no target can express, or one target cannot:
   on the error path. recover/except/catch on Go/Python/C++; runs on
   JavaScript, Dart, Java (`IllegalArgumentException`) and C#
   (`ConfigurationErrorsException`); illegal Swift and Kotlin (`String`
-  is not `Error` / `Throwable`). Writer-only: PHP `Exception`, Scala
-  `customException`.
+  is not `Error` / `Throwable`) — **both fixed**, see
+  [`kotlin/src/11_throw_catch.rgr`](kotlin/src/11_throw_catch.rgr) and
+  [`swift/README.md`](swift/README.md) §09. Writer-only: PHP `Exception`,
+  Scala `customException`.
 
 `02_optional_string_param.rgr` left this list: it is
 [`src/10_optional_params.rgr`](src/10_optional_params.rgr) now, a study on

@@ -5526,6 +5526,12 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
                 php ( "throw new Exception(" (e 1) ");")
                 csharp ( "throw new ConfigurationErrorsException(" (e 1) ");" (imp "System.Configuration"))
                 java7 ( "throw new IllegalArgumentException(" (e 1) ");")
+                ; Kotlin has no checked exceptions and needs no `throws` on the
+                ; signature, but what is thrown must be a Throwable — a String
+                ; is not, and `throw "negative"` is a kotlinc error, not a
+                ; warning. Exception(msg) puts the text where `e.message` reads
+                ; it, which is what the `error_msg` template already expects.
+                kotlin ( "throw Exception(" (e 1) ")")
                 swift3 ( 
                     nl "throw "  (e 1) ";" nl 
 (create_polyfill 
@@ -5533,6 +5539,26 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
 extension String: Error {}
 "
 )                    
+                )
+                ; swift6 had no entry of its own and fell through to `*`, which
+                ; writes `throw "negative"` — a String is not an Error, and
+                ; swiftc refuses it. A small error type rather than
+                ; `extension String: Error {}` (what swift3 does): extending a
+                ; stdlib type with a stdlib protocol is a retroactive
+                ; conformance, which Swift 6 language mode warns about.
+                ; CustomStringConvertible is what keeps `error_msg` correct
+                ; without a template of its own — `String(describing: error)`
+                ; is the message, not `RgError(message: "…")`.
+                swift6 (
+                    nl "throw RgError(message: "  (e 1) ")" nl
+(create_polyfill
+"
+struct RgError: Error, CustomStringConvertible {
+    let message: String
+    var description: String { message }
+}
+"
+)
                 )
                 scala ( "throw new customException(" (e 1) ")"
 

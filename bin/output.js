@@ -27084,6 +27084,17 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           this.header_created = false;     /* note: unused */
           this.swift_unions_written = false;
         }
+        swiftThrowsMark (variant) {
+          const nnOpt = variant.nameNode;
+          if ( typeof(nnOpt) === "undefined" ) {
+            return "";
+          }
+          const nn = nnOpt;
+          if ( nn.hasFlag("throws") ) {
+            return " throws";
+          }
+          return "";
+        };
         adjustType (tn) {
           if ( tn == "this" ) {
             return "self";
@@ -27812,6 +27823,14 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             const obj = node.getSecond();
             const method = node.getThird();
             const args = node.children[3];
+            const throwFd = node.fnDesc;
+            if ( (typeof(throwFd) !== "undefined" && throwFd != null )  ) {
+            }
+            if ( (typeof(throwFd) !== "undefined" && throwFd != null )  ) {
+              if ( this.swiftThrowsMark(throwFd).length > 0 ) {
+                wr.out("try ", false);
+              }
+            }
             if ( this.formatterEnabled(ctx) ) {
               this.writeCallReceiver(obj, ctx, wr);
             } else {
@@ -27873,6 +27892,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               if ( fnName.type_name != "void" ) {
                 wr.out("_ = ", false);
               }
+            }
+            if ( fnName.hasFlag("throws") ) {
+              wr.out("try ", false);
             }
             this.WriteVRef(fc, ctx, wr);
             wr.out("(", false);
@@ -28389,7 +28411,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             }
             wr.out(("class func " + variant_2.compiledName) + "(", false);
             this.writeArgsDef(variant_2, ctx, wr);
-            wr.out(") -> ", false);
+            wr.out((")" + this.swiftThrowsMark(variant_2)) + " -> ", false);
             this.writeTypeDef(variant_2.nameNode, ctx, wr);
             wr.out(" {", true);
             wr.indent(1);
@@ -28476,7 +28498,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               } else {
                 this.writeArgsDef(variant_3, ctx, wr);
               }
-              wr.out(") -> ", false);
+              wr.out((")" + this.swiftThrowsMark(variant_3)) + " -> ", false);
               this.writeTypeDef(variant_3.nameNode, ctx, wr);
               wr.out(" {", true);
               wr.indent(1);

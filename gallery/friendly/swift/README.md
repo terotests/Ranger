@@ -24,9 +24,10 @@ clashing with the generated `==`).
 `final class Point: Hashable` with identity `==` (`===`), not a `struct`.
 Every class gets `Hashable` via `ObjectIdentifier` and a global
 `func ==`. A Ranger `Enum` is an `Int`. A Ranger `trait` is a mixin, not
-a `protocol`. `try`/`throw` emits `throw "negative"` on a method that is
-**not** marked `throws`, and `"negative"` is not `Error` — this file
-would not `swiftc`. There is no `guard`, no `async`, no `some Protocol`.
+a `protocol`. `try`/`throw` used to emit `throw "negative"` on a method that was
+**not** marked `throws`, and `"negative"` is not `Error` — see §09, now
+fixed (but not compiled here). There is no `guard`, no `async`, no
+`some Protocol`.
 Labeled call sites (`manhattan(p: origin)`) are Swift-ish and also
 verbose.
 
@@ -40,10 +41,11 @@ verbose.
 | `enum Message { case ping; case text(String) }` | `shape Message` | `enum union_Message { case Message_Ping(Message_Ping) … }` wrapping classes |
 | `enum Color` | `Enum Color` | `Int` |
 | `protocol Named` | `trait Named` | copied methods |
-| `throws` / `Result` | `try` / `throw` | `do`/`catch` + `throw` **without** `throws` on the callee |
+| `throws` / `Result` | `try` / `throw` | `func … throws`, `try` at the call site, `throw RgError(message:)` — writer-only, see §09 |
 | value-type mutation | mutating a `[T]` param | `inout` + `&` (when the mutation pass sees it) |
 
-Do not use `try`/`throw` if the `.swift` must `swiftc`. Use a `shape`.
+`try`/`throw` should `swiftc` now; it has not been compiled on this machine.
+A `shape` is still the portable form, because Rust refuses `try`/`catch`.
 Do not expect a `record` to be a `struct`.
 
 ---
@@ -115,18 +117,55 @@ on a `struct`) cannot be said, because `record` is not a `struct`.
 
 ### 09 — errors
 
-The shape path is the portable one. The throw attempt writes:
+The shape path is the portable one. The throw attempt **used to** write:
 
 ```swift
 func mustBePositive(value : Int) -> Int {
-    if value < 0 { throw "negative" }
+    if value < 0 { throw "negative" }        // not `throws`; String is not Error
     return value
 }
-do { … } catch { caught = String(describing: error) }
+do { let ok : Int = g.mustBePositive(value : 3) } catch { … }   // missing `try`
 ```
 
-No `throws` on the function, and `String` is not `Error`. I could not
-`swiftc` this here; the writer output is enough to call it broken.
+Three separate refusals from `swiftc`. It writes this now:
+
+```swift
+struct RgError: Error, CustomStringConvertible {
+    let message: String
+    var description: String { message }
+}
+
+func mustBePositive(value : Int) throws -> Int {
+    if value < 0 { throw RgError(message: "negative") }
+    return value
+}
+do { let ok : Int = try g.mustBePositive(value : 3) } catch { caught = String(describing: error) }
+```
+
+`CustomStringConvertible` is what keeps `error_msg` right without a template of
+its own — `String(describing: error)` is the message rather than
+`RgError(message: "…")`. A small error type rather than
+`extension String: Error {}` (which is what the older `swift3` target does),
+because extending a stdlib type with a stdlib protocol is a retroactive
+conformance and Swift 6 language mode warns about it.
+
+**`throws` does not have to propagate.** Ranger already refuses a call to a
+`@(throws)` function that is not inside a `try { }` block, so the caller's
+`do { } catch { }` is always there.
+
+**Not compiled here.** `swiftc` is not installed on this machine and
+`download.swift.org` is blocked by the environment's network policy, so this is
+writer output read against Swift's rules, not a `swiftc` run. The Kotlin fix in
+the same change *is* compiler-verified — see
+[`../kotlin/src/11_throw_catch.rgr`](../kotlin/src/11_throw_catch.rgr) — and it
+is why there is no Swift study beside it.
+
+**One known limit.** The `try` keyword goes immediately before the call, which
+Swift accepts on the right of an assignment and in an argument. It is not
+enough to the right of a binary operator — `"x " + (try f())` is *"'try' cannot
+appear to the right of a non-assignment operator"* — and covering that needs
+the keyword hoisted to the front of the statement, which the writer cannot see
+from the call site.
 
 ## What I could not write
 

@@ -268,11 +268,21 @@ gallery program that is built to Rust by an npm script — `invaders`, `pong`,
 **Gate.** [`gallery/friendly/rust/attempts/09_throw_panics.rgr`](../../gallery/friendly/rust/attempts/09_throw_panics.rgr),
 which `compile.sh` now requires to be refused with this error.
 
-**Swift and Kotlin have the same shape of problem**, per the sibling studies:
-`throw "negative"` is not a `Error` / `Throwable` there, so the file does not
-compile — which at least fails loudly. C++ catches with `catch(...)` and loses
-`error_msg`. The rule this item establishes is target-independent: refuse what
-the target cannot express until it can.
+**Swift and Kotlin had the same shape of problem and are now fixed.**
+`throw "negative"` is neither an `Error` nor a `Throwable`, so those files did
+not compile at all — loudly wrong rather than silently. Kotlin emits
+`throw Exception(msg)`, which also puts the text where `error_msg` reads it;
+verified with kotlinc 2.0.21 against
+[`gallery/friendly/kotlin/src/11_throw_catch.rgr`](../../gallery/friendly/kotlin/src/11_throw_catch.rgr).
+Swift emits `func … throws`, `try` at the call site and a small `Error` type —
+writer-checked only, because `swiftc` is not installable in this environment.
+Neither needed transitive `throws` propagation: Ranger already refuses a call to
+a `@(throws)` function outside a `try { }` block, so the caller's handler is
+always there.
+
+C++ still catches with `catch(...)` and loses `error_msg`. The rule this item
+establishes stays target-independent: refuse what the target cannot express
+until it can, and express it where the target can.
 
 ### C. A `trait` used as a type emits an undefined type
 

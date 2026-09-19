@@ -25,7 +25,13 @@ with `@JvmField` and an `init` that assigns the constructor arguments
 again, not a `data class`. A Ranger `Enum` is an `Int`. A Ranger `trait`
 is a mixin. `when` is never emitted — `match` is a chain of `if (x is T)`.
 `??` is `if (hit != null) hit!! else "unknown"`, not `hit ?: "unknown"`.
-`try`/`throw` writes `throw "negative"`, and **`kotlinc` rejects it**
+`try`/`throw` used to write `throw "negative"`, which **`kotlinc` rejected** —
+a String is not a `Throwable`. It is `throw Exception(msg)` now, which also
+puts the text where `error_msg` reads it (`e.message`). See
+[`src/11_throw_catch.rgr`](src/11_throw_catch.rgr), compiled and run by
+`compile.sh`.
+
+The old behaviour was
 (`String` is not `Throwable`). Empty `companion object` blocks sit on
 classes that have no statics. `Int` is 32-bit.
 
@@ -41,9 +47,10 @@ classes that have no statics. `Int` is 32-bit.
 | `xs.sum()` / `map` | a `for` that `push`es | `for (i in xs.indices)` + `.add` |
 | `(Int) -> Int` | `f:(fn:int (p:int))` | exactly that |
 | `Result<Int, String>` | a `shape` | `sealed interface union_*` |
-| `throw Exception("…")` | `throw "…"` | **does not kotlinc** |
+| `throw Exception("…")` | `throw "…"` | **fixed** — `throw Exception("…")`, kotlinc-clean |
 
-Do not use `try`/`throw` if the `.kt` must `kotlinc`. Use a `shape`.
+`try`/`throw` is safe on this target now. A `shape` is still the portable
+form, because Rust refuses `try`/`catch` outright.
 `@(weak)` is ignored — Kotlin has GC; `parent` is `TreeNode?`.
 
 ---
@@ -133,7 +140,7 @@ only when there are statics, `throw Exception`, coroutines.
 
 ## How the language could improve (for Kotlin)
 
-1. `throw` must wrap the string in `Exception(…)` (or refuse).
+1. ~~`throw` must wrap the string in `Exception(…)`.~~ **Done.**
 2. `record` → `data class` with `val` fields.
 3. `??` → `?:` ; `null?` → `== null` without a redundant `!!` on the
    true branch.
