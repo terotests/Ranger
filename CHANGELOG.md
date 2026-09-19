@@ -66,6 +66,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The front page no longer captions the language strip.** The marks
+  stand on their own; the paragraph that listed the targets and explained
+  the tracer is gone.
+
 - **The public site title is "Save time. Keep one source."** The front page
   heading, its document title and Open Graph title, the documentation
   `<title>` suffix (`Page | Save time. Keep one source.`), and the
