@@ -90,13 +90,36 @@ if (!written.css) throw new Error("the document did not keep its stylesheet");
 // Only the TREE, not the file: the sheet's own text says `evg-surface-effect`
 // and is supposed to. What must not happen is the cascade being copied onto
 // the nodes, which would make the sheet a one-time macro instead of a sheet.
-const inlined = (el) =>
-  Object.keys(el.props || {}).some((k) => k.startsWith("evg-")) ||
-  (el.children || []).some(inlined);
+function inlined(el) {
+  if (Object.keys(el.props || {}).some((k) => k.startsWith("evg-"))) return true;
+  return (el.children || []).some(inlined);
+}
 if (inlined(written.root)) {
   throw new Error("the cascade was inlined into the nodes — the sheet is supposed to stay one place");
 }
 console.log("  document    the sheet round-trips, and the cascade is not copied into the tree");
+
+// THE CASCADE MUST NOT LEAK INTO THE TREE, EVER — and the way it did was not
+// through `patch` at all. A sheet is applied by writing values onto elements,
+// so once layout has run a cascaded value looks exactly like an authored one,
+// and the next thing to serialize the tree writes the whole rule into every
+// node it matched. A page with six `.glass` cards came back with the rule
+// copied onto all six. This is that sequence: edit, lay out, edit again.
+{
+  const measured = spawnSync(process.execPath, [agentBin, "measure", doc, "--width=390", "--height=844"], {
+    encoding: "utf8",
+    maxBuffer: 20 * 1024 * 1024,
+  });
+  if (!measured.stdout.includes('"nodes"')) throw new Error(`measure said nothing: ${measured.stdout.slice(0, 200)}`);
+  const again = path.join(session, "fx-ops2.json");
+  fs.writeFileSync(again, JSON.stringify({ ops: [{ op: "set-text", at: "0/0/0", value: "After" }] }));
+  spawnSync(process.execPath, [agentBin, "patch", doc, again], { encoding: "utf8", maxBuffer: 20 * 1024 * 1024 });
+  const after = JSON.parse(fs.readFileSync(doc, "utf8"));
+  if (inlined(after.root)) throw new Error("a layout in between copied the sheet onto the nodes");
+  if (after.root.props["class-name"] !== "sky") throw new Error("the class went missing");
+  if (!after.css) throw new Error("the sheet went missing");
+  console.log("  after layout the sheet is still one place, and the class is still on the node");
+}
 
 // --- the cascade reaches the display list ------------------------------------
 

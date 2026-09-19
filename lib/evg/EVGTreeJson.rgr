@@ -134,7 +134,10 @@ class EVGTreeJson {
             def name:string (itemAt names i)
             def mine:string (EVGPatch.readProp(el name))
             def theirs:string (EVGPatch.readProp(blank name))
-            if (mine != theirs) {
+            ; A value the sheet put there belongs to the sheet. Writing it
+            ; down as well would copy the rule onto every node it matched and
+            ; leave the document saying the same thing twice.
+            if ((mine != theirs) && ((el.fromCss(name)) == false)) {
                 if (wrote > 0) {
                     out = (out + ",")
                 }
@@ -153,6 +156,9 @@ class EVGTreeJson {
         def k:int 0
         while (k < (array_length fx)) {
             def fxName:string (itemAt fx k)
+            if (el.fromCss(fxName)) {
+                k = (k + 1)
+            } {
             if (wrote > 0) {
                 out = (out + ",")
             }
@@ -161,6 +167,7 @@ class EVGTreeJson {
             out = (out + (EVGTreeJson.str((EVGPatch.readProp(el fxName)))))
             wrote = (wrote + 1)
             k = (k + 1)
+            }
         }
         return out
     }
