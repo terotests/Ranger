@@ -1639,9 +1639,9 @@ npm test             # the suite runs against the compiler you just built
 `npm run compile` is the self-hosting step: the current `bin/output.js` compiles
 the new sources into the next `bin/output.js`. A change that breaks codegen can
 therefore break the compiler that builds the next one, so keep the previous
-`bin/output.js` until the tests pass; `versions/<target>/compiler.js` holds
-earlier builds. The standalone form is `ranger-compiler -compiler -copysrc`,
-which writes `bin/ng_Compiler.js`.
+`bin/output.js` until the tests pass -- `git checkout bin/output.js` restores
+the last committed build, and the git history of that one file is the rollback.
+The published CLI is `dist/rgrc.js`, built by `npm run build:dist`.
 
 # Annotations
 
