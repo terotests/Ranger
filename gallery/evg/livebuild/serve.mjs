@@ -668,6 +668,35 @@ function main() {
       );
       return;
     }
+    // The document as it stands, framed — WITHOUT touching it. `/seed` is
+    // "start over" and rewrites the session's phone from a fixture; leaving Run
+    // mode used to go through it, which threw away every edit the agent had
+    // made. Coming back from Run is not starting over.
+    if (url.pathname === "/doc") {
+      const file = path.join(sessionDir(), "doc.evg.json");
+      if (!fs.existsSync(file)) {
+        send(res, 404, "application/json; charset=utf-8", JSON.stringify({ error: "no document in this session" }));
+        return;
+      }
+      const events = frameDocument(file);
+      const frame = events.find((e) => e && e.t === "frame") || {};
+      send(
+        res,
+        200,
+        "application/json; charset=utf-8",
+        JSON.stringify({
+          kind: lastKind,
+          width: frame.width || 390,
+          height: frame.height || 844,
+          ncmds: frame.ncmds || 0,
+          added: 0,
+          nodes: frame.nodes || 0,
+          list: frame.list || { cmds: [] },
+          measure: events.find((e) => e && e.t === "measure") || null,
+        }),
+      );
+      return;
+    }
     if (url.pathname === "/seed") {
       const kind = KINDS.has(url.searchParams.get("kind"))
         ? url.searchParams.get("kind")

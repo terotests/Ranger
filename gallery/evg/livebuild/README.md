@@ -169,6 +169,10 @@ npm run livebuild:app:web    # build the browser runtime by hand; the server
                              # builds it on demand
 ```
 
+Turning Run off shows the document as it stands. It is not "start over" —
+only the seed chips (Dashboard / Empty / …) are, and they rewrite the
+session's phone from a fixture and drop the app that was made from it.
+
 **Run** in the header hands the phone to that app: the machine owns which page
 is on screen, a click is a point the host turns into an event through
 `EVGHitTest`, and the page for wherever it landed comes back. The event trail

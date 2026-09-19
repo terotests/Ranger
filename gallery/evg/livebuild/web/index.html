@@ -688,13 +688,31 @@ async function enterRun() {
   }
 }
 
-function leaveRun() {
+// Back to design mode. It shows THE DOCUMENT AS IT STANDS — `loadSeed` would
+// re-seed the session from a fixture, which is what "start over" means, and
+// turning Run off is not that. It was, and it silently threw away every edit
+// the agent had made.
+async function leaveRun() {
   runMode = false;
+  webApp = null;
+  webData = null;
+  webEvents = [];
   $("makeapp").hidden = true;
   $("run").classList.remove("live");
   $("screen").classList.remove("live");
   $("go").disabled = false;
-  loadSeed(current);
+  try {
+    const d = await (await fetch("/doc")).json();
+    if (d.error) throw new Error(d.error);
+    paintFrame(d);
+    paintMeasure(d.measure);
+    $("added").textContent = "seed";
+    $("kindLabel").textContent = current;
+    $("findings").replaceChildren();
+  } catch (e) {
+    // Only if there is no document to come back to.
+    loadSeed(current);
+  }
 }
 
 $("run").addEventListener("click", () => {

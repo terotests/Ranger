@@ -10,6 +10,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
@@ -148,12 +149,20 @@ try {
   await press(195, 400);
   const trail = await page.locator("#findings").innerText();
   if (!/not an event|nav\./.test(trail)) throw new Error(`run mode said nothing about the press: ${trail}`);
+  // Leaving Run must show the document AS IT STANDS. It used to go through
+  // `/seed`, which rewrites the session's phone from a fixture — so turning
+  // Run off threw away every edit the agent had made, on disk, silently.
+  const docBefore = fs.readFileSync(path.join(os.tmpdir(), "evg-live-session/doc.evg.json"), "utf8");
   await page.click("#run");
   await page.waitForFunction(
     () => document.getElementById("added")?.textContent === "seed",
     null,
     { timeout: 20000 },
   );
+  await page.waitForTimeout(500);
+  const docAfter = fs.readFileSync(path.join(os.tmpdir(), "evg-live-session/doc.evg.json"), "utf8");
+  if (docAfter !== docBefore) throw new Error("leaving Run rewrote the document");
+  console.log("  leave run    the document is the one that was there, byte for byte");
   if (!/in the tab/.test(second)) {
     throw new Error(`the app ran on the server, not in the browser: ${second}`);
   }
