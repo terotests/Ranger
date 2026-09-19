@@ -17,7 +17,7 @@ npm i -D ranger-compiler
 cat > Main.rgr <<'RGR'
 class Main {
     sfn m@(main):void () {
-        print "hei maailma"
+        print "hello world"
     }
 }
 RGR

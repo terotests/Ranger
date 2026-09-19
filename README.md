@@ -205,7 +205,7 @@ when the compile fails, all fourteen targets, and the agent skills. MIT.
 ```bash
 git clone https://github.com/terotests/RangerStarter my-app
 cd my-app && npm install
-npm start          # hei maailma
+npm start          # hello world
 npm run targets    # the same source as Swift, Kotlin, Rust, Go, C++, …
 ```
 
