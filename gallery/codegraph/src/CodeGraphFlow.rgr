@@ -85,7 +85,7 @@ class CodeGraphFlow {
                 n.dataKind = it.dataKind
                 n.dataRef = it.dataRef
                 n.cssClass = "codegraph class"
-                n.tooltip = (c.name + " — click a method row to read it, double-click to open it")
+                n.tooltip = (CodeGraphFlow.classHover(c))
                 if ((strlen it.fill) > 0) {
                     n.bgColor = it.fill
                 }
@@ -171,6 +171,7 @@ class CodeGraphFlow {
             if (typeName == target) {
                 def mem:UMLMember (u.attribute("-" f.name f.fieldType))
                 mem.wantPort = true
+                mem.tooltip = (CodeGraphFlow.fieldHover(c f))
             }
             fi = (fi + 1)
         }
@@ -183,6 +184,7 @@ class CodeGraphFlow {
                 ; down into it; from side ports they crossed and stacked.
                 def op:UMLMember (u.operation("+" m.name m.params m.returns))
                 op.wantPort = false
+                op.tooltip = (CodeGraphFlow.methodHover(m))
             }
             mi = (mi + 1)
         }
@@ -243,7 +245,14 @@ class CodeGraphFlow {
         }
         m.tint = fill
         m.trailing = (CodeGraphFlow.diffMark(status))
-        m.tooltip = (CodeGraphFlow.diffTooltip(status note))
+        def noteTip:string (CodeGraphFlow.diffTooltip(status note))
+        if ((strlen noteTip) > 0) {
+            if ((strlen m.tooltip) > 0) {
+                m.tooltip = ((noteTip + "\n\n") + m.tooltip)
+            } {
+                m.tooltip = noteTip
+            }
+        }
     }
 
     ; A "+ N more" row over members a diff touched: tinted by the strongest
@@ -403,6 +412,7 @@ class CodeGraphFlow {
                 }
                 def op:UMLMember (u.operation(vis m.name m.params m.returns))
                 op.wantPort = false
+                op.tooltip = (CodeGraphFlow.methodHover(m))
                 opsShown = (opsShown + 1)
                 mi = (mi + 1)
             }
@@ -420,6 +430,7 @@ class CodeGraphFlow {
             }
             def f:CodeField (itemAt fields i)
             def mem:UMLMember (u.attribute("-" f.name f.fieldType))
+            mem.tooltip = (CodeGraphFlow.fieldHoverName(u.name f))
             def typeName:string (CodeGraphPages.classNameOfType(f.fieldType))
             if ((strlen typeName) == 0) {
                 mem.wantPort = false
@@ -569,6 +580,125 @@ class CodeGraphFlow {
             i = (i + 1)
         }
         g.reindex()
+    }
+
+    ; A VS Code-style hover card: kind + signature, then the declaration's
+    ; documentation when the analyser found one, then a click hint.
+    sfn classHover:string (c:CodeClass) {
+        def kind:string "class"
+        if (c.stereotype == "interface") {
+            kind = "interface"
+        }
+        if (c.stereotype == "type") {
+            kind = "type"
+        }
+        if (c.stereotype == "enumeration") {
+            kind = "enum"
+        }
+        if (c.stereotype == "component") {
+            kind = "component"
+        }
+        if (c.stereotype == "record") {
+            kind = "record"
+        }
+        return (CodeGraphFlow.hoverCard(kind c.name "" c.comment c.fileName c.startLine "Click a method row to read it · double-click to open"))
+    }
+
+    sfn methodHover:string (m:CodeMethod) {
+        def sig:string (m.className + "." + m.name + "(" + m.params + ")")
+        if ((strlen m.returns) > 0) {
+            sig = ((sig + ": ") + m.returns)
+        }
+        def kind:string "method"
+        if m.isStatic {
+            kind = "static method"
+        }
+        return (CodeGraphFlow.hoverCard(kind sig "" m.comment m.fileName m.startLine "Click to read the source"))
+    }
+
+    sfn fieldHover:string (owner:CodeClass f:CodeField) {
+        return (CodeGraphFlow.fieldHoverName(owner.name f))
+    }
+
+    sfn fieldHoverName:string (owner:string f:CodeField) {
+        def sig:string ((owner + ".") + f.name)
+        if ((strlen f.fieldType) > 0) {
+            sig = ((sig + ": ") + f.fieldType)
+        }
+        return (CodeGraphFlow.hoverCard("property" sig "" f.comment f.fileName f.startLine "Click to read the source"))
+    }
+
+    sfn hoverCard:string (kind:string signature:string extra:string comment:string fileName:string startLine:int hint:string) {
+        def lines:[string]
+        push lines (("(" + kind + ") ") + signature)
+        if ((strlen extra) > 0) {
+            push lines extra
+        }
+        def doc:string (CodeGraphFlow.cleanDoc(comment))
+        if ((strlen doc) > 0) {
+            push lines ""
+            push lines doc
+        }
+        def loc:string (CodeGraphFlow.whereHint(fileName startLine))
+        if ((strlen loc) > 0) {
+            push lines ""
+            push lines loc
+        }
+        if ((strlen hint) > 0) {
+            if ((strlen loc) == 0) {
+                push lines ""
+            }
+            if ((strlen loc) > 0) {
+                def last:int ((array_length lines) - 1)
+                set lines last ((loc + "  ·  ") + hint)
+            } {
+                push lines hint
+            }
+        }
+        return (join lines "\n")
+    }
+
+    ; Drop leading decoration and cap a novel so the card stays a card.
+    sfn cleanDoc:string (raw:string) {
+        if ((strlen raw) == 0) {
+            return ""
+        }
+        def s:string raw
+        while ((strlen s) > 0) {
+            def ch:int (charAt s 0)
+            if ((ch == 32) || (ch == 9) || (ch == 10) || (ch == 13) || (ch == 42)) {
+                s = (substring s 1 (strlen s))
+            } {
+                break
+            }
+        }
+        def n:int (strlen s)
+        while (n > 0) {
+            def ch2:int (charAt s (n - 1))
+            if ((ch2 == 32) || (ch2 == 9) || (ch2 == 10) || (ch2 == 13)) {
+                n = (n - 1)
+            } {
+                break
+            }
+        }
+        if (n < (strlen s)) {
+            s = (substring s 0 n)
+        }
+        if ((strlen s) > 720) {
+            s = ((substring s 0 717) + "...")
+        }
+        return s
+    }
+
+    sfn whereHint:string (fileName:string startLine:int) {
+        if ((strlen fileName) == 0) {
+            return ""
+        }
+        def base:string (CodeGraph.baseNameOf(fileName))
+        if (startLine <= 0) {
+            return base
+        }
+        return ((base + ":") + (to_string startLine))
     }
 }
 

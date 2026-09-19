@@ -22,9 +22,10 @@ class CodeGraphSample {
         def g (new CodeGraph)
         g.title = "Shop"
         def order:CodeClass (g.addClass("Order"))
-        order.addField("id" "string")
-        order.addField("items" "[LineItem]")
-        order.addField("customer" "Customer")
+        order.comment = "A customer's basket once it has been placed."
+        order.addFieldDoc("id" "string" "Stable identifier for this order.")
+        order.addFieldDoc("items" "[LineItem]" "The lines on this order.")
+        order.addFieldDoc("customer" "Customer" "Who placed the order.")
         def item:CodeClass (g.addClass("LineItem"))
         item.addField("product" "Product")
         item.addField("qty" "int")
@@ -52,10 +53,13 @@ class CodeGraphSample {
 
         def oTotal:CodeMethod (g.addMethod("Order" "total"))
         oTotal.returns = "int"
+        oTotal.comment = "Sum of every line on the order, before tax and discounts."
         def oAdd:CodeMethod (g.addMethod("Order" "addItem"))
         oAdd.params = "item:LineItem"
+        oAdd.comment = "Append a line. The same product may appear more than once."
         def oPay:CodeMethod (g.addMethod("Order" "checkout"))
         oPay.returns = "Payment"
+        oPay.comment = "Charge the customer, reserve stock, and dispatch the shipment."
         def iPrice:CodeMethod (g.addMethod("LineItem" "lineTotal"))
         iPrice.returns = "int"
         def pPrice:CodeMethod (g.addMethod("Product" "priceFor"))

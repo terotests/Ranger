@@ -160,6 +160,7 @@ class FlowView {
 
     ; interaction state the view only reads
     def hoverNode:int -1
+    def hoverRow:int -1
     def hoverPort:string ""
     def connectFrom:string ""
     def connectToX:double 0.0
@@ -869,30 +870,174 @@ class FlowView {
     fn paintTooltip:void (sc:FlowScene) {
         if (showTooltips == false) { return }
         if ((strlen tooltipText) == 0) { return }
-        def size:double 11.5
-        def lay:FlowTextLayout (this.layoutText(tooltipText size 240.0 0.0 3))
-        def padX:double 8.0
-        def padY:double 5.0
-        def bw:double (lay.width + (padX * 2.0))
-        def bh:double (lay.height + (padY * 2.0))
-        def bx:double (tooltipX + 14.0)
-        def by:double (tooltipY + 18.0)
+        def maxW:double 380.0
+        def titleSize:double 12.0
+        def bodySize:double 11.5
+        def hintSize:double 10.5
+        def title:string (this.headLine(tooltipText))
+        def rest:string (this.afterHead(tooltipText))
+        def hint:string (this.hoverHintOf(rest))
+        def body:string (this.hoverBodyOf(rest))
+        def titleLay:FlowTextLayout (this.layoutTextBold(title titleSize maxW 0.0 3 true))
+        def bodyLay:FlowTextLayout (new FlowTextLayout)
+        def hintLay:FlowTextLayout (new FlowTextLayout)
+        if ((strlen body) > 0) {
+            bodyLay = (this.layoutText(body bodySize maxW 0.0 12))
+        }
+        if ((strlen hint) > 0) {
+            hintLay = (this.layoutText(hint hintSize maxW 0.0 3))
+        }
+        def padX:double 12.0
+        def padY:double 9.0
+        def gap:double 6.0
+        def innerW:double titleLay.width
+        if (bodyLay.width > innerW) {
+            innerW = bodyLay.width
+        }
+        if (hintLay.width > innerW) {
+            innerW = hintLay.width
+        }
+        def innerH:double titleLay.height
+        if ((strlen body) > 0) {
+            innerH = ((innerH + gap) + bodyLay.height)
+        }
+        if ((strlen hint) > 0) {
+            innerH = ((innerH + gap) + hintLay.height)
+        }
+        def bw:double (innerW + (padX * 2.0) + 4.0)
+        def bh:double (innerH + (padY * 2.0))
+        def bx:double (tooltipX + 16.0)
+        def by:double (tooltipY + 20.0)
         if ((bx + bw) > (width - 4.0)) {
-            bx = ((tooltipX - bw) - 10.0)
+            bx = ((tooltipX - bw) - 12.0)
         }
         if (bx < 4.0) { bx = 4.0 }
         if ((by + bh) > (height - 4.0)) {
-            by = ((tooltipY - bh) - 10.0)
+            by = ((tooltipY - bh) - 12.0)
         }
         if (by < 4.0) { by = 4.0 }
         def box:SceneItem (sc.rect(bx by bw bh theme.tooltipFill))
-        box.radius = 4.0
+        box.radius = 6.0
         box.stroke = theme.tooltipBorder
         box.strokeWidth = 1.0
         box.tag = "chrome"
-        def cx:double (bx + (bw * 0.5))
-        def cy:double (by + (bh * 0.5))
-        this.paintBlock(sc lay cx cy theme.tooltipText "chrome" false)
+        def bar:SceneItem (sc.rect(bx by 3.0 bh theme.tooltipAccent))
+        bar.tag = "chrome"
+        def tx:double (bx + padX + 2.0)
+        def ty:double (by + padY)
+        this.paintLinesLeft(sc titleLay tx ty theme.tooltipAccent "chrome" true)
+        ty = (ty + titleLay.height)
+        if ((strlen body) > 0) {
+            ty = (ty + gap)
+            this.paintLinesLeft(sc bodyLay tx ty theme.tooltipText "chrome" false)
+            ty = (ty + bodyLay.height)
+        }
+        if ((strlen hint) > 0) {
+            ty = (ty + gap)
+            this.paintLinesLeft(sc hintLay tx ty theme.tooltipMuted "chrome" false)
+        }
+    }
+
+    fn headLine:string (t:string) {
+        def cut:int (indexOf t "\n")
+        if (cut < 0) {
+            return t
+        }
+        return (substring t 0 cut)
+    }
+
+    fn afterHead:string (t:string) {
+        def cut:int (indexOf t "\n")
+        if (cut < 0) {
+            return ""
+        }
+        def s:string (substring t (cut + 1) (strlen t))
+        while ((strlen s) > 0) {
+            if ((charAt s 0) == 10) {
+                s = (substring s 1 (strlen s))
+            } {
+                break
+            }
+        }
+        return s
+    }
+
+    ; The last paragraph is a click / location hint when it says so.
+    fn hoverHintOf:string (rest:string) {
+        if ((strlen rest) == 0) {
+            return ""
+        }
+        def last:string (this.lastPara(rest))
+        if ((indexOf last "Click") >= 0) {
+            return last
+        }
+        if ((indexOf last "click") >= 0) {
+            return last
+        }
+        if ((indexOf last " · ") >= 0) {
+            return last
+        }
+        return ""
+    }
+
+    fn hoverBodyOf:string (rest:string) {
+        def hint:string (this.hoverHintOf(rest))
+        if ((strlen hint) == 0) {
+            return rest
+        }
+        def cut:int (indexOf rest hint)
+        if (cut <= 0) {
+            return ""
+        }
+        def s:string (substring rest 0 cut)
+        def n:int (strlen s)
+        while (n > 0) {
+            def ch:int (charAt s (n - 1))
+            if ((ch == 10) || (ch == 13) || (ch == 32)) {
+                n = (n - 1)
+            } {
+                break
+            }
+        }
+        if (n <= 0) {
+            return ""
+        }
+        return (substring s 0 n)
+    }
+
+    fn lastPara:string (t:string) {
+        def i:int ((strlen t) - 1)
+        while (i >= 0) {
+            def ch:int (charAt t i)
+            if ((ch == 10) || (ch == 13)) {
+                i = (i - 1)
+            } {
+                break
+            }
+        }
+        def end:int (i + 1)
+        while (i >= 0) {
+            if ((charAt t i) == 10) {
+                return (substring t (i + 1) end)
+            }
+            i = (i - 1)
+        }
+        return (substring t 0 end)
+    }
+
+    fn paintLinesLeft:void (sc:FlowScene lay:FlowTextLayout x:double y:double color:string tag:string bold:boolean) {
+        def i:int 0
+        while (i < (array_length lay.lines)) {
+            def line:string (itemAt lay.lines i)
+            def lw:double (this.textWidthBold(line lay.size bold))
+            def ly:double ((y + ((to_double i) * lay.lineHeight)) + ((lay.lineHeight - (lay.size * 1.2)) * 0.5))
+            def t:SceneItem (sc.text(line x ly lw lay.size color))
+            t.fontFamily = theme.fontFamily
+            t.bold = bold
+            t.align = "left"
+            t.tag = tag
+            i = (i + 1)
+        }
     }
 
     ; -------------------------------------------------------- context menu ---
@@ -1967,12 +2112,18 @@ class FlowView {
         def rowSize:double (this.sl(theme.rowFontSize))
         def pad:double (this.sl(8.0))
         ; header
-        def head:SceneItem (sc.rect(x y w headerH theme.headerFill))
+        def headFill:string theme.headerFill
+        if (this.nodeHovered(n)) {
+            if (hoverRow < 0) {
+                headFill = theme.hoverRowFill
+            }
+        }
+        def head:SceneItem (sc.rect(x y w headerH headFill))
         head.radius = (this.sl(theme.nodeRadius))
         head.tag = tag
         ; square off the bottom of the header so it meets the first section
         def half:double (headerH * 0.5)
-        def headBottom:SceneItem (sc.rect(x (y + half) w half theme.headerFill))
+        def headBottom:SceneItem (sc.rect(x (y + half) w half headFill))
         headBottom.tag = tag
         def accent:SceneItem (sc.rect(x y (this.sl(3.0)) headerH theme.headerAccent))
         accent.tag = tag
@@ -2019,7 +2170,7 @@ class FlowView {
                 while (ri < (array_length sec.rows)) {
                     def row:FlowRow (itemAt sec.rows ri)
                     def rowTag:string ((("row:" + n.id) + ":") + (to_string rowNo))
-                    this.paintRow(sc n row x cursor w rowH rowSize pad tag ri rowTag)
+                    this.paintRow(sc n row x cursor w rowH rowSize pad tag ri rowTag (this.rowHovered(n rowNo)))
                     rowNo = (rowNo + 1)
                     cursor = (cursor + rowH)
                     ri = (ri + 1)
@@ -2029,7 +2180,25 @@ class FlowView {
         }
     }
 
-    fn paintRow:void (sc:FlowScene n:FlowNode row:FlowRow x:double y:double w:double rowH:double size:double pad:double tag:string idx:int rowTag:string) {
+    fn nodeHovered:boolean (n:FlowNode) {
+        if (hoverNode < 0) {
+            return false
+        }
+        def hn:FlowNode (graph.nodeAt(hoverNode))
+        return (hn.id == n.id)
+    }
+
+    fn rowHovered:boolean (n:FlowNode rowNo:int) {
+        if (rowNo < 0) {
+            return false
+        }
+        if (hoverRow != rowNo) {
+            return false
+        }
+        return (this.nodeHovered(n))
+    }
+
+    fn paintRow:void (sc:FlowScene n:FlowNode row:FlowRow x:double y:double w:double rowH:double size:double pad:double tag:string idx:int rowTag:string hovered:boolean) {
         if (row.selected) {
             def sel:SceneItem (sc.rect(x y w rowH theme.selectedFill))
             sel.tag = tag
@@ -2038,11 +2207,20 @@ class FlowView {
                 def tinted:SceneItem (sc.rect(x y w rowH row.tint))
                 tinted.tag = tag
             } {
-                if ((idx % 2) == 1) {
-                    def alt:SceneItem (sc.rect(x y w rowH theme.rowAltFill))
-                    alt.tag = tag
+                if hovered {
+                    def hi:SceneItem (sc.rect(x y w rowH theme.hoverRowFill))
+                    hi.tag = tag
+                } {
+                    if ((idx % 2) == 1) {
+                        def alt:SceneItem (sc.rect(x y w rowH theme.rowAltFill))
+                        alt.tag = tag
+                    }
                 }
             }
+        }
+        if hovered {
+            def bar:SceneItem (sc.rect(x y (this.sl(3.0)) rowH theme.hoverBorder))
+            bar.tag = tag
         }
         if ((this.drawn(size)) < labelFloorPx) {
             return

@@ -141,6 +141,17 @@ class UastTsTest {
         c.ok("projected CRC32" (g.hasClass("CRC32")))
         c.ok("projected addFile" (g.hasMethod("ZipWriter.addFile")))
         c.ok("projected update" (g.hasMethod("CRC32.update")))
+        def zw:CodeClass (g.classByName("ZipWriter"))
+        def crcDoc:string ""
+        def fi:int 0
+        while (fi < (array_length zw.fields)) {
+            def ff:CodeField (itemAt zw.fields fi)
+            if (ff.name == "crc") {
+                crcDoc = ff.comment
+            }
+            fi = (fi + 1)
+        }
+        c.ok("projected crc comment" ((indexOf crcDoc "Cyclic redundancy") >= 0))
     }
 
     sfn testWorkspace:void (c:UastTsChecker) {

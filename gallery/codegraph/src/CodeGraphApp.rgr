@@ -2472,6 +2472,12 @@ class CodeGraphApp extends EvgApp {
         }
         if (this.inCanvas(x y)) {
             this.graphMove(x y shift ctrl)
+            return
+        }
+        if (editor.view.hoverNode >= 0) {
+            editor.view.hoverNode = -1
+            editor.view.hoverRow = -1
+            editor.view.tooltipText = ""
         }
     }
 
@@ -2757,6 +2763,11 @@ class CodeGraphApp extends EvgApp {
         }
         if (this.inSource(px py)) {
             return (GridCursor.text())
+        }
+        if (this.inCanvas(px py)) {
+            if (editor.view.hoverNode >= 0) {
+                return (GridCursor.pointing())
+            }
         }
         return (GridCursor.arrow())
     }

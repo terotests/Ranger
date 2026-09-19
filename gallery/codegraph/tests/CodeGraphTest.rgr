@@ -88,11 +88,39 @@ class CodeGraphTest {
         c.ok("Order.total exists" (g.hasMethod("Order.total")))
         def m:CodeMethod (g.methodById("Order.total"))
         c.ok("total calls something" ((array_length m.calls) > 0))
+        c.ok("Order.total has docs" ((indexOf m.comment "Sum of every line") >= 0))
+        def oc:CodeClass (g.classByName("Order"))
+        c.ok("Order class has docs" ((indexOf oc.comment "basket") >= 0))
         def pageMaker:CodeGraphPages (CodeGraphPages.of(g 24))
         def overview:CodePage (pageMaker.pageOf("overview:0"))
         c.ok("overview fits the cap" ((overview.itemCount()) <= 24))
         c.ok("overview has class boxes" ((overview.itemCount()) > 3))
         def classPage:CodePage (pageMaker.pageOf("class:Order"))
+        def umlG:FlowGraph (CodeGraphFlow.build(g classPage))
+        c.ok("class page draws Order" (umlG.hasNode("Order")))
+        if (umlG.hasNode("Order")) {
+            def on:FlowNode (umlG.nodeById("Order"))
+            c.ok("class hover names the kind" ((indexOf on.tooltip "(class)") >= 0))
+            c.ok("class hover keeps the docs" ((indexOf on.tooltip "basket") >= 0))
+            def foundTotal:boolean false
+            def hi:int 0
+            while (hi < (on.sectionCount())) {
+                def sec:FlowSection (on.sectionAt(hi))
+                def ri:int 0
+                while (ri < (array_length sec.rows)) {
+                    def row:FlowRow (itemAt sec.rows ri)
+                    if ((indexOf row.text "total") == 0) {
+                        foundTotal = true
+                        c.ok("method hover is a signature card" ((indexOf row.tooltip "(method)") >= 0))
+                        c.ok("method hover shows the docs" ((indexOf row.tooltip "Sum of every line") >= 0))
+                        c.ok("method hover invites the click" ((indexOf row.tooltip "Click") >= 0))
+                    }
+                    ri = (ri + 1)
+                }
+                hi = (hi + 1)
+            }
+            c.ok("total row is on the class box" foundTotal)
+        }
         c.eqStr("class page id" classPage.kind "class")
         def hasStadium:boolean false
         def si:int 0

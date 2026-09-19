@@ -113,6 +113,7 @@ mostly VirtualCompiler: ~12 s in JS, ~5 s in C++ (`codegraph:bench:cpp:rt`).
 | a **class** in the left rail | that class: fields, methods, types it uses |
 | a **class** box on the canvas | the same |
 | a **method row** in a UML box | callers, callees, types that method uses |
+| **hover** a UML class or member | a VS Code-style card: signature, documentation from the source, and a click hint. The row highlights and the pointer becomes a hand |
 | a **rose** box above a class | a class whose field points here; click walks back to it |
 | a **← N more users** hexagon | the rest of those referrers, paged |
 | a **hexagon arrow** on the edge | the next / previous window of the same view |

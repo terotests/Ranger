@@ -69,6 +69,9 @@ class UastToCodeGraph {
                     if (keepOld == false) {
                         cc.fileName = s.fileName
                         cc.startLine = s.startLine
+                        if ((strlen s.comment) > 0) {
+                            cc.comment = s.comment
+                        }
                         if ((strlen s.extendsName) > 0) {
                             cc.extendsName = s.extendsName
                         }
@@ -90,6 +93,9 @@ class UastToCodeGraph {
                             fc.fileName = s.fileName
                             fc.startLine = s.startLine
                             fc.stereotype = "component"
+                            if ((strlen s.comment) > 0) {
+                                fc.comment = s.comment
+                            }
                         }
                     }
                 }
@@ -111,6 +117,9 @@ class UastToCodeGraph {
                                 def ff:CodeField (itemAt owner.fields lastI)
                                 ff.fileName = fs.fileName
                                 ff.startLine = fs.startLine
+                                if ((strlen fs.comment) > 0) {
+                                    ff.comment = fs.comment
+                                }
                             }
                         }
                     }
@@ -142,6 +151,11 @@ class UastToCodeGraph {
                         if ((strlen ms.returns) > 0) {
                             cm.returns = ms.returns
                         }
+                        if ((strlen ms.comment) > 0) {
+                            if ((strlen cm.comment) == 0) {
+                                cm.comment = ms.comment
+                            }
+                        }
                         set methodIds ms.id cm.id
                     }
                 }
@@ -155,6 +169,9 @@ class UastToCodeGraph {
                             fm.startLine = ms.startLine
                             if ((strlen ms.returns) > 0) {
                                 fm.returns = ms.returns
+                            }
+                            if ((strlen ms.comment) > 0) {
+                                fm.comment = ms.comment
                             }
                             set methodIds ms.id fm.id
                         }

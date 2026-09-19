@@ -1347,6 +1347,11 @@ class FlowEditor {
         def fy:double (this.flowY(sy))
         view.hoverNode = (graph.nodeAtPoint(fx fy))
         view.hoverPort = (this.portAt(sx sy))
+        view.hoverRow = -1
+        if (view.hoverNode >= 0) {
+            def n:FlowNode (graph.nodeAt(view.hoverNode))
+            view.hoverRow = (this.rowAtPoint(n fy))
+        }
         this.updateTooltip(sx sy fx fy)
     }
 
