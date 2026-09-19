@@ -169,6 +169,28 @@ npm run livebuild:app:web    # build the browser runtime by hand; the server
                              # builds it on demand
 ```
 
+## Keeping one
+
+**Save** writes the session's own files — `doc.evg.json`, and `app/` when the
+screen became an app — under `~/.evg-livebuild/saved/<name>/`, with what was
+asked for beside them. **Saved…** opens one back into the session: the
+document and its app go where the session keeps them, so the page carries on
+as if the design had been made just now, still editable and still runnable.
+
+Nothing is derived on the way out, so nothing can drift on the way in. The
+folder is outside the repository on purpose — these are one person's designs
+on one machine, not source. `EVG_LIVEBUILD_SAVED` moves it, and the two calls
+(`saveSession`, `openSaved`) are the seam a database sits behind if this ever
+runs on a server.
+
+```sh
+npm run livebuild:save    # save, start over, open — byte for byte, app and all
+```
+
+Three things that used to throw a design away and no longer do: turning Run
+off, reloading the page, and restarting the server. Only the seed chips start
+over.
+
 Turning Run off shows the document as it stands. It is not "start over" —
 only the seed chips (Dashboard / Empty / …) are, and they rewrite the
 session's phone from a fixture and drop the app that was made from it.

@@ -837,6 +837,7 @@
     "livebuild:web": "node gallery/evg/livebuild/browser-smoke.mjs",
     "livebuild:agents": "node gallery/evg/livebuild/agents-check.mjs",
     "livebuild:app": "node gallery/evg/livebuild/app-check.mjs",
+    "livebuild:save": "node gallery/evg/livebuild/save-check.mjs",
     "livebuild:codeapp": "node gallery/evg/livebuild/app-code-check.mjs",
     "livebuild:app:build": "bash scripts/rgr-suite.sh ./gallery/evg/livebuild/EvgAppTool.rgr ./gallery/evg/bin evg_app.js",
     "livebuild:app:web": "cross-env RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg/livebuild/EvgAppWeb.rgr -d=./gallery/evg/bin -o=evg_app_web.js",

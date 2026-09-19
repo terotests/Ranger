@@ -62,6 +62,7 @@
   .chip.live { border-color: #2dd4bf88; background: #134e4a; color: #ccfbf1; }
   .screen.live { cursor: pointer; }
   .lbl { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+  select.chip { appearance: none; max-width: 190px; }
   /* A picture attached to the ask: what it traced to, and the colours it is
      made of, so the palette is visible to the person too. */
   .attach { display: flex; align-items: center; gap: 8px; }
@@ -189,6 +190,11 @@
   <div class="chips" id="chips"></div>
   <button type="button" class="chip" id="run" title="Run the app: the machine owns the page, a press is an event">Run</button>
   <button type="button" class="chip" id="makeapp" hidden title="Write app/machine.json and a page per state from this phone">Make this an app</button>
+  <span class="lbl">Keep</span>
+  <button type="button" class="chip" id="save" title="Save this phone — the document and its app — so it survives the next start over">Save</button>
+  <select id="saved" class="chip" title="Open a saved design back into this session">
+    <option value="">Saved…</option>
+  </select>
   <div class="agents" id="agents"></div>
 </header>
 <main>
@@ -283,6 +289,81 @@ $("ask").addEventListener("submit", (e) => {
   e.preventDefault();
   start(true);
 });
+
+// SAVING, AND GETTING IT BACK.
+//
+// The session is a temp directory, so everything made here was being thrown
+// away by the next start-over. A save copies the session's own files — the
+// document, and the app if the screen became one — under `saved/<name>/`, and
+// opening one copies them back. Nothing is derived on the way out, so nothing
+// can be lost on the way in: what you open is the screen you saved, still
+// editable, app and all.
+function paintSaved(list) {
+  const sel = $("saved");
+  const keep = sel.value;
+  sel.replaceChildren();
+  const head = document.createElement("option");
+  head.value = "";
+  head.textContent = list.length ? `Saved (${list.length})…` : "Saved…";
+  sel.append(head);
+  for (const d of list) {
+    const o = document.createElement("option");
+    o.value = d.slug;
+    o.textContent = d.pages ? `${d.name} · ${d.pages} pages` : d.name;
+    o.title = d.prompt || "";
+    sel.append(o);
+  }
+  sel.value = keep && list.some((d) => d.slug === keep) ? keep : "";
+}
+
+async function refreshSaved() {
+  try {
+    paintSaved((await (await fetch("/saved")).json()).saved || []);
+  } catch {
+    /* the list is a convenience; the page works without it */
+  }
+}
+
+$("save").addEventListener("click", async () => {
+  const name = prompt("Save this phone as:", current || "screen");
+  if (name === null) return;
+  $("save").disabled = true;
+  try {
+    const d = await runFetch("/save", { name });
+    paintSaved(d.saved || []);
+    $("saved").value = d.slug;
+    note(`saved as “${d.name}”${d.pages ? ` with ${d.pages} pages` : ""} — reopen it from Saved`);
+  } catch (e) {
+    note("save failed: " + (e.message || e));
+  } finally {
+    $("save").disabled = false;
+  }
+});
+
+$("saved").addEventListener("change", async (ev) => {
+  const slug = ev.target.value;
+  if (!slug) return;
+  if (runMode) leaveRun();
+  try {
+    const d = await runFetch("/open", { slug });
+    current = d.kind || current;
+    paintFrame(d);
+    paintMeasure(d.measure);
+    $("added").textContent = "seed";
+    $("kindLabel").textContent = d.name || current;
+    $("findings").replaceChildren();
+    note(d.prompt ? `opened “${d.name}” — asked for: ${d.prompt}` : `opened “${d.name}”`);
+  } catch (e) {
+    note("open failed: " + (e.message || e));
+  }
+});
+
+// One line under the phone, where everything else about the screen is said.
+function note(text) {
+  const el = document.createElement("div");
+  el.textContent = text;
+  $("findings").replaceChildren(el);
+}
 
 async function loadSeed(kind) {
   if (es) { es.close(); es = null; }
@@ -760,5 +841,22 @@ function cursor() {
   return c;
 }
 
-loadSeed(current);
+// A reload is not a start-over either. The session's document is what the
+// page shows when it opens; a fixture only when there is nothing there.
+async function boot() {
+  try {
+    const d = await (await fetch("/doc")).json();
+    if (d.error) throw new Error(d.error);
+    current = d.kind || current;
+    paintFrame(d);
+    paintMeasure(d.measure);
+    $("added").textContent = "seed";
+    $("kindLabel").textContent = current;
+  } catch {
+    await loadSeed(current);
+  }
+  refreshSaved();
+}
+
+boot();
 </script>

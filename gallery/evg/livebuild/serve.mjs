@@ -22,6 +22,7 @@ import {
   frameFixture,
   seedDoc,
   resetSession,
+  prepareSession,
   readSessionDoc,
   writeSessionDoc,
   sessionDir,
@@ -43,8 +44,129 @@ const DEFAULT_AGENT = process.env.EVG_LIVEBUILD_DEFAULT_AGENT || "recipe";
 const KINDS = new Set(["dashboard", "settings", "invoices", "empty"]);
 let lastDoc = seedDoc("dashboard");
 let lastKind = "dashboard";
-resetSession("dashboard");
+let lastPrompt = "";
+// A restart is not a start-over. `resetSession` writes a fixture over the
+// session's phone, so restarting the server used to throw away whatever was
+// on screen; `prepareSession` keeps a document that is already there and
+// seeds only when there is none. Both install the workspace tools and write
+// the guide, which is the part a session cannot be without.
+prepareSession("The phone already has a UI in doc.evg.json. Wait for the next task.", {
+  kind: "dashboard",
+});
 lastDoc = readSessionDoc() || lastDoc;
+
+// WHERE A DESIGN GOES WHEN IT IS WORTH KEEPING.
+//
+// The session is a temp directory: the next seed chip, or the next reboot,
+// takes the screen with it. Good ones arrive in a couple of minutes, so most
+// of what this page makes was being thrown away.
+//
+// A save is the session's own files, copied: the document, the app if the
+// screen became one, and what was asked for. Nothing is derived, so nothing
+// can drift, and opening one puts those files back where the session keeps
+// them — the page then carries on exactly as if the design had been made just
+// now. That round trip is the whole feature; a folder you can only write to
+// is a folder you cannot trust.
+//
+// OUTSIDE THE REPOSITORY, on purpose. These are one person's designs on one
+// machine, not source: in the tree they would be an endless untracked pile,
+// or worse, committed. `~/.evg-livebuild/saved` is the default and
+// EVG_LIVEBUILD_SAVED moves it. When this page eventually runs on a server
+// the same two calls become rows in a database — which is why saving and
+// opening go through `saveSession` and `openSaved` rather than the page
+// touching files.
+const SAVED =
+  process.env.EVG_LIVEBUILD_SAVED || path.join(os.homedir(), ".evg-livebuild", "saved");
+
+const slugOf = (name) => {
+  const base = String(name || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+  return base || "screen";
+};
+
+const savedList = () => {
+  if (!fs.existsSync(SAVED)) return [];
+  return fs
+    .readdirSync(SAVED)
+    .filter((d) => fs.existsSync(path.join(SAVED, d, "doc.evg.json")))
+    .map((slug) => {
+      let about = {};
+      try {
+        about = JSON.parse(fs.readFileSync(path.join(SAVED, slug, "about.json"), "utf8"));
+      } catch {
+        about = {};
+      }
+      const pages = path.join(SAVED, slug, "app/pages");
+      return {
+        slug,
+        name: about.name || slug,
+        prompt: about.prompt || "",
+        saved: about.saved || "",
+        kind: about.kind || "",
+        pages: fs.existsSync(pages) ? fs.readdirSync(pages).filter((f) => f.endsWith(".evg.json")).length : 0,
+      };
+    })
+    .sort((a, b) => String(b.saved).localeCompare(String(a.saved)));
+};
+
+const saveSession = (name) => {
+  const doc = path.join(sessionDir(), "doc.evg.json");
+  if (!fs.existsSync(doc)) throw new Error("there is no document in this session to save");
+  fs.mkdirSync(SAVED, { recursive: true });
+  // A name that is already taken gets a number rather than overwriting a
+  // design somebody kept on purpose.
+  const base = slugOf(name);
+  let slug = base;
+  for (let n = 2; fs.existsSync(path.join(SAVED, slug)); n += 1) slug = `${base}-${n}`;
+  const dir = path.join(SAVED, slug);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.copyFileSync(doc, path.join(dir, "doc.evg.json"));
+  const app = path.join(sessionDir(), "app");
+  let pages = 0;
+  if (fs.existsSync(path.join(app, "machine.json"))) {
+    fs.cpSync(app, path.join(dir, "app"), { recursive: true });
+    const pageDir = path.join(dir, "app/pages");
+    pages = fs.existsSync(pageDir) ? fs.readdirSync(pageDir).filter((f) => f.endsWith(".evg.json")).length : 0;
+  }
+  const about = {
+    name: String(name || slug).slice(0, 120),
+    prompt: lastPrompt,
+    kind: lastKind,
+    saved: new Date().toISOString(),
+    pages,
+  };
+  fs.writeFileSync(path.join(dir, "about.json"), `${JSON.stringify(about, null, 1)}\n`);
+  return { slug, ...about };
+};
+
+const openSaved = (slug) => {
+  const dir = path.join(SAVED, path.basename(String(slug || "")));
+  const doc = path.join(dir, "doc.evg.json");
+  if (!fs.existsSync(doc)) throw new Error(`no saved design called ${slug}`);
+  // Into the session, over whatever is there. An open is a start-over with a
+  // document of your own, so the app that belonged to the old screen goes
+  // too — otherwise Run would drive states named after tabs that are gone.
+  const to = sessionDir();
+  fs.mkdirSync(to, { recursive: true });
+  fs.rmSync(path.join(to, "app"), { recursive: true, force: true });
+  fs.copyFileSync(doc, path.join(to, "doc.evg.json"));
+  if (fs.existsSync(path.join(dir, "app/machine.json"))) {
+    fs.cpSync(path.join(dir, "app"), path.join(to, "app"), { recursive: true });
+  }
+  let about = {};
+  try {
+    about = JSON.parse(fs.readFileSync(path.join(dir, "about.json"), "utf8"));
+  } catch {
+    about = {};
+  }
+  lastDoc = readSessionDoc() || lastDoc;
+  if (about.kind && KINDS.has(about.kind)) lastKind = about.kind;
+  lastPrompt = about.prompt || "";
+  return { slug: path.basename(dir), ...about };
+};
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -697,6 +819,51 @@ function main() {
       );
       return;
     }
+    if (url.pathname === "/saved") {
+      send(res, 200, "application/json; charset=utf-8", JSON.stringify({ saved: savedList() }));
+      return;
+    }
+    if (url.pathname === "/save" && req.method === "POST") {
+      readBody(req, 4096)
+        .then((body) => {
+          const ask = JSON.parse(body || "{}");
+          const made = saveSession(ask.name);
+          send(res, 200, "application/json; charset=utf-8", JSON.stringify({ ...made, saved: savedList() }));
+        })
+        .catch((e) => {
+          send(res, 500, "application/json; charset=utf-8", JSON.stringify({ error: String(e.message || e) }));
+        });
+      return;
+    }
+    if (url.pathname === "/open" && req.method === "POST") {
+      readBody(req, 4096)
+        .then((body) => {
+          const ask = JSON.parse(body || "{}");
+          const opened = openSaved(ask.slug);
+          const events = frameDocument(path.join(sessionDir(), "doc.evg.json"));
+          const frame = events.find((e) => e && e.t === "frame") || {};
+          send(
+            res,
+            200,
+            "application/json; charset=utf-8",
+            JSON.stringify({
+              ...opened,
+              kind: lastKind,
+              width: frame.width || 390,
+              height: frame.height || 844,
+              ncmds: frame.ncmds || 0,
+              added: 0,
+              nodes: frame.nodes || 0,
+              list: frame.list || { cmds: [] },
+              measure: events.find((e) => e && e.t === "measure") || null,
+            }),
+          );
+        })
+        .catch((e) => {
+          send(res, 500, "application/json; charset=utf-8", JSON.stringify({ error: String(e.message || e) }));
+        });
+      return;
+    }
     if (url.pathname === "/seed") {
       const kind = KINDS.has(url.searchParams.get("kind"))
         ? url.searchParams.get("kind")
@@ -729,6 +896,7 @@ function main() {
     }
     if (url.pathname === "/stream") {
       const prompt = url.searchParams.get("prompt") || "";
+      if (prompt) lastPrompt = prompt;
       // Follow-up never remaps the seed from the typed ask. Kind chips
       // (via /seed) are the only start-over; lastKind is that seed.
       const chip = url.searchParams.get("kind") || lastKind;
