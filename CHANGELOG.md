@@ -23,10 +23,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Liquid glass takes a sweep of light.** A bar crossing the pane at its own
   angle, flaring where it meets the rim, either parked or travelling:
-  `evg-fx-sweep`, `-sweep-angle`, `-sweep-width`, `-sweep-speed`, `-sweep-at`
-  and `-sweep-edge`. It is off by default, because a pane in a room with
-  nothing moving has no streak on it, and a moving one asks for frames with the
-  same `evg-effect-on: always` a starfield uses. The dashed names are the point:
+  `evg-fx-sweep`, `-sweep-angle`, `-sweep-width`, `-sweep-speed`, `-sweep-at`,
+  `-sweep-edge`, `-sweep-rim` and `-sweep-duty`. The last two are what make it
+  a shine rather than a stripe: `sweep-rim` weights the bar toward the bevel,
+  where real glass catches a moving light, and `sweep-duty` gives the pass a
+  fraction of each cycle and parks it off the pane for the rest — so the pane
+  is clean glass most of the time and the glint is an event. Both are checked
+  against pixels: the flat middle comes back unchanged under a rim-weighted
+  bar, and between passes nothing on the pane is brighter than a pane with no
+  sweep at all. It is off by default, because a pane in a room with nothing
+  moving has no streak on it, and a moving one asks for frames with the same
+  `evg-effect-on: always` a starfield uses. The dashed names are the point:
   `evg-fx-sweep-speed` reaches the shader as `p_sweep_speed` and nothing in
   between had to learn either spelling.
 
@@ -332,6 +339,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     for every element it compares against.
 
 ### Fixed
+
+- **A demo that moves on its own now gets a frame without being touched.** Every
+  path that started the gallery page's clock was an INPUT — a press, a key, a
+  focus — because every demo that moved did so in answer to one. A surface
+  effect does not, so `?demo=effects` opened on a still picture of a drifting
+  sky until you poked it. The clock is started on the first paint and when the
+  switcher changes demo; it stops on the first frame whose clock says nothing
+  is moving, which is all of them until something is.
 
 - **A liquid-glass pane wiped everything painted before it, on any real page.**
   A backdrop effect copies the surface mid-frame, and it was copying from the

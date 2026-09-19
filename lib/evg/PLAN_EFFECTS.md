@@ -117,6 +117,21 @@ whatever size the flex row gave it and whatever `border-radius` the sheet
 asked for, and `thickness`, `strength`, `power`, `disperse`, `shine`, `angle`
 and `tint` are the seven numbers that shape it.
 
+**The sweep** is the second half of it: a bar of light crossing the pane,
+`evg-fx-sweep` and its five siblings. Two of those decide whether it reads as
+a shine or as a line somebody drew:
+
+* `sweep-rim` weights the bar toward the bevel. Real glass catches a moving
+  light at its EDGES, where the surface is turned; the flat middle only
+  flashes as the light goes by. At 1 the middle is left exactly as it was.
+* `sweep-duty` is the fraction of each cycle the pass takes. The rest of the
+  cycle the bar is parked off the pane, so the pane is clean glass most of the
+  time and the glint is an event.
+
+Both are checked against pixels: a rim-weighted bar leaves the flat middle
+byte-for-byte unchanged, and between passes nothing on the pane is brighter
+than the pane without a sweep at all.
+
 ### Registering one
 
 ```js

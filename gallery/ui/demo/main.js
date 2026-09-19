@@ -2031,6 +2031,8 @@ radios(
     syncPanels();
     syncMotionClock();
     syncTextSession();
+    // The demo that just arrived may be one that moves by itself.
+    startClock();
   },
 );
 boxes(
@@ -2495,9 +2497,29 @@ function syncMotionClock() {
   else stopFlipping();
 }
 
+/**
+ * Start the clock for a demo that moves on its own.
+ *
+ * Every path that started the loop before this was an INPUT — a press, a key,
+ * a focus — because every demo that moved did so in answer to one. A surface
+ * effect does not: a starfield drifts and a glint crosses a pane on their own
+ * clock, and a page that waits to be touched shows a still picture of them.
+ *
+ * Safe to call for any demo: `animate` stops on the first frame whose clock
+ * says nothing is moving, which is all of them until something is.
+ */
+function startClock() {
+  const d = DEMOS[state.which];
+  if (d && d.animated) animate();
+}
+
 syncPanels();
 syncMotionClock();
 paint();
+// ...and the same on the first frame, for a demo the page opened on — a
+// `?demo=effects` link that had to be clicked once before the sky moved would
+// be a demo whose whole point is invisible until you poke it.
+startClock();
 
 // The stage is laid out against the viewport, so the viewport changing is a
 // reason to lay it out again — a phone rotating, a window dragged narrower, or

@@ -81,14 +81,18 @@
   evg-fx-strength: 36;
   evg-fx-disperse: 0.08;
   evg-fx-shine: 0.55;
-  /* THE SWEEP: a bar of light crossing the pane and flaring where it meets
-   * the rim. `always` is what keeps the frames coming — the same word the sky
-   * above uses, and the only thing on this element that is about time. */
+  /* THE SWEEP: a light PASSING OVER the pane, kept to the rim where a real
+   * bevel would catch it. `sweep-duty` is what makes it a glint rather than a
+   * stripe — it crosses in a third of the cycle and is off the pane for the
+   * rest, so the pane is clean glass most of the time. `always` is what keeps
+   * the frames coming, the same word the sky above uses. */
   evg-effect-on: always;
-  evg-fx-sweep: 0.85;
-  evg-fx-sweep-width: 0.03;
-  evg-fx-sweep-speed: 0.16;
-  evg-fx-sweep-edge: 3;
+  evg-fx-sweep: 0.7;
+  evg-fx-sweep-width: 0.05;
+  evg-fx-sweep-speed: 0.42;
+  evg-fx-sweep-duty: 0.3;
+  evg-fx-sweep-rim: 0.6;
+  evg-fx-sweep-edge: 2.6;
 }
 
 .fx-glass-title {
