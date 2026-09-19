@@ -7,6 +7,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -41,6 +42,28 @@ for (const [thought, file] of steps) {
   writeAtomic(path.join(ws, "doc.evg.json"), path.join(here, "fixtures", file));
   await sleep(delay);
 }
+// The last change goes through the tool surface rather than the file. That is
+// how a live agent is asked to edit, and it is the only way the host learns
+// WHAT changed instead of only that something did — the page's EVGPatch panel
+// is fed by the ops this leaves behind.
+const shim = path.join(ws, "evg-agent");
+if (fs.existsSync(shim)) {
+  fs.writeFileSync(
+    path.join(ws, "ops.json"),
+    JSON.stringify(
+      { ops: [{ op: "set-prop", at: "0", prop: "background-color", value: "rgb(2,6,23)" }] },
+      null,
+      2,
+    ),
+  );
+  console.log("Last change through EVGPatch: darken the page behind the cards.");
+  const r = spawnSync(shim, ["patch", "doc.evg.json", "ops.json"], { cwd: ws, encoding: "utf8" });
+  if (r.status !== 0) {
+    console.log("patch failed: " + String(r.stderr || r.stdout || "").trim());
+  }
+  await sleep(delay);
+}
+
 fs.writeFileSync(
   path.join(ws, "App.rgr"),
   `Import "EVGElement.rgr"

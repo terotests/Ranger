@@ -261,7 +261,13 @@ class EvgAgent {
         def out:string "{\"ok\":true,\"applied\":"
         out = (out + (to_string r.applied))
         out = ((out + ",\"wrote\":\"") + outPath)
-        out = (out + "\",\"inverse\":[")
+        out = (out + "\"")
+        def dflt:string (this.atDefaults(root ops))
+        if ((strlen dflt) > 0) {
+            out = ((out + ",\"atDefault\":[") + dflt)
+            out = (out + "],\"note\":\"applied — but those values are the tag default, and the format writes only what differs from a fresh element, so they will not appear in the file or in outline\"")
+        }
+        out = (out + ",\"inverse\":[")
         def i:int 0
         while (i < (array_length r.inverse)) {
             if (i > 0) {
@@ -276,6 +282,86 @@ class EvgAgent {
         }
         out = (out + "]}")
         print out
+    }
+
+    ; --- WHY AN APPLIED OP CAN LEAVE NO TRACE ---------------------------------
+    ;
+    ; The format writes a property only where it differs from a fresh element of
+    ; the same tag, and EVG's defaults are not CSS's: a div is `column`, not
+    ; `row`. So `set-prop flex-direction=column` on a row really does turn the
+    ; node, and then the file, the outline and a query all show nothing, because
+    ; there is nothing left to say. An agent that re-reads its own edit concludes
+    ; the tool dropped it and writes a worse document around the phantom bug.
+    ; Naming those ops in the result is the whole fix: the answer arrives with
+    ; the edit instead of after a wrong theory about it.
+    ;
+    ; A batch that inserts, removes or moves is skipped — those shift the paths
+    ; the ops were written against, so a lookup afterwards could name the wrong
+    ; node, and a confident wrong note is worse than none.
+    fn atDefaults:string (root:EVGElement ops:[EVGPatchOp]) {
+        def n:int (array_length ops)
+        def i:int 0
+        while (i < n) {
+            def op:EVGPatchOp (itemAt ops i)
+            if ((op.op != "set-prop") && (op.op != "set-text")) {
+                return ""
+            }
+            i = (i + 1)
+        }
+        insp.build(root)
+        def out:string ""
+        def wrote:int 0
+        def k:int 0
+        while (k < n) {
+            def op:EVGPatchOp (itemAt ops k)
+            if (op.op == "set-prop") {
+                def one:string (this.defaultNote(op))
+                if ((strlen one) > 0) {
+                    if (wrote > 0) {
+                        out = (out + ",")
+                    }
+                    out = (out + "\n  ")
+                    out = (out + one)
+                    wrote = (wrote + 1)
+                }
+            }
+            k = (k + 1)
+        }
+        if (wrote > 0) {
+            out = (out + "\n")
+        }
+        return out
+    }
+
+    ; One op, if what it wrote now reads the same as a fresh element of that tag.
+    fn defaultNote:string (op:EVGPatchOp) {
+        ; An empty value IS the request to go back to the default — the inverse
+        ; of a property that had never been set writes one. Saying it landed on
+        ; the default would be reporting the caller's own instruction back.
+        if ((strlen op.value) == 0) {
+            return ""
+        }
+        def hit@(optional):EVGElement (insp.elementAt(op.at))
+        if (null? hit) {
+            return ""
+        }
+        def el:EVGElement (unwrap hit)
+        def fresh@(optional):EVGElement (EVGPatch.create(el.tagName))
+        if (null? fresh) {
+            return ""
+        }
+        def blank:EVGElement (unwrap fresh)
+        def mine:string (EVGPatch.readProp(el op.prop))
+        def theirs:string (EVGPatch.readProp(blank op.prop))
+        if (mine != theirs) {
+            return ""
+        }
+        def out:string "{\"at\":"
+        out = (out + (EVGTreeJson.str(op.at)))
+        out = ((out + ",\"prop\":") + (EVGTreeJson.str(op.prop)))
+        out = ((out + ",\"value\":") + (EVGTreeJson.str(mine)))
+        out = ((out + ",\"tag\":") + (EVGTreeJson.str(el.tagName)))
+        return (out + "}")
     }
 
     ; An inverse op, in the shape `patch` takes back. Writing the file the

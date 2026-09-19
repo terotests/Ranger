@@ -54,6 +54,33 @@ cp lib/evg/agent/fixtures/card.evg.json "$work/orig.json"
 npm run --silent agent -- outline "$work/orig.json" > "$work/before.txt"
 diff -q "$work/before.txt" "$work/after.txt" > /dev/null || fail "the inverse did not restore the document"
 
+# an op that lands on the tag default: applied, absent from the file, and SAID
+# so. EVG divs are flex-direction: column, so setting column on one removes the
+# line rather than adding it, and an agent that only re-reads the file decides
+# the tool dropped its edit.
+cat > "$work/dflt.json" <<'JSON'
+{"ops":[
+  {"op":"set-prop","at":"0/0","prop":"flex-direction","value":"column"}
+]}
+JSON
+said=$(npm run --silent agent -- patch "$work/doc.json" "$work/dflt.json")
+echo "$said" | grep -q '"atDefault"' || fail "patch did not report the default-valued op: $said"
+echo "$said" | grep -q '"prop":"flex-direction"' || fail "atDefault did not name the property"
+if npm run --silent agent -- outline "$work/doc.json" | grep -q 'flex-direction=column'; then
+  fail "a default should not be written — the note is what carries it"
+fi
+cat > "$work/back.json" <<'JSON'
+{"ops":[
+  {"op":"set-prop","at":"0/0","prop":"flex-direction","value":"row"}
+]}
+JSON
+if npm run --silent agent -- patch "$work/doc.json" "$work/back.json" | grep -q '"atDefault"'; then
+  fail "a value that is not the default must not be reported as one"
+fi
+npm run --silent agent -- outline "$work/doc.json" | grep -q 'flex-direction=row' \
+  || fail "a non-default flex-direction did not survive the write"
+cp lib/evg/agent/fixtures/card.evg.json "$work/doc.json"
+
 # a rejected op leaves the document alone
 cat > "$work/bad.json" <<'JSON'
 {"ops":[
