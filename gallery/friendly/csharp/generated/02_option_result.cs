@@ -78,8 +78,7 @@ class ParseOutcome__ops  {
 class Lookup  {
   public String findName( List<String> names , String key ) {
     String found = null;
-    for ( int i = 0; i < names.Count; i++) {
-      String n = names[i];
+    foreach ( String n in names) {
       if ( n == key ) {
         found = n;
         return found;

@@ -18,18 +18,14 @@ func CreateNew_Stats() *Stats {
 }
 func (this *Stats) total (xs []int64) int64 {
   var acc int64= int64(0);
-  var i int64 = 0;  
-  for ; i < int64(len(xs)) ; i++ {
-    v := xs[i];
+  for _, v := range xs {
     acc = acc + v; 
   }
   return acc
 }
 func (this *Stats) evenCount (xs []int64) int64 {
   var n int64= int64(0);
-  var i int64 = 0;  
-  for ; i < int64(len(xs)) ; i++ {
-    v := xs[i];
+  for _, v := range xs {
     if  v % int64(2) == int64(0) {
       n = n + int64(1); 
     }
@@ -38,18 +34,14 @@ func (this *Stats) evenCount (xs []int64) int64 {
 }
 func (this *Stats) doubled (xs []int64) []int64 {
   var out []int64 = make([]int64, 0);
-  var i int64 = 0;  
-  for ; i < int64(len(xs)) ; i++ {
-    v := xs[i];
+  for _, v := range xs {
     out = append(out,v * int64(2)); 
   }
   return out
 }
 func (this *Stats) applyEach (xs []int64, f func(int64) int64) []int64 {
   var out []int64 = make([]int64, 0);
-  var i int64 = 0;  
-  for ; i < int64(len(xs)) ; i++ {
-    v := xs[i];
+  for _, v := range xs {
     var next int64= f(v);
     out = append(out,next); 
   }

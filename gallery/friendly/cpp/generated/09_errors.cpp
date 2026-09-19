@@ -1,41 +1,18 @@
 #include  <memory>
-#include  <cstddef>
-#include  <type_traits>
 #include  <variant>
 #include  <string>
 #include  <iostream>
 
 // define classes here to avoid compiler errors
 class Guarded_Err;
-class Guarded_Err;
-class Guarded__ops;
-class Guard;
-class ErrorsMain;
 class Guarded_Ok;
 class Guarded_Err;
 class Guarded__ops;
 class Guard;
 class ErrorsMain;
 
-template <class T>
-class r_optional_union {
-  public:
-    bool has_value = false;
-    T value = T();
-    r_optional_union() {}
-    r_optional_union(const T & a_value) : has_value(true), value(a_value) {}
-    template <class U, typename std::enable_if<std::is_constructible<T, const U &>::value, int>::type = 0>
-    r_optional_union(const U & a_value) : has_value(true), value(a_value) {}
-    operator T() const { return value; }
-    bool operator!=(std::nullptr_t) const { return has_value; }
-    bool operator==(std::nullptr_t) const { return !has_value; }
-    explicit operator bool() const { return has_value; }
-};
 typedef std::variant<Guarded_Ok, std::shared_ptr<Guarded_Err>>  r_union_Guarded;
-typedef std::variant<Guarded_Ok, std::shared_ptr<Guarded_Err>, std::shared_ptr<Guarded__ops>, std::shared_ptr<Guard>, std::shared_ptr<ErrorsMain>, int, std::string, bool, double>  r_union_Any;
 
-
-template <class T> inline T& rg_arg_ref(T&& v) { return v; }
 
 // header definitions
 class Guarded_Ok { 

@@ -39,7 +39,8 @@ no `Arc`/`Mutex`, no modules. A Ranger `Enum` is an `i64`. A `shape` used as
 `Rc<RefCell<…>>` because a `string` field is not a scalar. `match` becomes a
 chain of `if let`. A Ranger `trait` is a mixin: the methods are copied into
 each class; there is no Rust `trait` in the output. Every file opens with ~140
-lines of unused `RgOrderedMap` / `FxHasher` preamble.
+lines of unused `RgOrderedMap` / `FxHasher` preamble, and thirteen more of
+`Rc` / `RefCell` / `rg_downcast` that a file with no shared class never uses.
 
 Three holes I walked into while writing the study. **All three are now closed**
 — see [What changed since the study](#what-changed-since-the-study).
@@ -453,6 +454,7 @@ it, and the numbers above have been re-checked against them.
 | `trait` as a type → `&mut Named`, no such type, `E0425` | compile error naming `Extends(Base)`, which does work |
 | `attempts/` run by hand, if at all | run by `compile.sh`; each must be refused with its declared error |
 | nine studies, no gate | ten studies plus the attempts, under `compile.sh` |
+| every file opened with `use std::rc::Rc;`, `use std::cell::RefCell;` and the `RgAnyRef` / `rg_downcast` / `RgIdentical` trio | in only when the cell can reach the output — a shared class, a `@(weak)` field, a closed family, a behaviour-only trait used as a type, or an inheritance family. Six of the twelve studies have none of those and drop all thirteen lines |
 
 `try` / `catch` is refused rather than lowered, so `-rust-allow-dropped-catch`
 keeps the old behaviour and prints each dropped site. The compiler's own sources

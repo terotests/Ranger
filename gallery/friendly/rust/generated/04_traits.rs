@@ -12,19 +12,7 @@
 #![allow(clippy::upper_case_acronyms)]
 #![allow(clippy::ptr_arg)]
 
-use std::rc::Rc;
-use std::cell::RefCell;
 
-pub trait RgAnyRef { fn rg_as_any(&self) -> &dyn std::any::Any; }
-fn rg_downcast<T: 'static, D: ?Sized + RgAnyRef>(v: &Rc<RefCell<D>>) -> Rc<RefCell<T>> {
-    assert!(v.borrow().rg_as_any().is::<T>(), "invalid downcast");
-    let p = Rc::into_raw(v.clone()) as *const () as *const RefCell<T>;
-    unsafe { Rc::from_raw(p) }
-}
-pub trait RgIdentical { fn rg_identical(&self, other: &Self) -> bool; }
-impl<T: ?Sized> RgIdentical for Rc<RefCell<T>> {
-    fn rg_identical(&self, other: &Self) -> bool { Rc::ptr_eq(self, other) }
-}
 
 #[derive(Clone)]
 struct User { 

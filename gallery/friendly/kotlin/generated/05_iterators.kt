@@ -4,8 +4,7 @@ class Stats
   
   fun  total( xs : MutableList<Int>) : Int {
     var acc : Int  = 0;
-    for ( i in xs.indices ) {
-      val v = xs[i]
+    for ( v in xs ) {
       acc = acc + v;
     }
     return acc;
@@ -13,8 +12,7 @@ class Stats
   
   fun  evenCount( xs : MutableList<Int>) : Int {
     var n : Int  = 0;
-    for ( i in xs.indices ) {
-      val v = xs[i]
+    for ( v in xs ) {
       if ( v % 2 == 0 ) {
         n = n + 1;
       }
@@ -24,8 +22,7 @@ class Stats
   
   fun  doubled( xs : MutableList<Int>) : MutableList<Int> {
     var out : MutableList<Int>  = arrayListOf();
-    for ( i in xs.indices ) {
-      val v = xs[i]
+    for ( v in xs ) {
       out.add(v * 2);
     }
     return out;
@@ -33,8 +30,7 @@ class Stats
   
   fun  applyEach( xs : MutableList<Int>, f : (Int) -> Int) : MutableList<Int> {
     var out : MutableList<Int>  = arrayListOf();
-    for ( i in xs.indices ) {
-      val v = xs[i]
+    for ( v in xs ) {
       val next : Int  = f(v);
       out.add(next);
     }

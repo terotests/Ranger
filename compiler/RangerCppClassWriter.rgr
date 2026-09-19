@@ -2,6 +2,8 @@
 
 Import "EnumAnalysis.rgr"
 Import "TraitAnalysis.rgr"
+Import "CppValueAnalysis.rgr"
+Import "ForLoopAnalysis.rgr"
 
 class RangerCppClassWriter {
   Extends (RangerGenericClassWriter)
@@ -40,6 +42,25 @@ class RangerCppClassWriter {
 
   fn cppClassIfaceBases:[string] (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
     return (cppTraits.basesOf(cl ctx))
+  }
+
+  ; Which classes are written as a VALUE rather than a std::shared_ptr. Two
+  ; sources, and they answer different questions: a scalar-only case of a
+  ; closed family lives inside the variant whatever else the program does with
+  ; it (cppUnionValueCase), and a record the sharing analysis proves is never
+  ; aliased and held is a plain struct (CppValueClassAnalysis, which reads the
+  ; verdict the Rust writer has been reading all along).
+  def cppValues:CppValueClassAnalysis (new CppValueClassAnalysis())
+
+  ; Can a `for` be a range-`for`? The question is target-neutral and lives in
+  ; ForLoopShape (compiler/ForLoopAnalysis.rgr); only the spelling below is C++.
+  def cppLoops:ForLoopShape (new ForLoopShape())
+
+  fn cppIsValueClass:boolean (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    if (this.cppUnionValueCase(cl ctx)) {
+      return true
+    }
+    return (cppValues.isValue(cl.name ctx))
   }
 
 
@@ -255,7 +276,7 @@ class RangerCppClassWriter {
       ; the value-layer benchmark: pointers in the variant 0.146 s, scalars in
       ; the variant 0.003 s for the same two million values — the allocation was
       ; the whole cost, and a value case has nothing that needs one.
-      if (this.cppUnionValueCase(cc ctx)) {
+      if (this.cppIsValueClass(cc ctx)) {
         return type_string
       }
       ; A systemclass names one type per target. Without this the Ranger name
@@ -473,6 +494,23 @@ class r_optional_primitive {
     }
   }
 
+  ; A parameter that the callee mutates is a non-const C++ reference, and a
+  ; non-const reference does not bind a temporary. Ranger call sites do pass
+  ; one -- `this.TransformOpFn(([] opTpl) node ctx wr)` builds the array in the
+  ; argument list. The forwarding reference keeps an lvalue argument exactly as
+  ; it was, so the callee still writes through to the caller's object, and
+  ; materialises an rvalue for the duration of the call, which is what the
+  ; JavaScript host does with the same source.
+  fn cppEmitArgRef:void (wr:CodeWriter) {
+    def code:string "template <class T> inline T& rg_arg_ref(T&& v) { return v; }
+"
+    def p_write:CodeWriter (wr.getTag("utilities"))
+    if ((has p_write.compiledTags code) == false) {
+      p_write.raw(code true)
+      set p_write.compiledTags code true
+    }
+  }
+
   fn writeTypeDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def v_type:RangerNodeType node.value_type    
     def t_name:string node.type_name
@@ -622,7 +660,7 @@ class r_optional_primitive {
           ; a value case of a closed family is carried by value — the same rule
           ; getObjectTypeString applies, so a narrowing binds what the variant
           ; actually holds
-          if (this.cppUnionValueCase(cc ctx)) {
+          if (this.cppIsValueClass(cc ctx)) {
             wr.out(cc.name false)
             return
           }
@@ -845,7 +883,7 @@ class r_optional_primitive {
       return false
     }
     def segCl:RangerAppClassDesc (ctx.findClass(segNode.type_name))
-    return (this.cppUnionValueCase(segCl ctx))
+    return (this.cppIsValueClass(segCl ctx))
   }
 
   fn WriteVRef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -1114,10 +1152,162 @@ class r_optional_primitive {
     ctx.unsetInExpr()
   }
 
+  ; --- the generated `for` (PLAN_CPP_IDIOMS C4) -------------------------------
+  ; `for xs v:int i { ... }` used to be, always:
+  ;
+  ;   for ( int i = 0; i != (int)(xs.size()); i++) { int v = xs.at(i); ... }
+  ;
+  ; which is the loop C++ had before 2011, and in a file that otherwise reads
+  ; it is the loudest "this was generated" tell left. When the body never
+  ; mentions the index and never mentions the collection, the same loop is
+  ;
+  ;   for ( const int& v : xs ) { ... }
+  ;
+  ; and the bound, the cast, the `.at` and the index all disappear.
+  ;
+  ; Those two conditions are what make the rewrite safe rather than merely
+  ; shorter. A range-`for` takes one iterator pair for the whole loop, so a
+  ; body that pushes to the collection would walk invalidated iterators where
+  ; the index form re-reads `.size()` every turn; and an index that is read has
+  ; to exist. A collection named by an expression rather than a name keeps the
+  ; index form as well -- what a call hands back is invisible from here, and
+  ; binding a reference into it is how a dangling one is written.
+  ;
+  ; The element binds as `const T&` unless the body assigns to the name, which
+  ; the index form gave a private copy of: then it is a `T` and the body keeps
+  ; the meaning it had.
+  ;
+  ; This is the same decision the Rust writer makes (PLAN_RUST_SEMANTIC_IDIOMS
+  ; K, RustOperators.rustWriteForLoop) and deliberately not an
+  ; <algorithm> / <ranges> lowering: a loop that pushes is respectable C++, the
+  ; shape of the loop was the tell.
+  ; `(e N)` is not a bare WalkNode: it brackets the walk with setInExpr, and
+  ; without that a call operand is written as a STATEMENT, with a semicolon and
+  ; a line break in the middle of the expression being built.
+  fn cppWriteOperand:void (arg:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    ctx.setInExpr()
+    this.WalkNode(arg ctx wr)
+    ctx.unsetInExpr()
+  }
+
+  ; A scalar element binds by value -- `for ( int v : xs )` is what a C++
+  ; programmer writes, and a reference to an int costs a dereference for
+  ; nothing. Everything else binds `const T&`, which is the point of the form:
+  ; a std::string element stopped being copied once per turn.
+  fn cppForItemIsScalar:boolean (item:CodeNode) {
+    def tn:string ""
+    if item.hasParamDesc {
+      def ipd:RangerAppParamDesc item.paramDesc
+      def ipdNN@(optional):CodeNode ipd.nameNode
+      if (!null? ipdNN) {
+        def ipdN:CodeNode (unwrap ipdNN)
+        tn = ipdN.type_name
+        if ((strlen ipdN.array_type) > 0) {
+          tn = ipdN.array_type
+        }
+        if (ipdN.hasFlag("optional")) {
+          return false
+        }
+      }
+    } {
+      tn = item.type_name
+      if ((strlen item.array_type) > 0) {
+        tn = item.array_type
+      }
+    }
+    if (tn == "int") { return true }
+    if (tn == "double") { return true }
+    if (tn == "boolean") { return true }
+    if (tn == "char") { return true }
+    if (TTypeRegistry.isIntAlias(tn)) { return true }
+    if (TTypeRegistry.isFloatAlias(tn)) { return true }
+    return false
+  }
+
+  fn cppWriteForItemType:void (item:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if item.hasParamDesc {
+      this.writeTypeDef((unwrap item.paramDesc.nameNode) ctx wr)
+    } {
+      this.writeTypeDef(item ctx wr)
+    }
+  }
+
+  fn cppWriteForLoop:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if ((array_length node.children) < 5) {
+      return
+    }
+    def coll:CodeNode (node.getSecond())
+    def item:CodeNode (itemAt node.children 2)
+    def idx:CodeNode (itemAt node.children 3)
+    def body:CodeNode (itemAt node.children 4)
+
+    def useRange:boolean (cppLoops.canIterate(node))
+
+    if useRange {
+      ; a scalar binds by value; so does an element the body assigns to, which
+      ; the index form gave a private copy of
+      def wantsCopy:boolean (this.cppForItemIsScalar(item))
+      if (cppLoops.bodyAssignsElement(node)) {
+        wantsCopy = true
+      }
+      wr.out("for ( " false)
+      if (wantsCopy == false) {
+        wr.out("const " false)
+      }
+      this.cppWriteForItemType(item ctx wr)
+      if (wantsCopy == false) {
+        wr.out("&" false)
+      }
+      wr.out(" " false)
+      this.cppWriteOperand(item ctx wr)
+      wr.out(" : " false)
+      this.cppWriteOperand(coll ctx wr)
+      wr.out(" ) {" true)
+      wr.indent(1)
+      def rCtx:RangerAppWriterContext (ctx.fork())
+      rCtx.restartExpressionLevel()
+      this.WalkNode(body rCtx wr)
+      wr.indent(-1)
+      wr.out("}" true)
+      return
+    }
+
+    ; the index form, byte for byte what the template wrote before
+    wr.out("for ( int " false)
+    this.cppWriteOperand(idx ctx wr)
+    wr.out(" = 0; " false)
+    this.cppWriteOperand(idx ctx wr)
+    wr.out(" != (int)(" false)
+    this.cppWriteOperand(coll ctx wr)
+    wr.out(".size()); " false)
+    this.cppWriteOperand(idx ctx wr)
+    wr.out("++) {" true)
+    wr.indent(1)
+    this.cppWriteForItemType(item ctx wr)
+    wr.out(" " false)
+    this.cppWriteOperand(item ctx wr)
+    wr.out(" = " false)
+    this.cppWriteOperand(coll ctx wr)
+    wr.out(".at(" false)
+    this.cppWriteOperand(idx ctx wr)
+    wr.out(");" true)
+    def sCtx:RangerAppWriterContext (ctx.fork())
+    sCtx.restartExpressionLevel()
+    this.WalkNode(body sCtx wr)
+    wr.indent(-1)
+    wr.out("}" true)
+  }
+
   fn CustomOperator:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
 
     def fc:CodeNode (node.getFirst())
     def cmd:string fc.vref
+
+    ; an index loop, or a range-`for` when that is safe
+    if (cmd == "for") {
+      this.cppWriteForLoop(node ctx wr)
+      return
+    }
 
     ; string equality with a literal side stays allocation-free
     if ((cmd == "==") || (cmd == "!=")) {
@@ -1485,6 +1675,156 @@ class r_optional_primitive {
     return false
   }
 
+  ; --- reachability of the preamble (PLAN_CPP_IDIOMS, item 8 of the study) ----
+  ; Study 07 declares two classes, four functions and no union, and still paid
+  ; for `template <class T> class r_optional_union` and a `r_union_Any`
+  ; typedef naming every class in the file, with a forward declaration each.
+  ; The map preamble is already reachability-gated (cppProgramUsesHash); these
+  ; two were not, because `Any` is a union the PARSER declares for every
+  ; program (RangerFlowParser.registerAnyType), so "does this program have a
+  ; union" was true whatever the program said.
+  fn cppNodeNamesType:boolean (node:CodeNode tn:string) {
+    if (node.type_name == tn) {
+      return true
+    }
+    if (node.eval_type_name == tn) {
+      return true
+    }
+    if (node.array_type == tn) {
+      return true
+    }
+    if (node.key_type == tn) {
+      return true
+    }
+    if (node.eval_array_type == tn) {
+      return true
+    }
+    if (node.hasParamDesc) {
+      def pdNN@(optional):CodeNode node.paramDesc.nameNode
+      if (!null? pdNN) {
+        def pdN:CodeNode (unwrap pdNN)
+        if (((pdN.type_name == tn) || (pdN.array_type == tn)) || (pdN.key_type == tn)) {
+          return true
+        }
+      }
+    }
+    for node.children ch:CodeNode i {
+      if (this.cppNodeNamesType(ch tn)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn cppScanFnsForType:boolean (fns:[RangerAppFunctionDesc] tn:string) {
+    for fns m:RangerAppFunctionDesc mi {
+      def mNodeOpt@(optional):CodeNode m.node
+      if (!null? mNodeOpt) {
+        if (this.cppNodeNamesType((unwrap mNodeOpt) tn)) {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
+  fn cppProgramUsesType:boolean (tn:string ctx:RangerAppWriterContext) {
+    def root:RangerAppWriterContext (ctx.getRoot())
+    for root.definedClasses cl:RangerAppClassDesc i {
+      ; the same exclusions cppProgramUsesHash makes: a class the file never
+      ; writes cannot reach the preamble, and the operator and template classes
+      ; of Lang.rgr name everything
+      if ((((cl.is_system || cl.is_trait) || cl.is_template) || cl.is_operator_class) || cl.is_union) {
+        continue
+      }
+      for cl.variables pvar:RangerAppParamDesc j {
+        if (!null? pvar.nameNode) {
+          def pvN:CodeNode (unwrap pvar.nameNode)
+          if (((pvN.type_name == tn) || (pvN.array_type == tn)) || (pvN.key_type == tn)) {
+            return true
+          }
+        }
+      }
+      if (this.cppScanFnsForType(cl.methods tn)) {
+        return true
+      }
+      if (this.cppScanFnsForType(cl.static_methods tn)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  ; Is there an `@(optional)` whose type is a closed family? That is the one
+  ; thing r_optional_union exists for; without one the template is dead code in
+  ; every file that declares a shape.
+  fn cppNodeHasOptionalUnion:boolean (node:CodeNode ctx:RangerAppWriterContext) {
+    if (node.hasFlag("optional")) {
+      def tn:string node.type_name
+      if ((strlen tn) == 0) {
+        tn = node.eval_type_name
+      }
+      if ((strlen tn) > 0) {
+        if (ctx.isDefinedClass(tn)) {
+          def ocl:RangerAppClassDesc (ctx.findClass(tn))
+          if ocl.is_union {
+            return true
+          }
+        }
+      }
+    }
+    for node.children ch:CodeNode i {
+      if (this.cppNodeHasOptionalUnion(ch ctx)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn cppScanFnsForOptionalUnion:boolean (fns:[RangerAppFunctionDesc] ctx:RangerAppWriterContext) {
+    for fns m:RangerAppFunctionDesc mi {
+      def mNodeOpt@(optional):CodeNode m.node
+      if (!null? mNodeOpt) {
+        if (this.cppNodeHasOptionalUnion((unwrap mNodeOpt) ctx)) {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
+  fn cppProgramUsesOptionalUnion:boolean (ctx:RangerAppWriterContext) {
+    def root:RangerAppWriterContext (ctx.getRoot())
+    for root.definedClasses cl:RangerAppClassDesc i {
+      if (((cl.is_system || cl.is_template) || cl.is_operator_class) || cl.is_union) {
+        continue
+      }
+      for cl.variables pvar:RangerAppParamDesc j {
+        if (!null? pvar.nameNode) {
+          def pvN:CodeNode (unwrap pvar.nameNode)
+          if (pvN.hasFlag("optional")) {
+            def ptn:string pvN.type_name
+            if ((strlen ptn) > 0) {
+              if (ctx.isDefinedClass(ptn)) {
+                def pcl:RangerAppClassDesc (ctx.findClass(ptn))
+                if pcl.is_union {
+                  return true
+                }
+              }
+            }
+          }
+        }
+      }
+      if (this.cppScanFnsForOptionalUnion(cl.methods ctx)) {
+        return true
+      }
+      if (this.cppScanFnsForOptionalUnion(cl.static_methods ctx)) {
+        return true
+      }
+    }
+    return false
+  }
+
   fn cppProgramHasWeakField:boolean (ctx:RangerAppWriterContext) {
     def found false
     def root:RangerAppWriterContext (ctx.getRoot())
@@ -1656,8 +1996,47 @@ class r_optional_primitive {
   ; is a Rust signal (`&mut`) that C++ already ignores: a change of a field goes
   ; through `operator->` and works on a copy of the pointer as well, and `const`
   ; on the pointer does not stop it.
+  ; A parameter of a VALUE class whose fields the body writes. Behind a
+  ; shared_ptr this question did not arise: `const std::shared_ptr<T>&` makes
+  ; the POINTER const and leaves the object writable, so `p->x = 1` compiled
+  ; and the caller saw the write, which is what a Ranger object parameter
+  ; means. On a value, `const T&` makes the OBJECT const and g++ stops at
+  ; "assignment of member 'Point::x' in read-only object". Such a parameter is
+  ; a plain `T&`: it still aliases the caller's object, so the write still
+  ; lands where every other target puts it.
+  ;
+  ; `needs_cpp_reference` is the fact, and StaticAnalyzer.markVarAsMutated has
+  ; been setting it for a mutated object parameter all along -- writeArgsDef
+  ; suppressed the `&` for class types because a shared_ptr never needed one.
+  fn cppMutatedValueClassParam:boolean (arg:RangerAppParamDesc ctx:RangerAppWriterContext) {
+    if (arg.needs_cpp_reference == false) {
+      return false
+    }
+    if (null? arg.nameNode) {
+      return false
+    }
+    def tNode:CodeNode (unwrap arg.nameNode)
+    if (((strlen tNode.array_type) > 0) || ((strlen tNode.key_type) > 0)) {
+      return false
+    }
+    def tn:string tNode.type_name
+    if ((strlen tn) == 0) {
+      return false
+    }
+    if ((ctx.isDefinedClass(tn)) == false) {
+      return false
+    }
+    def tc:RangerAppClassDesc (ctx.findClass(tn))
+    return (this.cppIsValueClass(tc ctx))
+  }
+
   fn cppBorrowedObjectParam:boolean (fnDesc:RangerAppFunctionDesc arg:RangerAppParamDesc ctx:RangerAppWriterContext) {
     if fnDesc.is_lambda {
+      return false
+    }
+    ; a value the body writes through cannot be const -- see
+    ; cppMutatedValueClassParam
+    if (this.cppMutatedValueClassParam(arg ctx)) {
       return false
     }
     if (arg.ownership_resolved == false) {
@@ -1819,9 +2198,14 @@ class r_optional_primitive {
           if ((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.VRef)) {
             emitRef = false
           }
+          if (this.cppMutatedValueClassParam(arg ctx)) {
+            emitRef = true
+          }
           if ((strlen typeNode.type_name) > 0) {
             if (ctx.isDefinedClass(typeNode.type_name)) {
-              emitRef = false
+              ; ...unless the class is carried BY VALUE: then the reference is
+              ; the only thing that makes the write visible to the caller
+              emitRef = (this.cppMutatedValueClassParam(arg ctx))
             }
             ; Buffer params already got & above — avoid double reference.
             def tn:string typeNode.type_name
@@ -1901,6 +2285,11 @@ class r_optional_primitive {
     if (arg.needs_cpp_reference == false) {
       return false
     }
+    ; a value class the callee writes through takes a `T&`, and `T&` does not
+    ; bind a temporary either -- `m.bump((new Point(1 2)))` is exactly that
+    if (this.cppMutatedValueClassParam(arg ctx)) {
+      return true
+    }
     def v_type:RangerNodeType typeNode.value_type
     if ((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.VRef)) {
       return false
@@ -1950,6 +2339,7 @@ class r_optional_primitive {
           wr.out("(" false)
         }
         if argRef {
+          this.cppEmitArgRef(wr)
           wr.out("rg_arg_ref(" false)
         }
         this.WalkNode(n ctx wr)
@@ -1973,7 +2363,7 @@ class r_optional_primitive {
       def fc:CodeNode (node.getSecond())
       ; a value case is constructed in place — the variant holds it, nothing is
       ; allocated
-      if (this.cppUnionValueCase((unwrap cl) ctx)) {
+      if (this.cppIsValueClass((unwrap cl) ctx)) {
         wr.out((" " + cl.name) false)
         wr.out("(" false)
       } {
@@ -2241,14 +2631,26 @@ class r_optional_primitive {
     this.readCppPtrFlag(ctx)
     def root (ctx.getRoot())
     def wroteOptionalUnion:boolean false
+    ; the two reachability questions, asked once rather than per union
+    def needsOptionalUnion:boolean (this.cppProgramUsesOptionalUnion(ctx))
+    def anyIsUsed:boolean (this.cppProgramUsesType("Any" ctx))
     root.definedClasses.forEach({
       ; index == name
       ; item == class description
       if(item.is_union) {
+        ; `Any` is declared by the PARSER for every program, names every class
+        ; in it, and forward-declares each one ahead of its own typedef. A
+        ; program that never says `Any` paid for all of that: on study 07, a
+        ; two-class file, it was the whole union section.
+        if (item.name == "Any") {
+          if (anyIsUsed == false) {
+            return
+          }
+        }
         ; The nullable form of a union, written once ahead of the typedefs so
         ; every `r_optional_union<r_union_X>` below is already declared. See
         ; getTypeString2 for why a bare variant cannot carry "absent".
-        if (false == wroteOptionalUnion) {
+        if ((false == wroteOptionalUnion) && needsOptionalUnion) {
           wroteOptionalUnion = true
           wr.addImport("<cstddef>")
           wr.addImport("<type_traits>")
@@ -2675,8 +3077,9 @@ class r_optional_primitive {
       ; exactly as it was, so the callee still writes through to the caller's
       ; object, and materialises an rvalue for the duration of the call, which
       ; is what the JavaScript host does with the same source.
-      wr.out("template <class T> inline T& rg_arg_ref(T&& v) { return v; }" true)
-      wr.out("" true)
+      ; ...and it goes in only when a call site needs it: cppEmitArgRef writes
+      ; it into the `utilities` tag the first time one does, the way the
+      ; optional-scalar template is emitted where the type is.
       wr.out("// header definitions" true)
       ; a behaviour-only trait used as a type becomes an abstract base, and a
       ; base has to be complete before the class that derives from it

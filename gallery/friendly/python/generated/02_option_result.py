@@ -50,7 +50,7 @@ class Lookup:
     pass
   def findName(self, names, key):
     found = None
-    for i, n in enumerate(names):
+    for n in names:
       if n == key:
         found = n;
         return found;

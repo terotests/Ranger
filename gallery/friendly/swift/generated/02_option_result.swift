@@ -75,7 +75,7 @@ final class Lookup : Hashable  {
   }
   func findName(names : [String], key : String) -> String? {
     var found : String? = nil
-    for (_, n) in names.enumerated() {
+    for n in names {
       if ( n == key ) {
         found = n;
         return found

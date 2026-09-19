@@ -223,11 +223,14 @@ describe("Swift6 Code Generation", () => {
       expect(result.code).not.toContain("UInt8 = ");
     });
 
-    it("writes _ for a loop index the body never reads", () => {
+    it("drops the index entirely when the body never reads it", () => {
       const result = gen();
       expect(result.success, `Failed: ${result.error}`).toBe(true);
-      expect(result.code).toContain("for (_, v) in values.enumerated()");
-      // and keeps the name where the body does read it
+      // `enumerated()` is the right answer only when the index is wanted; a
+      // body that never reads it gets the loop a Swift programmer writes
+      expect(result.code).toContain("for v in values {");
+      expect(result.code).not.toContain("for (_, v) in values.enumerated()");
+      // and the enumerated form stays where the body does read the index
       expect(result.code).toContain("for (i, v) in values.enumerated()");
     });
 
@@ -301,8 +304,9 @@ describe("Swift6 Code Generation", () => {
       const result = gen();
       expect(result.success, `Failed: ${result.error}`).toBe(true);
       // ref_cnt cannot answer this: the loop assigns the item on every
-      // iteration, so its counter is never 0
-      expect(result.code).toContain("for (_, _) in rows.enumerated()");
+      // iteration, so its counter is never 0. The body reads neither name, so
+      // the loop is `for _ in rows` -- no index, and a discarded element.
+      expect(result.code).toContain("for _ in rows {");
     });
   });
 

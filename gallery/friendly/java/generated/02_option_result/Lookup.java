@@ -13,8 +13,7 @@ public class Lookup {
   
   public String findName( final ArrayList<String> names , final String key ) {
     String found = null;
-    for ( int i = 0; i < names.size(); i++) {
-      String n = names.get(i);
+    for ( String n : names) {
       if ( n.equals(key) ) {
         found = n;
         return found;

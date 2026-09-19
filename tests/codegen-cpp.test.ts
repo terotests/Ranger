@@ -288,6 +288,69 @@ describe("C++ Code Generation", () => {
   });
 });
 
+// PLAN_CPP_IDIOMS C1 / C4 / item 8: the three decisions the writer makes from
+// analysis it already had. The fixture holds a record nothing aliases, a class
+// two names share, a loop whose body ignores its index and one whose body
+// reads it, so every branch is exercised by one file that also runs and prints
+// the same four lines as the JavaScript build.
+describe("C++ value records, range-for and a reachable preamble", () => {
+  const VALUES = `${FIXTURES_DIR}/cpp_value_record.rgr`;
+
+  it("carries a record nothing aliases by value, and passes it as const T&", () => {
+    const result = getGeneratedCppCode(VALUES);
+    expect(result.success, `Failed: ${result.error}`).toBe(true);
+    expect(result.code).toContain("int manhattan( const Point& p )");
+    expect(result.code).not.toContain("std::shared_ptr<Point>");
+  });
+
+  it("keeps the shared_ptr for a class two names share and mutate", () => {
+    const result = getGeneratedCppCode(VALUES);
+    expect(result.success, `Failed: ${result.error}`).toBe(true);
+    expect(result.code).toContain("std::shared_ptr<Counter>");
+  });
+
+  it("passes a value record the body writes through as T&, not const T&", () => {
+    const result = getGeneratedCppCode(VALUES);
+    expect(result.success, `Failed: ${result.error}`).toBe(true);
+    // `const std::shared_ptr<Point>&` made only the POINTER const, so `p->x = 1`
+    // compiled and the caller saw it. `const Point&` makes the object const.
+    expect(result.code).toContain("void bump( Point& p )");
+    // ...and a `T&` does not bind a temporary, so the call site wraps one
+    expect(result.code).toContain("rg_arg_ref( Point(7, 0))");
+  });
+
+  it("writes a range-for when the body ignores the index and the collection", () => {
+    const result = getGeneratedCppCode(VALUES);
+    expect(result.success, `Failed: ${result.error}`).toBe(true);
+    expect(result.code).toContain("for ( int v : xs ) {");
+  });
+
+  it("keeps the index loop when the body reads the index", () => {
+    const result = getGeneratedCppCode(VALUES);
+    expect(result.success, `Failed: ${result.error}`).toBe(true);
+    expect(result.code).toContain("for ( int i = 0; i != (int)(xs.size()); i++) {");
+  });
+
+  it("leaves out a preamble the program cannot reach", () => {
+    const result = getGeneratedCppCode(VALUES);
+    expect(result.success, `Failed: ${result.error}`).toBe(true);
+    // `Any` is a union the parser declares for every program, so "does this
+    // program have a union" used to be true whatever the program said
+    expect(result.code).not.toContain("class r_optional_union");
+    expect(result.code).not.toContain("r_union_Any");
+    // ...and the gate is reachability, not blanket removal: this fixture DOES
+    // reach rg_arg_ref, through the temporary passed to `bump`, so the helper
+    // is there. `codegen-cpp` > "emits no main" uses a fixture that does not.
+    expect(result.code).toContain("inline T& rg_arg_ref");
+  });
+
+  it("leaves rg_arg_ref out of a program that never needs it", () => {
+    const result = getGeneratedCppCode(`${FIXTURES_DIR}/array_push.rgr`);
+    expect(result.success, `Failed: ${result.error}`).toBe(true);
+    expect(result.code).not.toContain("rg_arg_ref");
+  });
+});
+
 // A module with no `main` is what a host shell -- SDL2, Android, iOS --
 // includes and calls. `rg_ordered_map::at` throws std::out_of_range, and a
 // program WITH a main pulls <stdexcept> in through the iostream chain and never
@@ -300,7 +363,9 @@ describe("C++ module for a host shell", () => {
     const result = getGeneratedCppCode(MODULE);
     expect(result.success, `Failed: ${result.error}`).toBe(true);
     expect(result.code).toContain("std::out_of_range");
-    expect(result.code).toContain("#include <stdexcept>");
+    // the writer puts two spaces after `#include`, so match the line rather
+    // than one hand-written spelling of it
+    expect(result.code).toMatch(/#include\s+<stdexcept>/);
   });
 
   it("emits no main, so a host can supply one", () => {

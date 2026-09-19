@@ -114,9 +114,7 @@ func CreateNew_Lookup() *Lookup {
 }
 func (this *Lookup) findName (names []string, key string) *GoNullable {
   var found *GoNullable = new(GoNullable); 
-  var i int64 = 0;  
-  for ; i < int64(len(names)) ; i++ {
-    n := names[i];
+  for _, n := range names {
     if  n == key {
       found.value = n;
       found.has_value = true; /* detected as non-optional */

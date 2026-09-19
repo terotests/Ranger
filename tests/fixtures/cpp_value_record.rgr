@@ -1,0 +1,65 @@
+; A record nothing aliases: the C++ target can carry it by value.
+; `Counter` in the same program is aliased and mutated through both names, so
+; it keeps its shared_ptr — one file, two answers.
+
+record Point {
+    def x:int 0
+    def y:int 0
+}
+
+class Counter {
+    def value:int 0
+    fn add:void (amount:int) {
+        value = (value + amount)
+    }
+}
+
+class ValueMain {
+    fn manhattan:int (p:Point) {
+        return (p.x + p.y)
+    }
+
+    ; a value the body writes through: `const Point&` would make the OBJECT
+    ; const, where `const std::shared_ptr<Point>&` only made the pointer one
+    fn bump:void (p:Point) {
+        p.x = (p.x + 1)
+    }
+
+    fn sum:int (xs:[int]) {
+        def acc:int 0
+        for xs v:int i {
+            acc = (acc + v)
+        }
+        return acc
+    }
+
+    fn firstPositive:int (xs:[int]) {
+        def found:int 0
+        for xs v:int i {
+            if ((v > 0) && (found == 0)) {
+                found = (i + 1)
+            }
+        }
+        return found
+    }
+
+    sfn main:void () {
+        def m:ValueMain (new ValueMain())
+        def p:Point (new Point(3 4))
+        print ("manhattan " + (m.manhattan(p)))
+        m.bump(p)
+        m.bump(p)
+        print ("bumped " + p.x)
+        ; a temporary as the argument: `Point&` does not bind one, so the call
+        ; site wraps it (rg_arg_ref)
+        m.bump((new Point(7 0)))
+        print ("temp ok")
+        def xs:[int] ([] _:int (1 2 3))
+        print ("sum " + (m.sum(xs)))
+        print ("first " + (m.firstPositive(xs)))
+        def left:Counter (new Counter())
+        def alias:Counter left
+        alias.add(1)
+        print ("shared " + left.value)
+    }
+}

@@ -6,23 +6,23 @@ class Stats:
     pass
   def total(self, xs):
     acc = 0
-    for i, v in enumerate(xs):
+    for v in xs:
       acc = acc + v;
     return acc;
   def evenCount(self, xs):
     n = 0
-    for i, v in enumerate(xs):
+    for v in xs:
       if v % 2 == 0:
         n = n + 1;
     return n;
   def doubled(self, xs):
     out = []
-    for i, v in enumerate(xs):
+    for v in xs:
       out.append(v * 2)
     return out;
   def applyEach(self, xs, f):
     out = []
-    for i, v in enumerate(xs):
+    for v in xs:
       _next = f(v)
       out.append(_next)
     return out;

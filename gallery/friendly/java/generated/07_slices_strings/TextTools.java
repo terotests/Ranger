@@ -8,8 +8,7 @@ public class TextTools {
   
   public Integer total( final ArrayList<Integer> xs ) {
     Integer acc = 0;
-    for ( int i = 0; i < xs.size(); i++) {
-      Integer v = xs.get(i);
+    for ( Integer v : xs) {
       acc = acc + v;
     }
     return acc;

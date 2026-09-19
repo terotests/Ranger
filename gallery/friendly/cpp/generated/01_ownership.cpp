@@ -1,7 +1,4 @@
 #include  <memory>
-#include  <cstddef>
-#include  <type_traits>
-#include  <variant>
 #include  <string>
 #include  <vector>
 #include  <iostream>
@@ -12,27 +9,7 @@ class PointOps;
 class Counter;
 class TreeNode;
 class OwnershipMain;
-class Point;
-class PointOps;
-class Counter;
-class TreeNode;
-class OwnershipMain;
 
-template <class T>
-class r_optional_union {
-  public:
-    bool has_value = false;
-    T value = T();
-    r_optional_union() {}
-    r_optional_union(const T & a_value) : has_value(true), value(a_value) {}
-    template <class U, typename std::enable_if<std::is_constructible<T, const U &>::value, int>::type = 0>
-    r_optional_union(const U & a_value) : has_value(true), value(a_value) {}
-    operator T() const { return value; }
-    bool operator!=(std::nullptr_t) const { return has_value; }
-    bool operator==(std::nullptr_t) const { return !has_value; }
-    explicit operator bool() const { return has_value; }
-};
-typedef std::variant<std::shared_ptr<Point>, std::shared_ptr<PointOps>, std::shared_ptr<Counter>, std::shared_ptr<TreeNode>, std::shared_ptr<OwnershipMain>, int, std::string, bool, double>  r_union_Any;
 
 
 // a `weak` field: it holds no reference count, and it reads like a std::shared_ptr
@@ -52,8 +29,6 @@ template <class T> class r_weak {
     bool operator!=(std::nullptr_t) const { return !w.expired(); }
 };
 
-template <class T> inline T& rg_arg_ref(T&& v) { return v; }
-
 // header definitions
 class Point { 
   public :
@@ -67,8 +42,8 @@ class PointOps {
     /* class constructor */ 
     PointOps( );
     /* instance methods */ 
-    int manhattan( const std::shared_ptr<Point>& p );
-    std::shared_ptr<Point> addPoints( const std::shared_ptr<Point>& a , const std::shared_ptr<Point>& b );
+    int manhattan( const Point& p );
+    Point addPoints( const Point& a , const Point& b );
 };
 class Counter { 
   public :
@@ -108,19 +83,19 @@ Point::Point( int x , int y  ) {
 }
 PointOps::PointOps( ) {
 }
-int  PointOps::manhattan( const std::shared_ptr<Point>& p ) {
-  int ax = p->x;
+int  PointOps::manhattan( const Point& p ) {
+  int ax = p.x;
   if ( ax < 0 ) {
     ax = 0 - ax;
   }
-  int ay = p->y;
+  int ay = p.y;
   if ( ay < 0 ) {
     ay = 0 - ay;
   }
   return ax + ay;
 }
-std::shared_ptr<Point>  PointOps::addPoints( const std::shared_ptr<Point>& a , const std::shared_ptr<Point>& b ) {
-  return  std::make_shared<Point>(a->x + b->x, a->y + b->y);
+Point  PointOps::addPoints( const Point& a , const Point& b ) {
+  return  Point(a.x + b.x, a.y + b.y);
 }
 Counter::Counter( ) {
   this->value = 0;
@@ -146,10 +121,10 @@ int main(int argc, char* argv[]) {
   __g_argc = argc;
   __g_argv = argv;
   std::shared_ptr<PointOps> ops =  std::make_shared<PointOps>();
-  std::shared_ptr<Point> origin =  std::make_shared<Point>(3, 4);
+  Point origin =  Point(3, 4);
   std::cout << std::string("manhattan ") + std::to_string(ops->manhattan(origin)) << std::endl;
-  std::shared_ptr<Point> summed = ops->addPoints(origin, origin);
-  std::cout << std::string("sum.x ") + std::to_string(summed->x) << std::endl;
+  Point summed = ops->addPoints(origin, origin);
+  std::cout << std::string("sum.x ") + std::to_string(summed.x) << std::endl;
   std::shared_ptr<Counter> left =  std::make_shared<Counter>();
   std::shared_ptr<Counter> alias = left;
   alias->add(1);

@@ -2,6 +2,7 @@
 
 
 Import "TTypeRegistry.rgr"
+Import "ForLoopAnalysis.rgr"
 
 Import "WebPageWriter.rgr"
 
@@ -14,9 +15,89 @@ class RangerJavaScriptClassWriter {
   ; takes the same route into RangerGolangHttpServerWriter. ISSUES.md #93.
   def httpServerWriter:RangerJavaScriptHttpServerWriter (new RangerJavaScriptHttpServerWriter())
 
+  ; --- the generated `for` (PLAN_CPP_IDIOMS C4, the JavaScript half) ---------
+  ; `for ( let i = 0; i < xs.length; i++) { var v = xs[i]; ... }` is the loop
+  ; JavaScript had before 2015, and this writer is the one the compiler is
+  ; written against -- it is the file most people read first. When the body
+  ; neither reads the index nor touches the collection it is `for (const v of
+  ; xs)`, which is what anyone would type. The two conditions are the same ones
+  ; every target asks (ForLoopShape): `for...of` takes one iterator for the
+  ; whole loop, so a body that pushes to the array walks a different one than
+  ; the index form, which re-reads `.length` every turn.
+  ;
+  ; es5 is NOT routed here -- `for...of` is ES6 -- so it keeps the `*` template.
+  def jsLoops:ForLoopShape (new ForLoopShape())
+
+  fn jsWriteOperand:void (arg:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    ctx.setInExpr()
+    this.WalkNode(arg ctx wr)
+    ctx.unsetInExpr()
+  }
+
+  fn jsWriteForLoop:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if ((array_length node.children) < 5) {
+      return
+    }
+    def coll:CodeNode (node.getSecond())
+    def item:CodeNode (itemAt node.children 2)
+    def idx:CodeNode (itemAt node.children 3)
+    def body:CodeNode (itemAt node.children 4)
+
+    if (jsLoops.canIterate(node)) {
+      wr.out("for ( " false)
+      ; `const` unless the body assigns to the name -- the index form gave it a
+      ; private `var`
+      if (jsLoops.bodyAssignsElement(node)) {
+        wr.out("let " false)
+      } {
+        wr.out("const " false)
+      }
+      this.jsWriteOperand(item ctx wr)
+      wr.out(" of " false)
+      this.jsWriteOperand(coll ctx wr)
+      wr.out(") {" true)
+      wr.indent(1)
+      def rCtx:RangerAppWriterContext (ctx.fork())
+      rCtx.restartExpressionLevel()
+      this.WalkNode(body rCtx wr)
+      wr.indent(-1)
+      wr.out("}" true)
+      return
+    }
+
+    ; the index form, what the template wrote before
+    wr.out("for ( let " false)
+    this.jsWriteOperand(idx ctx wr)
+    wr.out(" = 0; " false)
+    this.jsWriteOperand(idx ctx wr)
+    wr.out(" < " false)
+    this.jsWriteOperand(coll ctx wr)
+    wr.out(".length; " false)
+    this.jsWriteOperand(idx ctx wr)
+    wr.out("++) {" true)
+    wr.indent(1)
+    wr.out("var " false)
+    this.jsWriteOperand(item ctx wr)
+    wr.out(" = " false)
+    this.jsWriteOperand(coll ctx wr)
+    wr.out("[" false)
+    this.jsWriteOperand(idx ctx wr)
+    wr.out("];" true)
+    def sCtx:RangerAppWriterContext (ctx.fork())
+    sCtx.restartExpressionLevel()
+    this.WalkNode(body sCtx wr)
+    wr.indent(-1)
+    wr.out("}" true)
+  }
+
   fn CustomOperator:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def fc:CodeNode (node.getFirst())
     def cmd:string fc.vref
+    ; an index loop, or `for (const v of xs)` when that is safe
+    if (cmd == "for") {
+      this.jsWriteForLoop(node ctx wr)
+      return
+    }
     if (cmd != "start") {
       return
     }

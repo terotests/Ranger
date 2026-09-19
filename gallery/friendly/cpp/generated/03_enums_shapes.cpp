@@ -1,6 +1,4 @@
 #include  <memory>
-#include  <cstddef>
-#include  <type_traits>
 #include  <variant>
 #include  <string>
 #include  <iostream>
@@ -13,34 +11,14 @@ enum class Color : int {
 
 // define classes here to avoid compiler errors
 class Message_Text;
-class Message_Text;
-class Message__ops;
-class EnumsMain;
 class Message_Ping;
 class Message_Text;
 class Message_Move;
 class Message__ops;
 class EnumsMain;
 
-template <class T>
-class r_optional_union {
-  public:
-    bool has_value = false;
-    T value = T();
-    r_optional_union() {}
-    r_optional_union(const T & a_value) : has_value(true), value(a_value) {}
-    template <class U, typename std::enable_if<std::is_constructible<T, const U &>::value, int>::type = 0>
-    r_optional_union(const U & a_value) : has_value(true), value(a_value) {}
-    operator T() const { return value; }
-    bool operator!=(std::nullptr_t) const { return has_value; }
-    bool operator==(std::nullptr_t) const { return !has_value; }
-    explicit operator bool() const { return has_value; }
-};
 typedef std::variant<Message_Ping, std::shared_ptr<Message_Text>, Message_Move>  r_union_Message;
-typedef std::variant<Message_Ping, std::shared_ptr<Message_Text>, Message_Move, std::shared_ptr<Message__ops>, std::shared_ptr<EnumsMain>, int, std::string, bool, double>  r_union_Any;
 
-
-template <class T> inline T& rg_arg_ref(T&& v) { return v; }
 
 // header definitions
 class Message_Ping { 

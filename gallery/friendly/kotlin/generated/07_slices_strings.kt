@@ -8,8 +8,7 @@ class TextTools
   
   fun  total( xs : MutableList<Int>) : Int {
     var acc : Int  = 0;
-    for ( i in xs.indices ) {
-      val v = xs[i]
+    for ( v in xs ) {
       acc = acc + v;
     }
     return acc;

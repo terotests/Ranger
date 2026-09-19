@@ -60,9 +60,17 @@ whether Ranger compiled.
 | 5 | [Kotlin](kotlin/README.md) | yes | `T?`, `sealed interface`, `(Int) -> Int`. `throw` is `Exception(msg)` now, kotlinc-clean and `error_msg`-correct. |
 | 6 | [C#](csharp/README.md) | yes | `int?`, `List<T>`, `Func<int, int>`, `interface` for a `shape`. `throw` wraps `ConfigurationErrorsException` and **runs**. `int` is 32-bit. |
 | 7 | [Java](java/README.md) | yes | Runs, and `throw` wraps `IllegalArgumentException`. Everything else is Java 7: `Integer` boxing, `Object` + `instanceof`, one file per class. |
-| 8 | [Go](go/README.md) | yes | Sharing is `*T`. Optional is `*GoNullable`. `try`/`throw` is `panic`/`recover`. Workable, not Go-like. |
-| 9 | [C++](cpp/README.md) | yes | `enum class` for a Ranger `Enum` now, and an optional string is an `r_optional_primitive<std::string>` rather than a `std::string` with `""` meaning absent — the one answer that used to differ from every other target. Still `shared_ptr` everywhere. `error_msg` carries the real text, and the map preamble only goes in when a map is reachable (study 07: 237 → 88 lines). |
-| 10 | [Rust](rust/README.md) | yes | Ownership-aware (`Rc`/`RefCell`/`Weak`, borrows) and still the least Rust-like, though less so: a Ranger `Enum` is a real `enum`, a `shape` match is a real `match`, names are `snake_case` and a behaviour-only `trait` is a `trait`. What is left is the big one — no `Result`, no `?`. `try`/`catch` and a `trait` used as a type are compile errors rather than wrong output, and optional params are fixed. |
+| 8 | [Rust](rust/README.md) | yes | Ownership-aware (`Rc`/`RefCell`/`Weak`, borrows) and still the least Rust-like, though less so: a Ranger `Enum` is a real `enum`, a `shape` match is a real `match`, names are `snake_case` and a behaviour-only `trait` is a `trait`. What is left is the big one — no `Result`, no `?`. `try`/`catch` and a `trait` used as a type are compile errors rather than wrong output, and optional params are fixed. |
+| 9 | [C++](cpp/README.md) | yes | No longer `shared_ptr` everywhere: a `record` the sharing analysis proves is never aliased is a value, so `manhattan(const Point& p)` is the signature and the copying builder returns a `Request`. `for ( int v : xs )` where a range-`for` is safe. `enum class` for a Ranger `Enum`, an optional string that can tell `""` from absent, `error_msg` with the real text, and a preamble that goes in only when the program reaches it (study 07: 237 → 67 lines). |
+| 10 | [Go](go/README.md) | yes | Sharing is `*T`. Optional is `*GoNullable`. `try`/`throw` is `panic`/`recover`. Workable, not Go-like. |
+
+Every target's `for` is that target's own loop now, when the body neither
+reads the index nor touches the collection: `for (const v of xs)`,
+`for v in xs:`, `for _, v := range xs`, `for (T v : xs)`, `for (v in xs)`,
+`foreach (T v in xs)`, `for (final v in xs)`, `for v in xs`,
+`for (const T& v : xs)`. The decision is one decision
+([`compiler/ForLoopAnalysis.rgr`](../../compiler/ForLoopAnalysis.rgr)); only
+the spelling is per target.
 
 Two scores that are not the same thing:
 
@@ -77,8 +85,12 @@ Two scores that are not the same thing:
   already look like the language (JS, Dart), then the typed languages
   that get `T?` right but break `throw` (Swift, Kotlin), then C# (legal
   `int?` / `Func` / `interface`, odd exception type), then Java (ugly,
-  but legal), then Go / C++ / Rust — each more honest about memory, each
-  further from what a native file looks like.
+  but legal), then Rust / C++ / Go — each more honest about memory, each
+  further from what a native file looks like. Rust and C++ have closed part
+  of that: a class the sharing analysis proves nothing aliases is a plain
+  value on both, a `for` that ignores its index is a native loop on both, and
+  neither file opens with a preamble the program cannot reach. Go is last
+  because the ownership pass does not run for it at all.
 
 What **none** of them get from Ranger today: a `Result` / `(T, error)` /
 `throws` type, or `@params` surviving as `Stack<T>` rather than `Stack_int`.

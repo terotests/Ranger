@@ -7,6 +7,99 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **C++: a `record` nothing aliases is a value, not a `shared_ptr`.**
+  `StaticAnalyzer.analyzeClassSharing` already walks the whole program and
+  decides which classes are aliased and held; the pass already ran for C++
+  compilations; only the Rust writer read the answer. So the same study came
+  out as `struct Point` + `fn manhattan(p: &Point)` on Rust and
+  `class Point` + `int manhattan(const std::shared_ptr<Point>&)` on C++.
+  A record that verdict clears is now a value everywhere it appears — the
+  parameter is `const Point&`, `new Point(3 4)` is `Point(3, 4)` on the stack,
+  and the copying builder in study 08 returns a `Request`. The C++-specific
+  disqualifiers live beside it in
+  [`compiler/CppValueAnalysis.rgr`](compiler/CppValueAnalysis.rgr): an
+  `@(optional)` of the record (an optional object *is* the null pointer on this
+  target), a `cast` to it, a method that hands out bare `this`
+  (`shared_from_this()` needs the pointer), a field of its own type,
+  inheritance in either direction, and membership of a closed family, which
+  keeps the family's own rule. `-strict-ownership` prints
+  `ownership[cpp] class Point -> value` or the reason it did not;
+  `-cpp-shared-classes` restores the old lowering. Classes with behaviour are
+  the same question and wait for `const` member functions: a `const User&`
+  cannot call `who.label()` until the writer emits one.
+
+  Two things the value form needed that the pointer form never did. A
+  parameter the body WRITES THROUGH is `Point&`, not `const Point&`: behind a
+  `shared_ptr` the `const` was on the pointer and `p->x = 1` compiled, and on
+  a value it is on the object. `StaticAnalyzer.markVarAsMutated` has been
+  recording that fact as `needs_cpp_reference` all along; the writer suppressed
+  the `&` for class types because a `shared_ptr` never needed one. And a `T&`
+  does not bind a temporary, so `m.bump((new Point(1 2)))` goes through
+  `rg_arg_ref`, which is what that helper already existed for.
+
+- **Every target's `for` is now that target's own loop.** The question is one
+  question -- can this loop be written over the collection instead of over an
+  index? -- so it is answered once, in
+  [`compiler/ForLoopAnalysis.rgr`](compiler/ForLoopAnalysis.rgr), and each
+  writer spells the answer its own way:
+
+  | target | was | is |
+  | --- | --- | --- |
+  | JavaScript / TypeScript | `for ( let i = 0; i < xs.length; i++)` | `for ( const v of xs)` |
+  | Python | `for i, v in enumerate(xs):` | `for v in xs:` |
+  | Go | `var i int64 = 0; for ; i < int64(len(xs)) ; i++` | `for _, v := range xs {` |
+  | Java | `for ( int i = 0; i < xs.size(); i++)` | `for ( Integer v : xs)` |
+  | Kotlin | `for ( i in xs.indices )` | `for ( v in xs )` |
+  | C# | `for ( int i = 0; i < xs.Count; i++)` | `foreach ( int v in xs)` |
+  | Dart | `for ( int i = 0; i < xs.length; i++)` | `for ( final v in xs)` |
+  | Swift | `for (_, v) in xs.enumerated()` | `for v in xs` |
+  | C++ | `for ( int i = 0; i != (int)(xs.size()); i++)` | `for ( int v : xs )` |
+
+  Two conditions, and both are safety rather than length: the body must not
+  read the index, and must not touch any NAME the collection expression rests
+  on. A foreach form takes one iterator, enumerator or borrow for the whole
+  loop, so a body that appends walks something the index form does not -- an
+  invalidated iterator on C++, a `ConcurrentModificationException` on Java and
+  Kotlin, an `InvalidOperationException` on C#, a different answer on Go and
+  Swift. Every target keeps the index loop there, and `tests/loops-native.test.ts`
+  asserts both halves on all ten. Rust already made this decision
+  (PLAN_RUST_SEMANTIC_IDIOMS K) and es5 is deliberately left out, because
+  `for...of` is ES6.
+
+- **C++: `for ( int v : xs )`.** The generated `for` was always
+  `for ( int i = 0; i != (int)(xs.size()); i++) { int v = xs.at(i); … }`. When
+  the body neither reads the index nor touches any name the collection rests
+  on, it is a range-`for` now — a scalar element by value, everything else
+  `const T&`. Both conditions are what makes it safe rather than merely
+  shorter: a range-`for` holds one iterator pair for the whole loop, so a body
+  that pushes would walk invalidated iterators where the index form re-reads
+  `.size()` every turn. Same decision the Rust writer makes
+  (PLAN_RUST_SEMANTIC_IDIOMS K), and deliberately not an
+  `<algorithm>` / `<ranges>` lowering.
+
+- **C++ and Rust: the preamble goes in only when the program reaches it.**
+  The ordered-map preamble was gated already; these were not. On C++,
+  `template <class T> class r_optional_union` went into every file that had a
+  union — and `Any`, the compiler's own union of every declared class, is one
+  the parser declares for every program, so the answer was always yes. `Any`
+  and its forward declarations now go in only when the program says `Any`,
+  `r_optional_union` only when some `@(optional)` names a closed family, and
+  `rg_arg_ref` only when a call site needs it. The twelve gallery studies lost
+  291 lines; study 07 is 67 lines, from 88. On Rust, `use std::rc::Rc`,
+  `use std::cell::RefCell` and the `RgAnyRef` / `rg_downcast` / `RgIdentical`
+  trio go in only when the cell can reach the output — a shared class, a
+  `@(weak)` field, a closed family, a behaviour-only trait used as a type, or
+  an inheritance family. Six of the twelve Rust studies have none of those and
+  drop all thirteen lines.
+
+  Gate for all three: `bash gallery/friendly/compile.sh` (twelve studies on
+  every target with a toolchain, every `attempts/` file still refused, six
+  targets agreeing on all twelve outputs), the C++ selfhost build, and
+  `scripts/rust-selfhost-check.sh`. The plan is
+  [`docs/plans/PLAN_CPP_IDIOMS.md`](docs/plans/PLAN_CPP_IDIOMS.md).
+
 ### Added
 
 - **Liquid glass, as CSS.** A third plugin layer and the effect that needed it.
