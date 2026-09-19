@@ -1,0 +1,144 @@
+; SPDX-License-Identifier: MIT
+
+; `@process` path validation: a process class declares the path it answers on,
+; and two classes may not claim the same one.
+
+extension RangerFlowParser {
+
+  fn readProcessPathFromClassTree:string (root:CodeNode) {
+    def path:string (root.getStringProperty("name"))
+    if ((strlen path) > 0) {
+      return path
+    }
+    if (root.hasExpressionProperty("name")) {
+      def ann@(optional):CodeNode (root.getExpressionProperty("name"))
+      if ((null? ann) == false) {
+        def an:CodeNode (unwrap ann)
+        if ((size an.children) > 0) {
+          def fc:CodeNode (at an.children 0)
+          if (fc.value_type == RangerNodeType.String) {
+            return fc.string_value
+          }
+        }
+        if (an.value_type == RangerNodeType.String) {
+          return an.string_value
+        }
+      }
+    }
+    for root.children ch:CodeNode i {
+      def childPath:string (this.readProcessPathFromClassTree(ch))
+      if ((strlen childPath) > 0) {
+        return childPath
+      }
+    }
+    return ""
+  }
+
+  fn applyProcessClassMeta:void (cl:RangerAppClassDesc classNameNode:CodeNode node:CodeNode ctx:RangerAppWriterContext) {
+    def isProc:boolean false
+    if (classNameNode.hasFlag("process")) {
+      isProc = true
+    }
+    if (node.hasBooleanProperty("process")) {
+      isProc = true
+    }
+    def procPathOnly:string (this.readProcessPathFromClassTree(node))
+    if (isProc == false) {
+      if ((strlen procPathOnly) > 0) {
+        ctx.addError(classNameNode "@name is only allowed on @process classes")
+      }
+      return
+    }
+    push processClasses cl
+    cl.is_process = true
+    if ((strlen procPathOnly) > 0) {
+      cl.process_path = procPathOnly
+    }
+  }
+
+  fn resolveProcessPathFromFields:void (cl:RangerAppClassDesc) {
+    for cl.variables v:RangerAppParamDesc i {
+      if (v.name != "__rangerProcessName") {
+        continue
+      }
+      if (v.def_value.value_type == RangerNodeType.String) {
+        cl.process_path = v.def_value.string_value
+        return
+      }
+      if ((strlen v.value.string_value) > 0) {
+        cl.process_path = v.value.string_value
+        return
+      }
+    }
+  }
+
+  fn validateProcessPaths:void (processClasses:[RangerAppClassDesc] ctx:RangerAppWriterContext) {
+    for processClasses cl:RangerAppClassDesc i {
+      if ((strlen cl.process_path) == 0) {
+        def classNode@(optional weak):CodeNode (cl.node)
+        if ((null? classNode) == false) {
+          def cn:CodeNode (unwrap classNode)
+          def resolvedCn:string (this.readProcessPathFromClassTree(cn))
+          if ((strlen resolvedCn) > 0) {
+            cl.process_path = resolvedCn
+          }
+        }
+        def nameNode@(optional weak):CodeNode (cl.nameNode)
+        if ((strlen cl.process_path) == 0) {
+          if ((null? nameNode) == false) {
+            def nn:CodeNode (unwrap nameNode)
+            def resolvedNn:string (this.readProcessPathFromClassTree(nn))
+            if ((strlen resolvedNn) > 0) {
+              cl.process_path = resolvedNn
+            }
+          }
+        }
+        if ((strlen cl.process_path) == 0) {
+          this.resolveProcessPathFromFields(cl)
+        }
+      }
+    }
+    def seen:[string:string]
+    for processClasses cl:RangerAppClassDesc i {
+      if ((strlen cl.process_path) == 0) {
+        continue
+      }
+      def path:string (cl.process_path)
+      def prev@(optional):string (get seen path)
+      if ((null? prev) == false) {
+        def errNode@(optional weak):CodeNode (cl.nameNode)
+        if ((null? errNode) == false) {
+          def en:CodeNode (unwrap errNode)
+          ctx.addError(en ("Duplicate @process @name path: " + path))
+        }
+        continue
+      }
+      set seen path "1"
+      if (this.isValidProcessPath(path) == false) {
+        def errNode2@(optional weak):CodeNode (cl.nameNode)
+        if ((null? errNode2) == false) {
+          def en2:CodeNode (unwrap errNode2)
+          ctx.addError(en2 ("Invalid @name process path: " + path))
+        }
+      }
+    }
+  }
+
+  fn isValidProcessPath:boolean (pathStr:string) {
+    def n:int (strlen pathStr)
+    if (n == 0) {
+      return false
+    }
+    if (pathStr == ".") {
+      return false
+    }
+    def parts (strsplit pathStr ".")
+    for parts seg:string i {
+      if ((strlen seg) == 0) {
+        return false
+      }
+    }
+    return true
+  }
+
+}

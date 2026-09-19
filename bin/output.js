@@ -5519,7 +5519,7 @@ class CodeNode  {
   copy () {
     const match = new RangerArgMatch();
     const cp = this.rebuildWithType(match, false);
-    cp.register_expressions = operatorsOf.clone_46(this.register_expressions);
+    cp.register_expressions = operatorsOf.clone_40(this.register_expressions);
     return cp;
   };
   clone () {
@@ -5675,7 +5675,7 @@ class CodeNode  {
     newNode.value_type = this.value_type;
     newNode.parsed_type = this.parsed_type;
     newNode.copyEvalResFrom(this);
-    newNode.register_expressions = operatorsOf.clone_46(this.register_expressions);
+    newNode.register_expressions = operatorsOf.clone_40(this.register_expressions);
     if ( this.has_vref_annotation ) {
       newNode.has_vref_annotation = true;
       const ann = this.vref_annotation;
@@ -18455,733 +18455,1118 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         this.WalkNode(ch, ctx, wr);
       };
     };
-    clearImports (node, ctx, wr) {
-      if ( node.isFirstVref("Import") ) {
-        node.expression = true;
-        node.vref = "";
-        node.children.pop();
-        node.children.pop();
+    isClassMemberForm (node) {
+      if ( node.isFirstVref("extends") ) {
+        return true;
+      }
+      if ( node.isFirstVref("Extends") ) {
+        return true;
+      }
+      if ( node.isFirstVref("constructor") ) {
+        return true;
+      }
+      if ( node.isFirstVref("Constructor") ) {
+        return true;
+      }
+      if ( node.isFirstVref("def") ) {
+        return true;
+      }
+      if ( node.isFirstVref("let") ) {
+        return true;
+      }
+      if ( node.isFirstVref("static") ) {
+        return true;
+      }
+      if ( node.isFirstVref("StaticMethod") ) {
+        return true;
+      }
+      if ( node.isFirstVref("sfn") ) {
+        return true;
+      }
+      if ( node.isFirstVref("PublicMethod") ) {
+        return true;
+      }
+      if ( node.isFirstVref("fn") ) {
+        return true;
+      }
+      return false;
+    };
+    markParentClass (ee, childName, ctx) {
+      if ( ctx.isDefinedClass(ee.vref) == false ) {
+        ctx.addError(ee, ((("Class " + childName) + " extends ") + ee.vref) + ", which is not defined");
+        return;
+      }
+      const ParentClass = ctx.findClass(ee.vref);
+      ParentClass.is_inherited = true;
+      ParentClass.is_extended_by_children = true;
+      ParentClass.child_classes.push(childName);
+    };
+    isJustVref (a) {
+      if ( a.vref.length > 0 ) {
+        return true;
+      }
+      if ( TTypes.isPrimitive(a.value_type) ) {
+        return true;
+      }
+      if ( a.children.length == 1 ) {
+        return this.isJustVref(a.children[0]);
+      }
+      return false;
+    };
+    findLanguageOper (details, ctx, opDef) {
+      const langName = operatorsOf_23.getTargetLang_24(ctx);
+      let rv;
+      for ( let i = 0; i < details.children.length; i++) {
+        var det = details.children[i];
+        if ( det.children.length > 0 ) {
+          const fc = det.children[0];
+          if ( fc.vref == "templates" ) {
+            const tplList = det.children[1];
+            for ( let i_1 = 0; i_1 < tplList.children.length; i_1++) {
+              var tpl = tplList.children[i_1];
+              if ( tpl.hasExpressionProperty("flags") ) {
+                const flagList = tpl.getExpressionProperty("flags");
+                let b_matched = false;
+                operatorsOf.forEach_15(flagList.children, ((item, index) => { 
+                  console.log("FLAG " + item.vref);
+                  b_matched = b_matched || ctx.hasCompilerFlag(item.vref);
+                }));
+                if ( b_matched == false ) {
+                  continue;
+                }
+              }
+              const tplName = tpl.getFirst();
+              const is_ts = ctx.hasCompilerFlag("typescript");
+              if ( is_ts && (tplName.vref == "typescript" || tplName.vref == "ts") ) {
+                rv = tpl;
+                return rv;
+              }
+              if ( tplName.vref != "*" && tplName.vref != langName ) {
+                continue;
+              }
+              rv = tpl;
+              return rv;
+            };
+            if ( langName == "ranger" ) {
+              const opNameNode = opDef.getFirst();
+              const opArgs = opDef.getThird();
+              const rangerTpl = CodeNode.fromList([CodeNode.newStr((("(" + opNameNode.vref) + " "))]);
+              let cnt = 1;
+              operatorsOf.forEach_15(opArgs.children, ((item, index) => { 
+                if ( item.type_name == "block" ) {
+                  rangerTpl.children.push(CodeNode.fromList([CodeNode.vref1("block"), CodeNode.newInt(cnt)]));
+                } else {
+                  rangerTpl.children.push(CodeNode.fromList([CodeNode.vref1("e"), CodeNode.newInt(cnt)]));
+                }
+                cnt = cnt + 1;
+              }));
+              rangerTpl.children.push(CodeNode.newStr(")"));
+              rv = CodeNode.fromList([CodeNode.vref1("ranger"), rangerTpl]);
+            }
+          }
+        }
+      };
+      return rv;
+    };
+    buildMacro (langOper, args, ctx) {
+      const subCtx = ctx.fork();
+      const wr = new CodeWriter();
+      const lcc = new LiveCompiler();
+      lcc.langWriter = new RangerRangerClassWriter();
+      lcc.langWriter.compiler = lcc;
+      subCtx.targetLangName = "ranger";
+      subCtx.restartExpressionLevel();
+      const macroNode = langOper;
+      const cmdList = macroNode.getSecond();
+      if ( ctx.hasCompilerFlag("show-macros") ) {
+        console.log((("Building macro " + macroNode.vref) + " : ") + cmdList.getCode());
+        console.log("Arguments : " + args.getCode());
+      }
+      lcc.walkCommandList(cmdList, args, subCtx, wr);
+      const lang_str = wr.getCode();
+      const lang_code = new SourceCode(lang_str);
+      lang_code.filename = ("<macro " + macroNode.vref) + ">";
+      const lang_parser = new RangerLispParser(lang_code);
+      lang_parser.parse(ctx.hasCompilerFlag("no-op-transform"));
+      const node = lang_parser.rootNode;
+      if ( args.register_expressions.length > 0 ) {
+        node.register_expressions = operatorsOf.clone_40(args.register_expressions);
+      }
+      operatorsOf.forEach_15(args.children, ((item, index) => { 
+        operatorsOf.forEach_15(item.register_expressions, ((item, index) => { 
+          const re = item;
+          node.register_expressions.push(re);
+        }));
+      }));
+      return node;
+    };
+    operandIsNonOptionalForNullCheck (node) {
+      if ( node.hasFlag("optional") ) {
+        return false;
+      }
+      if ( node.hasParamDesc ) {
+        const pa = node.paramDesc;
+        if ( (typeof(pa.nameNode) !== "undefined" && pa.nameNode != null )  ) {
+          if ( pa.nameNode.hasFlag("optional") ) {
+            return false;
+          }
+        }
+      }
+      return true;
+    };
+    stdParamMatch (callArgs, inCtx, wr, require_all_match) {
+      this.stdCommands = inCtx.getStdCommands();
+      const callFnName = callArgs.getFirst();
+      const cmds = this.stdCommands;
+      let some_matched = false;
+      const found_fn = false;
+      let added_ns = "";
+      let missed_args = [];
+      let ctx = inCtx.fork();
+      const lang_name = operatorsOf_23.getTargetLang_24(ctx);
+      let expects_error = false;
+      const err_cnt = inCtx.getErrorCount();
+      let arg_eval_start = 0;
+      if ( callArgs.hasBooleanProperty("error") ) {
+        expects_error = true;
+      }
+      if ( inCtx.expressionLevel() == 0 ) {
+        inCtx.lastBlockOp = callArgs;
       } else {
-        for ( let i = 0; i < node.children.length; i++) {
-          var item = node.children[i];
-          this.clearImports(item, ctx, wr);
-        };
       }
-    };
-    registerLangSystemClasses (node, ctx, wr) {
-      this.walkLangDefinitions(node, ctx);
-    };
-    walkLangDefinitions (node, ctx) {
-      if ( node.isFirstVref("systemclass") ) {
-        this.registerSystemClassFromNode(node, ctx);
-        return;
-      }
-      if ( node.isFirstVref("systemunion") ) {
-        this.registerSystemUnionFromNode(node, ctx);
-        return;
-      }
-      for ( let i = 0; i < node.children.length; i++) {
-        var ch = node.children[i];
-        this.walkLangDefinitions(ch, ctx);
-      };
-    };
-    registerSystemClassFromNode (node, ctx) {
-      const nameNode = node.getSecond();
-      if ( ctx.isDefinedClass(nameNode.vref) ) {
-        const cl = ctx.findClass(nameNode.vref);
-        if ( cl.is_system_union == false ) {
-          ctx.addError(node, "Class already defined and it was not a systemunion.");
+      const in_chain = false;
+      const call_arg_cnt = callArgs.children.length;
+      const op_list = ctx.getOperators(callFnName.vref);
+      for ( let main_index = 0; main_index < op_list.length; main_index++) {
+        var ch = op_list[main_index];
+        const fc = ch.getFirst();
+        const nameNode = ch.getSecond();
+        const args = ch.getThird();
+        if ( inCtx.isVarDefined(fc.vref) ) {
+          return false;
         }
-        cl.is_system = true;
-        const instances = node.getThird();
-        for ( let i = 0; i < instances.children.length; i++) {
-          var ch = instances.children[i];
-          const langName = ch.getFirst();
-          const langClassName = ch.getSecond();
-          cl.systemNodes[langName.vref] = ch;
-          if ( langClassName.vref.length > 0 ) {
-            cl.systemNames[langName.vref] = langClassName.vref;
+        ctx.removeOpNs(added_ns);
+        ctx.addOpNs(fc.vref);
+        added_ns = fc.vref;
+        const callerArgCnt = call_arg_cnt - 1;
+        const fnArgCnt = args.children.length;
+        let has_eval_ctx = false;
+        let is_macro = false;
+        let plugin_name = "operator";
+        let plugin_fn = "";
+        let is_plugin = false;
+        let is_pure = false;
+        let is_static_fn = false;
+        let static_fn_name = "";
+        let static_class_name = "";
+        let static_nameNode;
+        if ( nameNode.hasFlag("newcontext") ) {
+          ctx = inCtx.fork();
+          has_eval_ctx = true;
+        }
+        const throws_exception = nameNode.hasFlag("throws");
+        const is_async = nameNode.hasFlag("async");
+        const expanding_node = nameNode.hasFlag("expands");
+        if ( callerArgCnt == fnArgCnt || expanding_node ) {
+          const details_list = ch.children[3];
+          const langOper = this.findLanguageOper(details_list, ctx, ch);
+          if ( typeof(langOper) === "undefined" ) {
+            continue;
           }
-          if ( langClassName.string_value.length > 0 ) {
-            cl.systemNames[langName.vref] = langClassName.string_value;
+          is_pure = nameNode.hasFlag("pure");
+          if ( langOper.hasBooleanProperty("macro") || nameNode.hasFlag("macro") ) {
+            is_macro = true;
           }
-        };
-        return;
-      }
-      const instances_1 = node.getThird();
-      const new_class = new RangerAppClassDesc();
-      new_class.name = nameNode.vref;
-      new_class.nameNode = nameNode;
-      ctx.addClass(nameNode.vref, new_class);
-      new_class.is_system = true;
-      for ( let i_1 = 0; i_1 < instances_1.children.length; i_1++) {
-        var ch_1 = instances_1.children[i_1];
-        const langName_1 = ch_1.getFirst();
-        const langClassName_1 = ch_1.getSecond();
-        new_class.systemNodes[langName_1.vref] = ch_1;
-        if ( langClassName_1.vref.length > 0 ) {
-          new_class.systemNames[langName_1.vref] = langClassName_1.vref;
-        }
-        if ( langClassName_1.string_value.length > 0 ) {
-          new_class.systemNames[langName_1.vref] = langClassName_1.string_value;
-        }
-      };
-      nameNode.is_system_class = true;
-      nameNode.clDesc = new_class;
-    };
-    registerSystemUnionFromNode (node, ctx) {
-      const nameNode = node.getSecond();
-      if ( ctx.isDefinedClass(nameNode.vref) ) {
-        const cl = ctx.findClass(nameNode.vref);
-        if ( cl.is_system == false ) {
-          ctx.addError(node, "Only system classes can be systemunions");
-        }
-        cl.is_system_union = true;
-        const instances = node.getThird();
-        for ( let i = 0; i < instances.children.length; i++) {
-          var ch = instances.children[i];
-          cl.is_union_of.push(ch.vref);
-        };
-        return;
-      }
-      const instances_1 = node.getThird();
-      const new_class = new RangerAppClassDesc();
-      new_class.name = nameNode.vref;
-      new_class.nameNode = nameNode;
-      ctx.addClass(nameNode.vref, new_class);
-      new_class.is_system_union = true;
-      for ( let i_1 = 0; i_1 < instances_1.children.length; i_1++) {
-        var ch_1 = instances_1.children[i_1];
-        new_class.is_union_of.push(ch_1.vref);
-      };
-      nameNode.clDesc = new_class;
-    };
-    finalizeRecordClasses (ctx, wr) {
-      const rootCtx = ctx.getRoot();
-      for ( let i = 0; i < rootCtx.definedClassList.length; i++) {
-        var cname = rootCtx.definedClassList[i];
-        const cl = rootCtx.findClass(cname);
-        if ( cl.is_record ) {
-          if ( cl.has_constructor == false ) {
-            this.buildRecordConstructor(cl, ctx, wr);
+          if ( langOper.hasStringProperty("plugin") ) {
+            plugin_name = langOper.getStringProperty("plugin");
+            is_plugin = true;
+            const pluginFn = langOper.getStringProperty("fn");
+            if ( pluginFn.length > 0 ) {
+              plugin_fn = pluginFn;
+              console.log("Function : " + plugin_fn);
+            }
           }
-        }
-      };
-    };
-    expandRecordCtorArgsIfNeeded (cl, fnDescr, params, node) {
-      if ( cl.is_record == false ) {
-        return;
-      }
-      if ( params.children.length == 0 ) {
-        return;
-      }
-      const fc = params.children[0];
-      if ( fc.hasFlag("keyword") ) {
-        return;
-      }
-      let valueCnt = 0;
-      for ( let i = 0; i < fnDescr.params.length; i++) {
-        var p = fnDescr.params[i];
-        if ( p.nameNode.hasFlag("keyword") == false ) {
-          valueCnt = valueCnt + 1;
-        }
-      };
-      if ( params.children.length != valueCnt ) {
-        return;
-      }
-      let expanded = [];
-      let vi = 0;
-      for ( let i_1 = 0; i_1 < fnDescr.params.length; i_1++) {
-        var p_1 = fnDescr.params[i_1];
-        if ( p_1.nameNode.hasFlag("keyword") ) {
-          const kw = node.newVRefNode(p_1.name);
-          kw.setFlag("keyword");
-          expanded.push(kw);
-        } else {
-          expanded.push(params.children[vi]);
-          vi = vi + 1;
-        }
-      };
-      params.children.length = 0;
-      for ( let i_2 = 0; i_2 < expanded.length; i_2++) {
-        var item = expanded[i_2];
-        params.children.push(item);
-      };
-    };
-    buildRecordConstructor (cl, ctx, wr) {
-      if ( cl.variables.length == 0 ) {
-        return;
-      }
-      let sig = "Constructor (";
-      let body = "{\n";
-      let i = 0;
-      const cnt = cl.variables.length;
-      while (i < cnt) {
-        const v = cl.variables[i];
-        let tname = v.nameNode.type_name;
-        const vKeyType = v.nameNode.key_type;
-        const vArrayType = v.nameNode.array_type;
-        if ( vKeyType.length > 0 ) {
-          tname = ((("[" + vKeyType) + ":") + vArrayType) + "]";
-        } else {
-          if ( vArrayType.length > 0 ) {
-            tname = ("[" + vArrayType) + "]";
+          const codeDef = langOper.getSecond();
+          const match = new RangerArgMatch();
+          let last_walked = 0;
+          let last_was_block = false;
+          let walk_later = [];
+          let not_enough_args = false;
+          let blocksToWalkLater = [];
+          if ( ch.hasExpressionProperty("flags") ) {
+            const flagList = ch.getExpressionProperty("flags");
+            let b_matched = false;
+            operatorsOf.forEach_15(flagList.children, ((item, index) => { 
+              b_matched = b_matched || ctx.hasCompilerFlag(item.vref);
+            }));
+            if ( b_matched == false ) {
+              continue;
+            }
           }
-        }
-        if ( tname.length == 0 ) {
-          tname = "string";
-        }
-        if ( i > 0 ) {
-          sig = sig + " ";
-        }
-        sig = ((((sig + v.name) + "@(keyword) ") + v.name) + ":") + tname;
-        body = ((((body + "this.") + v.name) + " = ") + v.name) + "\n";
-        i = i + 1;
-      };
-      sig = sig + ") ";
-      const code = (sig + body) + "}";
-      const src = new SourceCode(code);
-      src.filename = ("record_ctor_" + cl.name) + ".rgr";
-      const parser = new RangerLispParser(src);
-      parser.parse(false);
-      const rn = parser.rootNode;
-      if ( typeof(rn) === "undefined" ) {
-        return;
-      }
-      const subCtx = cl.ctx;
-      subCtx.setCurrentClass(cl);
-      for ( let ci = 0; ci < rn.children.length; ci++) {
-        var ch = rn.children[ci];
-        if ( ch.isFirstVref("Constructor") ) {
-          this.WalkCollectMethods(ch, subCtx, wr);
-          this.Constructor(ch, subCtx, wr);
-          return;
-        }
-      };
-    };
-    prepareImport (ctx, spec) {
-      const hit = new PkgHit();
-      hit.ok = true;
-      hit.name = PkgImport.stripDot(spec);
-      const envOpt = ctx.getEnv();
-      if ( typeof(envOpt) === "undefined" ) {
-        hit.ok = false;
-        hit.err = "Environment not defined";
-        return hit;
-      }
-      if ( PkgImport.isPkg(spec) == false ) {
-        return hit;
-      }
-      const env = envOpt;
-      const rootCtx = ctx.getRoot();
-      let startDir = ".";
-      const lp = rootCtx.libraryPaths.length;
-      if ( lp > 0 ) {
-        startDir = rootCtx.libraryPaths[(lp - 1)];
-      }
-      return PkgImport.resolve(env, startDir, spec, rootCtx.libraryPaths);
-    };
-    mergeImports (node, ctx, wr) {
-      const envOpt = ctx.getEnv();
-      if ( typeof(envOpt) === "undefined" ) {
-        ctx.addError(node, "Environment not defined");
-        return;
-      }
-      const env = envOpt;
-      if ( node.isFirstVref("Import") ) {
-        const fNameNode = node.children[1];
-        const import_file = fNameNode.string_value;
-        if ( ( typeof(ctx.already_imported[import_file] ) != "undefined" && Object.prototype.hasOwnProperty.call(ctx.already_imported, import_file) ) ) {
-          return;
-        }
-        let source_code = "";
-        const ppList = ctx.findPluginsFor("import_loader");
-        if ( ppList.length > 0 ) {
-          try {
-            operatorsOf.forEach_12(ppList, ((item, index) => { 
-              const plugin = require( item );
-              const ss = ( (new plugin.Plugin () )["import_loader"] )(
-                node,
+          ctx.setInExpr();
+          for ( let i = 0; i < args.children.length; i++) {
+            var arg = args.children[i];
+            if ( i < arg_eval_start ) {
+              continue;
+            }
+            arg_eval_start = i;
+            if ( callArgs.children.length <= i + 1 ) {
+              not_enough_args = true;
+              break;
+            }
+            const callArg = callArgs.children[(i + 1)];
+            if ( arg.hasFlag("define") ) {
+              const p = new RangerAppParamDesc();
+              p.name = callArg.vref;
+              p.value_type = arg.value_type;
+              p.node = callArg;
+              p.nameNode = callArg;
+              p.is_optional = false;
+              p.init_cnt = 1;
+              ctx.defineVariable(p.name, p);
+              callArg.hasParamDesc = true;
+              callArg.ownParamDesc = p;
+              callArg.paramDesc = p;
+              if ( callArg.type_name.length == 0 ) {
+                callArg.type_name = arg.type_name;
+                callArg.value_type = arg.value_type;
+              }
+              callArg.eval_type = arg.value_type;
+              callArg.eval_type_name = arg.type_name;
+            }
+            if ( arg.hasFlag("ignore") ) {
+              continue;
+            }
+            if ( arg.hasFlag("keyword") ) {
+              if ( callArg.vref != arg.vref ) {
+                not_enough_args = true;
+              }
+              continue;
+            }
+            if ( arg.hasFlag("noeval") ) {
+              callArg.eval_type = callArg.value_type;
+              callArg.eval_type_name = callArg.type_name;
+              callArg.eval_array_type = callArg.array_type;
+              callArg.eval_key_type = callArg.key_type;
+              continue;
+            }
+            last_walked = i + 1;
+            if ( arg.value_type == 20 ) {
+              const opList = ctx.getOpFns(callArg.vref);
+              if ( opList.length > 0 ) {
+                const signature = arg.expression_value.copy();
+                const params = signature.children[1];
+              }
+              if ( codeDef.is_block_node == false ) {
+                const later = new WalkLater();
+                later.arg = arg;
+                later.callArg = callArg;
+                walk_later.push(later);
+              }
+            } else {
+              if ( arg.type_name == "block" || arg.hasFlag("block") ) {
+                if ( arg.hasFlag("try_block") ) {
+                  const tmpCtx = ctx.fork();
+                  tmpCtx.is_try_block = true;
+                  callArg.evalCtx = tmpCtx;
+                  tmpCtx.newBlock();
+                  this.WalkNode(callArg, tmpCtx, wr);
+                } else {
+                  const tmpCtx_1 = ctx.fork();
+                  tmpCtx_1.newBlock();
+                  callArg.evalCtx = tmpCtx_1;
+                  this.WalkNode(callArg, tmpCtx_1, wr);
+                }
+                last_was_block = true;
+              } else {
+                ctx.setInExpr();
+                this.WalkNode(callArg, ctx, wr);
+                ctx.unsetInExpr();
+                if ( arg.type_name.length > 0 ) {
+                  this.convertToUnion(arg.type_name, callArg, ctx, wr);
+                }
+                last_was_block = false;
+              }
+              if ( arg.hasFlag("mutates") ) {
+                if ( callArg.hasParamDesc ) {
+                  if ( typeof(callArg.paramDesc) != "undefined" && ((typeof(callArg.paramDesc.propertyClass) !== "undefined" && callArg.paramDesc.propertyClass != null ) ) ) {
+                    if ( callArg.paramDesc.propertyClass.nameNode.hasFlag("immutable") ) {
+                      const propC = callArg.paramDesc.propertyClass;
+                      const currC = ctx.getCurrentClass();
+                      if ( currC != propC ) {
+                        not_enough_args = true;
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          };
+          ctx.unsetInExpr();
+          if ( not_enough_args ) {
+            continue;
+          }
+          if ( expanding_node ) {
+            for ( let i2 = 0; i2 < callArgs.children.length; i2++) {
+              var caCh = callArgs.children[i2];
+              if ( caCh.is_block_node ) {
+                const tmpCtx_2 = ctx;
+                caCh.evalCtx = tmpCtx_2;
+                blocksToWalkLater.push(caCh);
+                continue;
+              }
+              if ( i2 > last_walked ) {
+                if ( last_was_block ) {
+                  const sCtx = ctx.forkWithOps(ch.children[3]);
+                  this.WalkNode(caCh, sCtx, wr);
+                } else {
+                  ctx.setInExpr();
+                  this.WalkNode(caCh, ctx, wr);
+                  ctx.unsetInExpr();
+                }
+              }
+            };
+          }
+          const all_matched = match.matchArguments(args, callArgs, ctx, 1);
+          if ( all_matched ) {
+            const expr_level = ctx.expressionLevel();
+            let is_last = false;
+            if ( (typeof(callArgs.parent) !== "undefined" && callArgs.parent != null )  ) {
+              is_last = callArgs.parent.children.length == 1 + callArgs.parent.children.indexOf(callArgs);
+            }
+            if ( (fc.vref == "if" && ctx.hasCompilerFlag("voidexpr")) && (expr_level > 0 || is_last) ) {
+              console.log("IF expr leve == " + ctx.expressionLevel());
+              console.log(callArgs.getCode());
+              const thenBlock = callArgs.children[2];
+              const lastRow = thenBlock.children[(thenBlock.children.length - 1)];
+              console.log("Last row == " + lastRow.getCode());
+              const BlockOP = ctx.getLastBlockOp();
+              const regName = ctx.createNewRegName();
+              const regExpr = CodeNode.fromList([CodeNode.vref1("def"), CodeNode.vref2(regName, lastRow.eval_type_name)]);
+              callArgs.eval_type = lastRow.eval_type;
+              callArgs.eval_type_name = lastRow.eval_type_name;
+              const fnC = ctx.findFunctionCtx();
+              this.WalkNode(regExpr, fnC, wr);
+              const regArg = regExpr.children[1];
+              const realRegDesc = regArg.paramDesc;
+              const realRegName = realRegDesc.compiledName;
+              let then_regs = false;
+              if ( lastRow.register_name.length > 0 ) {
+                const newLastRow = CodeNode.fromList([CodeNode.vref1("="), CodeNode.vref1(regName), CodeNode.vref1(lastRow.register_name)]);
+                this.WalkNode(newLastRow, ctx, wr);
+                thenBlock.children.push(newLastRow);
+                then_regs = true;
+              } else {
+                const vCopy = lastRow.cleanCopy();
+                lastRow.expression = true;
+                lastRow.vref = "";
+                lastRow.value_type = 0;
+                lastRow.flow_done = false;
+                lastRow.getChildrenFrom(CodeNode.fromList([CodeNode.vref1("="), CodeNode.vref1(regName), vCopy]));
+                this.WalkNode(lastRow, ctx, wr);
+              }
+              if ( callArgs.children.length == 4 ) {
+                const elseBlock = callArgs.children[3];
+                const lastRow_1 = elseBlock.children[(elseBlock.children.length - 1)];
+                if ( lastRow_1.register_name.length > 0 ) {
+                  const newLastRow_1 = CodeNode.fromList([CodeNode.vref1("="), CodeNode.vref1(regName), CodeNode.vref1(lastRow_1.register_name)]);
+                  this.WalkNode(newLastRow_1, ctx, wr);
+                  elseBlock.children.push(newLastRow_1);
+                  then_regs = true;
+                } else {
+                  const vCopy_1 = lastRow_1.cleanCopy();
+                  lastRow_1.expression = true;
+                  lastRow_1.vref = "";
+                  lastRow_1.value_type = 0;
+                  lastRow_1.flow_done = false;
+                  lastRow_1.getChildrenFrom(CodeNode.fromList([CodeNode.vref1("="), CodeNode.vref1(regName), vCopy_1]));
+                  console.log(" lastRow value --> " + vCopy_1.getCode());
+                  this.WalkNode(lastRow_1, ctx, wr);
+                }
+              }
+              const tmp = callArgs.clone();
+              BlockOP.register_expressions.push(regExpr);
+              BlockOP.register_expressions.push(tmp);
+              callArgs.register_name = regName;
+              callArgs.reg_compiled_name = realRegName;
+              tmp.has_operator = true;
+              tmp.op_index = main_index;
+              tmp.operator_node = ch;
+              return true;
+            }
+            if ( fc.vref != "for" && ctx.hasCompilerFlag("new") ) {
+              const opDef = langOper.getSecond();
+              let opCnts = {};
+              let regNames = {};
+              let firstRef = {};
+              operatorsOf.forEach_15(args.children, ((item, index) => { 
+                const opArg = item;
+                if ( opArg.hasFlag("loopcondition") ) {
+                  let loopBlock;
+                  operatorsOf.forEach_15(args.children, ((item, index) => { 
+                    if ( item.hasFlag("loopblock") ) {
+                      const tmp_1 = callArgs.children[(index + 1)];
+                      loopBlock = tmp_1;
+                    }
+                  }));
+                  if ( typeof(loopBlock) === "undefined" ) {
+                    ctx.addError(args, "Invalid operator: Loop condition without block ");
+                    return;
+                  }
+                  const opName = index + 1;
+                  const item = callArgs.children[(index + 1)];
+                  let regName_1 = "";
+                  const realArg = callArgs.children[opName];
+                  if ( realArg.register_name.length > 0 ) {
+                    regName_1 = realArg.register_name;
+                  } else {
+                    regName_1 = ctx.createNewRegName();
+                  }
+                  const argCopy = realArg.copy();
+                  const regExpr_1 = CodeNode.fromList([CodeNode.vref1("def"), CodeNode.vref1(regName_1), argCopy]);
+                  ctx.lastBlockOp = callArgs;
+                  this.WalkNode(regExpr_1, ctx, wr);
+                  const regArg_1 = regExpr_1.children[1];
+                  const realRegDesc_1 = regArg_1.paramDesc;
+                  const realRegName_1 = realRegDesc_1.compiledName;
+                  regArg_1.paramDesc.set_cnt = 1;
+                  regArg_1.paramDesc.ref_cnt = 1;
+                  const BlockOP_1 = ctx.getLastBlockOp();
+                  BlockOP_1.register_expressions.push(regExpr_1);
+                  realArg.register_name = regName_1;
+                  realArg.reg_compiled_name = realRegName_1;
+                  operatorsOf.forEach_15(callArgs.children, ((item, index) => { 
+                    if ( item.is_block_node ) {
+                      const argCopy_1 = realArg.copy();
+                      argCopy_1.register_name = "";
+                      argCopy_1.forTree(((item, i) => { 
+                        item.register_name = "";
+                      }));
+                      const eval_expr = CodeNode.fromList([CodeNode.vref1("="), CodeNode.vref1(regName_1), argCopy_1]);
+                      const lastOp = loopBlock.children[(loopBlock.children.length - 1)];
+                      ctx.lastBlockOp = eval_expr;
+                      this.WalkNode(eval_expr, ctx, wr);
+                      item.children.push(eval_expr);
+                    }
+                  }));
+                }
+              }));
+              operatorsOf.forEach_15(opDef.children, ((item, index) => { 
+                if ( item.isFirstVref("e") ) {
+                  if ( item.hasFlag("ignore") || item.hasFlag("noeval") ) {
+                    return;
+                  }
+                  const opSecond = item.getSecond();
+                  const opName_1 = opSecond.int_value;
+                  const opArg_1 = args.children[(opName_1 - 1)];
+                  if ( ( typeof(opCnts[opName_1] ) != "undefined" && Object.prototype.hasOwnProperty.call(opCnts, opName_1) ) ) {
+                    let regName_2 = "";
+                    const realArg_1 = callArgs.children[opName_1];
+                    if ( this.isJustVref(realArg_1) ) {
+                      return;
+                    }
+                    if ( ( typeof(regNames[opName_1] ) != "undefined" && Object.prototype.hasOwnProperty.call(regNames, opName_1) ) ) {
+                      if ( realArg_1.register_name.length > 0 ) {
+                        regName_2 = realArg_1.register_name;
+                      } else {
+                        regName_2 = ( Object.prototype.hasOwnProperty.call(regNames, opName_1) ? regNames[opName_1] : undefined );
+                      }
+                      realArg_1.register_name = regName_2;
+                    } else {
+                      if ( realArg_1.register_name.length > 0 ) {
+                        regName_2 = realArg_1.register_name;
+                      } else {
+                        regName_2 = ctx.createNewRegName();
+                        regNames[opName_1] = regName_2;
+                        const argCopy_2 = realArg_1.copy();
+                        const regExpr_2 = CodeNode.fromList([CodeNode.vref1("def"), CodeNode.vref1(regName_2), argCopy_2]);
+                        this.WalkNode(regExpr_2, ctx, wr);
+                        const regArg_2 = regExpr_2.children[1];
+                        const realRegDesc_2 = regArg_2.paramDesc;
+                        const realRegName_2 = realRegDesc_2.compiledName;
+                        regArg_2.paramDesc.set_cnt = 1;
+                        regArg_2.paramDesc.ref_cnt = 1;
+                        const BlockOP_2 = ctx.getLastBlockOp();
+                        BlockOP_2.register_expressions.push(regExpr_2);
+                        realArg_1.register_name = regName_2;
+                        realArg_1.reg_compiled_name = realRegName_2;
+                      }
+                    }
+                  } else {
+                    opCnts[opName_1] = 1;
+                    firstRef[opName_1] = item;
+                  }
+                }
+              }));
+            }
+          }
+          if ( all_matched ) {
+            if ( is_async ) {
+              let activeFn = ctx.getCurrentMethod();
+              if ( (typeof(activeFn.nameNode) !== "undefined" && activeFn.nameNode != null )  ) {
+                activeFn.nameNode.setFlag("async");
+              }
+              while ((typeof(activeFn.insideFn) !== "undefined" && activeFn.insideFn != null ) ) {
+                activeFn = activeFn.insideFn;
+                if ( (typeof(activeFn.nameNode) !== "undefined" && activeFn.nameNode != null )  ) {
+                  activeFn.nameNode.setFlag("async");
+                }
+              };
+            }
+            if ( throws_exception ) {
+              if ( false == ctx.isTryBlock() ) {
+                const activeFn_1 = ctx.getCurrentMethod();
+                if ( ((typeof(activeFn_1.nameNode) !== "undefined" && activeFn_1.nameNode != null ) ) && activeFn_1.nameNode.hasFlag("throws") ) {
+                } else {
+                  ctx.addError(callArgs, ("The operator " + fc.vref) + " potentially throws an exception, try { } block is required");
+                }
+              }
+            }
+            for ( let i_1 = 0; i_1 < blocksToWalkLater.length; i_1++) {
+              var b = blocksToWalkLater[i_1];
+              const localFork = b.evalCtx.fork();
+              this.WalkNode(b, localFork, wr);
+            };
+            for ( let i_2 = 0; i_2 < walk_later.length; i_2++) {
+              var later_1 = walk_later[i_2];
+              const ca = later_1.callArg;
+              const aa = later_1.arg;
+              const newNode = new CodeNode(ca.code, ca.sp, ca.ep);
+              if ( (ca.is_block_node && ca.isFirstVref("fn") == false) && ca.isFirstVref("fun") == false ) {
+                const fnDef = aa.expression_value;
+                const copyOf = fnDef.rebuildWithType(match, false);
+                const ffc = copyOf.children[0];
+                ffc.vref = "fun";
+                const itemCopy = ca.rebuildWithType(match, false);
+                copyOf.children.push(itemCopy);
+                let cnt = ca.children.length;
+                while (cnt > 0) {
+                  ca.children.pop();
+                  cnt = cnt - 1;
+                };
+                for ( let i_3 = 0; i_3 < copyOf.children.length; i_3++) {
+                  var ch_1 = copyOf.children[i_3];
+                  ca.children.push(ch_1);
+                };
+              }
+              const sCtx_1 = ctx.fork();
+              sCtx_1.newBlock();
+              this.WalkNode(ca, sCtx_1, wr);
+            };
+          }
+          let staticMethod;
+          if ( codeDef.is_block_node && all_matched ) {
+            const pure_transform = ctx.hasCompilerFlag("pure");
+            if ( is_pure && pure_transform ) {
+              const argDefs = CodeNode.blockFromList(operatorsOf.map_41(args.children, ((item, index) => { 
+                const callArg_1 = callArgs.children[(index + 1)];
+                const arg_1 = item;
+                const vName = item.copy();
+                const caCopy = callArg_1.copy();
+                const prms = this.transformParams2([callArg_1], [arg_1], ctx);
+                const firstp = prms[0];
+                const ad = CodeNode.op3("def", [vName, firstp]);
+                return ad;
+              })));
+              const bodyStart = CodeNode.blockFromList([argDefs, codeDef]);
+              const newCtx = ctx.fork();
+              const bodyCopy = bodyStart.rebuildWithType(match, true);
+              callArgs.flow_done = false;
+              callArgs.getChildrenFrom(bodyCopy);
+              this.WalkNode(callArgs, newCtx, wr);
+              return true;
+            }
+            let nSig = "";
+            if ( args.children.length > 0 ) {
+              const arg0 = args.getFirst();
+              nSig = this.getNameSignature(arg0);
+            } else {
+              nSig = this.getVoidNameSignature();
+            }
+            const new_cl = ctx.createOpStaticClass(nSig);
+            this.WalkNode(new_cl.classNode, ctx, wr);
+            const bodyCopy_1 = codeDef.rebuildWithType(match, true);
+            const argsCopy = args.rebuildWithType(match, true);
+            const nameCopy = nameNode.rebuildWithType(match, true);
+            const sigN = ctx.transformOpNameWord(fc.vref);
+            const argsSig = sigN + this.getArgsSignature(argsCopy);
+            if ( false == new_cl.hasStaticMethod(argsSig) ) {
+              const sMethod = ctx.createStaticMethod(
+                argsSig,
+                new_cl,
+                nameCopy,
+                argsCopy,
+                bodyCopy_1,
+                this,
+                wr
+              );
+              staticMethod = sMethod;
+              const currM = ctx.getCurrentMethod();
+              currM.addCallTo(sMethod);
+              static_nameNode = nameCopy;
+              const fCtx = sMethod.fnCtx;
+              fCtx.currentMethod = sMethod;
+              fCtx.is_function = true;
+              const m = sMethod;
+              fCtx.in_static_method = true;
+              if ( nameCopy.hasFlag("weak") ) {
+                m.changeStrength(0, 1, nameNode);
+              } else {
+                m.changeStrength(1, 1, nameNode);
+              }
+              fCtx.setInMethod();
+              for ( let i_4 = 0; i_4 < m.params.length; i_4++) {
+                var v = m.params[i_4];
+                fCtx.defineVariable(v.name, v);
+                v.nameNode.eval_type = v.nameNode.typeNameAsType(fCtx);
+                v.nameNode.eval_type_name = v.nameNode.type_name;
+              };
+              this.WalkNodeChildren(bodyCopy_1, fCtx, wr);
+              fCtx.unsetInMethod();
+              fCtx.in_static_method = false;
+              fCtx.function_level_context = true;
+              for ( let i_5 = 0; i_5 < fCtx.localVarNames.length; i_5++) {
+                var n = fCtx.localVarNames[i_5];
+                const p_1 = ( Object.prototype.hasOwnProperty.call(fCtx.localVariables, n) ? fCtx.localVariables[n] : undefined );
+                if ( p_1.set_cnt > 0 ) {
+                  if ( p_1.is_immutable ) {
+                    ctx.addError(callArgs, "Immutable variable was assigned");
+                  }
+                  const defNode = p_1.node;
+                  defNode.setFlag("mutable");
+                  const nNode = p_1.nameNode;
+                  nNode.setFlag("mutable");
+                }
+              };
+            } else {
+              const sMethod_1 = new_cl.findStaticMethod(argsSig);
+              static_nameNode = sMethod_1.nameNode;
+              const currM_1 = ctx.getCurrentMethod();
+              currM_1.addCallTo(sMethod_1);
+              staticMethod = sMethod_1;
+            }
+            is_static_fn = true;
+            static_fn_name = argsSig;
+            static_class_name = new_cl.name;
+          }
+          if ( all_matched ) {
+            if ( is_static_fn ) {
+              const firstArg = callArgs.getFirst();
+              firstArg.vref = (static_class_name + ".") + static_fn_name;
+              firstArg.flow_done = false;
+              firstArg.value_type = 11;
+              firstArg.ns.length = 0;
+              firstArg.ns.push(static_class_name);
+              firstArg.ns.push(static_fn_name);
+              const newArgs = new CodeNode(
+                callArgs.code,
+                callArgs.sp,
+                callArgs.ep
+              );
+              for ( let i_6 = 0; i_6 < callArgs.children.length; i_6++) {
+                var ca_1 = callArgs.children[i_6];
+                if ( ca_1.is_part_of_chain ) {
+                  continue;
+                }
+                if ( i_6 > 0 ) {
+                  const arg_2 = args.children[(i_6 - 1)];
+                  if ( arg_2.hasFlag("noeval") ) {
+                    continue;
+                  }
+                  newArgs.children.push(ca_1);
+                }
+              };
+              let arg_len = callArgs.children.length;
+              while (arg_len > 1) {
+                callArgs.children.pop();
+                arg_len = arg_len - 1;
+              };
+              callArgs.children.push(newArgs);
+              callArgs.flow_done = false;
+              this.WalkNode(callArgs, ctx, wr);
+              const currMM = ctx.getCurrentMethod();
+              for ( let i_7 = 0; i_7 < newArgs.children.length; i_7++) {
+                var ca_2 = newArgs.children[i_7];
+                if ( ca_2.eval_type == 20 ) {
+                  if ( (typeof(ca_2.lambdaFnDesc) !== "undefined" && ca_2.lambdaFnDesc != null )  ) {
+                    if ( (typeof(staticMethod) !== "undefined" && staticMethod != null )  ) {
+                      staticMethod.addCallTo(ca_2.lambdaFnDesc);
+                      if ( ca_2.lambdaFnDesc.nameNode.hasFlag("async") ) {
+                        staticMethod.nameNode.setFlag("async");
+                      }
+                    }
+                  }
+                }
+                ca_2.forTree(((item, i) => { 
+                  if ( (typeof(item.fnDesc) !== "undefined" && item.fnDesc != null )  ) {
+                    if ( (typeof(staticMethod) !== "undefined" && staticMethod != null )  ) {
+                      staticMethod.addCallTo(item.fnDesc);
+                    }
+                  }
+                }));
+              };
+              match.setRvBasedOn(static_nameNode, callArgs);
+              ctx.removeOpNs(added_ns);
+              return true;
+            }
+            if ( is_plugin ) {
+              try {
+                const fileName = (process.cwd() + "/") + plugin_name;
+                console.log("trying to load plugin: " + fileName);
+                const plugin = require( fileName );
+                ( (new plugin.Plugin () )[plugin_fn] )( callArgs, ctx , wr );
+                callArgs.flow_done = false;
+                this.WalkNode(callArgs, ctx, wr);
+                match.setRvBasedOn(nameNode, callArgs);
+                ctx.removeOpNs(added_ns);
+                console.log("plugin ready...");
+              } catch(e) {
+                ctx.addError(callArgs, "Plugin operator failed " + ( e.toString()));
+              }
+              return true;
+            }
+            if ( is_macro ) {
+              const macroRoot = ctx.getRoot();
+              const macroKey = (((fc.vref + "@") + callArgs.getFilename()) + ":") + (callArgs.sp.toString());
+              let macroActive = false;
+              if ( ( typeof(macroRoot.active_macros[macroKey] ) != "undefined" && Object.prototype.hasOwnProperty.call(macroRoot.active_macros, macroKey) ) ) {
+                macroActive = ( Object.prototype.hasOwnProperty.call(macroRoot.active_macros, macroKey) ? macroRoot.active_macros[macroKey] : undefined );
+              }
+              if ( macroActive ) {
+                ctx.addError(callArgs, ("Macro expansion of operator '" + fc.vref) + "' is recursive: expanding it reaches the same call site again, so it never terminates.");
+                ctx.removeOpNs(added_ns);
+                return true;
+              }
+              if ( macroRoot.macro_expansion_depth > 512 ) {
+                ctx.addError(callArgs, ("Macro expansion of operator '" + fc.vref) + "' does not terminate: nested more than 512 levels.");
+                ctx.removeOpNs(added_ns);
+                return true;
+              }
+              macroRoot.active_macros[macroKey] = true;
+              macroRoot.macro_expansion_depth = macroRoot.macro_expansion_depth + 1;
+              const macroNode = this.buildMacro(langOper, callArgs, ctx);
+              let arg_len_1 = callArgs.children.length;
+              while (arg_len_1 > 0) {
+                callArgs.children.pop();
+                arg_len_1 = arg_len_1 - 1;
+              };
+              callArgs.children.push(macroNode);
+              macroNode.parent = callArgs;
+              this.WalkNode(macroNode, ctx, wr);
+              macroRoot.macro_expansion_depth = macroRoot.macro_expansion_depth - 1;
+              macroRoot.active_macros[macroKey] = false;
+              match.setRvBasedOn(nameNode, callArgs);
+              ctx.removeOpNs(added_ns);
+              return true;
+            }
+            if ( nameNode.hasFlag("moves") ) {
+              const moves_opt = nameNode.getFlag("moves");
+              const moves = moves_opt;
+              const ann = moves.vref_annotation;
+              const from = ann.getFirst();
+              const toItem = ann.getSecond();
+              const cA = callArgs.children[from.int_value];
+              const cA2 = callArgs.children[toItem.int_value];
+              if ( cA.hasParamDesc && cA2.hasParamDesc ) {
+                const pp = cA.paramDesc;
+                const pp2 = cA2.paramDesc;
+                const ppSelf = cA.paramDesc;
+                const ppTarget = cA2.paramDesc;
+                const ppSame = ppSelf == ppTarget;
+                if ( ppSame == false ) {
+                  pp.moveRefTo(callArgs, ppTarget, ctx);
+                }
+              }
+            }
+            if ( nameNode.hasFlag("returns") ) {
+              const activeFn_2 = ctx.getCurrentMethod();
+              if ( typeof(activeFn_2.nameNode) === "undefined" ) {
+                ctx.addError(callArgs, "return outside of a function");
+                return false;
+              }
+              if ( activeFn_2.nameNode.type_name != "void" || activeFn_2.nameNode.value_type == 20 ) {
+                if ( callArgs.children.length < 2 ) {
+                  ctx.addError(callArgs, " missing return value !!!");
+                } else {
+                  const returnedValue = callArgs.children[1];
+                  let validated_returnvalue = false;
+                  if ( activeFn_2.nameNode.value_type == 20 ) {
+                    validated_returnvalue = true;
+                    const fnExpr = activeFn_2.nameNode.expression_value;
+                    if ( typeof(fnExpr) === "undefined" ) {
+                      ctx.addError(activeFn_2.nameNode, "returned anonymous function should have a method signature");
+                    } else {
+                      if ( returnedValue.value_type != 20 && returnedValue.eval_type != 20 ) {
+                        ctx.addError(returnedValue, "Function should return anonymous function!");
+                      } else {
+                        if ( returnedValue.hasParamDesc && ((typeof(returnedValue.paramDesc.nameNode) !== "undefined" && returnedValue.paramDesc.nameNode != null ) ) ) {
+                          const rExpr = returnedValue.paramDesc.nameNode.expression_value;
+                          this.matchLambdaArgs(fnExpr, rExpr, ctx, wr);
+                        } else {
+                          const rExpr_1 = returnedValue.expression_value;
+                          this.matchLambdaArgs(fnExpr, rExpr_1, ctx, wr);
+                        }
+                      }
+                    }
+                  }
+                  if ( validated_returnvalue == false ) {
+                    if ( match.doesMatch(activeFn_2.nameNode, returnedValue, ctx) == false ) {
+                      if ( activeFn_2.nameNode.ifNoTypeSetToEvalTypeOf(returnedValue) ) {
+                      } else {
+                        ctx.addError(returnedValue, "invalid return value type!!! " + returnedValue.getCode());
+                        ctx.addError(returnedValue, "^ code: " + returnedValue.getCode());
+                        ctx.addError(activeFn_2.nameNode, "^ regarding to");
+                        if ( returnedValue.eval_type == 31 ) {
+                          ctx.addError(activeFn_2.nameNode, "^ which was a method");
+                        }
+                        ctx.addError(activeFn_2.nameNode, "^ value type = " + returnedValue.eval_type);
+                      }
+                    }
+                  }
+                  if ( activeFn_2.nameNode.type_name.length > 0 ) {
+                    this.convertToUnion(
+                      activeFn_2.nameNode.type_name,
+                      returnedValue,
+                      ctx,
+                      wr
+                    );
+                  }
+                  const argNode = activeFn_2.nameNode;
+                  if ( returnedValue.hasFlag("optional") ) {
+                    if ( false == argNode.hasFlag("optional") ) {
+                      ctx.addError(callArgs, "function return value optionality does not match, expected non-optional return value, optional given at " + argNode.getCode());
+                    }
+                  }
+                  if ( argNode.hasFlag("optional") ) {
+                    if ( false == returnedValue.hasFlag("optional") ) {
+                      ctx.addError(callArgs, "function return value optionality does not match, expected optional return value " + argNode.getCode());
+                    }
+                  }
+                  const pp_1 = returnedValue.paramDesc;
+                  if ( (typeof(pp_1) !== "undefined" && pp_1 != null )  ) {
+                    pp_1.moveRefTo(callArgs, activeFn_2, ctx);
+                  }
+                }
+              }
+              if ( typeof(callArgs.parent) === "undefined" ) {
+                ctx.addError(callArgs, "did not have parent");
+                console.log("no parent => " + callArgs.getCode());
+              }
+              callArgs.parent.didReturnAtIndex = callArgs.parent.children.indexOf(callArgs);
+            }
+            if ( nameNode.hasFlag("returns") == false ) {
+              match.setRvBasedOn(nameNode, callArgs);
+              callArgs.evalTypeClass = TFactory.new_def_signature(
+                nameNode,
                 ctx,
                 wr
               );
-              if( typeof(ss) === 'string' ) /* union case for string */ {
-                var str = ss;
-                console.log("--> import  " + str);
-                source_code = str;
-              };
-            }));
-          } catch(e) {
-          }
-        }
-        ctx.already_imported[import_file] = true;
-        const rootCtx = ctx.getRoot();
-        let importFileDir = "";
-        if ( source_code.length == 0 ) {
-          let searchName = PkgImport.stripDot(import_file);
-          let searchPaths = [];
-          if ( PkgImport.isPkg(import_file) ) {
-            const hit = this.prepareImport(ctx, import_file);
-            if ( hit.ok == false ) {
-              ctx.addError(node, hit.err);
-              return;
             }
-            searchName = hit.name;
-            if ( hit.dir.length > 0 ) {
-              searchPaths.push(hit.dir);
+            if ( has_eval_ctx ) {
+              const tmpCtx_3 = ctx;
+              callArgs.evalCtx = tmpCtx_3;
             }
-          }
-          let pi = 0;
-          while (pi < rootCtx.libraryPaths.length) {
-            searchPaths.push(rootCtx.libraryPaths[pi]);
-            pi = pi + 1;
-          };
-          const filePathIs = TFiles.searchEnv(env, searchPaths, searchName);
-          if ( operatorsOf_8.filec95exists_9(env, filePathIs, searchName) == false ) {
-            if ( ctx.hasCompilerFlag("verbose") ) {
-              console.log("import did not find the file: " + import_file);
-            }
-            ctx.addError(node, "Could not import file " + import_file);
-            return;
-          }
-          if ( ctx.hasCompilerFlag("verbose") ) {
-            console.log((("importing " + import_file) + " from ") + filePathIs);
-          }
-          const seenKey = "@" + PkgImport.foldPath(((filePathIs + "/") + searchName));
-          if ( ( typeof(ctx.already_imported[seenKey] ) != "undefined" && Object.prototype.hasOwnProperty.call(ctx.already_imported, seenKey) ) ) {
-            return;
-          }
-          ctx.already_imported[seenKey] = true;
-          const c = operatorsOf_8.readc95file_9(env, filePathIs, searchName);
-          source_code = c;
-          const fullPath = (filePathIs + "/") + searchName;
-          importFileDir = require("path").dirname(fullPath);
-          if ( ctx.hasCompilerFlag("verbose") ) {
-            console.log("  -> file read OK, importFileDir=" + importFileDir);
-          }
-        }
-        const code = new SourceCode(source_code);
-        code.filename = import_file;
-        const parser = new RangerLispParser(code);
-        parser.parse(ctx.hasCompilerFlag("no-op-transform"));
-        node.expression = true;
-        node.vref = "";
-        node.children.pop();
-        node.children.pop();
-        if ( ctx.hasCompilerFlag("copysrc") ) {
-          console.log("--> copying " + import_file);
-          const fileWr = wr.getFileWriter(".", import_file);
-          fileWr.raw(source_code, false);
-        }
-        const rn = parser.rootNode;
-        if ( importFileDir.length > 0 ) {
-          rootCtx.libraryPaths.push(importFileDir);
-          if ( ctx.hasCompilerFlag("verbose") ) {
-            console.log("  -> pushed importFileDir to libraryPaths: " + importFileDir);
-          }
-        }
-        this.mergeImports(rn, ctx, wr);
-        if ( importFileDir.length > 0 ) {
-          rootCtx.libraryPaths.pop();
-        }
-        node.children.push(rn);
-        if ( ctx.hasCompilerFlag("verbose") ) {
-          console.log(("  -> merged import, node now has " + node.children.length) + " children");
-        }
-      } else {
-        for ( let i = 0; i < node.children.length; i++) {
-          var item = node.children[i];
-          this.mergeImports(item, ctx, wr);
-        };
-      }
-    };
-    DesugarTrees (node, ctx, wr) {
-      this.collectTreeFactories(node, true, ctx);
-      if ( Object.keys(this.treeFactoryNames).length > 0 ) {
-        this.expandTreesIn(node, ctx, wr);
-        this.reportStrayTrees(node, ctx);
-      }
-    };
-    reportStrayTrees (node, ctx) {
-      if ( this.isTreeLiteral(node) ) {
-        ctx.addError(node, "a tree literal has to be inside a function body: it builds a tree with statements, and a class field initializer has nowhere to put them");
-        return;
-      }
-      for ( let i = 0; i < node.children.length; i++) {
-        var ch = node.children[i];
-        this.reportStrayTrees(ch, ctx);
-      };
-    };
-    isTreeFactoryDeclaration (node) {
-      if ( node.children.length != 3 ) {
-        return false;
-      }
-      const head = node.getFirst();
-      if ( head.vref != "treefactory" ) {
-        return false;
-      }
-      if ( head.ns.length > 1 ) {
-        return false;
-      }
-      const nameNode = node.getSecond();
-      if ( nameNode.vref.length == 0 ) {
-        return false;
-      }
-      if ( nameNode.expression ) {
-        return false;
-      }
-      const bodyNode = node.getThird();
-      return bodyNode.is_block_node;
-    };
-    collectTreeFactories (node, atTopLevel, ctx) {
-      let childScope = atTopLevel;
-      if ( node.isFirstVref("class") ) {
-        childScope = false;
-      }
-      if ( node.isFirstVref("record") ) {
-        childScope = false;
-      }
-      if ( node.isFirstVref("fn") ) {
-        childScope = false;
-      }
-      if ( node.isFirstVref("sfn") ) {
-        childScope = false;
-      }
-      let kept = [];
-      let removed = false;
-      for ( let i = 0; i < node.children.length; i++) {
-        var ch = node.children[i];
-        if ( this.isTreeFactoryDeclaration(ch) ) {
-          if ( atTopLevel ) {
-            this.registerTreeFactory(ch, ctx);
-          } else {
-            ctx.addError(ch, "treefactory has to be declared at the top level of a file");
-          }
-          removed = true;
-        } else {
-          kept.push(ch);
-          this.collectTreeFactories(ch, childScope, ctx);
-        }
-      };
-      if ( removed ) {
-        node.children.length = 0;
-        for ( let j = 0; j < kept.length; j++) {
-          var k = kept[j];
-          node.add(k);
-        };
-      }
-    };
-    registerTreeFactory (node, ctx) {
-      const nameNode = node.getSecond();
-      const fname = nameNode.vref;
-      if ( ( typeof(this.treeFactoryNames[fname] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.treeFactoryNames, fname) ) ) {
-        ctx.addError(node, ("treefactory " + fname) + " is declared twice");
-        return;
-      }
-      this.treeFactoryNames[fname] = true;
-      this.treeChildCall[fname] = "";
-      this.treeTextField[fname] = "";
-      const body = node.getThird();
-      for ( let i = 0; i < body.children.length; i++) {
-        var st = body.children[i];
-        if ( st.children.length == 0 ) {
-          ctx.addError(st, "expected child, text or tag");
-        } else {
-          const head = st.getFirst();
-          const kw = head.vref;
-          if ( kw == "child" ) {
-            if ( st.children.length == 2 ) {
-              this.treeChildCall[fname] = st.getSecond().vref;
+            const nodeP = callArgs.parent;
+            if ( (typeof(nodeP) !== "undefined" && nodeP != null )  ) {
             } else {
-              ctx.addError(st, "child takes one method name");
             }
-          } else {
-            if ( kw == "text" ) {
-              if ( st.children.length == 2 ) {
-                this.treeTextField[fname] = st.getSecond().vref;
-              } else {
-                ctx.addError(st, "text takes one field name");
-              }
-            } else {
-              if ( kw == "tag" ) {
-                const argc = st.children.length;
-                if ( argc == 3 || argc == 4 ) {
-                  const tagName = st.getSecond().vref;
-                  const clsName = st.getThird().vref;
-                  const tagKey = (fname + " ") + tagName;
-                  this.treeTags[tagKey] = clsName;
-                  if ( argc == 4 ) {
-                    const defs = st.children[3];
-                    if ( this.isTreeKeyword(defs, "props") ) {
-                      this.treeTagDefaults[tagKey] = defs;
-                    } else {
-                      ctx.addError(defs, "a tag's defaults are a props form");
+            const sig = nameNode.buildTypeSignatureUsingMatch(match);
+            some_matched = true;
+            callArgs.has_operator = true;
+            callArgs.op_index = main_index;
+            callArgs.operator_node = ch;
+            for ( let arg_index = 0; arg_index < args.children.length; arg_index++) {
+              var arg_3 = args.children[arg_index];
+              if ( arg_3.has_vref_annotation ) {
+                const anns = arg_3.vref_annotation;
+                for ( let i_8 = 0; i_8 < anns.children.length; i_8++) {
+                  var ann_1 = anns.children[i_8];
+                  if ( ann_1.vref == "mutates" ) {
+                    const theArg = callArgs.children[(arg_index + 1)];
+                    if ( theArg.hasParamDesc ) {
+                      theArg.paramDesc.set_cnt = theArg.paramDesc.set_cnt + 1;
                     }
                   }
-                } else {
-                  ctx.addError(st, "tag takes a tag name, a class name and optionally a props form");
-                }
-              } else {
-                ctx.addError(st, ("unknown treefactory member " + kw) + ", expected child, text or tag");
+                };
               }
+            };
+            break;
+          }
+        }
+      };
+      if ( require_all_match == true && some_matched == false ) {
+        const opName_2 = callFnName.vref;
+        let reportedSpecific = false;
+        if ( opName_2 == "null?" || opName_2 == "!null?" ) {
+          if ( callArgs.children.length > 1 ) {
+            const operand = callArgs.children[1];
+            if ( this.operandIsNonOptionalForNullCheck(operand) ) {
+              let typeLabel = operand.eval_type_name;
+              if ( typeLabel.length == 0 ) {
+                typeLabel = operand.type_name;
+              }
+              let nameLabel = operand.vref;
+              if ( nameLabel.length == 0 ) {
+                nameLabel = operand.getCode();
+              }
+              ctx.addError(operand, ((((opName_2 + " applies only to optional values; '") + nameLabel) + "' is non-optional (") + typeLabel) + ")");
+              reportedSpecific = true;
             }
           }
         }
-      };
+        if ( reportedSpecific == false ) {
+          ctx.addError(callArgs, "Could not match argument types for " + callFnName.vref);
+        }
+      }
+      if ( expects_error ) {
+        const cnt_now = ctx.getErrorCount();
+        if ( cnt_now == err_cnt ) {
+          ctx.addParserError(callArgs, (("LANGUAGE_PARSER_ERROR: expected generated error, err counts : " + err_cnt) + " : ") + cnt_now);
+        }
+      } else {
+        const cnt_now_1 = ctx.getErrorCount();
+        if ( cnt_now_1 > err_cnt ) {
+          ctx.addParserError(callArgs, (("LANGUAGE_PARSER_ERROR: did not expect generated error, err counts : " + err_cnt) + " : ") + cnt_now_1);
+        }
+      }
+      ctx.removeOpNs(added_ns);
+      return some_matched;
     };
-    isTreeLiteral (node) {
-      if ( node.children.length != 3 ) {
-        return false;
+    readProcessPathFromClassTree (root) {
+      const path = root.getStringProperty("name");
+      if ( path.length > 0 ) {
+        return path;
       }
-      const head = node.getFirst();
-      if ( head.vref != "tree" ) {
-        return false;
-      }
-      if ( head.ns.length > 1 ) {
-        return false;
-      }
-      const nameNode = node.getSecond();
-      if ( nameNode.vref.length == 0 ) {
-        return false;
-      }
-      return nameNode.expression == false;
-    };
-    expandTreesIn (node, ctx, wr) {
-      let memberScope = false;
-      if ( node.isFirstVref("class") ) {
-        memberScope = true;
-      }
-      if ( node.isFirstVref("record") ) {
-        memberScope = true;
-      }
-      if ( node.isFirstVref("systemclass") ) {
-        memberScope = true;
-      }
-      if ( memberScope ) {
-        for ( let i = 0; i < node.children.length; i++) {
-          var ch = node.children[i];
-          if ( ch.is_block_node ) {
-            for ( let j = 0; j < ch.children.length; j++) {
-              var m = ch.children[j];
-              this.expandTreesIn(m, ctx, wr);
-            };
-          } else {
-            this.expandTreesIn(ch, ctx, wr);
+      if ( root.hasExpressionProperty("name") ) {
+        const ann = root.getExpressionProperty("name");
+        if ( (typeof(ann) === "undefined") == false ) {
+          const an = ann;
+          if ( an.children.length > 0 ) {
+            const fc = an.children[0];
+            if ( fc.value_type == 4 ) {
+              return fc.string_value;
+            }
           }
-        };
-        return;
-      }
-      if ( node.is_block_node ) {
-        this.expandTreesInBlock(node, ctx, wr);
-        return;
-      }
-      for ( let i_1 = 0; i_1 < node.children.length; i_1++) {
-        var ch_1 = node.children[i_1];
-        this.expandTreesIn(ch_1, ctx, wr);
-      };
-    };
-    expandTreesInBlock (block, ctx, wr) {
-      let out = [];
-      for ( let i = 0; i < block.children.length; i++) {
-        var stmt = block.children[i];
-        let prelude = [];
-        this.lowerTreesIn(stmt, prelude, ctx, wr);
-        for ( let j = 0; j < prelude.length; j++) {
-          var p = prelude[j];
-          out.push(p);
-        };
-        out.push(stmt);
-      };
-      block.children.length = 0;
-      for ( let k = 0; k < out.length; k++) {
-        var n = out[k];
-        block.add(n);
-      };
-    };
-    lowerTreesIn (node, prelude, ctx, wr) {
-      if ( node.is_block_node ) {
-        this.expandTreesInBlock(node, ctx, wr);
-        return;
-      }
-      if ( this.isTreeLiteral(node) ) {
-        const fname = node.getSecond().vref;
-        if ( ( typeof(this.treeFactoryNames[fname] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.treeFactoryNames, fname) ) == false ) {
-          ctx.addError(node, "no treefactory named " + fname);
-          return;
-        }
-        const reg = this.lowerTreeElement(
-          node.getThird(),
-          fname,
-          prelude,
-          ctx,
-          wr
-        );
-        if ( reg.length > 0 ) {
-          this.rewriteAsVRef(node, reg);
-        }
-        return;
-      }
-      for ( let i = 0; i < node.children.length; i++) {
-        var ch = node.children[i];
-        this.lowerTreesIn(ch, prelude, ctx, wr);
-      };
-    };
-    rewriteAsVRef (node, name) {
-      node.children.length = 0;
-      node.expression = false;
-      node.vref = name;
-      node.value_type = 11;
-      node.parsed_type = 11;
-      node.ns.length = 0;
-      node.ns.push(name);
-    };
-    lowerTreeElement (el, fname, prelude, ctx, wr) {
-      if ( el.children.length == 0 ) {
-        ctx.addError(el, "expected a tag");
-        return "";
-      }
-      const head = el.getFirst();
-      const tagName = head.vref;
-      const key = (fname + " ") + tagName;
-      if ( ( typeof(this.treeTags[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.treeTags, key) ) == false ) {
-        ctx.addError(el, (("treefactory " + fname) + " has no tag ") + tagName);
-        return "";
-      }
-      const clsName = ( Object.prototype.hasOwnProperty.call(this.treeTags, key) ? this.treeTags[key] : undefined );
-      this.treeTmpCount = this.treeTmpCount + 1;
-      const reg = "_tree" + (this.treeTmpCount.toString());
-      const defNode = el.newExpressionNode();
-      defNode.add(el.newVRefNode("def"));
-      defNode.add(el.newVRefNode(reg));
-      const newNode = el.newExpressionNode();
-      newNode.add(el.newVRefNode("new"));
-      newNode.add(el.newVRefNode(clsName));
-      defNode.add(newNode);
-      prelude.push(defNode);
-      if ( ( typeof(this.treeTagDefaults[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.treeTagDefaults, key) ) ) {
-        this.lowerTreeProps(
-          ( Object.prototype.hasOwnProperty.call(this.treeTagDefaults, key) ? this.treeTagDefaults[key] : undefined ),
-          reg,
-          prelude,
-          ctx,
-          wr
-        );
-      }
-      let idx = 1;
-      while (idx < el.children.length) {
-        const ch = el.children[idx];
-        if ( this.isTreeKeyword(ch, "props") ) {
-          this.lowerTreeProps(ch, reg, prelude, ctx, wr);
-        } else {
-          if ( this.isTreeKeyword(ch, "child") ) {
-            this.lowerComputedChildren(ch, reg, fname, prelude, ctx, wr);
-          } else {
-            this.lowerTreeChild(ch, reg, fname, prelude, ctx, wr);
-          }
-        }
-        idx = idx + 1;
-      };
-      return reg;
-    };
-    isTreeKeyword (node, word) {
-      if ( node.children.length == 0 ) {
-        return false;
-      }
-      const head = node.getFirst();
-      if ( head.ns.length > 1 ) {
-        return false;
-      }
-      return head.vref == word;
-    };
-    lowerComputedChildren (ch, reg, fname, prelude, ctx, wr) {
-      const childCall = ( Object.prototype.hasOwnProperty.call(this.treeChildCall, fname) ? this.treeChildCall[fname] : undefined );
-      if ( childCall.length == 0 ) {
-        ctx.addError(ch, ("treefactory " + fname) + " has no `child` method");
-        return;
-      }
-      if ( ch.children.length < 2 ) {
-        ctx.addError(ch, "child takes one or more expressions");
-        return;
-      }
-      let idx = 1;
-      while (idx < ch.children.length) {
-        prelude.push(this.treeCall(ch, reg, childCall, ch.children[idx]));
-        idx = idx + 1;
-      };
-    };
-    treeCall (at_node, reg, method, arg) {
-      const call = at_node.newExpressionNode();
-      call.add(at_node.newVRefNode(((reg + ".") + method)));
-      const args = at_node.newExpressionNode();
-      args.add(arg.copy());
-      call.add(args);
-      return call;
-    };
-    lowerTreeProps (propsNode, reg, prelude, ctx, wr) {
-      let idx = 1;
-      while (idx < propsNode.children.length) {
-        const pair = propsNode.children[idx];
-        if ( pair.children.length != 2 ) {
-          ctx.addError(pair, "a property is a name and a value");
-        } else {
-          const pName = pair.getFirst().vref;
-          prelude.push(this.treeAssign(pair, reg, pName, pair.getSecond()));
-        }
-        idx = idx + 1;
-      };
-    };
-    treeAssign (at_node, reg, field, value) {
-      const assign = at_node.newExpressionNode();
-      assign.add(at_node.newVRefNode("="));
-      assign.add(at_node.newVRefNode(((reg + ".") + field)));
-      assign.add(value.copy());
-      return assign;
-    };
-    lowerTreeChild (ch, reg, fname, prelude, ctx, wr) {
-      let isElement = false;
-      if ( ch.children.length > 0 ) {
-        const head = ch.getFirst();
-        if ( head.ns.length == 1 ) {
-          if ( ( typeof(this.treeTags[((fname + " ") + head.vref)] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.treeTags, ((fname + " ") + head.vref)) ) ) {
-            isElement = true;
+          if ( an.value_type == 4 ) {
+            return an.string_value;
           }
         }
       }
-      if ( isElement ) {
-        const childCall = ( Object.prototype.hasOwnProperty.call(this.treeChildCall, fname) ? this.treeChildCall[fname] : undefined );
-        if ( childCall.length == 0 ) {
-          ctx.addError(ch, ("treefactory " + fname) + " has no `child` method, so it cannot nest");
-          return;
+      for ( let i = 0; i < root.children.length; i++) {
+        var ch = root.children[i];
+        const childPath = this.readProcessPathFromClassTree(ch);
+        if ( childPath.length > 0 ) {
+          return childPath;
         }
-        const childReg = this.lowerTreeElement(ch, fname, prelude, ctx, wr);
-        if ( childReg.length == 0 ) {
-          return;
+      };
+      return "";
+    };
+    applyProcessClassMeta (cl, classNameNode, node, ctx) {
+      let isProc = false;
+      if ( classNameNode.hasFlag("process") ) {
+        isProc = true;
+      }
+      if ( node.hasBooleanProperty("process") ) {
+        isProc = true;
+      }
+      const procPathOnly = this.readProcessPathFromClassTree(node);
+      if ( isProc == false ) {
+        if ( procPathOnly.length > 0 ) {
+          ctx.addError(classNameNode, "@name is only allowed on @process classes");
         }
-        prelude.push(this.treeCall(
-          ch,
-          reg,
-          childCall,
-          ch.newVRefNode(childReg)
-        ));
         return;
       }
-      if ( ch.expression ) {
-        if ( ch.children.length == 0 ) {
-          ctx.addError(ch, "empty child: props are optional, so `()` is never needed");
+      this.processClasses.push(cl);
+      cl.is_process = true;
+      if ( procPathOnly.length > 0 ) {
+        cl.process_path = procPathOnly;
+      }
+    };
+    resolveProcessPathFromFields (cl) {
+      for ( let i = 0; i < cl.variables.length; i++) {
+        var v = cl.variables[i];
+        if ( v.name != "__rangerProcessName" ) {
+          continue;
+        }
+        if ( v.def_value.value_type == 4 ) {
+          cl.process_path = v.def_value.string_value;
           return;
         }
-        const h = ch.getFirst();
-        if ( h.ns.length == 1 ) {
-          ctx.addError(ch, ((((h.vref + " is not a tag of treefactory ") + fname) + " — declare it with `tag`, or wrap a computed child in `(child ") + h.vref) + " …)");
+        if ( v.value.string_value.length > 0 ) {
+          cl.process_path = v.value.string_value;
           return;
         }
+      };
+    };
+    validateProcessPaths (processClasses, ctx) {
+      for ( let i = 0; i < processClasses.length; i++) {
+        var cl = processClasses[i];
+        if ( cl.process_path.length == 0 ) {
+          const classNode = cl.node;
+          if ( (typeof(classNode) === "undefined") == false ) {
+            const cn = classNode;
+            const resolvedCn = this.readProcessPathFromClassTree(cn);
+            if ( resolvedCn.length > 0 ) {
+              cl.process_path = resolvedCn;
+            }
+          }
+          const nameNode = cl.nameNode;
+          if ( cl.process_path.length == 0 ) {
+            if ( (typeof(nameNode) === "undefined") == false ) {
+              const nn = nameNode;
+              const resolvedNn = this.readProcessPathFromClassTree(nn);
+              if ( resolvedNn.length > 0 ) {
+                cl.process_path = resolvedNn;
+              }
+            }
+          }
+          if ( cl.process_path.length == 0 ) {
+            this.resolveProcessPathFromFields(cl);
+          }
+        }
+      };
+      let seen = {};
+      for ( let i_1 = 0; i_1 < processClasses.length; i_1++) {
+        var cl_1 = processClasses[i_1];
+        if ( cl_1.process_path.length == 0 ) {
+          continue;
+        }
+        const path = cl_1.process_path;
+        const prev = ( Object.prototype.hasOwnProperty.call(seen, path) ? seen[path] : undefined );
+        if ( (typeof(prev) === "undefined") == false ) {
+          const errNode = cl_1.nameNode;
+          if ( (typeof(errNode) === "undefined") == false ) {
+            const en = errNode;
+            ctx.addError(en, "Duplicate @process @name path: " + path);
+          }
+          continue;
+        }
+        seen[path] = "1";
+        if ( this.isValidProcessPath(path) == false ) {
+          const errNode2 = cl_1.nameNode;
+          if ( (typeof(errNode2) === "undefined") == false ) {
+            const en2 = errNode2;
+            ctx.addError(en2, "Invalid @name process path: " + path);
+          }
+        }
+      };
+    };
+    isValidProcessPath (pathStr) {
+      const n = pathStr.length;
+      if ( n == 0 ) {
+        return false;
       }
-      const textField = ( Object.prototype.hasOwnProperty.call(this.treeTextField, fname) ? this.treeTextField[fname] : undefined );
-      if ( textField.length == 0 ) {
-        ctx.addError(ch, ("treefactory " + fname) + " has no `text` field, so a value cannot be a child here");
-        return;
+      if ( pathStr == "." ) {
+        return false;
       }
-      prelude.push(this.treeAssign(ch, reg, textField, ch));
+      const parts = pathStr.split(".");
+      for ( let i = 0; i < parts.length; i++) {
+        var seg = parts[i];
+        if ( seg.length == 0 ) {
+          return false;
+        }
+      };
+      return true;
     };
     DesugarShapes (node, ctx, wr) {
       let renames = {};
@@ -21041,52 +21426,6 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         this.rewriteShapeRefs(ch, renames);
       };
     };
-    isClassMemberForm (node) {
-      if ( node.isFirstVref("extends") ) {
-        return true;
-      }
-      if ( node.isFirstVref("Extends") ) {
-        return true;
-      }
-      if ( node.isFirstVref("constructor") ) {
-        return true;
-      }
-      if ( node.isFirstVref("Constructor") ) {
-        return true;
-      }
-      if ( node.isFirstVref("def") ) {
-        return true;
-      }
-      if ( node.isFirstVref("let") ) {
-        return true;
-      }
-      if ( node.isFirstVref("static") ) {
-        return true;
-      }
-      if ( node.isFirstVref("StaticMethod") ) {
-        return true;
-      }
-      if ( node.isFirstVref("sfn") ) {
-        return true;
-      }
-      if ( node.isFirstVref("PublicMethod") ) {
-        return true;
-      }
-      if ( node.isFirstVref("fn") ) {
-        return true;
-      }
-      return false;
-    };
-    markParentClass (ee, childName, ctx) {
-      if ( ctx.isDefinedClass(ee.vref) == false ) {
-        ctx.addError(ee, ((("Class " + childName) + " extends ") + ee.vref) + ", which is not defined");
-        return;
-      }
-      const ParentClass = ctx.findClass(ee.vref);
-      ParentClass.is_inherited = true;
-      ParentClass.is_extended_by_children = true;
-      ParentClass.child_classes.push(childName);
-    };
     WalkCollectTemplates (node, ctx, wr) {
       if ( node.children.length > 1 ) {
         const isClassDecl = (node.isFirstVref("class") || node.isFirstVref("CreateClass")) || node.isFirstVref("record");
@@ -21185,7 +21524,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       let allTypes = [];
       const serviceBuilder = new RangerServiceBuilder();
       serviceBuilder.CreateServices(this, ctx, wr);
-      operatorsOf_13.forEach_40(this.extendedClasses, ((item, index) => { 
+      operatorsOf_13.forEach_42(this.extendedClasses, ((item, index) => { 
         if ( ctx.isDefinedClass(index) && ctx.isDefinedClass(item) ) {
           const ch = ctx.findClass(index);
           const parent = ctx.findClass(item);
@@ -21489,7 +21828,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
       const cn = node.getSecond();
       const s = node.getVRefAt(1);
       cn.ifNoTypeSetToVoid();
-      const m = operatorsOfCodeNode_41.rc46funcdesc_42(node, ctx);
+      const m = operatorsOfCodeNode_43.rc46funcdesc_44(node, ctx);
       m.node = orig_node;
       orig_node.fnDesc = m;
       subCtx.is_function = true;
@@ -22201,7 +22540,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
           return;
         }
         const currC_8 = ctx.currentClass;
-        const fnObj = operatorsOf_41.rc46func_43(node, currC_8.ctx, wr);
+        const fnObj = operatorsOf_43.rc46func_45(node, currC_8.ctx, wr);
         const cn = fnObj.nameNode;
         if ( currC_8.hasOwnMethod(fnObj.name) && false == cn.hasFlag("override") ) {
           if ( currC_8.hasDuplicateMethodSignature(fnObj) ) {
@@ -22493,14 +22832,14 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     };
     transformMethodToLambda (node, vFnDef, ctx, wr) {
       if ( vFnDef.isFunction() ) {
-        const args = operatorsOf.map_44(vFnDef.params, ((item, index) => { 
+        const args = operatorsOf.map_46(vFnDef.params, ((item, index) => { 
           return item.nameNode.copy();
         }));
         const fnArg = vFnDef.nameNode.copy();
         fnArg.vref = "fn";
         const subNode = node.copy();
         subNode.flow_done = false;
-        const argsExpr = operatorsOf.map_45(args, ((item, index) => { 
+        const argsExpr = operatorsOf.map_41(args, ((item, index) => { 
           return item.copy();
         }));
         if ( vFnDef.nameNode.type_name.length > 0 && vFnDef.nameNode.type_name != "void" || vFnDef.nameNode.array_type.length > 0 ) {
@@ -22705,1072 +23044,733 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         ctx.addError(n1, msg);
       }
     };
-    readProcessPathFromClassTree (root) {
-      const path = root.getStringProperty("name");
-      if ( path.length > 0 ) {
-        return path;
+    DesugarTrees (node, ctx, wr) {
+      this.collectTreeFactories(node, true, ctx);
+      if ( Object.keys(this.treeFactoryNames).length > 0 ) {
+        this.expandTreesIn(node, ctx, wr);
+        this.reportStrayTrees(node, ctx);
       }
-      if ( root.hasExpressionProperty("name") ) {
-        const ann = root.getExpressionProperty("name");
-        if ( (typeof(ann) === "undefined") == false ) {
-          const an = ann;
-          if ( an.children.length > 0 ) {
-            const fc = an.children[0];
-            if ( fc.value_type == 4 ) {
-              return fc.string_value;
-            }
-          }
-          if ( an.value_type == 4 ) {
-            return an.string_value;
-          }
-        }
+    };
+    reportStrayTrees (node, ctx) {
+      if ( this.isTreeLiteral(node) ) {
+        ctx.addError(node, "a tree literal has to be inside a function body: it builds a tree with statements, and a class field initializer has nowhere to put them");
+        return;
       }
-      for ( let i = 0; i < root.children.length; i++) {
-        var ch = root.children[i];
-        const childPath = this.readProcessPathFromClassTree(ch);
-        if ( childPath.length > 0 ) {
-          return childPath;
+      for ( let i = 0; i < node.children.length; i++) {
+        var ch = node.children[i];
+        this.reportStrayTrees(ch, ctx);
+      };
+    };
+    isTreeFactoryDeclaration (node) {
+      if ( node.children.length != 3 ) {
+        return false;
+      }
+      const head = node.getFirst();
+      if ( head.vref != "treefactory" ) {
+        return false;
+      }
+      if ( head.ns.length > 1 ) {
+        return false;
+      }
+      const nameNode = node.getSecond();
+      if ( nameNode.vref.length == 0 ) {
+        return false;
+      }
+      if ( nameNode.expression ) {
+        return false;
+      }
+      const bodyNode = node.getThird();
+      return bodyNode.is_block_node;
+    };
+    collectTreeFactories (node, atTopLevel, ctx) {
+      let childScope = atTopLevel;
+      if ( node.isFirstVref("class") ) {
+        childScope = false;
+      }
+      if ( node.isFirstVref("record") ) {
+        childScope = false;
+      }
+      if ( node.isFirstVref("fn") ) {
+        childScope = false;
+      }
+      if ( node.isFirstVref("sfn") ) {
+        childScope = false;
+      }
+      let kept = [];
+      let removed = false;
+      for ( let i = 0; i < node.children.length; i++) {
+        var ch = node.children[i];
+        if ( this.isTreeFactoryDeclaration(ch) ) {
+          if ( atTopLevel ) {
+            this.registerTreeFactory(ch, ctx);
+          } else {
+            ctx.addError(ch, "treefactory has to be declared at the top level of a file");
+          }
+          removed = true;
+        } else {
+          kept.push(ch);
+          this.collectTreeFactories(ch, childScope, ctx);
         }
       };
-      return "";
+      if ( removed ) {
+        node.children.length = 0;
+        for ( let j = 0; j < kept.length; j++) {
+          var k = kept[j];
+          node.add(k);
+        };
+      }
     };
-    applyProcessClassMeta (cl, classNameNode, node, ctx) {
-      let isProc = false;
-      if ( classNameNode.hasFlag("process") ) {
-        isProc = true;
+    registerTreeFactory (node, ctx) {
+      const nameNode = node.getSecond();
+      const fname = nameNode.vref;
+      if ( ( typeof(this.treeFactoryNames[fname] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.treeFactoryNames, fname) ) ) {
+        ctx.addError(node, ("treefactory " + fname) + " is declared twice");
+        return;
       }
-      if ( node.hasBooleanProperty("process") ) {
-        isProc = true;
+      this.treeFactoryNames[fname] = true;
+      this.treeChildCall[fname] = "";
+      this.treeTextField[fname] = "";
+      const body = node.getThird();
+      for ( let i = 0; i < body.children.length; i++) {
+        var st = body.children[i];
+        if ( st.children.length == 0 ) {
+          ctx.addError(st, "expected child, text or tag");
+        } else {
+          const head = st.getFirst();
+          const kw = head.vref;
+          if ( kw == "child" ) {
+            if ( st.children.length == 2 ) {
+              this.treeChildCall[fname] = st.getSecond().vref;
+            } else {
+              ctx.addError(st, "child takes one method name");
+            }
+          } else {
+            if ( kw == "text" ) {
+              if ( st.children.length == 2 ) {
+                this.treeTextField[fname] = st.getSecond().vref;
+              } else {
+                ctx.addError(st, "text takes one field name");
+              }
+            } else {
+              if ( kw == "tag" ) {
+                const argc = st.children.length;
+                if ( argc == 3 || argc == 4 ) {
+                  const tagName = st.getSecond().vref;
+                  const clsName = st.getThird().vref;
+                  const tagKey = (fname + " ") + tagName;
+                  this.treeTags[tagKey] = clsName;
+                  if ( argc == 4 ) {
+                    const defs = st.children[3];
+                    if ( this.isTreeKeyword(defs, "props") ) {
+                      this.treeTagDefaults[tagKey] = defs;
+                    } else {
+                      ctx.addError(defs, "a tag's defaults are a props form");
+                    }
+                  }
+                } else {
+                  ctx.addError(st, "tag takes a tag name, a class name and optionally a props form");
+                }
+              } else {
+                ctx.addError(st, ("unknown treefactory member " + kw) + ", expected child, text or tag");
+              }
+            }
+          }
+        }
+      };
+    };
+    isTreeLiteral (node) {
+      if ( node.children.length != 3 ) {
+        return false;
       }
-      const procPathOnly = this.readProcessPathFromClassTree(node);
-      if ( isProc == false ) {
-        if ( procPathOnly.length > 0 ) {
-          ctx.addError(classNameNode, "@name is only allowed on @process classes");
+      const head = node.getFirst();
+      if ( head.vref != "tree" ) {
+        return false;
+      }
+      if ( head.ns.length > 1 ) {
+        return false;
+      }
+      const nameNode = node.getSecond();
+      if ( nameNode.vref.length == 0 ) {
+        return false;
+      }
+      return nameNode.expression == false;
+    };
+    expandTreesIn (node, ctx, wr) {
+      let memberScope = false;
+      if ( node.isFirstVref("class") ) {
+        memberScope = true;
+      }
+      if ( node.isFirstVref("record") ) {
+        memberScope = true;
+      }
+      if ( node.isFirstVref("systemclass") ) {
+        memberScope = true;
+      }
+      if ( memberScope ) {
+        for ( let i = 0; i < node.children.length; i++) {
+          var ch = node.children[i];
+          if ( ch.is_block_node ) {
+            for ( let j = 0; j < ch.children.length; j++) {
+              var m = ch.children[j];
+              this.expandTreesIn(m, ctx, wr);
+            };
+          } else {
+            this.expandTreesIn(ch, ctx, wr);
+          }
+        };
+        return;
+      }
+      if ( node.is_block_node ) {
+        this.expandTreesInBlock(node, ctx, wr);
+        return;
+      }
+      for ( let i_1 = 0; i_1 < node.children.length; i_1++) {
+        var ch_1 = node.children[i_1];
+        this.expandTreesIn(ch_1, ctx, wr);
+      };
+    };
+    expandTreesInBlock (block, ctx, wr) {
+      let out = [];
+      for ( let i = 0; i < block.children.length; i++) {
+        var stmt = block.children[i];
+        let prelude = [];
+        this.lowerTreesIn(stmt, prelude, ctx, wr);
+        for ( let j = 0; j < prelude.length; j++) {
+          var p = prelude[j];
+          out.push(p);
+        };
+        out.push(stmt);
+      };
+      block.children.length = 0;
+      for ( let k = 0; k < out.length; k++) {
+        var n = out[k];
+        block.add(n);
+      };
+    };
+    lowerTreesIn (node, prelude, ctx, wr) {
+      if ( node.is_block_node ) {
+        this.expandTreesInBlock(node, ctx, wr);
+        return;
+      }
+      if ( this.isTreeLiteral(node) ) {
+        const fname = node.getSecond().vref;
+        if ( ( typeof(this.treeFactoryNames[fname] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.treeFactoryNames, fname) ) == false ) {
+          ctx.addError(node, "no treefactory named " + fname);
+          return;
+        }
+        const reg = this.lowerTreeElement(
+          node.getThird(),
+          fname,
+          prelude,
+          ctx,
+          wr
+        );
+        if ( reg.length > 0 ) {
+          this.rewriteAsVRef(node, reg);
         }
         return;
       }
-      this.processClasses.push(cl);
-      cl.is_process = true;
-      if ( procPathOnly.length > 0 ) {
-        cl.process_path = procPathOnly;
-      }
+      for ( let i = 0; i < node.children.length; i++) {
+        var ch = node.children[i];
+        this.lowerTreesIn(ch, prelude, ctx, wr);
+      };
     };
-    resolveProcessPathFromFields (cl) {
-      for ( let i = 0; i < cl.variables.length; i++) {
-        var v = cl.variables[i];
-        if ( v.name != "__rangerProcessName" ) {
-          continue;
+    rewriteAsVRef (node, name) {
+      node.children.length = 0;
+      node.expression = false;
+      node.vref = name;
+      node.value_type = 11;
+      node.parsed_type = 11;
+      node.ns.length = 0;
+      node.ns.push(name);
+    };
+    lowerTreeElement (el, fname, prelude, ctx, wr) {
+      if ( el.children.length == 0 ) {
+        ctx.addError(el, "expected a tag");
+        return "";
+      }
+      const head = el.getFirst();
+      const tagName = head.vref;
+      const key = (fname + " ") + tagName;
+      if ( ( typeof(this.treeTags[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.treeTags, key) ) == false ) {
+        ctx.addError(el, (("treefactory " + fname) + " has no tag ") + tagName);
+        return "";
+      }
+      const clsName = ( Object.prototype.hasOwnProperty.call(this.treeTags, key) ? this.treeTags[key] : undefined );
+      this.treeTmpCount = this.treeTmpCount + 1;
+      const reg = "_tree" + (this.treeTmpCount.toString());
+      const defNode = el.newExpressionNode();
+      defNode.add(el.newVRefNode("def"));
+      defNode.add(el.newVRefNode(reg));
+      const newNode = el.newExpressionNode();
+      newNode.add(el.newVRefNode("new"));
+      newNode.add(el.newVRefNode(clsName));
+      defNode.add(newNode);
+      prelude.push(defNode);
+      if ( ( typeof(this.treeTagDefaults[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.treeTagDefaults, key) ) ) {
+        this.lowerTreeProps(
+          ( Object.prototype.hasOwnProperty.call(this.treeTagDefaults, key) ? this.treeTagDefaults[key] : undefined ),
+          reg,
+          prelude,
+          ctx,
+          wr
+        );
+      }
+      let idx = 1;
+      while (idx < el.children.length) {
+        const ch = el.children[idx];
+        if ( this.isTreeKeyword(ch, "props") ) {
+          this.lowerTreeProps(ch, reg, prelude, ctx, wr);
+        } else {
+          if ( this.isTreeKeyword(ch, "child") ) {
+            this.lowerComputedChildren(ch, reg, fname, prelude, ctx, wr);
+          } else {
+            this.lowerTreeChild(ch, reg, fname, prelude, ctx, wr);
+          }
         }
-        if ( v.def_value.value_type == 4 ) {
-          cl.process_path = v.def_value.string_value;
+        idx = idx + 1;
+      };
+      return reg;
+    };
+    isTreeKeyword (node, word) {
+      if ( node.children.length == 0 ) {
+        return false;
+      }
+      const head = node.getFirst();
+      if ( head.ns.length > 1 ) {
+        return false;
+      }
+      return head.vref == word;
+    };
+    lowerComputedChildren (ch, reg, fname, prelude, ctx, wr) {
+      const childCall = ( Object.prototype.hasOwnProperty.call(this.treeChildCall, fname) ? this.treeChildCall[fname] : undefined );
+      if ( childCall.length == 0 ) {
+        ctx.addError(ch, ("treefactory " + fname) + " has no `child` method");
+        return;
+      }
+      if ( ch.children.length < 2 ) {
+        ctx.addError(ch, "child takes one or more expressions");
+        return;
+      }
+      let idx = 1;
+      while (idx < ch.children.length) {
+        prelude.push(this.treeCall(ch, reg, childCall, ch.children[idx]));
+        idx = idx + 1;
+      };
+    };
+    treeCall (at_node, reg, method, arg) {
+      const call = at_node.newExpressionNode();
+      call.add(at_node.newVRefNode(((reg + ".") + method)));
+      const args = at_node.newExpressionNode();
+      args.add(arg.copy());
+      call.add(args);
+      return call;
+    };
+    lowerTreeProps (propsNode, reg, prelude, ctx, wr) {
+      let idx = 1;
+      while (idx < propsNode.children.length) {
+        const pair = propsNode.children[idx];
+        if ( pair.children.length != 2 ) {
+          ctx.addError(pair, "a property is a name and a value");
+        } else {
+          const pName = pair.getFirst().vref;
+          prelude.push(this.treeAssign(pair, reg, pName, pair.getSecond()));
+        }
+        idx = idx + 1;
+      };
+    };
+    treeAssign (at_node, reg, field, value) {
+      const assign = at_node.newExpressionNode();
+      assign.add(at_node.newVRefNode("="));
+      assign.add(at_node.newVRefNode(((reg + ".") + field)));
+      assign.add(value.copy());
+      return assign;
+    };
+    lowerTreeChild (ch, reg, fname, prelude, ctx, wr) {
+      let isElement = false;
+      if ( ch.children.length > 0 ) {
+        const head = ch.getFirst();
+        if ( head.ns.length == 1 ) {
+          if ( ( typeof(this.treeTags[((fname + " ") + head.vref)] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.treeTags, ((fname + " ") + head.vref)) ) ) {
+            isElement = true;
+          }
+        }
+      }
+      if ( isElement ) {
+        const childCall = ( Object.prototype.hasOwnProperty.call(this.treeChildCall, fname) ? this.treeChildCall[fname] : undefined );
+        if ( childCall.length == 0 ) {
+          ctx.addError(ch, ("treefactory " + fname) + " has no `child` method, so it cannot nest");
           return;
         }
-        if ( v.value.string_value.length > 0 ) {
-          cl.process_path = v.value.string_value;
+        const childReg = this.lowerTreeElement(ch, fname, prelude, ctx, wr);
+        if ( childReg.length == 0 ) {
           return;
         }
-      };
-    };
-    validateProcessPaths (processClasses, ctx) {
-      for ( let i = 0; i < processClasses.length; i++) {
-        var cl = processClasses[i];
-        if ( cl.process_path.length == 0 ) {
-          const classNode = cl.node;
-          if ( (typeof(classNode) === "undefined") == false ) {
-            const cn = classNode;
-            const resolvedCn = this.readProcessPathFromClassTree(cn);
-            if ( resolvedCn.length > 0 ) {
-              cl.process_path = resolvedCn;
-            }
-          }
-          const nameNode = cl.nameNode;
-          if ( cl.process_path.length == 0 ) {
-            if ( (typeof(nameNode) === "undefined") == false ) {
-              const nn = nameNode;
-              const resolvedNn = this.readProcessPathFromClassTree(nn);
-              if ( resolvedNn.length > 0 ) {
-                cl.process_path = resolvedNn;
-              }
-            }
-          }
-          if ( cl.process_path.length == 0 ) {
-            this.resolveProcessPathFromFields(cl);
-          }
+        prelude.push(this.treeCall(
+          ch,
+          reg,
+          childCall,
+          ch.newVRefNode(childReg)
+        ));
+        return;
+      }
+      if ( ch.expression ) {
+        if ( ch.children.length == 0 ) {
+          ctx.addError(ch, "empty child: props are optional, so `()` is never needed");
+          return;
         }
-      };
-      let seen = {};
-      for ( let i_1 = 0; i_1 < processClasses.length; i_1++) {
-        var cl_1 = processClasses[i_1];
-        if ( cl_1.process_path.length == 0 ) {
-          continue;
-        }
-        const path = cl_1.process_path;
-        const prev = ( Object.prototype.hasOwnProperty.call(seen, path) ? seen[path] : undefined );
-        if ( (typeof(prev) === "undefined") == false ) {
-          const errNode = cl_1.nameNode;
-          if ( (typeof(errNode) === "undefined") == false ) {
-            const en = errNode;
-            ctx.addError(en, "Duplicate @process @name path: " + path);
-          }
-          continue;
-        }
-        seen[path] = "1";
-        if ( this.isValidProcessPath(path) == false ) {
-          const errNode2 = cl_1.nameNode;
-          if ( (typeof(errNode2) === "undefined") == false ) {
-            const en2 = errNode2;
-            ctx.addError(en2, "Invalid @name process path: " + path);
-          }
-        }
-      };
-    };
-    isValidProcessPath (pathStr) {
-      const n = pathStr.length;
-      if ( n == 0 ) {
-        return false;
-      }
-      if ( pathStr == "." ) {
-        return false;
-      }
-      const parts = pathStr.split(".");
-      for ( let i = 0; i < parts.length; i++) {
-        var seg = parts[i];
-        if ( seg.length == 0 ) {
-          return false;
-        }
-      };
-      return true;
-    };
-    isJustVref (a) {
-      if ( a.vref.length > 0 ) {
-        return true;
-      }
-      if ( TTypes.isPrimitive(a.value_type) ) {
-        return true;
-      }
-      if ( a.children.length == 1 ) {
-        return this.isJustVref(a.children[0]);
-      }
-      return false;
-    };
-    findLanguageOper (details, ctx, opDef) {
-      const langName = operatorsOf_23.getTargetLang_24(ctx);
-      let rv;
-      for ( let i = 0; i < details.children.length; i++) {
-        var det = details.children[i];
-        if ( det.children.length > 0 ) {
-          const fc = det.children[0];
-          if ( fc.vref == "templates" ) {
-            const tplList = det.children[1];
-            for ( let i_1 = 0; i_1 < tplList.children.length; i_1++) {
-              var tpl = tplList.children[i_1];
-              if ( tpl.hasExpressionProperty("flags") ) {
-                const flagList = tpl.getExpressionProperty("flags");
-                let b_matched = false;
-                operatorsOf.forEach_15(flagList.children, ((item, index) => { 
-                  console.log("FLAG " + item.vref);
-                  b_matched = b_matched || ctx.hasCompilerFlag(item.vref);
-                }));
-                if ( b_matched == false ) {
-                  continue;
-                }
-              }
-              const tplName = tpl.getFirst();
-              const is_ts = ctx.hasCompilerFlag("typescript");
-              if ( is_ts && (tplName.vref == "typescript" || tplName.vref == "ts") ) {
-                rv = tpl;
-                return rv;
-              }
-              if ( tplName.vref != "*" && tplName.vref != langName ) {
-                continue;
-              }
-              rv = tpl;
-              return rv;
-            };
-            if ( langName == "ranger" ) {
-              const opNameNode = opDef.getFirst();
-              const opArgs = opDef.getThird();
-              const rangerTpl = CodeNode.fromList([CodeNode.newStr((("(" + opNameNode.vref) + " "))]);
-              let cnt = 1;
-              operatorsOf.forEach_15(opArgs.children, ((item, index) => { 
-                if ( item.type_name == "block" ) {
-                  rangerTpl.children.push(CodeNode.fromList([CodeNode.vref1("block"), CodeNode.newInt(cnt)]));
-                } else {
-                  rangerTpl.children.push(CodeNode.fromList([CodeNode.vref1("e"), CodeNode.newInt(cnt)]));
-                }
-                cnt = cnt + 1;
-              }));
-              rangerTpl.children.push(CodeNode.newStr(")"));
-              rv = CodeNode.fromList([CodeNode.vref1("ranger"), rangerTpl]);
-            }
-          }
-        }
-      };
-      return rv;
-    };
-    buildMacro (langOper, args, ctx) {
-      const subCtx = ctx.fork();
-      const wr = new CodeWriter();
-      const lcc = new LiveCompiler();
-      lcc.langWriter = new RangerRangerClassWriter();
-      lcc.langWriter.compiler = lcc;
-      subCtx.targetLangName = "ranger";
-      subCtx.restartExpressionLevel();
-      const macroNode = langOper;
-      const cmdList = macroNode.getSecond();
-      if ( ctx.hasCompilerFlag("show-macros") ) {
-        console.log((("Building macro " + macroNode.vref) + " : ") + cmdList.getCode());
-        console.log("Arguments : " + args.getCode());
-      }
-      lcc.walkCommandList(cmdList, args, subCtx, wr);
-      const lang_str = wr.getCode();
-      const lang_code = new SourceCode(lang_str);
-      lang_code.filename = ("<macro " + macroNode.vref) + ">";
-      const lang_parser = new RangerLispParser(lang_code);
-      lang_parser.parse(ctx.hasCompilerFlag("no-op-transform"));
-      const node = lang_parser.rootNode;
-      if ( args.register_expressions.length > 0 ) {
-        node.register_expressions = operatorsOf.clone_46(args.register_expressions);
-      }
-      operatorsOf.forEach_15(args.children, ((item, index) => { 
-        operatorsOf.forEach_15(item.register_expressions, ((item, index) => { 
-          const re = item;
-          node.register_expressions.push(re);
-        }));
-      }));
-      return node;
-    };
-    operandIsNonOptionalForNullCheck (node) {
-      if ( node.hasFlag("optional") ) {
-        return false;
-      }
-      if ( node.hasParamDesc ) {
-        const pa = node.paramDesc;
-        if ( (typeof(pa.nameNode) !== "undefined" && pa.nameNode != null )  ) {
-          if ( pa.nameNode.hasFlag("optional") ) {
-            return false;
-          }
+        const h = ch.getFirst();
+        if ( h.ns.length == 1 ) {
+          ctx.addError(ch, ((((h.vref + " is not a tag of treefactory ") + fname) + " — declare it with `tag`, or wrap a computed child in `(child ") + h.vref) + " …)");
+          return;
         }
       }
-      return true;
-    };
-    stdParamMatch (callArgs, inCtx, wr, require_all_match) {
-      this.stdCommands = inCtx.getStdCommands();
-      const callFnName = callArgs.getFirst();
-      const cmds = this.stdCommands;
-      let some_matched = false;
-      const found_fn = false;
-      let added_ns = "";
-      let missed_args = [];
-      let ctx = inCtx.fork();
-      const lang_name = operatorsOf_23.getTargetLang_24(ctx);
-      let expects_error = false;
-      const err_cnt = inCtx.getErrorCount();
-      let arg_eval_start = 0;
-      if ( callArgs.hasBooleanProperty("error") ) {
-        expects_error = true;
+      const textField = ( Object.prototype.hasOwnProperty.call(this.treeTextField, fname) ? this.treeTextField[fname] : undefined );
+      if ( textField.length == 0 ) {
+        ctx.addError(ch, ("treefactory " + fname) + " has no `text` field, so a value cannot be a child here");
+        return;
       }
-      if ( inCtx.expressionLevel() == 0 ) {
-        inCtx.lastBlockOp = callArgs;
+      prelude.push(this.treeAssign(ch, reg, textField, ch));
+    };
+    clearImports (node, ctx, wr) {
+      if ( node.isFirstVref("Import") ) {
+        node.expression = true;
+        node.vref = "";
+        node.children.pop();
+        node.children.pop();
       } else {
+        for ( let i = 0; i < node.children.length; i++) {
+          var item = node.children[i];
+          this.clearImports(item, ctx, wr);
+        };
       }
-      const in_chain = false;
-      const call_arg_cnt = callArgs.children.length;
-      const op_list = ctx.getOperators(callFnName.vref);
-      for ( let main_index = 0; main_index < op_list.length; main_index++) {
-        var ch = op_list[main_index];
-        const fc = ch.getFirst();
-        const nameNode = ch.getSecond();
-        const args = ch.getThird();
-        if ( inCtx.isVarDefined(fc.vref) ) {
-          return false;
+    };
+    registerLangSystemClasses (node, ctx, wr) {
+      this.walkLangDefinitions(node, ctx);
+    };
+    walkLangDefinitions (node, ctx) {
+      if ( node.isFirstVref("systemclass") ) {
+        this.registerSystemClassFromNode(node, ctx);
+        return;
+      }
+      if ( node.isFirstVref("systemunion") ) {
+        this.registerSystemUnionFromNode(node, ctx);
+        return;
+      }
+      for ( let i = 0; i < node.children.length; i++) {
+        var ch = node.children[i];
+        this.walkLangDefinitions(ch, ctx);
+      };
+    };
+    registerSystemClassFromNode (node, ctx) {
+      const nameNode = node.getSecond();
+      if ( ctx.isDefinedClass(nameNode.vref) ) {
+        const cl = ctx.findClass(nameNode.vref);
+        if ( cl.is_system_union == false ) {
+          ctx.addError(node, "Class already defined and it was not a systemunion.");
         }
-        ctx.removeOpNs(added_ns);
-        ctx.addOpNs(fc.vref);
-        added_ns = fc.vref;
-        const callerArgCnt = call_arg_cnt - 1;
-        const fnArgCnt = args.children.length;
-        let has_eval_ctx = false;
-        let is_macro = false;
-        let plugin_name = "operator";
-        let plugin_fn = "";
-        let is_plugin = false;
-        let is_pure = false;
-        let is_static_fn = false;
-        let static_fn_name = "";
-        let static_class_name = "";
-        let static_nameNode;
-        if ( nameNode.hasFlag("newcontext") ) {
-          ctx = inCtx.fork();
-          has_eval_ctx = true;
+        cl.is_system = true;
+        const instances = node.getThird();
+        for ( let i = 0; i < instances.children.length; i++) {
+          var ch = instances.children[i];
+          const langName = ch.getFirst();
+          const langClassName = ch.getSecond();
+          cl.systemNodes[langName.vref] = ch;
+          if ( langClassName.vref.length > 0 ) {
+            cl.systemNames[langName.vref] = langClassName.vref;
+          }
+          if ( langClassName.string_value.length > 0 ) {
+            cl.systemNames[langName.vref] = langClassName.string_value;
+          }
+        };
+        return;
+      }
+      const instances_1 = node.getThird();
+      const new_class = new RangerAppClassDesc();
+      new_class.name = nameNode.vref;
+      new_class.nameNode = nameNode;
+      ctx.addClass(nameNode.vref, new_class);
+      new_class.is_system = true;
+      for ( let i_1 = 0; i_1 < instances_1.children.length; i_1++) {
+        var ch_1 = instances_1.children[i_1];
+        const langName_1 = ch_1.getFirst();
+        const langClassName_1 = ch_1.getSecond();
+        new_class.systemNodes[langName_1.vref] = ch_1;
+        if ( langClassName_1.vref.length > 0 ) {
+          new_class.systemNames[langName_1.vref] = langClassName_1.vref;
         }
-        const throws_exception = nameNode.hasFlag("throws");
-        const is_async = nameNode.hasFlag("async");
-        const expanding_node = nameNode.hasFlag("expands");
-        if ( callerArgCnt == fnArgCnt || expanding_node ) {
-          const details_list = ch.children[3];
-          const langOper = this.findLanguageOper(details_list, ctx, ch);
-          if ( typeof(langOper) === "undefined" ) {
-            continue;
+        if ( langClassName_1.string_value.length > 0 ) {
+          new_class.systemNames[langName_1.vref] = langClassName_1.string_value;
+        }
+      };
+      nameNode.is_system_class = true;
+      nameNode.clDesc = new_class;
+    };
+    registerSystemUnionFromNode (node, ctx) {
+      const nameNode = node.getSecond();
+      if ( ctx.isDefinedClass(nameNode.vref) ) {
+        const cl = ctx.findClass(nameNode.vref);
+        if ( cl.is_system == false ) {
+          ctx.addError(node, "Only system classes can be systemunions");
+        }
+        cl.is_system_union = true;
+        const instances = node.getThird();
+        for ( let i = 0; i < instances.children.length; i++) {
+          var ch = instances.children[i];
+          cl.is_union_of.push(ch.vref);
+        };
+        return;
+      }
+      const instances_1 = node.getThird();
+      const new_class = new RangerAppClassDesc();
+      new_class.name = nameNode.vref;
+      new_class.nameNode = nameNode;
+      ctx.addClass(nameNode.vref, new_class);
+      new_class.is_system_union = true;
+      for ( let i_1 = 0; i_1 < instances_1.children.length; i_1++) {
+        var ch_1 = instances_1.children[i_1];
+        new_class.is_union_of.push(ch_1.vref);
+      };
+      nameNode.clDesc = new_class;
+    };
+    finalizeRecordClasses (ctx, wr) {
+      const rootCtx = ctx.getRoot();
+      for ( let i = 0; i < rootCtx.definedClassList.length; i++) {
+        var cname = rootCtx.definedClassList[i];
+        const cl = rootCtx.findClass(cname);
+        if ( cl.is_record ) {
+          if ( cl.has_constructor == false ) {
+            this.buildRecordConstructor(cl, ctx, wr);
           }
-          is_pure = nameNode.hasFlag("pure");
-          if ( langOper.hasBooleanProperty("macro") || nameNode.hasFlag("macro") ) {
-            is_macro = true;
+        }
+      };
+    };
+    expandRecordCtorArgsIfNeeded (cl, fnDescr, params, node) {
+      if ( cl.is_record == false ) {
+        return;
+      }
+      if ( params.children.length == 0 ) {
+        return;
+      }
+      const fc = params.children[0];
+      if ( fc.hasFlag("keyword") ) {
+        return;
+      }
+      let valueCnt = 0;
+      for ( let i = 0; i < fnDescr.params.length; i++) {
+        var p = fnDescr.params[i];
+        if ( p.nameNode.hasFlag("keyword") == false ) {
+          valueCnt = valueCnt + 1;
+        }
+      };
+      if ( params.children.length != valueCnt ) {
+        return;
+      }
+      let expanded = [];
+      let vi = 0;
+      for ( let i_1 = 0; i_1 < fnDescr.params.length; i_1++) {
+        var p_1 = fnDescr.params[i_1];
+        if ( p_1.nameNode.hasFlag("keyword") ) {
+          const kw = node.newVRefNode(p_1.name);
+          kw.setFlag("keyword");
+          expanded.push(kw);
+        } else {
+          expanded.push(params.children[vi]);
+          vi = vi + 1;
+        }
+      };
+      params.children.length = 0;
+      for ( let i_2 = 0; i_2 < expanded.length; i_2++) {
+        var item = expanded[i_2];
+        params.children.push(item);
+      };
+    };
+    buildRecordConstructor (cl, ctx, wr) {
+      if ( cl.variables.length == 0 ) {
+        return;
+      }
+      let sig = "Constructor (";
+      let body = "{\n";
+      let i = 0;
+      const cnt = cl.variables.length;
+      while (i < cnt) {
+        const v = cl.variables[i];
+        let tname = v.nameNode.type_name;
+        const vKeyType = v.nameNode.key_type;
+        const vArrayType = v.nameNode.array_type;
+        if ( vKeyType.length > 0 ) {
+          tname = ((("[" + vKeyType) + ":") + vArrayType) + "]";
+        } else {
+          if ( vArrayType.length > 0 ) {
+            tname = ("[" + vArrayType) + "]";
           }
-          if ( langOper.hasStringProperty("plugin") ) {
-            plugin_name = langOper.getStringProperty("plugin");
-            is_plugin = true;
-            const pluginFn = langOper.getStringProperty("fn");
-            if ( pluginFn.length > 0 ) {
-              plugin_fn = pluginFn;
-              console.log("Function : " + plugin_fn);
-            }
-          }
-          const codeDef = langOper.getSecond();
-          const match = new RangerArgMatch();
-          let last_walked = 0;
-          let last_was_block = false;
-          let walk_later = [];
-          let not_enough_args = false;
-          let blocksToWalkLater = [];
-          if ( ch.hasExpressionProperty("flags") ) {
-            const flagList = ch.getExpressionProperty("flags");
-            let b_matched = false;
-            operatorsOf.forEach_15(flagList.children, ((item, index) => { 
-              b_matched = b_matched || ctx.hasCompilerFlag(item.vref);
-            }));
-            if ( b_matched == false ) {
-              continue;
-            }
-          }
-          ctx.setInExpr();
-          for ( let i = 0; i < args.children.length; i++) {
-            var arg = args.children[i];
-            if ( i < arg_eval_start ) {
-              continue;
-            }
-            arg_eval_start = i;
-            if ( callArgs.children.length <= i + 1 ) {
-              not_enough_args = true;
-              break;
-            }
-            const callArg = callArgs.children[(i + 1)];
-            if ( arg.hasFlag("define") ) {
-              const p = new RangerAppParamDesc();
-              p.name = callArg.vref;
-              p.value_type = arg.value_type;
-              p.node = callArg;
-              p.nameNode = callArg;
-              p.is_optional = false;
-              p.init_cnt = 1;
-              ctx.defineVariable(p.name, p);
-              callArg.hasParamDesc = true;
-              callArg.ownParamDesc = p;
-              callArg.paramDesc = p;
-              if ( callArg.type_name.length == 0 ) {
-                callArg.type_name = arg.type_name;
-                callArg.value_type = arg.value_type;
-              }
-              callArg.eval_type = arg.value_type;
-              callArg.eval_type_name = arg.type_name;
-            }
-            if ( arg.hasFlag("ignore") ) {
-              continue;
-            }
-            if ( arg.hasFlag("keyword") ) {
-              if ( callArg.vref != arg.vref ) {
-                not_enough_args = true;
-              }
-              continue;
-            }
-            if ( arg.hasFlag("noeval") ) {
-              callArg.eval_type = callArg.value_type;
-              callArg.eval_type_name = callArg.type_name;
-              callArg.eval_array_type = callArg.array_type;
-              callArg.eval_key_type = callArg.key_type;
-              continue;
-            }
-            last_walked = i + 1;
-            if ( arg.value_type == 20 ) {
-              const opList = ctx.getOpFns(callArg.vref);
-              if ( opList.length > 0 ) {
-                const signature = arg.expression_value.copy();
-                const params = signature.children[1];
-              }
-              if ( codeDef.is_block_node == false ) {
-                const later = new WalkLater();
-                later.arg = arg;
-                later.callArg = callArg;
-                walk_later.push(later);
-              }
-            } else {
-              if ( arg.type_name == "block" || arg.hasFlag("block") ) {
-                if ( arg.hasFlag("try_block") ) {
-                  const tmpCtx = ctx.fork();
-                  tmpCtx.is_try_block = true;
-                  callArg.evalCtx = tmpCtx;
-                  tmpCtx.newBlock();
-                  this.WalkNode(callArg, tmpCtx, wr);
-                } else {
-                  const tmpCtx_1 = ctx.fork();
-                  tmpCtx_1.newBlock();
-                  callArg.evalCtx = tmpCtx_1;
-                  this.WalkNode(callArg, tmpCtx_1, wr);
-                }
-                last_was_block = true;
-              } else {
-                ctx.setInExpr();
-                this.WalkNode(callArg, ctx, wr);
-                ctx.unsetInExpr();
-                if ( arg.type_name.length > 0 ) {
-                  this.convertToUnion(arg.type_name, callArg, ctx, wr);
-                }
-                last_was_block = false;
-              }
-              if ( arg.hasFlag("mutates") ) {
-                if ( callArg.hasParamDesc ) {
-                  if ( typeof(callArg.paramDesc) != "undefined" && ((typeof(callArg.paramDesc.propertyClass) !== "undefined" && callArg.paramDesc.propertyClass != null ) ) ) {
-                    if ( callArg.paramDesc.propertyClass.nameNode.hasFlag("immutable") ) {
-                      const propC = callArg.paramDesc.propertyClass;
-                      const currC = ctx.getCurrentClass();
-                      if ( currC != propC ) {
-                        not_enough_args = true;
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          };
-          ctx.unsetInExpr();
-          if ( not_enough_args ) {
-            continue;
-          }
-          if ( expanding_node ) {
-            for ( let i2 = 0; i2 < callArgs.children.length; i2++) {
-              var caCh = callArgs.children[i2];
-              if ( caCh.is_block_node ) {
-                const tmpCtx_2 = ctx;
-                caCh.evalCtx = tmpCtx_2;
-                blocksToWalkLater.push(caCh);
-                continue;
-              }
-              if ( i2 > last_walked ) {
-                if ( last_was_block ) {
-                  const sCtx = ctx.forkWithOps(ch.children[3]);
-                  this.WalkNode(caCh, sCtx, wr);
-                } else {
-                  ctx.setInExpr();
-                  this.WalkNode(caCh, ctx, wr);
-                  ctx.unsetInExpr();
-                }
-              }
-            };
-          }
-          const all_matched = match.matchArguments(args, callArgs, ctx, 1);
-          if ( all_matched ) {
-            const expr_level = ctx.expressionLevel();
-            let is_last = false;
-            if ( (typeof(callArgs.parent) !== "undefined" && callArgs.parent != null )  ) {
-              is_last = callArgs.parent.children.length == 1 + callArgs.parent.children.indexOf(callArgs);
-            }
-            if ( (fc.vref == "if" && ctx.hasCompilerFlag("voidexpr")) && (expr_level > 0 || is_last) ) {
-              console.log("IF expr leve == " + ctx.expressionLevel());
-              console.log(callArgs.getCode());
-              const thenBlock = callArgs.children[2];
-              const lastRow = thenBlock.children[(thenBlock.children.length - 1)];
-              console.log("Last row == " + lastRow.getCode());
-              const BlockOP = ctx.getLastBlockOp();
-              const regName = ctx.createNewRegName();
-              const regExpr = CodeNode.fromList([CodeNode.vref1("def"), CodeNode.vref2(regName, lastRow.eval_type_name)]);
-              callArgs.eval_type = lastRow.eval_type;
-              callArgs.eval_type_name = lastRow.eval_type_name;
-              const fnC = ctx.findFunctionCtx();
-              this.WalkNode(regExpr, fnC, wr);
-              const regArg = regExpr.children[1];
-              const realRegDesc = regArg.paramDesc;
-              const realRegName = realRegDesc.compiledName;
-              let then_regs = false;
-              if ( lastRow.register_name.length > 0 ) {
-                const newLastRow = CodeNode.fromList([CodeNode.vref1("="), CodeNode.vref1(regName), CodeNode.vref1(lastRow.register_name)]);
-                this.WalkNode(newLastRow, ctx, wr);
-                thenBlock.children.push(newLastRow);
-                then_regs = true;
-              } else {
-                const vCopy = lastRow.cleanCopy();
-                lastRow.expression = true;
-                lastRow.vref = "";
-                lastRow.value_type = 0;
-                lastRow.flow_done = false;
-                lastRow.getChildrenFrom(CodeNode.fromList([CodeNode.vref1("="), CodeNode.vref1(regName), vCopy]));
-                this.WalkNode(lastRow, ctx, wr);
-              }
-              if ( callArgs.children.length == 4 ) {
-                const elseBlock = callArgs.children[3];
-                const lastRow_1 = elseBlock.children[(elseBlock.children.length - 1)];
-                if ( lastRow_1.register_name.length > 0 ) {
-                  const newLastRow_1 = CodeNode.fromList([CodeNode.vref1("="), CodeNode.vref1(regName), CodeNode.vref1(lastRow_1.register_name)]);
-                  this.WalkNode(newLastRow_1, ctx, wr);
-                  elseBlock.children.push(newLastRow_1);
-                  then_regs = true;
-                } else {
-                  const vCopy_1 = lastRow_1.cleanCopy();
-                  lastRow_1.expression = true;
-                  lastRow_1.vref = "";
-                  lastRow_1.value_type = 0;
-                  lastRow_1.flow_done = false;
-                  lastRow_1.getChildrenFrom(CodeNode.fromList([CodeNode.vref1("="), CodeNode.vref1(regName), vCopy_1]));
-                  console.log(" lastRow value --> " + vCopy_1.getCode());
-                  this.WalkNode(lastRow_1, ctx, wr);
-                }
-              }
-              const tmp = callArgs.clone();
-              BlockOP.register_expressions.push(regExpr);
-              BlockOP.register_expressions.push(tmp);
-              callArgs.register_name = regName;
-              callArgs.reg_compiled_name = realRegName;
-              tmp.has_operator = true;
-              tmp.op_index = main_index;
-              tmp.operator_node = ch;
-              return true;
-            }
-            if ( fc.vref != "for" && ctx.hasCompilerFlag("new") ) {
-              const opDef = langOper.getSecond();
-              let opCnts = {};
-              let regNames = {};
-              let firstRef = {};
-              operatorsOf.forEach_15(args.children, ((item, index) => { 
-                const opArg = item;
-                if ( opArg.hasFlag("loopcondition") ) {
-                  let loopBlock;
-                  operatorsOf.forEach_15(args.children, ((item, index) => { 
-                    if ( item.hasFlag("loopblock") ) {
-                      const tmp_1 = callArgs.children[(index + 1)];
-                      loopBlock = tmp_1;
-                    }
-                  }));
-                  if ( typeof(loopBlock) === "undefined" ) {
-                    ctx.addError(args, "Invalid operator: Loop condition without block ");
-                    return;
-                  }
-                  const opName = index + 1;
-                  const item = callArgs.children[(index + 1)];
-                  let regName_1 = "";
-                  const realArg = callArgs.children[opName];
-                  if ( realArg.register_name.length > 0 ) {
-                    regName_1 = realArg.register_name;
-                  } else {
-                    regName_1 = ctx.createNewRegName();
-                  }
-                  const argCopy = realArg.copy();
-                  const regExpr_1 = CodeNode.fromList([CodeNode.vref1("def"), CodeNode.vref1(regName_1), argCopy]);
-                  ctx.lastBlockOp = callArgs;
-                  this.WalkNode(regExpr_1, ctx, wr);
-                  const regArg_1 = regExpr_1.children[1];
-                  const realRegDesc_1 = regArg_1.paramDesc;
-                  const realRegName_1 = realRegDesc_1.compiledName;
-                  regArg_1.paramDesc.set_cnt = 1;
-                  regArg_1.paramDesc.ref_cnt = 1;
-                  const BlockOP_1 = ctx.getLastBlockOp();
-                  BlockOP_1.register_expressions.push(regExpr_1);
-                  realArg.register_name = regName_1;
-                  realArg.reg_compiled_name = realRegName_1;
-                  operatorsOf.forEach_15(callArgs.children, ((item, index) => { 
-                    if ( item.is_block_node ) {
-                      const argCopy_1 = realArg.copy();
-                      argCopy_1.register_name = "";
-                      argCopy_1.forTree(((item, i) => { 
-                        item.register_name = "";
-                      }));
-                      const eval_expr = CodeNode.fromList([CodeNode.vref1("="), CodeNode.vref1(regName_1), argCopy_1]);
-                      const lastOp = loopBlock.children[(loopBlock.children.length - 1)];
-                      ctx.lastBlockOp = eval_expr;
-                      this.WalkNode(eval_expr, ctx, wr);
-                      item.children.push(eval_expr);
-                    }
-                  }));
-                }
-              }));
-              operatorsOf.forEach_15(opDef.children, ((item, index) => { 
-                if ( item.isFirstVref("e") ) {
-                  if ( item.hasFlag("ignore") || item.hasFlag("noeval") ) {
-                    return;
-                  }
-                  const opSecond = item.getSecond();
-                  const opName_1 = opSecond.int_value;
-                  const opArg_1 = args.children[(opName_1 - 1)];
-                  if ( ( typeof(opCnts[opName_1] ) != "undefined" && Object.prototype.hasOwnProperty.call(opCnts, opName_1) ) ) {
-                    let regName_2 = "";
-                    const realArg_1 = callArgs.children[opName_1];
-                    if ( this.isJustVref(realArg_1) ) {
-                      return;
-                    }
-                    if ( ( typeof(regNames[opName_1] ) != "undefined" && Object.prototype.hasOwnProperty.call(regNames, opName_1) ) ) {
-                      if ( realArg_1.register_name.length > 0 ) {
-                        regName_2 = realArg_1.register_name;
-                      } else {
-                        regName_2 = ( Object.prototype.hasOwnProperty.call(regNames, opName_1) ? regNames[opName_1] : undefined );
-                      }
-                      realArg_1.register_name = regName_2;
-                    } else {
-                      if ( realArg_1.register_name.length > 0 ) {
-                        regName_2 = realArg_1.register_name;
-                      } else {
-                        regName_2 = ctx.createNewRegName();
-                        regNames[opName_1] = regName_2;
-                        const argCopy_2 = realArg_1.copy();
-                        const regExpr_2 = CodeNode.fromList([CodeNode.vref1("def"), CodeNode.vref1(regName_2), argCopy_2]);
-                        this.WalkNode(regExpr_2, ctx, wr);
-                        const regArg_2 = regExpr_2.children[1];
-                        const realRegDesc_2 = regArg_2.paramDesc;
-                        const realRegName_2 = realRegDesc_2.compiledName;
-                        regArg_2.paramDesc.set_cnt = 1;
-                        regArg_2.paramDesc.ref_cnt = 1;
-                        const BlockOP_2 = ctx.getLastBlockOp();
-                        BlockOP_2.register_expressions.push(regExpr_2);
-                        realArg_1.register_name = regName_2;
-                        realArg_1.reg_compiled_name = realRegName_2;
-                      }
-                    }
-                  } else {
-                    opCnts[opName_1] = 1;
-                    firstRef[opName_1] = item;
-                  }
-                }
-              }));
-            }
-          }
-          if ( all_matched ) {
-            if ( is_async ) {
-              let activeFn = ctx.getCurrentMethod();
-              if ( (typeof(activeFn.nameNode) !== "undefined" && activeFn.nameNode != null )  ) {
-                activeFn.nameNode.setFlag("async");
-              }
-              while ((typeof(activeFn.insideFn) !== "undefined" && activeFn.insideFn != null ) ) {
-                activeFn = activeFn.insideFn;
-                if ( (typeof(activeFn.nameNode) !== "undefined" && activeFn.nameNode != null )  ) {
-                  activeFn.nameNode.setFlag("async");
-                }
-              };
-            }
-            if ( throws_exception ) {
-              if ( false == ctx.isTryBlock() ) {
-                const activeFn_1 = ctx.getCurrentMethod();
-                if ( ((typeof(activeFn_1.nameNode) !== "undefined" && activeFn_1.nameNode != null ) ) && activeFn_1.nameNode.hasFlag("throws") ) {
-                } else {
-                  ctx.addError(callArgs, ("The operator " + fc.vref) + " potentially throws an exception, try { } block is required");
-                }
-              }
-            }
-            for ( let i_1 = 0; i_1 < blocksToWalkLater.length; i_1++) {
-              var b = blocksToWalkLater[i_1];
-              const localFork = b.evalCtx.fork();
-              this.WalkNode(b, localFork, wr);
-            };
-            for ( let i_2 = 0; i_2 < walk_later.length; i_2++) {
-              var later_1 = walk_later[i_2];
-              const ca = later_1.callArg;
-              const aa = later_1.arg;
-              const newNode = new CodeNode(ca.code, ca.sp, ca.ep);
-              if ( (ca.is_block_node && ca.isFirstVref("fn") == false) && ca.isFirstVref("fun") == false ) {
-                const fnDef = aa.expression_value;
-                const copyOf = fnDef.rebuildWithType(match, false);
-                const ffc = copyOf.children[0];
-                ffc.vref = "fun";
-                const itemCopy = ca.rebuildWithType(match, false);
-                copyOf.children.push(itemCopy);
-                let cnt = ca.children.length;
-                while (cnt > 0) {
-                  ca.children.pop();
-                  cnt = cnt - 1;
-                };
-                for ( let i_3 = 0; i_3 < copyOf.children.length; i_3++) {
-                  var ch_1 = copyOf.children[i_3];
-                  ca.children.push(ch_1);
-                };
-              }
-              const sCtx_1 = ctx.fork();
-              sCtx_1.newBlock();
-              this.WalkNode(ca, sCtx_1, wr);
-            };
-          }
-          let staticMethod;
-          if ( codeDef.is_block_node && all_matched ) {
-            const pure_transform = ctx.hasCompilerFlag("pure");
-            if ( is_pure && pure_transform ) {
-              const argDefs = CodeNode.blockFromList(operatorsOf.map_45(args.children, ((item, index) => { 
-                const callArg_1 = callArgs.children[(index + 1)];
-                const arg_1 = item;
-                const vName = item.copy();
-                const caCopy = callArg_1.copy();
-                const prms = this.transformParams2([callArg_1], [arg_1], ctx);
-                const firstp = prms[0];
-                const ad = CodeNode.op3("def", [vName, firstp]);
-                return ad;
-              })));
-              const bodyStart = CodeNode.blockFromList([argDefs, codeDef]);
-              const newCtx = ctx.fork();
-              const bodyCopy = bodyStart.rebuildWithType(match, true);
-              callArgs.flow_done = false;
-              callArgs.getChildrenFrom(bodyCopy);
-              this.WalkNode(callArgs, newCtx, wr);
-              return true;
-            }
-            let nSig = "";
-            if ( args.children.length > 0 ) {
-              const arg0 = args.getFirst();
-              nSig = this.getNameSignature(arg0);
-            } else {
-              nSig = this.getVoidNameSignature();
-            }
-            const new_cl = ctx.createOpStaticClass(nSig);
-            this.WalkNode(new_cl.classNode, ctx, wr);
-            const bodyCopy_1 = codeDef.rebuildWithType(match, true);
-            const argsCopy = args.rebuildWithType(match, true);
-            const nameCopy = nameNode.rebuildWithType(match, true);
-            const sigN = ctx.transformOpNameWord(fc.vref);
-            const argsSig = sigN + this.getArgsSignature(argsCopy);
-            if ( false == new_cl.hasStaticMethod(argsSig) ) {
-              const sMethod = ctx.createStaticMethod(
-                argsSig,
-                new_cl,
-                nameCopy,
-                argsCopy,
-                bodyCopy_1,
-                this,
-                wr
-              );
-              staticMethod = sMethod;
-              const currM = ctx.getCurrentMethod();
-              currM.addCallTo(sMethod);
-              static_nameNode = nameCopy;
-              const fCtx = sMethod.fnCtx;
-              fCtx.currentMethod = sMethod;
-              fCtx.is_function = true;
-              const m = sMethod;
-              fCtx.in_static_method = true;
-              if ( nameCopy.hasFlag("weak") ) {
-                m.changeStrength(0, 1, nameNode);
-              } else {
-                m.changeStrength(1, 1, nameNode);
-              }
-              fCtx.setInMethod();
-              for ( let i_4 = 0; i_4 < m.params.length; i_4++) {
-                var v = m.params[i_4];
-                fCtx.defineVariable(v.name, v);
-                v.nameNode.eval_type = v.nameNode.typeNameAsType(fCtx);
-                v.nameNode.eval_type_name = v.nameNode.type_name;
-              };
-              this.WalkNodeChildren(bodyCopy_1, fCtx, wr);
-              fCtx.unsetInMethod();
-              fCtx.in_static_method = false;
-              fCtx.function_level_context = true;
-              for ( let i_5 = 0; i_5 < fCtx.localVarNames.length; i_5++) {
-                var n = fCtx.localVarNames[i_5];
-                const p_1 = ( Object.prototype.hasOwnProperty.call(fCtx.localVariables, n) ? fCtx.localVariables[n] : undefined );
-                if ( p_1.set_cnt > 0 ) {
-                  if ( p_1.is_immutable ) {
-                    ctx.addError(callArgs, "Immutable variable was assigned");
-                  }
-                  const defNode = p_1.node;
-                  defNode.setFlag("mutable");
-                  const nNode = p_1.nameNode;
-                  nNode.setFlag("mutable");
-                }
-              };
-            } else {
-              const sMethod_1 = new_cl.findStaticMethod(argsSig);
-              static_nameNode = sMethod_1.nameNode;
-              const currM_1 = ctx.getCurrentMethod();
-              currM_1.addCallTo(sMethod_1);
-              staticMethod = sMethod_1;
-            }
-            is_static_fn = true;
-            static_fn_name = argsSig;
-            static_class_name = new_cl.name;
-          }
-          if ( all_matched ) {
-            if ( is_static_fn ) {
-              const firstArg = callArgs.getFirst();
-              firstArg.vref = (static_class_name + ".") + static_fn_name;
-              firstArg.flow_done = false;
-              firstArg.value_type = 11;
-              firstArg.ns.length = 0;
-              firstArg.ns.push(static_class_name);
-              firstArg.ns.push(static_fn_name);
-              const newArgs = new CodeNode(
-                callArgs.code,
-                callArgs.sp,
-                callArgs.ep
-              );
-              for ( let i_6 = 0; i_6 < callArgs.children.length; i_6++) {
-                var ca_1 = callArgs.children[i_6];
-                if ( ca_1.is_part_of_chain ) {
-                  continue;
-                }
-                if ( i_6 > 0 ) {
-                  const arg_2 = args.children[(i_6 - 1)];
-                  if ( arg_2.hasFlag("noeval") ) {
-                    continue;
-                  }
-                  newArgs.children.push(ca_1);
-                }
-              };
-              let arg_len = callArgs.children.length;
-              while (arg_len > 1) {
-                callArgs.children.pop();
-                arg_len = arg_len - 1;
-              };
-              callArgs.children.push(newArgs);
-              callArgs.flow_done = false;
-              this.WalkNode(callArgs, ctx, wr);
-              const currMM = ctx.getCurrentMethod();
-              for ( let i_7 = 0; i_7 < newArgs.children.length; i_7++) {
-                var ca_2 = newArgs.children[i_7];
-                if ( ca_2.eval_type == 20 ) {
-                  if ( (typeof(ca_2.lambdaFnDesc) !== "undefined" && ca_2.lambdaFnDesc != null )  ) {
-                    if ( (typeof(staticMethod) !== "undefined" && staticMethod != null )  ) {
-                      staticMethod.addCallTo(ca_2.lambdaFnDesc);
-                      if ( ca_2.lambdaFnDesc.nameNode.hasFlag("async") ) {
-                        staticMethod.nameNode.setFlag("async");
-                      }
-                    }
-                  }
-                }
-                ca_2.forTree(((item, i) => { 
-                  if ( (typeof(item.fnDesc) !== "undefined" && item.fnDesc != null )  ) {
-                    if ( (typeof(staticMethod) !== "undefined" && staticMethod != null )  ) {
-                      staticMethod.addCallTo(item.fnDesc);
-                    }
-                  }
-                }));
-              };
-              match.setRvBasedOn(static_nameNode, callArgs);
-              ctx.removeOpNs(added_ns);
-              return true;
-            }
-            if ( is_plugin ) {
-              try {
-                const fileName = (process.cwd() + "/") + plugin_name;
-                console.log("trying to load plugin: " + fileName);
-                const plugin = require( fileName );
-                ( (new plugin.Plugin () )[plugin_fn] )( callArgs, ctx , wr );
-                callArgs.flow_done = false;
-                this.WalkNode(callArgs, ctx, wr);
-                match.setRvBasedOn(nameNode, callArgs);
-                ctx.removeOpNs(added_ns);
-                console.log("plugin ready...");
-              } catch(e) {
-                ctx.addError(callArgs, "Plugin operator failed " + ( e.toString()));
-              }
-              return true;
-            }
-            if ( is_macro ) {
-              const macroRoot = ctx.getRoot();
-              const macroKey = (((fc.vref + "@") + callArgs.getFilename()) + ":") + (callArgs.sp.toString());
-              let macroActive = false;
-              if ( ( typeof(macroRoot.active_macros[macroKey] ) != "undefined" && Object.prototype.hasOwnProperty.call(macroRoot.active_macros, macroKey) ) ) {
-                macroActive = ( Object.prototype.hasOwnProperty.call(macroRoot.active_macros, macroKey) ? macroRoot.active_macros[macroKey] : undefined );
-              }
-              if ( macroActive ) {
-                ctx.addError(callArgs, ("Macro expansion of operator '" + fc.vref) + "' is recursive: expanding it reaches the same call site again, so it never terminates.");
-                ctx.removeOpNs(added_ns);
-                return true;
-              }
-              if ( macroRoot.macro_expansion_depth > 512 ) {
-                ctx.addError(callArgs, ("Macro expansion of operator '" + fc.vref) + "' does not terminate: nested more than 512 levels.");
-                ctx.removeOpNs(added_ns);
-                return true;
-              }
-              macroRoot.active_macros[macroKey] = true;
-              macroRoot.macro_expansion_depth = macroRoot.macro_expansion_depth + 1;
-              const macroNode = this.buildMacro(langOper, callArgs, ctx);
-              let arg_len_1 = callArgs.children.length;
-              while (arg_len_1 > 0) {
-                callArgs.children.pop();
-                arg_len_1 = arg_len_1 - 1;
-              };
-              callArgs.children.push(macroNode);
-              macroNode.parent = callArgs;
-              this.WalkNode(macroNode, ctx, wr);
-              macroRoot.macro_expansion_depth = macroRoot.macro_expansion_depth - 1;
-              macroRoot.active_macros[macroKey] = false;
-              match.setRvBasedOn(nameNode, callArgs);
-              ctx.removeOpNs(added_ns);
-              return true;
-            }
-            if ( nameNode.hasFlag("moves") ) {
-              const moves_opt = nameNode.getFlag("moves");
-              const moves = moves_opt;
-              const ann = moves.vref_annotation;
-              const from = ann.getFirst();
-              const toItem = ann.getSecond();
-              const cA = callArgs.children[from.int_value];
-              const cA2 = callArgs.children[toItem.int_value];
-              if ( cA.hasParamDesc && cA2.hasParamDesc ) {
-                const pp = cA.paramDesc;
-                const pp2 = cA2.paramDesc;
-                const ppSelf = cA.paramDesc;
-                const ppTarget = cA2.paramDesc;
-                const ppSame = ppSelf == ppTarget;
-                if ( ppSame == false ) {
-                  pp.moveRefTo(callArgs, ppTarget, ctx);
-                }
-              }
-            }
-            if ( nameNode.hasFlag("returns") ) {
-              const activeFn_2 = ctx.getCurrentMethod();
-              if ( typeof(activeFn_2.nameNode) === "undefined" ) {
-                ctx.addError(callArgs, "return outside of a function");
-                return false;
-              }
-              if ( activeFn_2.nameNode.type_name != "void" || activeFn_2.nameNode.value_type == 20 ) {
-                if ( callArgs.children.length < 2 ) {
-                  ctx.addError(callArgs, " missing return value !!!");
-                } else {
-                  const returnedValue = callArgs.children[1];
-                  let validated_returnvalue = false;
-                  if ( activeFn_2.nameNode.value_type == 20 ) {
-                    validated_returnvalue = true;
-                    const fnExpr = activeFn_2.nameNode.expression_value;
-                    if ( typeof(fnExpr) === "undefined" ) {
-                      ctx.addError(activeFn_2.nameNode, "returned anonymous function should have a method signature");
-                    } else {
-                      if ( returnedValue.value_type != 20 && returnedValue.eval_type != 20 ) {
-                        ctx.addError(returnedValue, "Function should return anonymous function!");
-                      } else {
-                        if ( returnedValue.hasParamDesc && ((typeof(returnedValue.paramDesc.nameNode) !== "undefined" && returnedValue.paramDesc.nameNode != null ) ) ) {
-                          const rExpr = returnedValue.paramDesc.nameNode.expression_value;
-                          this.matchLambdaArgs(fnExpr, rExpr, ctx, wr);
-                        } else {
-                          const rExpr_1 = returnedValue.expression_value;
-                          this.matchLambdaArgs(fnExpr, rExpr_1, ctx, wr);
-                        }
-                      }
-                    }
-                  }
-                  if ( validated_returnvalue == false ) {
-                    if ( match.doesMatch(activeFn_2.nameNode, returnedValue, ctx) == false ) {
-                      if ( activeFn_2.nameNode.ifNoTypeSetToEvalTypeOf(returnedValue) ) {
-                      } else {
-                        ctx.addError(returnedValue, "invalid return value type!!! " + returnedValue.getCode());
-                        ctx.addError(returnedValue, "^ code: " + returnedValue.getCode());
-                        ctx.addError(activeFn_2.nameNode, "^ regarding to");
-                        if ( returnedValue.eval_type == 31 ) {
-                          ctx.addError(activeFn_2.nameNode, "^ which was a method");
-                        }
-                        ctx.addError(activeFn_2.nameNode, "^ value type = " + returnedValue.eval_type);
-                      }
-                    }
-                  }
-                  if ( activeFn_2.nameNode.type_name.length > 0 ) {
-                    this.convertToUnion(
-                      activeFn_2.nameNode.type_name,
-                      returnedValue,
-                      ctx,
-                      wr
-                    );
-                  }
-                  const argNode = activeFn_2.nameNode;
-                  if ( returnedValue.hasFlag("optional") ) {
-                    if ( false == argNode.hasFlag("optional") ) {
-                      ctx.addError(callArgs, "function return value optionality does not match, expected non-optional return value, optional given at " + argNode.getCode());
-                    }
-                  }
-                  if ( argNode.hasFlag("optional") ) {
-                    if ( false == returnedValue.hasFlag("optional") ) {
-                      ctx.addError(callArgs, "function return value optionality does not match, expected optional return value " + argNode.getCode());
-                    }
-                  }
-                  const pp_1 = returnedValue.paramDesc;
-                  if ( (typeof(pp_1) !== "undefined" && pp_1 != null )  ) {
-                    pp_1.moveRefTo(callArgs, activeFn_2, ctx);
-                  }
-                }
-              }
-              if ( typeof(callArgs.parent) === "undefined" ) {
-                ctx.addError(callArgs, "did not have parent");
-                console.log("no parent => " + callArgs.getCode());
-              }
-              callArgs.parent.didReturnAtIndex = callArgs.parent.children.indexOf(callArgs);
-            }
-            if ( nameNode.hasFlag("returns") == false ) {
-              match.setRvBasedOn(nameNode, callArgs);
-              callArgs.evalTypeClass = TFactory.new_def_signature(
-                nameNode,
+        }
+        if ( tname.length == 0 ) {
+          tname = "string";
+        }
+        if ( i > 0 ) {
+          sig = sig + " ";
+        }
+        sig = ((((sig + v.name) + "@(keyword) ") + v.name) + ":") + tname;
+        body = ((((body + "this.") + v.name) + " = ") + v.name) + "\n";
+        i = i + 1;
+      };
+      sig = sig + ") ";
+      const code = (sig + body) + "}";
+      const src = new SourceCode(code);
+      src.filename = ("record_ctor_" + cl.name) + ".rgr";
+      const parser = new RangerLispParser(src);
+      parser.parse(false);
+      const rn = parser.rootNode;
+      if ( typeof(rn) === "undefined" ) {
+        return;
+      }
+      const subCtx = cl.ctx;
+      subCtx.setCurrentClass(cl);
+      for ( let ci = 0; ci < rn.children.length; ci++) {
+        var ch = rn.children[ci];
+        if ( ch.isFirstVref("Constructor") ) {
+          this.WalkCollectMethods(ch, subCtx, wr);
+          this.Constructor(ch, subCtx, wr);
+          return;
+        }
+      };
+    };
+    prepareImport (ctx, spec) {
+      const hit = new PkgHit();
+      hit.ok = true;
+      hit.name = PkgImport.stripDot(spec);
+      const envOpt = ctx.getEnv();
+      if ( typeof(envOpt) === "undefined" ) {
+        hit.ok = false;
+        hit.err = "Environment not defined";
+        return hit;
+      }
+      if ( PkgImport.isPkg(spec) == false ) {
+        return hit;
+      }
+      const env = envOpt;
+      const rootCtx = ctx.getRoot();
+      let startDir = ".";
+      const lp = rootCtx.libraryPaths.length;
+      if ( lp > 0 ) {
+        startDir = rootCtx.libraryPaths[(lp - 1)];
+      }
+      return PkgImport.resolve(env, startDir, spec, rootCtx.libraryPaths);
+    };
+    mergeImports (node, ctx, wr) {
+      const envOpt = ctx.getEnv();
+      if ( typeof(envOpt) === "undefined" ) {
+        ctx.addError(node, "Environment not defined");
+        return;
+      }
+      const env = envOpt;
+      if ( node.isFirstVref("Import") ) {
+        const fNameNode = node.children[1];
+        const import_file = fNameNode.string_value;
+        if ( ( typeof(ctx.already_imported[import_file] ) != "undefined" && Object.prototype.hasOwnProperty.call(ctx.already_imported, import_file) ) ) {
+          return;
+        }
+        let source_code = "";
+        const ppList = ctx.findPluginsFor("import_loader");
+        if ( ppList.length > 0 ) {
+          try {
+            operatorsOf.forEach_12(ppList, ((item, index) => { 
+              const plugin = require( item );
+              const ss = ( (new plugin.Plugin () )["import_loader"] )(
+                node,
                 ctx,
                 wr
               );
-            }
-            if ( has_eval_ctx ) {
-              const tmpCtx_3 = ctx;
-              callArgs.evalCtx = tmpCtx_3;
-            }
-            const nodeP = callArgs.parent;
-            if ( (typeof(nodeP) !== "undefined" && nodeP != null )  ) {
-            } else {
-            }
-            const sig = nameNode.buildTypeSignatureUsingMatch(match);
-            some_matched = true;
-            callArgs.has_operator = true;
-            callArgs.op_index = main_index;
-            callArgs.operator_node = ch;
-            for ( let arg_index = 0; arg_index < args.children.length; arg_index++) {
-              var arg_3 = args.children[arg_index];
-              if ( arg_3.has_vref_annotation ) {
-                const anns = arg_3.vref_annotation;
-                for ( let i_8 = 0; i_8 < anns.children.length; i_8++) {
-                  var ann_1 = anns.children[i_8];
-                  if ( ann_1.vref == "mutates" ) {
-                    const theArg = callArgs.children[(arg_index + 1)];
-                    if ( theArg.hasParamDesc ) {
-                      theArg.paramDesc.set_cnt = theArg.paramDesc.set_cnt + 1;
-                    }
-                  }
-                };
-              }
-            };
-            break;
+              if( typeof(ss) === 'string' ) /* union case for string */ {
+                var str = ss;
+                console.log("--> import  " + str);
+                source_code = str;
+              };
+            }));
+          } catch(e) {
           }
         }
-      };
-      if ( require_all_match == true && some_matched == false ) {
-        const opName_2 = callFnName.vref;
-        let reportedSpecific = false;
-        if ( opName_2 == "null?" || opName_2 == "!null?" ) {
-          if ( callArgs.children.length > 1 ) {
-            const operand = callArgs.children[1];
-            if ( this.operandIsNonOptionalForNullCheck(operand) ) {
-              let typeLabel = operand.eval_type_name;
-              if ( typeLabel.length == 0 ) {
-                typeLabel = operand.type_name;
-              }
-              let nameLabel = operand.vref;
-              if ( nameLabel.length == 0 ) {
-                nameLabel = operand.getCode();
-              }
-              ctx.addError(operand, ((((opName_2 + " applies only to optional values; '") + nameLabel) + "' is non-optional (") + typeLabel) + ")");
-              reportedSpecific = true;
+        ctx.already_imported[import_file] = true;
+        const rootCtx = ctx.getRoot();
+        let importFileDir = "";
+        if ( source_code.length == 0 ) {
+          let searchName = PkgImport.stripDot(import_file);
+          let searchPaths = [];
+          if ( PkgImport.isPkg(import_file) ) {
+            const hit = this.prepareImport(ctx, import_file);
+            if ( hit.ok == false ) {
+              ctx.addError(node, hit.err);
+              return;
+            }
+            searchName = hit.name;
+            if ( hit.dir.length > 0 ) {
+              searchPaths.push(hit.dir);
             }
           }
+          let pi = 0;
+          while (pi < rootCtx.libraryPaths.length) {
+            searchPaths.push(rootCtx.libraryPaths[pi]);
+            pi = pi + 1;
+          };
+          const filePathIs = TFiles.searchEnv(env, searchPaths, searchName);
+          if ( operatorsOf_8.filec95exists_9(env, filePathIs, searchName) == false ) {
+            if ( ctx.hasCompilerFlag("verbose") ) {
+              console.log("import did not find the file: " + import_file);
+            }
+            ctx.addError(node, "Could not import file " + import_file);
+            return;
+          }
+          if ( ctx.hasCompilerFlag("verbose") ) {
+            console.log((("importing " + import_file) + " from ") + filePathIs);
+          }
+          const seenKey = "@" + PkgImport.foldPath(((filePathIs + "/") + searchName));
+          if ( ( typeof(ctx.already_imported[seenKey] ) != "undefined" && Object.prototype.hasOwnProperty.call(ctx.already_imported, seenKey) ) ) {
+            return;
+          }
+          ctx.already_imported[seenKey] = true;
+          const c = operatorsOf_8.readc95file_9(env, filePathIs, searchName);
+          source_code = c;
+          const fullPath = (filePathIs + "/") + searchName;
+          importFileDir = require("path").dirname(fullPath);
+          if ( ctx.hasCompilerFlag("verbose") ) {
+            console.log("  -> file read OK, importFileDir=" + importFileDir);
+          }
         }
-        if ( reportedSpecific == false ) {
-          ctx.addError(callArgs, "Could not match argument types for " + callFnName.vref);
+        const code = new SourceCode(source_code);
+        code.filename = import_file;
+        const parser = new RangerLispParser(code);
+        parser.parse(ctx.hasCompilerFlag("no-op-transform"));
+        node.expression = true;
+        node.vref = "";
+        node.children.pop();
+        node.children.pop();
+        if ( ctx.hasCompilerFlag("copysrc") ) {
+          console.log("--> copying " + import_file);
+          const fileWr = wr.getFileWriter(".", import_file);
+          fileWr.raw(source_code, false);
         }
-      }
-      if ( expects_error ) {
-        const cnt_now = ctx.getErrorCount();
-        if ( cnt_now == err_cnt ) {
-          ctx.addParserError(callArgs, (("LANGUAGE_PARSER_ERROR: expected generated error, err counts : " + err_cnt) + " : ") + cnt_now);
+        const rn = parser.rootNode;
+        if ( importFileDir.length > 0 ) {
+          rootCtx.libraryPaths.push(importFileDir);
+          if ( ctx.hasCompilerFlag("verbose") ) {
+            console.log("  -> pushed importFileDir to libraryPaths: " + importFileDir);
+          }
+        }
+        this.mergeImports(rn, ctx, wr);
+        if ( importFileDir.length > 0 ) {
+          rootCtx.libraryPaths.pop();
+        }
+        node.children.push(rn);
+        if ( ctx.hasCompilerFlag("verbose") ) {
+          console.log(("  -> merged import, node now has " + node.children.length) + " children");
         }
       } else {
-        const cnt_now_1 = ctx.getErrorCount();
-        if ( cnt_now_1 > err_cnt ) {
-          ctx.addParserError(callArgs, (("LANGUAGE_PARSER_ERROR: did not expect generated error, err counts : " + err_cnt) + " : ") + cnt_now_1);
-        }
+        for ( let i = 0; i < node.children.length; i++) {
+          var item = node.children[i];
+          this.mergeImports(item, ctx, wr);
+        };
       }
-      ctx.removeOpNs(added_ns);
-      return some_matched;
     };
   }
   class TFactory  {
@@ -77055,11 +77055,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                               if ( autoDetectedTypeScript ) {
                                                                 appCtx.compilerFlags["typescript"] = true;
                                                               }
-                                                              operatorsOf_13.forEach_40(params.params, ((item, index) => { 
+                                                              operatorsOf_13.forEach_42(params.params, ((item, index) => { 
                                                                 const v = item;
                                                                 comp_attrs[index] = v;
                                                               }));
-                                                              operatorsOf_13.forEach_40(comp_attrs, ((item, index) => { 
+                                                              operatorsOf_13.forEach_42(comp_attrs, ((item, index) => { 
                                                                 const n_1 = item;
                                                                 appCtx.compilerSettings[index] = n_1;
                                                               }));
@@ -77930,29 +77930,29 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                               cb(it_13, i_20);
                                                             };
                                                           };
-                                                          operatorsOf.map_44 = function(__self, cb) {
-                                                            const __len = __self.length;
+                                                          operatorsOf.clone_40 = function(__self) {
                                                             let res_8 = [];
-                                                            for ( let i_23 = 0; i_23 < __self.length; i_23++) {
-                                                              var it_14 = __self[i_23];
-                                                              res_8.push(cb(it_14, i_23));
+                                                            for ( let i_22 = 0; i_22 < __self.length; i_22++) {
+                                                              var it_14 = __self[i_22];
+                                                              res_8.push(it_14);
                                                             };
                                                             return res_8;
                                                           };
-                                                          operatorsOf.map_45 = function(__self, cb) {
-                                                            const len_1 = __self.length;
+                                                          operatorsOf.map_41 = function(__self, cb) {
+                                                            const __len = __self.length;
                                                             let res_9 = [];
-                                                            for ( let i_24 = 0; i_24 < __self.length; i_24++) {
-                                                              var it_15 = __self[i_24];
-                                                              res_9.push(cb(it_15, i_24));
+                                                            for ( let i_23 = 0; i_23 < __self.length; i_23++) {
+                                                              var it_15 = __self[i_23];
+                                                              res_9.push(cb(it_15, i_23));
                                                             };
                                                             return res_9;
                                                           };
-                                                          operatorsOf.clone_46 = function(__self) {
+                                                          operatorsOf.map_46 = function(__self, cb) {
+                                                            const len_1 = __self.length;
                                                             let res_10 = [];
                                                             for ( let i_25 = 0; i_25 < __self.length; i_25++) {
                                                               var it_16 = __self[i_25];
-                                                              res_10.push(it_16);
+                                                              res_10.push(cb(it_16, i_25));
                                                             };
                                                             return res_10;
                                                           };
@@ -78249,10 +78249,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                               cb(value_5, kk_5);
                                                             };
                                                           };
-                                                          operatorsOf_13.forEach_40 = function(__self, cb) {
+                                                          operatorsOf_13.forEach_42 = function(__self, cb) {
                                                             const list_6 = Object.keys(__self);
-                                                            for ( let i_22 = 0; i_22 < list_6.length; i_22++) {
-                                                              var kk_6 = list_6[i_22];
+                                                            for ( let i_24 = 0; i_24 < list_6.length; i_24++) {
+                                                              var kk_6 = list_6[i_24];
                                                               const value_6 = ( Object.prototype.hasOwnProperty.call(__self, kk_6) ? __self[kk_6] : undefined );
                                                               cb(value_6, kk_6);
                                                             };
@@ -78924,11 +78924,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                             }
                                                             t.ended = true;
                                                           };
-                                                          class operatorsOfCodeNode_41  {
+                                                          class operatorsOfCodeNode_43  {
                                                             constructor() {
                                                             }
                                                           }
-                                                          operatorsOfCodeNode_41.rc46funcdesc_42 = function(node, ctx) {
+                                                          operatorsOfCodeNode_43.rc46funcdesc_44 = function(node, ctx) {
                                                             const m = new RangerAppFunctionDesc();
                                                             const cn_4 = node.getSecond();
                                                             m.name = cn_4.vref;
@@ -78942,11 +78942,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                             }
                                                             return m;
                                                           };
-                                                          class operatorsOf_41  {
+                                                          class operatorsOf_43  {
                                                             constructor() {
                                                             }
                                                           }
-                                                          operatorsOf_41.rc46func_43 = function(node, ctx, wr) {
+                                                          operatorsOf_43.rc46func_45 = function(node, ctx, wr) {
                                                             const parser = new RangerFlowParser();
                                                             return parser.CreateFunctionObject(
                                                               node,

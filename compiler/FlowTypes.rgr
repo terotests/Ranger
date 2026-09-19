@@ -1,0 +1,578 @@
+; SPDX-License-Identifier: MIT
+
+; Type questions the walk asks: which function or parameter a node resolves to,
+; whether two types are the same one, and the shape a node is required to have.
+
+extension RangerFlowParser {
+
+  fn varShadowsSystemType:boolean (strname:string ctx:RangerAppWriterContext) {
+    if (false == (ctx.isPrimitiveType(strname))) {
+      return false
+    }
+    return (ctx.isVarDefined(strname))
+  }
+
+  fn findFunctionDesc@(weak optional):RangerAppFunctionDesc (obj:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def varDesc:RangerAppParamDesc
+    def varFnDesc:RangerAppFunctionDesc
+    ; Populate obj.nsp (like findParamDesc) so writers can emit reserved-word
+    ; compiledName for the method segment (e.g. ES6/Bun: name -> _name).
+    def set_nsp:boolean false
+    if (0 == (size obj.nsp)) {
+      set_nsp = true
+    }
+    
+    if (obj.vref != (this.getThisName())) {
+      if ((size obj.ns) > 1) {
+        def cnt:int (size obj.ns)
+        def classRefDesc:RangerAppParamDesc
+        def classDesc:RangerAppClassDesc
+        for obj.ns strname:string i {
+          if (i == 0) {
+            
+            if (strname == (this.getThisName())) {
+              classDesc = (ctx.getCurrentClass())
+              if set_nsp {
+                push obj.nsp (unwrap classDesc)
+              }
+            } {
+              if ( (ctx.isDefinedClass(strname)) && (false == (this.varShadowsSystemType(strname ctx))) ) {
+                classDesc = (ctx.findClass(strname))
+                if set_nsp {
+                  push obj.nsp (unwrap classDesc)
+                }
+                continue _
+              }
+              classRefDesc = (ctx.getVariableDef(strname))
+              if ( (null? classRefDesc) || (null? classRefDesc.nameNode) ) {
+                ; A generic class has no name of its own at runtime -- only its
+                ; instantiations do -- so there is nothing for a static call to
+                ; be addressed to. Saying "no description" sends the reader
+                ; looking for a missing import instead.
+                if (ctx.hasTemplateNode(strname)) {
+                  ctx.addError(obj ((strname + ' is a generic class, so it has no static side: only its instantiations exist. Move the static to a plain class.')))
+                } {
+                  ctx.addError(obj ('Error, no description for called object: ' + strname))
+                }
+                break _
+              }
+              classRefDesc.ref_cnt = (1 + classRefDesc.ref_cnt)
+              if set_nsp {
+                push obj.nsp (unwrap classRefDesc)
+              }
+              classDesc = (ctx.findClass(classRefDesc.nameNode.type_name))
+              if(null? classDesc) {
+                return varFnDesc
+              }
+            }
+          } {
+
+            if(null? classDesc) {
+              return varFnDesc
+            }            
+            if (i < (cnt - 1)) {
+              varDesc = (classDesc.findVariable(strname))
+              if (null? varDesc) {
+                ctx.addError(obj ('Error, no description for refenced obj: ' + strname))
+              }
+              if set_nsp {
+                push obj.nsp (unwrap varDesc)
+              }
+              def subClass:string (varDesc.getTypeName())
+              classDesc = (ctx.findClass(subClass))
+              continue _
+            }
+            if (!null? classDesc) {
+              varFnDesc = (classDesc.findMethod(strname))
+              if (null? varFnDesc) {
+                varFnDesc = (classDesc.findStaticMethod(strname))
+                if (null? varFnDesc) {
+                  ctx.addError(obj (' function variable not found ' + strname))
+                }
+              }
+              if ((!null? varFnDesc) && set_nsp) {
+                push obj.nsp (unwrap varFnDesc)
+              }
+            }
+          }
+        }
+        return varFnDesc
+      }
+
+      def udesc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+      def currClass:RangerAppClassDesc (unwrap udesc)         
+
+      varFnDesc = (currClass.findMethod(obj.vref))
+      if(!null? varFnDesc) {
+        if (!null? varFnDesc.nameNode) {
+        } {
+          ctx.addError(obj ('Error, no description for called function: ' + obj.vref))
+        }
+      }
+      return varFnDesc
+    }
+    return varFnDesc
+  }
+
+  fn findParamDesc@(weak optional):RangerAppParamDesc (obj:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+
+    def varDesc@(lives):RangerAppParamDesc
+    def set_nsp:boolean false
+    def classDesc@(lives):RangerAppClassDesc
+    if (0 == (size obj.nsp)) {
+      set_nsp = true
+    }
+    if (obj.vref != (this.getThisName())) {
+      if ((size obj.ns) > 1) {
+        def cnt:int (size obj.ns)
+        def classRefDesc@(lives):RangerAppParamDesc
+        for obj.ns strname:string i {
+          if (i == 0) {
+            if (strname == (this.getThisName())) {
+              classDesc = (ctx.getCurrentClass())                      
+              if set_nsp {
+                push obj.nsp (unwrap classDesc)
+              }
+            } {
+              if ( (ctx.isDefinedClass(strname)) && (false == (this.varShadowsSystemType(strname ctx))) ) {
+                classDesc = (ctx.findClass(strname))
+                if set_nsp {
+                  push obj.nsp (unwrap classDesc)
+                }
+                continue _
+              }
+              classRefDesc = (ctx.getVariableDef(strname))
+              if (null? classRefDesc) {
+                ctx.addError(obj ('Error, no description for called object: ' + strname))
+                break _
+              }
+              this.checkInitializedObjectReceiver(strname obj ctx)
+              if set_nsp {
+                push obj.nsp (unwrap classRefDesc)
+              }
+
+              ; --> if the call is optional
+              ; 
+              ; o.foo.x --> optional always ...
+
+              if (null? classRefDesc.nameNode) {
+                ctx.addError(obj ('Error, no description for called object: ' + strname))
+                break _
+              }
+              if(classRefDesc.nameNode.hasFlag("optional")) {
+                if(ctx.hasCompilerFlag('strict')) {
+                  if(false == (ctx.isTryBlock())) {
+                    ctx.addError( obj "Optional automatically unwrapped outside try block" )
+                  }
+                }
+              }
+
+              classRefDesc.ref_cnt = (1 + classRefDesc.ref_cnt)
+              classDesc = (ctx.findClass(classRefDesc.nameNode.type_name))
+            }            
+          } {
+            if (i < (cnt - 1)) {
+              ; the previous step may have resolved to a type that is not a
+              ; declared class -- without this guard findVariable() is called
+              ; on a null receiver
+              if (null? classDesc) {
+                ctx.addError(obj ('Error, no description for refenced obj: ' + strname))
+                break _
+              }
+              varDesc = (classDesc.findVariable(strname))
+              if (null? varDesc) {
+                ctx.addError(obj ('Error, no description for refenced obj: ' + strname))
+                break _
+              }
+              if( i > 0 ) {
+                if( (!null? varDesc.nameNode) && (varDesc.nameNode.hasFlag("optional")) ) {
+                  if(ctx.hasCompilerFlag('strict')) {
+                    if(false == (ctx.isTryBlock())) {
+                      ctx.addError( obj "Optional automatically unwrapped outside try block" )
+                    }
+                  }
+                }
+              }
+              def subClass:string (varDesc.getTypeName())
+              classDesc = (ctx.findClass(subClass))
+              if set_nsp {
+                push obj.nsp (unwrap varDesc)
+              }
+              continue _
+            }
+            if (!null? classDesc) {
+              varDesc = (classDesc.findVariable(strname))
+              if (null? varDesc) {
+                def classMethod@(lives optional):RangerAppFunctionDesc (classDesc.findMethod(strname))
+                if (null? classMethod) {
+                  classMethod = (classDesc.findStaticMethod(strname))
+                  if (null? classMethod) {
+                    ctx.addError(obj ('variable not found ' + strname))
+                  }
+                }
+                if (!null? classMethod) {
+                  if set_nsp {
+                    push obj.nsp (unwrap classMethod)
+                  }
+                  return classMethod
+                }
+              }
+              if set_nsp {
+                push obj.nsp (unwrap varDesc)
+              }
+            }
+          }
+        }
+        return varDesc
+      }
+      varDesc = (ctx.getVariableDef(obj.vref))
+      if (!null? varDesc.nameNode) {
+      } {
+
+;        print ('findParamDesc : description not found for ' + obj.vref)
+;        if (!null? varDesc) {
+;          print ('Vardesc was found though...' + varDesc.name)
+;        }
+;        ctx.addError(obj ('Error, no description for called object: ' + obj.vref))
+      }
+      return varDesc
+    }
+    def cc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+    return cc
+  }
+
+  fn convertToUnion( unionName:string node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+      
+      if( (ctx.isDefinedClass(unionName)) ) {
+        def c1:RangerAppClassDesc (ctx.findClass(unionName))
+        if( c1.is_union ) {
+            if( (node.type_name != c1.name) && (node.eval_type_name != c1.name ) ) {
+              ; C6: subgroup union → parent (Numeric → Printable) uses the
+              ; generated widen helper; a bare `to` would leave native enum
+              ; targets with the wrong enum type on return / assignment.
+              if ((strlen node.eval_type_name) > 0) {
+                if (ctx.isDefinedClass(node.eval_type_name)) {
+                  def cSrc:RangerAppClassDesc (ctx.findClass(node.eval_type_name))
+                  if cSrc.is_union {
+                    if (cSrc.isSameOrParentClass(unionName ctx)) {
+                      this.rewriteToGroupWiden(node unionName node.eval_type_name ctx wr)
+                      return
+                    }
+                  }
+                }
+              }
+              def toEx (node.newExpressionNode())
+              def toVref (node.newVRefNode('to'))
+              def argType (node.newVRefNode('_'))
+              def targetNode (node.copy())
+              argType.type_name = unionName
+              toEx.push( toVref )
+              toEx.push( argType )
+              toEx.push( targetNode )
+              node.expression = true
+              node.flow_done = false
+              node.value_type = RangerNodeType.NoType
+              node.getChildrenFrom( toEx )
+              def wr (new CodeWriter)
+              this.WalkNode( node ctx wr )
+            }
+          }
+      }
+  }
+
+  fn transformMethodToLambda ( node:CodeNode vFnDef:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter ) {
+
+; node.
+; some.method -->
+
+;    def vFnDef@(optional):RangerAppFunctionDesc (this.findFunctionDesc(node ctx wr))
+;    if (!null? vFnDef) {
+      if(vFnDef.isFunction()) {
+        ; could transform here the n2 into expression...
+        ; fn myFn:int () 
+        def args (map vFnDef.params {
+                    return (item.nameNode.copy())
+                  } to:[CodeNode])
+        ; (fn:rv () )
+        def fnArg (vFnDef.nameNode.copy())
+        fnArg.vref = "fn"
+        def subNode (node.copy())
+        subNode.flow_done = false
+        def argsExpr (map args {
+                                      return (item.copy())
+                                    })
+
+
+        if( ( (has vFnDef.nameNode.type_name) && (vFnDef.nameNode.type_name != 'void') ) ||
+            (has vFnDef.nameNode.array_type) ) {
+          def staticLambda (r.expression
+                              fnArg
+                              (r.expression args )
+                              (r.block
+                                (r.expression
+                                  (r.vref 'return')
+                                  ; call...
+                                  (r.expression
+                                    ; (r.vref node.vref)
+                                    subNode
+                                    ; parameters...
+                                    (r.expression
+                                      argsExpr
+                                    )
+                                  )
+                                )
+                              )
+                            )
+          node.getChildrenFrom( staticLambda )
+
+        } {
+          def staticLambda (r.expression
+                              fnArg
+                              (r.expression args )
+                              (r.block
+                                  (r.expression
+                                    ; (r.vref node.vref)
+                                    subNode
+                                    ; parameters...
+                                    (r.expression
+                                      argsExpr
+                                    )
+                                  )
+                              )
+                            )
+          node.getChildrenFrom( staticLambda )
+        }                                    
+        node.flow_done = false
+        node.expression = true
+        node.value_type = RangerNodeType.NoType
+        node.vref = ""
+;        node.hasParamDesc = false
+;        nullify node.paramDesc
+        this.WalkNode( node ctx wr)
+;      }
+    }    
+  }
+
+  fn areEqualTypes:boolean (n1:CodeNode n2:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+
+    if(n1.eval_type == RangerNodeType.ExpressionType) {
+
+      def n1Expr@(weak) (n1.expression_value)
+      def n2Expr@(weak) (n2.expression_value)
+
+      if(null? n1Expr) {
+        if(n1.hasParamDesc && (!null? n1.paramDesc.nameNode) && (!null? n1.paramDesc.nameNode.expression_value) ) {
+          n1Expr = n1.paramDesc.nameNode.expression_value
+        }
+      }
+      if(null? n2Expr) {
+        if(n2.hasParamDesc && (!null? n2.paramDesc.nameNode) && (!null? n2.paramDesc.nameNode.expression_value) ) {
+          n2Expr = n2.paramDesc.nameNode.expression_value
+        }
+      }
+      if( (!null? n1Expr) && (!null? n2Expr) ) {
+        ; if two lambas have been given as argument...
+        return (this.matchLambdaArgs( (unwrap n1Expr) (unwrap n2Expr) ctx (new CodeWriter)))
+      }
+
+      if( (!null? n1Expr) ) {
+        
+        ; for example:
+        ;   forEach list1 <operatorfn>
+        ;
+        ; this is transformed into corresponding lambda call like
+        ; (fn:void (item:int index:int) { <operator> item index })
+        def opList (ctx.getOpFns(n2.vref))
+        if(has opList) {        
+          
+          def newCall (r.expression (r.vref n2.vref))
+          def newExpr (r.block )
+          def proto (n1Expr.copy())
+
+          def fc (at proto.children 0)
+          fc.vref = 'fn'
+          def eParams (at n1Expr.children 1)
+          eParams.children.forEach({
+            push newCall.children (r.vref item.vref)
+          })
+          if(fc.type_name != 'void') {
+            push newExpr.children (r.expression (r.vref 'return') newCall )
+          } {
+            push newExpr.children newCall           
+          }
+          push proto.children newExpr
+
+          n2.value_type = RangerNodeType.NoType
+          n2.expression_value = (proto.copy())
+          n2.expression = true
+          n2.flow_done = false
+          n2.vref = ''
+          clear n2.ns
+          n2.getChildrenFrom( (proto.copy()) )
+
+          this.WalkNode(n2 ctx wr)
+          n2.expression_value = proto
+          return (this.areEqualTypes(n1 n2 ctx wr))
+        }
+      }
+      
+
+      if( n2.eval_type == RangerNodeType.Method ) {
+        def pDesc:RangerAppFunctionDesc (cast (unwrap n2.paramDesc) to:RangerAppFunctionDesc)
+        ; (cast pDesc to:RangerAppFunctionDesc)
+        this.transformMethodToLambda( n2 pDesc ctx wr )
+        return true        
+      }
+      
+      def vFnDef@(optional):RangerAppFunctionDesc (this.findFunctionDesc(n2 ctx wr))
+      if (!null? vFnDef) {
+        ; Static method is transformed here to lambda...
+        ; print "Transforming method to lambda " + (n2.getCode())
+        this.transformMethodToLambda( n2 (unwrap vFnDef) ctx wr )
+        return true
+      }
+
+      
+
+      ctx.addError(n2 "Was not able to evaluate lambda expression types!")
+      if(!null? n1Expr) {
+        ctx.addError(n1  ('^ ' + (n1Expr.getCode())) )
+      } {
+        ctx.addError(n1  "^ expression_value not found (1)" )        
+      }
+      if(!null? n2Expr) {
+        ctx.addError(n2  ('^ ' + (n2Expr.getCode())) )
+      } {
+        ctx.addError(n2  "^ expression_value not found (2)" )
+      }
+      return false
+    }    
+    if ((n1.eval_type != RangerNodeType.NoType) && (n2.eval_type != RangerNodeType.NoType) && ((strlen n1.eval_type_name) > 0) && ((strlen n2.eval_type_name) > 0)) {
+      if ( n1.eval_type_name == n2.eval_type_name) {
+      } {
+        def b_ok:boolean false
+        if ((ctx.isEnumDefined(n1.eval_type_name)) && (n2.eval_type_name == "int")) {
+          b_ok = true
+        }
+        if ((ctx.isEnumDefined(n2.eval_type_name)) && (n1.eval_type_name == "int")) {
+          b_ok = true
+        }
+        if ((n1.eval_type_name == "char") && (n2.eval_type_name == "int")) {
+          b_ok = true
+        }
+        if ((n1.eval_type_name == "int") && (n2.eval_type_name == "char")) {
+          b_ok = true
+        }
+
+        if( (ctx.isDefinedClass(n1.eval_type_name)) && (ctx.isDefinedClass (n2.eval_type_name))) {
+
+            def c1:RangerAppClassDesc (ctx.findClass(n1.eval_type_name))
+            def c2:RangerAppClassDesc (ctx.findClass(n2.eval_type_name))
+
+            if( c1.is_union ) {
+                if( c2.is_union == false ) {
+
+                  this.convertToUnion( n1.eval_type_name n2 ctx (new CodeWriter))
+                  if(n2.eval_type_name == n1.eval_type_name) {
+                    return true
+                  } {
+                    return false
+                  }
+                }
+            }
+
+            if( (c2.is_union != c1.is_union ) ) {
+              ctx.addError( n1 ('Can not convert union to type '))
+              return false
+            }      
+
+            if( (c2.is_union == true) && (c1.is_union == true)) {
+              ; Same union, or a closed shape subgroup (Numeric <: Printable):
+              ; every member of the source union belongs to the target union.
+              if (n1.eval_type_name == n2.eval_type_name) {
+                return true
+              }
+              ; C6: actual (n2/c2) is a subgroup of expected (n1/c1) — widen via
+              ; the generated `widen_to_<Parent>` helper so native enum targets
+              ; keep a typed conversion without a wrapper object.
+              ; Direction matters: Numeric → Printable is allowed; Printable →
+              ; Numeric is not (a Printable may hold a non-Numeric case).
+              if ( c2.isSameOrParentClass (n1.eval_type_name ctx)) {
+                this.rewriteToGroupWiden(n2 n1.eval_type_name n2.eval_type_name ctx wr)
+                return true
+              }
+              ctx.addError( n1 ('Union types must be the same =>  ' + n1.eval_type_name + " <> " + n2.eval_type_name))
+              return false
+            }   
+
+            if ( c1.isSameOrParentClass (n2.eval_type_name ctx)) {
+                return true
+            }
+            if ( c2.isSameOrParentClass (n1.eval_type_name ctx)) {
+                return true
+            }
+        }
+        
+        if (b_ok == false) {
+          if(n1.eval_type_name == 'Any') {
+            this.convertToUnion( 'Any' n2 ctx (new CodeWriter))
+            if(n2.eval_type_name == n1.eval_type_name) {
+;              print "^ converted to union " + (n2.getCode())
+              return true
+            } {
+              return false
+            }
+          }
+          return false
+        }
+      }
+    }
+    return true
+  }
+
+  fn shouldBeEqualTypes:void (n1:CodeNode n2:CodeNode ctx@(weak):RangerAppWriterContext msg:string) {
+
+    if ((n1.eval_type != RangerNodeType.NoType) && (n2.eval_type != RangerNodeType.NoType) && ((strlen n1.eval_type_name) > 0) && ((strlen n2.eval_type_name) > 0)) {
+      def cn1:string (TTypeRegistry.canonicalScalar(n1.eval_type_name))
+      def cn2:string (TTypeRegistry.canonicalScalar(n2.eval_type_name))
+      if (cn1 == cn2) {
+      } {
+        def b_ok:boolean false
+        if ((ctx.isEnumDefined(n1.eval_type_name)) && (n2.eval_type_name == "int")) {
+          b_ok = true
+        }
+        if ((ctx.isEnumDefined(n2.eval_type_name)) && (n1.eval_type_name == "int")) {
+          b_ok = true
+        }
+        if (ctx.isDefinedClass(n2.eval_type_name)) {
+          def cc:RangerAppClassDesc (ctx.findClass(n2.eval_type_name))
+          if (cc.isSameOrParentClass(n1.eval_type_name ctx)) {
+            b_ok = true
+          }
+        }
+        if ((n1.eval_type_name == "char") && (n2.eval_type_name == "int")) {
+          b_ok = true
+        }
+        if ((n1.eval_type_name == "int") && (n2.eval_type_name == "char")) {
+          b_ok = true
+        }
+        if (b_ok == false) {
+          ctx.addError(n1 ('Type mismatch ' + n2.eval_type_name + ' <> ' + n1.eval_type_name + '. ' + msg))
+        }
+      }
+    }
+  }
+
+  fn shouldBeExpression:void (n1:CodeNode ctx:RangerAppWriterContext msg:string) {
+    if (n1.expression == false) {
+      ctx.addError(n1 (msg))
+    }
+  }
+
+  fn shouldHaveChildCnt:void (cnt:int n1:CodeNode ctx:RangerAppWriterContext msg:string) {
+    if ((size n1.children) != cnt) {
+      ctx.addError(n1 (msg))
+    }
+  }
+
+}
