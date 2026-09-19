@@ -281,187 +281,207 @@ Pricing.kt</code></pre>
       </ol>
     </nav>
 
-    <p class="matrix-hint reveal">Scroll sideways for PHP, Scala, Go, C++ and Rust.</p>
+    <p class="matrix-hint reveal">Scroll sideways for the later idiom columns.</p>
     <div class="matrix-wrap reveal">
       <table class="matrix">
-        <caption class="sr-only">How each official source back end lowers Ranger idioms</caption>
+        <caption class="sr-only">Official source back ends ranked by how idiomatic the generated file is</caption>
         <thead>
           <tr>
-            <th scope="col">Idiom</th>
-            <th scope="col">Python</th>
-            <th scope="col">JS</th>
-            <th scope="col">TS</th>
-            <th scope="col">Dart</th>
-            <th scope="col">Swift</th>
-            <th scope="col">Kotlin</th>
-            <th scope="col">C#</th>
-            <th scope="col">Java</th>
-            <th scope="col">PHP</th>
-            <th scope="col">Scala</th>
-            <th scope="col">Go</th>
-            <th scope="col">C++</th>
-            <th scope="col">Rust</th>
+            <th scope="col">#</th>
+            <th scope="col">Language</th>
+            <th scope="col">Two names, one object</th>
+            <th scope="col">Weak back-edge</th>
+            <th scope="col">Optional</th>
+            <th scope="col"><code>try</code> / <code>throw</code></th>
+            <th scope="col">Closed variants</th>
+            <th scope="col">Ranger <code>Enum</code></th>
+            <th scope="col">Ranger <code>trait</code></th>
+            <th scope="col">Generics</th>
+            <th scope="col">Higher-order fn</th>
+            <th scope="col">Error type</th>
           </tr>
         </thead>
         <tbody>
           <tr>
-            <th scope="row">Two names, one object</th>
+            <th class="matrix__rank" scope="row">#1</th>
+            <th class="matrix__lang"><a href="#rank-python">Python</a></th>
             <td>object</td>
-            <td>object</td>
-            <td>object</td>
-            <td>object</td>
-            <td>class / ARC</td>
-            <td>object</td>
-            <td>object</td>
-            <td>object</td>
-            <td>object</td>
-            <td>object</td>
-            <td><code>*T</code></td>
-            <td><code>shared_ptr</code></td>
-            <td><code>Rc&lt;RefCell&gt;</code></td>
-          </tr>
-          <tr>
-            <th scope="row">Weak back-edge</th>
             <td>ignored</td>
-            <td>ignored</td>
-            <td>ignored</td>
-            <td>ignored (<code>T?</code>)</td>
-            <td><code>weak var x: T?</code></td>
-            <td>ignored (<code>T?</code>)</td>
-            <td>ignored</td>
-            <td>ignored</td>
-            <td>ignored</td>
-            <td>ignored</td>
-            <td>ignored (<code>*GoNullable</code>)</td>
-            <td><code>weak_ptr</code></td>
-            <td><code>Weak&lt;RefCell&gt;</code></td>
-          </tr>
-          <tr>
-            <th scope="row">Optional</th>
             <td><code>None</code></td>
-            <td><code>undefined</code></td>
-            <td><code>T | undefined</code></td>
-            <td><code>T?</code></td>
-            <td><code>T?</code></td>
-            <td><code>T?</code></td>
-            <td><code>int?</code> / null</td>
-            <td><code>null</code> / <code>Integer</code></td>
-            <td><code>null</code> / <code>isset</code></td>
-            <td><code>Option[T]</code></td>
-            <td><code>*GoNullable</code></td>
-            <td><code>r_optional_*</code></td>
-            <td><code>Option&lt;T&gt;</code></td>
-          </tr>
-          <tr>
-            <th scope="row"><code>try</code> / <code>throw</code></th>
             <td><code>raise</code> / <code>except</code></td>
-            <td><code>throw "…"</code></td>
-            <td><code>throw "…"</code></td>
-            <td><code>throw "…"</code></td>
-            <td><code>func … throws</code></td>
-            <td><code>Exception(msg)</code></td>
-            <td><code>ConfigurationErrorsException</code></td>
-            <td><code>IllegalArgumentException</code></td>
-            <td><code>throw new Exception</code></td>
-            <td><code>ScalaReturnValue</code></td>
-            <td><code>panic</code> / <code>recover</code></td>
-            <td><code>throw string</code></td>
-            <td>catch dropped, panic</td>
-          </tr>
-          <tr>
-            <th scope="row">Closed variants</th>
             <td><code>_rg_kind</code></td>
-            <td><code>__rg_kind</code></td>
-            <td><code>__rg_kind</code> + union type</td>
-            <td>abstract class + <code>is</code></td>
-            <td>native <code>enum</code></td>
-            <td><code>sealed interface</code></td>
-            <td><code>interface</code> + <code>is</code></td>
-            <td><code>Object</code> + <code>instanceof</code></td>
-            <td>class + <code>get_class</code></td>
-            <td>class + <code>match</code></td>
-            <td>tagged struct</td>
-            <td><code>std::variant</code></td>
-            <td><code>enum</code> + <code>match</code></td>
-          </tr>
-          <tr>
-            <th scope="row">Ranger <code>Enum</code></th>
             <td><code>int</code></td>
-            <td>number</td>
-            <td>number</td>
-            <td><code>int</code></td>
-            <td><code>Int</code></td>
-            <td><code>Int</code></td>
-            <td><code>int</code></td>
-            <td><code>Integer</code></td>
-            <td>int</td>
-            <td><code>Int</code></td>
-            <td><code>int64</code></td>
-            <td><code>enum class</code></td>
-            <td><code>enum</code></td>
-          </tr>
-          <tr>
-            <th scope="row">Ranger <code>trait</code></th>
             <td>mixin</td>
-            <td>mixin</td>
-            <td>mixin</td>
-            <td>mixin / abstract class</td>
-            <td>mixin / <code>protocol</code></td>
-            <td>mixin / <code>interface</code></td>
-            <td>mixin / <code>interface</code></td>
-            <td>mixin / <code>interface</code></td>
-            <td>mixin</td>
-            <td>mixin</td>
-            <td>mixin / <code>interface</code></td>
-            <td>mixin / abstract base</td>
-            <td>mixin / <code>trait</code></td>
-          </tr>
-          <tr>
-            <th scope="row">Generics</th>
             <td><code>Stack_int</code></td>
-            <td><code>Stack_int</code></td>
-            <td><code>Stack_int</code></td>
-            <td><code>Stack_int</code></td>
-            <td><code>Stack_int</code></td>
-            <td><code>Stack_int</code></td>
-            <td><code>Stack_int</code></td>
-            <td><code>Stack_int</code></td>
-            <td><code>Stack_int</code></td>
-            <td><code>Stack_int</code></td>
-            <td><code>Stack_int</code></td>
-            <td><code>Stack_int</code></td>
-            <td><code>Stack_int</code></td>
-          </tr>
-          <tr>
-            <th scope="row">Higher-order fn</th>
             <td>callable</td>
-            <td>function</td>
-            <td>typed function</td>
-            <td><code>int Function(int)</code></td>
-            <td>closure</td>
-            <td><code>(Int) -&gt; Int</code></td>
-            <td><code>Func&lt;int, int&gt;</code></td>
-            <td><code>LambdaSignature1</code></td>
-            <td>function</td>
-            <td>function</td>
-            <td><code>func(int64) int64</code></td>
-            <td><code>std::function</code></td>
-            <td><code>&amp;mut dyn FnMut</code></td>
+            <td><code>Exception(str)</code></td>
           </tr>
           <tr>
-            <th scope="row">Error type</th>
-            <td><code>Exception(str)</code></td>
+            <th class="matrix__rank" scope="row">#2</th>
+            <th class="matrix__lang"><a href="#rank-javascript">JavaScript</a></th>
+            <td>object</td>
+            <td>ignored</td>
+            <td><code>undefined</code></td>
+            <td><code>throw "…"</code></td>
+            <td><code>__rg_kind</code></td>
+            <td>number</td>
+            <td>mixin</td>
+            <td><code>Stack_int</code></td>
+            <td>function</td>
             <td>throw string</td>
+          </tr>
+          <tr>
+            <th class="matrix__rank" scope="row">#3</th>
+            <th class="matrix__lang"><a href="#rank-typescript">TypeScript</a></th>
+            <td>object</td>
+            <td>ignored</td>
+            <td><code>T | undefined</code></td>
+            <td><code>throw "…"</code></td>
+            <td><code>__rg_kind</code> + union type</td>
+            <td>number</td>
+            <td>mixin</td>
+            <td><code>Stack_int</code></td>
+            <td>typed function</td>
             <td>throw string</td>
+          </tr>
+          <tr>
+            <th class="matrix__rank" scope="row">#4</th>
+            <th class="matrix__lang"><a href="#rank-dart">Dart</a></th>
+            <td>object</td>
+            <td>ignored (<code>T?</code>)</td>
+            <td><code>T?</code></td>
+            <td><code>throw "…"</code></td>
+            <td>abstract class + <code>is</code></td>
+            <td><code>int</code></td>
+            <td>mixin / abstract class</td>
+            <td><code>Stack_int</code></td>
+            <td><code>int Function(int)</code></td>
             <td>throw string</td>
+          </tr>
+          <tr>
+            <th class="matrix__rank" scope="row">#5</th>
+            <th class="matrix__lang"><a href="#rank-swift">Swift</a></th>
+            <td>class / ARC</td>
+            <td><code>weak var x: T?</code></td>
+            <td><code>T?</code></td>
+            <td><code>func … throws</code></td>
+            <td>native <code>enum</code></td>
+            <td><code>Int</code></td>
+            <td>mixin / <code>protocol</code></td>
+            <td><code>Stack_int</code></td>
+            <td>closure</td>
             <td><code>throws</code> / no <code>Result</code></td>
+          </tr>
+          <tr>
+            <th class="matrix__rank" scope="row">#6</th>
+            <th class="matrix__lang"><a href="#rank-kotlin">Kotlin</a></th>
+            <td>object</td>
+            <td>ignored (<code>T?</code>)</td>
+            <td><code>T?</code></td>
+            <td><code>Exception(msg)</code></td>
+            <td><code>sealed interface</code></td>
+            <td><code>Int</code></td>
+            <td>mixin / <code>interface</code></td>
+            <td><code>Stack_int</code></td>
+            <td><code>(Int) -&gt; Int</code></td>
             <td><code>Exception</code></td>
+          </tr>
+          <tr>
+            <th class="matrix__rank" scope="row">#7</th>
+            <th class="matrix__lang"><a href="#rank-csharp">C#</a></th>
+            <td>object</td>
+            <td>ignored</td>
+            <td><code>int?</code> / null</td>
             <td><code>ConfigurationErrorsException</code></td>
+            <td><code>interface</code> + <code>is</code></td>
+            <td><code>int</code></td>
+            <td>mixin / <code>interface</code></td>
+            <td><code>Stack_int</code></td>
+            <td><code>Func&lt;int, int&gt;</code></td>
+            <td><code>ConfigurationErrorsException</code></td>
+          </tr>
+          <tr>
+            <th class="matrix__rank" scope="row">#8</th>
+            <th class="matrix__lang"><a href="#rank-java">Java</a></th>
+            <td>object</td>
+            <td>ignored</td>
+            <td><code>null</code> / <code>Integer</code></td>
             <td><code>IllegalArgumentException</code></td>
+            <td><code>Object</code> + <code>instanceof</code></td>
+            <td><code>Integer</code></td>
+            <td>mixin / <code>interface</code></td>
+            <td><code>Stack_int</code></td>
+            <td><code>LambdaSignature1</code></td>
+            <td><code>IllegalArgumentException</code></td>
+          </tr>
+          <tr>
+            <th class="matrix__rank" scope="row">#9</th>
+            <th class="matrix__lang"><a href="#rank-php">PHP</a></th>
+            <td>object</td>
+            <td>ignored</td>
+            <td><code>null</code> / <code>isset</code></td>
+            <td><code>throw new Exception</code></td>
+            <td>class + <code>get_class</code></td>
+            <td>int</td>
+            <td>mixin</td>
+            <td><code>Stack_int</code></td>
+            <td>function</td>
             <td><code>Exception</code></td>
+          </tr>
+          <tr>
+            <th class="matrix__rank" scope="row">#10</th>
+            <th class="matrix__lang"><a href="#rank-scala">Scala</a></th>
+            <td>object</td>
+            <td>ignored</td>
+            <td><code>Option[T]</code></td>
             <td><code>ScalaReturnValue</code></td>
+            <td>class + <code>match</code></td>
+            <td><code>Int</code></td>
+            <td>mixin</td>
+            <td><code>Stack_int</code></td>
+            <td>function</td>
+            <td><code>ScalaReturnValue</code></td>
+          </tr>
+          <tr>
+            <th class="matrix__rank" scope="row">#11</th>
+            <th class="matrix__lang"><a href="#rank-go">Go</a></th>
+            <td><code>*T</code></td>
+            <td>ignored (<code>*GoNullable</code>)</td>
+            <td><code>*GoNullable</code></td>
+            <td><code>panic</code> / <code>recover</code></td>
+            <td>tagged struct</td>
+            <td><code>int64</code></td>
+            <td>mixin / <code>interface</code></td>
+            <td><code>Stack_int</code></td>
+            <td><code>func(int64) int64</code></td>
             <td>no <code>(T, error)</code></td>
+          </tr>
+          <tr>
+            <th class="matrix__rank" scope="row">#12</th>
+            <th class="matrix__lang"><a href="#rank-cpp">C++</a></th>
+            <td><code>shared_ptr</code></td>
+            <td><code>weak_ptr</code></td>
+            <td><code>r_optional_*</code></td>
+            <td><code>throw string</code></td>
+            <td><code>std::variant</code></td>
+            <td><code>enum class</code></td>
+            <td>mixin / abstract base</td>
+            <td><code>Stack_int</code></td>
+            <td><code>std::function</code></td>
             <td>no <code>expected</code></td>
+          </tr>
+          <tr>
+            <th class="matrix__rank" scope="row">#13</th>
+            <th class="matrix__lang"><a href="#rank-rust">Rust</a></th>
+            <td><code>Rc&lt;RefCell&gt;</code></td>
+            <td><code>Weak&lt;RefCell&gt;</code></td>
+            <td><code>Option&lt;T&gt;</code></td>
+            <td>catch dropped, panic</td>
+            <td><code>enum</code> + <code>match</code></td>
+            <td><code>enum</code></td>
+            <td>mixin / <code>trait</code></td>
+            <td><code>Stack_int</code></td>
+            <td><code>&amp;mut dyn FnMut</code></td>
             <td>no <code>Result</code></td>
           </tr>
         </tbody>
