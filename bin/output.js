@@ -30322,6 +30322,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 wr.out("#include <string_view>", true);
                 wr.out("#include <vector>", true);
                 wr.out("#include <cstring>", true);
+                wr.out("#include <stdexcept>", true);
                 wr.out("// String hashing for the map below. std::hash<std::string> is", true);
                 wr.out("// _Hash_bytes, an out-of-line MurmurHash in libstdc++ that costs a call", true);
                 wr.out("// and a per-byte mix; profiling the interpreter put it at ~10% of all", true);
