@@ -30,7 +30,11 @@ import { createTextInputBridge } from "../../../lib/evg/gl/evg-textinput.js";
 // asked for it with `?inspect=1`, so a demo that nobody is inspecting pays
 // one import and no work at all.
 import { attach as attachInspector } from "../../../lib/evg/inspect/evg-inspect.js";
-import { MenubarDemo, ToolbarDemo, SortableDemo, MotionDemo, TableDemo, DropdownDemo, DialogDemo, TreeDemo, TimelineDemo, ResizeDemo, FormDemo, ProfileDemo, DashboardDemo, CalendarDemo, FilterDemo, EventCalDemo, MessageDemo, ControlsDemo, OtpDemo, MetadataDemo, MODULES } from "./generated-host.js";
+import { MenubarDemo, ToolbarDemo, SortableDemo, MotionDemo, TableDemo, DropdownDemo, DialogDemo, TreeDemo, TimelineDemo, ResizeDemo, FormDemo, ProfileDemo, DashboardDemo, CalendarDemo, FilterDemo, EventCalDemo, MessageDemo, ControlsDemo, OtpDemo, MetadataDemo, EffectsDemo, MODULES } from "./generated-host.js";
+// The effect driver: what turns a press on the canvas into the events a
+// surface effect reads. It is per HOST and not per demo, because a press is a
+// browser event and the box it landed in is already in the display list.
+import { createEffectDriver } from "../../../lib/evg/gl/evg-fx.js";
 // The browser measures text for every layout the demos build: the same face
 // the painter draws with, through canvas `measureText`, in place of the
 // advance table. Installed before any demo is constructed, because a demo
@@ -44,7 +48,7 @@ import * as ToolbarModule from "../bin/ToolbarDemo.cjs";
 import * as SortableModule from "../bin/SortableDemo.cjs";
 const fontMeasure = installCanvasMeasurer(MODULES);
 window.__fontMeasure = fontMeasure;
-import { MENUBAR_CSS, TOOLBAR_CSS, SORTABLE_CSS, MOTION_CSS, TABLE_CSS, DROPDOWN_CSS, DIALOG_CSS, TREE_CSS, TIMELINE_CSS, RESIZE_CSS, FORM_CSS, PROFILE_CSS, DASHBOARD_CSS, CALENDAR_CSS, FILTERS_CSS, EVENTCAL_CSS, MESSAGE_CSS, CONTROLS_CSS, OTP_CSS, METADATA_CSS } from "./generated.js";
+import { MENUBAR_CSS, TOOLBAR_CSS, SORTABLE_CSS, MOTION_CSS, TABLE_CSS, DROPDOWN_CSS, DIALOG_CSS, TREE_CSS, TIMELINE_CSS, RESIZE_CSS, FORM_CSS, PROFILE_CSS, DASHBOARD_CSS, CALENDAR_CSS, FILTERS_CSS, EVENTCAL_CSS, MESSAGE_CSS, CONTROLS_CSS, OTP_CSS, METADATA_CSS, EFFECTS_CSS } from "./generated.js";
 
 // The default stage width. A demo wider than this says so — the dashboard
 // grew to 1336 when its sidebar arrived, and a stage that stays 1240 does not
@@ -384,6 +388,13 @@ let lastControlsHover = "";
 let lastCalendarHover = "";
 const dashboard = new DashboardDemo();
 dashboard.init(DASHBOARD_CSS);
+const effects = new EffectsDemo();
+effects.init(EFFECTS_CSS);
+// ONE DRIVER FOR THE PAGE. It reads the effect instances off whatever display
+// list is being painted, so it works for any demo whose stylesheet declares an
+// effect and costs nothing on the nineteen that do not.
+const fxDriver = createEffectDriver();
+let fxLastTick = 0;
 let lastDashHover = "";
 let lastResizeHover = "";
 let lastTreeHover = "";
@@ -727,6 +738,37 @@ const DEMOS = {
     }),
   },
 
+  // SURFACE EFFECTS, and the page's own share of them is four lines: hand the
+  // driver a press, a drag and a release, and let it say when the page is
+  // still moving. Which box reacts, to what, and what it looks like are all in
+  // `effects.css`.
+  effects: {
+    height: () => effects.heightPx(),
+    list: () => effects.displayListJson(),
+    hit: (x, y) => effects.hitId(x, y),
+    a11y: (gen, focus) => effects.a11yJson(gen, focus),
+    press: (id) => effects.press(id),
+    hover: () => false,
+    key: () => false,
+    animated: true,
+    // The same three hooks the dashboard's application-driven ripple uses —
+    // except that nothing here knows what a ripple is: the driver hit-tests
+    // the boxes the display list carries and the sheet said which of them
+    // wanted a press.
+    ripple: (x, y) => fxDriver.press(x, y),
+    rippleTo: (x, y) => fxDriver.drag(x, y),
+    rippleEnd: () => fxDriver.release(),
+    host: () => ({
+      tick: (dt) => effects.tick(dt),
+      // The effects' own clock is advanced in `paint`, where the list they
+      // live on is parsed; this says whether the page has to keep asking for
+      // frames, which is true while a star drifts or a ring travels.
+      busy: () => fxDriver.busy() || effects.busyNow(),
+      setHover: () => false,
+      setPressed: (id) => effects.setPressed(id),
+      root: () => null,
+    }),
+  },
   metadata: {
     height: () => metadata.heightPx(),
     list: () => metadata.displayListJson(),
@@ -1292,6 +1334,7 @@ const INSTANCE = {
   metadata: () => metadata,
   dialog: () => dialog,
   motion: () => motion,
+  effects: () => effects,
 };
 
 /** The demo showing now, or null for one of the three kept trees. */
@@ -1695,6 +1738,18 @@ function paint() {
     // reason.
     window.__lastList = listJson;
     const list = JSON.parse(listJson);
+    // THE EFFECTS' CLOCK. Any list that carries element-scoped effects gets
+    // its events aged and the clock stamped on before the painter reads them —
+    // the driver keys its state by the element's id, so a list parsed afresh
+    // every paint keeps a ripple that is still travelling.
+    if (list.effects && list.effects.length > 0) {
+      const now = performance.now();
+      const dt = fxLastTick ? Math.min(now - fxLastTick, 100) : 16;
+      fxLastTick = now;
+      fxDriver.tick(dt, list);
+    } else {
+      fxLastTick = 0;
+    }
     const doc = { width: W2, height: H, list };
     // The backing store is sized for the pixels actually on screen: a stage
     // scaled to 0.43 on a phone with a 3x screen still wants 1.3 device pixels
@@ -1952,7 +2007,7 @@ function syncPanels() {
 // `?demo=dashboard` lands on one directly. A page with eighteen demos and one
 // entry point makes every link to it a click instruction; a check that wants
 // the dashboard should not have to press a radio to get there.
-const DEMO_NAMES = ["menubar", "toolbar", "sortable", "table", "tree", "timeline", "resizable", "form", "calendar", "filters", "eventcal", "message", "controls", "otp", "metadata", "profile", "dashboard", "dropdown", "dialog", "motion"];
+const DEMO_NAMES = ["menubar", "toolbar", "sortable", "table", "tree", "timeline", "resizable", "form", "calendar", "filters", "eventcal", "message", "controls", "otp", "metadata", "profile", "dashboard", "dropdown", "dialog", "motion", "effects"];
 const wanted = new URLSearchParams(location.search).get("demo");
 if (wanted && DEMO_NAMES.includes(wanted)) state.which = wanted;
 

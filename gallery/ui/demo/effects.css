@@ -1,0 +1,170 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later
+ *
+ * The whole of the effects demo. Everything the page does that an ordinary
+ * stylesheet cannot is in the four `evg-` properties below:
+ *
+ *   evg-surface-effect   WHAT runs — a name the engine never interprets
+ *   evg-effect-on        WHAT STARTS IT: press, drag, hover, always
+ *   evg-fx-<name>        PARAMETERS, under names only the plugin knows
+ *
+ * WHERE is each element's own border box, because the layout already worked it
+ * out. Change `.fx-pool`'s width here and the water moves with it; there is no
+ * coordinate anywhere in EffectsDemo.rgr or in the page's JavaScript.
+ */
+
+.fx-page {
+  width: 980px;
+  height: 620px;
+  background-color: rgb(8, 9, 20);
+  display: flex;
+  flex-direction: column;
+}
+
+/* --- the sky ---------------------------------------------------------------
+ * A SOURCE effect: it is drawn where this element's own background is drawn,
+ * so the headline below is painted OVER the stars rather than into them.
+ */
+.fx-sky {
+  width: 980px;
+  height: 340px;
+  background-color: rgb(6, 7, 20);
+  position: relative;
+  evg-surface-effect: starfield;
+  evg-effect-on: always;
+  evg-fx-density: 1.5;
+  evg-fx-nebula: 0.8;
+  evg-fx-speed: 6;
+  evg-fx-angle: 200;
+  evg-fx-hue: 228;
+  evg-fx-hue2: 305;
+  evg-fx-seed: 5;
+}
+
+.fx-headline {
+  position: absolute;
+  left: 48px;
+  top: 40px;
+  color: rgb(240, 242, 255);
+  font-size: 30px;
+}
+
+.fx-lead {
+  position: absolute;
+  left: 48px;
+  top: 88px;
+  width: 440px;
+  color: rgb(170, 178, 214);
+  font-size: 14px;
+  line-height: 22px;
+}
+
+/* --- the pane --------------------------------------------------------------
+ * A BACKDROP effect: it reads what is behind this element at the point the
+ * element paints, so the sky bends at its rim and the two lines inside it,
+ * drawn afterwards, stay sharp.
+ *
+ * Only the refraction is the effect. The frosting, the tint and the shape are
+ * ordinary CSS beside it, and a backend with no GPU still draws a rounded,
+ * translucent card.
+ */
+.fx-glass {
+  position: absolute;
+  left: 560px;
+  top: 52px;
+  width: 360px;
+  height: 236px;
+  background-color: rgba(255, 255, 255, 0.07);
+  border-radius: 30px;
+  backdrop-filter: blur(9px);
+  evg-surface-effect: liquid-glass;
+  evg-fx-thickness: 26;
+  evg-fx-strength: 36;
+  evg-fx-disperse: 0.08;
+  evg-fx-shine: 0.55;
+  /* THE SWEEP: a bar of light crossing the pane and flaring where it meets
+   * the rim. `always` is what keeps the frames coming — the same word the sky
+   * above uses, and the only thing on this element that is about time. */
+  evg-effect-on: always;
+  evg-fx-sweep: 0.85;
+  evg-fx-sweep-width: 0.03;
+  evg-fx-sweep-speed: 0.16;
+  evg-fx-sweep-edge: 3;
+}
+
+.fx-glass-title {
+  position: absolute;
+  left: 32px;
+  top: 30px;
+  color: rgb(255, 255, 255);
+  font-size: 19px;
+}
+
+.fx-glass-sub {
+  position: absolute;
+  left: 32px;
+  top: 70px;
+  color: rgb(214, 220, 248);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.fx-glass-sub2 { top: 92px; }
+.fx-glass-sub3 { top: 114px; }
+
+/* --- the water -------------------------------------------------------------
+ * A FILTER effect, and the only one on the page with a trigger: it bends the
+ * finished surface inside its own box when this card is pressed or dragged
+ * across. The card beside it declares nothing and so does nothing, which is
+ * the difference the property exists to make.
+ */
+.fx-row {
+  display: flex;
+  flex-direction: row;
+  gap: 28px;
+  padding: 40px 48px 0px 48px;
+}
+
+.fx-pool {
+  width: 268px;
+  height: 170px;
+  background-color: rgb(22, 26, 52);
+  border-radius: 20px;
+  position: relative;
+  evg-surface-effect: ripple;
+  evg-effect-on: press drag;
+  evg-ripple-speed: 240;
+  evg-ripple-strength: 9;
+  evg-ripple-decay: 1.5;
+}
+
+.fx-card {
+  width: 268px;
+  height: 170px;
+  background-color: rgb(22, 26, 52);
+  border-radius: 20px;
+  position: relative;
+}
+
+.fx-card-title {
+  position: absolute;
+  left: 24px;
+  top: 28px;
+  color: rgb(226, 230, 248);
+  font-size: 15px;
+}
+
+.fx-card-sub {
+  position: absolute;
+  left: 24px;
+  top: 56px;
+  width: 220px;
+  color: rgb(150, 158, 196);
+  font-size: 13px;
+  line-height: 19px;
+}
+
+.fx-foot {
+  padding: 28px 48px 0px 48px;
+  color: rgb(126, 134, 172);
+  font-size: 12px;
+}

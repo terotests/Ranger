@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The surface effects are on the published gallery page** —
+  [`/ui/demo/?demo=effects`](https://terotests.github.io/Ranger/ui/demo/?demo=effects).
+  Every other demo there is a control measured against the component it copies;
+  this one is a MATERIAL, and what it shows is that the effects are declared in
+  `gallery/ui/demo/effects.css` and nowhere else. `EffectsDemo.rgr` holds no
+  shader, no clock, no parameter and no coordinate: it builds a tree, the sheet
+  says which box has which effect, the layout says where the box is, and the
+  painter looks the name up in its registry. The page's own share is four lines
+  — a press, a drag, a release and "is anything still moving" — handed to the
+  driver in `lib/evg/gl/evg-fx.js`, which now runs for any demo whose list
+  carries effects.
+
+- **Liquid glass takes a sweep of light.** A bar crossing the pane at its own
+  angle, flaring where it meets the rim, either parked or travelling:
+  `evg-fx-sweep`, `-sweep-angle`, `-sweep-width`, `-sweep-speed`, `-sweep-at`
+  and `-sweep-edge`. It is off by default, because a pane in a room with
+  nothing moving has no streak on it, and a moving one asks for frames with the
+  same `evg-effect-on: always` a starfield uses. The dashed names are the point:
+  `evg-fx-sweep-speed` reaches the shader as `p_sweep_speed` and nothing in
+  between had to learn either spelling.
+
 - **A surface effect can be switched off, and the demo page has a switch for
   each one.** `inst.off` on an instance: the painter skips the run, the filter
   is not live, nothing is compiled or copied, and the driver stops handing it

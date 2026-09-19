@@ -78,10 +78,19 @@ class FxDemoDoc {
             + "  border-radius: 30px;"
             + "  backdrop-filter: blur(9px);"
             + "  evg-surface-effect: liquid-glass;"
-            + "  evg-fx-thickness: 30;"
-            + "  evg-fx-strength: 40;"
-            + "  evg-fx-disperse: 0.09;"
-            + "  evg-fx-shine: 0.7;"
+            + "  evg-fx-thickness: 26;"
+            + "  evg-fx-strength: 36;"
+            + "  evg-fx-disperse: 0.08;"
+            + "  evg-fx-shine: 0.55;"
+            ; A BAR OF LIGHT CROSSING THE PANE, and `always` to keep the
+            ; frames coming for it. Everything about the sweep is a number in
+            ; this sheet; the shader that draws it has never heard of this
+            ; page.
+            + "  evg-effect-on: always;"
+            + "  evg-fx-sweep: 0.85;"
+            + "  evg-fx-sweep-width: 0.03;"
+            + "  evg-fx-sweep-speed: 0.16;"
+            + "  evg-fx-sweep-edge: 3;"
             + "}"
             + ".glass-title { color: rgb(255,255,255); font-size: 19px; }"
             + ".glass-note { color: rgb(214,220,248); font-size: 13px; }"
