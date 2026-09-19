@@ -32,6 +32,14 @@ const EXPECTED_SKIPS = {
   children: "structure — EVGReconcile decides the child list",
   transitions: "the in-flight animations, which are the reason the element is kept",
   paintStamp: "this element's own count of paint changes — adopting is one, so it is moved on, not copied",
+  // The name the display list's effect pass gave this element's instance on the
+  // last build. `EVGDisplayList.build` calls `collectEffects` before the walk
+  // that reads it, on every build, so it is rewritten before anything can look
+  // at it — adopting an empty one over a warm one, or a warm one over an empty
+  // one, is the same picture either way. It is written by the display list and
+  // never by a stylesheet, which is what makes it in-flight state and not
+  // something the reconciler has to carry across.
+  effectRuntimeId: "in-flight — the display list names the instance again on every build",
   // The flattened path, kept so a pan does not re-parse every `d` on the
   // page. It is DERIVED and self-checking: the box, the steps, the path and
   // the viewBox it was computed for are stored beside it and compared before

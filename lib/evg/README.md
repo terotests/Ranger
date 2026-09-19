@@ -476,9 +476,43 @@ See [`EVGConnector.rgr`](EVGConnector.rgr) and its test,
 ### Interaction and meaning
 
 `transition` (see [Interaction](#interaction)), the ARIA surface (see
-[Accessibility](#accessibility)), and `evg-surface-effect` with its
-`evg-ripple-*` parameters, which are a GPU post-pass and are dropped by the
-painters that have no render target.
+[Accessibility](#accessibility)), and `evg-surface-effect` with `evg-effect-on`
+and the `evg-fx-*` / `evg-ripple-*` parameters, which are GPU passes and are
+dropped by the painters that have no render target.
+
+#### Surface effects belong to an element
+
+```css
+.hero-sky { evg-surface-effect: starfield; evg-effect-on: always; evg-fx-density: 1.6 }
+.pool     { evg-surface-effect: ripple;    evg-effect-on: press drag }
+```
+
+`evg-surface-effect` names WHAT runs, `evg-effect-on` says WHAT STARTS IT, and
+`evg-fx-<name>: <number>` passes parameters the engine never reads — WHERE is
+the element's own border box, because the layout already worked it out. So the
+document decides which card ripples, and no application code holds a drop, a
+clock or a coordinate.
+
+The display list carries one instance per element that declared one, under the
+element's `id`, and the painter looks the name up in a registry:
+
+```js
+registerSurfaceEffect({ name, layer: "source" | "filter", params, frag })
+```
+
+A **source** is drawn in paint order at the element's own background, so the
+element's content is painted over it; a **filter** runs over the finished
+surface, clipped to the box, which is how the ripple bends text it knows
+nothing about. Both are one GLSL function and a parameter list, and the box
+mask is applied for them — a plugin cannot paint outside its own element.
+
+`lib/evg/gl/evg-fx.js` is the host's side: it hit-tests the boxes the list
+carries and turns pointer events into the events the shaders read.
+
+The original whole-surface effect (`list.effect`, drops pushed in by the
+application) is unchanged and still runs. [`PLAN_EFFECTS.md`](PLAN_EFFECTS.md)
+has the design, what it does not do yet, and how to write a plugin;
+`npm run evg:fx:test`, `npm run evg:fx:check` and `npm run evg:fx:demo`.
 
 ### Identity
 

@@ -9,6 +9,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A surface effect belongs to an ELEMENT now, and is declared in CSS.**
+  `evg-surface-effect: ripple` was one effect over the whole page, with its
+  parameters as fields on `EVGElement` and its drops pushed in by the
+  application from its own `pointerdown` — every press, anywhere, rippled
+  everything, and a second effect could not exist because its parameters would
+  have had to be fields on every element in every document. Three properties
+  replace all of that: `evg-surface-effect` names what runs, `evg-effect-on`
+  (`press drag hover always`) says what starts it, and `evg-fx-<name>: <number>`
+  carries parameters the engine never reads. WHERE is the element's own border
+  box, because the layout already knows it — so an effect reflows with the box
+  it belongs to and no application holds a coordinate, a clock or a drop.
+  `EVGDisplayList` writes one instance per element under the element's `id`, and
+  the rectangle where that element paints carries `efx` so the effect has a
+  place in paint order. The original whole-surface `list.effect` is untouched
+  and still runs. `npm run evg:fx:test`.
+
+- **Renderer plugins, and a starfield to prove it takes one.** The WebGL
+  painter now looks an effect's name up in a registry rather than branching on
+  it: `registerSurfaceEffect({ name, layer, params, frag })`, where `layer` is
+  `source` (drawn in paint order at the element's background, so the element's
+  content is painted over it) or `filter` (run over the finished surface,
+  clipped to the box, which is how the ripple bends text it knows nothing
+  about). A plugin writes one function, `vec4 fxColor(vec2 p, vec2 local)`, and
+  is handed the box, the radius, the clock and the pointer events; the rounded
+  box mask is applied in the shared `main`, so a plugin cannot paint outside
+  the element that declared it. The ripple became one of these without being
+  rewritten — `RIPPLE_CORE` is one string with two entry points. `starfield` is
+  the second: parallax star layers and two-hue nebula from hashes alone, no
+  state, no uploads, nothing in the display list but a name and nine numbers.
+  `lib/evg/gl/evg-fx.js` is the driver that turns a pointer into the events
+  they read, hit-testing the boxes the list carries. Checked in a real GL
+  context — scoped to its box, under the content, moving with the clock, and
+  leaking nothing outside — by `npm run evg:fx:check`; `npm run evg:fx:demo`
+  serves a page whose every effect comes out of a stylesheet.
+  [`lib/evg/PLAN_EFFECTS.md`](lib/evg/PLAN_EFFECTS.md).
+
 - **The UI gallery is a github.io path.** `gallery/ui` already had the
   tree-literal demos and the Radix-vs-Ranger playground; neither was in
   the Pages artifact, so
