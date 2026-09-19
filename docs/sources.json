@@ -94,7 +94,7 @@
       "import": "DOMLib.rgr",
       "summary": "Read and change the document object model.",
       "status": "legacy",
-      "reason": "Only the old demo compiler/test_slides.rgr imports this file."
+      "reason": "Nothing in the repository imports this file. Its only reader was the compiler/test_slides.rgr demo, deleted with the rest of the compiler-folder probes."
     },
     {
       "id": "viewlib",
@@ -144,7 +144,7 @@
       "import": "JinxProcess.rgr",
       "summary": "Process operators for the Jinx runtime.",
       "status": "legacy",
-      "reason": "Only the old demo compiler/test_slides.rgr imports this file."
+      "reason": "Nothing in the repository imports this file. Its only reader was the compiler/test_slides.rgr demo, deleted with the rest of the compiler-folder probes."
     },
     {
       "id": "rangerdir",

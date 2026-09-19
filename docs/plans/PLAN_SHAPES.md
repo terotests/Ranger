@@ -518,7 +518,7 @@ cross-target program for this contract.
 ### 3.7 The `case` keyword collision
 
 `case` already exists twice: as the `switch` arm operator and as the union-narrowing
-statement operator (`lib/stdlib.rgr:149`, `compiler/operators.md`). Using it a third
+statement operator (`lib/stdlib.rgr:149`, and the generated operator reference on the docs site). Using it a third
 time as a shape member declaration is *parseable* — a shape body is walked by its own
 routine, and `case Number does Primitive { … }` cannot appear where a statement is
 expected — but it costs something real: editor highlighting, `ng_RangerDocGenerator`,
