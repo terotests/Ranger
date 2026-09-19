@@ -134,6 +134,46 @@ if (/APP\.md no longer describes/.test(refreshed.problems.join(" | "))) {
 console.log("  stale       a changed app with an old memory is caught, and memo clears it");
 fs.rmSync(stale, { recursive: true, force: true });
 
+// --- a screen becoming an app -----------------------------------------------
+//
+// The phone on the live-build page is a document: it has a tab bar because a
+// phone has one, and pressing it does nothing because there is nothing behind
+// it. `init` writes the two mechanical parts — the machine and a page per
+// state — and refuses to invent the third, which is which parts of each
+// screen differ.
+{
+  // A screen whose tabs already carry ids says what its states are, and
+  // reading that is not a guess.
+  const wired = fs.mkdtempSync(path.join(os.tmpdir(), "evg-app-init-"));
+  const made = app("init", wired, `--from=${path.join(fixture, "pages/map.evg.json")}`);
+  if (made.states.join(",") !== "map,routes,settings") {
+    throw new Error(`init did not read the states off the screen: ${made.states}`);
+  }
+  if (made.missing) throw new Error(`a wired screen should be missing nothing: ${made.missing}`);
+  if (made.pages !== 3) throw new Error(`three states, ${made.pages} pages`);
+  const ran = app("check", wired);
+  const said = ran.problems.join(" | ");
+  // Every page is the same screen to start with, so every state renders and
+  // every id is an event — what is left is design, and `check` says nothing
+  // about design.
+  if (/is not an event/.test(said)) throw new Error(`the new app has dead ids: ${said}`);
+  console.log(`  init        ${made.states.join(", ")} read off the screen, ${made.pages} pages, no dead ids`);
+  fs.rmSync(wired, { recursive: true, force: true });
+
+  // A screen with nothing pressable gets one state and is TOLD what is
+  // missing, rather than being given a machine that looks finished.
+  const plain = fs.mkdtempSync(path.join(os.tmpdir(), "evg-app-init-"));
+  const one = app("init", plain, `--from=${path.join(here, "fixtures/dashboard.evg.json")}`);
+  if (one.states.join(",") !== "main") throw new Error(`expected one state, got ${one.states}`);
+  if (one.idsOnTheScreen !== 0) throw new Error("that screen has no ids");
+  if (!(one.missing || []).includes("nav.main")) throw new Error("init did not say what is missing");
+  if (!/give what should switch tabs those ids/.test(one.next || "")) {
+    throw new Error(`init did not say what to do next: ${one.next}`);
+  }
+  console.log(`  init bare   one state, 0 ids, and it says which id is missing`);
+  fs.rmSync(plain, { recursive: true, force: true });
+}
+
 // --- the broken app ---------------------------------------------------------
 //
 // Three defects, one per line of `check`'s reason for existing.

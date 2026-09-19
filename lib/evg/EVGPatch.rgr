@@ -85,6 +85,19 @@ class EVGPatchOp {
         return o
     }
 
+    ; A node's `id` is not a property — nothing paints it, and the patchable
+    ; set is about what the engine can read back. It is the node's NAME: the
+    ; hit test answers with it, and an app turns a press on it into an event.
+    ; Without an op for it an agent can only name a node by rewriting the file
+    ; by hand, which is how a screen ends up with buttons nothing can press.
+    sfn setId:EVGPatchOp (at:string value:string) {
+        def o (new EVGPatchOp())
+        o.op = "set-id"
+        o.at = at
+        o.value = value
+        return o
+    }
+
     sfn setText:EVGPatchOp (at:string value:string) {
         def o (new EVGPatchOp())
         o.op = "set-text"
@@ -239,6 +252,9 @@ class EVGPatch {
         if (op.op == "set-text") {
             return (this.doSetText(op))
         }
+        if (op.op == "set-id") {
+            return (this.doSetId(op))
+        }
         if (op.op == "insert") {
             return (this.doInsert(op))
         }
@@ -304,6 +320,55 @@ class EVGPatch {
         }
         def inv:EVGPatchOp (EVGPatchOp.setProp(op.at name before))
         this.record(inv)
+        return ""
+    }
+
+    ; --- set-id ---------------------------------------------------------------
+
+    fn doSetId:string (op:EVGPatchOp) {
+        def hit@(optional):EVGElement (insp.elementAt(op.at))
+        if (null? hit) {
+            return (this.noSuchNode(op.at))
+        }
+        def el:EVGElement (unwrap hit)
+        def want:string op.value
+        if (EVGReject.isAbsent(want)) {
+            want = ""
+        }
+        ; Two nodes with one id is a screen where the same press means two
+        ; things, and the hit test can only answer with one of them. Say which
+        ; node already has it rather than let the second one look live.
+        if ((strlen want) > 0) {
+            def other:string (this.pathOfId(want op.at))
+            if ((strlen other) > 0) {
+                return ((("id \"" + want) + ("\" is already on " + (other + " — an id names one node, and a press can only reach one of them"))))
+            }
+        }
+        def before:string el.id
+        el.id = want
+        def inv:EVGPatchOp (EVGPatchOp.setId(op.at before))
+        this.record(inv)
+        return ""
+    }
+
+    ; The path of the node carrying `id`, ignoring `skip` (the node being named,
+    ; which may already carry it). "" when nothing else has it.
+    fn pathOfId:string (id:string skip:string) {
+        def n:int (insp.count())
+        def i:int 0
+        while (i < n) {
+            def p:string (insp.pathAt(i))
+            if (p != skip) {
+                def hit@(optional):EVGElement (insp.elementAt(p))
+                if (null? hit) {
+                } {
+                    if ((unwrap hit).id == id) {
+                        return p
+                    }
+                }
+            }
+            i = (i + 1)
+        }
         return ""
     }
 

@@ -387,9 +387,57 @@ function carryAttachment(from, to) {
 // memory that has stopped matching the app is a finding, because the next pass
 // will believe it.
 function appSection(dir) {
-  if (!fs.existsSync(path.join(dir, "app", "machine.json"))) return "";
+  if (!fs.existsSync(path.join(dir, "app", "machine.json"))) return noAppSection();
   const code = fs.existsSync(path.join(dir, "app", "App.rgr"));
   return `${code ? codeAppSection() : dataAppSection()}`;
+}
+
+// There is no app yet, and this is the section an agent needs MOST — the one
+// that was missing. Asked for a phone with four tabs, an agent designs four
+// tabs, presses one, and nothing happens; so it goes looking for the switch.
+// It will not find one, because a document has no navigation in it: no href,
+// no goto, no hidden page. Left to search, it greps the compiled tool for
+// `#page` and `currentPage` and finds nothing there either, which is an hour
+// spent proving an absence. Say it up front: one document is one screen, and
+// several screens is a different thing that already exists.
+function noAppSection() {
+  return `
+## This document is one screen
+
+A document has no navigation in it. There is no \`href\`, no \`goto\`, no
+hidden page, no \`display: none\` screen waiting its turn — and nothing
+to find by searching the tools for one. A press on a tab you draw does
+nothing, because a screen is a picture and a picture has no states. That
+is not missing; it is what a document is.
+
+**Several screens is an app**, and an app is one command away. Give
+everything that should be pressable an \`id\` — the tab bar's entries
+\`nav.<state>\`, one per screen the task asks for — and then:
+
+\`\`\`
+./evg-app init app --from=doc.evg.json
+\`\`\`
+
+It reads those \`nav.*\` ids off the screen, writes \`app/machine.json\`
+with a state for each, and copies the document to
+\`app/pages/<state>.evg.json\` so every state starts from the screen you
+designed. Then each page is edited on its own — \`./evg-agent patch
+app/pages/map.evg.json ops.json\` — and pressing a tab moves the machine
+and changes the page.
+
+\`init\` tells you what it read and what is missing. If it says one state
+and zero ids, the screen has no ids yet: that is the thing to fix, not
+the tool.
+
+After it runs, this workspace is an app and the rules in
+\`./evg-app\` (run it with no arguments) apply: the machine owns the
+page, an element's \`id\` is the event its press sends, \`{key}\` in a
+text node is filled from the machine's context, and \`./evg-app check
+app\` walks every state.
+
+Only do this when the task asks for more than one screen. One screen is a
+document, and a document is what the live page shows.
+`;
 }
 
 // An app that is a program. The guide only says this when there is one,
@@ -575,6 +623,19 @@ Patchable properties include width, height, display, flex-direction,
 justify-content, align-items, gap, padding-*, margin-*, color,
 background-color, border-radius, font-size, font-weight.
 
+A node may also have an \`id\` (\`{"tag":"div","id":"nav.map",...}\`). It
+names the node: \`query #nav.map\` finds it, the hit test answers with
+it, and if this screen ever becomes an app it is the event a press on
+that node sends. Give every button, tab and row one — a nameless button
+cannot be pressed by anything, now or later. The op is \`set-id\`:
+
+\`\`\`json
+{"op": "set-id", "at": "0/3/0", "value": "nav.map"}
+\`\`\`
+
+An id names one node; naming a second node the same is rejected, and it
+names the one that already has it.
+
 ## Lay it out — do not place it
 
 This is a CSS engine: flex, grid, gap, padding, and the box model, with
@@ -713,8 +774,7 @@ next to the picture. A hand-written file still repaints; it just arrives
 without the ops that explain it.
 
 If there is no \`./evg-agent\`, edit \`doc.evg.json\` directly and save,
-then read \`layout.json\`. You may also write \`App.rgr\` with Ranger that
-builds the same tree.
+then read \`layout.json\`.
 
 Do not leave the workspace. Do not require confirmation.
 ${appSection(dir)}${attachmentSection(dir)}`;

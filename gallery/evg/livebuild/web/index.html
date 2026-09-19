@@ -188,6 +188,7 @@
   </div>
   <div class="chips" id="chips"></div>
   <button type="button" class="chip" id="run" title="Run the app: the machine owns the page, a press is an event">Run</button>
+  <button type="button" class="chip" id="makeapp" hidden title="Write app/machine.json and a page per state from this phone">Make this an app</button>
   <div class="agents" id="agents"></div>
 </header>
 <main>
@@ -548,16 +549,57 @@ async function runFetch(url, body) {
 function paintApp(d) {
   paintFrame(d);
   paintMeasure(d.layout ? { ...d.layout, findings: d.layout.findings || [] } : null);
-  $("kindLabel").textContent = `app · ${d.state}`;
+  $("kindLabel").textContent = `app · ${d.state}${d.code ? " · code" : ""}`;
   $("added").textContent = d.took === false && d.pressed ? "no event" : "app";
-  const trail = (d.events || []).slice(-4).join(" → ") || "no presses yet";
-  const line = document.createElement("div");
-  line.textContent = d.pressed && d.took === false
-    ? `#${d.pressed} is not an event of ${d.state}`
-    : trail;
-  if (d.pressed && d.took === false) line.className = "bad";
-  $("findings").replaceChildren(line);
+  const lines = [];
+  // The example app is not this session's phone, and saying so is the whole
+  // difference between "Run does nothing" and "Run is running something else".
+  if (d.example) {
+    lines.push(["bad", "this is the example app — the phone you designed is a document, not an app yet"]);
+    $("makeapp").hidden = false;
+  } else {
+    $("makeapp").hidden = true;
+  }
+  if (d.pressed && d.took === false) {
+    lines.push(["bad", `#${d.pressed || "nothing"} is not an event of ${d.state}`]);
+  }
+  lines.push(["", (d.events || []).slice(-4).join(" → ") || "no presses yet"]);
+  $("findings").replaceChildren(...lines.map(([cls, text]) => {
+    const el = document.createElement("div");
+    if (cls) el.className = cls;
+    el.textContent = text;
+    return el;
+  }));
 }
+
+// A designed screen becomes an app: the machine and a page per state, written
+// from the phone that is on the page. Which parts of each screen differ is a
+// design decision, so every page starts as the same screen and `check` says
+// what is missing.
+async function makeApp() {
+  $("makeapp").disabled = true;
+  $("makeapp").textContent = "Writing…";
+  try {
+    const made = await runFetch("/app/init", { states: "" });
+    const missing = (made.missing || []).join(", ");
+    $("think").textContent = [
+      `app/machine.json written: ${(made.states || []).join(", ")}`,
+      `${made.pages} page${made.pages === 1 ? "" : "s"}, ${made.idsOnTheScreen} pressable id${made.idsOnTheScreen === 1 ? "" : "s"} on the screen`,
+      missing ? `missing: ${missing}` : "",
+      made.next || "",
+      "",
+      "Ask the agent to give the tabs those ids and make each page its own — then press Run again.",
+    ].filter(Boolean).join("\n\n");
+    paintApp(await runFetch("/app?reset=1"));
+  } catch (e) {
+    $("think").append("\n\napp: " + (e.message || e));
+  } finally {
+    $("makeapp").disabled = false;
+    $("makeapp").textContent = "Make this an app";
+  }
+}
+
+$("makeapp").addEventListener("click", makeApp);
 
 async function enterRun() {
   runMode = true;
@@ -577,6 +619,7 @@ async function enterRun() {
 
 function leaveRun() {
   runMode = false;
+  $("makeapp").hidden = true;
   $("run").classList.remove("live");
   $("screen").classList.remove("live");
   $("go").disabled = false;
@@ -592,7 +635,14 @@ $("run").addEventListener("click", () => {
 // tests is the point inside the element. No scaling, no second coordinate
 // system to keep in step.
 $("screen").addEventListener("click", async (ev) => {
-  if (!runMode) return;
+  // A press on a document is not a press on anything. Saying so is the
+  // difference between a feature that is off and a feature that is broken.
+  if (!runMode) {
+    const line = document.createElement("div");
+    line.textContent = "design mode — this phone is a document. Press Run to drive it.";
+    $("findings").replaceChildren(line);
+    return;
+  }
   const box = $("screen").getBoundingClientRect();
   try {
     paintApp(await runFetch("/app/press", {

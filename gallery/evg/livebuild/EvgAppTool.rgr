@@ -11,6 +11,7 @@
 ;   evg_app hit    <app> X Y [EVENT…]    what a press at that point would send
 ;   evg_app model  <app>                 the data model: who writes each key, who reads it
 ;   evg_app memo   <app>                 refresh APP.md — the app's own memory
+;   evg_app init   <app> --from=DOC [--states=a,b,c]   an app from a screen
 ;
 ; PLAN_LIVE_APP.md, stage S1. The live-build demo designs ONE screen, and a
 ; screen with a tab bar that does nothing is a picture of an app. This is the
@@ -71,6 +72,7 @@ class EvgAppTool {
         print "  hit    <app> X Y [EVENT…]    what a press at that point would send"
         print "  model  <app>                 the data model: who writes each key, who reads it"
         print "  memo   <app>                 refresh APP.md — the app's own memory"
+        print "  init   <app> --from=DOC [--states=a,b,c]   an app from a screen"
         print ""
         print "An app is <app>/machine.json and <app>/pages/<state>.evg.json."
     }
@@ -86,6 +88,12 @@ class EvgAppTool {
         pageW = (EvgAppTool.intFlag("--width" 390))
         pageH = (EvgAppTool.intFlag("--height" 844))
 
+        ; `init` is the one verb that runs without a machine, because it is
+        ; the verb that writes one.
+        if (verb == "init") {
+            this.init()
+            return
+        }
         def text@(optional):string (EvgAppTool.slurp(appDir + "/machine.json"))
         if (null? text) {
             print (("{\"error\":\"no machine at " + appDir) + "/machine.json\"}")
@@ -123,6 +131,152 @@ class EvgAppTool {
             return
         }
         this.usage()
+    }
+
+    ; --- init -----------------------------------------------------------------
+    ;
+    ; --- WHY A SCREEN IS NOT YET AN APP ---------------------------------------
+    ;
+    ; A designed phone is a document: it has a tab bar because a phone has one,
+    ; and pressing it does nothing because there is nothing behind it. Making
+    ; it an app is three small things — a machine, a page per state, and an id
+    ; on everything pressable — and the first two are mechanical.
+    ;
+    ; So this does those two and refuses to guess the third. Every state gets
+    ; the same screen to start from, because which parts differ is a design
+    ; decision and a tool that invented one would be wrong in a way that is
+    ; hard to see. `check` then says exactly what is missing, which is the
+    ; loop this toolchain is built on.
+    fn init:void () {
+        def from:string (EvgAppTool.textFlag("--from" "doc.evg.json"))
+        def doc@(optional):string (EvgAppTool.slurp(from))
+        if (null? doc) {
+            print (("{\"error\":\"no screen at " + from) + "\"}")
+            return
+        }
+        def text:string (unwrap doc)
+        def root@(optional):EVGElement (EVGTreeJson.fromText(text))
+        if (null? root) {
+            print (("{\"error\":\"not an EVG document: " + from) + "\"}")
+            return
+        }
+        ; What the screen already says it does. A tab somebody gave an id of
+        ; `nav.kartta` names a state, and reading that is not a guess; asked
+        ; for nothing and told nothing, one state is the honest answer.
+        def ids:[string]
+        this.idsOf((unwrap root) ids)
+        def names:[string]
+        def asked:string (EvgAppTool.textFlag("--states" ""))
+        if ((strlen asked) > 0) {
+            EvgAppTool.splitCommas(asked names)
+        } {
+            def i:int 0
+            while (i < (array_length ids)) {
+                def id:string (itemAt ids i)
+                if ((indexOf id "nav.") == 0) {
+                    def name:string (substring id 4 (strlen id))
+                    if ((strlen name) > 0) {
+                        if ((EvgAppTool.mentions(names name)) == false) {
+                            push names name
+                        }
+                    }
+                }
+                i = (i + 1)
+            }
+        }
+        if ((array_length names) == 0) {
+            push names "main"
+        }
+        create_dir (appDir + "/pages")
+        def i:int 0
+        while (i < (array_length names)) {
+            EvgAppTool.spit((this.pageOf((itemAt names i))) text)
+            i = (i + 1)
+        }
+        EvgAppTool.spit((appDir + "/machine.json") (EvgAppTool.machineFor(names)))
+
+        ; What is left, rather than only what was written.
+        def missing:[string]
+        def k:int 0
+        while (k < (array_length names)) {
+            def want:string ("nav." + (itemAt names k))
+            if ((EvgAppTool.mentions(ids want)) == false) {
+                push missing want
+            }
+            k = (k + 1)
+        }
+        def out:string "{\"wrote\":"
+        out = (out + (EVGTreeJson.str(appDir + "/machine.json")))
+        out = ((out + ",\"states\":") + (EvgAppTool.strArray(names)))
+        out = ((out + ",\"pages\":") + (to_string (array_length names)))
+        out = ((out + ",\"idsOnTheScreen\":") + (to_string (array_length ids)))
+        if ((array_length missing) > 0) {
+            out = ((out + ",\"missing\":") + (EvgAppTool.strArray(missing)))
+            out = (out + ",\"next\":\"the pages are copies of one screen: give what should switch tabs those ids, make each page its own, then run check\"")
+        } {
+            out = (out + ",\"next\":\"every nav id is already there — make each page its own, then run check\"")
+        }
+        out = (out + "}")
+        print out
+    }
+
+    ; One state per name, each taking its own nav event and ignoring it, and
+    ; every other state's as a move. That is the smallest machine that makes a
+    ; tab bar work, and it is what a tab bar means.
+    sfn machineFor:string (names:[string]) {
+        def n:int (array_length names)
+        def out:string "{\n \"id\": \"app\",\n \"initial\": "
+        out = (out + (EVGTreeJson.str((itemAt names 0))))
+        out = (out + ",\n \"context\": {},\n \"states\": {\n")
+        def i:int 0
+        while (i < n) {
+            def here:string (itemAt names i)
+            if (i > 0) {
+                out = (out + ",\n")
+            }
+            out = (((out + "  ") + (EVGTreeJson.str(here))) + ": { \"on\": {\n")
+            def j:int 0
+            def wrote:int 0
+            while (j < n) {
+                def there:string (itemAt names j)
+                if (wrote > 0) {
+                    out = (out + ",\n")
+                }
+                out = (out + "    ")
+                out = (out + (EVGTreeJson.str("nav." + there)))
+                if (there == here) {
+                    out = (out + ": { \"actions\": [] }")
+                } {
+                    out = ((out + ": { \"target\": ") + (EVGTreeJson.str(there)))
+                    out = (out + " }")
+                }
+                wrote = (wrote + 1)
+                j = (j + 1)
+            }
+            out = (out + "\n  } }")
+            i = (i + 1)
+        }
+        return (out + "\n }\n}\n")
+    }
+
+    sfn splitCommas:void (text:string out:[string]) {
+        def cur@(mutable):string ""
+        def i@(mutable):int 0
+        while (i < (strlen text)) {
+            def c:int (charAt text i)
+            if (c == 44) {
+                if ((strlen (trim cur)) > 0) {
+                    push out (trim cur)
+                }
+                cur = ""
+            } {
+                cur = (cur + (substring text i (i + 1)))
+            }
+            i = (i + 1)
+        }
+        if ((strlen (trim cur)) > 0) {
+            push out (trim cur)
+        }
     }
 
     ; --- states ---------------------------------------------------------------

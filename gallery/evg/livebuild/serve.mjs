@@ -226,12 +226,21 @@ function main() {
   const appBin = path.join(repoRoot, "gallery/evg/bin/evg_app.js");
   let appEvents = [];
 
+  // Whose app is being run. A session with an `app/` is running its own; one
+  // without is shown the example — and TOLD so, because a Run that quietly
+  // replaces the phone somebody just designed with a different app is the
+  // most confusing thing this page could do.
+  const ownApp = () => {
+    const mine = path.join(sessionDir(), "app");
+    return fs.existsSync(path.join(mine, "machine.json")) ? mine : "";
+  };
+
   const appDir = () => {
     if (process.env.EVG_LIVEBUILD_APP) return process.env.EVG_LIVEBUILD_APP;
-    const mine = path.join(sessionDir(), "app");
-    if (fs.existsSync(path.join(mine, "machine.json"))) return mine;
-    return path.join(repoRoot, "gallery/evg/livebuild/fixtures/app");
+    return ownApp() || path.join(repoRoot, "gallery/evg/livebuild/fixtures/app");
   };
+
+  const isExample = () => !process.env.EVG_LIVEBUILD_APP && !ownApp();
 
   const appTool = (...args) => {
     if (!fs.existsSync(appBin)) {
@@ -334,6 +343,7 @@ function main() {
     const frame = frameDocument(out).find((e) => e && e.t === "frame") || {};
     return {
       app: path.basename(dir),
+      example: isExample(),
       state: rendered.state,
       events: appEvents,
       layout: rendered.layout,
@@ -351,6 +361,7 @@ function main() {
     const f = JSON.parse(held.kit.frameJson(held.app));
     return {
       app: path.basename(held.dir),
+      example: isExample(),
       code: true,
       state: f.state,
       events: appEvents,
@@ -515,6 +526,32 @@ function main() {
             "application/json; charset=utf-8",
             JSON.stringify({ ...appFrame(), pressed: hit.id || "", took: Boolean(hit.id && hit.takes) }),
           );
+        })
+        .catch((e) => {
+          send(res, 500, "application/json; charset=utf-8", JSON.stringify({ error: String(e.message || e) }));
+        });
+      return;
+    }
+    // The bridge from a designed screen to a running app. The phone on this
+    // page is a document: it has a tab bar because a phone has one, and
+    // pressing it does nothing because there is nothing behind it. This writes
+    // the machine and a page per state — and refuses to invent which parts of
+    // each screen differ, which is a design decision and the agent's.
+    if (url.pathname === "/app/init" && req.method === "POST") {
+      readBody(req, 4096)
+        .then((body) => {
+          const ask = JSON.parse(body || "{}");
+          const dir = path.join(sessionDir(), "app");
+          fs.mkdirSync(dir, { recursive: true });
+          const doc = path.join(sessionDir(), "doc.evg.json");
+          if (!fs.existsSync(doc)) throw new Error("there is no phone to make an app out of yet");
+          const args = ["init", dir, `--from=${doc}`];
+          if (typeof ask.states === "string" && ask.states.trim()) args.push(`--states=${ask.states.trim()}`);
+          const made = appTool(...args);
+          if (made.error) throw new Error(made.error);
+          live = null;
+          appEvents = [];
+          send(res, 200, "application/json; charset=utf-8", JSON.stringify(made));
         })
         .catch((e) => {
           send(res, 500, "application/json; charset=utf-8", JSON.stringify({ error: String(e.message || e) }));

@@ -140,6 +140,22 @@ text node is filled from the machine's context, and `check` walks every state
 the machine can reach: a state with no page, a page no state renders and an id
 that is not an event are the three defects an agent cannot see and this names.
 
+A screen you designed becomes an app with one command. The tab bar's
+entries need ids first — `{"op":"set-id","at":"0/3/0","value":"nav.map"}` —
+and then:
+
+```sh
+./evg-app init app --from=doc.evg.json
+```
+
+reads the `nav.*` ids off the screen, writes a state for each and copies the
+document to `pages/<state>.evg.json`, so every state starts from the screen
+that is already there. The page's **Make this an app** button is the same
+call. Without it the phone stays a document, and a press on a tab does
+nothing — which is correct, and was the thing nobody was told: a document has
+no navigation in it, so an agent asked for four tabs will hunt for a `goto`
+that does not exist. The workspace guide now says so before the hunt starts.
+
 **Run** in the header hands the phone to that app: the machine owns which page
 is on screen, a click is a point the host turns into an event through
 `EVGHitTest`, and the page for wherever it landed comes back. The event trail

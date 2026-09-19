@@ -338,6 +338,23 @@ which, because that difference is the most common thing to get wrong.
 section that teaches the habit (APP.md first, `check` on every screen, `memo`
 last), and both in `livebuild:agents`.
 
+**S3c — the door from a document to an app. ✅ built.**
+The gap S3 left: the guide described an app only to a workspace that already
+had one, so an agent designing a phone with four tabs was never told that a
+document has no navigation in it — no `href`, no `goto`, no hidden page. What
+it did instead was search the compiled tool for `#page`, `currentPage` and
+`set-page`, and find nothing, because there is nothing. Three things close it:
+
+- `set-id`, a patch op, because an id is not a property and there was no way
+  to name a node except by rewriting the file by hand. Two nodes cannot share
+  one; the second is rejected and told which node has it.
+- `evg_app init <app> --from=doc.evg.json`, which reads the `nav.*` ids off
+  the screen, writes a state per id and copies the document to each page — so
+  the app starts from the screen that was designed, not from a blank one. The
+  page's **Make this an app** button is the same call.
+- a guide section for a workspace with no app, which says a document is one
+  screen, that a press on a drawn tab does nothing, and what to run for more.
+
 **S3b — ops instead of a list.** `EVGHostTree.build()` over the two trees and
 `evg-dom.js` as the host, so a press patches the nodes that changed. Nothing
 above it changes, which is the test that this seam was drawn in the right

@@ -246,6 +246,13 @@ if (fs.existsSync(path.join(root, "lib/evg/bin/evg_agent.js"))) {
   fs.rmSync(path.join(dir, "app"), { recursive: true, force: true });
   const plain = fs.readFileSync(path.join(dir, "AGENTS.md"), "utf8");
   if (/This is an app/.test(plain)) throw new Error("a one-screen workspace was told it is an app");
+  // The section that was missing, and the reason an agent asked for four tabs
+  // went looking inside the compiled tool for a `goto`. A document has no
+  // navigation; the guide has to say so, and say what does.
+  for (const need of ["This document is one screen", "./evg-app init", "set-id"]) {
+    if (!plain.includes(need)) throw new Error(`a document workspace is never told about ${need}`);
+  }
+  console.log("  no app yet  a document says it is one screen, and names the way to more");
   fs.cpSync(path.join(here, "fixtures/app"), path.join(dir, "app"), { recursive: true });
   prepareSession("add a fourth screen", { kind: "dashboard" });
   const guide = fs.readFileSync(path.join(dir, "AGENTS.md"), "utf8");

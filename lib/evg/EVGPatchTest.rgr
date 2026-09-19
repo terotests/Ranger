@@ -122,6 +122,40 @@ class EVGPatchTest {
         this.ok("and it is still inline, as it was" (card.hasInline("width")))
     }
 
+    ; An id is the one thing on a node that nothing paints and everything else
+    ; depends on: the hit test answers with it, and an app turns it into an
+    ; event. It round-trips like any other edit, and it refuses to name two
+    ; nodes the same, because a press can only reach one of them.
+    fn testSetId:void () {
+        print ""
+        print "-- set-id"
+        def root:EVGElement (this.build())
+        def p (new EVGPatch())
+        def list:[EVGPatchOp] (this.ops())
+        push list (EVGPatchOp.setId("0/0" "nav.map"))
+        def r:EVGPatchResult (p.apply(root list))
+        this.ok("it applied" r.ok)
+        def card:EVGElement (itemAt root.children 0)
+        this.same("the node is named" card.id "nav.map")
+        p.rollback(root)
+        this.same("rollback takes the name off again" card.id "")
+    }
+
+    fn testDuplicateId:void () {
+        print ""
+        print "-- two nodes, one id"
+        def root:EVGElement (this.build())
+        def p (new EVGPatch())
+        def list:[EVGPatchOp] (this.ops())
+        push list (EVGPatchOp.setId("0/0" "nav.map"))
+        push list (EVGPatchOp.setId("0/k:side" "nav.map"))
+        def r:EVGPatchResult (p.apply(root list))
+        this.ok("the batch is refused" (r.ok == false))
+        this.ok("the reason names the node that has it" ((indexOf (r.reason()) "0/0") >= 0))
+        def card:EVGElement (itemAt root.children 0)
+        this.same("and nothing landed" card.id "")
+    }
+
     fn testUnknownProperty:void () {
         print ""
         print "-- a property the engine does not implement"
@@ -516,6 +550,8 @@ class EVGPatchTest {
         print "=== EVGPatch: every edit carries its own undo ==="
         this.testSetProp()
         this.testSetPropOverExisting()
+        this.testSetId()
+        this.testDuplicateId()
         this.testUnknownProperty()
         this.testValueTheEngineRejects()
         this.testNoSuchNode()

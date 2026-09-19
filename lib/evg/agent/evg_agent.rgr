@@ -324,7 +324,7 @@ class EvgAgent {
         def i:int 0
         while (i < n) {
             def op:EVGPatchOp (itemAt ops i)
-            if ((op.op != "set-prop") && (op.op != "set-text")) {
+            if (((op.op != "set-prop") && (op.op != "set-text")) && (op.op != "set-id")) {
                 return ""
             }
             i = (i + 1)
@@ -399,6 +399,9 @@ class EvgAgent {
             out = ((out + ",\"value\":") + (EVGTreeJson.str(op.value)))
         }
         if (op.op == "set-text") {
+            out = ((out + ",\"value\":") + (EVGTreeJson.str(op.value)))
+        }
+        if (op.op == "set-id") {
             out = ((out + ",\"value\":") + (EVGTreeJson.str(op.value)))
         }
         if ((strlen op.toPath) > 0) {
