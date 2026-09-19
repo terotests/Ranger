@@ -346,6 +346,10 @@ jobs:
           node gallery/ui/demo/build.mjs
           node gallery/ui/web/build-pages.mjs --out "$GITHUB_WORKSPACE/_site/ui"
           node gallery/ui/web/verify-out.mjs "$GITHUB_WORKSPACE/_site/ui"
+          # The files being there is not the page. This loads the artifact
+          # the way GitHub Pages will: /ui/?demo=dashboard must land on the
+          # dashboard, and /ui/web/ must paint the playground.
+          node gallery/ui/web/pages-smoke.mjs --dist "$GITHUB_WORKSPACE/_site/ui"
 
       # ---- the firesim workbench at /firesim/ ------------------------------
       # A database browser over the Firebase simulator. No bundler: the
