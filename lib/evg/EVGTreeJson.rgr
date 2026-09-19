@@ -50,7 +50,13 @@ class EVGTreeJson {
 
     sfn toText:string (root:EVGElement) {
         def w (new EVGTreeJson())
-        def out:string "{\"evg\":1,\"root\":"
+        def out:string "{\"evg\":1"
+        ; The stylesheet first, because it is the document talking about
+        ; itself and a reader opening the file should meet it before the tree.
+        if ((strlen root.documentCss) > 0) {
+            out = ((out + ",\"css\":") + (EVGTreeJson.str(root.documentCss)))
+        }
+        out = (out + ",\"root\":")
         out = (out + (w.node(root 1)))
         out = (out + "}")
         return out
@@ -58,6 +64,19 @@ class EVGTreeJson {
         description "Writes a tree as JSON carrying every patchable property that differs from a fresh element."
         param root "The tree to write."
         returns "The document text."
+    }
+
+    sfn withCss@(optional):EVGElement (root@(optional):EVGElement css:string) {
+        if (null? root) {
+            return root
+        }
+        if ((strlen css) == 0) {
+            return root
+        }
+        def el:EVGElement (unwrap root)
+        el.documentCss = css
+        def out@(optional):EVGElement el
+        return out
     }
 
     fn node:string (el:EVGElement depth:int) {
@@ -125,6 +144,23 @@ class EVGTreeJson {
                 wrote = (wrote + 1)
             }
             i = (i + 1)
+        }
+        ; `evg-fx-*` is a family, not a list: the names belong to whichever
+        ; plugin reads them, so `patchableNames` cannot carry them and this
+        ; asks the element what it has. A fresh element has none, so anything
+        ; here is by definition something the document must say.
+        def fx:[string] (EVGPatch.fxNamesOf(el))
+        def k:int 0
+        while (k < (array_length fx)) {
+            def fxName:string (itemAt fx k)
+            if (wrote > 0) {
+                out = (out + ",")
+            }
+            out = (out + (EVGTreeJson.str(fxName)))
+            out = (out + ":")
+            out = (out + (EVGTreeJson.str((EVGPatch.readProp(el fxName)))))
+            wrote = (wrote + 1)
+            k = (k + 1)
         }
         return out
     }
@@ -215,13 +251,16 @@ class EVGTreeJson {
             return bad
         }
         def root@(optional):EVGElement
+        ; `css` may be written before or after `root`, so it is held until the
+        ; object closes rather than assumed to arrive second.
+        def css:string ""
         def guard:int 0
         while ((c.ok) && (guard < 64)) {
             c.skipWs()
             def ch:int (c.peek())
             if (ch == 125) {
                 def closing:int (c.take())
-                return root
+                return (EVGTreeJson.withCss(root css))
             }
             if (ch == 44) {
                 def comma:int (c.take())
@@ -232,12 +271,16 @@ class EVGTreeJson {
                 if (key == "root") {
                     root = (c.readNode())
                 } {
-                    c.skipValue()
+                    if (key == "css") {
+                        css = (c.readString())
+                    } {
+                        c.skipValue()
+                    }
                 }
             }
             guard = (guard + 1)
         }
-        return root
+        return (EVGTreeJson.withCss(root css))
     } doc {
         description "Reads a tree back from the format `write` produces."
         param text "The document text."

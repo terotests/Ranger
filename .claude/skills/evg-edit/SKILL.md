@@ -52,13 +52,23 @@ tag, or a path).
   {"op":"set-text","at":"0/0/k:title","value":"Invoices"},
   {"op":"set-prop","at":"0/0","prop":"background-color","value":"rgb(255,251,235)"},
   {"op":"set-id","at":"0/3/0","value":"nav.map"},
+  {"op":"set-css","value":".card { border-radius: 20px }\n"},
   {"op":"insert","at":"0/0","index":2,"tag":"span"},
   {"op":"remove","at":"0/1"},
   {"op":"move","at":"0/0/k:sub","to":"0/1","index":0}
 ]}
 ```
 
-Five things to know, because they change how you write ops:
+Six things to know, because they change how you write ops:
+
+- **The document can carry a stylesheet.** `set-css` replaces it whole and a
+  node joins a rule through `class-name`. Four things that look alike are one
+  rule and four classes, not four copies of the same six properties. Class
+  selectors, the state pseudo-classes and media queries work; `#id` selectors
+  do not. An inline property outranks the sheet, so `set-prop` still means
+  what it meant. `evg-surface-effect` (`starfield`, `ripple`, `liquid-glass`)
+  with `evg-effect-on` and `evg-fx-*` belongs in a rule too — it is a shader
+  over the element's box, and only a GPU painter draws it.
 
 - **`set-id` names a node.** An id is not a property — nothing paints it. It is
   what `query #id` finds, what the hit test answers with, and, if the document

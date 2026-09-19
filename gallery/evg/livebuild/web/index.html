@@ -418,12 +418,92 @@ function paintMeasure(m) {
   }
 }
 
+// A SURFACE EFFECT IS A SHADER.
+//
+// `evg-surface-effect: starfield` on an element reaches the display list as an
+// instance with its box and parameters, and the SVG painter reports it as
+// unsupported — correctly, because there is no DOM equivalent of a starfield.
+// So a frame that carries effects is painted by the GPU painter the gallery's
+// demo page uses, on a canvas, with the effect driver aging its events and
+// stamping the clock on each instance every frame. A frame without effects
+// keeps the SVG: it is cheaper, its text is selectable, and it is what every
+// screen here was until one of them asked for a shader.
+let gl = null;
+let glCanvas = null;
+let fxDriver = null;
+let fxLast = 0;
+let fxRaf = 0;
+let fxDoc = null;
+
+function stopGl() {
+  if (fxRaf) cancelAnimationFrame(fxRaf);
+  fxRaf = 0;
+  fxLast = 0;
+  fxDoc = null;
+}
+
+async function paintGl(d) {
+  if (!fxDriver) {
+    const [{ renderDisplayList: paintGpu }, fx] = await Promise.all([
+      import("/evg-webgl.js"),
+      import("/evg-fx.js"),
+    ]);
+    window.__paintGpu = paintGpu;
+    fxDriver = fx.createEffectDriver();
+    window.__fxAttach = fx.attachEffectPointer;
+  }
+  const paintGpu = window.__paintGpu;
+  if (!glCanvas || glCanvas.parentNode !== $("screen")) {
+    glCanvas = document.createElement("canvas");
+    glCanvas.style.display = "block";
+    $("screen").replaceChildren(glCanvas);
+    gl = glCanvas.getContext("webgl2", { antialias: true, premultipliedAlpha: false, stencil: true });
+    if (!gl) throw new Error("WebGL 2 is not available in this browser");
+    // Press and drag reach the effects the same way they reach the app: a
+    // point. `always` effects need none of this and cost nothing for it.
+    window.__fxAttach(glCanvas, fxDriver, () => {});
+  }
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  glCanvas.style.width = d.width + "px";
+  glCanvas.style.height = d.height + "px";
+  glCanvas.width = Math.round(d.width * dpr);
+  glCanvas.height = Math.round(d.height * dpr);
+  fxDoc = { width: d.width, height: d.height, list: d.list };
+  if (fxRaf) return;
+  const frame = (now) => {
+    fxRaf = requestAnimationFrame(frame);
+    if (!fxDoc) return;
+    const dt = fxLast ? Math.min(now - fxLast, 100) : 16;
+    fxLast = now;
+    fxDriver.tick(dt, fxDoc.list);
+    window.__glStats = paintGpu(gl, fxDoc, { dpr: Math.min(2, window.devicePixelRatio || 1) });
+  };
+  fxRaf = requestAnimationFrame(frame);
+}
+
 function paintFrame(d) {
   $("ncmds").textContent = String(d.ncmds || 0);
   $("nodes").textContent = String(d.nodes || 0);
-  if (d.list) {
-    renderDisplayList($("screen"), { width: d.width, height: d.height, list: d.list }, {});
+  if (!d.list) return;
+  const effects = d.list.effects || [];
+  window.__painter = effects.length ? "webgl" : "svg";
+  if (effects.length) {
+    paintGl(d).catch((e) => {
+      window.__painter = "svg";
+      stopGl();
+      glCanvas = null;
+      renderDisplayList($("screen"), { width: d.width, height: d.height, list: d.list }, {});
+      note(`${effects.map((f) => f.kind).join(", ")}: ${e.message || e} — painted without the effect`);
+    });
+    return;
   }
+  stopGl();
+  if (glCanvas) {
+    glCanvas.remove();
+    glCanvas = null;
+    gl = null;
+  }
+  renderDisplayList($("screen"), { width: d.width, height: d.height, list: d.list }, {});
 }
 
 function start(keepPicture) {

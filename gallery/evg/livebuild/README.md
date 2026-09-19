@@ -169,6 +169,33 @@ npm run livebuild:app:web    # build the browser runtime by hand; the server
                              # builds it on demand
 ```
 
+## CSS, and things CSS cannot draw
+
+A document carries a stylesheet — a `css` block beside the tree — and a node
+joins a rule through `class-name`. Four cards that look alike are one rule and
+four classes rather than four copies of the same six properties. The sheet is
+applied by `EVGLayout`, once per text, so everything that lays a document out
+gets the cascade and nothing has to be told about it; an inline property still
+outranks it, which is what lets `set-prop` keep meaning what it meant. Class
+selectors, the state pseudo-classes and media queries work — `#id` selectors
+do not.
+
+`evg-surface-effect` belongs in a rule too. It names a shader that runs over
+the element's own box, and the SVG painter has no answer for one — so a screen
+that declares a starfield, a ripple or liquid glass is painted by the GPU
+painter instead, with the effect driver aging its events every frame. A screen
+without effects stays on SVG: cheaper, and its text is selectable.
+
+```css
+.sky { evg-surface-effect: starfield; evg-effect-on: always;
+       evg-fx-density: 1.6; evg-fx-hue: 228 }
+```
+
+```sh
+npm run livebuild:fx    # the sheet round-trips, the cascade reaches the list,
+                        # the page switches painters, and the picture moves
+```
+
 ## Keeping one
 
 **Save** writes the session's own files — `doc.evg.json`, and `app/` when the

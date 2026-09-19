@@ -389,6 +389,21 @@ class EVGElement {
     ; a map because the order is the order they were written in, and a JSON
     ; writer that reorders keys between two runs makes every golden file a
     ; coin toss.
+    ; THE DOCUMENT'S STYLESHEET, on the root element and nowhere else.
+    ;
+    ; A `.evg.json` could only ever say things inline: every node carried its
+    ; own copy of the same six properties, and an agent asked to restyle a
+    ; screen had to touch forty nodes to change one colour. EVG has had a CSS
+    ; engine the whole time — `EVGStyleSheet`, with classes, pseudo-classes,
+    ; themes and media queries — and the editable format simply had nowhere to
+    ; put it.
+    ;
+    ; It is a STRING here, not a parsed sheet, because parsing it would make
+    ; every element depend on the stylesheet and the stylesheet already depends
+    ; on the element. `EVGLayout` reads it, parses it once and applies it; an
+    ; inline property still outranks it, which is what makes the two mix.
+    def documentCss:string ""
+
     def fxNames:[string]
     def fxValues:[double]
 

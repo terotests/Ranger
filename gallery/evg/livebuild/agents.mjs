@@ -694,6 +694,50 @@ A grid is there when you want one: \`display: grid\` with
 \`grid-template-columns\`, \`grid-template-rows\`, \`grid-area\`,
 \`grid-auto-flow\`.
 
+## A stylesheet, not forty copies of the same six properties
+
+The document can carry CSS — a \`css\` block beside the tree — and a node
+joins a rule through \`class-name\`. Four cards that look alike should be
+one rule and four classes, not four nodes each spelling out the same
+padding, radius and colour. Change the rule and all four change.
+
+\`\`\`json
+{"op": "set-css", "value": ".card { background-color: rgb(18,48,76); border-radius: 20px; padding-left: 14px }\\n.tab { height: 44px; font-size: 12px }\\n"}
+{"op": "set-prop", "at": "0/2", "prop": "class-name", "value": "card"}
+\`\`\`
+
+\`set-css\` replaces the whole sheet, so send it whole; the inverse in
+\`patch\`'s result is the sheet as it was. Class selectors, \`:hover\`,
+\`:focus\`, \`:active\`, \`:disabled\` and media queries work. **Id
+selectors do not** — \`#name\` matches nothing, so use a class.
+
+An inline property still outranks the sheet, which is what lets the two
+mix: the rule says what a \`.card\` is, the node says what THIS card does
+differently, and \`set-prop\` keeps meaning what it meant.
+
+## Effects: things CSS cannot draw
+
+\`evg-surface-effect\` names a shader that runs over the element's own
+box — a starfield behind a page, a ripple under a press, liquid glass on
+a card. It is not a colour and not an image; the live page paints a
+screen that declares one with the GPU painter instead of SVG.
+
+\`\`\`css
+.sky {
+  evg-surface-effect: starfield;   /* WHAT runs */
+  evg-effect-on: always;           /* WHAT starts it: always press drag hover */
+  evg-fx-density: 1.6;             /* parameters, read by that effect alone */
+  evg-fx-nebula: 0.8;
+  evg-fx-hue: 228;
+  evg-fx-hue2: 305;
+}
+\`\`\`
+
+Put it on the node whose box it should cover and give that node a
+background of its own as well — an effect draws OVER the element, so a
+page with none behind it has nothing to sit on. \`ripple\` and
+\`liquid-glass\` are the other two that exist.
+
 Spacing is \`gap\`, \`padding\` and \`margin\`. An empty \`span\` is
 not a spacer — it is a node with no size that reads as content to
 anything looking at this document.
