@@ -322,6 +322,15 @@ function staticFile(urlPath) {
   if (urlPath === "/evg-html.js") {
     return path.join(root, "lib/evg/html/evg-html.js");
   }
+  // The GPU painter and the effect driver. A surface effect is a shader, and
+  // the SVG painter says so by listing it as unsupported — so a document that
+  // declares one is painted by these instead, and by nothing else.
+  if (urlPath === "/evg-webgl.js") {
+    return path.join(root, "lib/evg/gl/evg-webgl.js");
+  }
+  if (urlPath === "/evg-fx.js") {
+    return path.join(root, "lib/evg/gl/evg-fx.js");
+  }
   if (urlPath.startsWith("/fonts/")) {
     const name = path.basename(urlPath);
     const fonts = path.join(root, "gallery/pdf_writer/assets/fonts/Noto_Sans");

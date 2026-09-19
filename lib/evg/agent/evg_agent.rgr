@@ -171,6 +171,16 @@ class EvgAgent {
             }
             k = (k + 1)
         }
+        ; `evg-fx-*` is per element rather than per format, so it is not in the
+        ; static list above. Without this an outline shows that a node has a
+        ; starfield and not how it is tuned.
+        def fx:[string] (EVGPatch.fxNamesOf(el))
+        def f:int 0
+        while (f < (array_length fx)) {
+            def fxName:string (itemAt fx f)
+            out = ((((out + "  ") + fxName) + "=") + (EVGPatch.readProp(el fxName)))
+            f = (f + 1)
+        }
         return out
     }
 
@@ -324,7 +334,7 @@ class EvgAgent {
         def i:int 0
         while (i < n) {
             def op:EVGPatchOp (itemAt ops i)
-            if (((op.op != "set-prop") && (op.op != "set-text")) && (op.op != "set-id")) {
+            if ((((op.op != "set-prop") && (op.op != "set-text")) && (op.op != "set-id")) && (op.op != "set-css")) {
                 return ""
             }
             i = (i + 1)
@@ -402,6 +412,9 @@ class EvgAgent {
             out = ((out + ",\"value\":") + (EVGTreeJson.str(op.value)))
         }
         if (op.op == "set-id") {
+            out = ((out + ",\"value\":") + (EVGTreeJson.str(op.value)))
+        }
+        if (op.op == "set-css") {
             out = ((out + ",\"value\":") + (EVGTreeJson.str(op.value)))
         }
         if ((strlen op.toPath) > 0) {

@@ -249,7 +249,7 @@ if (fs.existsSync(path.join(root, "lib/evg/bin/evg_agent.js"))) {
   // The section that was missing, and the reason an agent asked for four tabs
   // went looking inside the compiled tool for a `goto`. A document has no
   // navigation; the guide has to say so, and say what does.
-  for (const need of ["This document is one screen", "presses Run", "set-id", "nav."]) {
+  for (const need of ["This document is one screen", "presses Run", "set-id", "nav.", "set-css", "evg-surface-effect"]) {
     if (!plain.includes(need)) throw new Error(`a document workspace is never told about ${need}`);
   }
   console.log("  no app yet  a document says it is one screen, and names the way to more");
