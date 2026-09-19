@@ -29479,6 +29479,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             return;
                           }
                         }
+                        if ( cc_1.is_trait ) {
+                          if ( this.cppTraitIsInterface(cc_1.name, ctx) == false ) {
+                            ctx.addError(node, ("the C++ target writes a `trait` as a mixin, so `" + cc_1.name) + "` is not a type it can name. A trait that declares only METHODS becomes an abstract base class and can be used as a type; this one carries fields, which its consumers each hold their own copy of. Use a class with subclasses (`Extends(Base)`), or give the parameter a concrete type.");
+                          }
+                        }
                         wr.out(this.cppPtrOpen(), false);
                         wr.out(cc_1.name, false);
                         wr.out(">", false);

@@ -301,10 +301,10 @@ the trait, so the trait name falls through to `getObjectTypeString` — a bare
    [`gallery/friendly/rust/attempts/04_trait_as_type.rgr`](../../gallery/friendly/rust/attempts/04_trait_as_type.rgr).
 2. *After the lowering IR.* Item **I**.
 
-The C++ writer had the same hole. It is closed for the behaviour-only case —
-see the sibling-target section at the end — and still open for the
-field-bearing one, where C++ should refuse the way Rust does. Go, Java, Kotlin,
-C#, Dart and Swift still have both.
+The C++ writer had the same hole. Both halves are closed now — an abstract
+base class for the behaviour-only case, a refusal for the field-bearing one;
+see the sibling-target section at the end. Go, Java, Kotlin, C#, Dart and Swift
+still have both, silently.
 
 ---
 
@@ -597,7 +597,7 @@ is that case, and the gate still requires it to be refused.
 
 **C++ now has the same split**: a behaviour-only trait used as a type is an
 abstract base class there, with the mixin copies as the overrides, and the
-field-bearing case is still broken output rather than a refusal. Study 11 stays
+field-bearing case is refused with an error that names the way out. Study 11 stays
 under `rust/src` — with a C++ twin under `cpp/src` — rather than the shared
 `src/`, because Go, Java, Kotlin, C#, Dart and Swift still name a trait type
 they never declare. `compile.sh` compiles a target-local `src/` alongside the
@@ -1053,6 +1053,12 @@ and only a trait NAMED AS A TYPE gets the base — a vtable in every class that
 consumes any behaviour-only trait is a layout change for programs that never
 asked for one. `cpp/src/11_behaviour_traits.rgr` is the study, beside the Rust
 one it mirrors.
+
+The field-bearing case is **refused** rather than lowered, with the error
+naming the spelling that works, exactly as Rust does — Tier 0's rule is that a
+form the target cannot express is a compile error, never silent broken output.
+`cpp/attempts/04_trait_as_type.rgr` is the gate, beside the Rust attempt it
+mirrors.
 
 **The other six targets have the whole hole.** Go, Java and Kotlin were checked
 directly with the same program: `undefined: Named`, `cannot find symbol: class

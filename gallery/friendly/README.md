@@ -141,15 +141,16 @@ gone.
 Forms no target can express, or one target cannot:
 
 - [`rust/attempts/04_trait_as_type.rgr`](rust/attempts/04_trait_as_type.rgr)
-  — a **field-bearing** Ranger `trait` used as a *type*. Rust refuses it: such a
-  trait is a mixin, its fields are copied into each consumer, and Rust has no
-  associated fields to hold them. A **behaviour-only** trait is a real Rust
-  trait now — see [`rust/src/11_behaviour_traits.rgr`](rust/src/11_behaviour_traits.rgr)
-  — and a C++ abstract base class, see
-  [`cpp/src/11_behaviour_traits.rgr`](cpp/src/11_behaviour_traits.rgr). C++ does
-  not yet refuse the field-bearing case the way Rust does. Go, Java, Kotlin, C#,
-  Dart and Swift still have the whole hole for both kinds; ES6 and the other
-  dynamic targets are fine.
+  and [`cpp/attempts/04_trait_as_type.rgr`](cpp/attempts/04_trait_as_type.rgr)
+  — a **field-bearing** Ranger `trait` used as a *type*. Both refuse it: such a
+  trait is a mixin, its fields are copied into each consumer, and neither Rust
+  (no associated fields) nor C++ (each consumer already owns its own copy) has
+  anywhere to hold them. A **behaviour-only** trait is a real Rust trait — see
+  [`rust/src/11_behaviour_traits.rgr`](rust/src/11_behaviour_traits.rgr) — and a
+  C++ abstract base class, see
+  [`cpp/src/11_behaviour_traits.rgr`](cpp/src/11_behaviour_traits.rgr).
+  Go, Java, Kotlin, C#, Dart and Swift still have the whole hole for both
+  kinds, in its silent form; ES6 and the other dynamic targets are fine.
 - [`rust/attempts/06_generic_function.rgr`](rust/attempts/06_generic_function.rgr)
   — Ranger rejects a free `@params` function on every target
 - [`rust/attempts/09_throw_panics.rgr`](rust/attempts/09_throw_panics.rgr)

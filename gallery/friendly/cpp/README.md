@@ -174,6 +174,11 @@ std::string TraitsMain::show( std::shared_ptr<Named> n ) { return n->label(); }
 a vtable in every class that consumes any behaviour-only trait is a layout
 change for programs that never asked for one.
 
+A trait carrying FIELDS is the other half, and it is refused rather than
+lowered — see `attempts/04_trait_as_type.rgr`. C++ has nothing to put the
+field in: each consumer already owns its own copy, so a base holding it would
+be a second, different field.
+
 ## What I could not write
 
 `unique_ptr`, `optional`/`expected` as the *language* types, `string_view`/
@@ -208,14 +213,15 @@ splits, namespaces I control.
    is about 45% shorter. The preamble still goes in when a map is reachable —
    the selfhost build of the compiler gets all of it.
 9. `int64_t` for Ranger `int`, consistently.
-10. ~~**A `trait` used as a TYPE.**~~ **Done** for the behaviour-only case.
+10. ~~**A `trait` used as a TYPE.**~~ **Done**, both halves.
     `fn show(n:Named)` used to emit `std::shared_ptr<Named>` and never declare
-    `Named`, so the file did not compile while Ranger reported success. It is
-    an abstract base now (item 7), and `src/11_behaviour_traits.rgr` is the
-    study. The field-bearing case is still a mixin and using one as a type is
-    still broken output here; Rust refuses it outright
-    (`../rust/attempts/04_trait_as_type.rgr`), and doing the same is the next
-    step. Go, Java, Kotlin, C#, Dart and Swift all still have the whole hole.
+    `Named`, so the file did not compile while Ranger reported success. A
+    behaviour-only trait is an abstract base now (item 7) and
+    `src/11_behaviour_traits.rgr` is the study; a field-bearing one is
+    **refused**, with the error naming the way that does work, and
+    `attempts/04_trait_as_type.rgr` is the gate. Rust refuses the same program
+    for the same reason. Go, Java, Kotlin, C#, Dart and Swift all still have
+    the whole hole, in its silent form.
 11. ~~**An optional `string` that can tell `""` from absent.**~~ **Done.**
     It was a plain `std::string` at every position — field, local and
     parameter — with `null?` an emptiness test, so a program that stored an

@@ -761,6 +761,21 @@ class r_optional_primitive {
               return
             }
           }
+          ; A Ranger `trait` is a MIXIN here: its methods are copied into
+          ; each class that `does` it, and no C++ type of that name is
+          ; declared. A BEHAVIOUR-ONLY trait named as a type is the case
+          ; writeCppTraitInterfaces handles -- it gets an abstract base, so
+          ; `std::shared_ptr<Named>` below is a real type. A trait carrying
+          ; FIELDS does not: its consumers own their own copies, so there is
+          ; nothing for a base to hold. That used to emit
+          ; `std::shared_ptr<Named>` with no `class Named`, which g++ refuses
+          ; while Ranger reported success. Say so instead, the way the Rust
+          ; writer does.
+          if cc.is_trait {
+            if ((this.cppTraitIsInterface(cc.name ctx)) == false) {
+              ctx.addError(node (("the C++ target writes a `trait` as a mixin, so `" + cc.name) + "` is not a type it can name. A trait that declares only METHODS becomes an abstract base class and can be used as a type; this one carries fields, which its consumers each hold their own copy of. Use a class with subclasses (`Extends(Base)`), or give the parameter a concrete type."))
+            }
+          }
           wr.out((this.cppPtrOpen()) false)
           wr.out(cc.name false)
           wr.out(">" false)
