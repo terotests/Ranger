@@ -146,6 +146,17 @@ is on screen, a click is a point the host turns into an event through
 is under the phone, and a press on something the state does not answer to says
 so rather than doing nothing quietly.
 
+An app may also be **code**: an `App.rgr` beside the machine makes it a
+program, compiled to a module the server imports once and holds open. That
+buys the two things a document cannot do — a list that comes from the context,
+and an instance that outlives a build (`kit.use`) — and it makes a press one
+call instead of three processes: ~8ms rather than ~310ms.
+
+```sh
+npm run livebuild:codeapp    # the fixture code app, and a broken one
+EVG_LIVEBUILD_APP=gallery/evg/livebuild/fixtures/codeapp npm run livebuild:serve
+```
+
 `app/APP.md` is the app's memory — half generated from the files (every state
 and event, every context key and who writes and reads it), half written by the
 agent (what the app is for, and the decisions a later pass must not undo).

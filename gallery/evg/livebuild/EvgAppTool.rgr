@@ -36,6 +36,7 @@
 ; ==============================================================================
 
 Import "../../../lib/ranger-dir.rgr"
+Import "EvgAppRules.rgr"
 Import "../../statechart/src/Statechart.rgr"
 Import "../../statechart/src/StatechartJson.rgr"
 Import "pkg:evg/EVGElement.rgr"
@@ -157,35 +158,9 @@ class EvgAppTool {
     ; Every event this state answers to, its ancestors' and the machine's own
     ; included — the same walk the runner does when it decides what a press
     ; means, so the list cannot promise something the machine would ignore.
+    ; Both doors ask `EvgAppRules`, so neither can be the one that knows less.
     fn eventsOf:[string] (sc:Statechart path:string) {
-        def out:[string]
-        def here@(mutable):string path
-        def guard@(mutable):int 0
-        while ((strlen here) > 0) {
-            if (guard > 16) {
-                here = ""
-            } {
-                def st:ScState (sc.stateAt(here))
-                EvgAppTool.pushEvents(out st.transitions)
-                here = st.parent
-                guard = (guard + 1)
-            }
-        }
-        EvgAppTool.pushEvents(out sc.transitions)
-        return out
-    }
-
-    sfn pushEvents:void (out:[string] ts:[ScTransition]) {
-        def i:int 0
-        while (i < (array_length ts)) {
-            def t:ScTransition (itemAt ts i)
-            if ((strlen t.event) > 0) {
-                if ((EvgAppTool.mentions(out t.event)) == false) {
-                    push out t.event
-                }
-            }
-            i = (i + 1)
-        }
+        return (EvgAppRules.eventsOf(sc path))
     }
 
     ; --- press ----------------------------------------------------------------
@@ -824,19 +799,10 @@ class EvgAppTool {
             a = (a + 1)
         }
 
-        def events:[string] (this.eventsOf(sc path))
         def ids:[string]
         this.idsOf(tree ids)
         def dead:[string]
-        def k:int 0
-        while (k < (array_length ids)) {
-            def id:string (itemAt ids k)
-            if ((EvgAppTool.mentions(events id)) == false) {
-                push dead id
-                push problems ((((path + ": #") + id) + " is not an event this state takes"))
-            }
-            k = (k + 1)
-        }
+        EvgAppRules.deadIds(path (this.eventsOf(sc path)) ids problems dead)
         out = ((out + ",\"ids\":") + (to_string (array_length ids)))
         if ((array_length dead) > 0) {
             out = ((out + ",\"dead\":") + (EvgAppTool.strArray(dead)))
@@ -935,16 +901,7 @@ class EvgAppTool {
     }
 
     fn idsOf:void (el:EVGElement out:[string]) {
-        if ((strlen el.id) > 0) {
-            if ((EvgAppTool.mentions(out el.id)) == false) {
-                push out el.id
-            }
-        }
-        def i:int 0
-        while (i < (array_length el.children)) {
-            this.idsOf((itemAt el.children i) out)
-            i = (i + 1)
-        }
+        EvgAppRules.idsOf(el out)
     }
 
     ; --- small things ---------------------------------------------------------
@@ -953,18 +910,8 @@ class EvgAppTool {
         return (((appDir + "/pages/") + path) + ".evg.json")
     }
 
-    ; A state with children is a place the runner passes through, not one it
-    ; stops at.
     fn isLeaf:boolean (sc:Statechart path:string) {
-        def i:int 0
-        while (i < (array_length sc.states)) {
-            def st:ScState (itemAt sc.states i)
-            if (st.parent == path) {
-                return false
-            }
-            i = (i + 1)
-        }
-        return true
+        return (EvgAppRules.isLeaf(sc path))
     }
 
     ; A JSON scalar as a person would read it: the quotes off a string, and
@@ -1001,14 +948,7 @@ class EvgAppTool {
     }
 
     sfn mentions:boolean (list:[string] want:string) {
-        def i:int 0
-        while (i < (array_length list)) {
-            if ((itemAt list i) == want) {
-                return true
-            }
-            i = (i + 1)
-        }
-        return false
+        return (EvgAppRules.mentions(list want))
     }
 
     sfn endsIn:boolean (text:string tail:string) {
@@ -1021,127 +961,34 @@ class EvgAppTool {
     }
 
     sfn boolText:string (v:boolean) {
-        if v {
-            return "true"
-        }
-        return "false"
+        return (EvgAppRules.boolText(v))
     }
 
     sfn strArray:string (items:[string]) {
-        def out:string "["
-        def i:int 0
-        while (i < (array_length items)) {
-            if (i > 0) {
-                out = (out + ",")
-            }
-            out = (out + "\n  ")
-            out = (out + (EVGTreeJson.str((itemAt items i))))
-            i = (i + 1)
-        }
-        if ((array_length items) > 0) {
-            out = (out + "\n")
-        }
-        return (out + "]")
+        return (EvgAppRules.strArray(items))
     }
 
     sfn intFlag:int (name:string fallback:int) {
-        def argc:int (shell_arg_cnt)
-        def head:string (name + "=")
-        def h:int (strlen head)
-        def i:int 0
-        while (i < argc) {
-            def a:string (shell_arg i)
-            if ((strlen a) > h) {
-                if ((substring a 0 h) == head) {
-                    def v:string (substring a h (strlen a))
-                    def out@(mutable):int 0
-                    def seen@(mutable):int 0
-                    def k@(mutable):int 0
-                    while (k < (strlen v)) {
-                        def d:int (indexOf "0123456789" (substring v k (k + 1)))
-                        if (d < 0) {
-                            k = (strlen v)
-                        } {
-                            out = ((out * 10) + d)
-                            seen = (seen + 1)
-                            k = (k + 1)
-                        }
-                    }
-                    if (seen > 0) {
-                        return out
-                    }
-                    return fallback
-                }
-            }
-            i = (i + 1)
-        }
-        return fallback
+        return (EvgAppRules.intFlag(name fallback))
     }
 
     sfn lastSlash:int (path:string) {
-        def at@(mutable):int (0 - 1)
-        def i@(mutable):int 0
-        while (i < (strlen path)) {
-            if ((charAt path i) == 47) {
-                at = i
-            }
-            i = (i + 1)
-        }
-        return at
+        return (EvgAppRules.lastSlash(path))
     }
 
     sfn exists:boolean (path:string) {
-        def cut:int (EvgAppTool.lastSlash(path))
-        def dir:string "."
-        def name@(mutable):string path
-        if (cut >= 0) {
-            dir = (substring path 0 cut)
-            name = (substring path (cut + 1) (strlen path))
-        }
-        return (file_exists dir name)
+        return (EvgAppRules.exists(path))
     }
 
     sfn textFlag:string (name:string fallback:string) {
-        def argc:int (shell_arg_cnt)
-        def head:string (name + "=")
-        def h:int (strlen head)
-        def i:int 0
-        while (i < argc) {
-            def a:string (shell_arg i)
-            if ((strlen a) > h) {
-                if ((substring a 0 h) == head) {
-                    return (substring a h (strlen a))
-                }
-            }
-            i = (i + 1)
-        }
-        return fallback
+        return (EvgAppRules.textFlag(name fallback))
     }
 
     sfn spit:void (path:string data:string) {
-        def cut:int (EvgAppTool.lastSlash(path))
-        def dir:string "."
-        def name@(mutable):string path
-        if (cut >= 0) {
-            dir = (substring path 0 cut)
-            name = (substring path (cut + 1) (strlen path))
-        }
-        write_file dir name data
+        EvgAppRules.spit(path data)
     }
 
     sfn slurp@(optional):string (path:string) {
-        def cut:int (EvgAppTool.lastSlash(path))
-        def dir:string "."
-        def name@(mutable):string path
-        if (cut >= 0) {
-            dir = (substring path 0 cut)
-            name = (substring path (cut + 1) (strlen path))
-        }
-        if ((file_exists dir name) == false) {
-            def missing@(optional):string
-            return missing
-        }
-        def text@(optional):string (read_file dir name)
-        return text
+        return (EvgAppRules.slurp(path))
     }
 }

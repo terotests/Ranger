@@ -15,7 +15,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   listAgents,
   runTask,
@@ -255,6 +255,75 @@ function main() {
     return JSON.parse(text.slice(open));
   };
 
+  // --- A CODE APP ---------------------------------------------------------
+  //
+  // PLAN_LIVE_APP.md S4. An app with an `App.rgr` beside its machine is a
+  // program, not a folder of documents: it is compiled to an ES module, this
+  // process imports it ONCE and holds one kit open, and a press is a method
+  // call rather than three spawns. That is what makes a component mean
+  // anything — an instance that outlives a build cannot outlive a process.
+  //
+  // The compile is on the host and it is one file: the engine the app links
+  // does not change, so a rebuild is seconds. It happens when the source is
+  // newer than the module, which is the whole of "incremental" that this
+  // needs.
+  let live = null;
+
+  const codeSource = (dir) => {
+    const src = path.join(dir, "App.rgr");
+    return fs.existsSync(src) ? src : "";
+  };
+
+  const buildCodeApp = (dir) => {
+    const src = codeSource(dir);
+    if (!src) return "";
+    const mod = path.join(dir, "bin", "app_module.mjs");
+    const fresh = fs.existsSync(mod) && fs.statSync(mod).mtimeMs >= fs.statSync(src).mtimeMs;
+    if (fresh) return mod;
+    const r = spawnSync(
+      "node",
+      ["bin/output.js", "-es6", "-esm", "-nodemodule", src, `-d=${path.join(dir, "bin")}`, "-o=app_module.mjs"],
+      {
+        cwd: repoRoot,
+        encoding: "utf8",
+        maxBuffer: 40 * 1024 * 1024,
+        env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr:./lib/stdops.rgr" },
+      },
+    );
+    const text = `${r.stdout || ""}${r.stderr || ""}`;
+    if (!fs.existsSync(mod) || /Compilation FAILED/.test(text)) {
+      // The compiler's own words, which the ranger-lang skill explains and an
+      // agent can act on. Anything else here would be a worse error message
+      // about a better one.
+      const said = text.split("\n").filter((l) => /\[FAIL\]|error/i.test(l)).slice(0, 12);
+      throw new Error(`App.rgr did not compile:\n${said.join("\n") || text.slice(-800)}`);
+    }
+    return mod;
+  };
+
+  // One module, one kit, held open. A reset starts the machine again without
+  // reloading anything: the app is the same program, at its first state.
+  const appLive = async (dir, { reset = false } = {}) => {
+    const mod = buildCodeApp(dir);
+    if (!mod) return null;
+    const stamp = fs.statSync(mod).mtimeMs;
+    if (!live || live.dir !== dir || live.stamp !== stamp) {
+      const loaded = await import(`${pathToFileURL(mod).href}?v=${stamp}`);
+      live = { dir, stamp, mod: loaded, app: null, kit: null };
+      reset = true;
+    }
+    if (reset || !live.kit) {
+      const app = new live.mod.App();
+      const kit = new live.mod.EvgAppKit();
+      app.kit = kit;
+      kit.bootText(fs.readFileSync(path.join(dir, "machine.json"), "utf8"));
+      live.app = app;
+      live.kit = kit;
+      appEvents = [];
+    }
+    return live;
+  };
+
   // The page for wherever the events have taken the machine, as a frame the
   // painter in the browser already knows how to draw.
   const appFrame = () => {
@@ -273,6 +342,25 @@ function main() {
       ncmds: frame.ncmds || 0,
       nodes: frame.nodes || 0,
       list: frame.list || { cmds: [] },
+    };
+  };
+
+  // The same answer as a data app's, off the live module. The page cannot
+  // tell which kind of app it is looking at, which is the point.
+  const codeFrame = (held) => {
+    const f = JSON.parse(held.kit.frameJson(held.app));
+    return {
+      app: path.basename(held.dir),
+      code: true,
+      state: f.state,
+      events: appEvents,
+      layout: f.layout,
+      live: f.live,
+      width: f.width,
+      height: f.height,
+      ncmds: f.ncmds,
+      nodes: f.nodes,
+      list: f.list,
     };
   };
 
@@ -381,18 +469,40 @@ function main() {
       return;
     }
     if (url.pathname === "/app") {
-      try {
-        if (url.searchParams.get("reset") === "1") appEvents = [];
-        send(res, 200, "application/json; charset=utf-8", JSON.stringify(appFrame()));
-      } catch (e) {
-        send(res, 500, "application/json; charset=utf-8", JSON.stringify({ error: String(e.message || e) }));
-      }
+      const reset = url.searchParams.get("reset") === "1";
+      appLive(appDir(), { reset })
+        .then((held) => {
+          if (!held) {
+            if (reset) appEvents = [];
+            send(res, 200, "application/json; charset=utf-8", JSON.stringify(appFrame()));
+            return;
+          }
+          send(res, 200, "application/json; charset=utf-8", JSON.stringify(codeFrame(held)));
+        })
+        .catch((e) => {
+          send(res, 500, "application/json; charset=utf-8", JSON.stringify({ error: String(e.message || e) }));
+        });
       return;
     }
     if (url.pathname === "/app/press" && req.method === "POST") {
       readBody(req, 4096)
-        .then((body) => {
+        .then(async (body) => {
           const ask = JSON.parse(body || "{}");
+          const held = await appLive(appDir());
+          if (held) {
+            // One call. The kit hit tests the page it is holding, sends the
+            // event if the state answers to it, and the next frame comes off
+            // the same instances.
+            const hit = JSON.parse(held.kit.pressPoint(held.app, Math.round(Number(ask.x) || 0), Math.round(Number(ask.y) || 0)));
+            if (hit.id && hit.takes) appEvents = [...appEvents, hit.id];
+            send(
+              res,
+              200,
+              "application/json; charset=utf-8",
+              JSON.stringify({ ...codeFrame(held), pressed: hit.id || "", took: Boolean(hit.id && hit.takes) }),
+            );
+            return;
+          }
           const hit = appTool("hit", appDir(), String(Math.round(Number(ask.x) || 0)), String(Math.round(Number(ask.y) || 0)), ...appEvents);
           if (hit.error) throw new Error(hit.error);
           // A press on nothing, and a press on something this state does not

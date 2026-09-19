@@ -388,6 +388,69 @@ function carryAttachment(from, to) {
 // will believe it.
 function appSection(dir) {
   if (!fs.existsSync(path.join(dir, "app", "machine.json"))) return "";
+  const code = fs.existsSync(path.join(dir, "app", "App.rgr"));
+  return `${code ? codeAppSection() : dataAppSection()}`;
+}
+
+// An app that is a program. The guide only says this when there is one,
+// because an app that switches screens never needs it — and an agent told
+// about a runtime it does not need will use it.
+function codeAppSection() {
+  return `
+## This app is a program
+
+\`app/App.rgr\` builds every screen and \`app/machine.json\` decides which
+one you are on. The rules are the data app's, unchanged: the machine
+owns the page, an element's \`id\` is the event its press sends, and
+\`check\` walks every state.
+
+\`\`\`ranger
+Import "pkg:evg-livebuild/EvgAppKit.rgr"
+Import "pkg:evg/EVGElement.rgr"
+
+class App extends EvgApp {
+    fn build:EVGElement (state:string) {
+        if (state == "routes") { return (this.routesPage()) }
+        return (this.mapPage())
+    }
+}
+\`\`\`
+
+\`\`\`
+./evg-app build app         compile it — seconds, and the errors are the
+                            compiler's own, pointing at a line
+./evg-app check app         every state built, measured, ids against the machine
+./evg-app render app EVENT… the page those presses reach
+\`\`\`
+
+What the kit gives you, and the whole of it:
+
+| | |
+| --- | --- |
+| \`kit.text("key")\` | a context value as text |
+| \`kit.list("key")\` | a context list — one row per item, however many |
+| \`kit.state()\` | where the machine is |
+| \`kit.use(key fresh)\` | an instance that outlives this build |
+
+**Write code only for what data cannot hold.** A list, a computed number,
+a row that must remember something. A screen that is the same every time
+is a \`pages/<state>.evg.json\` and always was — and that page can sit
+beside this program, because \`build\` may read one and return it.
+
+\`kit.use\` is the part worth understanding. A page function starts from
+nothing every time it is called, so a value it wants to keep between
+presses has nowhere to live; a component is that home, and the host
+holds it open between presses. Key it by what the row IS — the route's
+name, the invoice's number — never by its index, or a row that leaves
+hands its state to whatever slid into its place.
+
+Everything else the data app's section says is still true, including the
+memory: \`./evg-app memo app\` after any change, and read \`app/APP.md\`
+before making one.
+`;
+}
+
+function dataAppSection() {
   return `
 ## This is an app, not one screen
 
@@ -729,9 +792,47 @@ function installEvgApp(dir) {
   const src = path.join(root, "gallery/evg/bin/evg_app.js");
   if (!fs.existsSync(src)) return false;
   fs.copyFileSync(src, path.join(dir, "evg_app_tool.js"));
+  // An app is data or code, and the agent should not have to hold which in
+  // its head to ask a question. The shim looks: an `App.rgr` beside the
+  // machine means the app IS the program, so it is compiled (once, and again
+  // whenever it is newer than its binary) and asked directly. Everything else
+  // goes to the data tool, which is also what answers `model` and `memo` for
+  // both kinds, since those read the machine and the memory rather than the
+  // pages.
   fs.writeFileSync(
     path.join(dir, "evg-app"),
-    `#!/bin/sh\nexec node "$(dirname "$0")/evg_app_tool.js" "$@"\n`,
+    [
+      "#!/bin/sh",
+      'here=$(dirname "$0")',
+      `repo=${JSON.stringify(root)}`,
+      'app=${2:-app}',
+      'verb=${1:-check}',
+      'if [ -f "$app/App.rgr" ]; then',
+      '  case "$verb" in',
+      "    render|hit|states|check|build)",
+      '      bin="$app/bin/app.js"',
+      // An app in a workspace is outside the repository, so `pkg:` has to be
+      // told where the packages are. One file, written once, with absolute
+      // paths — the alternative is an app whose imports only work in the tree
+      // it was written in.
+      '      if [ ! -f "$app/ranger.json" ]; then',
+      `        printf '{"name":"app","entry":"App.rgr","dependencies":{"evg":{"path":"%s/lib/evg"},"evg-livebuild":{"path":"%s/gallery/evg/livebuild"}}}\\n' "$repo" "$repo" > "$app/ranger.json"`,
+      "      fi",
+      '      if [ ! -f "$bin" ] || [ "$app/App.rgr" -nt "$bin" ]; then',
+      '        RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr \\',
+      '          node "$repo/bin/output.js" -es6 "$(cd "$(dirname "$app")" && pwd)/$(basename "$app")/App.rgr" \\',
+      '          -d="$(cd "$(dirname "$app")" && pwd)/$(basename "$app")/bin" -o=app.js -nodecli \\',
+      '          | grep -E "\\[FAIL\\]|Compilation FAILED" && exit 1',
+      "      fi",
+      '      [ "$verb" = "build" ] && { echo "{\\"built\\":\\"$bin\\"}"; exit 0; }',
+      '      shift 2 2>/dev/null || shift $#',
+      '      exec node "$bin" "$verb" "$@" --app="$app"',
+      "      ;;",
+      "  esac",
+      "fi",
+      'exec node "$here/evg_app_tool.js" "$@"',
+      "",
+    ].join("\n"),
     { mode: 0o755 },
   );
   return true;

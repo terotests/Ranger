@@ -258,6 +258,23 @@ if (fs.existsSync(path.join(root, "lib/evg/bin/evg_agent.js"))) {
   } else {
     console.log("  app         guide only — gallery/evg/bin/evg_app.js is not built");
   }
+  // A code app gets the other guide, and the shim has to know the difference
+  // without being told — an agent should not carry which kind it is holding.
+  fs.cpSync(path.join(here, "fixtures/codeapp"), path.join(dir, "app"), { recursive: true });
+  fs.rmSync(path.join(dir, "app", "bin"), { recursive: true, force: true });
+  prepareSession("make it a program", { kind: "dashboard" });
+  const codeGuide = fs.readFileSync(path.join(dir, "AGENTS.md"), "utf8");
+  for (const need of ["This app is a program", "kit.use", "./evg-app build app", "pkg:evg-livebuild"]) {
+    if (!codeGuide.includes(need)) throw new Error(`the code-app guide never mentions ${need}`);
+  }
+  if (codeGuide.includes("pages/<state>.evg.json is the screen")) {
+    throw new Error("a code app was told to write page documents");
+  }
+  const shim = fs.readFileSync(path.join(dir, "evg-app"), "utf8");
+  for (const need of ["App.rgr", "ranger.json", "app_module.mjs".slice(0, 3)]) {
+    if (!shim.includes(need)) throw new Error(`the shim cannot handle a code app: ${need} missing`);
+  }
+  console.log("  code app    its own guide, and a shim that compiles before it asks");
   fs.rmSync(path.join(dir, "app"), { recursive: true, force: true });
 }
 

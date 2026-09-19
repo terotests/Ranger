@@ -1,0 +1,247 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; EvgAppRules — what is true of an app, whatever an app is made of
+; ==============================================================================
+;
+; There are two kinds of app now. One is data — `machine.json` and a page
+; document per state — and one is code — a Ranger class that builds the page.
+; They are different programs with different runtimes, and they are asked the
+; same questions:
+;
+;   what events does this state answer to?
+;   what is pressable on this page?
+;   is anything on it pressable that this state does not answer to?
+;
+; Two implementations of one question answer differently, and the one that
+; matters is always the one that knows less. So the questions live here and
+; both doors ask them.
+; ==============================================================================
+
+Import "../../statechart/src/Statechart.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGTreeJson.rgr"
+
+class EvgAppRules {
+
+    Constructor () {
+    }
+
+    ; Every event this state answers to — its ancestors' and the machine's own
+    ; included, which is the same walk the runner does when it decides what a
+    ; press means. The list cannot promise something the machine would ignore.
+    sfn eventsOf:[string] (sc:Statechart path:string) {
+        def out:[string]
+        def here@(mutable):string path
+        def guard@(mutable):int 0
+        while ((strlen here) > 0) {
+            if (guard > 16) {
+                here = ""
+            } {
+                def st:ScState (sc.stateAt(here))
+                EvgAppRules.pushEvents(out st.transitions)
+                here = st.parent
+                guard = (guard + 1)
+            }
+        }
+        EvgAppRules.pushEvents(out sc.transitions)
+        return out
+    }
+
+    sfn pushEvents:void (out:[string] ts:[ScTransition]) {
+        def i:int 0
+        while (i < (array_length ts)) {
+            def t:ScTransition (itemAt ts i)
+            if ((strlen t.event) > 0) {
+                if ((EvgAppRules.mentions(out t.event)) == false) {
+                    push out t.event
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; A state the runner can stop at. A compound state is somewhere it passes
+    ; through, so asking it for a page would report a screen nobody can reach.
+    sfn isLeaf:boolean (sc:Statechart path:string) {
+        def i:int 0
+        while (i < (array_length sc.states)) {
+            def st:ScState (itemAt sc.states i)
+            if (st.parent == path) {
+                return false
+            }
+            i = (i + 1)
+        }
+        return true
+    }
+
+    ; Everything pressable on a page, by the name a press would send.
+    sfn idsOf:void (el:EVGElement out:[string]) {
+        if ((strlen el.id) > 0) {
+            if ((EvgAppRules.mentions(out el.id)) == false) {
+                push out el.id
+            }
+        }
+        def i:int 0
+        while (i < (array_length el.children)) {
+            EvgAppRules.idsOf((itemAt el.children i) out)
+            i = (i + 1)
+        }
+    }
+
+    ; The defect that looks exactly like working software: a button whose id
+    ; this state does not answer to. Pressing it does nothing, and nothing
+    ; about the screen says so.
+    sfn deadIds:void (state:string events:[string] ids:[string] problems:[string] dead:[string]) {
+        def i:int 0
+        while (i < (array_length ids)) {
+            def id:string (itemAt ids i)
+            if ((EvgAppRules.mentions(events id)) == false) {
+                push dead id
+                push problems ((((state + ": #") + id) + " is not an event this state takes"))
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; A child's address, the way `EVGInspect` writes it.
+    sfn segOf:string (kid:EVGElement i:int) {
+        if ((strlen kid.key) > 0) {
+            return ("k:" + kid.key)
+        }
+        return (to_string i)
+    }
+
+    sfn mentions:boolean (list:[string] want:string) {
+        def i:int 0
+        while (i < (array_length list)) {
+            if ((itemAt list i) == want) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn boolText:string (v:boolean) {
+        if v {
+            return "true"
+        }
+        return "false"
+    }
+
+    sfn strArray:string (items:[string]) {
+        def out:string "["
+        def i:int 0
+        while (i < (array_length items)) {
+            if (i > 0) {
+                out = (out + ",")
+            }
+            out = (out + "\n  ")
+            out = (out + (EVGTreeJson.str((itemAt items i))))
+            i = (i + 1)
+        }
+        if ((array_length items) > 0) {
+            out = (out + "\n")
+        }
+        return (out + "]")
+    }
+
+    ; --- the command line -----------------------------------------------------
+    ;
+    ; A data app and a code app take the same arguments, because the host that
+    ; calls them must not have to know which it is holding.
+
+    sfn textFlag:string (name:string fallback:string) {
+        def argc:int (shell_arg_cnt)
+        def head:string (name + "=")
+        def h:int (strlen head)
+        def i:int 0
+        while (i < argc) {
+            def a:string (shell_arg i)
+            if ((strlen a) > h) {
+                if ((substring a 0 h) == head) {
+                    return (substring a h (strlen a))
+                }
+            }
+            i = (i + 1)
+        }
+        return fallback
+    }
+
+    ; `to_int` on a string is optional-typed and answers differently per
+    ; target; a digit loop is the same everywhere.
+    sfn intFlag:int (name:string fallback:int) {
+        def v:string (EvgAppRules.textFlag(name ""))
+        if ((strlen v) == 0) {
+            return fallback
+        }
+        def out@(mutable):int 0
+        def seen@(mutable):int 0
+        def k@(mutable):int 0
+        while (k < (strlen v)) {
+            def d:int (indexOf "0123456789" (substring v k (k + 1)))
+            if (d < 0) {
+                k = (strlen v)
+            } {
+                out = ((out * 10) + d)
+                seen = (seen + 1)
+                k = (k + 1)
+            }
+        }
+        if (seen > 0) {
+            return out
+        }
+        return fallback
+    }
+
+    sfn lastSlash:int (path:string) {
+        def at@(mutable):int (0 - 1)
+        def i@(mutable):int 0
+        while (i < (strlen path)) {
+            if ((charAt path i) == 47) {
+                at = i
+            }
+            i = (i + 1)
+        }
+        return at
+    }
+
+    sfn exists:boolean (path:string) {
+        def cut:int (EvgAppRules.lastSlash(path))
+        def dir:string "."
+        def name@(mutable):string path
+        if (cut >= 0) {
+            dir = (substring path 0 cut)
+            name = (substring path (cut + 1) (strlen path))
+        }
+        return (file_exists dir name)
+    }
+
+    sfn slurp@(optional):string (path:string) {
+        def cut:int (EvgAppRules.lastSlash(path))
+        def dir:string "."
+        def name@(mutable):string path
+        if (cut >= 0) {
+            dir = (substring path 0 cut)
+            name = (substring path (cut + 1) (strlen path))
+        }
+        if ((file_exists dir name) == false) {
+            def missing@(optional):string
+            return missing
+        }
+        def text@(optional):string (read_file dir name)
+        return text
+    }
+
+    sfn spit:void (path:string data:string) {
+        def cut:int (EvgAppRules.lastSlash(path))
+        def dir:string "."
+        def name@(mutable):string path
+        if (cut >= 0) {
+            dir = (substring path 0 cut)
+            name = (substring path (cut + 1) (strlen path))
+        }
+        write_file dir name data
+    }
+}

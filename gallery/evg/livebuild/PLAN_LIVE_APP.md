@@ -85,20 +85,30 @@ too small to compute in: anything that needs arithmetic needs §2.2.
 
 ### 2.2 When the app needs code
 
-Lists that come from data, text that needs formatting, anything computed —
-that is a Ranger app, and it is stage S4, not stage one:
+Lists that come from data, text that needs formatting, anything computed — a
+document cannot hold those, and each of them is four lines of Ranger:
 
 ```ranger
-class App {
-    def host:EVGComponentHost       ; components that outlive a build
-    fn render:EVGElement (state:string ctx:ScVal) { … }
+Import "pkg:evg-livebuild/EvgAppKit.rgr"
+
+class App extends EvgApp {
+    fn build:EVGElement (state:string) {
+        if (state == "routes") { return (this.routesPage()) }
+        return (this.mapPage())
+    }
 }
 ```
 
-`EVGComponent` is what makes that possible and what a `.evg.json` page cannot
-do: an instance with fields that survives the next build, which is where a
-row's own timer or scroll position lives. Until an app needs one, it does not
-need one.
+`App.rgr` beside `machine.json` makes the app a program. Everything else is
+unchanged — the machine owns the page, an `id` is an event, `check` walks
+every state — and a code app answers the same four verbs, so nothing above it
+knows which kind it is holding.
+
+`EvgAppKit` is what the app links: `kit.text(key)`, `kit.list(key)` for a
+context list, `kit.state()`, and `kit.use(key fresh)` for an instance that
+outlives a build. That last one is what a `.evg.json` page cannot have and the
+reason the host holds the app open rather than spawning it — a component
+cannot outlive a process.
 
 ### 2.3 The memory
 
@@ -212,8 +222,9 @@ So: the agent writes `App.rgr`, asks for a build, and gets an ES module. If
 the compile fails, the errors come back as text — the same errors it gets from
 the CLI today, which the `ranger-lang` skill already explains.
 
-**The app runs in its own sandbox.** A Worker, with the app module on one side
-and the DOM host on the other:
+**The app will run in its own sandbox.** *(not built — S4 holds the module in
+the server process.)* A Worker, with the app module on one side and the DOM
+host on the other:
 
 ```
   tab (page)                          Worker (the app)
@@ -332,11 +343,32 @@ last), and both in `livebuild:agents`.
 above it changes, which is the test that this seam was drawn in the right
 place.
 
-**S4 — code, when data runs out.**
-`App.rgr` compiled on the host to an ES module, running in a Worker, emitting
-the same ops. `EVGComponent` for instances that outlive a build. Nothing about
-the machine or the pages changes, which is the test that the seam was drawn in
-the right place.
+**S4 — code, when data runs out. ✅ built.**
+`App.rgr` beside the machine, compiled on the host to an ES module, imported
+ONCE and held open: a press is a method call on a live kit, not three spawns.
+
+```sh
+npm run livebuild:codeapp                 # the fixture app, and a broken one
+EVG_LIVEBUILD_APP=gallery/evg/livebuild/fixtures/codeapp npm run livebuild:serve
+```
+
+What that bought, measured on the fixture:
+
+| | data app | code app |
+| --- | --- | --- |
+| a press | 3 processes, ~310ms | one call, ~8ms over HTTP, 3ms in process |
+| a list | cannot | one row per item, from the context |
+| an instance across presses | cannot | `kit.use` — the same row, `seen` 3 not 1 |
+
+The kit is the runtime: machine, replay, layout, hit test, checks, and the same
+command line the data tool takes. The app is one class with one method, and
+the workspace shim compiles it when the source is newer than the binary —
+which is the whole of "incremental" that this needs.
+
+**Still on the host, not in the tab.** The module is imported by the server
+process. Moving it into a Worker is a placement change, and the kit is already
+shaped for it: `bootText` takes the machine as a string and `frameJson`
+returns a display list, so nothing in it touches a file system.
 
 **S5 — the native host.**
 `EVGHostTree` was written for exactly this (`PLAN_NATIVE_HOSTS.md`), and the

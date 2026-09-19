@@ -1,0 +1,233 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ==============================================================================
+; App.rgr — the same traffic app, as code
+; ==============================================================================
+;
+; PLAN_LIVE_APP.md S4, and the fixture the code-app runtime is checked against.
+; It is deliberately the SAME app as `fixtures/app`, so the two shapes can be
+; compared line for line, and it does the two things that made code necessary:
+;
+;   a list from the context   one row per saved route, however many there are
+;   an instance that lives    `RouteRow` counts its own renders, and the count
+;                             survives a press because the host keeps the app
+;                             open rather than spawning it
+;
+; Everything else is unchanged: the machine owns the page, an `id` is the event
+; a press sends, and `check` walks every state.
+; ==============================================================================
+
+Import "pkg:evg-livebuild/EvgAppKit.rgr"
+Import "pkg:evg/EVGColor.rgr"
+Import "pkg:evg/EVGComponent.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGUnit.rgr"
+
+; One saved route. It is a component and not a function because it has a field
+; nothing above it owns: how many times it has been drawn. Nothing in this app
+; needs that number — the TEST does, because it is the cheapest possible proof
+; that the same instance came back.
+class RouteRow extends EVGComponent {
+    def label:string ""
+    def seen:int 0
+
+    Constructor () {
+    }
+
+    fn view:EVGElement () {
+        seen = (seen + 1)
+        def row (EVGElement.createDiv())
+        row.setAttribute("display" "flex")
+        row.setAttribute("flex-direction" "row")
+        row.setAttribute("align-items" "center")
+        row.setAttribute("justify-content" "space-between")
+        row.setAttribute("height" "48px")
+        row.setAttribute("padding-left" "14px")
+        row.setAttribute("padding-right" "14px")
+        row.setAttribute("background-color" "rgb(30,41,59)")
+        row.setAttribute("border-radius" "12px")
+        row.addChild((App.span(label "14px" "rgb(226,232,240)" false)))
+        row.addChild((App.span("›" "16px" "rgb(125,211,252)" true)))
+        return row
+    }
+}
+
+class App extends EvgApp {
+
+    Constructor () {
+    }
+
+    sfn m@(main):void () {
+        def app (new App())
+        def kit (new EvgAppKit())
+        kit.cli(app)
+    }
+
+    ; --- the pieces -----------------------------------------------------------
+
+    sfn span:EVGElement (text:string size:string colour:string bold:boolean) {
+        def el (EVGElement.createSpan())
+        el.textContent = text
+        el.setAttribute("font-size" size)
+        el.setAttribute("color" colour)
+        if bold {
+            el.setAttribute("font-weight" "bold")
+        }
+        return el
+    }
+
+    sfn card:EVGElement (big:string small:string) {
+        def el (EVGElement.createDiv())
+        el.setAttribute("display" "flex")
+        el.setAttribute("justify-content" "center")
+        el.setAttribute("gap" "4px")
+        el.setAttribute("height" "72px")
+        el.setAttribute("padding-left" "16px")
+        el.setAttribute("padding-right" "16px")
+        el.setAttribute("background-color" "rgb(30,41,59)")
+        el.setAttribute("border-radius" "14px")
+        el.addChild((App.span(big "22px" "rgb(248,250,252)" true)))
+        el.addChild((App.span(small "12px" "rgb(148,163,184)" false)))
+        return el
+    }
+
+    sfn header:EVGElement (title:string) {
+        def el (EVGElement.createDiv())
+        el.setAttribute("display" "flex")
+        el.setAttribute("flex-direction" "row")
+        el.setAttribute("justify-content" "space-between")
+        el.setAttribute("align-items" "center")
+        el.setAttribute("height" "44px")
+        el.setAttribute("padding-left" "14px")
+        el.setAttribute("padding-right" "14px")
+        el.setAttribute("background-color" "rgb(30,41,59)")
+        el.setAttribute("border-radius" "12px")
+        el.addChild((App.span(title "18px" "rgb(248,250,252)" true)))
+        el.addChild((App.span("LIVE" "12px" "rgb(52,211,153)" false)))
+        return el
+    }
+
+    ; The bottom bar. `left: 0px` and not `12px`: an absolute child is measured
+    ; from inside the parent's padding, so asking for the padding again would
+    ; put the bar one padding to the right of the cards it floats over.
+    sfn nav:EVGElement (active:string) {
+        def bar (EVGElement.createDiv())
+        bar.setAttribute("display" "flex")
+        bar.setAttribute("flex-direction" "row")
+        bar.setAttribute("justify-content" "space-evenly")
+        bar.setAttribute("align-items" "center")
+        bar.setAttribute("position" "absolute")
+        bar.setAttribute("left" "0px")
+        bar.setAttribute("bottom" "12px")
+        bar.setAttribute("width" "366px")
+        bar.setAttribute("height" "58px")
+        bar.setAttribute("background-color" "rgb(30,41,59)")
+        bar.setAttribute("border-radius" "16px")
+        bar.addChild((App.tab("nav.map" "Kartta" active)))
+        bar.addChild((App.tab("nav.routes" "Reitit" active)))
+        bar.addChild((App.tab("nav.settings" "Asetukset" active)))
+        return bar
+    }
+
+    ; A tab keeps its id even when it is the tab you are on — the machine takes
+    ; its own nav event and ignores it, so the press is inert rather than dead.
+    sfn tab:EVGElement (id:string label:string active:string) {
+        def el (EVGElement.createDiv())
+        el.id = id
+        el.setAttribute("display" "flex")
+        el.setAttribute("justify-content" "center")
+        el.setAttribute("align-items" "center")
+        el.setAttribute("width" "110px")
+        el.setAttribute("height" "36px")
+        el.setAttribute("border-radius" "10px")
+        def colour:string "rgb(148,163,184)"
+        def bold:boolean false
+        if (id == active) {
+            el.setAttribute("background-gradient" "linear-gradient(180deg, rgb(52,120,90), rgb(30,72,55))")
+            colour = "rgb(209,250,229)"
+            bold = true
+        }
+        el.addChild((App.span(label "12px" colour bold)))
+        return el
+    }
+
+    sfn page:EVGElement () {
+        def el (EVGElement.createDiv())
+        el.setAttribute("display" "flex")
+        el.setAttribute("width" "390px")
+        el.setAttribute("height" "844px")
+        el.setAttribute("gap" "12px")
+        el.setAttribute("font-size" "14px")
+        el.setAttribute("background-color" "rgb(15,23,42)")
+        el.setAttribute("padding-top" "12px")
+        el.setAttribute("padding-right" "12px")
+        el.setAttribute("padding-bottom" "12px")
+        el.setAttribute("padding-left" "12px")
+        return el
+    }
+
+    ; --- the screens ----------------------------------------------------------
+
+    fn build:EVGElement (state:string) {
+        if (state == "routes") {
+            return (this.routesPage())
+        }
+        if (state == "settings") {
+            return (this.settingsPage())
+        }
+        return (this.mapPage())
+    }
+
+    fn mapPage:EVGElement () {
+        def k:EvgAppKit (unwrap kit)
+        def el:EVGElement (App.page())
+        el.addChild((App.header("Liikenne")))
+        el.addChild((App.card(((k.text("minutes")) + " min") "Keskusta → Lentoasema")))
+        el.addChild((App.card("12 km" "Reitin pituus")))
+        el.addChild((App.nav("nav.map")))
+        return el
+    }
+
+    ; The page a document cannot be: one row per item in the context, and the
+    ; count in the heading computed rather than written down.
+    fn routesPage:EVGElement () {
+        def k:EvgAppKit (unwrap kit)
+        def el:EVGElement (App.page())
+        el.addChild((App.header("Reitit")))
+        def routes:[string] (k.list("routes"))
+        def n:int (array_length routes)
+        el.addChild((App.card(((to_string n) + " tallennettua") "Omat reitit")))
+        def i:int 0
+        while (i < n) {
+            def label:string (itemAt routes i)
+            ; Keyed by the route's own name: a row keeps its instance across a
+            ; rebuild, and a row that leaves is disposed rather than reused by
+            ; whatever took its index.
+            def got:EVGComponent (k.use(("route:" + label) (new RouteRow())))
+            def row:RouteRow (cast got to:RouteRow)
+            row.label = label
+            el.addChild((row.render()))
+            i = (i + 1)
+        }
+        def add (EVGElement.createDiv())
+        add.id = "route.add"
+        add.setAttribute("display" "flex")
+        add.setAttribute("justify-content" "center")
+        add.setAttribute("align-items" "center")
+        add.setAttribute("height" "44px")
+        add.setAttribute("background-color" "rgb(37,99,235)")
+        add.setAttribute("border-radius" "12px")
+        add.addChild((App.span("Lisää reitti" "14px" "rgb(239,246,255)" true)))
+        el.addChild(add)
+        el.addChild((App.nav("nav.routes")))
+        return el
+    }
+
+    fn settingsPage:EVGElement () {
+        def el:EVGElement (App.page())
+        el.addChild((App.header("Asetukset")))
+        el.addChild((App.card("Liikennetiedot" "Päivitetään minuutin välein")))
+        el.addChild((App.nav("nav.settings")))
+        return el
+    }
+}
