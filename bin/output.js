@@ -46539,6 +46539,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                       super()
                                                       this.compiler = undefined;     /* note: unused */
                                                       this.init_done = false;
+                                                      this.scalaTraits = new TraitInterfaceAnalysis();
+                                                      this.scala_traits_written = false;
                                                     }
                                                     getObjectTypeString (type_string, ctx) {
                                                       if ( ctx.isDefinedClass(type_string) ) {
@@ -46694,6 +46696,14 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                           if ( node.type_name == "void" ) {
                                                             wr.out("Unit", false);
                                                             return;
+                                                          }
+                                                          if ( ctx.isDefinedClass(t_name) ) {
+                                                            const scTC = ctx.findClass(t_name);
+                                                            if ( scTC.is_trait ) {
+                                                              if ( this.scalaTraits.isInterface(t_name, ctx) == false ) {
+                                                                ctx.addError(node, ("the Scala target writes a `trait` as a mixin, so `" + t_name) + "` is not a type it can name. A trait that declares only METHODS becomes a Scala trait and can be used as a type; this one carries fields, which its consumers each hold their own copy of. Use a class with subclasses, or give the parameter a concrete type.");
+                                                              }
+                                                            }
                                                           }
                                                           wr.out(this.getTypeString(t_name), false);
                                                           break;
@@ -47230,6 +47240,41 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                       }));
                                                       wr.out(")", false);
                                                     };
+                                                    writeScalaTraitDefs (ctx, wr) {
+                                                      if ( this.scala_traits_written ) {
+                                                        return;
+                                                      }
+                                                      this.scala_traits_written = true;
+                                                      this.scalaTraits.compute(ctx);
+                                                      for ( let tni = 0; tni < Object.keys(this.scalaTraits.ifaceTraits).length; tni++) {
+                                                        var tn = Object.keys(this.scalaTraits.ifaceTraits)[tni];
+                                                        const tc = ctx.findClass(tn);
+                                                        wr.out("", true);
+                                                        wr.out(("trait " + tn) + " {", true);
+                                                        wr.indent(1);
+                                                        for ( let fvi = 0; fvi < tc.defined_variants.length; fvi++) {
+                                                          var fnVar = tc.defined_variants[fvi];
+                                                          const mVs = ( Object.prototype.hasOwnProperty.call(tc.method_variants, fnVar) ? tc.method_variants[fnVar] : undefined );
+                                                          for ( const variant of mVs.variants) {
+                                                            wr.out(("def " + variant.compiledName) + "(", false);
+                                                            this.writeArgsDef(
+                                                              variant,
+                                                              ctx,
+                                                              wr
+                                                            );
+                                                            wr.out(") : ", false);
+                                                            this.writeTypeDef(
+                                                              variant.nameNode,
+                                                              ctx,
+                                                              wr
+                                                            );
+                                                            wr.out("", true);
+                                                          }
+                                                        }
+                                                        wr.indent(-1);
+                                                        wr.out("}", true);
+                                                      }
+                                                    };
                                                     writeClass (node, ctx, orig_wr) {
                                                       let declaredFunction = {};
                                                       const cl = node.clDesc;
@@ -47243,6 +47288,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                         this.init_done = true;
                                                         wr.createTag("beginning");
                                                       }
+                                                      this.writeScalaTraitDefs(ctx, wr);
                                                       const importFork = wr.getTag("imports");
                                                       const b_class_has_content = ((cl.has_constructor || cl.variables.length > 0) || cl.defined_variants.length > 0) || cl.extends_classes.length > 0;
                                                       if ( b_class_has_content ) {
@@ -47281,11 +47327,22 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                           }
                                                           wr.out(")", false);
                                                         }
+                                                        const scIfaces = this.scalaTraits.basesOf(cl, ctx);
+                                                        let scBases = 0;
                                                         if ( cl.extends_classes.length > 0 ) {
                                                           wr.out(" extends ", false);
                                                           for ( const pName_1 of cl.extends_classes) {
                                                             wr.out(pName_1, false);
+                                                            scBases = scBases + 1;
                                                           }
+                                                        }
+                                                        for ( const scName of scIfaces) {
+                                                          if ( scBases > 0 ) {
+                                                            wr.out(" with " + scName, false);
+                                                          } else {
+                                                            wr.out(" extends " + scName, false);
+                                                          }
+                                                          scBases = scBases + 1;
                                                         }
                                                         wr.out(" {", true);
                                                         wr.indent(1);
@@ -52650,6 +52707,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                         this.target_flow = false;
                                                         this.target_typescript = false;
                                                         this.target_esm = false;
+                                                        this.tsTraits = new TraitInterfaceAnalysis();
+                                                        this.ts_traits_written = false;
                                                       }
                                                       jsWriteOperand (arg, ctx, wr) {
                                                         ctx.setInExpr();
@@ -53279,6 +53338,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                                 }
                                                                 return;
                                                               }
+                                                              if ( cc.is_trait ) {
+                                                                if ( this.tsTraits.isInterface(t_name, ctx) == false ) {
+                                                                  ctx.addError(node, ("the TypeScript target writes a `trait` as a mixin, so `" + t_name) + "` is not a type it can name. A trait that declares only METHODS becomes an interface and can be used as a type; this one carries fields, which its consumers each hold their own copy of. Use a class with subclasses, or give the parameter a concrete type.");
+                                                                }
+                                                              }
                                                               const cc_1 = ctx.findClass(t_name);
                                                               wr.out(cc_1.name, false);
                                                               return;
@@ -53528,6 +53592,44 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                           }
                                                           wr.out(";", false);
                                                           wr.newline();
+                                                        }
+                                                      };
+                                                      writeTsTraitInterfaces (ctx, wr) {
+                                                        if ( this.ts_traits_written ) {
+                                                          return;
+                                                        }
+                                                        this.ts_traits_written = true;
+                                                        if ( this.target_typescript == false ) {
+                                                          return;
+                                                        }
+                                                        this.tsTraits.compute(ctx);
+                                                        for ( let tni = 0; tni < Object.keys(this.tsTraits.ifaceTraits).length; tni++) {
+                                                          var tn = Object.keys(this.tsTraits.ifaceTraits)[tni];
+                                                          const tc = ctx.findClass(tn);
+                                                          wr.out("", true);
+                                                          wr.out(("interface " + tn) + " {", true);
+                                                          wr.indent(1);
+                                                          for ( let fvi = 0; fvi < tc.defined_variants.length; fvi++) {
+                                                            var fnVar = tc.defined_variants[fvi];
+                                                            const mVs = ( Object.prototype.hasOwnProperty.call(tc.method_variants, fnVar) ? tc.method_variants[fnVar] : undefined );
+                                                            for ( const variant of mVs.variants) {
+                                                              wr.out(variant.compiledName + "(", false);
+                                                              this.writeArgsDef(
+                                                                variant,
+                                                                ctx,
+                                                                wr
+                                                              );
+                                                              wr.out(") : ", false);
+                                                              this.writeTypeDef(
+                                                                variant.nameNode,
+                                                                ctx,
+                                                                wr
+                                                              );
+                                                              wr.out(";", true);
+                                                            }
+                                                          }
+                                                          wr.indent(-1);
+                                                          wr.out("}", true);
                                                         }
                                                       };
                                                       writeClassVarDef (p, ctx, wr) {
@@ -53854,6 +53956,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                             do_export = false;
                                                           }
                                                         }
+                                                        this.writeTsTraitInterfaces(ctx, wr);
                                                         if ( cl.has_doc ) {
                                                           const clDocWr = new RangerDocCommentWriter();
                                                           clDocWr.writeJsDocForClass(

@@ -1,5 +1,7 @@
 ; SPDX-License-Identifier: MIT
 
+Import "TraitAnalysis.rgr"
+
   class RangerScalaClassWriter {
   Extends ( RangerGenericClassWriter )
   def compiler:LiveCompiler
@@ -172,6 +174,14 @@
         if (node.type_name == "void") {
           wr.out("Unit" false)
           return
+        }
+        if(ctx.isDefinedClass(t_name)) {
+          def scTC:RangerAppClassDesc (ctx.findClass(t_name))
+          if scTC.is_trait {
+            if ((scalaTraits.isInterface(t_name ctx)) == false) {
+              ctx.addError(node (("the Scala target writes a `trait` as a mixin, so `" + t_name) + "` is not a type it can name. A trait that declares only METHODS becomes a Scala trait and can be used as a type; this one carries fields, which its consumers each hold their own copy of. Use a class with subclasses, or give the parameter a concrete type."))
+            }
+          }
         }
         wr.out((this.getTypeString(t_name)) false)
       }
@@ -645,6 +655,45 @@
     wr.out(")" false)
   }
   
+  ; --- a behaviour-only trait used as a TYPE ---------------------------------
+  ; A Ranger `trait` is a MIXIN: its methods are copied into each class that
+  ; `does` it, and the trait itself reached no Scala type. `fn show(n:Named)`
+  ; emitted `n : Named` with no `Named` declared anywhere in the file --
+  ; accepted Ranger, and scalac stops at "not found: type Named".
+  ;
+  ; A trait of methods only is exactly what a Scala `trait` says, and the
+  ; mixin copies are the implementations. One carrying FIELDS is refused, as
+  ; on every other typed target: its consumers each own their own copy, so
+  ; there is nothing for a trait to declare.
+  def scalaTraits:TraitInterfaceAnalysis (new TraitInterfaceAnalysis())
+  def scala_traits_written:boolean false
+
+  fn writeScalaTraitDefs:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+    if scala_traits_written {
+      return
+    }
+    scala_traits_written = true
+    scalaTraits.compute(ctx)
+    for (keys scalaTraits.ifaceTraits) tn:string tni {
+      def tc:RangerAppClassDesc (ctx.findClass(tn))
+      wr.out("" true)
+      wr.out(("trait " + tn + " {") true)
+      wr.indent(1)
+      for tc.defined_variants fnVar:string fvi {
+        def mVs:RangerAppMethodVariants (get tc.method_variants fnVar)
+        for mVs.variants variant:RangerAppFunctionDesc vi {
+          wr.out(("def " + variant.compiledName + "(") false)
+          this.writeArgsDef(variant ctx wr)
+          wr.out(") : " false)
+          this.writeTypeDef( (unwrap variant.nameNode) ctx wr)
+          wr.out("" true)
+        }
+      }
+      wr.indent(-1)
+      wr.out("}" true)
+    }
+  }
+
   fn writeClass:void (node:CodeNode ctx:RangerAppWriterContext orig_wr:CodeWriter) {
     def declaredFunction:[string:boolean]
     def cl:RangerAppClassDesc node.clDesc
@@ -659,6 +708,7 @@
       init_done = true
       wr.createTag("beginning")
     }
+    this.writeScalaTraitDefs(ctx wr)
     def importFork:CodeWriter (wr.getTag("imports"))
     def b_class_has_content ( cl.has_constructor || ( has cl.variables) || (has cl.defined_variants) || (has cl.extends_classes) )
     if b_class_has_content {
@@ -705,13 +755,28 @@
         wr.out(")" false)
       }
 
+      ; Scala is NOMINAL, so unlike TypeScript the consumer has to say it
+      ; implements the trait. `extends` for the first, `with` for the rest --
+      ; a parent class takes the `extends` slot when there is one, and the
+      ; mixin copies are the implementations, which need no `override`.
+      def scIfaces:[string] (scalaTraits.basesOf((unwrap cl) ctx))
+      def scBases:int 0
       if ( ( array_length cl.extends_classes ) > 0 ) { 
         wr.out(" extends " false)
         for cl.extends_classes pName:string i {
           wr.out(pName false)
+          scBases = scBases + 1
   ;        parentClass = (ctx.findClass(pName))
         }
       }    
+      for scIfaces scName:string sci {
+        if (scBases > 0) {
+          wr.out((" with " + scName) false)
+        } {
+          wr.out((" extends " + scName) false)
+        }
+        scBases = scBases + 1
+      }
       
       wr.out(" {" true)
       wr.indent(1)
