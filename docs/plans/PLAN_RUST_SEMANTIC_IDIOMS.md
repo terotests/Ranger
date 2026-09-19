@@ -1,6 +1,6 @@
 # PLAN_RUST_SEMANTIC_IDIOMS — closing the semantic gap the friendly study found
 
-> **Status: P0 landed. P1 and beyond wait for the target lowering IR.** The three
+> **Status: P0 landed; P1 is in progress (G and F done).** The three
 > correctness items — **A**, **B**, **C1** — are in, with the gallery study as
 > their gate (`bash gallery/friendly/compile.sh`). The rest is parked: the ownership
 > vocabulary of §1, the handle/data split (**J**) and the borrow-provenance
@@ -344,6 +344,32 @@ not with this item.
 
 ### F. `Enum` → a real Rust `enum`
 
+**Status: done, conservatively.** `colorName(c : i64)` is `colorName(c : Color)`
+and `Color.Green` is `Color::Green`. The analysis is per enum and the fallback
+is the old `i64` lowering, so the worst case is exactly today's output. Under
+`-strict-ownership` each enum prints its verdict and, when it falls back, why:
+
+```text
+enum[rust] RangerAnnType -> Rust enum
+enum[rust] RangerNodeType -> i64 (a field of an @serialize class)
+```
+
+The safe uses are a declaration of that type, an `Enum.Member` reference,
+`==` / `!=`, an assignment, a `switch`/`case`, and a `return`. Everything else
+falls back. Two things the analysis had to learn:
+
+- An enum-typed node that names no enum counts against *every* enum, because
+  the writer cannot say which one it is. Resolving it through `eval_type_name`
+  and the param desc first is what took the compiler's own enums from
+  "all i64" to seven of eight native.
+- **A `switch` whose case labels name a different enum than the scrutinee.**
+  `RangerAppParamDesc.getVarTypeName` in this compiler switched on a
+  `RangerNodeRefType` field and labelled its arms `RangerContextVarType.NoType`
+  / `.This` — so the second arm answered "This" for a **Weak** reference. It
+  compiled on every target because both enums are integers and the members
+  happened to line up. A Rust enum has no such coincidence. The analysis now
+  refuses both enums on a mismatch, and the compiler's own slip is fixed.
+
 **Where.** Three sites:
 [`writeTypeDef` case Enum:991](../../compiler/RangerRustClassWriter.rgr#L991),
 [`WriteVRef`:1286](../../compiler/RangerRustClassWriter.rgr#L1286),
@@ -375,9 +401,35 @@ Removes the loudest generated-code artifact in studies 02, 03 and 09:
 
 ### G. Reachability-driven helper emission
 
-Study 07 is 16 lines of Ranger and 195 of Rust; 140 are `RgOrderedMap`,
-`FxHasher` and string-index helpers the binary never calls. The rule should be
-a closure, not a switch per helper:
+**Status: done.** Study 07 was 16 lines of Ranger and 194 of Rust; 140 were
+`RgOrderedMap`, `FxHasher` and string-index helpers the binary never calls. It
+is **82** lines now. Across the ten studies the Rust output fell by roughly 40%:
+
+```text
+01_ownership   251 -> 150     06_generics       213 -> 112
+02_option      281 -> 180     07_slices         194 ->  82
+03_enums       278 -> 177     08_builder        231 -> 130
+04_traits      196 ->  95     09_errors         256 -> 155
+05_iterators   207 -> 106     10_optional_params 195 ->  94
+```
+
+Two families are gated independently: the map preamble, and the three
+character-indexing string helpers. The scan is in
+[`RustClass.rustHeaderHelperNeeds`](../../compiler/RustClass.rgr). Three things
+it had to learn, each of which silently broke a first attempt:
+
+- A class the file never writes cannot reach a helper, and the operator and
+  template classes of `Lang.rgr` / `stdops.rgr` declare maps all over — so an
+  unfiltered scan says every program needs the preamble. That is how it came to
+  be in every file in the first place. `Map` itself is a *trait* class here.
+- `def m:[string:int]` is rewritten by `CollectMethods` into `new Map@(string
+  int)` with `value_type` VRef, so the `key_type` is gone from the name node by
+  the time a writer sees it; the class name is the signal that survives.
+- `sfn` lands in `static_methods`, not `methods`. A program whose only entry
+  point is `sfn m@(main)` has an *empty* `methods` list, so the first version
+  answered "no map" for a program that is nothing but a map.
+
+The rule should be a closure, not a switch per helper:
 
 ```text
 features used by the program → required helper set → transitive closure → emit
@@ -608,8 +660,8 @@ document. Both recorded so they are decisions rather than omissions.
 | P0 | **C1** refuse trait-as-type | **done** | no |
 | P1 | **D** value semantics for shape payloads | medium, shared with C++ | helps |
 | P1 | **E** real `match` arms | medium | helps |
-| P1 | **F** real `enum` + use-site casts | medium | no |
-| P1 | **G** reachability-driven helpers | small | no |
+| P1 | **F** real `enum` + use-site casts | **done** | no |
+| P1 | **G** reachability-driven helpers | **done** | no |
 | P2 | **H** portable `Result` + propagation | large, cross-target | no |
 | P2 | **I** behaviour-only trait → Rust trait | medium | no |
 | P2 | **J** handle/data split | large, highest risk | yes |

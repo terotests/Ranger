@@ -714,6 +714,378 @@ extension RangerRustClassWriter {
     wr.out("}" true)
   }
 
+  ; --- native Rust enums (PLAN_RUST_SEMANTIC_IDIOMS F) ------------------------
+  ; A Ranger `Enum` is an integer on every target, so `Color.Green` reaches the
+  ; Rust file as the literal `1` and `colorName` takes an `i64`. The name is
+  ; gone, which is the loudest "this was generated" tell in the gallery studies.
+  ;
+  ; It cannot simply become a Rust `enum`: Ranger source is free to do
+  ; arithmetic on an enum, index an array with one, use one as a map key or
+  ; round-trip one through @serialize, and a Rust enum supports none of those
+  ; without a cast. So the decision is per enum and conservative — emit the
+  ; native form only when every use in the program is one a Rust enum can carry,
+  ; and keep the i64 lowering for the rest. `-strict-ownership` prints the
+  ; verdict and its reason, the way the sharing verdicts do, so a fallback is
+  ; visible rather than mysterious.
+  ;
+  ; The safe uses are: a declaration of that type, an `Enum.Member` reference,
+  ; `==` / `!=` against something else of the same enum, an assignment whose
+  ; other side is the same enum, a `switch`/`case`, and a `return`. Everything
+  ; else — every operator not in that list, and every call whose parameter is
+  ; not declared as this enum — is a fallback. When in doubt, i64.
+
+  fn rustNodeIsEnumOf:boolean (node:CodeNode enumName:string ctx:RangerAppWriterContext) {
+    if (node.eval_type == RangerNodeType.Enum) {
+      if (node.type_name == enumName) {
+        return true
+      }
+      if ((array_length node.ns) > 1) {
+        def rootName:string (itemAt node.ns 0)
+        if (rootName == enumName) {
+          return true
+        }
+      }
+      if (node.eval_type_name == enumName) {
+        return true
+      }
+      if (node.hasParamDesc) {
+        def pdNNe@(optional):CodeNode node.paramDesc.nameNode
+        if (!null? pdNNe) {
+          def pdNe:CodeNode (unwrap pdNNe)
+          if (pdNe.type_name == enumName) {
+            return true
+          }
+        }
+      }
+      ; an enum-typed node that names no enum at all: the writer cannot say
+      ; WHICH enum it is, so it counts against every one of them. Answering
+      ; "not this enum" here would let a genuinely unsafe use through, and the
+      ; cost of answering "yes" is a fallback to the lowering we already had.
+      if ((strlen node.type_name) == 0) {
+        if ((strlen node.eval_type_name) == 0) {
+          if ((array_length node.ns) < 2) {
+            return true
+          }
+        }
+      }
+    }
+    if (node.type_name == enumName) {
+      return true
+    }
+    return false
+  }
+
+  ; The enum a node names, or "" when it names none.
+  fn rustEnumNameOf:string (node:CodeNode ctx:RangerAppWriterContext) {
+    ; `Color.Green` has the enum as its root; `node.eval_type` has an OBJECT as
+    ; its root, and reading that as an enum name reported the variable as the
+    ; enum being switched on. Only a root that is actually a declared enum
+    ; counts.
+    if ((array_length node.ns) > 1) {
+      def rootN:string (itemAt node.ns 0)
+      def re@(optional):RangerAppEnum ((ctx.getRoot()).getEnum(rootN))
+      if (!null? re) {
+        return rootN
+      }
+    }
+    if ((strlen node.type_name) > 0) {
+      return node.type_name
+    }
+    if ((strlen node.eval_type_name) > 0) {
+      return node.eval_type_name
+    }
+    if (node.hasParamDesc) {
+      def pdNNn@(optional):CodeNode node.paramDesc.nameNode
+      if (!null? pdNNn) {
+        def pdNn:CodeNode (unwrap pdNNn)
+        return pdNn.type_name
+      }
+    }
+    return ""
+  }
+
+  ; Every enum named by a `case` label inside this switch body.
+  fn rustCollectCaseEnums:void (node:CodeNode found:[string:boolean]) {
+    if node.expression {
+      if ((array_length node.children) > 1) {
+        def h:CodeNode (node.getFirst())
+        if (h.vref == "case") {
+          def lbl:CodeNode (node.getSecond())
+          if ((array_length lbl.ns) > 1) {
+            set found (itemAt lbl.ns 0) true
+          }
+        }
+      }
+    }
+    for node.children ch:CodeNode i {
+      this.rustCollectCaseEnums(ch found)
+    }
+  }
+
+  ; The operators an enum-typed operand may appear under. `switch` and `case`
+  ; carry the scrutinee and the labels; `=`, `def` and `return` place a value
+  ; into a slot that was declared with the type.
+  fn rustEnumOperandIsSafe:boolean (headVref:string) {
+    if (headVref == "==") { return true }
+    if (headVref == "!=") { return true }
+    if (headVref == "=") { return true }
+    if (headVref == "def") { return true }
+    if (headVref == "switch") { return true }
+    if (headVref == "case") { return true }
+    if (headVref == "return") { return true }
+    return false
+  }
+
+  ; Walks one function body. Answers the first reason this enum cannot be
+  ; native, or "" when it found none.
+  fn rustEnumUnsafeReason:string (node:CodeNode enumName:string ctx:RangerAppWriterContext) {
+    if node.expression {
+      if ((array_length node.children) > 0) {
+        def head:CodeNode (node.getFirst())
+        def hv:string head.vref
+        ; A `switch` whose case labels name a DIFFERENT enum than the scrutinee
+        ; compiles today only because both sides are integers and the members
+        ; happen to line up. `RangerAppParamDesc.getVarTypeName` in this very
+        ; compiler switches on a `RangerNodeRefType` field and labels its arms
+        ; `RangerContextVarType.NoType` / `.This` — the second arm means `Weak`.
+        ; A Rust enum has no such coincidence, so neither enum can be native.
+        if (hv == "switch") {
+          if ((array_length node.children) > 1) {
+            def scrut:CodeNode (node.getSecond())
+            def scrutEnum:string (this.rustEnumNameOf(scrut ctx))
+            def caseEnums:[string:boolean]
+            this.rustCollectCaseEnums(node caseEnums)
+            for (keys caseEnums) ce:string cei {
+              if (ce != scrutEnum) {
+                if ((ce == enumName) || (scrutEnum == enumName)) {
+                  return (("switched on `" + scrutEnum) + ("` with a `" + ce) + "` case label")
+                }
+              }
+            }
+          }
+        }
+        if ((this.rustEnumOperandIsSafe(hv)) == false) {
+          for node.children ch:CodeNode ci {
+            if (ci > 0) {
+              if (this.rustNodeIsEnumOf(ch enumName ctx)) {
+                if ((strlen hv) == 0) {
+                  return "used as a call receiver or argument"
+                }
+                return ("used under `" + hv + "`")
+              }
+            }
+          }
+        }
+      }
+    }
+    for node.children ch2:CodeNode ci2 {
+      def sub:string (this.rustEnumUnsafeReason(ch2 enumName ctx))
+      if ((strlen sub) > 0) {
+        return sub
+      }
+    }
+    return ""
+  }
+
+  fn rustComputeNativeEnums:void (ctx:RangerAppWriterContext) {
+    if rustNativeEnumsDone {
+      return
+    }
+    rustNativeEnumsDone = true
+    def root:RangerAppWriterContext (ctx.getRoot())
+    def diag:boolean (ctx.hasCompilerFlag("strict-ownership"))
+    for (keys root.definedEnums) ename:string ei {
+      def reason:string ""
+      for root.definedClasses cl:RangerAppClassDesc ci {
+        if ((strlen reason) > 0) {
+          continue
+        }
+        if ((((cl.is_system || cl.is_trait) || cl.is_template) || cl.is_operator_class) || cl.is_union) {
+          continue
+        }
+        ; a serialized class reads and writes its fields as JSON numbers, and a
+        ; Rust enum is not a number there
+        if (cl.is_serialized) {
+          for cl.variables sv:RangerAppParamDesc svi {
+            def svNN@(optional):CodeNode sv.nameNode
+            if (!null? svNN) {
+              def svN:CodeNode (unwrap svNN)
+              if (svN.type_name == ename) {
+                reason = "a field of an @serialize class"
+              }
+            }
+          }
+        }
+        reason = (this.rustScanEnumFns(cl.methods ename ctx reason))
+        reason = (this.rustScanEnumFns(cl.static_methods ename ctx reason))
+      }
+      if ((strlen reason) == 0) {
+        set rustNativeEnums ename true
+        if diag {
+          print (("enum[rust] " + ename) + " -> Rust enum")
+        }
+      } {
+        if diag {
+          print (((("enum[rust] " + ename) + " -> i64 (") + reason) + ")")
+        }
+      }
+    }
+  }
+
+  fn rustScanEnumFns:string (fns:[RangerAppFunctionDesc] enumName:string ctx:RangerAppWriterContext reasonIn:string) {
+    def reason:string reasonIn
+    for fns m:RangerAppFunctionDesc mi {
+      if ((strlen reason) > 0) {
+        return reason
+      }
+      def mNodeOpt@(optional):CodeNode m.node
+      if (null? mNodeOpt) {
+        continue
+      }
+      def mNode:CodeNode (unwrap mNodeOpt)
+      reason = (this.rustEnumUnsafeReason(mNode enumName ctx))
+    }
+    return reason
+  }
+
+  fn rustEnumIsNative:boolean (enumName:string ctx:RangerAppWriterContext) {
+    if ((strlen enumName) == 0) {
+      return false
+    }
+    this.rustComputeNativeEnums(ctx)
+    if (has rustNativeEnums enumName) {
+      return true
+    }
+    return false
+  }
+
+  ; --- reachability of the header helpers (PLAN_RUST_SEMANTIC_IDIOMS G) -------
+  ; The map preamble and the character-indexing string helpers used to be
+  ; written into every file. On study 07 of gallery/friendly that is 16 lines of
+  ; Ranger and 195 of Rust, 140 of them `RgOrderedMap` / `FxHasher` the binary
+  ; never calls. They are emitted now only when the program can reach them.
+  ;
+  ; The question for the map is "does a hash type appear anywhere": a Ranger map
+  ; is always spelled with a key type, on a field, a parameter, a return or a
+  ; local, so a node carrying a `key_type` is the signal and there is no way to
+  ; hold one without writing it down. The question for the string helpers is
+  ; which operators lower to them — three, listed below.
+  ;
+  ; Both scans err towards emitting: a helper written and unused is a
+  ; `dead_code` allow the header already carries, a helper missing is a program
+  ; that does not build.
+  fn rustNodeUsesHash:boolean (node:CodeNode) {
+    if ((strlen node.key_type) > 0) {
+      return true
+    }
+    ; a `def m:[string:int]` local is rewritten by CollectMethods into
+    ; `new Map@(string int)` with value_type VRef, so the key_type is no longer
+    ; on the name node by the time a writer sees it — the class name is.
+    if (node.type_name == "Map") {
+      return true
+    }
+    if (node.value_type == RangerNodeType.Hash) {
+      return true
+    }
+    if (node.eval_type == RangerNodeType.Hash) {
+      return true
+    }
+    if (node.hasParamDesc) {
+      def pdNN@(optional):CodeNode node.paramDesc.nameNode
+      if (!null? pdNN) {
+        def pdN:CodeNode (unwrap pdNN)
+        if ((strlen pdN.key_type) > 0) {
+          return true
+        }
+      }
+    }
+    for node.children ch:CodeNode i {
+      if (this.rustNodeUsesHash(ch)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn rustNodeUsesStringIndex:boolean (node:CodeNode) {
+    def v:string node.vref
+    if ((((v == "indexOf") || (v == "indexOfFrom")) || (v == "lastIndexOf"))) {
+      return true
+    }
+    for node.children ch:CodeNode i {
+      if (this.rustNodeUsesStringIndex(ch)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  ; 0 = neither, 1 = maps only, 2 = string index only, 3 = both.
+  fn rustHeaderHelperNeeds:int (ctx:RangerAppWriterContext) {
+    def res:int 0
+    def root:RangerAppWriterContext (ctx.getRoot())
+    for root.definedClasses cl:RangerAppClassDesc ci {
+      ; a class the file never writes cannot reach a helper. The operator and
+      ; template classes of Lang.rgr / stdops.rgr declare maps all over, and
+      ; counting them meant every program "needed" the map preamble — which is
+      ; how it came to be in every file in the first place.
+      ; the same "this class is not written to the file" set the Weak scan uses,
+      ; minus is_generic_instance — a `Stack@(int)` IS written and may hold a
+      ; map. `Map` itself is a trait class here, which is why an unfiltered scan
+      ; said every program needed the preamble: that is how it came to be in
+      ; every file in the first place.
+      if ((((cl.is_system || cl.is_trait) || cl.is_template) || cl.is_operator_class) || cl.is_union) {
+        continue
+      }
+      for cl.variables cv:RangerAppParamDesc cvi {
+        def cvNN@(optional):CodeNode cv.nameNode
+        if (!null? cvNN) {
+          def cvN:CodeNode (unwrap cvNN)
+          if ((strlen cvN.key_type) > 0) {
+            if ((res == 0) || (res == 2)) {
+              res = (res + 1)
+            }
+          }
+        }
+      }
+      res = (this.rustScanFnList(cl.methods res))
+      ; `sfn` lands in static_methods, not methods, and a program whose only
+      ; entry point is `sfn m@(main)` has an EMPTY methods list — which is how
+      ; the first version of this scan answered "no map" for a program that is
+      ; nothing but a map.
+      res = (this.rustScanFnList(cl.static_methods res))
+      if (res == 3) {
+        return 3
+      }
+    }
+    return res
+  }
+
+  fn rustScanFnList:int (fns:[RangerAppFunctionDesc] resIn:int) {
+    def res:int resIn
+    for fns m:RangerAppFunctionDesc mi {
+      if (res == 3) {
+        return 3
+      }
+      def mNodeOpt@(optional):CodeNode m.node
+      if (null? mNodeOpt) {
+        continue
+      }
+      def mNode:CodeNode (unwrap mNodeOpt)
+      if ((res == 0) || (res == 2)) {
+        if (this.rustNodeUsesHash(mNode)) {
+          res = (res + 1)
+        }
+      }
+      if ((res == 0) || (res == 1)) {
+        if (this.rustNodeUsesStringIndex(mNode)) {
+          res = (res + 2)
+        }
+      }
+    }
+    return res
+  }
+
   fn writeClass (node:CodeNode ctx:RangerAppWriterContext orig_wr:CodeWriter) {
     def ucl@(optional):RangerAppClassDesc node.clDesc
     if (null? ucl) {
@@ -734,6 +1106,13 @@ extension RangerRustClassWriter {
     ; ended up after that line and rustc rejected the file.
     if (fileHeaderWritten == false) {
       def header:CodeWriter (wr.getTag("before_imports"))
+      ; which of the two header helper families this program can reach
+      def helperNeeds:int (this.rustHeaderHelperNeeds(ctx))
+      ; …and which Ranger `Enum`s survive as Rust enums, whose declarations go
+      ; into the header before anything can name one
+      this.rustComputeNativeEnums(ctx)
+      def needsMap:boolean ((helperNeeds == 1) || (helperNeeds == 3))
+      def needsStrIndex:boolean ((helperNeeds == 2) || (helperNeeds == 3))
       header.out("#![allow(unused_parens)]" true)
       header.out("#![allow(unused_mut)]" true)
       header.out("#![allow(unused_variables)]" true)
@@ -792,6 +1171,30 @@ extension RangerRustClassWriter {
       ;
       ; `Any` is the compiler's own union of every declared class, so it is not
       ; written: the enum would name every class in the program.
+      ; PLAN_RUST_SEMANTIC_IDIOMS F: a Ranger `Enum` whose every use a Rust enum
+      ; can carry is written as one. #[repr(i64)] with explicit discriminants
+      ; keeps the integer representation exact, so `Color::Green as i64` is
+      ; still 1 and nothing downstream has to know which form it got.
+      def hdrEnumRoot:RangerAppWriterContext (ctx.getRoot())
+      def anyNativeEnum:boolean false
+      for (keys hdrEnumRoot.definedEnums) hen:string hei {
+        if (this.rustEnumIsNative(hen ctx)) {
+          def heDef:RangerAppEnum (unwrap (get hdrEnumRoot.definedEnums hen))
+          header.out("#[repr(i64)]" true)
+          header.out("#[derive(Clone, Copy, PartialEq, Eq, Debug)]" true)
+          header.out(("pub enum " + hen + " {") true)
+          for (keys heDef.values) hmn:string hmi {
+            def hmv:int (unwrap (get heDef.values hmn))
+            def heLine:string ((("    " + hmn) + " = ") + (to_string hmv))
+            header.out((heLine + ",") true)
+          }
+          header.out("}" true)
+          anyNativeEnum = true
+        }
+      }
+      if anyNativeEnum {
+        header.out("" true)
+      }
       def unionNames:[string] (this.sealableUnionNames(ctx))
       for unionNames uname:string uni {
         def ucl:RangerAppClassDesc (hdrRoot.findClass(uname))
@@ -922,111 +1325,113 @@ extension RangerRustClassWriter {
         header.out("static RG_POOL_ALLOC: RgPoolAlloc = RgPoolAlloc;" true)
         header.out("" true)
       }
-      header.out("// FxHash (rustc-hash style): these maps are keyed by short program" true)
-      header.out("// strings; SipHash's DoS resistance cost ~14% of all instructions in" true)
-      header.out("// map-heavy code. Swap back to std's default by deleting the alias." true)
-      header.out("#[derive(Default, Clone)]" true)
-      header.out("struct FxHasher { hash: u64 }" true)
-      header.out("impl std::hash::Hasher for FxHasher {" true)
-      header.out("    #[inline]" true)
-      header.out("    fn write(&mut self, bytes: &[u8]) {" true)
-      header.out("        const SEED: u64 = 0x517cc1b727220a95;" true)
-      header.out("        let mut b = bytes;" true)
-      header.out("        while b.len() >= 8 {" true)
-      header.out("            let v = u64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]);" true)
-      header.out("            self.hash = (self.hash.rotate_left(5) ^ v).wrapping_mul(SEED);" true)
-      header.out("            b = &b[8..];" true)
-      header.out("        }" true)
-      header.out("        for &x in b {" true)
-      header.out("            self.hash = (self.hash.rotate_left(5) ^ (x as u64)).wrapping_mul(SEED);" true)
-      header.out("        }" true)
-      header.out("    }" true)
-      header.out("    #[inline]" true)
-      header.out("    fn finish(&self) -> u64 { self.hash }" true)
-      header.out("}" true)
-      header.out("// Insertion-ordered map (mirrors the C++ rg_ordered_map): entries in a" true)
-      header.out("// vector plus an open-addressed FxHash index. Lookups hash once; keys()" true)
-      header.out("// iterates in INSERTION order, which is what JS key enumeration needs." true)
-      header.out("// Aliased over the HashMap name so declarations stay untouched." true)
-      header.out("#[derive(Clone)]" true)
-      header.out("struct RgOrderedMap<K, V> {" true)
-      header.out("    entries: Vec<(K, V)>," true)
-      header.out("    index: Vec<i32>," true)
-      header.out("}" true)
-      header.out("impl<K, V> Default for RgOrderedMap<K, V> {" true)
-      header.out("    fn default() -> Self { RgOrderedMap { entries: Vec::new(), index: Vec::new() } }" true)
-      header.out("}" true)
-      ; `for (k, v) in map` is how the hash form of the for loop is written,
-      ; and it needs the map to be iterable. Insertion order is the order the
-      ; entries are held in, which is the order every other target walks a
-      ; Ranger hash in.
-      header.out("impl<K, V> IntoIterator for RgOrderedMap<K, V> {" true)
-      header.out("    type Item = (K, V);" true)
-      header.out("    type IntoIter = std::vec::IntoIter<(K, V)>;" true)
-      header.out("    fn into_iter(self) -> Self::IntoIter { self.entries.into_iter() }" true)
-      header.out("}" true)
-      header.out("impl<'a, K, V> IntoIterator for &'a RgOrderedMap<K, V> {" true)
-      header.out("    type Item = &'a (K, V);" true)
-      header.out("    type IntoIter = std::slice::Iter<'a, (K, V)>;" true)
-      header.out("    fn into_iter(self) -> Self::IntoIter { self.entries.iter() }" true)
-      header.out("}" true)
-      header.out("impl<K: std::hash::Hash + Eq, V> RgOrderedMap<K, V> {" true)
-      header.out("    fn rg_hash<Q: std::hash::Hash + ?Sized>(k: &Q) -> u64 {" true)
-      header.out("        let mut h = FxHasher::default();" true)
-      header.out("        k.hash(&mut h);" true)
-      header.out("        std::hash::Hasher::finish(&h)" true)
-      header.out("    }" true)
-      header.out("    fn slot<Q>(&self, k: &Q) -> i32 where K: std::borrow::Borrow<Q>, Q: std::hash::Hash + Eq + ?Sized {" true)
-      header.out("        if self.index.is_empty() { return -1; }" true)
-      header.out("        let mask = self.index.len() - 1;" true)
-      header.out("        let mut h = (Self::rg_hash(k) as usize) & mask;" true)
-      header.out("        loop {" true)
-      header.out("            let s = self.index[h];" true)
-      header.out("            if s == -1 { return -1; }" true)
-      header.out("            if self.entries[s as usize].0.borrow() == k { return s; }" true)
-      header.out("            h = (h + 1) & mask;" true)
-      header.out("        }" true)
-      header.out("    }" true)
-      header.out("    fn rehash(&mut self) {" true)
-      header.out("        let mut cap = 8usize;" true)
-      header.out("        while cap < (self.entries.len() + 1) * 2 { cap <<= 1; }" true)
-      header.out("        self.index.clear();" true)
-      header.out("        self.index.resize(cap, -1);" true)
-      header.out("        for i in 0..self.entries.len() {" true)
-      header.out("            let mut h = (Self::rg_hash(&self.entries[i].0) as usize) & (cap - 1);" true)
-      header.out("            while self.index[h] != -1 { h = (h + 1) & (cap - 1); }" true)
-      header.out("            self.index[h] = i as i32;" true)
-      header.out("        }" true)
-      header.out("    }" true)
-      header.out("    fn insert(&mut self, k: K, v: V) -> Option<V> {" true)
-      header.out("        let s = self.slot(&k);" true)
-      header.out("        if s != -1 { return Some(std::mem::replace(&mut self.entries[s as usize].1, v)); }" true)
-      header.out("        self.entries.push((k, v));" true)
-      header.out("        if self.index.is_empty() || (self.entries.len() + 1) * 2 > self.index.len() {" true)
-      header.out("            self.rehash();" true)
-      header.out("        } else {" true)
-      header.out("            let mask = self.index.len() - 1;" true)
-      header.out("            let mut h = (Self::rg_hash(&self.entries[self.entries.len() - 1].0) as usize) & mask;" true)
-      header.out("            while self.index[h] != -1 { h = (h + 1) & mask; }" true)
-      header.out("            self.index[h] = (self.entries.len() - 1) as i32;" true)
-      header.out("        }" true)
-      header.out("        None" true)
-      header.out("    }" true)
-      header.out("    fn get<Q>(&self, k: &Q) -> Option<&V> where K: std::borrow::Borrow<Q>, Q: std::hash::Hash + Eq + ?Sized {" true)
-      header.out("        let s = self.slot(k);" true)
-      header.out("        if s == -1 { None } else { Some(&self.entries[s as usize].1) }" true)
-      header.out("    }" true)
-      header.out("    fn contains_key<Q>(&self, k: &Q) -> bool where K: std::borrow::Borrow<Q>, Q: std::hash::Hash + Eq + ?Sized {" true)
-      header.out("        self.slot(k) != -1" true)
-      header.out("    }" true)
-      header.out("    fn keys(&self) -> impl Iterator<Item = &K> { self.entries.iter().map(|e| &e.0) }" true)
-      header.out("    fn len(&self) -> usize { self.entries.len() }" true)
-      header.out("    fn clear(&mut self) {" true)
-      header.out("        self.entries.clear();" true)
-      header.out("        for s in self.index.iter_mut() { *s = -1; }" true)
-      header.out("    }" true)
-      header.out("}" true)
-      header.out("type HashMap<K, V> = RgOrderedMap<K, V>;" true)
+      if needsMap {
+        header.out("// FxHash (rustc-hash style): these maps are keyed by short program" true)
+        header.out("// strings; SipHash's DoS resistance cost ~14% of all instructions in" true)
+        header.out("// map-heavy code. Swap back to std's default by deleting the alias." true)
+        header.out("#[derive(Default, Clone)]" true)
+        header.out("struct FxHasher { hash: u64 }" true)
+        header.out("impl std::hash::Hasher for FxHasher {" true)
+        header.out("    #[inline]" true)
+        header.out("    fn write(&mut self, bytes: &[u8]) {" true)
+        header.out("        const SEED: u64 = 0x517cc1b727220a95;" true)
+        header.out("        let mut b = bytes;" true)
+        header.out("        while b.len() >= 8 {" true)
+        header.out("            let v = u64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]);" true)
+        header.out("            self.hash = (self.hash.rotate_left(5) ^ v).wrapping_mul(SEED);" true)
+        header.out("            b = &b[8..];" true)
+        header.out("        }" true)
+        header.out("        for &x in b {" true)
+        header.out("            self.hash = (self.hash.rotate_left(5) ^ (x as u64)).wrapping_mul(SEED);" true)
+        header.out("        }" true)
+        header.out("    }" true)
+        header.out("    #[inline]" true)
+        header.out("    fn finish(&self) -> u64 { self.hash }" true)
+        header.out("}" true)
+        header.out("// Insertion-ordered map (mirrors the C++ rg_ordered_map): entries in a" true)
+        header.out("// vector plus an open-addressed FxHash index. Lookups hash once; keys()" true)
+        header.out("// iterates in INSERTION order, which is what JS key enumeration needs." true)
+        header.out("// Aliased over the HashMap name so declarations stay untouched." true)
+        header.out("#[derive(Clone)]" true)
+        header.out("struct RgOrderedMap<K, V> {" true)
+        header.out("    entries: Vec<(K, V)>," true)
+        header.out("    index: Vec<i32>," true)
+        header.out("}" true)
+        header.out("impl<K, V> Default for RgOrderedMap<K, V> {" true)
+        header.out("    fn default() -> Self { RgOrderedMap { entries: Vec::new(), index: Vec::new() } }" true)
+        header.out("}" true)
+        ; `for (k, v) in map` is how the hash form of the for loop is written,
+        ; and it needs the map to be iterable. Insertion order is the order the
+        ; entries are held in, which is the order every other target walks a
+        ; Ranger hash in.
+        header.out("impl<K, V> IntoIterator for RgOrderedMap<K, V> {" true)
+        header.out("    type Item = (K, V);" true)
+        header.out("    type IntoIter = std::vec::IntoIter<(K, V)>;" true)
+        header.out("    fn into_iter(self) -> Self::IntoIter { self.entries.into_iter() }" true)
+        header.out("}" true)
+        header.out("impl<'a, K, V> IntoIterator for &'a RgOrderedMap<K, V> {" true)
+        header.out("    type Item = &'a (K, V);" true)
+        header.out("    type IntoIter = std::slice::Iter<'a, (K, V)>;" true)
+        header.out("    fn into_iter(self) -> Self::IntoIter { self.entries.iter() }" true)
+        header.out("}" true)
+        header.out("impl<K: std::hash::Hash + Eq, V> RgOrderedMap<K, V> {" true)
+        header.out("    fn rg_hash<Q: std::hash::Hash + ?Sized>(k: &Q) -> u64 {" true)
+        header.out("        let mut h = FxHasher::default();" true)
+        header.out("        k.hash(&mut h);" true)
+        header.out("        std::hash::Hasher::finish(&h)" true)
+        header.out("    }" true)
+        header.out("    fn slot<Q>(&self, k: &Q) -> i32 where K: std::borrow::Borrow<Q>, Q: std::hash::Hash + Eq + ?Sized {" true)
+        header.out("        if self.index.is_empty() { return -1; }" true)
+        header.out("        let mask = self.index.len() - 1;" true)
+        header.out("        let mut h = (Self::rg_hash(k) as usize) & mask;" true)
+        header.out("        loop {" true)
+        header.out("            let s = self.index[h];" true)
+        header.out("            if s == -1 { return -1; }" true)
+        header.out("            if self.entries[s as usize].0.borrow() == k { return s; }" true)
+        header.out("            h = (h + 1) & mask;" true)
+        header.out("        }" true)
+        header.out("    }" true)
+        header.out("    fn rehash(&mut self) {" true)
+        header.out("        let mut cap = 8usize;" true)
+        header.out("        while cap < (self.entries.len() + 1) * 2 { cap <<= 1; }" true)
+        header.out("        self.index.clear();" true)
+        header.out("        self.index.resize(cap, -1);" true)
+        header.out("        for i in 0..self.entries.len() {" true)
+        header.out("            let mut h = (Self::rg_hash(&self.entries[i].0) as usize) & (cap - 1);" true)
+        header.out("            while self.index[h] != -1 { h = (h + 1) & (cap - 1); }" true)
+        header.out("            self.index[h] = i as i32;" true)
+        header.out("        }" true)
+        header.out("    }" true)
+        header.out("    fn insert(&mut self, k: K, v: V) -> Option<V> {" true)
+        header.out("        let s = self.slot(&k);" true)
+        header.out("        if s != -1 { return Some(std::mem::replace(&mut self.entries[s as usize].1, v)); }" true)
+        header.out("        self.entries.push((k, v));" true)
+        header.out("        if self.index.is_empty() || (self.entries.len() + 1) * 2 > self.index.len() {" true)
+        header.out("            self.rehash();" true)
+        header.out("        } else {" true)
+        header.out("            let mask = self.index.len() - 1;" true)
+        header.out("            let mut h = (Self::rg_hash(&self.entries[self.entries.len() - 1].0) as usize) & mask;" true)
+        header.out("            while self.index[h] != -1 { h = (h + 1) & mask; }" true)
+        header.out("            self.index[h] = (self.entries.len() - 1) as i32;" true)
+        header.out("        }" true)
+        header.out("        None" true)
+        header.out("    }" true)
+        header.out("    fn get<Q>(&self, k: &Q) -> Option<&V> where K: std::borrow::Borrow<Q>, Q: std::hash::Hash + Eq + ?Sized {" true)
+        header.out("        let s = self.slot(k);" true)
+        header.out("        if s == -1 { None } else { Some(&self.entries[s as usize].1) }" true)
+        header.out("    }" true)
+        header.out("    fn contains_key<Q>(&self, k: &Q) -> bool where K: std::borrow::Borrow<Q>, Q: std::hash::Hash + Eq + ?Sized {" true)
+        header.out("        self.slot(k) != -1" true)
+        header.out("    }" true)
+        header.out("    fn keys(&self) -> impl Iterator<Item = &K> { self.entries.iter().map(|e| &e.0) }" true)
+        header.out("    fn len(&self) -> usize { self.entries.len() }" true)
+        header.out("    fn clear(&mut self) {" true)
+        header.out("        self.entries.clear();" true)
+        header.out("        for s in self.index.iter_mut() { *s = -1; }" true)
+        header.out("    }" true)
+        header.out("}" true)
+        header.out("type HashMap<K, V> = RgOrderedMap<K, V>;" true)
+      }
       ; Every other string operator on this target counts CHARACTERS:
       ; `strlen` is chars().count(), `charAt` is chars().nth(), `substring`
       ; skips and takes characters. `str::find` counts BYTES, so an
@@ -1036,17 +1441,19 @@ extension RangerRustClassWriter {
       ; sliced the rest of the document one byte short per accent and
       ; dropped every shape after the first. These three do the conversion
       ; once, in one place.
-      header.out("fn rg_index_of(s: &str, key: &str) -> i64 {" true)
-      header.out("    match s.find(key) { Some(b) => s[..b].chars().count() as i64, None => -1 }" true)
-      header.out("}" true)
-      header.out("fn rg_index_of_from(s: &str, key: &str, start: i64) -> i64 {" true)
-      header.out("    if start <= 0 { return rg_index_of(s, key); }" true)
-      header.out("    let b0 = match s.char_indices().nth(start as usize) { Some((b, _)) => b, None => return -1 };" true)
-      header.out("    match s[b0..].find(key) { Some(b) => start + s[b0..b0 + b].chars().count() as i64, None => -1 }" true)
-      header.out("}" true)
-      header.out("fn rg_last_index_of(s: &str, key: &str) -> i64 {" true)
-      header.out("    match s.rfind(key) { Some(b) => s[..b].chars().count() as i64, None => -1 }" true)
-      header.out("}" true)
+      if needsStrIndex {
+        header.out("fn rg_index_of(s: &str, key: &str) -> i64 {" true)
+        header.out("    match s.find(key) { Some(b) => s[..b].chars().count() as i64, None => -1 }" true)
+        header.out("}" true)
+        header.out("fn rg_index_of_from(s: &str, key: &str, start: i64) -> i64 {" true)
+        header.out("    if start <= 0 { return rg_index_of(s, key); }" true)
+        header.out("    let b0 = match s.char_indices().nth(start as usize) { Some((b, _)) => b, None => return -1 };" true)
+        header.out("    match s[b0..].find(key) { Some(b) => start + s[b0..b0 + b].chars().count() as i64, None => -1 }" true)
+        header.out("}" true)
+        header.out("fn rg_last_index_of(s: &str, key: &str) -> i64 {" true)
+        header.out("    match s.rfind(key) { Some(b) => s[..b].chars().count() as i64, None => -1 }" true)
+        header.out("}" true)
+      }
       header.out("" true)
       ; receiver-mutability pre-pass: every plain class method's
       ; &self / &mut self verdict lands on its desc BEFORE any emission,

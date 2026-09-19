@@ -97,6 +97,12 @@ class RangerRustClassWriter {
   ; ask what shape the caller is expecting
   def rustFnReturnNameNode@(optional):CodeNode
   def fileHeaderWritten:boolean false
+  ; PLAN_RUST_SEMANTIC_IDIOMS F: which Ranger `Enum`s are written as a Rust
+  ; `enum` rather than lowered to i64. Computed once per file by
+  ; rustComputeNativeEnums; "" is never a key, and an enum missing from the map
+  ; is not native.
+  def rustNativeEnums:[string:boolean]
+  def rustNativeEnumsDone:boolean false
   ; writing the TARGET of a cell assignment: the whole collection is being
   ; replaced, so the path names the RefCell itself rather than borrowing it
   def rust_in_cell_assign:boolean false
@@ -989,7 +995,13 @@ class RangerRustClassWriter {
     }
     switch v_type {
       case RangerNodeType.Enum {
-        wr.out("i64" false)
+        ; PLAN_RUST_SEMANTIC_IDIOMS F: the enum's own name when every use in the
+        ; program is one a Rust enum can carry, i64 otherwise.
+        if (this.rustEnumIsNative(node.type_name ctx)) {
+          wr.out(node.type_name false)
+        } {
+          wr.out("i64" false)
+        }
       }
       case RangerNodeType.Integer {
         wr.out("i64" false)
@@ -1289,6 +1301,11 @@ class RangerRustClassWriter {
         def enumName:string (itemAt node.ns 1)
         def e@(optional):RangerAppEnum (ctx.getEnum(rootObjName))
         if (!null? e) {
+          ; `Color::Green`, not `1`, when the enum survives as a Rust enum
+          if (this.rustEnumIsNative(rootObjName ctx)) {
+            wr.out(((rootObjName + "::") + enumName) false)
+            return
+          }
           wr.out(("" + (unwrap (get e.values enumName))) false)
           return
         }
