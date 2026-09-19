@@ -1047,6 +1047,16 @@ class RangerRustClassWriter {
           if tc.is_extended_by_children {
             wr.out(("Rc<RefCell<dyn " + node.type_name + "Trait>>") false)
           } {
+            ; A Ranger `trait` is a MIXIN on this target: its methods are copied
+            ; into each class that `does` it, and no type of that name is ever
+            ; declared. Writing the trait's name here emitted a Rust type that
+            ; does not exist -- `fn show(n : &mut Named)` with no `Named` in the
+            ; file, which rustc answers with E0425. A parent class WITH
+            ; subclasses is the case just above and does get a real trait
+            ; object; a trait does not, so say so instead of writing the name.
+            if tc.is_trait {
+              ctx.addError(node (("the Rust target writes a `trait` as a mixin, so `" + node.type_name) + "` is not a type it can name. Use a class with subclasses (`Extends(Base)`), which does emit a Rust trait object, or give the parameter a concrete type."))
+            }
             wr.out((this.getObjectTypeString(node.type_name ctx)) false)
           }
         } {
@@ -2615,7 +2625,12 @@ class RangerRustClassWriter {
             }
           }
         } {
-          def argOptional:boolean (nameN.hasFlag("optional"))
+          ; writeTypeDef reads the `optional` flag off the name node and writes
+          ; the `Option<…>` itself. Wrapping it again here gave every
+          ; `@(optional)` PARAMETER the type `Option<Option<T>>` — for a scalar,
+          ; a string and an object alike — which no call site and no `unwrap` in
+          ; the body agrees with. An optional LOCAL and an optional RETURN never
+          ; went through here, which is why only parameters were wrong.
           if is_object {
             wr.out((rust_mut_pfx + paramName + " : ") false)
           } {
@@ -2625,13 +2640,7 @@ class RangerRustClassWriter {
               wr.out((paramName + " : ") false)
             }
           }
-          if argOptional {
-            wr.out("Option<" false)
-          }
           this.writeTypeDef(nameN ctx wr)
-          if argOptional {
-            wr.out(">" false)
-          }
         }
       }
     }

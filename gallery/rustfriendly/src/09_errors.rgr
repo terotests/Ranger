@@ -1,0 +1,49 @@
+; Study 09 — error handling
+;
+; The Rust I want:
+;   fn must_be_positive(value: i64) -> Result<i64, String>
+;   let n = must_be_positive(x)?;
+;
+; Ranger has `try` / `throw` / `error_msg` / `@(throws)`. On Rust the
+; writer emits the try body and drops the catch block — the binary
+; panics. That path lives in attempts/09_throw_panics.rgr. This file
+; is the portable form: a shape used as Result.
+
+shape Guarded {
+    case Ok {
+        def value:int 0
+    }
+    case Err {
+        def message:string ""
+    }
+}
+
+class Guard {
+    fn check:Guarded (value:int) {
+        if (value < 0) {
+            return (new Guarded.Err("negative"))
+        }
+        return (new Guarded.Ok(value))
+    }
+
+    fn describe:string (g:Guarded) {
+        def out:string "?"
+        match g {
+            Ok o {
+                out = ("ok:" + (to_string o.value))
+            }
+            Err e {
+                out = ("err:" + e.message)
+            }
+        }
+        return out
+    }
+}
+
+class ErrorsMain {
+    sfn main:void () {
+        def g:Guard (new Guard())
+        print (g.describe((g.check(3))))
+        print (g.describe((g.check((0 - 1)))))
+    }
+}

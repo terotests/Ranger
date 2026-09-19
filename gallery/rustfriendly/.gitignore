@@ -1,0 +1,3 @@
+generated/*.compile.log
+generated/*.rustc.log
+generated/attempt_*

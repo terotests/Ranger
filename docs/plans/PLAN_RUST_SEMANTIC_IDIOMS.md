@@ -1,11 +1,17 @@
 # PLAN_RUST_SEMANTIC_IDIOMS — closing the semantic gap the rustfriendly study found
 
-> **Status: parked.** Nothing here is to be implemented before the planned
-> compiler refactor. Several items — the ownership vocabulary of §1, the
-> handle/data split (**J**), the borrow-provenance inference (**M**) — are cheap
-> inside a target lowering IR and expensive as further text-template special
-> cases, so the refactor changes their cost, not just their timing. The
-> verification below and the ranking at the end are the durable parts.
+> **Status: P0 landed. P1 and beyond wait for the target lowering IR.** The three
+> correctness items — **A**, **B**, **C1** — are in, with the gallery study as
+> their gate (`npm run rustfriendly:test`). The rest is parked: the ownership
+> vocabulary of §1, the handle/data split (**J**) and the borrow-provenance
+> inference (**M**) are cheap inside a lowering IR and expensive as further
+> text-template special cases, so the refactor changes their cost, not just their
+> timing.
+>
+> Re-verified after the refactor that split the Rust writer by question
+> (`RustCall` / `RustClass` / `RustOperators` / `RustOwnership` / `RustUnion`):
+> all three bugs were still live in the new layout, and the split changed none of
+> the study's `generated/*.rs` by a byte.
 
 `gallery/rustfriendly` (PR #1010) asks a question
 [PLAN_RUST_IDIOMATICITY](PLAN_RUST_IDIOMATICITY.md) did not. That plan measured
@@ -20,20 +26,21 @@ them, and ranks the work by what it costs against what it unlocks.
 
 ## Verification — what the study got right, and what it under-reported
 
-Everything below was reproduced against `master` (1351dee) with
-`node bin/output.js -l=rust` and `rustc 1.94.1`.
+Everything below was reproduced with `node bin/output.js -l=rust` and
+`rustc 1.94.1`, first against `master` at 1351dee and again after the writer
+split at 4e9fdd7.
 
 **Confirmed as written.** `Enum` is `i64` at
-[`ng_RangerRustClassWriter.rgr:991`](compiler/ng_RangerRustClassWriter.rgr#L991)
+[`RangerRustClassWriter.rgr:991`](../../compiler/RangerRustClassWriter.rgr#L991)
 and the tag name is substituted for its integer at line 1475. `try` writes the
 try block and a comment where the catch belongs
-([`Lang.rgr:5589`](compiler/Lang.rgr#L5589)); `throw` is `panic!`
-([`Lang.rgr:5547`](compiler/Lang.rgr#L5547)). The `FxHasher` / `RgOrderedMap`
+([`Lang.rgr:5589`](../../compiler/Lang.rgr#L5589)); `throw` is `panic!`
+([`Lang.rgr:5547`](../../compiler/Lang.rgr#L5547)). The `FxHasher` / `RgOrderedMap`
 preamble at
-[`ng_RangerRustClassWriter.rgr:7753`](compiler/ng_RangerRustClassWriter.rgr#L7753)
+[`RustClass.rgr:925`](../../compiler/RustClass.rgr#L925)
 is emitted unconditionally — the file already gates `use std::rc::Weak;` on
 `anyWeakField` in the same header writer
-([line 7601](compiler/ng_RangerRustClassWriter.rgr#L7601)), so the pattern for
+([line 7601](../../compiler/RustClass.rgr#L773)), so the pattern for
 gating it exists.
 
 **Three corrections.**
@@ -49,9 +56,9 @@ gating it exists.
 
    Root cause: `writeTypeDef` reads the `optional` flag off the name node and
    writes the `Option<…>` itself
-   ([line 978](compiler/ng_RangerRustClassWriter.rgr#L978)); the parameter
+   ([line 978](../../compiler/RangerRustClassWriter.rgr#L978)); the parameter
    emitter wraps the call in a second one
-   ([lines 3676–3692](compiler/ng_RangerRustClassWriter.rgr#L3676)). Deleting
+   ([lines 2617–2640](../../compiler/RangerRustClassWriter.rgr#L2628)). Deleting
    the outer wrap is the whole fix — see item **A**.
 
 2. **A Ranger `trait` used as a type does not produce non-idiomatic Rust, it
@@ -81,7 +88,7 @@ gating it exists.
    own ranking ("Ranger `trait` as a Rust `trait`") is not new machinery — it is
    routing `does` into the `is_extended_by_children` path the writer already
    takes at
-   [`ng_RangerRustClassWriter.rgr:1047`](compiler/ng_RangerRustClassWriter.rgr#L1047).
+   [`RangerRustClassWriter.rgr:1047`](../../compiler/RangerRustClassWriter.rgr#L1047).
 
 **Unrelated, found while checking.** Two tests in `codegen-rust.test.ts` fail on
 `master` — *inlines literals into the println! format string* and *flattens a
@@ -105,7 +112,7 @@ is this value aliased, mutated through more than one owner, does identity matter
 ```
 
 The other is a representation accident, asked of union case payloads at
-[`ng_StaticAnalysis.rgr:2156`](compiler/ng_StaticAnalysis.rgr#L2156):
+[`StaticAnalysis.rgr:2156`](../../compiler/StaticAnalysis.rgr#L2156):
 
 ```text
 does this case contain anything that is not int / double / boolean / char?
@@ -140,7 +147,7 @@ already answers for every other class.
 **One caveat that must not be lost in the rewrite.** The scalar-only rule is not
 arbitrary; it was a measured fix. The C++ writer carries the same rule and its
 comment records why
-([`ng_RangerCppClassWriter.rgr:281`](compiler/ng_RangerCppClassWriter.rgr#L281)):
+([`RangerCppClassWriter.rgr:281`](../../compiler/RangerCppClassWriter.rgr#L281)):
 a by-value `String` variant made every copy of the union copy the payload, and a
 kind check on a 40 KB accumulator went O(len). A Ranger union value passes by
 clone, so "Value by default" reintroduces that unless the lowering also stops
@@ -179,27 +186,34 @@ They are small, they need no IR, and they come first.
 
 ### A. An `@(optional)` parameter is `Option<Option<T>>`
 
-**Where.** [`ng_RangerRustClassWriter.rgr:3676–3692`](compiler/ng_RangerRustClassWriter.rgr#L3676).
+**Where.** [`RangerRustClassWriter.rgr:2617–2640`](../../compiler/RangerRustClassWriter.rgr#L2628).
 
 **Fix.** Drop `argOptional` and its two `wr.out` calls; `writeTypeDef` already
 writes the `Option<…>`.
 
-**Status: written and verified, not committed.** With the six lines removed, the
-compiler self-compiles, `fn shown(maybe : Option<String>)`,
-`fn shownI(a : Option<i64>)` and `fn shownO(&self, mut p : Option<Point>)` all
-come out singly wrapped, the binary from `attempts/02_optional_string_param.rgr`
-builds and prints `ada`, and `compiler-rust.test.ts` + `codegen-rust.test.ts`
-show the same 60 pass / 2 fail as the unpatched baseline.
+**Status: done.** With the outer wrap removed the compiler self-compiles and
+`fn shown(maybe : Option<String>)`, `fn shownInt(a : Option<i64>)` and
+`fn shownPoint(&self, mut p : Option<Rc<RefCell<Point>>>)` all come out singly
+wrapped. The object case keeps the ownership model through the `Option` — the
+`Option` outside the cell, the shape an optional field takes.
 
-**Regression test.** A fixture with an optional scalar, string and object
-parameter, asserting no `Option<Option`.
+**Gate.** The old `attempts/02_optional_string_param.rgr` was promoted to
+[`gallery/rustfriendly/src/10_optional_params.rgr`](../../gallery/rustfriendly/src/10_optional_params.rgr):
+an optional string, scalar and object parameter in one program, compiled,
+rustc-built and run by `compile.sh`.
 
 ### B. `try` / `throw` silently drops the catch
 
-**Where.** [`Lang.rgr:5589`](compiler/Lang.rgr#L5589).
+**Where.** [`Lang.rgr:5589`](../../compiler/Lang.rgr#L5589).
 
-**Fix now.** Refuse it. A `try` whose catch block is non-empty is a compile
-error on `-l=rust` until item **H** lands, worded so it names the replacement:
+**Status: done.** A `try` whose catch block is non-empty is a compile error on
+`-l=rust` until item **H** lands, worded so it names the replacement. The check
+is `CheckTargetSupport` / `CheckNoLossyTry` in
+[`compiler/FlowCollect.rgr`](../../compiler/FlowCollect.rgr), run from
+`CollectMethods` before any desugaring, so nothing below that line can see the
+form and write something else for it. `throw` on its own stays legal: `panic!`
+is a faithful lowering of an uncaught throw. It is the dropped catch that
+changes the meaning of the program.
 
 ```text
 error: Ranger try/catch is not supported by the Rust target yet.
@@ -211,21 +225,37 @@ The study's ninth program is legal Ranger, compiles, rustc-accepts and dies at
 runtime. A compile error costs one line in the error list and buys back the
 class of bug the whole study was written to find.
 
+**What turning it on found.** The compiler's own sources have **twelve** such
+catch blocks, every one of them an `addError(…)` reporting a parse failure — so
+the Rust rendering of the compiler has been answering those twelve failures with
+a panic instead of an error list, all along. That is debt at twelve sites, not a
+reason to let new code through, so `-rust-allow-dropped-catch` keeps the old
+behaviour and prints each site, and the three `scripts/rust-selfhost-*.sh` pass
+it with a comment naming this item. Removing the flag means porting those twelve
+sites, and it is the first thing **H** makes possible.
+
+**Gate.** [`gallery/rustfriendly/attempts/09_throw_panics.rgr`](../../gallery/rustfriendly/attempts/09_throw_panics.rgr),
+which `compile.sh` now requires to be refused with this error.
+
 ### C. A `trait` used as a type emits an undefined type
 
 **Where.** The `default` arm of `writeTypeDef`
-([line 1036](compiler/ng_RangerRustClassWriter.rgr#L1036)) asks
+([line 1036](../../compiler/RangerRustClassWriter.rgr#L1036)) asks
 `tc.is_extended_by_children`. A class that `does` a trait does not set that on
 the trait, so the trait name falls through to `getObjectTypeString` — a bare
 `Named`.
 
 **Fix.** Two steps, in this order:
 
-1. *Today.* Make it a compile error naming the trait, the same reasoning as
-   **B**. Silent broken output is the worst of the three outcomes.
-2. *After the refactor.* Item **I**.
+1. *Done.* A compile error naming the trait and the spelling that does work:
+   `Extends(Base)`, which emits a real Rust trait object. Silent broken output
+   is the worst of the three outcomes. Gate:
+   [`gallery/rustfriendly/attempts/04_trait_as_type.rgr`](../../gallery/rustfriendly/attempts/04_trait_as_type.rgr).
+2. *After the lowering IR.* Item **I**.
 
-This also closes the same hole in the C++ writer.
+The same hole is still open in the C++ writer — `std::shared_ptr<Named>` with no
+`class Named` — and closing it there is the same one-line question in
+`RangerCppClassWriter.writeTypeDef`.
 
 ---
 
@@ -259,7 +289,7 @@ Fixes shapes, `Result`-shaped code, data-carrying enums and readability at once.
 ### E. `match` over a shape → a Rust `match`
 
 **Where.** `expandMatchesInFn` /
-[`expandMatch`](compiler/ng_RangerFlowParser.rgr#L7029) desugars `match` into a
+[`expandMatch`](../../compiler/FlowShape.rgr#L1630) desugars `match` into a
 chain of `is` narrowings *before any writer sees it*, and it already computes
 whether the arms cover the shape. The `if let` chain the study quotes is what
 survives that desugar; the exhaustiveness fact is computed and discarded.
@@ -279,9 +309,9 @@ not with this item.
 ### F. `Enum` → a real Rust `enum`
 
 **Where.** Three sites:
-[`writeTypeDef` case Enum:991](compiler/ng_RangerRustClassWriter.rgr#L991),
-[`WriteVRef`:1475](compiler/ng_RangerRustClassWriter.rgr#L1475),
-[`rustFieldIsCopyScalar`:2341](compiler/ng_RangerRustClassWriter.rgr#L2341).
+[`writeTypeDef` case Enum:991](../../compiler/RangerRustClassWriter.rgr#L991),
+[`WriteVRef`:1286](../../compiler/RangerRustClassWriter.rgr#L1286),
+[`rustFieldIsCopyScalar`:2341](../../compiler/RustOwnership.rgr#L194).
 
 **Emit.**
 
@@ -317,7 +347,7 @@ a closure, not a switch per helper:
 features used by the program → required helper set → transitive closure → emit
 ```
 
-`anyWeakField` at [line 7601](compiler/ng_RangerRustClassWriter.rgr#L7601) is
+`anyWeakField` at [line 7601](../../compiler/RustClass.rgr#L773) is
 that rule applied to one import; generalising it is the item. Cheap, and it is
 the first screen of every generated file.
 
@@ -427,7 +457,7 @@ this tier, and each of these is a design decision, not a detail.
 - *Identity.* `identical` is `Rc::ptr_eq` today; through a handle it is
   `Rc::ptr_eq(&a.inner, &b.inner)`. Mechanical, but it touches the `RgIdentical`
   machinery at
-  [line 7662](compiler/ng_RangerRustClassWriter.rgr#L7662).
+  [line 834](../../compiler/RustClass.rgr#L834).
 
 ---
 
@@ -448,7 +478,7 @@ lowering, not an abstraction: emit the iterator form when the index name is
 never read in the body and the collection is not mutated in it, and keep the
 index form otherwise. The analysis exists — the Swift writer answers exactly
 this question for its bound names by walking the body with
-`treeReferencesVRef` ([`ng_LiveCompiler.rgr:1455`](compiler/ng_LiveCompiler.rgr#L1455)),
+`treeReferencesVRef` ([`LiveCompiler.rgr:1455`](../../compiler/LiveCompiler.rgr#L1455)),
 and the Rust `for` template already hoists the bound into `__n_i` for a reason
 that disappears in the iterator form.
 
@@ -537,9 +567,9 @@ document. Both recorded so they are decisions rather than omissions.
 
 | # | Item | Size | Needs the IR? |
 | --- | --- | --- | --- |
-| P0 | **A** optional parameter | 6 lines, verified | no |
-| P0 | **B** refuse lossy `try` | one template + one error | no |
-| P0 | **C1** refuse trait-as-type | one error | no |
+| P0 | **A** optional parameter | **done** | no |
+| P0 | **B** refuse lossy `try` | **done**, flag for the compiler's own 12 sites | no |
+| P0 | **C1** refuse trait-as-type | **done** | no |
 | P1 | **D** value semantics for shape payloads | medium, shared with C++ | helps |
 | P1 | **E** real `match` arms | medium | helps |
 | P1 | **F** real `enum` + use-site casts | medium | no |
@@ -554,7 +584,8 @@ document. Both recorded so they are decisions rather than omissions.
 | P4 | **O** library mode | medium | no |
 | P4 | **P** consuming `self`, concurrency | language | no |
 
-P0 is a day's work and removes the two footguns the study walked into. The
+P0 is in, and it removed the three footguns the study walked into — two of which
+it had recorded as something milder than they were. The
 striking thing about P1 is that none of it needs new Ranger syntax: **D**, **E**,
 **F** and **G** are backend decisions about values, borrows, identity and native
 control flow. If P0 and P1 land, the study's verdict moves from *working Rust,
@@ -563,27 +594,41 @@ portable Ranger semantics* — without Ranger becoming a way to write Rust.
 
 ## Gate
 
-None of the nine study programs is built by any test — `compile.sh` is run by
-hand, and the checked-in `generated/*.rs` snapshots will rot. Before any item
-above lands, wire `bash gallery/rustfriendly/compile.sh` into the test scripts
-(it already fails on a Ranger `[FAIL]`, on `rustc`, and on a wrong line of
-output), and add the three `attempts/` programs as negative cases: each should
-be a *compile error* naming the target limitation, never a binary that panics.
-That turns the study from a snapshot of one afternoon into the regression suite
-for this plan.
+**Done, and it is where the rest of this plan is checked.**
+`npm run rustfriendly:test` compiles each of the ten studies, `rustc`s it and
+runs the binary — and then requires every file in `attempts/` to be *refused*,
+with the error that file declares on its first line:
+
+```text
+; EXPECT-ERROR: <substring the compiler must print>
+```
+
+That second half is the rule P0 exists to enforce: a form the target cannot
+express has to be a compile error naming the limitation, never a binary that
+panics and never Rust that does not exist. Two of the three attempts were the
+other thing until P0 landed.
+
+Each later item should arrive with its study: **F** with an `Enum` used as a
+value and as an integer, **E** with a `match` whose arms cover the shape and one
+whose arms do not, **D** with a `Result`-shaped union in a hot loop (the O(len)
+copy §1 warns about), **J** with two names for one shared object across a method
+that calls another method on it.
 
 ## How to check
 
 ```sh
-RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr \
-  node bin/output.js -es6 ./compiler/ng_Compiler.rgr -nodecli -d=./bin -o=output.js
-node bin/output.js -l=rust ./gallery/rustfriendly/attempts/02_optional_string_param.rgr \
-  -d=./tmp/rusteval -o=opt.rs
-rustc --edition 2021 ./tmp/rusteval/opt.rs -o ./tmp/rusteval/opt.bin && ./tmp/rusteval/opt.bin
-bash gallery/rustfriendly/compile.sh
-npx vitest run --config tests/vitest.config.ts compiler-rust.test.ts codegen-rust.test.ts
+npm run compile
+npm run rustfriendly:test        # ten studies built and run, three attempts refused
+npm run test:rust
+npx vitest run --config tests/vitest.config.ts codegen-rust.test.ts
+bash scripts/rust-selfhost-check.sh
 ```
 
-Related: [`gallery/rustfriendly/README.md`](gallery/rustfriendly/README.md),
+Known-red at the time of writing, and none of it from this plan: two tests in
+`codegen-rust.test.ts` (`format!` flattening) and 9 rustc errors from
+`rust-selfhost-check.sh`. Both counts are identical with and without the P0
+changes.
+
+Related: [`gallery/rustfriendly/README.md`](../../gallery/rustfriendly/README.md),
 [PLAN_RUST_IDIOMATICITY.md](PLAN_RUST_IDIOMATICITY.md),
 [PLAN_RUST_OWNERSHIP.md](PLAN_RUST_OWNERSHIP.md), [PLAN_SHAPES.md](PLAN_SHAPES.md).

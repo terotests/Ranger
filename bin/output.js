@@ -21515,8 +21515,42 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
         this.DetachDocBlocks(ch, ctx);
       };
     };
+    CheckTargetSupport (node, ctx, wr) {
+      if ( ctx.getTargetLangName() != "rust" ) {
+        return;
+      }
+      this.CheckNoLossyTry(
+        node,
+        ctx,
+        ctx.hasCompilerFlag("rust-allow-dropped-catch")
+      );
+    };
+    CheckNoLossyTry (node, ctx, allowed) {
+      if ( node.children.length == 3 ) {
+        const head = node.getFirst();
+        if ( head.vref == "try" ) {
+          if ( head.ns.length < 2 ) {
+            const catchBlock = node.getThird();
+            if ( catchBlock.is_block_node ) {
+              if ( catchBlock.children.length > 0 ) {
+                if ( allowed ) {
+                  console.log("try[rust] dropped catch block in " + node.code.filename);
+                } else {
+                  ctx.addError(node, "the Rust target has no exceptions and would drop this catch block. Return a value instead: a `shape` with Ok / Err cases, matched at the call site. `-rust-allow-dropped-catch` keeps the old behaviour and prints each site.");
+                }
+              }
+            }
+          }
+        }
+      }
+      for ( let i = 0; i < node.children.length; i++) {
+        var ch = node.children[i];
+        this.CheckNoLossyTry(ch, ctx, allowed);
+      };
+    };
     CollectMethods (node, ctx, wr) {
       this.DetachDocBlocks(node, ctx);
+      this.CheckTargetSupport(node, ctx, wr);
       this.DesugarShapes(node, ctx, wr);
       this.DesugarTrees(node, ctx, wr);
       this.WalkCollectTemplates(node, ctx, wr);
@@ -31469,6 +31503,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                     if ( tc_1.is_extended_by_children ) {
                       wr.out(("Rc<RefCell<dyn " + node.type_name) + "Trait>>", false);
                     } else {
+                      if ( tc_1.is_trait ) {
+                        ctx.addError(node, ("the Rust target writes a `trait` as a mixin, so `" + node.type_name) + "` is not a type it can name. Use a class with subclasses (`Extends(Base)`), which does emit a Rust trait object, or give the parameter a concrete type.");
+                      }
                       wr.out(this.getObjectTypeString(node.type_name, ctx), false);
                     }
                   } else {
@@ -32580,7 +32617,6 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                         }
                       }
                     } else {
-                      const argOptional = nameN.hasFlag("optional");
                       if ( is_object ) {
                         wr.out((rust_mut_pfx + paramName) + " : ", false);
                       } else {
@@ -32590,13 +32626,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                           wr.out(paramName + " : ", false);
                         }
                       }
-                      if ( argOptional ) {
-                        wr.out("Option<", false);
-                      }
                       this.writeTypeDef(nameN, ctx, wr);
-                      if ( argOptional ) {
-                        wr.out(">", false);
-                      }
                     }
                   }
                 };
