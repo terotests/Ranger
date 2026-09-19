@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Two worked examples, as fixtures.** `lib/evg/agent/fixtures/popover.*` is a
+  menu bar whose open menu is anchored by name and becomes a bottom sheet
+  below 600px; `connector.*` is two cards with an arrow between them and a
+  count badge on a corner, in a grid that goes to one column under a media
+  query — the arrow follows without being mentioned. Both are a `.evg.json`
+  and a `.css`, rendered at two widths with
+  `npm run agent:render -- <doc> out.png -w <w> -h <h> -css <sheet>`.
+
 - **Popovers: a surface knows where it fits, and what to be when it does
   not.** EVG already drew overlay surfaces in a real top layer — after the
   whole normal tree, outside every clip — and flipped them at a page edge.
@@ -165,6 +173,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     for every element it compares against.
 
 ### Fixed
+
+- **`@media` was silently inert in every CLI tool.** `EVGStyleSheet` evaluates
+  a media query against a viewport the caller states, and a query it cannot
+  evaluate does not apply — but `EVGStyleLoader`, which every `-css` flag goes
+  through, never stated one. So the responsive half of a stylesheet did
+  nothing in the PNG, PDF, HTML, JSON and display-list tools while the same
+  sheet worked in an application, with no warning either way: the page
+  rendered, and it rendered wrong. The tools know their page size before they
+  apply anything, and now pass it.
 
 - **`position: absolute` was dropped inside a `display: grid` parent.**
   `layoutGrid` left out-of-flow children out of the placement, which is

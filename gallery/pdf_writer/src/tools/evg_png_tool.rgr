@@ -208,6 +208,9 @@ class EVGPNGTool {
         ; Stylesheets are applied to the parsed tree before layout, exactly as
         ; the PDF and HTML tools do, so one -css/-theme pair drives every
         ; target the same way.
+        ; The size `@media` is asked about, which this tool knows and the
+        ; sheet cannot.
+        styles.setViewport(pageWidth pageHeight)
         def usedTheme:string (styles.applyTo(root))
         if (styles.hasFiles()) {
             styles.report(usedTheme)

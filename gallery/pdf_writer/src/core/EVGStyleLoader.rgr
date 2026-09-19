@@ -19,6 +19,8 @@ class EVGStyleLoader {
     def cssFiles:[string]
     def themeOverride:string ""
     def loadedCount:int 0
+    def viewW:double 0.0
+    def viewH:double 0.0
 
     Constructor () {
         def s (new EVGStyleSheet())
@@ -37,6 +39,23 @@ class EVGStyleLoader {
 
     fn setTheme:void (name:string) {
         themeOverride = name
+    }
+
+    ; THE VIEWPORT A MEDIA QUERY IS ASKED ABOUT. A Ranger program has no window
+    ; to ask, so `EVGStyleSheet` evaluates `@media` against a size the caller
+    ; states — and a rule it cannot evaluate does not apply at all. Nothing
+    ; here stated one, so every `@media` block in every `-css` file was
+    ; silently inert in all five tools, while the same sheet worked in an
+    ; application that had called `setViewport` itself. A stylesheet whose
+    ; responsive half does nothing, with no warning, is the worst version of
+    ; this: the page renders, and it renders wrong.
+    ;
+    ; The tools know their page size before they apply anything, so they pass
+    ; it. Pointer stays `fine`: a rendered page has no pointer, and guessing
+    ; `coarse` from a narrow page would be a second, invisible rule.
+    fn setViewport:void (w:double h:double) {
+        viewW = w
+        viewH = h
     }
 
     ; Split "dir/sub/file.css" into a (dir, name) pair for buffer_read_file.
@@ -100,7 +119,11 @@ class EVGStyleLoader {
             e = (e + 1)
         }
 
-        sheet.applyTree(root theme)
+        if ((viewW > 0.0) && (viewH > 0.0)) {
+            sheet.applyTreeIn(root theme viewW viewH false)
+        } {
+            sheet.applyTree(root theme)
+        }
         return theme
     }
 

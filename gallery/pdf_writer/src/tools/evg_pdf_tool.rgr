@@ -276,6 +276,9 @@ class EVGPDFTool {
         ; Resolve stylesheet rules onto the tree BEFORE layout, so layout and
         ; every renderer see one set of computed properties. Inline attributes
         ; recorded during parsing are left untouched.
+        ; The size `@media` is asked about, which this tool knows and the
+        ; sheet cannot.
+        styles.setViewport(pageWidth pageHeight)
         def usedTheme:string (styles.applyTo(root))
         styles.report(usedTheme)
         
