@@ -806,6 +806,7 @@ function Playground() {
     <>
       <header>
         <h1>gallery/ui — Radix vs Ranger EVG</h1>
+        <a className="nav" href="../demo/index.html">← demos</a>
         <label>
           <input
             type="checkbox"

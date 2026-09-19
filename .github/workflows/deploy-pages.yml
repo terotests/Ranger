@@ -94,6 +94,12 @@
 #                sheets, and the source typed into the code editor from
 #                gallery/datagrid — full-screen tabs on a phone, panes side by
 #                side on a desk. Same exports, same views, one canvas.
+#   /ui/      -> the EVG controller gallery. /ui/demo/ is twenty tree-literal
+#                pages (dashboard, forms, calendar, menus) painted by the same
+#                WebGL painter; /ui/web/ is Radix on the left, Ranger on the
+#                right, and the live behaviour trace underneath. /ui/ itself
+#                redirects to the demos and keeps ?demo= so a shared tab still
+#                opens that tab.
 #   /docs/    -> the language documentation. The operator reference is generated
 #                from compiler/Lang.rgr and lib/*.rgr by docs/tools, and the
 #                examples on it are compiled by the compiler built in this job,
@@ -140,6 +146,8 @@ on:
       - "gallery/firesim/**"
       # The M-Files emulator at /mfiles/.
       - "gallery/mfiles/**"
+      # The UI gallery at /ui/ (demos + Radix-vs-Ranger playground). Also
+      # the controllers RealTrainer, Firesim and Rave are drawn with.
       - "gallery/ui/**"
       # These carry the deck editor, the API playground, and the Office
       # reference at /office/reference/ — so a change to a facade republishes
@@ -323,6 +331,25 @@ jobs:
           # the bytes.
           node gallery/realtrainer/web/verify-out.mjs "$GITHUB_WORKSPACE/_site/realtrainer"
           test -s "$GITHUB_WORKSPACE/_site/evg/responsive/evg-dom.js"
+
+      # ---- UI gallery at /ui/ ----------------------------------------------
+      # The tree-literal demos and the Radix-vs-Ranger playground. The
+      # conformance host is already installed above for RealTrainer; the
+      # playground bundle needs it, the demos need only esbuild. A page
+      # whose bundle failed to copy looks exactly like one whose compile
+      # failed, which is why verify-out.mjs holds the artifact to the
+      # files a visitor will actually load.
+      - name: Build the UI gallery
+        run: |
+          npm run ui:web:build --silent
+          npm run ui:demo:build --silent
+          node gallery/ui/demo/build.mjs
+          node gallery/ui/web/build-pages.mjs --out "$GITHUB_WORKSPACE/_site/ui"
+          node gallery/ui/web/verify-out.mjs "$GITHUB_WORKSPACE/_site/ui"
+          # The files being there is not the page. This loads the artifact
+          # the way GitHub Pages will: /ui/?demo=dashboard must land on the
+          # dashboard, and /ui/web/ must paint the playground.
+          node gallery/ui/web/pages-smoke.mjs --dist "$GITHUB_WORKSPACE/_site/ui"
 
       # ---- the firesim workbench at /firesim/ ------------------------------
       # A database browser over the Firebase simulator. No bundler: the

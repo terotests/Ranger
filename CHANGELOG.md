@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The UI gallery is a github.io path.** `gallery/ui` already had the
+  tree-literal demos and the Radix-vs-Ranger playground; neither was in
+  the Pages artifact, so
+  [https://terotests.github.io/Ranger/ui/](https://terotests.github.io/Ranger/ui/)
+  404'd. `deploy-pages.yml` now builds both (`/ui/demo/` and `/ui/web/`)
+  and `/ui/` redirects to the demos while keeping `?demo=`.
+
 - **Two worked examples, as fixtures.** `lib/evg/agent/fixtures/popover.*` is a
   menu bar whose open menu is anchored by name and becomes a bottom sheet
   below 600px; `connector.*` is two cards with an arrow between them and a

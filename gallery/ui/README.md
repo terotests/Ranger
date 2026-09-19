@@ -66,6 +66,11 @@ npm run ui:conformance:install   # react + @radix-ui + esbuild + playwright-core
 
 ## Trying it in a browser
 
+Live, from these sources: **[the gallery](https://terotests.github.io/Ranger/ui/)**
+(`/ui/demo/`) and the **[conformance playground](https://terotests.github.io/Ranger/ui/web/)**
+beside it. `/ui/` itself redirects to the demos and keeps `?demo=`, so
+`?demo=dashboard` still opens the dashboard.
+
 ```bash
 npm run ui:conformance:install   # once
 npm run ui:web                   # builds, serves, prints the URL
