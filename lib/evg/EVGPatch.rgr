@@ -604,6 +604,15 @@ class EVGPatch {
         if ((name == "alt") || (name == "href")) { return 1 }
         ; Anchors and connectors. The geometry ones are names and keywords;
         ; the three lengths are plain numbers, the way `stroke-width` is.
+        ; Surfaces: the overlay vocabulary and CSS Anchor Positioning's.
+        ; Without these the editable format could not express a menu at all —
+        ; a document could hold the rows and not the fact that they are a
+        ; popover.
+        if (((name == "overlay") || (name == "overlay-anchor-role")) || (name == "overlay-side")) { return 1 }
+        if (((name == "overlay-align") || (name == "position-anchor")) || (name == "position-area")) { return 1 }
+        if (((name == "position-try-fallbacks") || (name == "position-try-order")) || (name == "presentation")) { return 1 }
+        if (name == "fit-viewport") { return 1 }
+        if ((name == "overlay-gap") || (name == "sheet-below")) { return 4 }
         if (((name == "anchor-name") || (name == "from")) || (name == "to")) { return 1 }
         if (((name == "from-side") || (name == "to-side")) || (name == "routing")) { return 1 }
         if ((name == "arrow-start") || (name == "arrow-end")) { return 1 }
@@ -693,6 +702,17 @@ class EVGPatch {
         push a "stroke-linecap"
         push a "stroke-linejoin"
         push a "stroke-dasharray"
+        push a "overlay"
+        push a "overlay-anchor-role"
+        push a "overlay-side"
+        push a "overlay-align"
+        push a "overlay-gap"
+        push a "position-anchor"
+        push a "position-try-fallbacks"
+        push a "position-try-order"
+        push a "presentation"
+        push a "sheet-below"
+        push a "fit-viewport"
         push a "anchor-name"
         push a "from"
         push a "to"
@@ -812,6 +832,32 @@ class EVGPatch {
             }
             return el.viewBox
         }
+        if (n == "overlay") {
+            if el.isOverlay {
+                return "true"
+            }
+            return ""
+        }
+        if (n == "overlay-anchor-role") {
+            if el.isOverlayAnchor {
+                return "true"
+            }
+            return ""
+        }
+        if (n == "fit-viewport") {
+            if el.fitViewport {
+                return "true"
+            }
+            return ""
+        }
+        if (n == "overlay-side")           { return el.overlaySide }
+        if (n == "overlay-align")          { return el.overlayAlign }
+        if (n == "overlay-gap")            { return (EVGDisplayList.num(el.overlayGap)) }
+        if (n == "position-anchor")        { return el.positionAnchor }
+        if (n == "position-try-fallbacks") { return el.positionTryFallbacks }
+        if (n == "position-try-order")     { return el.positionTryOrder }
+        if (n == "presentation")           { return el.presentation }
+        if (n == "sheet-below")            { return (EVGDisplayList.num(el.sheetBelow)) }
         if (n == "anchor-name")            { return el.anchorName }
         if (n == "from")                   { return el.connectorFrom }
         if (n == "to")                     { return el.connectorTo }
@@ -1033,6 +1079,50 @@ class EVGPatch {
         }
         if (n == "stroke-dasharray") {
             el.strokeDashArray = ""
+            return true
+        }
+        if (n == "overlay") {
+            el.isOverlay = false
+            return true
+        }
+        if (n == "overlay-anchor-role") {
+            el.isOverlayAnchor = false
+            return true
+        }
+        if (n == "overlay-side") {
+            el.overlaySide = "bottom"
+            return true
+        }
+        if (n == "overlay-align") {
+            el.overlayAlign = "start"
+            return true
+        }
+        if (n == "overlay-gap") {
+            el.overlayGap = 4.0
+            return true
+        }
+        if (n == "position-anchor") {
+            el.positionAnchor = ""
+            return true
+        }
+        if (n == "position-try-fallbacks") {
+            el.positionTryFallbacks = ""
+            return true
+        }
+        if (n == "position-try-order") {
+            el.positionTryOrder = ""
+            return true
+        }
+        if (n == "presentation") {
+            el.presentation = ""
+            return true
+        }
+        if (n == "sheet-below") {
+            el.sheetBelow = 0.0
+            return true
+        }
+        if (n == "fit-viewport") {
+            el.fitViewport = false
             return true
         }
         if (n == "anchor-name") {
@@ -1369,6 +1459,12 @@ class EVGPatch {
             return 0
         }
         if (((tag == "section") || (tag == "Section")) || (tag == "layer")) {
+            return 0
+        }
+        ; A popover is a container that happens to be a surface — see
+        ; `EVGElement.isSurface`. The tag is the web's name for it and saves
+        ; writing `overlay: true`.
+        if ((tag == "popover") || (tag == "Popover")) {
             return 0
         }
         if (((tag == "Layer") || (tag == "divider")) || (tag == "spacer")) {

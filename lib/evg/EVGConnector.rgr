@@ -45,15 +45,22 @@ class EVGConnector {
     ; Every connector in the tree, re-solved. Returns what could not be
     ; resolved, for the layout to report with its other warnings.
     sfn resolveAll:[string] (root:EVGElement) {
+        def names:[string]
+        def nodes:[EVGElement]
+        EVGConnector.collectAnchors(root names nodes)
+        return (EVGConnector.resolveWith(root names nodes))
+    }
+
+    ; The same, against a table of names somebody else already collected —
+    ; which the layout has, because the surfaces are anchored by the same
+    ; names and one walk is enough for both.
+    sfn resolveWith:[string] (root:EVGElement names:[string] nodes:[EVGElement]) {
         def warnings:[string]
         def conns:[EVGElement]
         EVGConnector.collect(root conns)
         if ((array_length conns) == 0) {
             return warnings
         }
-        def names:[string]
-        def nodes:[EVGElement]
-        EVGConnector.collectAnchors(root names nodes)
         def i:int 0
         while (i < (array_length conns)) {
             def c:EVGElement (itemAt conns i)

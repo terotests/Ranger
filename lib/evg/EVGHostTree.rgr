@@ -529,7 +529,7 @@ class EVGHostTree {
         op.translateY = el.translateY
         op.cursor = el.cursor
         op.backdropBlur = el.backdropBlur
-        op.isOverlay = el.isOverlay
+        op.isOverlay = (el.isSurface())
         if el.shadowColor {
             def sc:EVGColor (unwrap el.shadowColor)
             if sc.isSet {

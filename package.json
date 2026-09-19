@@ -818,6 +818,7 @@
     "evg:overlay:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./lib/evg/EVGOverlayTest.rgr -d=./lib/evg/bin -o=EVGOverlayTest.js -nodecli && node ./lib/evg/bin/EVGOverlayTest.js",
     "evg:fixed:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./lib/evg/EVGFixedTest.rgr -d=./lib/evg/bin -o=EVGFixedTest.js -nodecli && node ./lib/evg/bin/EVGFixedTest.js",
     "evg:connector:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./lib/evg/EVGConnectorTest.rgr -d=./lib/evg/bin -o=EVGConnectorTest.js -nodecli && node ./lib/evg/bin/EVGConnectorTest.js",
+    "evg:popover:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./lib/evg/EVGPopoverTest.rgr -d=./lib/evg/bin -o=EVGPopoverTest.js -nodecli && node ./lib/evg/bin/EVGPopoverTest.js",
     "evg:rtl:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./lib/evg/EVGRtlLayoutTest.rgr -d=./lib/evg/bin -o=EVGRtlLayoutTest.js -nodecli && node ./lib/evg/bin/EVGRtlLayoutTest.js",
     "evg:ruler:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./lib/evg/EVGRulerTest.rgr -d=./lib/evg/bin -o=EVGRulerTest.js -nodecli && node ./lib/evg/bin/EVGRulerTest.js",
     "evg:toolbar:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/evg_window/EVGToolbarTest.rgr -d=./gallery/evg_window/bin -o=EVGToolbarTest.js -nodecli && node ./gallery/evg_window/bin/EVGToolbarTest.js",

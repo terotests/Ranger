@@ -980,6 +980,47 @@ class EVGElement {
     ; and stylesheets use it — an arrow points the other way when a menu opens
     ; upwards — so it is a placement result, not an internal.
     def overlayPlacedSide:string ""
+    ; …and which alignment, for the same reason: a fallback may change both.
+    def overlayPlacedAlign:string ""
+    ; anchored | sheet | fullscreen — what the surface ended up being. A menu
+    ; that turned into a bottom sheet on a phone is a different widget, and a
+    ; stylesheet, a test and an accessibility tree all want to know.
+    def overlayPlacedPresentation:string ""
+    ; The placement had to make it smaller than it asked to be, so it clips and
+    ; has somewhere to scroll — `scrollHeight` is the extent, as everywhere.
+    def overlayClamped:boolean false
+
+    ; --- popover: anchoring by name, fallbacks, presentation ------------------
+    ;
+    ; CSS Anchor Positioning's own vocabulary, as far as this engine carries
+    ; it. The alternative was a second EVG-shaped spelling of the same idea,
+    ; which costs everyone who already knows the CSS one.
+    ;
+    ; `position-anchor` names the box to position against — an `anchor-name`
+    ; (`--file-menu`) or an `#id`. It also MARKS the element as a surface:
+    ; anything positioned against another box wants to be out of flow and in
+    ; the top layer, and making that follow from one property is the whole
+    ; ergonomic difference between this and writing four.
+    def positionAnchor:string ""
+    ; A comma-separated list of position-areas to try when the declared one
+    ; does not fit: "top start, right start, left start". CSS spells it
+    ; `position-try-fallbacks`; the shorter `position-try` is accepted too.
+    def positionTryFallbacks:string ""
+    ; "" tries them in order and takes the first that fits. "most-space" scores
+    ; them all and takes the roomiest, which is CSS's `position-try-order`
+    ; heading in the same direction.
+    def positionTryOrder:string ""
+    ; anchored | sheet | fullscreen. The one thing here that is not CSS: on a
+    ; phone an anchored menu is the wrong widget, not a badly placed one, and
+    ; no amount of fallback placement fixes that.
+    def presentation:string ""
+    ; Become a sheet at or below this page width. A `@media` block setting
+    ; `presentation` is the general route; this is the one line that covers the
+    ; case everybody has.
+    def sheetBelow:double 0.0
+    ; Clamp the surface to the room it actually has, rather than letting it run
+    ; off the page. With `overflow` other than `visible` it then scrolls.
+    def fitViewport:boolean false
 
     ; --- interaction state -------------------------------------------------------
     ; What is happening to this element right now, so a STYLESHEET can say what
@@ -1588,6 +1629,104 @@ class EVGElement {
         }
     }
 
+    ; --- position-area --------------------------------------------------------
+    ;
+    ; `bottom`, `bottom start`, `top end`, `right center`, `center`, `cover`.
+    ; The first word is the side; the second is where along that side's cross
+    ; axis the surface sits. CSS's own grammar writes the second word as a
+    ; physical direction as often as a logical one — `bottom left` — so both
+    ; spellings are read, and which axis a physical word means depends on the
+    ; side, exactly as it does there.
+    sfn areaSide:string (area:string) {
+        def first:string (EVGElement.areaWord(area 0))
+        if (((first == "top") || (first == "bottom")) || (first == "left")) {
+            return first
+        }
+        if (((first == "right") || (first == "center")) || (first == "cover")) {
+            return first
+        }
+        if (first == "free") {
+            return first
+        }
+        return ""
+    }
+
+    sfn areaAlign:string (area:string) {
+        def side:string (EVGElement.areaWord(area 0))
+        def word:string (EVGElement.areaWord(area 1))
+        if ((strlen word) == 0) {
+            return "start"
+        }
+        if (((word == "start") || (word == "center")) || (word == "end")) {
+            return word
+        }
+        ; A physical word. Along a horizontal side the cross axis is vertical,
+        ; and the other way round.
+        if ((side == "top") || (side == "bottom")) {
+            if (word == "left") {
+                return "start"
+            }
+            if (word == "right") {
+                return "end"
+            }
+        }
+        if ((side == "left") || (side == "right")) {
+            if (word == "top") {
+                return "start"
+            }
+            if (word == "bottom") {
+                return "end"
+            }
+        }
+        return "start"
+    }
+
+    ; The n-th whitespace-separated word of an area, or "".
+    sfn areaWord:string (area:string index:int) {
+        def out:string ""
+        def seen:int 0
+        def cur:string ""
+        def i:int 0
+        def n:int (strlen area)
+        while (i <= n) {
+            def isBreak:boolean (i == n)
+            if (isBreak == false) {
+                def c:int (charAt area i)
+                if (((c == 32) || (c == 9)) || (c == 10)) {
+                    isBreak = true
+                }
+            }
+            if isBreak {
+                if ((strlen cur) > 0) {
+                    if (seen == index) {
+                        out = cur
+                        return out
+                    }
+                    seen = (seen + 1)
+                    cur = ""
+                }
+            } {
+                cur = (cur + (substring area i (i + 1)))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; A SURFACE: out of its parent's flow, drawn in the top layer, placed
+    ; against an anchor rather than by the flow. `overlay: true` says so, and
+    ; so does the `popover` tag, which is the web's name for the same thing and
+    ; saves the property.
+    fn isSurface:boolean () {
+        if isOverlay {
+            return true
+        }
+        if (tagName == "popover") {
+            return true
+        }
+        return false
+    }
+
     ; What an `arrowPath` is filled with: the stroke's own colour, because an
     ; arrow whose head is a different colour from its shaft is a mistake far
     ; more often than a choice. An explicit `fill` still wins.
@@ -1633,7 +1772,7 @@ class EVGElement {
         ; condition to every size and space calculation in EVGLayout is the
         ; whole reason the flow half of this feature is one line. The overlay
         ; pass then MOVES it; until then it sits where layoutAbsolute put it.
-        if isOverlay {
+        if (this.isSurface()) {
             return true
         }
         ; A hidden element is out of flow the same way: nothing around it
@@ -3080,6 +3219,15 @@ class EVGElement {
         calculatedPage = other.calculatedPage
         isAbsolute = other.isAbsolute
         isOverlay = other.isOverlay
+        positionAnchor = other.positionAnchor
+        positionTryFallbacks = other.positionTryFallbacks
+        positionTryOrder = other.positionTryOrder
+        presentation = other.presentation
+        sheetBelow = other.sheetBelow
+        fitViewport = other.fitViewport
+        overlayPlacedAlign = other.overlayPlacedAlign
+        overlayPlacedPresentation = other.overlayPlacedPresentation
+        overlayClamped = other.overlayClamped
         overlayAnchor = other.overlayAnchor
         isOverlayAnchor = other.isOverlayAnchor
         overlaySide = other.overlaySide
@@ -3318,6 +3466,57 @@ class EVGElement {
         }
         if ((name == "overlay-align") || (name == "overlayAlign")) {
             overlayAlign = (trim value)
+            return
+        }
+        ; `position-area: bottom start` is `overlay-side` and `overlay-align`
+        ; in one declaration, which is how CSS writes it and how a fallback
+        ; list has to write it — a fallback changes both at once.
+        if ((name == "position-area") || (name == "positionArea")) {
+            def pa:string (trim value)
+            def paSide:string (EVGElement.areaSide(pa))
+            if ((strlen paSide) == 0) {
+                EVGReject.note("unsupported value" "position-area" pa)
+                return
+            }
+            overlaySide = paSide
+            overlayAlign = (EVGElement.areaAlign(pa))
+            return
+        }
+        if ((name == "position-anchor") || (name == "positionAnchor")) {
+            positionAnchor = (trim value)
+            ; Positioned against another box: out of flow, top layer. The
+            ; property says the whole thing.
+            if ((strlen positionAnchor) > 0) {
+                isOverlay = true
+            }
+            return
+        }
+        if (((name == "position-try-fallbacks") || (name == "positionTryFallbacks")) || (name == "position-try")) {
+            positionTryFallbacks = (trim value)
+            return
+        }
+        if ((name == "position-try-order") || (name == "positionTryOrder")) {
+            positionTryOrder = (trim value)
+            return
+        }
+        if (name == "presentation") {
+            def pr:string (trim value)
+            if ((((pr == "anchored") || (pr == "sheet")) || (pr == "fullscreen")) == false) {
+                EVGReject.note("unsupported value" "presentation" pr)
+                return
+            }
+            presentation = pr
+            return
+        }
+        if ((name == "sheet-below") || (name == "sheetBelow")) {
+            def sb:EVGUnit (this.unitOf(name value))
+            if sb.isSet {
+                sheetBelow = sb.pixels
+            }
+            return
+        }
+        if ((name == "fit-viewport") || (name == "fitViewport")) {
+            fitViewport = (EVGElement.truthy(value))
             return
         }
         if ((name == "overlay-gap") || (name == "overlayGap")) {
@@ -3747,6 +3946,21 @@ class EVGElement {
         }
         if (name == "overflow") {
             overflow = value
+            return
+        }
+        ; ONE OVERFLOW, BOTH AXES. This engine clips a box or it does not;
+        ; there is no per-axis clip, and the honest thing is to say so rather
+        ; than drop the declaration. `overflow-y: auto` on a menu is how the
+        ; web writes "and scroll if it is too tall", and dropping it left the
+        ; menu running off the page with no sign anything had been ignored.
+        ; A surface that clips both axes is not a problem for a submenu: a
+        ; nested surface is drawn in the top layer, outside every clip.
+        if (((name == "overflow-y") || (name == "overflowY")) || (name == "overflow-x")) {
+            overflow = (trim value)
+            return
+        }
+        if (name == "overflowX") {
+            overflow = (trim value)
             return
         }
         if (name == "cursor") {

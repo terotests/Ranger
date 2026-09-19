@@ -149,6 +149,12 @@ Constructors: `EVGElement.createDiv()`, `createSpan()`, `createImg()` and
 [`web/responsive/EvgResponsiveDemo.rgr`](web/responsive/EvgResponsiveDemo.rgr);
 JSX sets it from the tag name.
 
+Two tags mean more than their `elementType`. A **`popover`** is a container that
+is also a [surface](#surfaces-popovers-anchors-and-presentation) — out of flow,
+in the top layer, placed against an anchor — without saying `overlay: true`. A
+**`connector`** is a path whose `d` the layout writes; see
+[Connectors](#connectors).
+
 Two names, deliberately different:
 
 * **`id`** is global and outward-facing. The hit test reports it, the
@@ -236,22 +242,150 @@ drifting apart, because the sheet hands its declarations to the same function.
 | `line-break` | how lines may be broken |
 | `emoji-color` | the colour fallback glyphs are painted in; defaults to `color` |
 
-### Overlays
+### Surfaces: popovers, anchors and presentation
 
-An overlay is a box positioned against another box rather than in the flow —
-a dropdown, a tooltip, a menu panel.
+A **surface** is a box that is not in the flow and not in the page's stacking
+order either: a dropdown, a tooltip, a menu panel, the toolbar that appears
+around a selected element. Two things make it one, and they are separate:
+
+* it takes no space in its parent — nothing moves for it;
+* it is drawn **after the whole normal tree, outside every clip**. That is a
+  real top layer, the same thing the web's Popover API gives you: an ancestor's
+  `overflow: hidden` cannot cut it and no `z-index` is involved. See
+  `deferredOverlays` in [`EVGDisplayList`](EVGDisplayList.rgr).
+
+It still lives where it belongs in the tree. A menu declared inside its button
+is a child of that button for events, state and the accessibility tree, and is
+only *drawn* somewhere else — which is what a portal is for in other toolkits,
+here as a property of the layout.
+
+Say so with the `popover` tag, or with `overlay: true` on any element:
+
+```json
+{"tag": "div",     "props": {"anchor-name": "--file"}, "text": "File"},
+{"tag": "popover", "props": {
+  "position-anchor": "--file",
+  "position-area": "bottom start",
+  "position-try-fallbacks": "top start, right start",
+  "fit-viewport": "true", "overflow": "hidden",
+  "sheet-below": "600px"
+}}
+```
+
+#### Naming the anchor
 
 | Property | Notes |
 | --- | --- |
-| `overlay` | the id of the element this one is anchored to |
-| `overlay-side` | `top`, `right`, `bottom`, `left` |
-| `overlay-align` | `start`, `center`, `end` |
-| `overlay-gap` | distance from the anchor |
-| `overlay-anchor-role` | what the anchor is, for the accessibility tree |
-| `isOverlay` | marks the element as one |
+| `anchor-name` | names this element so something can point at it: `--file` |
+| `position-anchor` | what this surface is positioned against: an `anchor-name` or an `#id`. Also marks the element as a surface |
+| `overlay-anchor-role` | the older convention: the surface takes whichever **sibling** declares this |
+| `overlay` / `isOverlay` | marks the element as a surface without naming an anchor |
 
-Overlays are placed after everything they anchor to has a rectangle, which is
-why a menu can be declared anywhere in the tree.
+Three ways to say it, in the order they win: an element set from code, then
+`position-anchor`, then the sibling convention. `position-anchor` is the only
+one that reaches out of the surface's own parent, so a menu no longer has to be
+declared beside its trigger. It is the same name a connector points at — one
+registry, collected once per layout.
+
+#### Where it goes
+
+| Property | Notes |
+| --- | --- |
+| `position-area` | `bottom start`, `top end`, `right center`, `bottom left`, `center`, `cover` — the side, then where along that side's cross axis |
+| `overlay-side` / `overlay-align` | the same two things written separately |
+| `overlay-gap` | distance from the anchor |
+| `position-try-fallbacks` | `"top start, right start, left start"` — areas to try when the declared one does not fit |
+| `position-try-order` | `most-space` takes the roomiest candidate instead of the first that fits |
+
+`position-area`'s second word may be logical (`start`, `center`, `end`) or
+physical (`left`, `right`, `top`, `bottom`); which axis a physical word means
+depends on the side, exactly as in CSS. `center` and `cover` are sides of their
+own: a modal centred on the page, and a backdrop covering it.
+
+The candidates are tried in order — the declared area, then each fallback, then
+the **opposite side**, which is always appended and is the flip this pass has
+always done. The first candidate that is *wholly on the page* wins. With
+`position-try-order: most-space` every fitting candidate is scored by the free
+room left over and the roomiest wins. When none fits, the one that hangs off by
+the least does, and it is then shifted back onto the page: a surface half off
+the page is worse than one covering its anchor.
+
+Where it actually went is written back onto the element as
+`overlayPlacedSide` and `overlayPlacedAlign` — fields, not properties, because
+they are the pass's output and an input the layout also writes would read last
+frame's answer. An arrow that has to point the other way when a menu opens
+upwards reads them, and so does every test here.
+
+#### When it does not fit
+
+| Property | Notes |
+| --- | --- |
+| `fit-viewport` | clamp the surface to the room on the side it landed on |
+| `overflow` (`overflow-y`) | anything but `visible` clips, and then `scrollHeight` is how much more there is |
+
+A menu of forty rows does not fit under anything. `fit-viewport: true` cuts it
+to the room there is rather than letting it run off the page; with `overflow`
+set it clips, and `scrollHeight` minus `clientHeight` is how far there is to
+scroll — the ordinary scroll model, no second mechanism. The field
+`overlayClamped` says it happened. Pair it with `position-try-order: most-space`, so the side chosen
+is the roomier one before the clamp rather than the first that nearly fits.
+
+This engine has one `overflow` per box, not one per axis; `overflow-y` and
+`overflow-x` are accepted and set it, because `overflow-y: auto` on a menu is
+how the web writes "and scroll if it is too tall" and dropping it silently was
+worse than clipping both axes. Clipping both is safe for a submenu: a nested
+surface is drawn in the top layer, outside every clip.
+
+#### When it is the wrong widget
+
+| Property | Notes |
+| --- | --- |
+| `presentation` | `anchored` (the default), `sheet`, `fullscreen` |
+| `sheet-below` | become a sheet at or below this page width |
+
+This is the one part with no CSS equivalent, and the reason it exists: at 390
+wide an anchored menu is not badly placed, it is the wrong widget. No fallback
+list fixes that. `presentation: sheet` drops the anchor entirely — the surface
+becomes as wide as the page, as tall as its content needs, pinned to the bottom
+edge, and its children are laid out again at that width. `fullscreen` takes the
+page. `sheet-below: 600px` is the one line that covers the usual case; a
+`@media` block setting `presentation` is the general route, and both arrive at
+the same place. The field `overlayPlacedPresentation` says which it ended up
+being.
+
+#### The pass
+
+```
+normal layout
+      ↓
+surfaces, once every anchor has a rectangle
+      ↓
+presentation          anchored | sheet | fullscreen
+      ↓
+anchor                position-anchor → the name registry
+      ↓
+placement             position-area, then each fallback, then the flip
+      ↓                   first that fits, or the roomiest, or the least bad
+fit                   clamp to the room, measure the scroll extent
+      ↓
+shift onto the page
+      ↓
+top layer, drawn after everything, outside every clip
+```
+
+What is **not** here: dismissal, focus policy, and the stack that keeps a
+submenu open while its parent is. Those are interaction, not layout, and belong
+with [`EVGFocus`](EVGFocus.rgr) and [`EVGCommands`](EVGCommands.rgr). A surface
+with no anchor is reported by name rather than placed silently at the origin —
+see `EVGLayout.getOverlayErrors()`.
+
+Most of the vocabulary above is CSS's own — `anchor-name`, `position-anchor`,
+`position-area`, `position-try-fallbacks`, `position-try-order` — so what you
+know about anchor positioning transfers. `presentation`, `sheet-below` and
+`fit-viewport` are EVG's, because the web builds those out of media queries and
+a popover by hand.
+
+`npm run evg:popover:test` and `npm run evg:overlay:test`.
 
 ### Connectors
 
@@ -911,6 +1045,8 @@ npm run evg:stylecache:test     # the cache, viewport included
 npm run evg:viewport:test       # vw / vh, on screen and on paper
 npm run evg:rtl:test            # direction: rtl
 npm run evg:overlay:test        # anchored overlays
+npm run evg:popover:test        # named anchors, fallbacks, fit-viewport, sheets
+npm run evg:connector:test      # a line between two elements, and absolute in a grid
 npm run evg:invalidate:test     # what a frame is allowed to skip
 npm run evg:reconcile:test      # keyed children
 npm run evg:component:test      # instances that outlive the tree

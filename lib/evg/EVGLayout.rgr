@@ -10,6 +10,16 @@ Import "EVGReject.rgr"
 Import "EVGTextEngine.rgr"
 Import "EVGConnector.rgr"
 
+; Where one candidate placement would put a surface, and what it costs.
+class OverlaySpot {
+    def x:double 0.0
+    def y:double 0.0
+    ; Pixels of the surface that would be off the page.
+    def over:double 0.0
+    ; Free space left between the surface and the page edge on that side.
+    def room:double 0.0
+}
+
 class EVGLayout {
     def measurer:EVGTextMeasurer
     ; The one text measurement + wrapping implementation. Layout must break
@@ -24,6 +34,11 @@ class EVGLayout {
     ; with no anchor would otherwise land at the top-left corner and read as a
     ; styling mistake; this is what makes it a reportable one.
     def overlayErrors:[string]
+    ; Every `anchor-name` and `#id` in the tree, collected once per layout and
+    ; read by both things that point at a box by name: the connectors and the
+    ; surfaces. See `EVGConnector.collectAnchors`.
+    def anchorNames:[string]
+    def anchorNodes:[EVGElement]
     ; Grid track lists and placements that the engine could not honour.
     ;
     ; These used to go to this.log(), which is a no-op unless `debug` is on, so
@@ -156,6 +171,12 @@ class EVGLayout {
         ; Layout root at (0, 0)
         this.layoutElement(root 0.0 0.0 pageWidth pageHeight)
 
+        ; The names first: a surface may be positioned against any box in the
+        ; tree, not only a sibling, and so may a connector.
+        clear anchorNames
+        clear anchorNodes
+        EVGConnector.collectAnchors(root anchorNames anchorNodes)
+
         ; Then the overlays, once everything they anchor to has a rectangle.
         clear overlayErrors
         def anySurface:boolean (this.placeOverlaysIn(root))
@@ -163,7 +184,7 @@ class EVGLayout {
         ; The connectors, once every box they join has its final rectangle —
         ; the overlay pass above is the last thing that moves one, and a line
         ; solved before it would point at where a card used to be.
-        def connWarnings:[string] (EVGConnector.resolveAll(root))
+        def connWarnings:[string] (EVGConnector.resolveWith(root anchorNames anchorNodes))
         def cwi:int 0
         while (cwi < (array_length connWarnings)) {
             this.warn((itemAt connWarnings cwi))
@@ -796,7 +817,11 @@ class EVGLayout {
     ; It reuses the mover the RTL mirror already had. One function that walks a
     ; placed subtree and adds an offset to it is enough; a second one would be
     ; two places for the same rule to be got wrong.
-    fn applyScroll:void (el:EVGElement) {
+    ; How far the content reaches, measured from where the children ended up.
+    ; Separate from `applyScroll` because the overlay pass has to ask the
+    ; question again after it has resized a surface, WITHOUT translating
+    ; anything a second time.
+    fn measureScrollExtent:void (el:EVGElement) {
         def innerX:double (el.calculatedX + el.box.borderWidthPx + el.box.paddingLeftPx)
         def innerY:double (el.calculatedY + el.box.borderWidthPx + el.box.paddingTopPx)
         def w:double 0.0
@@ -819,6 +844,10 @@ class EVGLayout {
         ; 10 of padding gives the browser 500.
         el.scrollWidth = ((w + el.box.paddingLeftPx) + el.box.paddingRightPx)
         el.scrollHeight = ((h + el.box.paddingTopPx) + el.box.paddingBottomPx)
+    }
+
+    fn applyScroll:void (el:EVGElement) {
+        this.measureScrollExtent(el)
 
         ; Clamped, the way a browser clamps `scrollTop`: an application that
         ; asks to scroll past the end has asked for the end. Doing it here and
@@ -2543,7 +2572,7 @@ class EVGLayout {
         def i:int 0
         while (i < (array_length el.children)) {
             def c:EVGElement (itemAt el.children i)
-            if c.isOverlay {
+            if (c.isSurface()) {
                 this.placeOverlay(c el)
                 any = true
             }
@@ -2557,13 +2586,26 @@ class EVGLayout {
         return any
     }
 
-    ; The anchor is not named by the author. A surface finds it among its own
-    ; siblings: the one that declared `overlayAnchorRole`. That is the whole
-    ; convention, and it is what lets a factory say `(Menu (Trigger …) (Content
-    ; …))` with nothing joining the two by hand.
+    ; Three ways to say what a surface is positioned against, in the order
+    ; they win:
+    ;
+    ;   * the element itself, set from code (`overlayAnchor`);
+    ;   * `position-anchor`, an `anchor-name` or an `#id` — CSS's own way, and
+    ;     the only one that reaches OUT of the surface's own parent, so a menu
+    ;     no longer has to be declared beside its trigger;
+    ;   * the sibling convention: whichever sibling declared
+    ;     `overlay-anchor-role`, which is what lets a factory say
+    ;     `(Menu (Trigger …) (Content …))` with nothing joining the two by hand.
     fn findOverlayAnchor@(optional):EVGElement (surface:EVGElement parent:EVGElement) {
         if surface.overlayAnchor {
             return surface.overlayAnchor
+        }
+        if ((strlen surface.positionAnchor) > 0) {
+            def named@(optional):EVGElement (EVGConnector.lookup(surface.positionAnchor anchorNames anchorNodes))
+            if (null? named) {
+            } {
+                return named
+            }
         }
         def i:int 0
         while (i < (array_length parent.children)) {
@@ -2628,11 +2670,210 @@ class EVGLayout {
         return v
     }
 
+    ; --- presentation ----------------------------------------------------------
+    ;
+    ; anchored | sheet | fullscreen. The one part of this that is not CSS, and
+    ; the reason it is not: on a phone an anchored menu is the WRONG WIDGET
+    ; rather than a badly placed one. No amount of fallback placement turns a
+    ; dropdown into something usable at 390 wide; becoming a sheet along the
+    ; bottom edge does. `sheet-below` is the one line that covers the common
+    ; case; a `@media` block setting `presentation` is the general route, and
+    ; both end up here.
+    fn presentationOf:string (surface:EVGElement) {
+        def p:string surface.presentation
+        if ((strlen p) == 0) {
+            p = "anchored"
+        }
+        if (surface.sheetBelow > 0.0) {
+            if (pageWidth <= surface.sheetBelow) {
+                p = "sheet"
+            }
+        }
+        return p
+    }
+
+    ; A new box for a surface, and its children laid out in it again. A sheet
+    ; is as wide as the page and a menu is as wide as its content, so the two
+    ; are not the same layout of the same children — text rewraps, a row that
+    ; was two lines becomes one. Returns the content height that came out.
+    fn resizeSurface:double (surface:EVGElement w:double h:double) {
+        surface.calculatedWidth = w
+        surface.calculatedHeight = h
+        surface.calculatedInnerWidth = (surface.box.getInnerWidth(w))
+        surface.calculatedInnerHeight = (surface.box.getInnerHeight(h))
+        def kid:int 0
+        while (kid < (surface.getChildCount())) {
+            def kc:EVGElement (surface.getChild(kid))
+            kc.resetLayoutState()
+            kid = (kid + 1)
+        }
+        if ((surface.getChildCount()) == 0) {
+            return 0.0
+        }
+        def content:double (this.layoutChildren(surface))
+        this.mirrorChildren(surface)
+        return content
+    }
+
+    fn setSurfaceHeight:void (surface:EVGElement h:double) {
+        surface.calculatedHeight = h
+        surface.calculatedInnerHeight = (surface.box.getInnerHeight(h))
+    }
+
+    ; A sheet: the page's full width, along its bottom edge, as tall as its
+    ; content needs and never taller than the page.
+    fn sheetHeight:double (surface:EVGElement) {
+        def chrome:double (surface.calculatedHeight - surface.calculatedInnerHeight)
+        def had:double surface.calculatedHeight
+        def content:double (this.resizeSurface(surface pageWidth had))
+        def h:double had
+        if ((surface.getChildCount()) > 0) {
+            h = (content + chrome)
+        }
+        if surface.height.isSet {
+            h = surface.height.pixels
+        }
+        if (h > pageHeight) {
+            h = pageHeight
+            surface.overlayClamped = true
+        }
+        this.setSurfaceHeight(surface h)
+        return h
+    }
+
+    ; --- position-try ------------------------------------------------------------
+    ;
+    ; The areas a surface may be placed in, in the order they are tried: the
+    ; one it declared, then `position-try-fallbacks`, then — always — the
+    ; opposite side. That last candidate is the FLIP this pass has done since
+    ; it was written, kept as the final entry so a surface that declares no
+    ; fallbacks behaves exactly as it did before there were any.
+    fn tryCandidates:void (surface:EVGElement sides:[string] aligns:[string]) {
+        push sides surface.overlaySide
+        push aligns surface.overlayAlign
+        def spec:string surface.positionTryFallbacks
+        if ((strlen spec) > 0) {
+            def parts:[string] (EVGLayout.splitList(spec))
+            def i:int 0
+            while (i < (array_length parts)) {
+                def area:string (itemAt parts i)
+                def sd:string (EVGElement.areaSide(area))
+                if ((strlen sd) == 0) {
+                    this.warn(("position-try-fallbacks: \"" + area + "\" is not a position-area"))
+                } {
+                    push sides sd
+                    push aligns (EVGElement.areaAlign(area))
+                }
+                i = (i + 1)
+            }
+        }
+        push sides (EVGLayout.oppositeSide(surface.overlaySide))
+        push aligns surface.overlayAlign
+    }
+
+    sfn splitList:[string] (spec:string) {
+        def out:[string]
+        def cur:string ""
+        def i:int 0
+        def n:int (strlen spec)
+        while (i <= n) {
+            def brk:boolean (i == n)
+            if (brk == false) {
+                if ((charAt spec i) == 44) {
+                    brk = true
+                }
+            }
+            if brk {
+                def t:string (trim cur)
+                if ((strlen t) > 0) {
+                    push out t
+                }
+                cur = ""
+            } {
+                cur = (cur + (substring spec i (i + 1)))
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    ; Where one candidate would put the surface, and what it would cost: how
+    ; many pixels of it would be off the page, and how much free room is left
+    ; on that side. The first number decides whether a candidate is usable at
+    ; all; the second is what `position-try-order: most-space` maximises.
+    fn overlaySpot:OverlaySpot (side:string align:string ax:double ay:double aw:double ah:double w:double h:double gap:double) {
+        def spot (new OverlaySpot())
+        def x:double 0.0
+        def y:double 0.0
+        if (side == "top") {
+            x = (this.overlayCross(ax aw w align))
+            y = ((ay - h) - gap)
+        }
+        if (side == "bottom") {
+            x = (this.overlayCross(ax aw w align))
+            y = ((ay + ah) + gap)
+        }
+        if (side == "right") {
+            x = ((ax + aw) + gap)
+            y = (this.overlayCross(ay ah h align))
+        }
+        if (side == "left") {
+            x = ((ax - w) - gap)
+            y = (this.overlayCross(ay ah h align))
+        }
+        if (side == "center") {
+            x = ((pageWidth - w) / 2.0)
+            y = ((pageHeight - h) / 2.0)
+        }
+        spot.x = x
+        spot.y = y
+        spot.room = (this.overlayRoom(side ax ay aw ah w h gap))
+        def over:double 0.0
+        if (x < 0.0) {
+            over = (over - x)
+        }
+        def right:double ((x + w) - pageWidth)
+        if (right > 0.0) {
+            over = (over + right)
+        }
+        if (y < 0.0) {
+            over = (over - y)
+        }
+        def below:double ((y + h) - pageHeight)
+        if (below > 0.0) {
+            over = (over + below)
+        }
+        spot.over = over
+        return spot
+    }
+
     fn placeOverlay:void (surface:EVGElement parent:EVGElement) {
         def w:double surface.calculatedWidth
         def h:double surface.calculatedHeight
         def x:double 0.0
         def y:double 0.0
+        surface.overlayClamped = false
+        surface.overlayPlacedAlign = surface.overlayAlign
+
+        ; PRESENTATION FIRST, because it decides whether the anchor is
+        ; consulted at all. A sheet is not positioned against anything.
+        def pres:string (this.presentationOf(surface))
+        if (pres == "fullscreen") {
+            this.resizeSurface(surface pageWidth pageHeight)
+            surface.overlayPlacedSide = "cover"
+            surface.overlayPlacedPresentation = "fullscreen"
+            this.finishOverlay(surface 0.0 0.0)
+            return
+        }
+        if (pres == "sheet") {
+            def sheetH:double (this.sheetHeight(surface))
+            surface.overlayPlacedSide = "bottom"
+            surface.overlayPlacedAlign = "start"
+            surface.overlayPlacedPresentation = "sheet"
+            this.finishOverlay(surface 0.0 (pageHeight - sheetH))
+            return
+        }
+        surface.overlayPlacedPresentation = "anchored"
 
         if (surface.overlaySide == "cover") {
             ; The page itself: a modal's backdrop. It is sized here rather than
@@ -2643,29 +2884,20 @@ class EVGLayout {
             ; thing it exists to prevent.
             x = 0.0
             y = 0.0
-            surface.calculatedWidth = pageWidth
-            surface.calculatedHeight = pageHeight
-            surface.calculatedInnerWidth = (surface.box.getInnerWidth(pageWidth))
-            surface.calculatedInnerHeight = (surface.box.getInnerHeight(pageHeight))
+            this.resizeSurface(surface pageWidth pageHeight)
             w = pageWidth
             h = pageHeight
             surface.overlayPlacedSide = "cover"
-            ; Anything inside it was laid out against the old box, so it is laid
-            ; out again against this one. A backdrop is usually empty, but
-            ; nothing here requires that.
-            def kid:int 0
-            while (kid < (surface.getChildCount())) {
-                def kc:EVGElement (surface.getChild(kid))
-                kc.resetLayoutState()
-                kid = (kid + 1)
-            }
-            if ((surface.getChildCount()) > 0) {
-                this.layoutChildren(surface)
-                this.mirrorChildren(surface)
-            }
         } {
         if (surface.overlaySide == "center") {
             ; Centred on the page: a modal, which has no anchor by definition.
+            if surface.fitViewport {
+                if (h > pageHeight) {
+                    h = pageHeight
+                    this.setSurfaceHeight(surface h)
+                    surface.overlayClamped = true
+                }
+            }
             x = ((pageWidth - w) / 2.0)
             y = ((pageHeight - h) / 2.0)
             surface.overlayPlacedSide = "center"
@@ -2689,7 +2921,7 @@ class EVGLayout {
             if (null? maybe) {
                 ; Named, not silently at (0,0). An unanchored surface in the
                 ; corner looks like a stylesheet mistake and is not one.
-                push overlayErrors (surface.id + ": overlay has no anchor — give a sibling `overlay-anchor-role`, or use `overlay-side: center`")
+                push overlayErrors (surface.id + ": overlay has no anchor — give a sibling `overlay-anchor-role`, name one with `position-anchor`, or use `overlay-side: center`")
                 return
             }
             def a:EVGElement (unwrap maybe)
@@ -2699,35 +2931,78 @@ class EVGLayout {
             def ah:double a.calculatedHeight
             def gap:double surface.overlayGap
 
-            ; Flip, if the other side is better. `better` and not merely
-            ; `fits`: when neither fits the roomier one still loses less.
-            def side:string surface.overlaySide
-            def other:string (EVGLayout.oppositeSide(side))
-            def here:double (this.overlayRoom(side ax ay aw ah w h gap))
-            if (here < 0.0) {
-                def there:double (this.overlayRoom(other ax ay aw ah w h gap))
-                if (there > here) {
-                    side = other
+            ; Try each candidate area and take the first that is wholly on the
+            ; page — or, with `position-try-order: most-space`, the one with
+            ; the most room left over. When NONE fits, the one that hangs off
+            ; by the least wins: a surface half off the page is worse than one
+            ; that covers its anchor.
+            def sides:[string]
+            def aligns:[string]
+            this.tryCandidates(surface sides aligns)
+            def mostSpace:boolean (surface.positionTryOrder == "most-space")
+            def bestFit:int (0 - 1)
+            def bestFitRoom:double 0.0
+            def bestOver:int 0
+            def bestOverVal:double 0.0
+            def ci:int 0
+            while (ci < (array_length sides)) {
+                def cs:string (itemAt sides ci)
+                def ca:string (itemAt aligns ci)
+                def probe:OverlaySpot (this.overlaySpot(cs ca ax ay aw ah w h gap))
+                if (ci == 0) {
+                    bestOverVal = probe.over
+                } {
+                    if (probe.over < bestOverVal) {
+                        bestOver = ci
+                        bestOverVal = probe.over
+                    }
+                }
+                if (probe.over <= 0.0) {
+                    if (bestFit < 0) {
+                        bestFit = ci
+                        bestFitRoom = probe.room
+                    } {
+                        if mostSpace {
+                            if (probe.room > bestFitRoom) {
+                                bestFit = ci
+                                bestFitRoom = probe.room
+                            }
+                        }
+                    }
+                }
+                ci = (ci + 1)
+            }
+            def pick:int bestOver
+            if (bestFit >= 0) {
+                pick = bestFit
+            }
+            def side:string (itemAt sides pick)
+            def align:string (itemAt aligns pick)
+            def spot:OverlaySpot (this.overlaySpot(side align ax ay aw ah w h gap))
+
+            ; `fit-viewport`: take the room there is rather than running off
+            ; the page. The surface then clips, and `scrollHeight` says how far
+            ; there is to scroll — which is the rest of the menu.
+            if surface.fitViewport {
+                def availH:double pageHeight
+                if ((side == "top") || (side == "bottom")) {
+                    availH = (spot.room + h)
+                }
+                if (availH < h) {
+                    h = availH
+                    if (h < 0.0) {
+                        h = 0.0
+                    }
+                    this.setSurfaceHeight(surface h)
+                    surface.overlayClamped = true
+                    spot = (this.overlaySpot(side align ax ay aw ah w h gap))
                 }
             }
-            surface.overlayPlacedSide = side
 
-            if (side == "top") {
-                x = (this.overlayCross(ax aw w surface.overlayAlign))
-                y = ((ay - h) - gap)
-            }
-            if (side == "bottom") {
-                x = (this.overlayCross(ax aw w surface.overlayAlign))
-                y = ((ay + ah) + gap)
-            }
-            if (side == "right") {
-                x = ((ax + aw) + gap)
-                y = (this.overlayCross(ay ah h surface.overlayAlign))
-            }
-            if (side == "left") {
-                x = ((ax - w) - gap)
-                y = (this.overlayCross(ay ah h surface.overlayAlign))
-            }
+            surface.overlayPlacedSide = side
+            surface.overlayPlacedAlign = align
+            x = spot.x
+            y = spot.y
 
             ; Shift onto the page. Both axes are clamped, not only the cross
             ; one: after a flip that did not help there is nothing else left to
@@ -2739,12 +3014,24 @@ class EVGLayout {
         }
         }
 
+        this.finishOverlay(surface x y)
+    }
+
+    ; Move the surface AND everything under it — the same helper a page break
+    ; already uses. The subtree was laid out relative to wherever layoutAbsolute
+    ; left the surface, so the whole thing travels together.
+    ;
+    ; Then, if it clips, how far there is to scroll. The extents are RE-MEASURED
+    ; and not re-applied: `applyScroll` already ran during the normal pass and
+    ; translated the children by `scrollTop`, and doing that twice would move
+    ; them twice. What is stale after a clamp is only the extent.
+    fn finishOverlay:void (surface:EVGElement x:double y:double) {
         surface.overlayX = x
         surface.overlayY = y
-        ; Move the surface AND everything under it — the same helper a page
-        ; break already uses. The subtree was laid out relative to wherever
-        ; layoutAbsolute left the surface, so the whole thing travels together.
         this.translateSubtree(surface (x - surface.calculatedX) (y - surface.calculatedY))
+        if (surface.clipsContent()) {
+            this.measureScrollExtent(surface)
+        }
     }
 
     ; Start, centre or end along the axis the side does not occupy.

@@ -3085,7 +3085,7 @@ class EVGDisplayList {
             def kid:EVGElement (el.getChild(i))
             ; A surface is not drawn here. `build` comes back to it once the
             ; whole normal tree is down — see the note there.
-            if kid.isOverlay {
+            if (kid.isSurface()) {
                 push deferredOverlays kid
             } {
                 this.walk(kid)

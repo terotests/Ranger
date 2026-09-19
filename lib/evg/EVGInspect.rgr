@@ -342,7 +342,7 @@ class EVGInspect {
         if el.isAbsolute {
             out = (EVGInspect.addFlag(out "abs"))
         }
-        if el.isOverlay {
+        if (el.isSurface()) {
             out = (EVGInspect.addFlag(out "overlay"))
         }
         if (el.clipsContent()) {

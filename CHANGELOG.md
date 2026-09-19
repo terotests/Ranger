@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Popovers: a surface knows where it fits, and what to be when it does
+  not.** EVG already drew overlay surfaces in a real top layer — after the
+  whole normal tree, outside every clip — and flipped them at a page edge.
+  Four things now turn that into a menu system. `position-anchor: --file`
+  names the box to position against (an `anchor-name` or an `#id`) instead of
+  finding it among the surface's own siblings, so a menu no longer has to be
+  declared beside its trigger; it also marks the element as a surface, as does
+  the new `popover` tag. `position-area: bottom start` is the side and the
+  cross-axis alignment in one declaration, and `position-try-fallbacks:
+  "top start, right start"` is an ordered list of areas tried until one is
+  wholly on the page — `position-try-order: most-space` takes the roomiest
+  instead of the first. `fit-viewport: true` clamps a surface to the room it
+  actually has and, with `overflow` set, `scrollHeight` is the rest of the
+  menu. `presentation: anchored | sheet | fullscreen` and `sheet-below: 600px`
+  cover the case no placement can: at 390 wide an anchored menu is the wrong
+  widget, so it becomes a sheet along the bottom edge with its children laid
+  out again at the page's width. `overflow-y`/`overflow-x` are accepted and
+  set `overflow`, which this engine has one of.
+  [`lib/evg/EVGLayout.rgr`](lib/evg/EVGLayout.rgr),
+  `npm run evg:popover:test`, and the README's
+  [Surfaces](lib/evg/README.md#surfaces-popovers-anchors-and-presentation).
+
 - **Connectors: a line between two elements, drawn by the layout.** A
   `connector` names two boxes (`from`/`to`, an `anchor-name` such as
   `--orders` or an `#id`), and EVG writes its `d` on every layout pass from
