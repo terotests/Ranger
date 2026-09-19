@@ -503,8 +503,28 @@ registerSurfaceEffect({ name, layer: "source" | "filter", params, frag })
 A **source** is drawn in paint order at the element's own background, so the
 element's content is painted over it; a **filter** runs over the finished
 surface, clipped to the box, which is how the ripple bends text it knows
-nothing about. Both are one GLSL function and a parameter list, and the box
-mask is applied for them — a plugin cannot paint outside its own element.
+nothing about; a **backdrop** is a filter in paint order — it reads what is
+behind the element, writes it back changed, and then the element's own
+background, border and children are drawn on top, sharp. Each is one GLSL
+function and a parameter list, and the box mask is applied for them — a plugin
+cannot paint outside its own element.
+
+Three ship with the painter: `ripple` (filter), `starfield` (source) and
+`liquid-glass` (backdrop). The last is refraction rather than fog, and it
+composes with the CSS that was already there:
+
+```css
+.glass {
+  backdrop-filter: blur(9px);              /* the frosting — already EVG's */
+  background-color: rgba(255,255,255,.07); /* the tint — an ordinary fill  */
+  border-radius: 30px;                     /* the shape, said once         */
+  evg-surface-effect: liquid-glass;        /* and the lens at its rim      */
+  evg-fx-strength: 40;
+}
+```
+
+The bend follows the element's own rounded box, so a pane is a lens at whatever
+size the layout gave it — nothing in the plugin knows the shape in advance.
 
 `lib/evg/gl/evg-fx.js` is the host's side: it hit-tests the boxes the list
 carries and turns pointer events into the events the shaders read.

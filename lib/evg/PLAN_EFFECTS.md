@@ -59,29 +59,38 @@ EVGDisplayList    collectEffects → one instance per element:
                   and `efx` on the rectangle where the element paints
 JSON / evg-list   "effects": [...] on the envelope, "efx" on the command
 evg-fx.js         the driver: pointer → events, per instance, aged per frame
-evg-webgl.js      the registry: name → { layer, params, GLSL }, and two passes
+evg-webgl.js      the registry: name → { layer, params, GLSL }, and the passes
 ```
 
 Nothing between the stylesheet and the painter knows what an effect *is*.
 `starfield` is a string, `density` is a number under a name, and the first
 thing that attaches meaning to either is the plugin.
 
-### Sources and filters
+### Sources, backdrops and filters
 
 A plugin declares which it is, and the difference decides when it is drawn:
 
 | | drawn | reads | example |
 | --- | --- | --- | --- |
 | `source` | in paint order, at the element's own background | nothing | `starfield` |
+| `backdrop` | in paint order, at the same point | the surface so far | `liquid-glass` |
 | `filter` | after the frame, over the box's region | the finished surface | `ripple` |
 
 A source is under the element's content, which is what makes a starfield a
 background rather than a sticker over the text. A filter runs when there are
 pixels to bend, which is why it can distort text, charts and images it knows
-nothing about.
+nothing about. A backdrop is the third case and the one `backdrop-filter:
+blur()` has always been: it reads what is *behind* the element and nothing in
+front of it, so a pane of glass refracts the page and leaves its own label
+sharp. It costs one copy of the canvas and one full-screen pass per instance
+per frame — the copy is `copyTexSubImage2D` into a kept texture, and the pass
+writes back what is outside the box unchanged.
 
-Both get the same things without asking: `uBox`, `uRadius`, `uRes`, `uTime`,
-and `uEvents[]` with `uEventCount`. Both write one function:
+All three get the same things without asking: `uBox`, `uRadius`, `uRes`,
+`uTime`, and `uEvents[]` with `uEventCount`, plus `fxBoxDistance(p)` — the
+element's rounded box as a signed distance, which is what lets a plugin shape
+itself to a box it has never been told the size of. All three write one
+function:
 
 ```glsl
 vec4 fxColor(vec2 p, vec2 local)   // p in page pixels, y down
@@ -90,6 +99,23 @@ vec4 fxColor(vec2 p, vec2 local)   // p in page pixels, y down
 The box mask — rounded corners included — is applied in the shared `main`, so
 a plugin **cannot** paint outside the element that declared it. That is checked
 against pixels, not asserted: `lib/evg/gl/fx-check.mjs`.
+
+### Liquid glass, as an example of what the layer buys
+
+Frosted glass has been one declaration for years and reads as a fogged sheet
+rather than an object. What is missing from it is refraction: a real pane is
+thicker in the middle than at its edge, so the edge is a curved surface, and
+light through a curve bends. `liquid-glass` is that band — the page behind
+dragged toward the rim, compressed, split slightly into colour, with a
+specular arc inset from the very edge so it reads as a bevel rather than as a
+border somebody drew.
+
+It needs nothing of its own to know the shape: the bend follows
+`fxBoxDistance`, the rounded-box signed distance the preamble hands every
+plugin, and its gradient is the surface normal. So the pane is a lens at
+whatever size the flex row gave it and whatever `border-radius` the sheet
+asked for, and `thickness`, `strength`, `power`, `disperse`, `shine`, `angle`
+and `tint` are the seven numbers that shape it.
 
 ### Registering one
 

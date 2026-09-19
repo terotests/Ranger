@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Liquid glass, as CSS.** A third plugin layer and the effect that needed it.
+  `backdrop` runs a plugin IN PAINT ORDER over what is behind the element — the
+  surface so far is copied where the element paints, the plugin writes it back
+  inside the box, and the element's own background, border and children are
+  drawn on top, sharp. That is what `backdrop-filter: blur()` has always done
+  for one hard-wired filter, now open to any plugin, and it is what a pane of
+  glass needs: one that ran as a post-pass would smear its own label.
+  `liquid-glass` is refraction rather than fog — the page behind dragged toward
+  the rim, compressed into a band a few pixels wide, split slightly into colour,
+  with a specular arc inset from the very edge so it reads as a bevel and not as
+  a border somebody drew. It knows no geometry of its own: the bend follows
+  `fxBoxDistance`, the rounded-box signed distance the preamble now hands every
+  plugin, so a pane is a lens at whatever size the layout gave it and whatever
+  `border-radius` the sheet asked for. Frosting, tint and shape stay ordinary
+  CSS beside it (`backdrop-filter`, `background-color`, `border-radius`), and
+  only the lens is the effect. Checked against stripes, where a displacement is
+  visible: the rim bends, the flat middle stands still, the page around it is
+  untouched and what is drawn over the pane stays exactly its own colour —
+  `npm run evg:fx:check`.
+
 - **A surface effect belongs to an ELEMENT now, and is declared in CSS.**
   `evg-surface-effect: ripple` was one effect over the whole page, with its
   parameters as fields on `EVGElement` and its drops pushed in by the

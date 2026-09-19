@@ -67,6 +67,24 @@ class FxDemoDoc {
             + "  evg-ripple-strength: 9;"
             + "  evg-ripple-decay: 1.5;"
             + "}"
+            ; A PANE OF GLASS OVER THE SKY. Four declarations and three of
+            ; them are ordinary CSS: the shape, the frosting and the tint are
+            ; `border-radius`, `backdrop-filter` and `background-color`, and
+            ; only the refraction is the effect. It is a BACKDROP effect, so
+            ; it runs where this element paints and the label inside it is
+            ; drawn afterwards — sharp, over a bent sky.
+            + ".glass {"
+            + "  background-color: rgba(255,255,255,0.07);"
+            + "  border-radius: 30px;"
+            + "  backdrop-filter: blur(9px);"
+            + "  evg-surface-effect: liquid-glass;"
+            + "  evg-fx-thickness: 30;"
+            + "  evg-fx-strength: 40;"
+            + "  evg-fx-disperse: 0.09;"
+            + "  evg-fx-shine: 0.7;"
+            + "}"
+            + ".glass-title { color: rgb(255,255,255); font-size: 19px; }"
+            + ".glass-note { color: rgb(214,220,248); font-size: 13px; }"
             + ".label { color: rgb(226,230,248); font-size: 15px; }"
             + ".note { color: rgb(150,158,196); font-size: 13px; }"
             + ".plain { background-color: rgb(22,26,52); border-radius: 18px; }"
@@ -108,6 +126,13 @@ class FxDemoDoc {
         def sky:EVGElement (FxDemoDoc.box("sky" "sky" 0.0 0.0 (FxDemoDoc.pageWidth()) 320.0))
         sky.addChild((FxDemoDoc.text("title" "title" "A sky, declared in the stylesheet" 48.0 42.0)))
         sky.addChild((FxDemoDoc.text("sub" "sub" "evg-surface-effect: starfield, and this line is painted over it" 48.0 92.0)))
+        ; The pane is a CHILD OF THE SKY, so it is painted after the stars
+        ; and refracts them, and its own two lines are painted after it.
+        def glass:EVGElement (FxDemoDoc.box("glass" "glass" 520.0 48.0 320.0 210.0))
+        glass.addChild((FxDemoDoc.text("gt" "glass-title" "Liquid glass" 32.0 34.0)))
+        glass.addChild((FxDemoDoc.text("gn" "glass-note" "evg-surface-effect: liquid-glass" 32.0 70.0)))
+        glass.addChild((FxDemoDoc.text("gn2" "glass-note" "the sky bends at the rim; this line does not" 32.0 94.0)))
+        sky.addChild(glass)
         root.addChild(sky)
 
         ; Two pools and a plain card. The pools ripple where they are pressed;
