@@ -128,13 +128,15 @@
     <h2>shadcn kit</h2>
     <div class="shot" id="shadcn-kit" data-shot="shadcn-kit">
       <div class="card" style="width:360px">
-        <div class="row" style="margin-bottom:12px">
-          <div class="btn btn-primary">Button →</div>
-          <div class="btn btn-secondary">Secondary</div>
-          <div class="btn btn-outline">Outline</div>
+        <div class="row" style="margin-bottom:12px" data-holdout="1" data-concept="toolbar" data-fixture="shadcn-kit-btns">
+          <div class="btn btn-primary" data-role="button">Button →</div>
+          <div class="btn btn-secondary" data-role="button">Secondary</div>
+          <div class="btn btn-outline" data-role="button">Outline</div>
         </div>
-        <div class="field" style="margin-bottom:10px">Name<span class="ico">⌕</span></div>
-        <div class="area" style="margin-bottom:12px">Message</div>
+        <div data-holdout="1" data-concept="form" data-fixture="shadcn-kit-form">
+          <div class="field" style="margin-bottom:10px" data-role="textfield">Name<span class="ico">⌕</span></div>
+          <div class="area" style="margin-bottom:12px" data-role="textfield">Message</div>
+        </div>
         <div class="row" style="margin-bottom:12px; justify-content:space-between">
           <div class="row">
             <span class="badge">Badge</span>
@@ -159,13 +161,13 @@
     <h2>shadcn nav</h2>
     <div class="shot" id="shadcn-nav" data-shot="shadcn-nav">
       <div class="navgrid">
-        <div class="card navcard">
+        <div class="card navcard" data-holdout="1" data-concept="nav" data-fixture="shadcn-nav-planning">
           <h3>Planning</h3>
-          <div class="item"><span class="ico">▢</span>Documents</div>
-          <div class="item"><span class="ico">▢</span>Budget</div>
-          <div class="item"><span class="ico">⌂</span>Reports</div>
-          <div class="item"><span class="ico">◎</span>Goals</div>
-          <div class="item"><span class="ico">▦</span>Calendar</div>
+          <div class="item"><span class="ico" data-role="icon">▢</span><span data-role="label">Documents</span></div>
+          <div class="item"><span class="ico" data-role="icon">▢</span><span data-role="label">Budget</span></div>
+          <div class="item"><span class="ico" data-role="icon">⌂</span><span data-role="label">Reports</span></div>
+          <div class="item"><span class="ico" data-role="icon">◎</span><span data-role="label">Goals</span></div>
+          <div class="item"><span class="ico" data-role="icon">▦</span><span data-role="label">Calendar</span></div>
         </div>
         <div class="card navcard">
           <h3>Support</h3>
@@ -213,13 +215,13 @@
           <span>Dec</span><span>Jan</span><span>Feb</span>
           <span>Mar</span><span>Apr</span><span>May</span>
         </div>
-        <div class="split">
-          <div class="mini">
+        <div class="split" data-holdout="1" data-concept="grid" data-fixture="shadcn-chart-minis">
+          <div class="mini" data-role="panel">
             <div class="k">Upcoming</div>
             <div class="v">May 2024</div>
             <div class="s">Scheduled</div>
           </div>
-          <div class="mini">
+          <div class="mini" data-role="panel">
             <div class="k">Savings Plan</div>
             <div class="v">Accelerated</div>
             <div class="s">Recurring</div>
@@ -233,14 +235,14 @@
   <div>
     <h2>shadcn balance</h2>
     <div class="shot" id="shadcn-balance" data-shot="shadcn-balance">
-      <div class="card balance">
-        <h3>Claimable Balance</h3>
-        <p class="money">$1,211.29</p>
-        <span class="pill"><span class="amber"></span>Pending Setup</span>
-        <div class="lines">
-          <div class="line"><span>Net Royalties</span><span>$1,248.75</span></div>
-          <div class="line"><span>Processing Fee</span><span>-$37.46</span></div>
-          <div class="line total"><span>Total Ready to Claim</span><span>$1,211.29 USD</span></div>
+      <div class="card balance" data-holdout="1" data-concept="card" data-fixture="shadcn-balance-card">
+        <h3 data-role="label">Claimable Balance</h3>
+        <p class="money" data-role="label">$1,211.29</p>
+        <span class="pill" data-role="button"><span class="amber"></span>Pending Setup</span>
+        <div class="lines" data-holdout="1" data-concept="list" data-fixture="shadcn-balance-lines">
+          <div class="line" data-role="label"><span>Net Royalties</span><span>$1,248.75</span></div>
+          <div class="line" data-role="label"><span>Processing Fee</span><span>-$37.46</span></div>
+          <div class="line total" data-role="label"><span>Total Ready to Claim</span><span>$1,211.29 USD</span></div>
         </div>
         <p class="note">Once your bank is connected, balances over $10.00 are automatically eligible for monthly distribution on the 15th of each month.</p>
       </div>

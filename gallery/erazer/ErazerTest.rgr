@@ -38,6 +38,7 @@ class ErazerTest {
         test.testJson(t)
         test.testLayoutFeatures(t)
         test.testLayoutLearn(t)
+        test.testLayoutScan(t)
         test.testLayoutStructure(t)
         test.testLayoutWeights(t)
         t.summary()
@@ -301,6 +302,34 @@ class ErazerTest {
         net.teach(list "inspector-group" 4)
         def custom:ErazerLayoutGuess (net.predict(list))
         t.eqStr("new concept can be taught" custom.type "inspector-group")
+    }
+
+    ; The overlay's `scan` is what the page shows as recognition: candidates
+    ; from geometry, then the net names them. Teaching `predict` on a known
+    ; group is not that. A seeded net has to find the column without being
+    ; handed the label.
+    fn testLayoutScan:void (t:RgTest) {
+        def net (new ErazerLayoutNet())
+        net.seedFromSynthetics()
+        def list:[ErazerLayoutBox] (net.synthList(4 16.0))
+        def found:[ErazerLayoutGuess] (net.scan(list))
+        t.ok("seeded scan proposes a group" ((array_length found) >= 1))
+        def hit:boolean false
+        def i:int 0
+        while (i < (array_length found)) {
+            def g:ErazerLayoutGuess (itemAt found i)
+            if (g.type == "list") {
+                hit = true
+            }
+            i = (i + 1)
+        }
+        t.ok("seeded scan names the column a list" hit)
+        def form:[ErazerLayoutBox] (net.synthForm(16.0))
+        def fp:ErazerLayoutGuess (net.predict(form))
+        t.eqStr("seeded predict names the fields a form" fp.type "form")
+        ; scan on the same boxes prefers a two-label subset as `list` (92%)
+        ; over the whole form (72%), and NMS then drops the form. That is
+        ; why the page needs both: predict on a selection, scan on a shot.
     }
 
     fn testLayoutStructure:void (t:RgTest) {

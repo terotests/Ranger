@@ -54,6 +54,20 @@ tiny 40→32→8 net (CPU fallback if the adapter is missing). **Tallenna
 malli** / **Lataa malli** keep weights in IndexedDB, `localStorage`, or a
 `.txt` file.
 
+That scores the model on the same fixtures it just trained on. To test
+**recognition** — does it name a group it was not taught from —
+
+- **Kokeile valinta** runs `predict` on the boxes you clicked, without a
+  gradient step. The purple dashed overlay is the same net's `scan` on
+  the current screenshot.
+- **Testaa tunnistusta** renders the shadcn widgets (`web/shadcn.html`),
+  which `Rakenna HTML-testsetti` never captures, measures the annotated
+  groups, and reports expected vs predicted on both the DOM boxes and
+  the boxes Erazer actually extracted from the PNG.
+
+`npm run erazer:web:lab` drives capture, train, and that holdout in a
+real browser.
+
 A fine-tune **continues from the weights the page is already predicting
 with**, and the eight synthetic archetypes ride along in the corpus. The
 HTML fixtures cover six of the eight classes and carry three toolbars
@@ -64,8 +78,8 @@ click degraded the page until site data was cleared.
 
 The run is then **scored before it is adopted**, over the archetypes and
 every recorded sample. A candidate that loses ground on either is
-reported and thrown away; the weights on the page do not move. `npm run
-erazer:web:lab` drives that whole path in a real browser.
+reported and thrown away; the weights on the page do not move. The lab
+check then runs the holdout: capture, train, recognition.
 
 ## Commands
 
@@ -75,7 +89,7 @@ npm run erazer -- in.png out.evg.json
 npm run erazer -- in.png out.evg.json --overlay boxes.svg --outline
 npm run erazer:web:serve            # live page at http://localhost:8008/
 npm run erazer:web:smoke            # the bundle's exports, in Node
-npm run erazer:web:lab              # the live page, in a browser: capture + train
+npm run erazer:web:lab              # the live page, in a browser: capture + train + holdout
 npm run erazer:shots                # HTML widgets + live-page PNGs
 ```
 
@@ -132,10 +146,9 @@ The same dashboard in the live page (`?png=shadcn-dash.png`):
 | `ErazerPaint.rgr` | synthetic UI-library screenshots |
 | `erazer_cli.rgr` | PNG/JPEG in, `.evg.json` out |
 | `ErazerTest.rgr` | the fixtures, asserted |
-| `web/layout-lab.js` | HTML fixtures → boxes → WebGPU/CPU fine-tune, with the adoption gate |
-| `web/lab-check.mjs` | the lab driven in a real browser |
+| `web/layout-lab.js` | HTML fixtures → boxes → WebGPU/CPU fine-tune, with the adoption gate and a held-out shadcn recognition pass |
+| `web/lab-check.mjs` | the lab driven in a real browser: capture, train, holdout |
 | `web/` | the live page |
-| `web/layout-lab.js` | HTML test-set capture + WebGPU trainer |
 | `web/components.html` | HTML/CSS widgets for `erazer:shots` |
 | `web/shadcn.html` | dark zinc shadcn/ui-shaped dashboard |
 | `shots/` | captured PNGs the live page can load |
