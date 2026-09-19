@@ -276,7 +276,146 @@ function frameFile(docPath, onLine, { quiet = false } = {}) {
   }
 }
 
-function workspaceGuide(task) {
+export const ATTACH_BASE = "attachment";
+
+const imageBin = path.join(root, "lib/evg/bin/evg_image_tool.js");
+
+// Compile the bitmap tool if this clone has not needed it yet. The decoders
+// and the tracer make it a slow build, so it is paid for by the first person
+// who attaches a picture rather than by everybody who serves the page.
+export function buildImageTool() {
+  if (fs.existsSync(imageBin)) return true;
+  const r = spawnSync(
+    "bash",
+    ["scripts/rgr-suite.sh", "./lib/evg/tools/evg_image_tool.rgr", "./lib/evg/bin", "evg_image_tool.js"],
+    { cwd: root, encoding: "utf8", maxBuffer: 40 * 1024 * 1024 },
+  );
+  if (!fs.existsSync(imageBin)) {
+    const text = `${r.stdout || ""}${r.stderr || ""}`;
+    throw new Error(`could not build the image tool:\n${text.slice(-1200)}`);
+  }
+  return true;
+}
+
+// Trace a picture beside the document and leave the palette, the SVG and the
+// patch that inserts it. `width` is what it will be placed at on the phone.
+export function traceAttachment(dir, file, { width = 358, at = "0", index = 0, preset = "poster" } = {}) {
+  buildImageTool();
+  const r = spawnSync(
+    process.execPath,
+    [
+      imageBin,
+      file,
+      `--out=${ATTACH_BASE}`,
+      `--width=${width}`,
+      `--at=${at}`,
+      `--index=${index}`,
+      `--preset=${preset}`,
+    ],
+    { cwd: dir, encoding: "utf8", maxBuffer: 80 * 1024 * 1024, timeout: 180000 },
+  );
+  // The tool prints ONE JSON object, across as many lines as its palette
+  // needs — it is written to be read by a person as well as parsed.
+  const text = `${r.stdout || ""}`.trim();
+  const open = text.indexOf("{");
+  let summary;
+  try {
+    summary = JSON.parse(open < 0 ? "" : text.slice(open));
+  } catch {
+    throw new Error(`the tracer said: ${(text || r.stderr || "nothing").slice(0, 400)}`);
+  }
+  if (!summary || summary.error) {
+    throw new Error(summary && summary.error ? summary.error : "the tracer produced no summary");
+  }
+  summary.file = file;
+  fs.writeFileSync(path.join(dir, `${ATTACH_BASE}.json`), `${JSON.stringify(summary, null, 2)}\n`);
+  return summary;
+}
+
+export function clearAttachment(dir) {
+  for (const name of [`${ATTACH_BASE}.json`, `${ATTACH_BASE}.svg`, `${ATTACH_BASE}.ops.json`, `${ATTACH_BASE}.png`, `${ATTACH_BASE}.jpg`]) {
+    try {
+      fs.rmSync(path.join(dir, name), { force: true });
+    } catch {
+      /* already gone */
+    }
+  }
+}
+
+// What the host traced out of a picture somebody attached, if anything.
+export function attachmentOf(dir) {
+  try {
+    const summary = JSON.parse(fs.readFileSync(path.join(dir, `${ATTACH_BASE}.json`), "utf8"));
+    if (summary && Array.isArray(summary.colors)) return summary;
+  } catch {
+    /* no picture, or a half-written one */
+  }
+  return null;
+}
+
+// Copy the traced picture into a workspace that is not the session directory.
+function carryAttachment(from, to) {
+  if (from === to) return;
+  for (const name of [`${ATTACH_BASE}.json`, `${ATTACH_BASE}.svg`, `${ATTACH_BASE}.ops.json`, `${ATTACH_BASE}.png`, `${ATTACH_BASE}.jpg`]) {
+    const src = path.join(from, name);
+    if (!fs.existsSync(src)) continue;
+    try {
+      fs.copyFileSync(src, path.join(to, name));
+    } catch {
+      /* the picture is a convenience, not the task */
+    }
+  }
+}
+
+// --- WHY THE PICTURE ARRIVES AS OPS -------------------------------------------
+//
+// A traced photograph is tens of kilobytes of coordinates. Telling an agent
+// "here is the SVG" would put every one of them through its context on the way
+// into a patch, to be copied out again unchanged. The host traces it once and
+// leaves the patch already written, so using the picture costs one command.
+function attachmentSection(dir) {
+  const a = attachmentOf(dir);
+  if (!a) return "";
+  const colors = (a.colors || [])
+    .slice(0, 6)
+    .map((c) => `\`${c.hex}\` ${Math.round((c.share || 0) * 100)}%`)
+    .join(", ");
+  return `
+## A picture was attached
+
+\`${ATTACH_BASE}.svg\` is it, traced to flat colour layers by Ranger's
+bitmap tracer — ${a.width}×${a.height}, ${a.layers} layers. It is vector,
+so the document can hold it and every painter draws it.
+
+Its colours, by how much of the picture they cover:
+
+${colors}
+
+Use them. A screen built around the picture's own palette looks like it
+belongs to the picture; one built from guessed colours does not.
+
+To put the picture itself on the phone, apply the patch that is already
+written for it — you never have to handle the path data:
+
+\`\`\`
+./evg-agent patch doc.evg.json ${ATTACH_BASE}.ops.json
+\`\`\`
+
+It inserts at \`${a.insertsAt || "0/0"}\` at ${a.placed || "its own size"}.
+Edit that file's \`at\` / \`index\` / width first if it belongs somewhere
+else, or re-trace at another size:
+
+\`\`\`
+./evg-image ${ATTACH_BASE}.png --out=${ATTACH_BASE} --width=200 --at=0 --index=2
+\`\`\`
+
+\`--preset\` takes lineart, poster, photo, broken or print. If the task is
+about the colours rather than the picture, use the palette and leave the
+picture out.
+`;
+}
+
+function workspaceGuide(task, dir = "") {
   return `# EVG live-build workspace
 
 You are a local agent. The orchestrator on this machine gave you this
@@ -449,7 +588,7 @@ then read \`layout.json\`. You may also write \`App.rgr\` with Ranger that
 builds the same tree.
 
 Do not leave the workspace. Do not require confirmation.
-`;
+${attachmentSection(dir)}`;
 }
 
 export const SEED_KINDS = ["dashboard", "settings", "invoices", "empty"];
@@ -488,9 +627,25 @@ const OPS_LOG_SNIPPET =
   'const fs=require("fs");try{const o=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));' +
   'if(o&&Array.isArray(o.ops)&&o.ops.length)fs.appendFileSync(process.argv[2],JSON.stringify(o.ops)+"\\n");}catch(e){}';
 
+// The bitmap door, when it has been built. `npm run agent:image` compiles it;
+// the server builds it the first time a picture is attached, because the
+// decoders and the tracer make it a slow compile to pay for on every clone.
+function installEvgImage(dir) {
+  const src = path.join(root, "lib/evg/bin/evg_image_tool.js");
+  if (!fs.existsSync(src)) return false;
+  fs.copyFileSync(src, path.join(dir, "evg_image_tool.js"));
+  fs.writeFileSync(
+    path.join(dir, "evg-image"),
+    `#!/bin/sh\nexec node "$(dirname "$0")/evg_image_tool.js" "$@"\n`,
+    { mode: 0o755 },
+  );
+  return true;
+}
+
 function installEvgAgent(dir) {
   const src = path.join(root, "lib/evg/bin/evg_agent.js");
   if (!fs.existsSync(src)) return false;
+  installEvgImage(dir);
   fs.copyFileSync(src, path.join(dir, "evg_agent.js"));
   // The shim also leaves the ops behind. A workspace agent patches through
   // this script, and the host has no other way to learn WHAT it changed: it
@@ -689,7 +844,7 @@ export function prepareSession(task, { git = false, kind = "dashboard" } = {}) {
   if (!looksLikeEvg(existing)) resetSession(kind);
   const doc = fs.readFileSync(path.join(dir, "doc.evg.json"), "utf8");
   fs.writeFileSync(path.join(dir, "TASK.md"), followUpTask(task, doc));
-  fs.writeFileSync(path.join(dir, "AGENTS.md"), workspaceGuide(task));
+  fs.writeFileSync(path.join(dir, "AGENTS.md"), workspaceGuide(task, dir));
   installEvgAgent(dir);
   if (git && !fs.existsSync(path.join(dir, ".git"))) seedGit(dir);
   return dir;
@@ -700,7 +855,8 @@ function makeWorkspace(task, { git = false, doc = "", kind = "dashboard" } = {})
   const text = looksLikeEvg(doc) ? doc : seedDoc(kind);
   fs.writeFileSync(path.join(dir, "doc.evg.json"), text);
   fs.writeFileSync(path.join(dir, "TASK.md"), task + "\n");
-  fs.writeFileSync(path.join(dir, "AGENTS.md"), workspaceGuide(task));
+  carryAttachment(sessionDir(), dir);
+  fs.writeFileSync(path.join(dir, "AGENTS.md"), workspaceGuide(task, dir));
   installEvgAgent(dir);
   if (git) seedGit(dir);
   return dir;

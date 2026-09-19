@@ -137,6 +137,20 @@ nothing to compare. Off-page is still caught. A label that outgrew the shape
 behind it is not. On a diagram, `"count":0` means "nothing left the page", not
 "this looks right" — render it and look.
 
+## A photograph, into a document
+
+```bash
+npm run agent:image                      # once, to build it
+node lib/evg/bin/evg_image_tool.js photo.png --out=photo --width=180
+npm run agent -- patch doc.evg.json photo.ops.json
+```
+
+The tracer turns a PNG or JPEG into flat colour layers and writes the patch
+that inserts them, so the picture arrives as vector — every backend paints it,
+and you never handle a coordinate. The command prints the palette with each
+colour's share of the pixels, which is what to theme a screen with when the
+picture is the brief.
+
 ## Getting a real document in
 
 A `.tsx` page is not directly editable this way. Convert it first, resolving its

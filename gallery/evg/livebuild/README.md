@@ -95,6 +95,32 @@ npm run livebuild:agents               # orchestrator: recipe + mock + Cursor sl
 npm run livebuild:web                  # Chromium: paint, click chips, type a prompt
 ```
 
+## A picture with the ask
+
+**Picture** in the header attaches a PNG or JPEG — or paste one from the
+clipboard. The host traces it with Ranger's own bitmap tracer
+(`EvgBitmapTracer`, the same engine as `npm run evg:trace:web:serve` and
+erazer) the moment it arrives, and leaves three things beside the document
+in the agent's workspace:
+
+| | |
+| --- | --- |
+| `attachment.svg` | the picture as flat colour layers — vector, so every painter draws it |
+| `attachment.ops.json` | the `EVGPatch` batch that inserts it, already written |
+| `attachment.json` | the palette, each colour with its share of the pixels |
+
+The agent never handles a coordinate: it applies the ops file, or themes the
+screen from the palette, and the workspace guide says so. The chip in the
+header shows the thumbnail and the colours that were read out of it. The tool
+is `lib/evg/tools/evg_image_tool.rgr` (`npm run agent:image`), installed into
+the workspace as `./evg-image` so the agent can re-trace at another size or
+with another preset.
+
+```sh
+node lib/evg/bin/evg_image_tool.js photo.png --out=photo --width=180
+{"width":320,"height":221,"layers":8,"colors":[{"hex":"#E3C8A6","share":0.223}, …]}
+```
+
 ## The wire
 
 One JSON object per line. The HTTP door copies each line onto an SSE event
@@ -152,6 +178,7 @@ one, so the UI can say "+12" without walking the list.
 | `mock-agent.mjs` | a local CLI that writes `doc.evg.json` — no model |
 | `self-agent.mjs` | stays open while this cloud agent patches the tree |
 | `withcursor.mjs` | `npm run livebuild:withcursor` — local Agent CLI + login check |
+| `/attach` in `serve.mjs` | a picture in, traced; `lib/evg/tools/evg_image_tool.rgr` does the tracing |
 | `restyle.mjs` | recipe follow-ups: colour / size / radius from the ask |
 | `agents-check.mjs` | orchestrator: recipe, mock workspace, self slot |
 | `browser-smoke.mjs` | Chromium: three recipes and a typed prompt |

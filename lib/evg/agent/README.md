@@ -188,6 +188,39 @@ behind it is not a finding, because nothing in the document says the two belong
 together. Off-page is caught; fit is not. Look at a diagram before believing a
 count of zero.
 
+## A bitmap in — `evg_image_tool`
+
+```
+$ npm run agent:image                       # once, to build it
+$ node lib/evg/bin/evg_image_tool.js photo.png --out=photo --width=180
+{"width":320,"height":221,"layers":8,"rings":126,"colors":[
+  {"hex":"#E3C8A6","share":0.223},
+  {"hex":"#F0E9D4","share":0.214},
+  {"hex":"#0E184D","share":0.108}
+],"wrote":{"svg":"photo.svg","ops":"photo.ops.json"},
+ "insertsAt":"0/0","placed":"180x124"}
+```
+
+A model handed a photograph can describe it and cannot put it on a screen. The
+bridge — `EvgBitmapTracer`, the same one the live tracer page and erazer use —
+has been here all along with nothing pointing an agent at it. This turns an
+image into the two things an agent can act on:
+
+- **the picture**, traced to flat colour layers and written out as an ops file,
+  so `npm run agent -- patch doc.evg.json photo.ops.json` puts it in the
+  document. It goes in as an `svg` node: vector, painted by the browser, the
+  rasteriser and the PDF backend alike, with no image loading anywhere.
+- **the colours**, each with its share of the pixels — counted over the image,
+  not inferred from how many paths a layer produced, because one huge
+  background region and four hundred specks of the same colour say opposite
+  things about which colour the picture *is*.
+
+The ops file is the point. A traced photograph is tens of kilobytes of
+coordinates, and printing them would put every one through a model's context on
+the way back into a patch. `--at` and `--index` say where the picture is
+inserted, `--width` what it is placed at, and `--preset` picks how it is traced
+(lineart, poster, photo, broken, print — see `EvgTraceTypes.rgr`).
+
 ## Getting a real document in, and a picture out
 
 The four verbs read `.evg.json`. Two neighbours in `gallery/pdf_writer/src/tools`

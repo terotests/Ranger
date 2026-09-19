@@ -8,7 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { listAgents, runTask, root, findCursorAgent, cursorSpawnArgs, frameFixture, resetSession, readSessionDoc, prepareSession, sessionDir, makeCursorFeed } from "./agents.mjs";
+import { listAgents, runTask, root, findCursorAgent, cursorSpawnArgs, frameFixture, resetSession, readSessionDoc, prepareSession, sessionDir, makeCursorFeed, attachmentOf, clearAttachment, ATTACH_BASE } from "./agents.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const bin = path.join(root, "gallery/evg/bin/evg_livebuild.js");
@@ -198,6 +198,42 @@ if (fs.existsSync(path.join(root, "lib/evg/bin/evg_agent.js"))) {
     `  layout      layout.json + measure agree — ${saved.nodes} nodes, ` +
       `${saved.count} findings, ${saved.bottomFree}px free`,
   );
+}
+
+// A picture attached to the ask reaches the agent as a palette and a patch,
+// never as coordinates. The tracer itself is covered by agent:smoke; what this
+// checks is the wiring — that the workspace guide says the picture is there
+// and how to use it, and that a temp workspace gets the files too.
+{
+  resetSession("dashboard");
+  const dir = sessionDir();
+  clearAttachment(dir);
+  const guideWithout = fs.readFileSync(path.join(dir, "AGENTS.md"), "utf8");
+  if (/A picture was attached/.test(guideWithout)) {
+    throw new Error("the guide claims a picture that is not there");
+  }
+  fs.writeFileSync(
+    path.join(dir, `${ATTACH_BASE}.json`),
+    JSON.stringify({
+      width: 320,
+      height: 221,
+      layers: 8,
+      insertsAt: "0/0",
+      placed: "358x247",
+      colors: [{ hex: "#E3C8A6", share: 0.223 }, { hex: "#0E184D", share: 0.108 }],
+    }),
+  );
+  fs.writeFileSync(path.join(dir, `${ATTACH_BASE}.svg`), "<svg></svg>\n");
+  fs.writeFileSync(path.join(dir, `${ATTACH_BASE}.ops.json`), '{"ops":[]}\n');
+  if (!attachmentOf(dir)) throw new Error("the host cannot read back the attachment it wrote");
+  prepareSession("use the picture", { kind: "dashboard" });
+  const guide = fs.readFileSync(path.join(dir, "AGENTS.md"), "utf8");
+  for (const need of ["A picture was attached", "#E3C8A6", `${ATTACH_BASE}.ops.json`, "./evg-image"]) {
+    if (!guide.includes(need)) throw new Error(`the guide never mentions ${need}`);
+  }
+  if (guide.includes("<svg")) throw new Error("the guide is carrying path data — that is what the ops file is for");
+  console.log("  picture     palette + ops in the guide, no coordinates");
+  clearAttachment(dir);
 }
 
 const selfWs = fs.mkdtempSync(path.join(os.tmpdir(), "evg-self-"));

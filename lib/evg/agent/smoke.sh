@@ -153,6 +153,26 @@ npm run --silent agent -- outline "$work/doc.json" > "$work/unchanged.txt"
 diff -q "$work/before.txt" "$work/unchanged.txt" > /dev/null \
   || fail "a rejected batch still changed the document"
 
+# a bitmap, through the tracer and into the document. The picture must arrive
+# as vector the document can hold, and the palette must be countable — an agent
+# that cannot see the photograph has to be able to theme a screen from it.
+if [ ! -f lib/evg/bin/evg_image_tool.js ]; then
+  echo "building evg_image_tool…"
+  npm run --silent agent:image > "$work/image-build.log" 2>&1 \
+    || { tail -20 "$work/image-build.log"; fail "could not build evg_image_tool"; }
+fi
+cp lib/evg/web/tracer/sample.png "$work/shot.png"
+traced=$(cd "$work" && node "$root/lib/evg/bin/evg_image_tool.js" shot.png --out=shot --width=180)
+echo "$traced" | grep -q '"colors"' || fail "the tracer reported no palette: $traced"
+echo "$traced" | grep -q '"share"' || fail "the palette has no shares: $traced"
+[ -f "$work/shot.svg" ] || fail "no traced SVG"
+[ -f "$work/shot.ops.json" ] || fail "no ops file to insert the picture with"
+cp lib/evg/agent/fixtures/card.evg.json "$work/pic.json"
+npm run --silent agent -- patch "$work/pic.json" "$work/shot.ops.json" | grep -q '"ok":true' \
+  || fail "the traced picture would not apply"
+npm run --silent agent -- outline "$work/pic.json" | grep -q '^0/0 *svg' \
+  || fail "the picture is not in the document as an svg node"
+
 # a two-stop gradient, which EVG spells two ways and the painters used to know
 # only one of: `gradient-from` / `gradient-to` is what the display list, the GPU
 # backend and the Figma importer all speak, and it drew on the GPU and nowhere

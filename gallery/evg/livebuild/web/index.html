@@ -59,6 +59,22 @@
   .chip.active { border-color: #2dd4bf88; color: var(--accent); }
   .chip.off { opacity: .45; cursor: not-allowed; }
   .lbl { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+  /* A picture attached to the ask: what it traced to, and the colours it is
+     made of, so the palette is visible to the person too. */
+  .attach { display: flex; align-items: center; gap: 8px; }
+  .shot {
+    display: none; align-items: center; gap: 8px; padding: 4px 10px 4px 4px;
+    border: 1px solid var(--line); border-radius: 999px; background: #0b1220;
+    font-size: 11.5px; color: var(--muted);
+  }
+  .shot.on { display: flex; }
+  .shot img { width: 30px; height: 30px; object-fit: cover; border-radius: 8px; }
+  .swatches { display: flex; gap: 3px; }
+  .swatch { width: 12px; height: 12px; border-radius: 3px; border: 1px solid rgba(255,255,255,.14); }
+  .shot button {
+    border: 0; background: none; color: var(--muted); padding: 0 2px;
+    font-size: 14px; line-height: 1; cursor: pointer;
+  }
   main {
     display: grid;
     grid-template-columns: minmax(280px, 420px) 1fr;
@@ -157,6 +173,16 @@
       placeholder="Change this phone, then Follow up. Start-over chips wipe it.">
     <button class="primary" id="go" type="submit">Follow up</button>
   </form>
+  <div class="attach">
+    <input type="file" id="pick" accept="image/png,image/jpeg" hidden>
+    <button type="button" class="chip" id="attach" title="Attach a picture — it is traced to vector and its colours read">Picture</button>
+    <span class="shot" id="shot">
+      <img id="thumb" alt="">
+      <span class="swatches" id="swatches"></span>
+      <span id="shotText"></span>
+      <button type="button" id="drop" title="Remove">×</button>
+    </span>
+  </div>
   <div class="chips" id="chips"></div>
   <div class="agents" id="agents"></div>
 </header>
@@ -414,6 +440,88 @@ function start(keepPicture) {
     }
   };
 }
+
+// --- THE ATTACHED PICTURE -----------------------------------------------------
+//
+// The file never reaches the model. The host traces it with Ranger's bitmap
+// tracer and the agent is handed flat colour layers and a counted palette,
+// which is the part it can act on; this row is so the person can see what was
+// read out of their picture.
+function showShot(a, dataUrl) {
+  const on = Boolean(a && a.colors && a.colors.length);
+  $("shot").classList.toggle("on", on);
+  if (!on) {
+    $("thumb").removeAttribute("src");
+    $("swatches").replaceChildren();
+    $("shotText").textContent = "";
+    return;
+  }
+  if (dataUrl) $("thumb").src = dataUrl;
+  $("swatches").replaceChildren();
+  for (const c of a.colors.slice(0, 6)) {
+    const sw = document.createElement("span");
+    sw.className = "swatch";
+    sw.style.background = c.hex;
+    sw.title = `${c.hex} · ${Math.round((c.share || 0) * 100)}%`;
+    $("swatches").appendChild(sw);
+  }
+  $("shotText").textContent = `${a.width}×${a.height}, ${a.layers} layers`;
+}
+
+async function sendShot(file) {
+  const dataUrl = await new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result || ""));
+    r.onerror = () => reject(new Error("could not read that file"));
+    r.readAsDataURL(file);
+  });
+  $("attach").textContent = "Tracing…";
+  $("attach").disabled = true;
+  try {
+    const res = await fetch("/attach", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ dataUrl, width: 358 }),
+    });
+    const a = await res.json();
+    if (a.error) throw new Error(a.error);
+    showShot(a, dataUrl);
+  } catch (e) {
+    $("shot").classList.remove("on");
+    $("think").append("\n\nattach: " + (e.message || e));
+  } finally {
+    $("attach").textContent = "Picture";
+    $("attach").disabled = false;
+  }
+}
+
+$("attach").addEventListener("click", () => $("pick").click());
+$("pick").addEventListener("change", () => {
+  const file = $("pick").files && $("pick").files[0];
+  if (file) sendShot(file);
+  $("pick").value = "";
+});
+$("drop").addEventListener("click", async () => {
+  await fetch("/attach", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ clear: true }),
+  });
+  showShot(null);
+});
+// A screenshot in the clipboard is the usual way one of these arrives.
+window.addEventListener("paste", (ev) => {
+  for (const item of (ev.clipboardData && ev.clipboardData.items) || []) {
+    if (item.type && item.type.startsWith("image/")) {
+      const file = item.getAsFile();
+      if (file) {
+        ev.preventDefault();
+        sendShot(file);
+      }
+      return;
+    }
+  }
+});
 
 function spin(on) {
   $("spin").classList.toggle("on", on);
