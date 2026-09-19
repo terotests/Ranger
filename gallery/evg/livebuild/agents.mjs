@@ -332,6 +332,24 @@ A rejected op fails the whole batch and changes nothing. \`measure\`
 reports overflow, overlap, and nodes off the page — trust those numbers
 over a screenshot.
 
+## An edit that leaves no trace still applied
+
+EVG's defaults are not CSS's: a div is **\`flex-direction: column\`** and
+\`display: block\` until you say otherwise. The file lists only what
+DIFFERS from a fresh element of that tag, so setting a property to its
+default removes the line instead of adding one. \`flex-direction:
+column\` vanishing from \`doc.evg.json\` — and from \`outline\` — means
+the node is a column now, not that the edit was dropped. \`patch\` says
+so in its result under \`atDefault\`. Do not route around it.
+
+Going the other way, a property the patchable set does not cover cannot
+be written down: \`patch\` rejects the op, and a name hand-written into
+\`doc.evg.json\` is gone the next time anything rewrites the file.
+
+Editing through \`./evg-agent patch\` also shows the batch on the live page,
+next to the picture. A hand-written file still repaints; it just arrives
+without the ops that explain it.
+
 If there is no \`./evg-agent\`, edit \`doc.evg.json\` directly and save.
 The host lays each save out and streams the display list to the browser.
 You may also write \`App.rgr\` with Ranger that builds the same tree.
@@ -373,12 +391,79 @@ function installEvgAgent(dir) {
   const src = path.join(root, "lib/evg/bin/evg_agent.js");
   if (!fs.existsSync(src)) return false;
   fs.copyFileSync(src, path.join(dir, "evg_agent.js"));
+  // The shim also leaves the ops behind. A workspace agent patches through
+  // this script, and the host has no other way to learn WHAT it changed: it
+  // sees a file that differs, not a batch. Recording the applied batch is what
+  // keeps the page's EVGPatch panel honest — empty means the agent rewrote the
+  // JSON by hand, not that ops stopped working.
   fs.writeFileSync(
     path.join(dir, "evg-agent"),
-    `#!/bin/sh\nexec node "$(dirname "$0")/evg_agent.js" "$@"\n`,
+    [
+      "#!/bin/sh",
+      'dir=$(dirname "$0")',
+      // Only `patch` is buffered, and only a batch the tool said it APPLIED is
+      // recorded: a rejection exits 0 with `"ok":false`, and a panel showing
+      // ops that never landed would be worse than an empty one.
+      'if [ "$1" = "patch" ]; then',
+      '  out=$(node "$dir/evg_agent.js" "$@")',
+      "  status=$?",
+      `  printf '%s\\n' "$out"`,
+      '  if [ "$status" = "0" ] && [ -f "$3" ]; then',
+      "    case \"$out\" in",
+      `      *'\"ok\":true'*) node -e '${OPS_LOG_SNIPPET}' "$3" "$dir/${OPS_LOG}" ;;`,
+      "    esac",
+      "  fi",
+      "  exit $status",
+      "fi",
+      'exec node "$dir/evg_agent.js" "$@"',
+      "",
+    ].join("\n"),
     { mode: 0o755 },
   );
   return true;
+}
+
+// One line per applied batch, so the host can read it with an offset and never
+// half-parse a write in flight.
+const OPS_LOG = ".applied-ops.log";
+const OPS_LOG_SNIPPET =
+  'const fs=require("fs");try{const o=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));' +
+  'if(o&&Array.isArray(o.ops)&&o.ops.length)fs.appendFileSync(process.argv[2],JSON.stringify(o.ops)+"\\n");}catch(e){}';
+
+function watchOps(workspace, onOps) {
+  const file = path.join(workspace, OPS_LOG);
+  try {
+    fs.rmSync(file, { force: true });
+  } catch {
+    /* a session workspace keeps the last run's log */
+  }
+  let seen = 0;
+  const tick = () => {
+    let text;
+    try {
+      text = fs.readFileSync(file, "utf8");
+    } catch {
+      return;
+    }
+    const fresh = text.slice(seen);
+    const cut = fresh.lastIndexOf("\n");
+    if (cut < 0) return;
+    seen += cut + 1;
+    for (const line of fresh.slice(0, cut).split("\n")) {
+      if (!line.trim()) continue;
+      try {
+        const ops = JSON.parse(line);
+        if (Array.isArray(ops) && ops.length) onOps(ops);
+      } catch {
+        /* not a batch this host wrote */
+      }
+    }
+  };
+  const iv = setInterval(tick, 60);
+  return () => {
+    tick();
+    clearInterval(iv);
+  };
 }
 
 function seedGit(dir) {
@@ -545,36 +630,97 @@ function spawnAgentProcess(id, bin, workspace, task, followUp = false) {
   throw new Error(`no spawn for ${id}`);
 }
 
-function feedCursorLine(line, onLine) {
-  let obj;
-  try {
-    obj = JSON.parse(line);
-  } catch {
-    return false;
-  }
-  if (!obj || typeof obj !== "object" || typeof obj.type !== "string") return false;
-  if (obj.type === "assistant") {
-    const content = obj.message && obj.message.content;
-    let text = "";
-    if (Array.isArray(content)) {
-      text = content.map((c) => (c && c.text) || "").join("");
-    } else if (typeof content === "string") {
-      text = content;
+// --- WHY CURSOR NEEDS ITS OWN FEED -------------------------------------------
+//
+// `--stream-partial-output` means an assistant message arrives as many small
+// deltas — often half a word — and then once more, whole, when it is finished.
+// Handing each delta to `tokenize` made every one of them a complete thought:
+// the page broke a paragraph at each arrival and rejoined the pieces with
+// spaces, so "tekstipino" read as "tekst ip ino" down three lines, and the
+// final whole message printed the same sentence again underneath.
+//
+// So this keeps the state one line cannot have. A delta is appended to the
+// thought; whole WORDS are emitted as they complete and the unfinished tail is
+// held back; the closing repeat is recognised as a prefix of what was already
+// said and dropped. `think` — the thought, whole — is emitted when the thought
+// ends, which is the next tool call, the end of the turn, or the end of the
+// stream.
+function makeCursorFeed(onLine) {
+  let said = ""; // the thought so far, including the tail not yet emitted
+  let tail = ""; // the last piece, which may still be half a word
+
+  const say = (text) => {
+    tail += text;
+    const parts = tail.split(/\s+/);
+    tail = parts.pop() ?? "";
+    for (const w of parts) {
+      if (w) onLine(ndjson({ t: "token", text: w }));
     }
-    if (text) tokenize(text, onLine);
+  };
+
+  const flush = () => {
+    if (tail) {
+      onLine(ndjson({ t: "token", text: tail }));
+      tail = "";
+    }
+    if (said.trim()) onLine(ndjson({ t: "think", text: said.trim() }));
+    said = "";
+  };
+
+  // What is new in this event: the whole of it when the message is streamed as
+  // deltas, the remainder when the CLI resends cumulative text, nothing when it
+  // repeats a message that has already been said.
+  const delta = (text) => {
+    if (!said) return text;
+    if (text.startsWith(said)) return text.slice(said.length);
+    const flat = (s) => s.replace(/\s+/g, " ").trim();
+    if (flat(text) === flat(said)) return "";
+    return text;
+  };
+
+  const feed = (line) => {
+    let obj;
+    try {
+      obj = JSON.parse(line);
+    } catch {
+      return false;
+    }
+    if (!obj || typeof obj !== "object" || typeof obj.type !== "string") return false;
+    if (obj.type === "assistant") {
+      const content = obj.message && obj.message.content;
+      let text = "";
+      if (Array.isArray(content)) {
+        text = content.map((c) => (c && c.text) || "").join("");
+      } else if (typeof content === "string") {
+        text = content;
+      }
+      if (text) {
+        const add = delta(text);
+        if (add) {
+          said += add;
+          say(add);
+        }
+      }
+      return true;
+    }
+    if (obj.type === "tool_call" && obj.subtype === "started") {
+      flush();
+      const tc = obj.tool_call || {};
+      const path =
+        (tc.writeToolCall && tc.writeToolCall.args && tc.writeToolCall.args.path) ||
+        (tc.shellToolCall && tc.shellToolCall.args && tc.shellToolCall.args.command) ||
+        "";
+      if (path) tokenize(String(path), onLine);
+      return true;
+    }
+    if (obj.type === "result") flush();
     return true;
-  }
-  if (obj.type === "tool_call" && obj.subtype === "started") {
-    const tc = obj.tool_call || {};
-    const path =
-      (tc.writeToolCall && tc.writeToolCall.args && tc.writeToolCall.args.path) ||
-      (tc.shellToolCall && tc.shellToolCall.args && tc.shellToolCall.args.command) ||
-      "";
-    if (path) onLine(ndjson({ t: "think", text: String(path) }));
-    return true;
-  }
-  return true;
+  };
+
+  return { feed, flush };
 }
+
+export { makeCursorFeed };
 
 function watchDoc(workspace, onChange) {
   const file = path.join(workspace, "doc.evg.json");
@@ -653,6 +799,9 @@ export async function runWorkspaceAgent({ id, kind, prompt, seed, session = fals
     : makeWorkspace(task, { git: id === "cursor", doc: seed, kind });
   const keep = session || process.env.EVG_LIVEBUILD_KEEP === "1";
   let frames = 0;
+  const stopOps = watchOps(ws, (ops) => {
+    onLine(ndjson({ t: "ops", applied: ops.length, ops }));
+  });
   const stopWatch = watchDoc(ws, (file) => {
     try {
       const text = fs.readFileSync(file, "utf8");
@@ -679,6 +828,8 @@ export async function runWorkspaceAgent({ id, kind, prompt, seed, session = fals
       }
     } catch (e) {
       onLine(ndjson({ t: "error", text: String(e.message || e) }));
+      stopWatch();
+      stopOps();
       resolve();
       return;
     }
@@ -695,6 +846,7 @@ export async function runWorkspaceAgent({ id, kind, prompt, seed, session = fals
     }
     child.stdout.setEncoding("utf8");
     let buf = "";
+    const cursorFeed = makeCursorFeed(onLine);
     child.stdout.on("data", (chunk) => {
       buf += chunk;
       let nl;
@@ -702,7 +854,7 @@ export async function runWorkspaceAgent({ id, kind, prompt, seed, session = fals
         const line = buf.slice(0, nl);
         buf = buf.slice(nl + 1);
         if (!line.trim()) continue;
-        if (id === "cursor" && feedCursorLine(line, onLine)) continue;
+        if (id === "cursor" && cursorFeed.feed(line)) continue;
         tokenize(line, onLine);
       }
     });
@@ -716,13 +868,17 @@ export async function runWorkspaceAgent({ id, kind, prompt, seed, session = fals
     });
     child.on("error", (e) => {
       onLine(ndjson({ t: "error", text: String(e.message || e) }));
+      stopWatch();
+      stopOps();
       resolve();
     });
     child.on("close", (code) => {
       if (buf.trim()) {
-        if (!(id === "cursor" && feedCursorLine(buf, onLine))) tokenize(buf, onLine);
+        if (!(id === "cursor" && cursorFeed.feed(buf))) tokenize(buf, onLine);
       }
+      cursorFeed.flush();
       stopWatch();
+      stopOps();
       try {
         const text = fs.readFileSync(path.join(ws, "doc.evg.json"), "utf8");
         if (looksLikeEvg(text)) onLine(ndjson({ t: "doc", text }));

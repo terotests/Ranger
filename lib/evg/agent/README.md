@@ -78,10 +78,23 @@ The `inverse` list is a **runnable ops file**: save it, run `patch` with the
 ops in reverse order, and the document is what it was. That is the difference
 between "here is how to undo it" and "here is a description of the undo".
 
-Three rules worth knowing before writing ops:
+Four rules worth knowing before writing ops:
 
 - **A rejected op fails the whole batch.** Nothing is applied and the document
   is untouched. "3 of 5 applied" hands you a document nobody designed.
+- **An op can apply and leave no trace.** A file carries only what differs from
+  a fresh element of that tag, and EVG's defaults are not CSS's — a div is
+  `flex-direction: column`. Setting a property to its default therefore removes
+  a line rather than adding one, and the node changed anyway. `patch` names
+  those ops in `atDefault` so that re-reading the file is not read as the edit
+  having been dropped:
+
+  ```
+  {"ok":true,"applied":1,"wrote":"doc.evg.json","atDefault":[
+    {"at":"0/0","prop":"flex-direction","value":"column","tag":"div"}
+  ],"note":"applied — but those values are the tag default …","inverse":[…]}
+  ```
+
 - **A property that cannot be read back cannot be patched.** The patchable set
   is `EVGPatch.patchableNames()` — which is also exactly what a document file
   can carry, so nothing can be written down that an edit would silently drop.

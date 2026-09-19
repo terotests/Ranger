@@ -111,6 +111,20 @@ named for `t`.
 | `measure` | overflow / off-page findings after the last frame |
 | `done` | `ok`, step count, command count |
 
+`ops` comes from the recipe, and from a workspace agent whenever it edits
+through `./evg-agent patch` — the shim in the workspace records each applied
+batch and the host streams it. An agent that rewrites `doc.evg.json` by hand
+still repaints, and the panel stays empty: that is the honest answer to "was
+this an EVGPatch edit", not a lost event.
+
+`think` is one whole thought and `token` is one whole word, however the agent
+produced them. A CLI told to stream partial output (Cursor) sends half-words
+and then repeats the finished message; `agents.mjs` joins the pieces, holds
+back a tail that is not a word yet, and drops the repeat, so the page is not
+left rendering "tekst ip ino" down three lines. The thought boundary arrives
+before the words from the recipe and after them from a streaming CLI, and the
+page takes the paragraph break at the next word either way.
+
 A frame is a full list, not a command-level diff. A phone screen is a few
 kilobytes gzipped; sending the list is cheaper than inventing a patch
 format the painters do not read. The *semantic* delta is the ops event.

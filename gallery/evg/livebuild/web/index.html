@@ -121,6 +121,16 @@
     margin-left: 2px; vertical-align: -1px; animation: blink 1s step-end infinite;
   }
   @keyframes blink { 50% { opacity: 0; } }
+  /* A build can think for a long time between two tokens. Without this the
+     page looks finished the whole time it is working. */
+  .spin {
+    display: none; width: 10px; height: 10px; margin-left: 8px;
+    border: 2px solid var(--line); border-top-color: var(--accent);
+    border-radius: 50%; animation: spin .7s linear infinite;
+  }
+  .spin.on { display: inline-block; }
+  h2 .lead { display: flex; align-items: center; }
+  @keyframes spin { to { transform: rotate(360deg); } }
   .ops { color: #e2e8f0; background: #0c1220; }
   .op {
     display: inline-block; margin: 0 6px 6px 0; padding: 3px 8px;
@@ -157,7 +167,7 @@
   </div>
   <div class="side">
     <section>
-      <h2>Thinking <span id="kindLabel"></span></h2>
+      <h2><span class="lead">Thinking <span class="spin" id="spin"></span></span> <span id="kindLabel"></span></h2>
       <pre class="think" id="think"><span class="empty">Loading a phone seed…</span></pre>
     </section>
     <section>
@@ -186,6 +196,8 @@ let currentAgent = preferredInfo && preferredInfo.available ? preferred : "recip
 let es = null;
 let tokens = 0;
 let thinkStarted = false;
+let pendingBreak = false;
+let atParagraphStart = true;
 
 const al = document.createElement("span");
 al.className = "lbl";
@@ -245,6 +257,9 @@ async function loadSeed(kind) {
   $("ntok").textContent = "0";
   tokens = 0;
   thinkStarted = false;
+  pendingBreak = false;
+  atParagraphStart = true;
+  spin(false);
 }
 
 function paintFrame(d) {
@@ -258,7 +273,10 @@ function paintFrame(d) {
 function start(keepPicture) {
   if (es) { es.close(); es = null; }
   thinkStarted = false;
+  pendingBreak = false;
+  atParagraphStart = true;
   tokens = 0;
+  spin(true);
   $("think").textContent = "";
   $("ops").innerHTML = "";
   $("code").textContent = "";
@@ -284,16 +302,25 @@ function start(keepPicture) {
       });
     }
   });
-  on("think", (d) => {
-    if (thinkStarted) $("think").append("\n\n");
-    thinkStarted = true;
+  // A `think` is a thought boundary, and it arrives BEFORE the thought from
+  // the recipe and AFTER it from a streaming CLI. Taking the break at the next
+  // token instead of at once is what makes both orders read the same, and what
+  // keeps a paragraph from opening with a blank line or closing with one.
+  on("think", () => {
+    if (thinkStarted) pendingBreak = true;
   });
   on("token", (d) => {
     if (!thinkStarted) {
       $("think").textContent = "";
       thinkStarted = true;
     }
-    $("think").append((tokens ? " " : "") + d.text);
+    if (pendingBreak) {
+      $("think").append("\n\n");
+      pendingBreak = false;
+      atParagraphStart = true;
+    }
+    $("think").append((tokens && !atParagraphStart ? " " : "") + d.text);
+    atParagraphStart = false;
     $("think").append(cursor());
     tokens += 1;
     $("ntok").textContent = String(tokens);
@@ -325,6 +352,7 @@ function start(keepPicture) {
   });
   on("done", (d) => {
     $("go").disabled = false;
+    spin(false);
     $("added").textContent = d.ok ? "done" : "failed";
     const cur = $("think").querySelector(".cursor");
     if (cur) cur.remove();
@@ -332,11 +360,16 @@ function start(keepPicture) {
   });
   es.onerror = () => {
     $("go").disabled = false;
+    spin(false);
     if (es && es.readyState === EventSource.CONNECTING) {
       // The stream ended. Do not let the browser open a second build.
       es.close();
     }
   };
+}
+
+function spin(on) {
+  $("spin").classList.toggle("on", on);
 }
 
 function cursor() {

@@ -57,10 +57,17 @@ tag, or a path).
 ]}
 ```
 
-Three things to know, because they change how you write ops:
+Four things to know, because they change how you write ops:
 
 - **A rejected op fails the whole batch and changes nothing.** So a batch is
   safe to attempt — you never have to work out what half-applied.
+- **An applied op can leave no trace in the file.** A document carries only what
+  differs from a fresh element of that tag, and EVG's defaults are not CSS's —
+  a div is `flex-direction: column`, `display: block`. Setting a property to its
+  default removes the line instead of adding one, and `outline` stops showing
+  it, while the node really did change. `patch` lists those ops under
+  `atDefault`. A property you set and then cannot find is that, not a lost
+  edit — do not route around it with different markup.
 - **Only properties the engine implements are accepted.** `aspect-ratio` and
   friends are rejected with a reason. Do not work around a rejection by writing
   the value somewhere else; report it.

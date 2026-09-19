@@ -8,7 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { listAgents, runTask, root, findCursorAgent, cursorSpawnArgs, frameFixture, resetSession, readSessionDoc, prepareSession, sessionDir } from "./agents.mjs";
+import { listAgents, runTask, root, findCursorAgent, cursorSpawnArgs, frameFixture, resetSession, readSessionDoc, prepareSession, sessionDir, makeCursorFeed } from "./agents.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const bin = path.join(root, "gallery/evg/bin/evg_livebuild.js");
@@ -157,6 +157,20 @@ if (errors.length) throw new Error("mock emitted error: " + (errors[0].text || "
 if (mockEvents[0].agent !== "mock") throw new Error("session did not name the agent");
 console.log(`  mock        ${frames.length} frames, ${tokens.length} tokens, agent=${mockEvents[0].agent}`);
 
+// A workspace agent that edits through `./evg-agent` should fill the page's
+// EVGPatch panel. An empty panel has to mean "this agent rewrote the file by
+// hand", never "the ops never reached the host".
+if (fs.existsSync(path.join(root, "lib/evg/bin/evg_agent.js"))) {
+  const applied = mockEvents.filter((e) => e.t === "ops").flatMap((e) => e.ops || []);
+  const prop = applied.find((o) => o.op === "set-prop" && o.prop === "background-color");
+  if (!prop) {
+    throw new Error("a patch through the workspace shim produced no ops event");
+  }
+  console.log("  ops         " + applied.length + " from ./evg-agent patch, panel fed");
+} else {
+  console.log("  ops         skipped — lib/evg/bin/evg_agent.js is not built (npm run agent)");
+}
+
 const selfWs = fs.mkdtempSync(path.join(os.tmpdir(), "evg-self-"));
 fs.writeFileSync(
   path.join(selfWs, "doc.evg.json"),
@@ -209,6 +223,43 @@ if (cursorBin) {
   throw new Error("withcursor --check should say cursor CLI off when missing");
 }
 console.log("  withcursor  " + String(withcursor.stdout || "").trim());
+
+// Cursor with --stream-partial-output: half-words, then the whole message once
+// more. One thought, whole words, and no second copy of the sentence.
+{
+  const out = [];
+  const feed = makeCursorFeed((line) => out.push(JSON.parse(line)));
+  const say = (text) =>
+    feed.feed(JSON.stringify({ type: "assistant", message: { content: [{ text }] } }));
+  const whole = "Oletus on jo column, joten tekstipino on pystyssa.";
+  for (const piece of ["Oletus on jo column, joten tekst", "ip", "ino on ", "pystyssa."]) say(piece);
+  say(whole); // the CLI repeats the finished message
+  feed.flush();
+  const words = out.filter((e) => e.t === "token").map((e) => e.text);
+  const thoughts = out.filter((e) => e.t === "think");
+  if (words.join(" ") !== whole) {
+    throw new Error("cursor deltas did not rejoin into words: " + JSON.stringify(words));
+  }
+  if (thoughts.length !== 1) {
+    throw new Error("a streamed message should be one thought, got " + thoughts.length);
+  }
+  if (thoughts[0].text !== whole) {
+    throw new Error("the thought is not the message: " + thoughts[0].text);
+  }
+  const tool = [];
+  const feed2 = makeCursorFeed((line) => tool.push(JSON.parse(line)));
+  feed2.feed(JSON.stringify({ type: "assistant", message: { content: [{ text: "Katson tiedoston." }] } }));
+  feed2.feed(JSON.stringify({
+    type: "tool_call",
+    subtype: "started",
+    tool_call: { shellToolCall: { args: { command: "./evg-agent outline doc.evg.json" } } },
+  }));
+  const order = tool.map((e) => e.t);
+  if (order.indexOf("think") < 0 || order.lastIndexOf("think") <= order.indexOf("think")) {
+    throw new Error("a tool call should close the thought and open the next: " + order.join(","));
+  }
+  console.log("  cursor feed " + words.length + " words, 1 thought, no repeat");
+}
 
 const missing = agents.filter((a) => !a.available).map((a) => a.id);
 if (missing.length) {
