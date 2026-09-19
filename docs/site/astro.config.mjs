@@ -41,7 +41,7 @@ export default defineConfig({
     starlight({
       // Document <title> suffix (and og:site_name). The header still says
       // "Ranger": see src/components/SiteTitle.astro.
-      title: "Save time. Keep one source.",
+      title: "Rewrite? Use Ranger.",
       // The Ranger mark: the gold R in a shield. The source of the file is
       // ranger-vscode-extension/icons/ranger-file-icon.svg.
       favicon: "/favicon.svg",
