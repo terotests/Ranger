@@ -39,8 +39,13 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
         case 34 {
             ( = encoded_str ( encoded_str + (strfromcode 92 ) + (strfromcode 34 ) ) ) 
         }  
+        ; `$` -- escaped as `\$`, because PHP interpolates a variable inside a
+        ; double-quoted string. This case used to emit `\"`, copied from the case
+        ; above it, so `"literal $HOME stays"` came out as
+        ; `"literal \"HOME stays"` -- a parse error, and not the escape that was
+        ; intended either. ISSUES.md #83.
         case 36 {
-            ( = encoded_str ( encoded_str + (strfromcode 92 ) + (strfromcode 34 ) ) ) 
+            ( = encoded_str ( encoded_str + (strfromcode 92 ) + (strfromcode 36 ) ) ) 
         }          
         case 92 {
             = encoded_str ( encoded_str + (strfromcode 92 ) + (strfromcode 92 ) ) 

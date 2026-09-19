@@ -1,0 +1,16 @@
+; A module a HOST SHELL includes: no `main`, because the platform calls the
+; host and the host calls this. An SDL2, Android or iOS host is this shape.
+class Shared {
+    def frames:int 0
+    Constructor () {
+    }
+    fn greeting:string () {
+        return "hello from Ranger"
+    }
+    fn tick:void () {
+        frames = frames + 1
+    }
+    fn frameCount:int () {
+        return frames
+    }
+}

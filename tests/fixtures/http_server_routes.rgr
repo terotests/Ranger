@@ -1,0 +1,47 @@
+; An HTTP server small enough to assert on: one route per thing the
+; `http_*` operators can read, plus an SSE endpoint.
+;
+; The port is fixed because `start` takes it as an argument and the test has to
+; know it. ISSUES.md #93.
+
+class HttpRoutesTest@(HttpServer) {
+
+    fn index@(GET "/"):void (req:HttpRequest res:HttpResponse) {
+        def m:string (http_get_method req)
+        def p:string (http_get_path req)
+        http_set_header res "Content-Type" "text/plain"
+        http_set_status res 200
+        http_send res (m + " " + p)
+    }
+
+    ; `{id}` is Go ServeMux syntax, and the es6 adapter matches the same thing.
+    fn user@(GET "/users/{id}"):void (req:HttpRequest res:HttpResponse) {
+        def id:string (http_get_param req "id")
+        http_set_status res 200
+        http_send res ("user=" + id)
+    }
+
+    fn search@(GET "/search"):void (req:HttpRequest res:HttpResponse) {
+        def q:string (http_get_query req "q")
+        http_set_status res 200
+        http_send res ("q=" + q)
+    }
+
+    fn echo@(GET "/echo"):void (req:HttpRequest res:HttpResponse) {
+        def demo:string (http_get_header req "x-demo")
+        http_set_status res 200
+        http_send res ("x-demo=" + demo)
+    }
+
+    fn events@(SSE "/events"):void (client:SSEClient) {
+        sse_send client "hello" "one"
+        if (sse_is_connected client) {
+            sse_send client "hello" "two"
+        }
+    }
+}
+
+sfn m@(main):void () {
+    def s:HttpRoutesTest (new HttpRoutesTest())
+    start s 8788
+}

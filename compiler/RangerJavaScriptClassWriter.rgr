@@ -8,6 +8,46 @@ Import "WebPageWriter.rgr"
 class RangerJavaScriptClassWriter {
 
   Extends (RangerGenericClassWriter)
+
+  ; `start server <port>` on a class annotated @(HttpServer). The operator is
+  ; declared `(custom _)` for es6 in Lang.rgr, so it arrives here; the Go writer
+  ; takes the same route into RangerGolangHttpServerWriter. ISSUES.md #93.
+  def httpServerWriter:RangerJavaScriptHttpServerWriter (new RangerJavaScriptHttpServerWriter())
+
+  fn CustomOperator:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def fc:CodeNode (node.getFirst())
+    def cmd:string fc.vref
+    if (cmd != "start") {
+      return
+    }
+    if ((array_length node.children) < 2) {
+      return
+    }
+    def serverArg:CodeNode (node.getSecond())
+    if ((serverArg.hasParamDesc) == false) {
+      return
+    }
+    def paramDesc:RangerAppParamDesc serverArg.paramDesc
+    if (null? paramDesc.nameNode) {
+      return
+    }
+    def typeName:string paramDesc.nameNode.type_name
+    def isHttpServer:boolean false
+    if (typeName == "HttpServer") {
+      isHttpServer = true
+    }
+    if (ctx.isDefinedClass(typeName)) {
+      def serverClass:RangerAppClassDesc (ctx.findClass(typeName))
+      if (serverClass.isSystemclassType("HttpServer")) {
+        isHttpServer = true
+      }
+    }
+    if (isHttpServer == false) {
+      return
+    }
+    def srvWriter:RangerJavaScriptHttpServerWriter (new RangerJavaScriptHttpServerWriter())
+    srvWriter.writeServerStart(serverArg node ctx wr this)
+  }
   def compiler:LiveCompiler
   def thisName:string "this"
   def wrote_header:boolean false

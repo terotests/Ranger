@@ -436,11 +436,17 @@ class Invaders {
         print ""
         print "Starting game..."
 
-        ; Set up keyboard input listener (creates r_key_receiver for polling)
+        ; Set up keyboard input listener (creates r_key_receiver for polling).
+        ;
+        ; THE BLOCK IS EMPTY, and has to be: the handler pushes every key onto the
+        ; queue that `poll_keypress` reads, and `gameLoop` polls. Handling a key here
+        ; as well would move the ship twice per keypress. It used to call
+        ; `game.handleKey(key)` and did nothing, because the emitted handler had its
+        ; own parameter called `key` which shadowed this one -- so the block received
+        ; the host key OBJECT, which matches none of the names handleKey compares.
+        ; ISSUES.md #91.
         def key:string ""
         on_keypress key {
-            ; This block runs async in ES6, but we poll manually for Rust
-            game.handleKey(key)
         }
 
         hide_cursor

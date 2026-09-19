@@ -119,9 +119,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The repository root, and the compiler folder, hold the product.** The root
+  had 71 markdown files, nine compiled JavaScript files, eleven buffer and JPEG
+  probes, a rustc log, a Node stack trace and a `pubspec.yaml` naming a Dart
+  package that lives under `gallery/`. It now has six documents and no build
+  output, and `.gitignore` covers every extension a compile run from the root
+  produces. Open plans moved to [`docs/plans/`](docs/plans/README.md), finished
+  ones and seven directories that are not the product — `adventofcode`,
+  `fiddle`, `rust_compiler`, `native`, `features`, `generated`, `versions` — to
+  [`legacy/`](legacy/README.md), each with a README saying what it was. The npm
+  scripts that drove `features/` and `generated/` went with them: they pointed
+  at `.rgr` files in folders that hold only `.clj`, so they had been failing.
+  README no longer offers `versions/<target>/compiler.js` as the rollback; the
+  git history of `bin/output.js` is.
+
+- **`compiler/` holds the compiler.** A walk of `Import` from the entry point
+  reaches 76 of the 134 `.rgr` files that were in the folder. The other 57 were
+  earlier editions kept beside the live file (`ng_RangerFlowParserOrig.rgr`,
+  `ng_FlowWork.rgr`, six `ng_parser*` variants), twenty probes from before
+  `tests/` existed, ten plugin samples that nothing loads by path — a compiler
+  plugin is an npm package reached with `require` — and fifteen `.bat` scripts
+  calling `ranger-compiler -compiler` on `.clj` files. `compiler/index.js`, a
+  1.0 MB generated compiler, and `compiler/package.json`, declaring version
+  2.1.61, went with them; what ships is `dist/rgrc.js`.
+
+- **A compiler file is named after the class in it.** The `ng_` prefix came
+  from the compiler that preceded this one and none of the classes carry it.
+  59 files renamed, every `Import`, npm script, test and document rewritten in
+  the same commit so no file is reachable by two spellings (ISSUES.md #64).
+  `ng_parser_v2.rgr` became `RangerLispParser.rgr`, `ng_parser_std_match2.rgr`
+  `FlowStdMatch.rgr`, `ng_writer.rgr` `CodeWriter.rgr`.
+
+- **The three files over 9000 lines are split by what each part does.**
+  `RangerFlowParser` 9364 → 4702 (`FlowShape`, `FlowCollect`, `FlowTypes`,
+  `FlowTree`, `FlowImport`, `FlowProcess`), `RangerRustClassWriter` 12047 →
+  3056 (`RustCall`, `RustOperators`, `RustClass`, `RustOwnership`,
+  `RustUnion`), `LowIRBuilder` 12302 → 3695 (`LowIRExpr`, `LowIRCollections`,
+  `LowIRStmt`, `LowIRObject`, `LowIRLambda`, `LowIRExtern`, `LowIROwnership`).
+  Each uses the `extension` form `FlowEnterVarDef.rgr` and `FlowStdMatch.rgr`
+  already used, so the class stays in one place and only methods move — every
+  body verbatim. Every compiler file is now under five thousand lines except
+  `Lang.rgr`, which is the `language { }` document, not a class file.
+  The emitted compiler is the same code in a different order, and compiling
+  again from it is a fixpoint.
+
 - **The front-page hero columns are "There is no Silver Bullet." and
-  "Less is More."** Ranger as a golden-file harness that emits ordinary
-  Swift, Kotlin and JavaScript, not a magic runtime.
+  "Stay Dry."** Ranger is more like golden — a golden-file harness that
+  emits ordinary Swift, Kotlin and JavaScript, not a magic runtime. The
+  definition sits as a small footnote under the first column.
 
 - **The gold Native section is "Native apps without duplicating the
   logic."** One source of shared logic compiled to Swift and Kotlin,
@@ -190,6 +235,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     for every element it compares against.
 
 ### Fixed
+
+- **`evg:view:check` flaked in CI on a landing-only pull request.** The
+  suite draws each scene twice — once with the view baked into the list,
+  once with it on the camera — by rewriting one `file://` HTML file and
+  navigating to it. Chromium will sometimes answer the previous document
+  for that URL, `waitForFunction` sees the leftover `__DONE__`, and the
+  comparison reads the last framebuffer: one of thirty-one checks fails,
+  the rest pass. A unique query on each load is a different navigation;
+  `gl.finish()` lands before the read; a mismatch draws both sides again
+  before it is a failure. The gallery-editors runner also printed only
+  the last thirty lines of a failed suite, which hid the `FAIL` behind
+  later PASSes.
+
+- **The published compiler shipped a thinner `stdlib.rgr` than the one the
+  tests ran against.** `compiler/stdlib.rgr` and `lib/stdlib.rgr` had drifted:
+  the compiler's copy carried the LLVM `case` and `is` templates that let
+  `lowerShapeCase` bind its operand, and the Swift `_ = name` lines that stop
+  swiftc warning once per arm of an exhaustive `match`. Which copy you got
+  depended on where you compiled from. In the repository RANGER_LIB puts
+  `compiler/` first, so CI always exercised the fuller file; `build:dist:copy`
+  is `cp -r ./lib ./dist/lib` and the published package resolves every import
+  from there, so an npm user compiling a `match` to Swift got the warnings and
+  to LLVM got an unmatched operator. `lib/` now holds the merged file and the
+  duplicate under `compiler/` is gone. `compiler/JSON.rgr` was byte-identical
+  to `lib/JSON.rgr` and went the same way. Both imports keep their spelling;
+  resolution finds them one directory later.
+
+- **`.claude/skills/ranger-lang/SKILL.md` said the compiler exits 0 on
+  `[FAIL]`.** It has exited non-zero since 3.5.1, and the copy under
+  `plugins/ranger/` already said so. The two copies had drifted in both
+  directions — the plugin copy still said `(obj.method()).field` does not
+  work — and are now identical and correct.
 
 - **`@media` was silently inert in every CLI tool.** `EVGStyleSheet` evaluates
   a media query against a viewport the caller states, and a query it cannot

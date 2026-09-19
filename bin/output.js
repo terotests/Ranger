@@ -31270,6 +31270,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                             wr.addImport("<string_view>");
                             wr.addImport("<vector>");
                             wr.addImport("<cstring>");
+                            wr.addImport("<stdexcept>");
                             wr.out("// String hashing for the map below. std::hash<std::string> is", true);
                             wr.out("// _Hash_bytes, an out-of-line MurmurHash in libstdc++ that costs a call", true);
                             wr.out("// and a per-byte mix; profiling the interpreter put it at ~10% of all", true);
@@ -49178,6 +49179,247 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                             this.writeStopMethod(cl, ctx, wr);
                                           };
                                         }
+                                        class RangerJavaScriptHttpServerWriter  {
+                                          constructor() {
+                                          }
+                                          isHttpServerClass (cl) {
+                                            if ( typeof(cl.nameNode) === "undefined" ) {
+                                              return false;
+                                            }
+                                            return cl.nameNode.hasFlag("HttpServer");
+                                          };
+                                          getRouteMethod (fnDesc) {
+                                            if ( typeof(fnDesc.nameNode) === "undefined" ) {
+                                              return "";
+                                            }
+                                            const nameNode = fnDesc.nameNode;
+                                            if ( nameNode.hasFlag("GET") ) {
+                                              return "GET";
+                                            }
+                                            if ( nameNode.hasFlag("POST") ) {
+                                              return "POST";
+                                            }
+                                            if ( nameNode.hasFlag("PUT") ) {
+                                              return "PUT";
+                                            }
+                                            if ( nameNode.hasFlag("DELETE") ) {
+                                              return "DELETE";
+                                            }
+                                            if ( nameNode.hasFlag("SSE") ) {
+                                              return "SSE";
+                                            }
+                                            return "";
+                                          };
+                                          getRoutePath (fnDesc) {
+                                            if ( typeof(fnDesc.nameNode) === "undefined" ) {
+                                              return "/";
+                                            }
+                                            const nameNode = fnDesc.nameNode;
+                                            const method = this.getRouteMethod(fnDesc);
+                                            if ( method.length == 0 ) {
+                                              return "/";
+                                            }
+                                            return nameNode.getFlagSiblingString(method, "/");
+                                          };
+                                          methodNameOf (fnDesc) {
+                                            if ( fnDesc.compiledName.length > 0 ) {
+                                              return fnDesc.compiledName;
+                                            }
+                                            return fnDesc.name;
+                                          };
+                                          writeAdapter (wr, hasSSE) {
+                                            wr.out("const __rgr_http = require(\"http\");", true);
+                                            wr.newline();
+                                            wr.out("// Route patterns use `{name}` segments, as Go's ServeMux does, so", true);
+                                            wr.out("// http_get_param reads the same thing on both targets.", true);
+                                            wr.out("function __rgr_matchRoute(pattern, path) {", true);
+                                            wr.indent(1);
+                                            wr.out("const p = pattern.split(\"/\");", true);
+                                            wr.out("const q = path.split(\"/\");", true);
+                                            wr.out("if (p.length !== q.length) { return null; }", true);
+                                            wr.out("const params = {};", true);
+                                            wr.out("for (let i = 0; i < p.length; i++) {", true);
+                                            wr.indent(1);
+                                            wr.out("const seg = p[i];", true);
+                                            wr.out("if (seg.length > 2 && seg[0] === \"{\" && seg[seg.length - 1] === \"}\") {", true);
+                                            wr.indent(1);
+                                            wr.out("params[seg.slice(1, -1)] = decodeURIComponent(q[i]);", true);
+                                            wr.out("continue;", true);
+                                            wr.indent(-1);
+                                            wr.out("}", true);
+                                            wr.out("if (seg !== q[i]) { return null; }", true);
+                                            wr.indent(-1);
+                                            wr.out("}", true);
+                                            wr.out("return params;", true);
+                                            wr.indent(-1);
+                                            wr.out("}", true);
+                                            wr.newline();
+                                            wr.out("function __rgr_wrapRequest(raw, path, params, query) {", true);
+                                            wr.indent(1);
+                                            wr.out("return {", true);
+                                            wr.indent(1);
+                                            wr.out("method: raw.method,", true);
+                                            wr.out("// the PATH, not the raw url: http_get_path is r.URL.Path on Go", true);
+                                            wr.out("url: path,", true);
+                                            wr.out("params: params,", true);
+                                            wr.out("query: query,", true);
+                                            wr.out("headers: { get: function (name) { return raw.headers[String(name).toLowerCase()] || \"\"; } },", true);
+                                            wr.out("raw: raw,", true);
+                                            wr.indent(-1);
+                                            wr.out("};", true);
+                                            wr.indent(-1);
+                                            wr.out("}", true);
+                                            wr.newline();
+                                            wr.out("// http_set_status / http_set_header / http_send are Express-shaped.", true);
+                                            wr.out("// node wants the head written before the body, so status and headers", true);
+                                            wr.out("// are held until send().", true);
+                                            wr.out("function __rgr_wrapResponse(raw) {", true);
+                                            wr.indent(1);
+                                            wr.out("let code = 200;", true);
+                                            wr.out("const headers = {};", true);
+                                            wr.out("return {", true);
+                                            wr.indent(1);
+                                            wr.out("status: function (c) { code = c; return this; },", true);
+                                            wr.out("setHeader: function (n, v) { headers[n] = v; return this; },", true);
+                                            wr.out("send: function (body) {", true);
+                                            wr.indent(1);
+                                            wr.out("if (raw.headersSent) { raw.end(); return; }", true);
+                                            wr.out("raw.writeHead(code, headers);", true);
+                                            wr.out("raw.end(body === undefined || body === null ? \"\" : body);", true);
+                                            wr.indent(-1);
+                                            wr.out("},", true);
+                                            wr.out("raw: raw,", true);
+                                            wr.indent(-1);
+                                            wr.out("};", true);
+                                            wr.indent(-1);
+                                            wr.out("}", true);
+                                            wr.newline();
+                                            if ( hasSSE ) {
+                                              wr.out("function __rgr_wrapSSE(raw, rawRes) {", true);
+                                              wr.indent(1);
+                                              wr.out("let open = true;", true);
+                                              wr.out("rawRes.writeHead(200, {", true);
+                                              wr.indent(1);
+                                              wr.out("\"Content-Type\": \"text/event-stream\",", true);
+                                              wr.out("\"Cache-Control\": \"no-cache\",", true);
+                                              wr.out("\"Connection\": \"keep-alive\",", true);
+                                              wr.out("\"Access-Control-Allow-Origin\": \"*\",", true);
+                                              wr.indent(-1);
+                                              wr.out("});", true);
+                                              wr.out("raw.on(\"close\", function () { open = false; });", true);
+                                              wr.out("return {", true);
+                                              wr.indent(1);
+                                              wr.out("send: function (event, data) {", true);
+                                              wr.indent(1);
+                                              wr.out("if (!open) { return; }", true);
+                                              wr.out("rawRes.write(\"event: \" + event + \"\\ndata: \" + data + \"\\n\\n\");", true);
+                                              wr.indent(-1);
+                                              wr.out("},", true);
+                                              wr.out("isConnected: function () { return open; },", true);
+                                              wr.indent(-1);
+                                              wr.out("};", true);
+                                              wr.indent(-1);
+                                              wr.out("}", true);
+                                              wr.newline();
+                                            }
+                                          };
+                                          writeServerStart (serverArg, node, ctx, wr, writer) {
+                                            const paramDesc = serverArg.paramDesc;
+                                            const className = paramDesc.nameNode.type_name;
+                                            if ( ctx.hasClass(className) == false ) {
+                                              wr.out(("/* start: could not find HttpServer class " + className) + " */", true);
+                                              return;
+                                            }
+                                            const cl = ctx.findClass(className);
+                                            const serverName = paramDesc.compiledName;
+                                            let portExpr = "8080";
+                                            if ( node.children.length >= 3 ) {
+                                              const portArg = node.children[2];
+                                              if ( portArg.vref.length > 0 ) {
+                                                portExpr = portArg.vref;
+                                                if ( false == (typeof(portArg.paramDesc) === "undefined") ) {
+                                                  if ( portArg.paramDesc.compiledName.length > 0 ) {
+                                                    portExpr = portArg.paramDesc.compiledName;
+                                                  }
+                                                }
+                                              } else {
+                                                portExpr = (portArg.int_value.toString());
+                                              }
+                                            }
+                                            let hasSSE = false;
+                                            for ( let i = 0; i < cl.methods.length; i++) {
+                                              var fnDesc = cl.methods[i];
+                                              if ( this.getRouteMethod(fnDesc) == "SSE" ) {
+                                                hasSSE = true;
+                                              }
+                                            };
+                                            wr.newline();
+                                            wr.out("// HTTP server setup for " + cl.name, true);
+                                            this.writeAdapter(wr, hasSSE);
+                                            wr.out("const __rgr_routes = [];", true);
+                                            let routeCount = 0;
+                                            for ( let i_1 = 0; i_1 < cl.methods.length; i_1++) {
+                                              var fnDesc_1 = cl.methods[i_1];
+                                              const method = this.getRouteMethod(fnDesc_1);
+                                              if ( method.length == 0 ) {
+                                                continue;
+                                              }
+                                              const path = this.getRoutePath(fnDesc_1);
+                                              const isSSE = method == "SSE";
+                                              let sseText = "false";
+                                              if ( isSSE ) {
+                                                sseText = "true";
+                                              }
+                                              const line = ((((((("__rgr_routes.push({ method: \"" + method) + "\", pattern: \"") + path) + "\", sse: ") + sseText) + ", name: \"") + this.methodNameOf(fnDesc_1)) + "\" });";
+                                              wr.out(line, true);
+                                              routeCount = routeCount + 1;
+                                            };
+                                            if ( routeCount == 0 ) {
+                                              wr.out("// no @(GET …) / @(SSE …) methods on this class: every request 404s", true);
+                                            }
+                                            wr.newline();
+                                            wr.out("const __rgr_server = __rgr_http.createServer(function (rawReq, rawRes) {", true);
+                                            wr.indent(1);
+                                            wr.out("const at = rawReq.url.indexOf(\"?\");", true);
+                                            wr.out("const path = at < 0 ? rawReq.url : rawReq.url.slice(0, at);", true);
+                                            wr.out("const query = {};", true);
+                                            wr.out("if (at >= 0) {", true);
+                                            wr.indent(1);
+                                            wr.out("for (const [k, v] of new URLSearchParams(rawReq.url.slice(at + 1))) { query[k] = v; }", true);
+                                            wr.indent(-1);
+                                            wr.out("}", true);
+                                            wr.newline();
+                                            wr.out("// A path that matches but with the wrong verb is 405, not 404 --", true);
+                                            wr.out("// the same distinction the Go writer makes.", true);
+                                            wr.out("let pathMatched = false;", true);
+                                            wr.out("for (const route of __rgr_routes) {", true);
+                                            wr.indent(1);
+                                            wr.out("const params = __rgr_matchRoute(route.pattern, path);", true);
+                                            wr.out("if (params === null) { continue; }", true);
+                                            wr.out("pathMatched = true;", true);
+                                            wr.out("if (!route.sse && route.method !== rawReq.method) { continue; }", true);
+                                            if ( hasSSE ) {
+                                              wr.out("if (route.sse) {", true);
+                                              wr.indent(1);
+                                              wr.out(serverName + "[route.name](__rgr_wrapSSE(rawReq, rawRes));", true);
+                                              wr.out("return;", true);
+                                              wr.indent(-1);
+                                              wr.out("}", true);
+                                            }
+                                            wr.out(serverName + "[route.name](__rgr_wrapRequest(rawReq, path, params, query), __rgr_wrapResponse(rawRes));", true);
+                                            wr.out("return;", true);
+                                            wr.indent(-1);
+                                            wr.out("}", true);
+                                            wr.newline();
+                                            wr.out("rawRes.writeHead(pathMatched ? 405 : 404, { \"Content-Type\": \"text/plain\" });", true);
+                                            wr.out("rawRes.end(pathMatched ? \"Method not allowed\" : \"Not found\");", true);
+                                            wr.indent(-1);
+                                            wr.out("});", true);
+                                            wr.newline();
+                                            wr.out(("console.log(\"Server starting on http://localhost:\" + (" + portExpr) + "));", true);
+                                            wr.out(("__rgr_server.listen(" + portExpr) + ");", true);
+                                          };
+                                        }
                                         class RangerPHPClassWriter  extends RangerGenericClassWriter {
                                           constructor() {
                                             super()
@@ -49218,7 +49460,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                   encoded_str_2 = (encoded_str_2 + String.fromCharCode(92)) + String.fromCharCode(34);
                                                   break;
                                                 case 36 : 
-                                                  encoded_str_2 = (encoded_str_2 + String.fromCharCode(92)) + String.fromCharCode(34);
+                                                  encoded_str_2 = (encoded_str_2 + String.fromCharCode(92)) + String.fromCharCode(36);
                                                   break;
                                                 case 92 : 
                                                   encoded_str_2 = (encoded_str_2 + String.fromCharCode(92)) + String.fromCharCode(92);
@@ -50816,6 +51058,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                         class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
                                           constructor() {
                                             super()
+                                            this.httpServerWriter = new RangerJavaScriptHttpServerWriter();     /* note: unused */
                                             this.compiler = undefined;     /* note: unused */
                                             this.thisName = "this";     /* note: unused */
                                             this.wrote_header = false;
@@ -50823,6 +51066,46 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                             this.target_typescript = false;
                                             this.target_esm = false;
                                           }
+                                          CustomOperator (node, ctx, wr) {
+                                            const fc = node.getFirst();
+                                            const cmd = fc.vref;
+                                            if ( cmd != "start" ) {
+                                              return;
+                                            }
+                                            if ( node.children.length < 2 ) {
+                                              return;
+                                            }
+                                            const serverArg = node.getSecond();
+                                            if ( serverArg.hasParamDesc == false ) {
+                                              return;
+                                            }
+                                            const paramDesc = serverArg.paramDesc;
+                                            if ( typeof(paramDesc.nameNode) === "undefined" ) {
+                                              return;
+                                            }
+                                            const typeName = paramDesc.nameNode.type_name;
+                                            let isHttpServer = false;
+                                            if ( typeName == "HttpServer" ) {
+                                              isHttpServer = true;
+                                            }
+                                            if ( ctx.isDefinedClass(typeName) ) {
+                                              const serverClass = ctx.findClass(typeName);
+                                              if ( serverClass.isSystemclassType("HttpServer") ) {
+                                                isHttpServer = true;
+                                              }
+                                            }
+                                            if ( isHttpServer == false ) {
+                                              return;
+                                            }
+                                            const srvWriter = new RangerJavaScriptHttpServerWriter();
+                                            srvWriter.writeServerStart(
+                                              serverArg,
+                                              node,
+                                              ctx,
+                                              wr,
+                                              this
+                                            );
+                                          };
                                           lineEnding () {
                                             return ";";
                                           };

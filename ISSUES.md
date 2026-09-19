@@ -3,6 +3,11 @@
 ## Summary (December 2025)
 
 ### Recently Fixed
+- Issue #94 (fixed): the C++ prelude threw `std::out_of_range` from `rg_ordered_map::at` without ever including `<stdexcept>`. Invisible in a whole PROGRAM, because `<iostream>` used to drag the header in transitively and still does on most standard libraries -- and fatal in a MODULE, a file with no `main` that a host shell includes and calls, which is how an SDL2 desktop app, an Android module and an iOS module are all built. The failure names a declaration the user never wrote, in generated code, in a template nobody edited. One line in `RangerCppClassWriter`'s prelude. Gated by `tests/compiler-cpp-host-module.test.ts`, which compiles a `main`-less module, writes a host that includes it and supplies `main`, builds the pair with g++ and runs it -- the first test in the suite to compile Ranger in the shape a host shell uses (September 2026)
+- Issue #93 (fixed): `start server <port>` on a class annotated `@(HttpServer)` emitted `server.start(port)` on es6 -- a call to a method NOTHING generated. Every Ranger HTTP server compiled cleanly to JavaScript, printed its startup line and died on the next statement with `TypeError: server.start is not a function`. The Go writer had a whole `RangerGolangHttpServerWriter` behind a `(custom _)` template; JavaScript had a one-line template and no writer at all, and `tests/fixtures/http_server.rgr` was never executed by anything. Fixed with `RangerJavaScriptHttpServerWriter`: node's own `http` module plus an adapter giving the Express-shaped `req`/`res` the `http_*` templates were written against -- no npm dependency. Gated by `tests/http-server.test.ts`, which RUNS the server (September 2026)
+- Issue #91 (fixed): `on_keypress` was unusable in two ways at once. Its emitted handler took parameters named `str` and `key`, so a Ranger variable called `key` -- the obvious name -- was SHADOWED: the block received the host runtime's key OBJECT instead of the string, and the handler's assignment landed on its own parameter. Name the variable anything else and the other half bit: the compiler emits `const` for a local nothing in the SOURCE assigns, so the first keypress died with `TypeError: Assignment to constant variable`, at runtime, in raw mode, with the screen already cleared. Fixed by prefixing the handler's parameters and declaring `keyvar@(mutates)`. `gallery/invaders` had been relying on the broken behaviour and is corrected. Gated by `tests/codegen-keypress.test.ts` (September 2026)
+- Issue #88 (fixed): `join` emitted `strings.Join(...)` on Go without declaring the `strings` import, so a program whose ONLY use of that package was `join` compiled to Go that did not build (`undefined: strings`). Seventeen other Go templates reaching into that package declare it, so the defect was invisible in any program that also called one of them. Gated by `tests/fixtures/join_strings.rgr`, in which `join` is the sole user of the package (September 2026)
+- Issue #83 (fixed): the PHP writer turned a `$` inside a string literal into `\"`, so `"literal $HOME stays"` came out as `"literal \"HOME stays"` — a parse error, and not the escape that was intended either. One character in `EncodeString`: the `case 36` arm emitted `(strfromcode 34)`, copied from the `case 34` arm above it. Any Ranger program carrying a shell fragment, a template, a currency amount or a regular expression through a string literal built PHP that does not parse. Gated by `tests/codegen-php.test.ts` (September 2026)
 - C++ and Rust now carry a `union` / shape family in their own representation (PLAN_SHAPES.md S5): C++ as an `mpark::variant` that holds scalar-only cases **by value** rather than behind a `shared_ptr`, Rust as a native `enum` with the same rule. Constructing a scalar case allocates nothing on either. Measured on the value-layer benchmark: C++ went from 2x to **30x** faster than the equivalent wide class, Rust from 3.5x to **6.9x** (August 2026)
 - Rust: a local declared as a `union`/shape family and initialised with `new` was typed `Rc<RefCell<Rc<dyn Any>>>` — the cell was wrapped around the handle as well as the value, which rustc rejects. The local's type now stays the handle and only the constructed member takes a cell (August 2026)
 - `record` with a collection field generated a constructor that could not type-check: a `[T]` / `[K:V]` field carries its element type on `array_type` / `key_type` and leaves `type_name` empty, so `buildRecordConstructor` fell through to its `string` default and `record R { def xs:[int] }` failed with "Could not match argument types for =". The generated parameter now spells the collection type (August 2026)
@@ -30,10 +35,12 @@
 - Issue #82 (fixed): the `es6` keyword table added in #76 renamed METHOD and PROPERTY names as well as bindings, so `EvHandle.null()` -- the constructor three suites and every JavaScript consumer of the engine module call -- became `EvHandle._null()`. JavaScript reserves its keywords only where a name may stand: `const null = 1` is a syntax error, `obj.null` and `static null() {}` are not. `transformWord` now splits into a binding transform and a member transform. Found by CI, not locally: `runtime-conformance.test.ts` rebuilt the engine module only when a `.rgr` under `migrate/src/` was newer, so after a COMPILER change it measured the engine built by the previous compiler and reported green. The compiler is in that dependency list now (September 2026)
 
 ### Still Open
+- Issue #92: `on_keypress` on Go emits a package-level `syscall.NewLazyDLL("msvcrt.dll")`, which exists only on Windows, so ANY Ranger program using the operator produces Go that does not build on Linux or macOS (`undefined: syscall.NewLazyDLL`). The polyfill has the right `runtime.GOOS != "windows"` guard inside its functions and none around the declarations. The compiler reports success; `go build` is where it stops. Found by compiling a terminal program to Go (September 2026)
+- Issue #90: on Scala the `@(main)` function's body is NEVER EMITTED, and the compiler reports success. `object Main { }` comes out empty and the `object App<Name> extends App { ... }` wrapper the writer has code for (`compiler/RangerScalaClassWriter.rgr:831`) does not reach the output. So every Scala build in this repository is a library with no entry point, `targets.sh` counts it as `ok`, and nothing notices because nothing runs the Scala. Reproduced on a four-line program and on RangerStarter's own `src/Main.rgr` (September 2026)
+- Issue #89: the Scala writer refuses a `continue` inside a `for` loop -- `oops, sorry. Currently Scala output can not handle for-loops with continue :/` -- in any function EXCEPT `@(main)`, where it appears to be accepted only because the whole body is dropped (#90). `continue` in a `while` loop is fine, and every other target takes either form (September 2026)
 - Issue #87 (fixed): a property read on a PARENTHESISED receiver used as an operand of an infix operator -- `((unwrap x).v == 1)`, `(1 + (f()).v)`, `((unwrap x).name + "!")` -- did not compile: "WriteVREF -> Undefined variable .v" or "Could not match argument types for ==". The reader's infix rewriter took the `.v` token as an operand on its own and the expression before it was lost. The same read outside an infix expression (`def n:int ((unwrap x).v)`, `((unwrap x).v = 7)`) had always worked through the chain machinery. The reader now attaches the `.name` token to the expression it follows, flagged, and the flow parser binds that expression to a temporary in the statement's register expressions and reads `<tmp>.name` -- the mechanism operator arguments are hoisted through. Only the infix shape is rewritten, so nothing that worked changes its code generation. Two shapes are deliberately not rewritten: a method call on such a receiver inside an infix expression, and any such read in a loop condition, where the once-bound temporary would be wrong -- the compiler refuses it and names the fix. On Rust the hoisted temporary was typed as the bare struct because the shared-locals analysis walked only a statement's children; it walks the register expressions too now. Gated by `tests/compiler-paren-receiver.test.ts` on es6 and Rust (September 2026)
 - Issue #86: on Rust a method named `self` is DECLARED as `self_` and CALLED as `_self`, so the generated crate does not compile (`no method named _self`). The two spellings come from two places: the language-wide `reserved_words` table in `Lang.rgr` maps `self -> _self` for every target, and the Rust writer's own word transform maps it to `self_` because `r#self` is not a legal raw identifier. Every other Rust keyword is consistent (`match` and `loop` are `r#match` / `r#loop` at both ends). Same family as #78 and #80; found while writing the #63 fixture, which had a method called `self` (September 2026)
 - Issue #84: Rust drops a ONE-element inline array literal in argument position: `Take.f(([] _:string ( "a" )))` emits `Take::f("a")` where every other target emits the vector. Two elements are correct, so it is the arity, not the literal (September 2026)
-- Issue #83: the PHP writer turns a `$` inside a string literal into `\"`. `def s:string "literal $HOME stays"` comes out as `$s = "literal \"HOME stays";` — a parse error, and the escape that was intended (PHP interpolates `$` inside double quotes) is not what was written either (September 2026)
 - Issue #81: `(expr).field` does not resolve when it appears as a CALL ARGUMENT. `def ok:int ((h.nodeOf()).plain)` compiles; `ArgMain.id((h.nodeOf()).plain)` on the very next line gives "Undefined variable .plain". Nothing to do with keywords — any property name fails. The dot-tail branch in `WalkNode` is never reached for an argument, so the tail is left as an unresolved `.field` vref. Found while fixing #80 (September 2026)
 - Issue #79: on Rust a method that returns `this` returns `self.clone()`, so every call after the first in a chain mutates a COPY. `a.bump().bump().bump()` leaves `a.n` at 1 where JavaScript, Python and Go all say 3. No error, no warning — a silently wrong answer, and the builder pattern is exactly the shape that hits it. Reproduces on a 13-line program with no generics and no aliasing (September 2026)
 - Issue #75 (partially fixed): any trailing block on a class declaration makes `EnterClass` take it for the class body. The real body is never flow-analysed, the compiler reports success, and the emitted method body is broken (`return+x1` for `return (x + 1)`). The `doc { … }` case is fixed by the detach pass; the arity check is still wrong for any other trailing token (August 2026)
@@ -2930,6 +2937,309 @@ Fixed. Found while adding `tests/es-conformance-targets.test.ts`, and initially
 misattributed to that suite's 2,138-probe corpus — which in fact parses at depth
 70. The corpus only made an existing marginal condition reproducible.
 
+## Issue #93: every JavaScript HTTP server died on `start`
+
+**Status: fixed.**
+
+```ranger
+class Srv@(HttpServer) {
+    fn index@(GET "/"):void (req:HttpRequest res:HttpResponse) {
+        http_set_status res 200
+        http_send res "hello"
+    }
+}
+sfn m@(main):void () {
+    def s:Srv (new Srv())
+    start s 8781
+}
+```
+
+```
+[OK] Compilation successful!
+```
+
+```
+listening on 8781
+TypeError: server.start is not a function
+```
+
+### The cause
+
+The `start` operator in `Lang.rgr`:
+
+```ranger
+start@(moves@( 1 )) cmdHttpServerStart:void (server:HttpServer port:int) {
+    templates {
+        go ( (custom _) )
+        es6 ( (e 1) ".start(" (e 2) ")" )
+    }
+}
+```
+
+On Go, `(custom _)` routes the node into `RangerGolangHttpServerWriter`, which
+reads the `@(GET "/path")` annotations off the class and emits a `ServeMux`, a
+handler per route, and `http.ListenAndServe`. On es6 the template emitted a
+method call — and nothing, anywhere, generated a `start` method. The JavaScript
+writer contained the string "HttpServer" zero times.
+
+So the whole feature was Go-only, and said nothing about it.
+
+### Why nothing noticed
+
+`tests/fixtures/http_server.rgr` exists and no test file references it. A
+compiled-but-never-run fixture cannot catch a defect whose emitted text looks
+perfectly reasonable.
+
+### The fix
+
+`compiler/RangerJavaScriptHttpServerWriter.rgr`, mirroring the Go one: the es6
+template becomes `(custom _)`, `RangerJavaScriptClassWriter.CustomOperator`
+intercepts `start` on an `@(HttpServer)` class, and the writer emits a node
+`http.createServer` with a route table.
+
+**No dependency.** The `http_*` templates were written against an Express-shaped
+API — `res.status(…)`, `res.send(…)`, `req.query[…]` — so something has to
+provide that shape. A generated adapter does; adding a package.json dependency to
+make a language feature work would not. The adapter is also where the two targets
+are made to agree:
+
+* `http_get_path` is `r.URL.Path` on Go, so the wrapped request's `url` is the
+  path with the query string removed — node's raw `req.url` keeps it.
+* `http_get_param` is `r.PathValue(name)` on Go, so the adapter matches the same
+  `{name}` segment syntax.
+* A path that matches with the wrong verb is **405**, not 404, which is the
+  distinction the Go writer makes.
+* `http_set_status` then `http_send` is Express ordering; node wants the head
+  written before the body, so the wrapper holds status and headers until `send`.
+
+SSE is included: `@(SSE "/path")` gets the event-stream headers, `sse_send`
+frames `event:`/`data:`, and `sse_is_connected` follows the socket.
+
+### The test
+
+`tests/http-server.test.ts` compiles the fixture, **starts it**, and makes real
+requests: the method and path, a `{id}` path parameter, a query parameter, a
+request header, 404, 405, and an SSE stream read until both events arrive. A
+codegen assertion would not have caught the original defect.
+
+Verified by running the same program on both targets and getting identical
+answers on all five routes and the SSE stream.
+
+---
+
+## Issue #92: `on_keypress` on Go declares a Windows-only symbol at package level
+
+**Status:** open.
+
+Any Ranger program that calls `on_keypress` compiles to Go that will not build on
+anything but Windows:
+
+```
+./kv.go:21:19: undefined: syscall.NewLazyDLL
+```
+
+The polyfill opens with:
+
+```go
+var (
+	msvcrt = syscall.NewLazyDLL("msvcrt.dll")
+	kbhit  = msvcrt.NewProc("_kbhit")
+	getch  = msvcrt.NewProc("_getch")
+)
+```
+
+`syscall.NewLazyDLL` is declared only in Go's Windows build of `syscall`, and a
+package-level `var` is compiled on every platform. The functions BELOW it are
+guarded properly -- `if runtime.GOOS != "windows"` -- so the intent is clearly
+there; the guard is just in the wrong place for a declaration.
+
+Go has the mechanism for this: the Windows half belongs behind a build
+constraint, which for a single generated file means the `kbhit`/`getch` handles
+have to be resolved lazily inside the Windows branch rather than declared at the
+top.
+
+The compiler reports `[OK] Compilation successful!`, because the defect is in code
+it emits and never reads back -- the same shape as #88.
+
+Found while compiling a terminal program to Go. The same program's Python output
+builds and runs.
+
+---
+
+## Issue #91: `on_keypress` shadowed its key variable, and emitted it as a constant
+
+**Status: fixed.**
+
+Two defects in one operator, and either one alone made it unusable.
+
+### The shadowing
+
+The es6 handler was emitted as:
+
+```javascript
+process.stdin.on('keypress', (str, key) => {
+  ...
+  if (__rgr_k !== "") { key = __rgr_k; global.r_key_queue.push(__rgr_k); }
+  /* the block */
+});
+```
+
+`key` is the obvious name for a key variable, so `on_keypress key { ... }` was the
+obvious spelling — and the handler's own parameter is called `key`. The Ranger
+local was shadowed: the assignment landed on the parameter, and the BLOCK received
+the host runtime's key object rather than the string. Code in the block that
+compared it to `"left"` never matched and never could.
+
+`gallery/invaders` is exactly that program. Its block called `game.handleKey(key)`
+with the key object; the game worked only because `gameLoop` also polls
+`poll_keypress`, which is a separate and correct path.
+
+### The constant
+
+Name the variable anything else and the other half bites. The compiler emits
+`const` for a local that nothing in the SOURCE assigns, and the operator's
+assignment is in a template:
+
+```javascript
+const lastKey = "";
+...
+if (__rgr_k !== "") { lastKey = __rgr_k; ... }
+```
+
+`TypeError: Assignment to constant variable` — thrown at runtime, inside a keypress
+handler, in raw mode, with the screen already cleared, on the first key the user
+pressed.
+
+### The fix
+
+The handler's parameters are prefixed (`__rgr_s`, `__rgr_key`), so nothing the
+author can name is shadowed; and the operator declares `keyvar@(mutates):string`,
+which is what tells the compiler to emit `let`. Both in `compiler/Lang.rgr`,
+`bin/Lang.rgr` and `dist/Lang.rgr`.
+
+`gallery/invaders` is corrected at the same time, because the fix makes its latent
+bug manifest: with the block finally receiving the string, its `handleKey` call
+would run in ADDITION to the one its poll loop makes, and the ship would move twice
+per keypress. Its block is now empty, which is the correct shape for a program that
+polls.
+
+### What is still true, and worth knowing
+
+**Only es6 assigns the key variable at all.** The rust, go, cpp, python and kotlin
+templates fill the queue that `poll_keypress` reads and never touch `keyvar`, so a
+block that reads it sees an empty string on those targets. The portable shape is
+therefore an EMPTY block plus a `poll_keypress` loop, and that is what
+`gallery/invaders` and RangerStarter's wizard both do.
+
+Verified through a real pty: three keys in, and the block and the poll loop each
+report `a`, `up`, `space`.
+
+---
+
+## Issue #90: on Scala the `@(main)` function is never emitted, and the compiler says OK
+
+**Status:** open.
+
+```ranger
+class ScE {
+    sfn m@(main):void () {
+        def names:[string]
+        push names "a"
+        for names n:string i {
+            print n
+        }
+    }
+}
+```
+
+```
+[OK] Compilation successful!
+```
+
+and the whole of the emitted Scala is:
+
+```scala
+case class ScalaReturnValue(value:Any) extends Exception
+
+// companion object for static methods of ScE static cnt == 1
+object ScE {
+}
+```
+
+No `main`, no `object AppScE extends App`, nothing from the body. It is not the
+minimal program: `src/Main.rgr` from RangerStarter emits its `Greeter` class
+correctly — methods, constructor and all — and then the same empty companion
+object.
+
+`compiler/RangerScalaClassWriter.rgr:831` has the code and it looks right:
+
+```ranger
+if b_had_app {
+  def theEnd (wr.getTag("file_end"))
+  theEnd.out((("object App" + cl.name) + " extends App {") true)
+  this.WalkNode( (unwrap variant.fnBody ) subCtx theEnd)
+```
+
+So either `b_had_app` is false — the `@(main)` annotation is not recognised for this
+writer — or the `file_end` tag's content is not flushed into the single-file output.
+One print tells them apart.
+
+Nothing noticed because a target whose output is never executed can be missing its
+entry point indefinitely: `targets.sh` reports what COMPILED, and the three targets
+it runs are es6, Python and Go.
+
+---
+
+## Issue #89: the Scala writer cannot emit `continue` inside a `for` loop
+
+**Status:** open. The compiler says so itself, which is the good part:
+
+```
+[FAIL] oops, sorry. Currently Scala output can not handle for-loops with continue :/
+```
+
+The refusal is per function, and `@(main)` is the exception — the same loop there
+reports success, because that body is never emitted at all (#90). A static method
+and an instance method both refuse it; whether the collection is a local, a
+parameter or a field makes no difference. `continue` inside a `while` loop
+compiles: the gap is specific to the `for` form, which the writer emits as a
+`foreach`, and a Scala `foreach` has no `continue`.
+
+A `continue` guard at the top of a loop body is the ordinary way to write a filter,
+and the alternative costs a level of indentation per guard. RangerStarter's core
+uses it in about ten places and is otherwise portable: it **runs** on es6, Python
+and Go and **compiles** on eleven of the remaining twelve. Scala is the only
+compile failure and this is the only reason for it.
+
+The writer already has a while-loop path that handles `continue`, so a `for` whose
+body contains one could be emitted as an indexed `while` over the same collection —
+which is what the other targets' output amounts to.
+
+---
+
+## Issue #88: `join` on Go emits `strings.Join` without importing `strings`
+
+**Status: fixed.**
+
+`join`'s Go template called into the standard library with no `(imp "strings")`
+beside it, so the generated file named a package it never imported and `go build`
+rejected it with `undefined: strings`. The compiler reported
+`[OK] Compilation successful!`, because the defect is in code it emits and never
+reads back.
+
+Eighteen Go templates in `Lang.rgr` reach into that package and seventeen declared
+it, so the import usually arrived for another reason — a `trim`, a `strsplit`, a
+`contains`, or one of the five `+` concatenations that go through
+`strings.Join([]string{…})`. It only showed up in a program that joins an array and
+does nothing else stringly, which the corpus did not have.
+
+`tests/fixtures/join_strings.rgr` joins a three-element array, a one-element array
+and an empty one, and uses no other operator that touches `strings`. That
+exclusivity is the whole test: add a `trim` to the fixture and it passes with the
+defect reinstated.
+
+---
+
 ## Issue #85: an array literal is lost when the call taking it is immediately dereferenced
 
 **Status:** fixed (September 2026). Found while writing `lib/Shell.rgr`, where
@@ -3055,33 +3365,39 @@ this reason and is checked on seven targets because of it.
 
 ## Issue #83: the PHP writer mangles a `$` inside a string literal
 
-**Status:** open.
-
-### Reproduction
+**Status: fixed.**
 
 ```ranger
 def dollar:string "literal $HOME stays"
-print dollar
 ```
 
-PHP:
+PHP, before: `$dollar = "literal \"HOME stays";` — the `$` became `\"`, and the
+file does not parse.
 
-```php
-$dollar = "literal \"HOME stays";
+One character. `RangerPHPClassWriter.EncodeString` switches on each codepoint, and
+the `$` arm was a copy of the `"` arm above it with its case label changed and its
+body left alone:
+
+```ranger
+case 34 { ... (strfromcode 92) + (strfromcode 34) ... }
+case 36 { ... (strfromcode 92) + (strfromcode 34) ... }   ; <- 34, needs 36
 ```
 
-The `$` became `\"`. The file does not parse.
+The escape itself is needed: PHP interpolates `$name` inside a double-quoted
+string, so a Ranger string holding a `$` must come out as `\$`. The writer was
+right about escaping it and wrong about what to escape it to.
 
-Two things are wrong and only one of them is the substitution. PHP interpolates
-`$name` inside a double-quoted string, so a Ranger string holding a `$` needs
-either an escaped `\$` or a single-quoted PHP literal; what it must not get is
-a quote character it never had.
+`bin/output.js` was rebuilt and differs from its predecessor by exactly that one
+emitted line; the rebuilt compiler reproduces itself byte-identically.
+`dist/rgrc.js`, which is not a plain copy of `bin/output.js` in this tree, carries
+the same one-line change at its own copy of the site.
 
-### Where it shows
-
-Any Ranger program that carries a shell fragment, a template, a currency
-amount or a regular expression through a string literal. It is invisible until
-the PHP target is built, because every other target writes the string through.
+It was invisible until the PHP target was built, because every other target writes
+the string through. Found while writing a project generator whose templates are
+shell scripts. `tests/codegen-php.test.ts` asserts the emitted text for a `$`
+mid-word, two in one string, one beside a real escaped quote, and a string with
+none — and asserts the absence of the defect's signature, since the failure mode is
+an unbalanced quote rather than a wrong answer.
 
 ---
 
