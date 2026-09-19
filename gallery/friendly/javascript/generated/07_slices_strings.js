@@ -7,10 +7,9 @@ class TextTools  {
   };
   total (xs) {
     let acc = 0;
-    for ( let i = 0; i < xs.length; i++) {
-      var v = xs[i];
+    for ( const v of xs) {
       acc = acc + v;
-    };
+    }
     return acc;
   };
   firstChar (s) {

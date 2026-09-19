@@ -8,7 +8,7 @@ class TextTools:
     return "hello " + name;
   def total(self, xs):
     acc = 0
-    for i, v in enumerate(xs):
+    for v in xs:
       acc = acc + v;
     return acc;
   def firstChar(self, s):

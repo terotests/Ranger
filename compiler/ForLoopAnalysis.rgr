@@ -1,0 +1,148 @@
+; SPDX-License-Identifier: MIT
+
+; ForLoopAnalysis.rgr
+;
+; Can `for xs v:T i { ... }` be written as the target's OWN loop over the
+; collection -- `for v in xs`, `for (v in xs)`, `foreach (var v in xs)`,
+; `for ( const T& v : xs )`, `for _, v := range xs` -- rather than as the
+; C-style index loop every writer emits today?
+;
+; The question is the same on every target, so it lives here and each writer
+; holds one of these (the pattern EnumAnalysis and TraitAnalysis already set).
+; Only the SPELLING differs per target; the decision does not.
+;
+; Two conditions, and both are about safety rather than length:
+;
+;   1. The body never reads the index. A `for v in xs` has no index to give it.
+;   2. The body never touches any NAME the collection expression rests on.
+;      A foreach form takes one iterator, cursor or borrow for the whole loop,
+;      so a body that appends to the collection walks an invalidated one --
+;      where the index form re-reads `.size()` / `len()` every turn and sees
+;      the growth. It has to be every name the expression rests on, not just
+;      the last segment: `for lctx.ownedLocals ...` rests on `lctx`, and a body
+;      that hands `lctx` to something that clears it invalidates the walk
+;      without ever saying `ownedLocals`.
+;
+; A collection named by an EXPRESSION rather than a name keeps the index form
+; too: what a call hands back is invisible from here, and on some targets
+; binding a reference into it is how a dangling one is written.
+;
+; What each writer still decides for itself is how the element BINDS -- by
+; value, by reference, `const` or not -- because that is a question about the
+; target's own copy semantics, not about the loop.
+
+Import "RangerAppParamDesc.rgr"
+Import "CodeNode.rgr"
+
+class ForLoopShape {
+
+  ; the same walk the Swift writer's `swift_rc` does: "does this body mention
+  ; that name at all". A field path counts as a mention of its root, so
+  ; `xs.len()` inside the body keeps the index form.
+  fn treeMentions:boolean (node:CodeNode name:string) {
+    if (node.value_type == RangerNodeType.VRef) {
+      if (node.vref == name) {
+        return true
+      }
+    }
+    if ((array_length node.ns) >= 2) {
+      if ((itemAt node.ns 0) == name) {
+        return true
+      }
+    }
+    if (node.vref == name) {
+      return true
+    }
+    for node.children ch:CodeNode i {
+      if (this.treeMentions(ch name)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn bodyTouchesCollection:boolean (body:CodeNode coll:CodeNode) {
+    if ((strlen coll.vref) > 0) {
+      if (this.treeMentions(body coll.vref)) {
+        return true
+      }
+    }
+    for coll.ns seg:string si {
+      if ((strlen seg) > 0) {
+        if (this.treeMentions(body seg)) {
+          return true
+        }
+      }
+    }
+    ; an expression rather than a name -- a call, an index, a chain. Anything
+    ; it borrows is invisible from here, so it keeps the index form.
+    if ((strlen coll.vref) == 0) {
+      if ((array_length coll.ns) == 0) {
+        return true
+      }
+    }
+    return false
+  }
+
+  ; Does the body read the index it was given?
+  fn bodyReadsIndex:boolean (node:CodeNode) {
+    if ((array_length node.children) < 5) {
+      return true
+    }
+    def idx:CodeNode (itemAt node.children 3)
+    def body:CodeNode (itemAt node.children 4)
+    def idxName:string idx.vref
+    if ((strlen idxName) == 0) {
+      return false
+    }
+    return (this.treeMentions(body idxName))
+  }
+
+  ; The whole decision, from the `for` node: children are
+  ; [0] the operator, [1] the collection, [2] the element, [3] the index,
+  ; [4] the body.
+  fn canIterate:boolean (node:CodeNode) {
+    if ((array_length node.children) < 5) {
+      return false
+    }
+    def coll:CodeNode (node.getSecond())
+    def body:CodeNode (itemAt node.children 4)
+    if (this.bodyReadsIndex(node)) {
+      return false
+    }
+    if (this.bodyTouchesCollection(body coll)) {
+      return false
+    }
+    return true
+  }
+
+  ; A target whose foreach form can carry the index too -- Go's
+  ; `for i, v := range xs`, Python's `enumerate` -- asks this instead: the
+  ; index may be read, the collection still may not be touched.
+  fn canIterateWithIndex:boolean (node:CodeNode) {
+    if ((array_length node.children) < 5) {
+      return false
+    }
+    def coll:CodeNode (node.getSecond())
+    def body:CodeNode (itemAt node.children 4)
+    if (this.bodyTouchesCollection(body coll)) {
+      return false
+    }
+    return true
+  }
+
+  ; Does the body ASSIGN to the bound element? The index form gave it a private
+  ; copy, so a target whose foreach form binds a reference has to keep that.
+  fn bodyAssignsElement:boolean (node:CodeNode) {
+    if ((array_length node.children) < 5) {
+      return false
+    }
+    def item:CodeNode (itemAt node.children 2)
+    if item.hasParamDesc {
+      if (item.paramDesc.set_cnt > 0) {
+        return true
+      }
+    }
+    return false
+  }
+}

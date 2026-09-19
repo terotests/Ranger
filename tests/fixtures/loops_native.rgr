@@ -1,0 +1,49 @@
+; One loop of each shape, so every target is asked the same two questions.
+class LoopsNative {
+    ; the body reads neither the index nor the collection: the target's own
+    ; loop over the collection
+    fn total:int (xs:[int]) {
+        def acc:int 0
+        for xs v:int i {
+            acc = (acc + v)
+        }
+        return acc
+    }
+
+    ; the body reads the index: the index loop stays
+    fn weighted:int (xs:[int]) {
+        def acc:int 0
+        for xs v:int i {
+            acc = (acc + (v * i))
+        }
+        return acc
+    }
+
+    ; the body appends to the collection it is walking. A foreach form takes
+    ; one iterator for the whole loop and would walk something else, so this
+    ; keeps the index loop on every target.
+    ;
+    ; The ANSWER still differs: 5 everywhere except Rust, which answers 3
+    ; because its index loop reads the bound into a local first (a range that
+    ; borrows the collection would stop the body from touching it). That is
+    ; ISSUES.md #96, and it is why this file asserts the SHAPE of the loop
+    ; rather than what it prints.
+    fn growing:int (xs:[int]) {
+        def n:int 0
+        for xs v:int i {
+            if (n < 2) {
+                push xs v
+            }
+            n = (n + 1)
+        }
+        return n
+    }
+
+    sfn main:void () {
+        def m:LoopsNative (new LoopsNative())
+        def xs:[int] ([] _:int (1 2 3))
+        print ("total " + (m.total(xs)))
+        print ("weighted " + (m.weighted(xs)))
+        print ("grew " + (m.growing(xs)))
+    }
+}

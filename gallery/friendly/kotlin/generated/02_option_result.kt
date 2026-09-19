@@ -65,8 +65,7 @@ class Lookup
   
   fun  findName( names : MutableList<String>, key : String) : String? {
     var found : String?  = null;
-    for ( i in names.indices ) {
-      val n = names[i]
+    for ( n in names ) {
       if ( n == key ) {
         found = n;
         return found;

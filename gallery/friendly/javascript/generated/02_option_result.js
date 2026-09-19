@@ -53,13 +53,12 @@ class Lookup  {
   }
   findName (names, key) {
     let found;
-    for ( let i = 0; i < names.length; i++) {
-      var n = names[i];
+    for ( const n of names) {
       if ( n == key ) {
         found = n;
         return found;
       }
-    };
+    }
     return found;
   };
   parseInt (text) {

@@ -10,7 +10,7 @@ final class TextTools : Hashable  {
   }
   func total(xs : [Int]) -> Int {
     var acc : Int = 0
-    for (_, v) in xs.enumerated() {
+    for v in xs {
       acc = acc + v;
     }
     return acc

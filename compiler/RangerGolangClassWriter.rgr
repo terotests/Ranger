@@ -1,6 +1,7 @@
 ; SPDX-License-Identifier: MIT
 
 Import "TraitAnalysis.rgr"
+Import "ForLoopAnalysis.rgr"
 
 class RangerGolangClassWriter {
   Extends (RangerGenericClassWriter)
@@ -10,6 +11,8 @@ class RangerGolangClassWriter {
   ; which behaviour-only Ranger `trait`s become a Go interface -- the same
   ; question every target with interfaces asks, answered in one place
   def goTraits:TraitInterfaceAnalysis (new TraitInterfaceAnalysis())
+  ; can a `for` be a `range`? target-neutral question, one place
+  def goLoops:ForLoopShape (new ForLoopShape())
   def did_write_nullable:boolean false
   def did_write_sseclient:boolean false
   ; S5 (PLAN_SHAPES.md): a sealable union is a tagged struct with one pointer
@@ -1607,10 +1610,120 @@ class RangerGolangClassWriter {
   ;   push arr item
   
 
+  ; --- the generated `for` (PLAN_CPP_IDIOMS C4, the Go half) ------------------
+  ; `for xs v:int i { ... }` used to be, always:
+  ;
+  ;   var i int64 = 0
+  ;   for ; i < int64(len(xs)) ; i++ {
+  ;     v := xs[i]
+  ;     ...
+  ;   }
+  ;
+  ; which is the loop Go had before `range`, and the first thing a Go reviewer
+  ; says about the file. When the body neither reads the index nor touches the
+  ; collection, the same loop is `for _, v := range xs {` -- and `for range xs`
+  ; when it does not name the element either, because Go rejects a binding
+  ; nothing reads.
+  ;
+  ; The index is deliberately NOT carried into the range form. Ranger declares
+  ; it `int` and the body arithmetics it against other `int64`s, where `range`
+  ; hands back an `int`; keeping the index means a conversion at the top of
+  ; every such loop, which is the tell this was trying to remove. A body that
+  ; reads its index keeps the loop it had.
+  ;
+  ; The collection condition is the same one every target asks (ForLoopShape):
+  ; `range` evaluates its operand ONCE, so a body that appends to the slice
+  ; iterates the old one, where the index form re-reads `len` every turn.
+  fn goWriteForLoop:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if ((array_length node.children) < 5) {
+      return
+    }
+    def coll:CodeNode (node.getSecond())
+    def item:CodeNode (itemAt node.children 2)
+    def idx:CodeNode (itemAt node.children 3)
+    def body:CodeNode (itemAt node.children 4)
+
+    if ((goLoops.canIterate(node)) == false) {
+      this.goWriteIndexForLoop(node ctx wr)
+      return
+    }
+
+    def itemName:string item.vref
+    def usesItem:boolean false
+    if ((strlen itemName) > 0) {
+      usesItem = (goLoops.treeMentions(body itemName))
+    }
+    wr.out("for " false)
+    if usesItem {
+      wr.out("_, " false)
+      this.goWriteOperand(item ctx wr)
+      wr.out(" := " false)
+    }
+    wr.out("range " false)
+    this.goWriteOperand(coll ctx wr)
+    wr.out(" {" true)
+    wr.indent(1)
+    def rCtx:RangerAppWriterContext (ctx.fork())
+    rCtx.restartExpressionLevel()
+    this.WalkNode(body rCtx wr)
+    wr.indent(-1)
+    wr.out("}" true)
+  }
+
+  fn goWriteOperand:void (arg:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    ctx.setInExpr()
+    this.WalkNode(arg ctx wr)
+    ctx.unsetInExpr()
+  }
+
+  ; the index form, what the template wrote before
+  fn goWriteIndexForLoop:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def coll:CodeNode (node.getSecond())
+    def item:CodeNode (itemAt node.children 2)
+    def idx:CodeNode (itemAt node.children 3)
+    def body:CodeNode (itemAt node.children 4)
+
+    wr.out("var " false)
+    this.goWriteOperand(idx ctx wr)
+    wr.out(" int64 = 0;  " true)
+    wr.out("for ; " false)
+    this.goWriteOperand(idx ctx wr)
+    wr.out(" < int64(len(" false)
+    this.goWriteOperand(coll ctx wr)
+    wr.out(")) ; " false)
+    this.goWriteOperand(idx ctx wr)
+    wr.out("++ {" true)
+    wr.indent(1)
+    ; Go rejects a binding nothing reads, so the element is bound only when the
+    ; body names it -- the rule the `go_for_bind` template command applied
+    def itemName:string item.vref
+    if ((strlen itemName) > 0) {
+      if (goLoops.treeMentions(body itemName)) {
+        this.goWriteOperand(item ctx wr)
+        wr.out(" := " false)
+        this.goWriteOperand(coll ctx wr)
+        wr.out("[" false)
+        this.goWriteOperand(idx ctx wr)
+        wr.out("]" true)
+      }
+    }
+    def sCtx:RangerAppWriterContext (ctx.fork())
+    sCtx.restartExpressionLevel()
+    this.WalkNode(body sCtx wr)
+    wr.indent(-1)
+    wr.out("}" true)
+  }
+
   fn CustomOperator:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
 
     def fc:CodeNode (node.getFirst())
     def cmd:string fc.vref
+
+    ; an index loop, or `for _, v := range xs` when that is safe
+    if (cmd == "for") {
+      this.goWriteForLoop(node ctx wr)
+      return
+    }
 
     ; Handle "start server port" for HttpServer
     if (cmd == "start") {

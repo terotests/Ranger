@@ -3,8 +3,7 @@ class Stats {
   
   int total(List<int> xs) {
     int acc = 0;
-    for ( int i = 0; i < xs.length; i++) {
-      var v = xs[i];
+    for ( final v in xs) {
       acc = acc + v;
     }
     return acc;
@@ -12,8 +11,7 @@ class Stats {
   
   int evenCount(List<int> xs) {
     int n = 0;
-    for ( int i = 0; i < xs.length; i++) {
-      var v = xs[i];
+    for ( final v in xs) {
       if ( v % 2 == 0 ) {
         n = n + 1;
       }
@@ -23,8 +21,7 @@ class Stats {
   
   List<int> doubled(List<int> xs) {
     List<int> out = [];
-    for ( int i = 0; i < xs.length; i++) {
-      var v = xs[i];
+    for ( final v in xs) {
       out.add(v * 2);
     }
     return out;
@@ -32,8 +29,7 @@ class Stats {
   
   List<int> applyEach(List<int> xs, int Function(int) f) {
     List<int> out = [];
-    for ( int i = 0; i < xs.length; i++) {
-      var v = xs[i];
+    for ( final v in xs) {
       int next = f(v);
       out.add(next);
     }

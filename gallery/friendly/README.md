@@ -64,6 +64,14 @@ whether Ranger compiled.
 | 9 | [C++](cpp/README.md) | yes | No longer `shared_ptr` everywhere: a `record` the sharing analysis proves is never aliased is a value, so `manhattan(const Point& p)` is the signature and the copying builder returns a `Request`. `for ( int v : xs )` where a range-`for` is safe. `enum class` for a Ranger `Enum`, an optional string that can tell `""` from absent, `error_msg` with the real text, and a preamble that goes in only when the program reaches it (study 07: 237 → 67 lines). |
 | 10 | [Go](go/README.md) | yes | Sharing is `*T`. Optional is `*GoNullable`. `try`/`throw` is `panic`/`recover`. Workable, not Go-like. |
 
+Every target's `for` is that target's own loop now, when the body neither
+reads the index nor touches the collection: `for (const v of xs)`,
+`for v in xs:`, `for _, v := range xs`, `for (T v : xs)`, `for (v in xs)`,
+`foreach (T v in xs)`, `for (final v in xs)`, `for v in xs`,
+`for (const T& v : xs)`. The decision is one decision
+([`compiler/ForLoopAnalysis.rgr`](../../compiler/ForLoopAnalysis.rgr)); only
+the spelling is per target.
+
 Two scores that are not the same thing:
 
 - **Correctness.** Python, JavaScript, Dart, Kotlin, C#, Java, Go, C++,

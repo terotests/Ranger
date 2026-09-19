@@ -15,9 +15,7 @@ func (this *TextTools) greet (name string) string {
 }
 func (this *TextTools) total (xs []int64) int64 {
   var acc int64= int64(0);
-  var i int64 = 0;  
-  for ; i < int64(len(xs)) ; i++ {
-    v := xs[i];
+  for _, v := range xs {
     acc = acc + v; 
   }
   return acc

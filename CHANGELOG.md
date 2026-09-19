@@ -39,6 +39,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   does not bind a temporary, so `m.bump((new Point(1 2)))` goes through
   `rg_arg_ref`, which is what that helper already existed for.
 
+- **Every target's `for` is now that target's own loop.** The question is one
+  question -- can this loop be written over the collection instead of over an
+  index? -- so it is answered once, in
+  [`compiler/ForLoopAnalysis.rgr`](compiler/ForLoopAnalysis.rgr), and each
+  writer spells the answer its own way:
+
+  | target | was | is |
+  | --- | --- | --- |
+  | JavaScript / TypeScript | `for ( let i = 0; i < xs.length; i++)` | `for ( const v of xs)` |
+  | Python | `for i, v in enumerate(xs):` | `for v in xs:` |
+  | Go | `var i int64 = 0; for ; i < int64(len(xs)) ; i++` | `for _, v := range xs {` |
+  | Java | `for ( int i = 0; i < xs.size(); i++)` | `for ( Integer v : xs)` |
+  | Kotlin | `for ( i in xs.indices )` | `for ( v in xs )` |
+  | C# | `for ( int i = 0; i < xs.Count; i++)` | `foreach ( int v in xs)` |
+  | Dart | `for ( int i = 0; i < xs.length; i++)` | `for ( final v in xs)` |
+  | Swift | `for (_, v) in xs.enumerated()` | `for v in xs` |
+  | C++ | `for ( int i = 0; i != (int)(xs.size()); i++)` | `for ( int v : xs )` |
+
+  Two conditions, and both are safety rather than length: the body must not
+  read the index, and must not touch any NAME the collection expression rests
+  on. A foreach form takes one iterator, enumerator or borrow for the whole
+  loop, so a body that appends walks something the index form does not -- an
+  invalidated iterator on C++, a `ConcurrentModificationException` on Java and
+  Kotlin, an `InvalidOperationException` on C#, a different answer on Go and
+  Swift. Every target keeps the index loop there, and `tests/loops-native.test.ts`
+  asserts both halves on all ten. Rust already made this decision
+  (PLAN_RUST_SEMANTIC_IDIOMS K) and es5 is deliberately left out, because
+  `for...of` is ES6.
+
 - **C++: `for ( int v : xs )`.** The generated `for` was always
   `for ( int i = 0; i != (int)(xs.size()); i++) { int v = xs.at(i); … }`. When
   the body neither reads the index nor touches any name the collection rests

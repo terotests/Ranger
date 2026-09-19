@@ -7,8 +7,7 @@ class TextTools  {
   }
   public int total( List<int> xs ) {
     int acc = 0;
-    for ( int i = 0; i < xs.Count; i++) {
-      int v = xs[i];
+    foreach ( int v in xs) {
       acc = acc + v;
     }
     return acc;

@@ -5778,9 +5778,13 @@ case class customException(smth:String)  extends Exception
                 ; body wants one. swift_rc writes `_` for either name when its
                 ; ref_cnt is 0 -- the swift3 template already did this for the
                 ; index, and the item needs it just as much.
-                swift6 ( (forkctx _ ) (def 2) (def 3) nl "for (" (swift_rc 3) ", " (swift_rc 2) ") in " (e 1) ".enumerated() {" nl I (block 4) nl i "}" )
-                kotlin ( (forkctx _ ) (def 2) (def 3) "for ( " (e 3) " in " (e 1) ".indices ) {" nl I "val " (e 2) " = " (e 1) "[" (e 3) "]" nl (block 4) nl i "}" )
-                dart ( (forkctx _ ) (def 2) (def 3) "for ( int " (e 3) " = 0; " (e 3) " < " (e 1) ".length; " (e 3) "++) {" nl I "var " (e 2) " = " (e 1) "[" (e 3) "];" nl (block 4) nl i "}" )
+                ; PLAN_CPP_IDIOMS C4: `for v in xs` when the body reads
+                ; neither the index nor the collection.
+                swift6 ( (forkctx _ ) (def 2) (def 3) nl (custom _) )
+                ; PLAN_CPP_IDIOMS C4: `for (v in xs)` when the body reads
+                ; neither the index nor the collection.
+                kotlin ( (forkctx _ ) (def 2) (def 3) (custom _) )
+                dart ( (forkctx _ ) (def 2) (def 3) (custom _) )
 
                 ; Use index-based loop for Rust with cloned item - no reassignment needed as item is cloned.
                 ; The index counts in i64, because Ranger declares it `int` and the
@@ -5811,11 +5815,17 @@ case class customException(smth:String)  extends Exception
                     i
                 "}" nl
                 )
-                go    (  (forkctx _ ) (def 3) "var " (e 3) " int64 = 0;  " nl "for ; " (e 3) " < int64(len(" (e 1) ")) ; " (e 3) "++ {" nl I nl (go_for_bind 2) nl (block 4) nl i "}" )
+                ; PLAN_CPP_IDIOMS C4, the Go half: the writer picks between the
+                ; index loop this used to be and `for _, v := range xs`, because
+                ; only it can ask whether the body reads the index or touches
+                ; the collection. See RangerGolangClassWriter.goWriteForLoop.
+                go    (  (forkctx _ ) (def 2) (def 3) (custom _) )
 
                 php    ( (forkctx _ ) (def 2) (def 3) "for ( " (e 3) " = 0; " (e 3) " < count(" (e 1) "); " (e 3) "++) {" nl I (e 2) " = " (e 1) "[" (e 3) "];" nl (block 4) nl i "}" )
-                java7 ( (forkctx _ ) (def 2) (def 3) "for ( int " (e 3) " = 0; " (e 3) " < " (e 1) ".size(); " (e 3) "++) {" nl I (typeof 2) " " (e 2) " = " (e 1) ".get(" (e 3) ");" nl (block 4) nl i "}" )
-                csharp ( (forkctx _ ) (def 2) (def 3) "for ( int " (e 3) " = 0; " (e 3) " < " (e 1) ".Count; " (e 3) "++) {" nl I (typeof 2) " " (e 2) " = " (e 1) "[" (e 3) "];" nl (block 4) nl i "}" )
+                ; PLAN_CPP_IDIOMS C4: `for (T v : xs)` when the body reads
+                ; neither the index nor the collection.
+                java7 ( (forkctx _ ) (def 2) (def 3) (custom _) )
+                csharp ( (forkctx _ ) (def 2) (def 3) (custom _) )
                 scala ( (custom _) )      
                 ; PLAN_CPP_IDIOMS C4: the writer picks between the index loop
                 ; this used to be and `for ( const T& v : xs )`, because only it
@@ -5824,7 +5834,14 @@ case class customException(smth:String)  extends Exception
                 cpp ( (forkctx _ ) (def 2) (def 3) (custom _) )
                 cpp.old ( (forkctx _ ) (def 2) (def 3) "for ( std::vector< " (typeof 2) ">::size_type " (e 3) " = 0; " (e 3) " != " (e 1) ".size(); " (e 3) "++) {" nl 
                             I (typeof 2) " " (e 2) " = " (e 1) ".at(" (e 3) ");" nl (block 4) nl i "}" )          
-                python ( (forkctx _ ) (def 2) (def 3) "for " (e 3) ", " (e 2) " in enumerate(" (e 1) "):" nl I (block 4) nl i )
+                ; PLAN_CPP_IDIOMS C4: `for v in xs:` when the body never
+                ; reads the index enumerate() was handing it.
+                python ( (forkctx _ ) (def 2) (def 3) (custom _) )
+                ; PLAN_CPP_IDIOMS C4: `for (const v of xs)` when the body reads
+                ; neither the index nor the collection. es5 is left on the `*`
+                ; template below -- `for...of` is ES6.
+                es6 ( (forkctx _ ) (def 2) (def 3) (custom _) )
+                ts ( (forkctx _ ) (def 2) (def 3) (custom _) )
                 * ( (forkctx _ ) (def 2) (def 3) "for ( let " (e 3) " = 0; " (e 3) " < " (e 1) ".length; " (e 3) "++) {" nl I "var " (e 2) " = " (e 1) "[" (e 3) "];" nl (block 4) nl i "}" )
             }
         }

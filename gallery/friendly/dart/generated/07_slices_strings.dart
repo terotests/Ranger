@@ -7,8 +7,7 @@ class TextTools {
   
   int total(List<int> xs) {
     int acc = 0;
-    for ( int i = 0; i < xs.length; i++) {
-      var v = xs[i];
+    for ( final v in xs) {
       acc = acc + v;
     }
     return acc;

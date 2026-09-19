@@ -57,8 +57,7 @@ class Lookup {
   
   String? findName(List<String> names, String key) {
     String? found = null;
-    for ( int i = 0; i < names.length; i++) {
-      var n = names[i];
+    for ( final n in names) {
       if ( n == key ) {
         found = n;
         return found;

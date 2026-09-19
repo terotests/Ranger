@@ -1,6 +1,7 @@
 ; SPDX-License-Identifier: MIT
 
 Import "TraitAnalysis.rgr"
+Import "ForLoopAnalysis.rgr"
 
 ; Swift 6 Class Writer
 ; Based on Swift3 writer with updates for Swift 6 compatibility
@@ -168,6 +169,9 @@ class RangerSwift6ClassWriter {
 
   ; which behaviour-only Ranger `trait`s become a Swift protocol
   def swiftTraits:TraitInterfaceAnalysis (new TraitInterfaceAnalysis())
+  ; can a `for` be the target's own loop over the collection?
+  ; Target-neutral question, one place: compiler/ForLoopAnalysis.rgr
+  def swiftLoopLoops:ForLoopShape (new ForLoopShape())
   def swift_traits_written:boolean false
 
   ; A behaviour-only trait named as a type, as a Swift protocol. The mixin
@@ -1298,10 +1302,88 @@ class RangerSwift6ClassWriter {
       return true
   }
 
+  ; --- the generated `for` (PLAN_CPP_IDIOMS C4, the Swift half) --------------
+  ; `for (_, v) in xs.enumerated() { ... }` is what you write when you want the
+  ; index and it is what this writer wrote whether you wanted it or not. When
+  ; the body neither reads the index nor touches the collection it is
+  ; `for v in xs`. The two conditions are the ones every target asks
+  ; (ForLoopShape); Swift arrays are values, so a body that appends iterates
+  ; the copy the loop took -- which is a DIFFERENT answer from the index form
+  ; that re-reads `.count`, so the condition is about meaning, not safety.
+  fn swiftLoopWriteOperand:void (arg:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    ctx.setInExpr()
+    this.WalkNode(arg ctx wr)
+    ctx.unsetInExpr()
+  }
+
+  ; A loop's binding, or `_` when the BODY never reads it -- Swift warns on
+  ; every bound name that goes unread, and Ranger's `for` binds both an item
+  ; and an index whether the body wants them or not. This is what the
+  ; `swift_rc` template command did; ref_cnt cannot answer it, because the loop
+  ; assigns the item from the list on every iteration, so its counter is never
+  ; zero even when nothing reads it.
+  fn swiftLoopWriteBinding:void (arg:CodeNode body:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def isRead:boolean true
+    if ((strlen arg.vref) > 0) {
+      isRead = (swiftLoopLoops.treeMentions(body arg.vref))
+    }
+    if (isRead == false) {
+      wr.out("_" false)
+      return
+    }
+    this.swiftLoopWriteOperand(arg ctx wr)
+  }
+
+  fn swiftLoopWriteForLoop:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if ((array_length node.children) < 5) {
+      return
+    }
+    def coll:CodeNode (node.getSecond())
+    def item:CodeNode (itemAt node.children 2)
+    def idx:CodeNode (itemAt node.children 3)
+    def body:CodeNode (itemAt node.children 4)
+
+    if (swiftLoopLoops.canIterate(node)) {
+      wr.out("for " false)
+      this.swiftLoopWriteBinding(item body ctx wr)
+      wr.out(" in " false)
+      this.swiftLoopWriteOperand(coll ctx wr)
+      wr.out(" {" true)
+      wr.indent(1)
+      def rCtx:RangerAppWriterContext (ctx.fork())
+      rCtx.restartExpressionLevel()
+      this.WalkNode(body rCtx wr)
+      wr.indent(-1)
+      wr.out("}" true)
+      return
+    }
+
+    ; the index form, what the template wrote before
+    wr.out("for (" false)
+    this.swiftLoopWriteBinding(idx body ctx wr)
+    wr.out(", " false)
+    this.swiftLoopWriteBinding(item body ctx wr)
+    wr.out(") in " false)
+    this.swiftLoopWriteOperand(coll ctx wr)
+    wr.out(".enumerated() {" true)
+    wr.indent(1)
+    def sCtx:RangerAppWriterContext (ctx.fork())
+    sCtx.restartExpressionLevel()
+    this.WalkNode(body sCtx wr)
+    wr.indent(-1)
+    wr.out("}" true)
+  }
+
   fn CustomOperator:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
 
     def fc:CodeNode (node.getFirst())
     def cmd:string fc.vref
+
+    ; an enumerated loop, or `for v in xs` when that is safe
+    if (cmd == "for") {
+      this.swiftLoopWriteForLoop(node ctx wr)
+      return
+    }
 
     if (cmd == "return") {
       if ((array_length node.children) > 1) {

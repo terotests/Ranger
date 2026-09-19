@@ -7,14 +7,14 @@ final class Stats : Hashable  {
   }
   func total(xs : [Int]) -> Int {
     var acc : Int = 0
-    for (_, v) in xs.enumerated() {
+    for v in xs {
       acc = acc + v;
     }
     return acc
   }
   func evenCount(xs : [Int]) -> Int {
     var n : Int = 0
-    for (_, v) in xs.enumerated() {
+    for v in xs {
       if ( v % 2 == 0 ) {
         n = n + 1;
       }
@@ -23,14 +23,14 @@ final class Stats : Hashable  {
   }
   func doubled(xs : [Int]) -> [Int] {
     var out : [Int] = [Int]()
-    for (_, v) in xs.enumerated() {
+    for v in xs {
       out.append(v * 2)
     }
     return out
   }
   func applyEach(xs : [Int], f :   @escaping  (( _ : Int) -> Int)) -> [Int] {
     var out : [Int] = [Int]()
-    for (_, v) in xs.enumerated() {
+    for v in xs {
       let next : Int = f(v)
       out.append(next)
     }

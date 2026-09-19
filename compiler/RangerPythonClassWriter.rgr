@@ -1,10 +1,15 @@
 ; SPDX-License-Identifier: MIT
 
+Import "ForLoopAnalysis.rgr"
+
 class RangerPythonClassWriter {
   Extends (RangerGenericClassWriter)
   def compiler:LiveCompiler
   def thisName:string "self"
   def wrote_header:boolean false
+  ; can a `for` be the target's own loop over the collection?
+  ; Target-neutral question, one place: compiler/ForLoopAnalysis.rgr
+  def pyLoops:ForLoopShape (new ForLoopShape())
 
   ; Python has no multi-statement lambda, so a lambda with a body becomes a
   ; named nested `def` written ABOVE the statement that uses it, and the
@@ -958,6 +963,67 @@ class RangerPythonClassWriter {
         theEnd.indent(-1)
       }
       ctx.in_static_method = false
+    }
+  }
+
+  ; --- the generated `for` (PLAN_CPP_IDIOMS C4, the Python half) --------------
+  ; `for i, v in enumerate(xs):` is already Python, and it is the right answer
+  ; when the body reads the index. It was emitted whether the body read it or
+  ; not, so most loops in the file carried an `i` nobody used -- which is the
+  ; one thing about this target that reads as generated rather than written.
+  ; When the body neither reads the index nor touches the collection it is
+  ; `for v in xs:`. The collection condition is the one every target asks
+  ; (ForLoopShape): both forms here walk a live list, so a body that appends
+  ; iterates what it appended, and only the index form lets the writer keep
+  ; that meaning explicit.
+  fn pyWriteOperand:void (arg:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    ctx.setInExpr()
+    this.WalkNode(arg ctx wr)
+    ctx.unsetInExpr()
+  }
+
+  fn pyWriteForLoop:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if ((array_length node.children) < 5) {
+      return
+    }
+    def coll:CodeNode (node.getSecond())
+    def item:CodeNode (itemAt node.children 2)
+    def idx:CodeNode (itemAt node.children 3)
+    def body:CodeNode (itemAt node.children 4)
+
+    wr.out("for " false)
+    ; canIterate, not bodyReadsIndex alone: both Python forms walk the live
+    ; list, so a body that appends grows what it is walking either way -- but
+    ; the index form is the one that says so, and every other target draws the
+    ; line in the same place. One answer per question beats a per-target one.
+    if (pyLoops.canIterate(node)) {
+      this.pyWriteOperand(item ctx wr)
+      wr.out(" in " false)
+      this.pyWriteOperand(coll ctx wr)
+      wr.out(":" true)
+    } {
+      this.pyWriteOperand(idx ctx wr)
+      wr.out(", " false)
+      this.pyWriteOperand(item ctx wr)
+      wr.out(" in enumerate(" false)
+      this.pyWriteOperand(coll ctx wr)
+      wr.out("):" true)
+    }
+    wr.indent(1)
+    def sCtx:RangerAppWriterContext (ctx.fork())
+    sCtx.restartExpressionLevel()
+    this.WalkNode(body sCtx wr)
+    wr.newline()
+    wr.indent(-1)
+  }
+
+  ; Nothing else routes a template through this writer, so the only command
+  ; that arrives is the one Lang.rgr declares `(custom _)` for it.
+  fn CustomOperator:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def fc:CodeNode (node.getFirst())
+    def cmd:string fc.vref
+    if (cmd == "for") {
+      this.pyWriteForLoop(node ctx wr)
     }
   }
 }

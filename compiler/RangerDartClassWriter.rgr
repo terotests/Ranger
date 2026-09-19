@@ -1,6 +1,7 @@
 ; SPDX-License-Identifier: MIT
 
 Import "TraitAnalysis.rgr"
+Import "ForLoopAnalysis.rgr"
 
 ; Dart / Flutter package target writer.
 ; Focus: idiomatic Dart for shared application logic (models, validation,
@@ -16,6 +17,9 @@ class RangerDartClassWriter {
 
   ; which behaviour-only Ranger `trait`s become a Dart abstract class
   def dartTraits:TraitInterfaceAnalysis (new TraitInterfaceAnalysis())
+  ; can a `for` be the target's own loop over the collection?
+  ; Target-neutral question, one place: compiler/ForLoopAnalysis.rgr
+  def dartLoops:ForLoopShape (new ForLoopShape())
   def dart_traits_written:boolean false
 
   ; A behaviour-only trait named as a type, as an abstract class its consumers
@@ -1024,4 +1028,81 @@ class RangerDartClassWriter {
       }
     }
   }
+
+  ; --- the generated `for` (PLAN_CPP_IDIOMS C4, the Dart half) --------------
+  ; `for (final v in xs)` is the Dart loop. This writer emitted the C-style
+  ; index one. The two conditions are the ones every target asks
+  ; (ForLoopShape): the for-in form takes one iterator for the whole loop, so a
+  ; body that adds to the list gets a ConcurrentModificationError where the
+  ; index form saw the growth.
+  fn dartWriteOperand:void (arg:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    ctx.setInExpr()
+    this.WalkNode(arg ctx wr)
+    ctx.unsetInExpr()
+  }
+
+  fn dartWriteForLoop:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if ((array_length node.children) < 5) {
+      return
+    }
+    def coll:CodeNode (node.getSecond())
+    def item:CodeNode (itemAt node.children 2)
+    def idx:CodeNode (itemAt node.children 3)
+    def body:CodeNode (itemAt node.children 4)
+
+    if (dartLoops.canIterate(node)) {
+      wr.out("for ( " false)
+      if (dartLoops.bodyAssignsElement(node)) {
+        wr.out("var " false)
+      } {
+        wr.out("final " false)
+      }
+      this.dartWriteOperand(item ctx wr)
+      wr.out(" in " false)
+      this.dartWriteOperand(coll ctx wr)
+      wr.out(") {" true)
+      wr.indent(1)
+      def rCtx:RangerAppWriterContext (ctx.fork())
+      rCtx.restartExpressionLevel()
+      this.WalkNode(body rCtx wr)
+      wr.indent(-1)
+      wr.out("}" true)
+      return
+    }
+
+    ; the index form, what the template wrote before
+    wr.out("for ( int " false)
+    this.dartWriteOperand(idx ctx wr)
+    wr.out(" = 0; " false)
+    this.dartWriteOperand(idx ctx wr)
+    wr.out(" < " false)
+    this.dartWriteOperand(coll ctx wr)
+    wr.out(".length; " false)
+    this.dartWriteOperand(idx ctx wr)
+    wr.out("++) {" true)
+    wr.indent(1)
+    wr.out("var " false)
+    this.dartWriteOperand(item ctx wr)
+    wr.out(" = " false)
+    this.dartWriteOperand(coll ctx wr)
+    wr.out("[" false)
+    this.dartWriteOperand(idx ctx wr)
+    wr.out("];" true)
+    def sCtx:RangerAppWriterContext (ctx.fork())
+    sCtx.restartExpressionLevel()
+    this.WalkNode(body sCtx wr)
+    wr.indent(-1)
+    wr.out("}" true)
+  }
+
+  ; Nothing else routes a template through this writer, so the only command
+  ; that arrives is the one Lang.rgr declares `(custom _)` for it.
+  fn CustomOperator:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def fc:CodeNode (node.getFirst())
+    def cmd:string fc.vref
+    if (cmd == "for") {
+      this.dartWriteForLoop(node ctx wr)
+    }
+  }
+
 }

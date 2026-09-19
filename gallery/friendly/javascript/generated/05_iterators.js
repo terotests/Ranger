@@ -4,37 +4,33 @@ class Stats  {
   }
   total (xs) {
     let acc = 0;
-    for ( let i = 0; i < xs.length; i++) {
-      var v = xs[i];
+    for ( const v of xs) {
       acc = acc + v;
-    };
+    }
     return acc;
   };
   evenCount (xs) {
     let n = 0;
-    for ( let i = 0; i < xs.length; i++) {
-      var v = xs[i];
+    for ( const v of xs) {
       if ( v % 2 == 0 ) {
         n = n + 1;
       }
-    };
+    }
     return n;
   };
   doubled (xs) {
     let out = [];
-    for ( let i = 0; i < xs.length; i++) {
-      var v = xs[i];
+    for ( const v of xs) {
       out.push(v * 2);
-    };
+    }
     return out;
   };
   applyEach (xs, f) {
     let out = [];
-    for ( let i = 0; i < xs.length; i++) {
-      var v = xs[i];
+    for ( const v of xs) {
       const next = f(v);
       out.push(next);
-    };
+    }
     return out;
   };
 }

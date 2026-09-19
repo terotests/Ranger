@@ -3,6 +3,7 @@
 Import "EnumAnalysis.rgr"
 Import "TraitAnalysis.rgr"
 Import "CppValueAnalysis.rgr"
+Import "ForLoopAnalysis.rgr"
 
 class RangerCppClassWriter {
   Extends (RangerGenericClassWriter)
@@ -50,6 +51,10 @@ class RangerCppClassWriter {
   ; aliased and held is a plain struct (CppValueClassAnalysis, which reads the
   ; verdict the Rust writer has been reading all along).
   def cppValues:CppValueClassAnalysis (new CppValueClassAnalysis())
+
+  ; Can a `for` be a range-`for`? The question is target-neutral and lives in
+  ; ForLoopShape (compiler/ForLoopAnalysis.rgr); only the spelling below is C++.
+  def cppLoops:ForLoopShape (new ForLoopShape())
 
   fn cppIsValueClass:boolean (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
     if (this.cppUnionValueCase(cl ctx)) {
@@ -1176,53 +1181,6 @@ class r_optional_primitive {
   ; K, RustOperators.rustWriteForLoop) and deliberately not an
   ; <algorithm> / <ranges> lowering: a loop that pushes is respectable C++, the
   ; shape of the loop was the tell.
-  fn cppTreeMentions:boolean (node:CodeNode name:string) {
-    if (node.value_type == RangerNodeType.VRef) {
-      if (node.vref == name) {
-        return true
-      }
-    }
-    if ((array_length node.ns) >= 2) {
-      if ((itemAt node.ns 0) == name) {
-        return true
-      }
-    }
-    if (node.vref == name) {
-      return true
-    }
-    for node.children ch:CodeNode i {
-      if (this.cppTreeMentions(ch name)) {
-        return true
-      }
-    }
-    return false
-  }
-
-  ; Does the body touch the thing being iterated? It has to be every NAME the
-  ; collection expression rests on, not just the last segment: `for lctx.owned`
-  ; rests on `lctx`, and a body that hands `lctx` to something that clears it
-  ; invalidates the iterators without ever saying `owned`.
-  fn cppForBodyTouchesCollection:boolean (body:CodeNode coll:CodeNode) {
-    if ((strlen coll.vref) > 0) {
-      if (this.cppTreeMentions(body coll.vref)) {
-        return true
-      }
-    }
-    for coll.ns seg:string si {
-      if ((strlen seg) > 0) {
-        if (this.cppTreeMentions(body seg)) {
-          return true
-        }
-      }
-    }
-    if ((strlen coll.vref) == 0) {
-      if ((array_length coll.ns) == 0) {
-        return true
-      }
-    }
-    return false
-  }
-
   ; `(e N)` is not a bare WalkNode: it brackets the walk with setInExpr, and
   ; without that a call operand is written as a STATEMENT, with a semicolon and
   ; a line break in the middle of the expression being built.
@@ -1282,26 +1240,15 @@ class r_optional_primitive {
     def item:CodeNode (itemAt node.children 2)
     def idx:CodeNode (itemAt node.children 3)
     def body:CodeNode (itemAt node.children 4)
-    def idxName:string idx.vref
 
-    def useRange:boolean true
-    if ((strlen idxName) > 0) {
-      if (this.cppTreeMentions(body idxName)) {
-        useRange = false
-      }
-    }
-    if useRange {
-      if (this.cppForBodyTouchesCollection(body coll)) {
-        useRange = false
-      }
-    }
+    def useRange:boolean (cppLoops.canIterate(node))
 
     if useRange {
+      ; a scalar binds by value; so does an element the body assigns to, which
+      ; the index form gave a private copy of
       def wantsCopy:boolean (this.cppForItemIsScalar(item))
-      if item.hasParamDesc {
-        if (item.paramDesc.set_cnt > 0) {
-          wantsCopy = true
-        }
+      if (cppLoops.bodyAssignsElement(node)) {
+        wantsCopy = true
       }
       wr.out("for ( " false)
       if (wantsCopy == false) {

@@ -29,10 +29,24 @@
 >   bind a temporary, so a `new` in an argument list goes through `rg_arg_ref`.
 >   `tests/fixtures/cpp_value_record.rgr` is the gate for both, and it prints
 >   the same six lines on C++, JavaScript, Python, Go and Rust.
-> - **C4.** `RangerCppClassWriter.cppWriteForLoop`, reached through
->   `(custom _)` in Lang.rgr's `for` template, the way the Rust writer already
->   was. Same two safety conditions as Rust: the body must not read the index
->   and must not touch any name the collection rests on.
+> - **C4, and then on every target that had the same loop.** The decision is
+>   one decision, so it lives in `compiler/ForLoopAnalysis.rgr` and each writer
+>   spells it: `for (const v of xs)` on JavaScript and TypeScript, `for v in
+>   xs:` on Python, `for _, v := range xs` on Go, `for (T v : xs)` on Java,
+>   `for (v in xs)` on Kotlin, `foreach (T v in xs)` on C#, `for (final v in
+>   xs)` on Dart, `for v in xs` on Swift, `for (const T& v : xs)` on C++.
+>   Rust already had it; es5 is left out because `for...of` is ES6. Same two
+>   safety conditions everywhere: the body must not read the index and must not
+>   touch any name the collection rests on.
+>
+>   Two things this pass found. Changing the es6 template is a BOOTSTRAP
+>   change: the compiler is built with `-es6`, so the template that routes to
+>   the new writer has to land in a binary that already has the writer, or
+>   every `for` in the compiler is written as nothing. It takes two builds, and
+>   the fixpoint check is the gate. And `for` over a collection the body
+>   appends to answers 5 on nine targets and 3 on Rust, whose index loop reads
+>   the bound into a local first -- deliberately, to avoid a borrow that would
+>   stop the body. That is ISSUES.md #96.
 > - **Item 8's remainder.** `r_optional_union`, the `Any` union and
 >   `rg_arg_ref` are reachability-gated. The twelve C++ studies lost 291 lines.
 > - **Rust, same question.** `use std::rc::Rc` / `use std::cell::RefCell` and
