@@ -517,7 +517,12 @@ class EVGElement {
     ; the last build — the element's own `id` when it has one. Written there
     ; and read by the walk a moment later, so the rectangle that carries the
     ; effect and the instance it refers to cannot disagree about its name.
-    ; Not style: `copyStyleFrom` leaves it alone.
+    ;
+    ; IN-FLIGHT STATE, and `adoptFrom` deliberately does not carry it across a
+    ; reconcile: `EVGDisplayList.build` names every instance again before the
+    ; walk that reads them, so a kept element's stale name and a fresh
+    ; element's empty one come to exactly the same thing one build later.
+    ; `scripts/check-evg-adopt.mjs` holds that decision on the record.
     def effectRuntimeId:string ""
 
     ; --- WHERE THE ELEMENT'S OWN TEXT SITS INSIDE IT --------------------------
