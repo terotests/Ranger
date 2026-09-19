@@ -102,6 +102,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Three quieter surface effects, and a file of presets.** `plasma-wave`
+  (ribbons of light over a noise field), `raindrop` (drops on the pane, each a
+  sphere's lens over what is behind it — strongest at the rim, nothing in the
+  middle, so the page stays legible through the centre) and `ambient-light` (a
+  slow desaturated wash with bokeh discs in it). All three are plugins in the
+  same registry the starfield and the glass use: a name, a parameter list and
+  one GLSL function, with the box coming from the layout. Two of them are
+  BACKDROP effects, which is what makes a drop a lens rather than a sticker.
+  `lib/evg/gl/effect-presets.css` holds eleven ready blocks — five skies, two
+  plasma fields, two rains, two washes — paste-able into the editor under the
+  gallery's effects demo. `npm run evg:fx:shots` paints all of them into one
+  sheet, and `evg:fx:check` reads the same file through the engine's own
+  cascade and then against pixels, so a preset the cascade refuses fails a
+  check instead of quietly drawing the plugin's defaults.
+
+- **The effects demo's stylesheet is editable in the page.** A textarea under
+  the canvas on `?demo=effects`, holding `effects.css`, applied as you type —
+  and what is typed goes through the WHOLE engine: `EffectsDemo.init` hands the
+  text to `EVGStyleSheet`, the cascade applies it, the layout lays the tree out
+  again, the display list carries whatever effect instances the sheet declared,
+  and the painter looks their names up. Nothing patches a parameter behind the
+  scenes, so `evg-fx-density: 6` on `.fx-sky` reaches the shader the same way
+  it does on a page nobody is editing. What the cascade refuses is reported in
+  the cascade's own words — type `#fx-sky` and it says the selector is
+  unsupported, because `EVGStyleSheet` keeps every declaration it rejected.
+  It is on this page and not on the standalone `lib/evg/gl/fx-demo.html`
+  because the bundle here carries the compiled engine and that page carries
+  only a display list built for it.
+
+- **A switch per effect in the gallery rail**, beside the demo it belongs to.
+  The list is built from the DISPLAY LIST rather than from names written into
+  the page: it knows that the stylesheet declared four effects and what each is
+  called, and nothing more. Turning one off sets the flag the painter reads —
+  the pass is skipped, the shader never runs, a press on a sleeping card goes
+  nowhere, and nothing is rebuilt to stop drawing one shader. The ordinary CSS
+  stays: switch the glass off and the card is still a rounded, tinted,
+  `backdrop-filter`-blurred box, which is the clearest way to see where the
+  effect ends and the stylesheet begins. `page-check` drives the switch in a
+  real page and holds the painter to it — one pass fewer with the sky off, and
+  back again.
+
 - **The surface effects are on the published gallery page** —
   [`/ui/demo/?demo=effects`](https://terotests.github.io/Ranger/ui/demo/?demo=effects).
   Every other demo there is a control measured against the component it copies;

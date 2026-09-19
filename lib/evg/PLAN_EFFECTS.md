@@ -72,8 +72,8 @@ A plugin declares which it is, and the difference decides when it is drawn:
 
 | | drawn | reads | example |
 | --- | --- | --- | --- |
-| `source` | in paint order, at the element's own background | nothing | `starfield` |
-| `backdrop` | in paint order, at the same point | the surface so far | `liquid-glass` |
+| `source` | in paint order, at the element's own background | nothing | `starfield`, `plasma-wave`, `ambient-light` |
+| `backdrop` | in paint order, at the same point | the surface so far | `liquid-glass`, `raindrop` |
 | `filter` | after the frame, over the box's region | the finished surface | `ripple` |
 
 A source is under the element's content, which is what makes a starfield a
@@ -131,6 +131,52 @@ a shine or as a line somebody drew:
 Both are checked against pixels: a rim-weighted bar leaves the flat middle
 byte-for-byte unchanged, and between passes nothing on the pane is brighter
 than the pane without a sweep at all.
+
+### The quiet three
+
+A starfield and a pane of glass are both loud: they are the effect, and the
+page is arranged around them. Three more are the other kind — a background you
+can put text on and still read it.
+
+* **`plasma-wave`** (source). Ribbons of light drifting across the box: a few
+  sine paths through a value-noise field, each one drawn as a thin core with a
+  wide glow, plus a `sheet` of colour behind them and sub-cell `grain` motes in
+  it. `hue`, `hue2`, `lines`, `speed`, `amp`, `glow`, `thickness`.
+* **`raindrop`** (backdrop). One drop per cell of a hash grid, mostly small and
+  a few large, each a sphere's lens over what is behind: strongest bend at the
+  rim and none in the middle, so the page stays legible through the centre and
+  smears at the edge, with a transmitted crescent, a small specular dot and a
+  darkened rim. `density`, `size`, `refract`, `shine`, `angle`, `rim`, `speed`.
+  It is the ripple's opposite number: a ripple is a lens that travels and dies,
+  a drop is a lens that stays.
+* **`ambient-light`** (source). A slow wash — two-tone fbm, desaturated by
+  `sat` — with a handful of bokeh discs floating through it. Nothing in it is
+  sharp, which is the point: it is the background under a dashboard, not the
+  subject. `hue`, `hue2`, `sat`, `level`, `speed`, `orbs`, `blur`.
+
+All three take their box from the layout like the others, and all three are in
+`effect-presets.css` twice, with different numbers.
+
+### Presets
+
+`lib/evg/gl/effect-presets.css` is eleven blocks of ordinary CSS, one element's
+worth each: five skies, two plasma fields, two rains, two washes. They exist to
+be pasted — into the live editor under the gallery's effects demo, or into a
+stylesheet — and nothing but numbers comes with them.
+
+```
+npm run evg:fx:shots                       every preset, one picture
+npm run evg:fx:shots -- out.png --only raindrop --tile 520x300
+```
+
+The file is read twice and written once: `effect-shots.mjs` paints it, and
+`fx-check.mjs` parses it with the ENGINE's own `EVGStyleSheet` and compares
+every declaration against what the picture used — so a preset the cascade
+refuses fails a check instead of quietly drawing the plugin's defaults. The
+pixel half then renders all eleven on a page of their own size and holds each
+to changing its tile against the same tile with the effect off. The tiles under
+a backdrop preset carry a mock page — a headline bar and three lines — because
+a lens over a flat colour is invisible by construction.
 
 ### Registering one
 
@@ -238,4 +284,5 @@ npm run evg:fx:test      the document side: CSS → instances, without a GPU
 npm run evg:fx:check     the pixels: scoped, layered, moving, and not leaking
 npm run evg:fx:doc       rebuild the demo document from lib/evg/FxDemoDoc.rgr
 npm run evg:fx:demo      serve it — http://localhost:8099/fx-demo.html
+npm run evg:fx:shots     paint every preset in effect-presets.css
 ```

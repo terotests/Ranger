@@ -388,13 +388,29 @@ let lastControlsHover = "";
 let lastCalendarHover = "";
 const dashboard = new DashboardDemo();
 dashboard.init(DASHBOARD_CSS);
-const effects = new EffectsDemo();
+// `let`, because the editor below rebuilds it from whatever is in the
+// textarea — the same reason `form`, `profile` and `otp` are.
+let effects = new EffectsDemo();
 effects.init(EFFECTS_CSS);
 // ONE DRIVER FOR THE PAGE. It reads the effect instances off whatever display
 // list is being painted, so it works for any demo whose stylesheet declares an
 // effect and costs nothing on the nineteen that do not.
 const fxDriver = createEffectDriver();
 let fxLastTick = 0;
+// The effects this demo's document declares, and which of them the rail has
+// switched off. Read OUT OF THE LIST rather than written here: the page does
+// not know what effects exist, only that the stylesheet declared some and what
+// each one is called.
+const fxDeclared = (() => {
+  try {
+    return (JSON.parse(effects.displayListJson()).effects || [])
+      .map((e) => `${e.id} · ${e.kind}`);
+  } catch (e) {
+    return [];
+  }
+})();
+const fxLabelId = (label) => label.split(" · ")[0];
+const fxOff = new Set();
 let lastDashHover = "";
 let lastResizeHover = "";
 let lastTreeHover = "";
@@ -1743,6 +1759,15 @@ function paint() {
     // the driver keys its state by the element's id, so a list parsed afresh
     // every paint keeps a ripple that is still travelling.
     if (list.effects && list.effects.length > 0) {
+      // What the rail switched off, applied to the instances this paint. The
+      // list is parsed afresh every frame, so the flag is set here rather than
+      // kept on an object that will not survive to the next one.
+      for (const e of list.effects) e.off = fxOff.has(e.id);
+      // Published for the same reason `__lastList` and `__lastStats` are:
+      // something driving this page from outside has to be able to ask. The
+      // flag is set on the PARSED list, so it is not in `__lastList` — which
+      // is the string the demo produced, before this page touched it.
+      window.__lastEffects = list.effects.map((e) => ({ id: e.id, kind: e.kind, off: !!e.off }));
       const now = performance.now();
       const dt = fxLastTick ? Math.min(now - fxLastTick, 100) : 16;
       fxLastTick = now;
@@ -2032,6 +2057,18 @@ radios(
     syncMotionClock();
     syncTextSession();
     // The demo that just arrived may be one that moves by itself.
+    startClock();
+  },
+);
+boxes(
+  document.getElementById("fxswitches"),
+  fxDeclared,
+  (v) => !fxOff.has(fxLabelId(v)),
+  (v) => {
+    const id = fxLabelId(v);
+    if (fxOff.has(id)) fxOff.delete(id); else fxOff.add(id);
+    // Switching one back ON has to start the clock again: the page stopped
+    // asking for frames when the last moving thing was turned off.
     startClock();
   },
 );
@@ -2511,6 +2548,64 @@ function syncMotionClock() {
 function startClock() {
   const d = DEMOS[state.which];
   if (d && d.animated) animate();
+}
+
+// --- the live stylesheet ----------------------------------------------------
+//
+// THE EFFECTS DEMO CAN BE EDITED IN THE PAGE, and what is typed goes through
+// the whole engine: `EffectsDemo.init` hands the text to `EVGStyleSheet`, the
+// cascade applies it, the layout lays the tree out again, the display list
+// carries whatever effect instances the sheet declared, and the painter looks
+// their names up. Nothing here patches a parameter — change
+// `evg-fx-density` and the number reaching the shader came out of the
+// stylesheet the same way it does on a page nobody is editing.
+//
+// That is also why this is on THIS page and not on the standalone
+// `lib/evg/gl/fx-demo.html`: the bundle here carries the compiled engine, and
+// that page carries only a display list somebody built for it.
+const fxCss = document.getElementById("fxcss");
+if (fxCss) {
+  const fxErr = document.getElementById("fxcsserr");
+  fxCss.value = EFFECTS_CSS;
+
+  const applyFxCss = () => {
+    let next;
+    try {
+      next = new EffectsDemo();
+      next.init(fxCss.value);
+    } catch (e) {
+      // A sheet the parser cannot get through at all: keep the page that is
+      // drawing and say why, rather than leaving a blank canvas behind.
+      fxErr.className = "";
+      fxErr.textContent = "the stylesheet could not be read: " + (e && e.message ? e.message : e);
+      return;
+    }
+    // WHAT THE ENGINE REJECTED, in its own words. `EVGStyleSheet` keeps every
+    // declaration and selector it refused — an unsupported selector, a value
+    // it could not parse — so a typo here is reported by the cascade rather
+    // than guessed at by this page.
+    const n = next.styleErrorCount();
+    const said = [];
+    for (let i = 0; i < Math.min(n, 4); i += 1) said.push(next.styleErrorAt(i));
+    if (n > 4) said.push(`…and ${n - 4} more`);
+    fxErr.className = n > 0 ? "" : "ok";
+    fxErr.textContent = n > 0 ? said.join("  ·  ") : "the cascade accepted every declaration";
+    effects = next;
+    paint();
+    startClock();
+  };
+
+  // Debounced, because a keystroke is not a reason to lay a page out — and
+  // 250ms is short enough that dragging a number still feels live.
+  let fxPending = 0;
+  fxCss.addEventListener("input", () => {
+    clearTimeout(fxPending);
+    fxPending = setTimeout(applyFxCss, 250);
+  });
+  document.getElementById("fxcssreset").addEventListener("click", () => {
+    fxCss.value = EFFECTS_CSS;
+    applyFxCss();
+  });
 }
 
 syncPanels();
