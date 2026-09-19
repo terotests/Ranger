@@ -1,0 +1,2 @@
+generated/*.compile.log
+generated/*.rustc.log

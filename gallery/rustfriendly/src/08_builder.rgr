@@ -1,0 +1,76 @@
+; Study 08 — builder / fluent construction
+;
+; The Rust I want (consuming builder):
+;   impl Request {
+;       fn with_host(mut self, h: String) -> Self { self.host = h; self }
+;   }
+;   let r = Request::new().with_host("localhost").with_port(8080);
+;
+; Ranger classes are references. Returning `this` is the JS fluent style
+; and usually forces `Rc<RefCell<T>>`. A copying builder on a record is
+; closer to the Rust consuming-self form, but every step allocates a
+; new object because there is no `self` by value.
+
+record Request {
+    def host:string ""
+    def path:string "/"
+    def port:int 80
+}
+
+class RequestBuild {
+    fn withHost:Request (r:Request h:string) {
+        return (new Request(h r.path r.port))
+    }
+
+    fn withPath:Request (r:Request p:string) {
+        return (new Request(r.host p r.port))
+    }
+
+    fn withPort:Request (r:Request n:int) {
+        return (new Request(r.host r.path n))
+    }
+
+    fn url:string (r:Request) {
+        return ((r.host + ":") + ((to_string r.port) + r.path))
+    }
+}
+
+class MutRequest {
+    def host:string ""
+    def path:string "/"
+    def port:int 80
+
+    fn withHost:MutRequest (h:string) {
+        host = h
+        return this
+    }
+
+    fn withPath:MutRequest (p:string) {
+        path = p
+        return this
+    }
+
+    fn withPort:MutRequest (n:int) {
+        port = n
+        return this
+    }
+
+    fn url:string () {
+        return ((host + ":") + ((to_string port) + path))
+    }
+}
+
+class BuilderMain {
+    sfn main:void () {
+        def b:RequestBuild (new RequestBuild())
+        def start:Request (new Request("" "/" 80))
+        def step1:Request (b.withHost(start "localhost"))
+        def step2:Request (b.withPort(step1 8080))
+        def done:Request (b.withPath(step2 "/api"))
+        print ("copy " + (b.url(done)))
+
+        def m:MutRequest (new MutRequest())
+        def chained:MutRequest (m.withHost("localhost").withPort(8080).withPath("/api"))
+        print ("mut " + (chained.url()))
+    }
+}

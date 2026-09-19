@@ -1,0 +1,24 @@
+; Attempt — optional string parameter
+;
+; Ranger accepts `fn shown:string (maybe@(optional):string)`. The Rust writer
+; emits `fn shown(maybe : Option<Option<String>>)` and rustc rejects both the
+; body (`unwrap` is still `Option<String>`) and every call site.
+;
+; `??` on a *local* optional string is fine. Optional fields and optional
+; returns of string are also fine. The hole is the parameter slot.
+
+class OptionalParam {
+    fn shown:string (maybe@(optional):string) {
+        if (null? maybe) {
+            return "unknown"
+        }
+        return (unwrap maybe)
+    }
+
+    sfn main:void () {
+        def app:OptionalParam (new OptionalParam())
+        def hit@(optional):string
+        hit = "ada"
+        print (app.shown(hit))
+    }
+}
