@@ -1,5 +1,7 @@
 ; SPDX-License-Identifier: MIT
 
+Import "EnumAnalysis.rgr"
+
 ; Helper class to hold a list of method names (for call graph)
 class MethodCallList {
   def calls:[string]
@@ -97,6 +99,15 @@ class RangerRustClassWriter {
   ; ask what shape the caller is expecting
   def rustFnReturnNameNode@(optional):CodeNode
   def fileHeaderWritten:boolean false
+  ; every identifier name in the program, for the snake_case collision guard.
+  ; adjustType is called from 40-odd places with no ctx to hand, so the SET is
+  ; what gets parked here — filled once by the header pass, which has one.
+  def rustIdentNames:[string:boolean]
+  def rustIdentNamesDone:boolean false
+  ; PLAN_RUST_SEMANTIC_IDIOMS F: which Ranger `Enum`s are written as a Rust
+  ; `enum` rather than lowered to i64. The rules are target-neutral -- C++ asks
+  ; the same question of `enum class` -- so they live in EnumNativeAnalysis.
+  def rustEnums:EnumNativeAnalysis (new EnumNativeAnalysis())
   ; writing the TARGET of a cell assignment: the whole collection is being
   ; replaced, so the path names the RefCell itself rather than borrowing it
   def rust_in_cell_assign:boolean false
@@ -116,7 +127,132 @@ class RangerRustClassWriter {
   }
   
   ; Escape Rust reserved words by prefixing with r#
+  ; --- snake_case identifiers (PLAN_RUST_SEMANTIC_IDIOMS L) -------------------
+  ; Every generated file used to carry `#![allow(non_snake_case)]` and the 708
+  ; warnings behind it, because a Ranger `parseInt` came out as `parseInt`.
+  ;
+  ; The documented blocker was `@serialize(true)`, whose JSON keys must not move
+  ; when a field is renamed. They do not: the serializer generates a Ranger
+  ; `toDictionary` that writes `pvar.name` — the name as WRITTEN — as the key,
+  ; and the field access beside it goes through the same rename as every other
+  ; access. The wire format is tied to the source name, not to the emitted one.
+  ;
+  ; The other hazard is that a `.` path segment can be a field or a method and
+  ; the writer often cannot tell which at the point it writes one. That stops
+  ; mattering when BOTH are renamed the same way, which is why this is one
+  ; transform applied at one place rather than two applied selectively.
+  ;
+  ; Type names are not renamed: `adjustType` is called only for identifiers in
+  ; this writer — fields, locals, parameters, methods and path segments — and a
+  ; class name reaches the output through `cl.name`.
+  ; Two Ranger names can snake_case to one Rust name. `FlowStdMatch` has a local
+  ; `pluginFn` assigned into an outer `plugin_fn`, and renaming the first gave
+  ; `plugin_fn = plugin_fn.clone()` — a variable shadowing itself. That is the
+  ; one way this transform can change the meaning of a program rather than just
+  ; fail, so a name whose snake_case form is ALREADY a name somewhere in the
+  ; program keeps its spelling. The set is every identifier the writer can see:
+  ; class fields, method names, parameters and every vref in every body.
+  fn rustFillIdentNames:void (ctx:RangerAppWriterContext) {
+    if rustIdentNamesDone {
+      return
+    }
+    rustIdentNamesDone = true
+    def inRoot:RangerAppWriterContext (ctx.getRoot())
+    for inRoot.definedClasses icl:RangerAppClassDesc ici {
+      for icl.variables iv:RangerAppParamDesc ivi {
+        set rustIdentNames iv.name true
+      }
+      this.rustCollectFnNames(icl.methods)
+      this.rustCollectFnNames(icl.static_methods)
+    }
+  }
+
+  fn rustCollectFnNames:void (fns:[RangerAppFunctionDesc]) {
+    for fns fd:RangerAppFunctionDesc fi {
+      set rustIdentNames fd.name true
+      for fd.params fp:RangerAppParamDesc fpi {
+        set rustIdentNames fp.name true
+      }
+      def bOpt@(optional):CodeNode fd.node
+      if (!null? bOpt) {
+        this.rustCollectVrefs((unwrap bOpt))
+      }
+    }
+  }
+
+  fn rustCollectVrefs:void (node:CodeNode) {
+    if ((strlen node.vref) > 0) {
+      set rustIdentNames node.vref true
+    }
+    for node.children ch:CodeNode i {
+      this.rustCollectVrefs(ch)
+    }
+  }
+
+  fn rustSnakeCase:string (n:string) {
+    def ln:int (strlen n)
+    if (ln == 0) {
+      return n
+    }
+    def out:string ""
+    def i:int 0
+    while (i < ln) {
+      def ch:string (substring n i (i + 1))
+      def lower:string (to_lowercase ch)
+      if (ch != lower) {
+        ; an underscore goes in only BETWEEN things: never at the start, where
+        ; it would mean "deliberately unused" to rustc, and never after one
+        if (i > 0) {
+          def prev:string (substring n (i - 1) i)
+          def prevIsLower:boolean (prev != (to_uppercase prev))
+          def nextIsLower:boolean false
+          if ((i + 1) < ln) {
+            def nxt:string (substring n (i + 1) (i + 2))
+            if (nxt != (to_uppercase nxt)) {
+              nextIsLower = true
+            }
+          }
+          ; `parseInt` -> parse_int (lower then upper), and `HTTPServer` ->
+          ; http_server (a run of capitals ending where a word begins)
+          if (prevIsLower || nextIsLower) {
+            if (prev != "_") {
+              out = (out + "_")
+            }
+          }
+        }
+        out = (out + lower)
+      } {
+        out = (out + ch)
+      }
+      i = (i + 1)
+    }
+    return out
+  }
+
+  ; An identifier that may in fact be a TYPE name — the first segment of a
+  ; static path is `InputFSFolder`, not a field — keeps its spelling. Renaming
+  ; it gave `input_fs_folder::fromDictionary`, which rustc reads as a module.
+  fn adjustIdentOrType:string (n:string ctx:RangerAppWriterContext) {
+    if (ctx.isDefinedClass(n)) {
+      return (this.adjustReserved(n))
+    }
+    return (this.adjustType(n))
+  }
+
   fn adjustType:string (tn:string) {
+    def sn:string (this.rustSnakeCase(tn))
+    if (sn != tn) {
+      if (has rustIdentNames sn) {
+        return (this.adjustReserved(tn))
+      }
+    }
+    return (this.adjustReserved(sn))
+  }
+
+  ; the rename, with the collision guard. Everything that writes an identifier
+  ; goes through adjustType, which does not have a ctx; this is the entry the
+  ; two path emitters use, where one is available.
+  fn adjustReserved:string (tn:string) {
     switch tn {
       case "type" { return "r#type" }
       case "static" { return "r#static" }
@@ -989,7 +1125,13 @@ class RangerRustClassWriter {
     }
     switch v_type {
       case RangerNodeType.Enum {
-        wr.out("i64" false)
+        ; PLAN_RUST_SEMANTIC_IDIOMS F: the enum's own name when every use in the
+        ; program is one a Rust enum can carry, i64 otherwise.
+        if (this.rustEnumIsNative(node.type_name ctx)) {
+          wr.out(node.type_name false)
+        } {
+          wr.out("i64" false)
+        }
       }
       case RangerNodeType.Integer {
         wr.out("i64" false)
@@ -1047,6 +1189,16 @@ class RangerRustClassWriter {
           if tc.is_extended_by_children {
             wr.out(("Rc<RefCell<dyn " + node.type_name + "Trait>>") false)
           } {
+            ; A Ranger `trait` is a MIXIN on this target: its methods are copied
+            ; into each class that `does` it, and no type of that name is ever
+            ; declared. Writing the trait's name here emitted a Rust type that
+            ; does not exist -- `fn show(n : &mut Named)` with no `Named` in the
+            ; file, which rustc answers with E0425. A parent class WITH
+            ; subclasses is the case just above and does get a real trait
+            ; object; a trait does not, so say so instead of writing the name.
+            if tc.is_trait {
+              ctx.addError(node (("the Rust target writes a `trait` as a mixin, so `" + node.type_name) + "` is not a type it can name. Use a class with subclasses (`Extends(Base)`), which does emit a Rust trait object, or give the parameter a concrete type."))
+            }
             wr.out((this.getObjectTypeString(node.type_name ctx)) false)
           }
         } {
@@ -1279,6 +1431,11 @@ class RangerRustClassWriter {
         def enumName:string (itemAt node.ns 1)
         def e@(optional):RangerAppEnum (ctx.getEnum(rootObjName))
         if (!null? e) {
+          ; `Color::Green`, not `1`, when the enum survives as a Rust enum
+          if (this.rustEnumIsNative(rootObjName ctx)) {
+            wr.out(((rootObjName + "::") + enumName) false)
+            return
+          }
           wr.out(("" + (unwrap (get e.values enumName))) false)
           return
         }
@@ -1309,7 +1466,7 @@ class RangerRustClassWriter {
           }
         }
         if ((dotDecl > 0) && (dotDecl == dotShared)) {
-          wr.out(("borrow()." + node.vref) false)
+          wr.out(("borrow()." + (this.adjustType(node.vref))) false)
           return
         }
       }
@@ -1394,13 +1551,17 @@ class RangerRustClassWriter {
             wr.out((segAcc + "()") false)
           }
         } {
+          ; the first segment of a static path is a CLASS name, and the desc
+          ; carries it in compiledName like any other — so the rename has to
+          ; ask, or `InputFSFolder.fromDictionary` becomes
+          ; `input_fs_folder::from_dictionary`, which rustc reads as a module
           if ((strlen p.compiledName) > 0) {
-            wr.out((this.adjustType(p.compiledName)) false)
+            wr.out((this.adjustIdentOrType(p.compiledName ctx)) false)
           } {
             if ((strlen p.name) > 0) {
-              wr.out((this.adjustType(p.name)) false)
+              wr.out((this.adjustIdentOrType(p.name ctx)) false)
             } {
-              wr.out((this.adjustType( (itemAt node.ns i))) false)
+              wr.out((this.adjustIdentOrType( (itemAt node.ns i) ctx)) false)
             }
           }
         }
@@ -2615,7 +2776,12 @@ class RangerRustClassWriter {
             }
           }
         } {
-          def argOptional:boolean (nameN.hasFlag("optional"))
+          ; writeTypeDef reads the `optional` flag off the name node and writes
+          ; the `Option<…>` itself. Wrapping it again here gave every
+          ; `@(optional)` PARAMETER the type `Option<Option<T>>` — for a scalar,
+          ; a string and an object alike — which no call site and no `unwrap` in
+          ; the body agrees with. An optional LOCAL and an optional RETURN never
+          ; went through here, which is why only parameters were wrong.
           if is_object {
             wr.out((rust_mut_pfx + paramName + " : ") false)
           } {
@@ -2625,13 +2791,7 @@ class RangerRustClassWriter {
               wr.out((paramName + " : ") false)
             }
           }
-          if argOptional {
-            wr.out("Option<" false)
-          }
           this.writeTypeDef(nameN ctx wr)
-          if argOptional {
-            wr.out(">" false)
-          }
         }
       }
     }

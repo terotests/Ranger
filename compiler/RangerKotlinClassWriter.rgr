@@ -1,5 +1,7 @@
 ; SPDX-License-Identifier: MIT
 
+Import "TraitAnalysis.rgr"
+
 class RangerKotlinClassWriter {
   Extends (RangerGenericClassWriter)
   def compiler:LiveCompiler
@@ -7,6 +9,40 @@ class RangerKotlinClassWriter {
   ; implement, so the JVM keeps the static type a shape declares instead of
   ; erasing it to Any. Declared once, before the first class of the file.
   def kotlin_unions_written:boolean false
+
+  ; which behaviour-only Ranger `trait`s become a Kotlin interface
+  def ktTraits:TraitInterfaceAnalysis (new TraitInterfaceAnalysis())
+  def kotlin_traits_written:boolean false
+
+  ; A behaviour-only trait named as a type, as a Kotlin interface. The mixin
+  ; copy still gives each consumer its own body; this makes the name a type,
+  ; and the bodies become `override`s of it.
+  fn writeKotlinTraitInterfaces:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+    if kotlin_traits_written {
+      return
+    }
+    kotlin_traits_written = true
+    ktTraits.compute(ctx)
+    for (keys ktTraits.ifaceTraits) tn:string tni {
+      def tc:RangerAppClassDesc (ctx.findClass(tn))
+      wr.out("" true)
+      wr.out(("interface " + tn) false)
+      wr.out(" {" true)
+      wr.indent(1)
+      for tc.defined_variants fnVar:string fvi {
+        def mVs:RangerAppMethodVariants (get tc.method_variants fnVar)
+        for mVs.variants variant:RangerAppFunctionDesc vi {
+          wr.out(("fun " + variant.compiledName + "(") false)
+          this.writeArgsDef(variant ctx wr)
+          wr.out(") : " false)
+          this.writeTypeDef( (unwrap variant.nameNode ) ctx wr)
+          wr.out("" true)
+        }
+      }
+      wr.indent(-1)
+      wr.out("}" true)
+    }
+  }
 
   fn writeKotlinUnionInterfaces:void (ctx:RangerAppWriterContext wr:CodeWriter) {
     if kotlin_unions_written {
@@ -305,6 +341,20 @@ class RangerKotlinClassWriter {
         if (node.type_name == "void") {
           wr.out("Unit" false)
         } {
+          ; A trait CARRYING FIELDS is not a Kotlin interface: its consumers
+          ; each own their own copy of the field, so there is nothing for an
+          ; interface to promise. It used to reach the file as the bare name,
+          ; which kotlinc answers with "unresolved reference". A trait of
+          ; methods only is an interface (writeKotlinTraitInterfaces) and does
+          ; name a type.
+          if (ctx.isDefinedClass(node.type_name)) {
+            def ktTC:RangerAppClassDesc (ctx.findClass(node.type_name))
+            if ktTC.is_trait {
+              if ((ktTraits.isInterface(node.type_name ctx)) == false) {
+                ctx.addError(node (("the Kotlin target writes a `trait` as a mixin, so `" + node.type_name) + "` is not a type it can name. A trait that declares only METHODS becomes a Kotlin interface and can be used as a type; this one carries fields, which its consumers each hold their own copy of. Use a class with subclasses, or give the parameter a concrete type."))
+              }
+            }
+          }
           ; getObjectTypeString, not getTypeString: a union has no Kotlin type
           ; of its own and has to be written as Any here too, not only as a
           ; collection element type.
@@ -825,6 +875,7 @@ class RangerKotlinClassWriter {
         pkgHead.out("" true)
       }
     }
+    this.writeKotlinTraitInterfaces(ctx wr)
     this.writeKotlinUnionInterfaces(ctx wr)
     wr.out("" true)
     if cl.has_doc {
@@ -896,8 +947,9 @@ class RangerKotlinClassWriter {
     ; the unions this class belongs to are its interfaces — nothing has to be
     ; wrapped at a call site for a value to become a union member
     def clUnions:[string] (this.unionInterfacesOf((unwrap cl) ctx))
+    def ktSupers:int (array_length cl.extends_classes)
     if ((array_length clUnions) > 0) {
-      if ((array_length cl.extends_classes) > 0) {
+      if (ktSupers > 0) {
         wr.out(", " false)
       } {
         wr.out(" : " false)
@@ -907,6 +959,27 @@ class RangerKotlinClassWriter {
           wr.out(", " false)
         }
         wr.out(uname false)
+        ktSupers = ktSupers + 1
+      }
+    }
+    ; …and so are the behaviour-only traits it `does` that something names as
+    ; a type. Registering their method names in declaredFunction is what makes
+    ; the copied bodies come out as `override`, which Kotlin requires.
+    def ktIfaces:[string] (ktTraits.basesOf((unwrap cl) ctx))
+    for ktIfaces ifName:string ifi {
+      if (ktSupers > 0) {
+        wr.out(", " false)
+      } {
+        wr.out(" : " false)
+      }
+      wr.out(ifName false)
+      ktSupers = ktSupers + 1
+      def ifC:RangerAppClassDesc (ctx.findClass(ifName))
+      for ifC.defined_variants ifVar:string ifj {
+        def ifVs:RangerAppMethodVariants (get ifC.method_variants ifVar)
+        for ifVs.variants ifVariant:RangerAppFunctionDesc ifk {
+          set declaredFunction ifVariant.name true
+        }
       }
     }
     wr.out(" " true)
@@ -918,8 +991,23 @@ class RangerKotlinClassWriter {
         has_static_vars = true
       }
     }
+    ; `sfn m@(main)` is lifted to a top-level `fun main()` and skipped in the
+    ; companion, so a class whose only static IS main wanted a companion and
+    ; then had nothing to put in it — `companion object { }`, empty, in every
+    ; program with an entry point.
+    def companion_statics:int 0
+    for cl.static_methods cmVariant:RangerAppFunctionDesc cmi {
+      def cmNN@(optional):CodeNode cmVariant.nameNode
+      if (!null? cmNN) {
+        def cmN:CodeNode (unwrap cmNN)
+        if (cmN.hasFlag("main")) {
+          continue _
+        }
+      }
+      companion_statics = (companion_statics + 1)
+    }
     def wants_companion false
-    if (((array_length cl.static_methods) > 0) || has_static_vars) {
+    if ((companion_statics > 0) || has_static_vars) {
       wants_companion = true
     }
     if (cl.isSingletonClass()) {

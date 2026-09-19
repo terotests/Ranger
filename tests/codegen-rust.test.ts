@@ -14,8 +14,10 @@ describe("Rust Code Generation", () => {
 
     it("keeps &self for a collection read like itemAt", () => {
       // itemAt is a has_call on the member vector; a read operator on a
-      // plain collection must not count as a mutation of self
-      expect(result.code).toContain("fn firstLabel(&self) -> String");
+      // plain collection must not count as a mutation of self.
+      // The Ranger method is `firstLabel`; identifiers are snake_case on this
+      // target (PLAN_RUST_SEMANTIC_IDIOMS L).
+      expect(result.code).toContain("fn first_label(&self) -> String");
     });
 
     it("gives a field-assigning method &mut self", () => {

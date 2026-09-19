@@ -6,6 +6,9 @@
 ; the operators below were written with an empty `*` template, which wrote
 ; `plugin = ;` into the C++ output. The C++ entries below say the same thing
 ; the empty template meant -- there is no plugin here -- in a way g++ accepts.
+; Java 7 had neither a systemclass entry nor templates, so rendering this
+; compiler to Java crashed the writer outright ("Cannot read properties of
+; undefined (reading 'split')") rather than producing a file.
 systemclass RangerCompilerPlugin {
     es6 any
     cpp "void*"
@@ -14,6 +17,7 @@ systemclass RangerCompilerPlugin {
     python object
     csharp object
     kotlin "Any?"
+    java7 "Object"
     rust "()"
 }
 
@@ -27,6 +31,7 @@ operators {
             python ( "None" )
             csharp ( "null" )
             kotlin ( "null" )
+            java7 ( "null" )
             rust ( "()" )
             * ()
         }
@@ -41,6 +46,7 @@ operators {
             python ( "[]" )
             csharp ( "new System.Collections.Generic.List<String>()" )
             kotlin ( "mutableListOf<String>()" )
+            java7 ( "new java.util.ArrayList<String>()" )
             rust ( "{ let _ = &" (e 1) "; Vec::<String>::new() }" )
             * ()
         }
@@ -55,6 +61,7 @@ operators {
             python ( "pass  # no plugin host on this target" )
             csharp ( "/* no plugin host on this target */" )
             kotlin ( "/* no plugin host on this target */" )
+            java7 ( "/* no plugin host on this target */" )
             rust ( "{ let _ = &" (e 1) "; }" )
             * ()
         }
@@ -70,6 +77,7 @@ operators {
             python ( "pass  # no plugin host on this target" )
             csharp ( "/* no plugin host on this target */" )
             kotlin ( "/* no plugin host on this target */" )
+            java7 ( "/* no plugin host on this target */" )
             rust ( "{ let _ = &" (e 1) "; }" )
             * ()
         }
@@ -83,6 +91,7 @@ operators {
             python ( "pass  # no plugin host on this target" )
             csharp ( "/* no plugin host on this target */" )
             kotlin ( "/* no plugin host on this target */" )
+            java7 ( "/* no plugin host on this target */" )
             rust ( "{ let _ = &" (e 1) "; }" )
             * ()
         }

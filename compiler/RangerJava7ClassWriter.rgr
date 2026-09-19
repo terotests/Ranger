@@ -1,5 +1,7 @@
 ; SPDX-License-Identifier: MIT
 
+Import "TraitAnalysis.rgr"
+
 
 Import "AndroidPageWriter.rgr"
 
@@ -36,7 +38,405 @@ class RangerJava7ClassWriter {
     return tn
   }
 
+  ; which behaviour-only Ranger `trait`s become a Java interface
+  def javaTraits:TraitInterfaceAnalysis (new TraitInterfaceAnalysis())
+  def java_traits_written:boolean false
+
+  ; A behaviour-only trait named as a type, as a Java interface in a file of
+  ; its own -- one public type per file is the rule here. The mixin copy still
+  ; gives each consumer its own body; this makes the name a type, and those
+  ; bodies are the implementations.
+  fn writeJavaTraitInterfaces:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+    if java_traits_written {
+      return
+    }
+    java_traits_written = true
+    javaTraits.compute(ctx)
+    def package_name:string (ctx.getCompilerSetting("package"))
+    for (keys javaTraits.ifaceTraits) tn:string tni {
+      def tc:RangerAppClassDesc (ctx.findClass(tn))
+      def tWr:CodeWriter (wr.getFileWriter("." (tn + ".java")))
+      if( this.isPackaged(ctx)) {
+        if( (strlen package_name) > 0) {
+          tWr.out("package " + package_name + ";" , true)
+        }
+      }
+      def tImports:CodeWriter (tWr.fork())
+      tImports.addImport("java.util.*")
+      tWr.out(("public interface " + tn + " { ") true)
+      tWr.indent(1)
+      for tc.defined_variants fnVar:string fvi {
+        def mVs:RangerAppMethodVariants (get tc.method_variants fnVar)
+        for mVs.variants variant:RangerAppFunctionDesc vi {
+          tWr.out("public " false)
+          this.writeTypeDef( (unwrap variant.nameNode) ctx tWr)
+          tWr.out((" " + variant.compiledName + "(") false)
+          this.writeArgsDef(variant ctx tWr)
+          tWr.out(");" true)
+        }
+      }
+      tWr.indent(-1)
+      tWr.out("}" true)
+    }
+  }
+
+  ; --- JSON support, because org.json is not on the classpath ----------------
+  ; The JSON systemclasses name `JSONObject` and `JSONArray`, and the java7
+  ; entries used to import them from `org.json` -- a Maven dependency nothing
+  ; puts on a plain `javac` line. 152 of the 157 errors in the Java rendering
+  ; of this compiler were that one missing package. Kotlin had the same problem
+  ; and solved it in lib/JSON.rgr with a polyfill declaring the classes; Java
+  ; writes one public type per file, so they are emitted as files here instead.
+  ; The set is the API the java7 templates in lib/JSON.rgr actually call.
+  def java_json_written:boolean false
+
+  fn javaProgramUsesJson:boolean (ctx:RangerAppWriterContext) {
+    def root:RangerAppWriterContext (ctx.getRoot())
+    for root.definedClasses jc:RangerAppClassDesc jci {
+      if (jc.is_system) {
+        continue
+      }
+      for jc.variables jv:RangerAppParamDesc jvi {
+        def jvNN@(optional):CodeNode jv.nameNode
+        if (!null? jvNN) {
+          def jvN:CodeNode (unwrap jvNN)
+          if (jvN.type_name == "JSONDataObject") {
+            return true
+          }
+          if (jvN.type_name == "JSONArrayObject") {
+            return true
+          }
+        }
+      }
+      if (javaTraits.fnsNameType(jc.methods "JSONDataObject")) {
+        return true
+      }
+      if (javaTraits.fnsNameType(jc.static_methods "JSONDataObject")) {
+        return true
+      }
+      if (javaTraits.fnsNameType(jc.methods "JSONArrayObject")) {
+        return true
+      }
+      if (javaTraits.fnsNameType(jc.static_methods "JSONArrayObject")) {
+        return true
+      }
+    }
+    return false
+  }
+
+  ; `args` is a parameter of main on Java, so a class method that reads the
+  ; command line cannot see it -- two in this compiler's own sources do. Kotlin
+  ; and Dart copy it into a file-scope global; Java has no file scope, so the
+  ; global is a static field on a class of its own, assigned as main's first
+  ; statement.
+  def java_args_written:boolean false
+
+  fn writeJavaArgsHolder:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+    if java_args_written {
+      return
+    }
+    java_args_written = true
+    def argsPkg:string (ctx.getCompilerSetting("package"))
+    def aWr:CodeWriter (wr.getFileWriter("." "RgArgs.java"))
+    if( this.isPackaged(ctx)) {
+      if( (strlen argsPkg) > 0) {
+        aWr.out("package " + argsPkg + ";" , true)
+      }
+    }
+    aWr.out("public class RgArgs { " true)
+    aWr.out("  public static String[] args = new String[0];" true)
+    aWr.out("}" true)
+  }
+
+  fn writeJavaJsonSupport:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+    if java_json_written {
+      return
+    }
+    java_json_written = true
+    if ((this.javaProgramUsesJson(ctx)) == false) {
+      return
+    }
+    def jsonPkg:string (ctx.getCompilerSetting("package"))
+      def w_JSONException:CodeWriter (wr.getFileWriter("." "JSONException.java"))
+      if( this.isPackaged(ctx)) {
+        if( (strlen jsonPkg) > 0) {
+          w_JSONException.out("package " + jsonPkg + ";" , true)
+        }
+      }
+      w_JSONException.raw("public class JSONException extends RuntimeException { 
+  public JSONException(String message) { super(message); }
+}
+" true)
+      def w_JSONArray:CodeWriter (wr.getFileWriter("." "JSONArray.java"))
+      if( this.isPackaged(ctx)) {
+        if( (strlen jsonPkg) > 0) {
+          w_JSONArray.out("package " + jsonPkg + ";" , true)
+        }
+      }
+      w_JSONArray.raw("import java.util.*;
+
+public class JSONArray { 
+  public ArrayList<Object> values = new ArrayList<Object>();
+  public JSONArray() { }
+  public int length() { return values.size(); }
+  public Object get(int index) {
+    if (index < 0 || index >= values.size()) { return null; }
+    return values.get(index);
+  }
+  public JSONArray put(Object value) { values.add(value); return this; }
+  // the templates reach an ARRAY element the same way they reach an object
+  // member: isNull first, then get. org.json has both overloads and so does
+  // this.
+  public boolean isNull(int index) { return index < 0 || index >= values.size() || values.get(index) == null; }
+  public String toString() { return RgJson.write(this); }
+}
+" true)
+      def w_JSONObject:CodeWriter (wr.getFileWriter("." "JSONObject.java"))
+      if( this.isPackaged(ctx)) {
+        if( (strlen jsonPkg) > 0) {
+          w_JSONObject.out("package " + jsonPkg + ";" , true)
+        }
+      }
+      w_JSONObject.raw("import java.util.*;
+
+public class JSONObject { 
+  public LinkedHashMap<String, Object> values = new LinkedHashMap<String, Object>();
+  public JSONObject() { }
+  // used to take the text and throw it away, which is how the Kotlin twin of
+  // this class started out: from_string answered an empty object and every
+  // getter after it read absent
+  public JSONObject(String source) {
+    Object parsed = RgJson.readText(source);
+    if (parsed instanceof JSONObject) { values.putAll(((JSONObject)parsed).values); }
+  }
+  public boolean isNull(String key) { return !values.containsKey(key) || values.get(key) == null; }
+  public JSONArray names() {
+    JSONArray a = new JSONArray();
+    for (String k : values.keySet()) { a.put(k); }
+    return a;
+  }
+  public String optString(String key) {
+    Object v = values.get(key);
+    if (v instanceof String) { return (String)v; }
+    return null;
+  }
+  // A JSON number reads back as Integer or Double and the two are distinct
+  // types, so each getter accepts both and converts.
+  public Integer optInt(String key) {
+    Object v = values.get(key);
+    if (v instanceof Integer) { return (Integer)v; }
+    if (v instanceof Double) { return Integer.valueOf(((Double)v).intValue()); }
+    if (v instanceof Long) { return Integer.valueOf(((Long)v).intValue()); }
+    return null;
+  }
+  public Double optDouble(String key) {
+    Object v = values.get(key);
+    if (v instanceof Double) { return (Double)v; }
+    if (v instanceof Integer) { return Double.valueOf(((Integer)v).doubleValue()); }
+    if (v instanceof Long) { return Double.valueOf(((Long)v).doubleValue()); }
+    return null;
+  }
+  public Boolean optBoolean(String key) {
+    Object v = values.get(key);
+    if (v instanceof Boolean) { return (Boolean)v; }
+    return null;
+  }
+  public JSONObject getJSONObject(String key) {
+    Object v = values.get(key);
+    if (v instanceof JSONObject) { return (JSONObject)v; }
+    return null;
+  }
+  public JSONArray getJSONArray(String key) {
+    Object v = values.get(key);
+    if (v instanceof JSONArray) { return (JSONArray)v; }
+    return null;
+  }
+  public JSONObject put(String key, Object value) { values.put(key, value); return this; }
+  public String toString() { return RgJson.write(this); }
+}
+" true)
+      def w_RgJson:CodeWriter (wr.getFileWriter("." "RgJson.java"))
+      if( this.isPackaged(ctx)) {
+        if( (strlen jsonPkg) > 0) {
+          w_RgJson.out("package " + jsonPkg + ";" , true)
+        }
+      }
+      w_RgJson.raw("import java.util.*;
+
+// Java has no JSON in the standard library, and the generated files have to
+// build with a plain javac line and no dependency, so the object, the array,
+// the reader and the writer all live here. org.json is deliberately NOT
+// imported on top of these -- nothing puts that package on the classpath.
+// Kotlin carries the same set for the same reason; see lib/JSON.rgr.
+public class RgJson { 
+  static void writeStr(String s, StringBuilder o) {
+    o.append((char)34);
+    for (int i = 0; i < s.length(); i++) {
+      char c = s.charAt(i);
+      if (c == (char)34 || c == (char)92) { o.append((char)92); o.append(c); }
+      else if (c == (char)10) { o.append((char)92); o.append('n'); }
+      else if (c == (char)13) { o.append((char)92); o.append('r'); }
+      else if (c == (char)9) { o.append((char)92); o.append('t'); }
+      else if (c < 32) { o.append((char)92); o.append('u'); o.append(String.format(\"%04x\", (int)c)); }
+      else { o.append(c); }
+    }
+    o.append((char)34);
+  }
+  static void writeVal(Object v, StringBuilder o) {
+    if (v == null) { o.append(\"null\"); return; }
+    if (v instanceof String) { writeStr((String)v, o); return; }
+    if (v instanceof Boolean) { o.append(((Boolean)v).booleanValue() ? \"true\" : \"false\"); return; }
+    if (v instanceof Integer) { o.append(v.toString()); return; }
+    if (v instanceof Long) { o.append(v.toString()); return; }
+    if (v instanceof Double) {
+      String t = v.toString();
+      if (t.indexOf('.') < 0 && t.indexOf('e') < 0 && t.indexOf('E') < 0) { t = t + \".0\"; }
+      o.append(t);
+      return;
+    }
+    if (v instanceof JSONObject) {
+      o.append('{');
+      boolean first = true;
+      for (Map.Entry<String, Object> e : ((JSONObject)v).values.entrySet()) {
+        if (!first) { o.append(','); }
+        first = false;
+        writeStr(e.getKey(), o);
+        o.append(':');
+        writeVal(e.getValue(), o);
+      }
+      o.append('}');
+      return;
+    }
+    if (v instanceof JSONArray) {
+      o.append('[');
+      ArrayList<Object> items = ((JSONArray)v).values;
+      for (int i = 0; i < items.size(); i++) {
+        if (i > 0) { o.append(','); }
+        writeVal(items.get(i), o);
+      }
+      o.append(']');
+      return;
+    }
+    o.append(\"null\");
+  }
+  public static String write(Object v) {
+    StringBuilder o = new StringBuilder();
+    writeVal(v, o);
+    return o.toString();
+  }
+  static class Pos { int i; Pos(int start) { i = start; } }
+  static void skipWs(String s, Pos p) {
+    while (p.i < s.length()) {
+      char c = s.charAt(p.i);
+      if (c == ' ' || c == (char)9 || c == (char)10 || c == (char)13) { p.i++; } else { break; }
+    }
+  }
+  static String readStr(String s, Pos p) {
+    StringBuilder o = new StringBuilder();
+    if (p.i < s.length() && s.charAt(p.i) == (char)34) { p.i++; }
+    while (p.i < s.length() && s.charAt(p.i) != (char)34) {
+      char c = s.charAt(p.i);
+      if (c == (char)92 && (p.i + 1) < s.length()) {
+        p.i++;
+        char e = s.charAt(p.i);
+        if (e == 'n') { o.append((char)10); }
+        else if (e == 'r') { o.append((char)13); }
+        else if (e == 't') { o.append((char)9); }
+        else if (e == 'b') { o.append((char)8); }
+        else if (e == 'f') { o.append((char)12); }
+        else if (e == 'u') {
+          if ((p.i + 4) < s.length()) {
+            o.append((char)Integer.parseInt(s.substring(p.i + 1, p.i + 5), 16));
+            p.i += 4;
+          }
+        }
+        else { o.append(e); }
+        p.i++;
+        continue;
+      }
+      o.append(c);
+      p.i++;
+    }
+    if (p.i < s.length()) { p.i++; }
+    return o.toString();
+  }
+  static Object readVal(String s, Pos p) {
+    skipWs(s, p);
+    if (p.i >= s.length()) { return null; }
+    char c = s.charAt(p.i);
+    if (c == '{') {
+      p.i++;
+      JSONObject o = new JSONObject();
+      while (true) {
+        skipWs(s, p);
+        if (p.i >= s.length()) { break; }
+        if (s.charAt(p.i) == '}') { p.i++; break; }
+        if (s.charAt(p.i) == ',') { p.i++; continue; }
+        String k = readStr(s, p);
+        skipWs(s, p);
+        if (p.i < s.length() && s.charAt(p.i) == ':') { p.i++; }
+        o.put(k, readVal(s, p));
+      }
+      return o;
+    }
+    if (c == '[') {
+      p.i++;
+      JSONArray a = new JSONArray();
+      while (true) {
+        skipWs(s, p);
+        if (p.i >= s.length()) { break; }
+        if (s.charAt(p.i) == ']') { p.i++; break; }
+        if (s.charAt(p.i) == ',') { p.i++; continue; }
+        a.put(readVal(s, p));
+      }
+      return a;
+    }
+    if (c == (char)34) { return readStr(s, p); }
+    if (c == 't') { p.i += 4; return Boolean.TRUE; }
+    if (c == 'f') { p.i += 5; return Boolean.FALSE; }
+    if (c == 'n') { p.i += 4; return null; }
+    int start = p.i;
+    boolean isDouble = false;
+    while (p.i < s.length()) {
+      char d = s.charAt(p.i);
+      if (d == '.' || d == 'e' || d == 'E') { isDouble = true; }
+      else if (!(d == '-' || d == '+' || (d >= '0' && d <= '9'))) { break; }
+      p.i++;
+    }
+    String text = s.substring(start, p.i);
+    if (text.length() == 0) { p.i++; return null; }
+    try {
+      if (isDouble) { return Double.valueOf(text); }
+      return Integer.valueOf(text);
+    } catch (Exception e) {
+      return isDouble ? (Object)Double.valueOf(0.0) : (Object)Integer.valueOf(0);
+    }
+  }
+  public static Object readText(String s) { return readVal(s, new Pos(0)); }
+}
+" true)
+  }
+
   fn getObjectTypeString2:string (type_string:string ctx:RangerAppWriterContext wr:CodeWriter) {
+    ; A map whose VALUE is itself a collection arrives here in the RANGER
+    ; spelling -- `[string]` for an array, `[string:int]` for a map -- because
+    ; the caller reads the raw array_type/key_type off the node. It used to be
+    ; written through untouched, so `def m:[string:[string]]` became
+    ; `HashMap<String,[string]>`, which is not Java. The compiler's own flow
+    ; parser has fifteen of those, which is why its Java rendering never
+    ; reached javac.
+    if ((strlen type_string) > 2) {
+      if ((indexOf type_string "[") == 0) {
+        def jInner:string (substring type_string 1 ((strlen type_string) - 1))
+        def jColon:int (indexOf jInner ":")
+        if (jColon >= 0) {
+          def jKey:string (substring jInner 0 jColon)
+          def jVal:string (substring jInner (jColon + 1) (strlen jInner))
+          return ((("HashMap<" + (this.getObjectTypeString2(jKey ctx wr))) + ",") + (this.getObjectTypeString2(jVal ctx wr))) + ">"
+        }
+        return (("ArrayList<" + (this.getObjectTypeString2(jInner ctx wr))) + ">")
+      }
+    }
     switch type_string {
       case "int" {
         return "Integer"
@@ -47,8 +447,15 @@ class RangerJava7ClassWriter {
       case "charbuffer" {
         return "byte[]"
       }
+      ; A Ranger `char` is an integer code unit, and the operators that make
+      ; one (`charcode`, `charAt`) are declared to return `char` while the
+      ; code that reads it says `def ch:int`. Java widens byte to int freely
+      ; but BOXES byte to Byte, so `Integer ch = someByte` is a type error
+      ; while `Integer ch = someInt` is not. int is the mapping that lets both
+      ; spellings compile; `chararray` stays `byte[]`, and the one place that
+      ; needs a narrow value casts (see `strfromcode`).
       case "char" {
-        return "byte"
+        return "int"
       }
       case "boolean" {
         return "Boolean"
@@ -91,8 +498,15 @@ class RangerJava7ClassWriter {
       case "double_buffer" {
         return "double[]"
       }
+      ; A Ranger `char` is an integer code unit, and the operators that make
+      ; one (`charcode`, `charAt`) are declared to return `char` while the
+      ; code that reads it says `def ch:int`. Java widens byte to int freely
+      ; but BOXES byte to Byte, so `Integer ch = someByte` is a type error
+      ; while `Integer ch = someInt` is not. int is the mapping that lets both
+      ; spellings compile; `chararray` stays `byte[]`, and the one place that
+      ; needs a narrow value casts (see `strfromcode`).
       case "char" {
-        return "byte"
+        return "int"
       }
       case "boolean" {
         return "Boolean"
@@ -204,7 +618,7 @@ class RangerJava7ClassWriter {
           wr.out("Boolean" false)
         }
         case RangerNodeType.Char {
-          wr.out("byte" false)
+          wr.out("int" false)
         }
         case RangerNodeType.CharBuffer {
           wr.out("byte[]" false)
@@ -298,7 +712,7 @@ class RangerJava7ClassWriter {
           wr.out("Double" false)
         }
         case RangerNodeType.Char {
-          wr.out("byte" false)
+          wr.out("int" false)
         }
         case RangerNodeType.CharBuffer {
           wr.out("byte[]" false)
@@ -335,6 +749,17 @@ class RangerJava7ClassWriter {
               def sName (unwrap (get cc.systemNames "java7"))
               wr.out( sName false )
               return   
+            }
+            ; A trait CARRYING FIELDS is not a Java interface: its consumers
+            ; each own their own copy of the field, so there is nothing for an
+            ; interface to promise. It used to reach the file as the bare
+            ; name, which javac answers with "cannot find symbol". A trait of
+            ; methods only is an interface (writeJavaTraitInterfaces) and does
+            ; name a type.
+            if cc.is_trait {
+              if ((javaTraits.isInterface(t_name ctx)) == false) {
+                ctx.addError(node (("the Java target writes a `trait` as a mixin, so `" + t_name) + "` is not a type it can name. A trait that declares only METHODS becomes a Java interface and can be used as a type; this one carries fields, which its consumers each hold their own copy of. Use a class with subclasses, or give the parameter a concrete type."))
+              }
             }
             ; lambda signature ?? 
           }          
@@ -378,6 +803,12 @@ class RangerJava7ClassWriter {
     }
     def max_len:int (array_length node.ns)
     if ((array_length node.nsp) > 0) {
+      ; A captured mutable local is a one-element array on Java 7, so reading
+      ; it is `name[0]`. The subscript used to be written BEFORE the first
+      ; segment -- `[0]stdCode.children.add(...)`, which is not an expression
+      ; at all. It belongs after that segment's name and before the dot the
+      ; next one writes.
+      def firstIsBoxed:boolean false
       for node.nsp p:RangerAppParamDesc i {
 
         if (i == 0) {
@@ -397,9 +828,7 @@ class RangerJava7ClassWriter {
             }            
             continue
           } 
-          if( p_captured_mutable ) {
-            wr.out("[0]" false)
-          }
+          firstIsBoxed = p_captured_mutable
         }
 
         if (i > 0) {
@@ -412,6 +841,11 @@ class RangerJava7ClassWriter {
             wr.out((this.adjustType(p.name)) false)
           } {
             wr.out((this.adjustType((itemAt node.ns i))) false)
+          }
+        }
+        if (i == 0) {
+          if firstIsBoxed {
+            wr.out("[0]" false)
           }
         }
         if (i < (max_len - 1) ) {
@@ -590,7 +1024,16 @@ class RangerJava7ClassWriter {
       if (i > 0) {
         wr.out("," false)
       }
-      wr.out(" final " false)
+      ; `final` on every parameter is what lets an inner class capture one,
+      ; which Java 7 requires and the lambda lowering depends on. A parameter
+      ; the body ASSIGNS cannot carry it -- javac answers "final parameter may
+      ; not be assigned" -- and two of this compiler's own methods rebind
+      ; theirs.
+      if (arg.set_cnt == 0) {
+        wr.out(" final " false)
+      } {
+        wr.out(" " false)
+      }
       this.writeTypeDef((unwrap arg.nameNode) ctx wr)
       wr.out(((" " + arg.compiledName) + " ") false)
     }
@@ -871,6 +1314,8 @@ class RangerJava7ClassWriter {
       }
     }    
 
+    this.writeJavaTraitInterfaces(ctx orig_wr)
+    this.writeJavaJsonSupport(ctx orig_wr)
     wr.out("" true)
     wr.out(("public class " + cl.name) false)
     if ( ( array_length cl.extends_classes ) > 0 ) { 
@@ -879,6 +1324,18 @@ class RangerJava7ClassWriter {
         wr.out(pName false)
       }
     }    
+    ; the behaviour-only traits this class `does` that something names as a
+    ; type: each is an interface, and the mixin copies are what implement it
+    def javaIfaces:[string] (javaTraits.basesOf((unwrap cl) ctx))
+    if ((array_length javaIfaces) > 0) {
+      wr.out(" implements " false)
+      for javaIfaces ifName:string ifi {
+        if (ifi > 0) {
+          wr.out(", " false)
+        }
+        wr.out(ifName false)
+      }
+    }
     wr.out( " { " true)
     wr.indent(1)
     wr.createTag("utilities")
@@ -904,6 +1361,50 @@ class RangerJava7ClassWriter {
       wr.indent(-1)
       wr.out("}" true)
     }
+    ; The synthetic accessor of a @singleton(true) class. Call sites already
+    ; write `ClassName.__singleton()` through the ordinary static path; only
+    ; the definition was missing here, the way it was on C# before. First-call
+    ; constructor arguments win, which is what every other target does.
+    if (cl.isSingletonClass()) {
+      wr.out((("static " + cl.name) + " __singleton_instance = null;") true)
+      wr.out((("public static " + cl.name) + " __singleton(") false)
+      def sgHasArgs:boolean false
+      if cl.has_constructor {
+        def sgc@(optional):RangerAppFunctionDesc cl.constructor_fn
+        if (!null? sgc) {
+          this.writeArgsDef((unwrap sgc) ctx wr)
+          sgHasArgs = true
+        }
+      }
+      wr.out(") {" true)
+      wr.indent(1)
+      wr.out("if (__singleton_instance == null) {" true)
+      wr.indent(1)
+      wr.out((("__singleton_instance = new " + cl.name) + "(") false)
+      if sgHasArgs {
+        def sgc2@(optional):RangerAppFunctionDesc cl.constructor_fn
+        if (!null? sgc2) {
+          def sgc2F:RangerAppFunctionDesc (unwrap sgc2)
+          def fwd:int 0
+          for sgc2F.params sgArg:RangerAppParamDesc sgi {
+            if (sgArg.nameNode.hasFlag("keyword")) {
+              continue
+            }
+            if (fwd > 0) {
+              wr.out(", " false)
+            }
+            fwd = fwd + 1
+            wr.out(sgArg.compiledName false)
+          }
+        }
+      }
+      wr.out(");" true)
+      wr.indent(-1)
+      wr.out("}" true)
+      wr.out("return __singleton_instance;" true)
+      wr.indent(-1)
+      wr.out("}" true)
+    }
     for cl.static_methods variant:RangerAppFunctionDesc i {
       wr.out("" true)
       if ( (variant.nameNode.hasFlag("main")) && (variant.nameNode.code.filename != (ctx.getRootFile()))) {     
@@ -911,7 +1412,9 @@ class RangerJava7ClassWriter {
       }
       if (variant.nameNode.hasFlag("main")) {
         ctx.setCompilerSetting( 'mainclass' (cl.name) )
+        this.writeJavaArgsHolder(ctx orig_wr)
         wr.out("public static void main(String [] args ) {" true)
+        wr.out("  RgArgs.args = args;" true)
       } {
         wr.out("public static " false)
         this.writeTypeDef( (unwrap variant.nameNode) ctx wr)

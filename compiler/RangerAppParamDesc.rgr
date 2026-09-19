@@ -458,13 +458,28 @@ class RangerAppParamDesc {
     }
     return ""
   }
+  ; `refType` is a RangerNodeRefType; the arms used to be labelled
+  ; `RangerContextVarType.NoType` / `.This`, which compiled on every target
+  ; only because both enums are integers and the members happened to line up —
+  ; so the second arm answered "This" for a WEAK reference. Nothing calls this
+  ; function, which is why it went unnoticed; the Rust native-enum analysis is
+  ; what surfaced it.
   fn getVarTypeName:string () {
     switch refType {
-      case RangerContextVarType.NoType {
+      case RangerNodeRefType.NoType {
         return "NoType"
       }
-      case RangerContextVarType.This {
-        return "This"
+      case RangerNodeRefType.Weak {
+        return "Weak"
+      }
+      case RangerNodeRefType.Strong {
+        return "Strong"
+      }
+      case RangerNodeRefType.Shared {
+        return "Shared"
+      }
+      case RangerNodeRefType.StrongImmutable {
+        return "StrongImmutable"
       }
     }
     return ""

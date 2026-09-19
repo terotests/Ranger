@@ -1,0 +1,161 @@
+; SPDX-License-Identifier: MIT
+
+; TraitAnalysis.rgr
+;
+; Which Ranger `trait`s are written as an INTERFACE of the target rather than
+; only copied into their consumers as a mixin. The rules are the same for every
+; target that has interfaces, so they live here and each writer holds one of
+; these (see the sibling-target section of
+; docs/plans/PLAN_RUST_SEMANTIC_IDIOMS.md).
+
+Import "RangerAppParamDesc.rgr"
+Import "RangerAppFunctionDesc.rgr"
+Import "RangerAppClassDesc.rgr"
+Import "CodeNode.rgr"
+Import "RangerAppWriterContext.rgr"
+
+class TraitInterfaceAnalysis {
+
+  ; A Ranger `trait` is a MIXIN: its methods are copied into each class that
+  ; `does` it, and the trait itself reaches no target as a type. Writing one as
+  ; a PARAMETER type was therefore silent broken output -- the writer emitted
+  ; the trait's NAME and never declared anything of that name, so Ranger
+  ; reported success and the target compiler stopped at "cannot find type
+  ; Named" or its local equivalent. Every statically typed target had it.
+  ;
+  ; A trait that declares only BEHAVIOUR is exactly what an interface says, and
+  ; every one of those targets has one: a C++ abstract base class, a Go, Java,
+  ; Kotlin or C# `interface`, a Dart abstract class, a Swift `protocol`. The
+  ; mixin copy still runs and the copied bodies are the implementations, so
+  ; nothing about the existing lowering changes.
+  ;
+  ; A trait that carries FIELDS is not: its consumers already own their own
+  ; copies, and moving them into a base would change what every existing
+  ; program stores. Using one as a type is refused instead, per target.
+  ;
+  ; Only traits NAMED AS A TYPE get the interface. Giving one to every class
+  ; that consumes any behaviour-only trait is a layout change (a vtable, an
+  ; itable) for programs that never asked for one.
+
+  def ifaceTraits:[string:boolean]
+  def computed:boolean false
+
+  fn nodeNamesType:boolean (node:CodeNode tName:string) {
+    if (node.type_name == tName) {
+      return true
+    }
+    if (node.eval_type_name == tName) {
+      return true
+    }
+    if (node.array_type == tName) {
+      return true
+    }
+    if (node.key_type == tName) {
+      return true
+    }
+    for node.children ch:CodeNode i {
+      if (this.nodeNamesType(ch tName)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn fnsNameType:boolean (fns:[RangerAppFunctionDesc] tName:string) {
+    for fns m:RangerAppFunctionDesc mi {
+      for m.params pp:RangerAppParamDesc ppi {
+        def ppNN@(optional):CodeNode pp.nameNode
+        if (!null? ppNN) {
+          def ppN:CodeNode (unwrap ppNN)
+          if (ppN.type_name == tName) {
+            return true
+          }
+        }
+      }
+      def mNodeOpt@(optional):CodeNode m.node
+      if (null? mNodeOpt) {
+        continue
+      }
+      def mNode:CodeNode (unwrap mNodeOpt)
+      if (this.nodeNamesType(mNode tName)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn compute:void (ctx:RangerAppWriterContext) {
+    if computed {
+      return
+    }
+    computed = true
+    def root:RangerAppWriterContext (ctx.getRoot())
+    for root.definedClasses tc:RangerAppClassDesc ti {
+      if (tc.is_trait == false) {
+        continue
+      }
+      if ((array_length tc.variables) > 0) {
+        continue
+      }
+      if ((array_length tc.methods) == 0) {
+        continue
+      }
+      def used:boolean false
+      def consumed:boolean false
+      for root.definedClasses uc:RangerAppClassDesc ui {
+        if (uc.is_trait || uc.is_system) {
+          continue
+        }
+        if ((indexOf uc.consumes_traits tc.name) >= 0) {
+          consumed = true
+        }
+        if used {
+          continue
+        }
+        for uc.variables uv:RangerAppParamDesc uvi {
+          def uvNN@(optional):CodeNode uv.nameNode
+          if (!null? uvNN) {
+            def uvN:CodeNode (unwrap uvNN)
+            if (uvN.type_name == tc.name) {
+              used = true
+            }
+          }
+        }
+        if (this.fnsNameType(uc.methods tc.name)) {
+          used = true
+        }
+        if (this.fnsNameType(uc.static_methods tc.name)) {
+          used = true
+        }
+      }
+      ; nothing `does` it means nothing would override the pure virtuals
+      if (used && consumed) {
+        set ifaceTraits tc.name true
+      }
+    }
+  }
+
+  fn isInterface:boolean (tName:string ctx:RangerAppWriterContext) {
+    if ((strlen tName) == 0) {
+      return false
+    }
+    this.compute(ctx)
+    if (has ifaceTraits tName) {
+      return true
+    }
+    return false
+  }
+
+  ; The interface traits this class consumes, in `consumes_traits` order.
+  fn basesOf:[string] (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    def res:[string]
+    for cl.consumes_traits tn:string tni {
+      if (this.isInterface(tn ctx)) {
+        if ((indexOf res tn) < 0) {
+          push res tn
+        }
+      }
+    }
+    return res
+  }
+}

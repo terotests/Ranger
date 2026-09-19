@@ -2525,21 +2525,9 @@ class RangerFlowParser {
           return true
         })
     }
-    return false
-; -------------------------------------------------
-    ctx.addError(node ('ERROR, could not find class ' + desc.name + ' method ' + fnNode.vref))
-    ctx.addError(node ('definition : ' + (node.getCode())))
-    if(expects_error) {
-      def cnt_now:int (ctx.getErrorCount())
-      if (cnt_now == err_cnt) {
-        ctx.addParserError( node "LANGUAGE_PARSER_ERROR: expected generated error, err counts : " + err_cnt + " : " +cnt_now)
-      }
-    } {
-      def cnt_now:int (ctx.getErrorCount())
-      if (cnt_now > err_cnt) {
-        ctx.addParserError( node "LANGUAGE_PARSER_ERROR: did not expect generated error, err counts : " + err_cnt + " : " +cnt_now)
-      }      
-    }      
+    ; Everything that used to follow the `return false` above was unreachable
+    ; -- an error report and an expects_error check that no run could ever
+    ; reach. Dead on every target; javac is the only one that says so.
     return false
   }
 

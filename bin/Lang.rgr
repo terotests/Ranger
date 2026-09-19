@@ -1513,7 +1513,47 @@ func r_io_get_env( name string) *GoNullable {
                 ; optional this operator returns
                 python ( "os.environ.get(" (e 1) ")" (imp "os") )
                 dart ( "Platform.environment[" (e 1) "]" (imp "dart:io") )
-                cpp ( "std::getenv(" (e 1) ".c_str()) ? std::string(std::getenv(" (e 1) ".c_str())) : std::string(\"\")" (imp "<cstdlib>") )
+                ; same story as read_file: the operator is optional and Python
+                ; already answers None for a name that is not set. C++ handed
+                ; back the empty string for unset and for set-to-empty alike.
+                cpp ( "r_cpp_env_var(" (e 1) ")" (imp "<cstdlib>")
+(create_polyfill
+"
+template <class T>
+class r_optional_primitive {
+  public:
+    // has_value has to start false: cpp_str_to_int and its siblings leave the
+    // field untouched when the conversion throws, and an indeterminate bool
+    // made a failed str2int read back as a value on the C++ target.
+    bool has_value = false;
+    T value = T();
+    r_optional_primitive() {}
+    // a plain value placed into an optional slot: returning a bare string
+    // from a function declared @(optional):string arrives here. Declaring
+    // any constructor takes the implicit default one away, hence the pair.
+    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
+    r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
+        has_value = rhs.has_value;
+        value = rhs.value;
+        return *this;
+    }
+    r_optional_primitive<T> & operator=(const T a_value) {
+        has_value = true;
+        value = a_value;
+        return *this;
+    }
+};
+"
+)
+(create_polyfill "
+inline r_optional_primitive<std::string> r_cpp_env_var(const std::string& name) {
+    r_optional_primitive<std::string> res;
+    const char* v = std::getenv(name.c_str());
+    if (v) { res = std::string(v); }
+    return res;
+}
+")
+                )
                 ; * ("/* environment variable reading not implemented */")
             }
         }   
@@ -1524,7 +1564,11 @@ func r_io_get_env( name string) *GoNullable {
                 llvm ( "(shell_arg " (e 1) ")")
                 cpp ( "std::string(__g_argv[" (e 1) " + 1])")
                 php ( "$argv[" (e 1) " + 1]" )
-                java7 ( "args[" (e 1) "]")
+                ; `args` is in scope only inside main on Java, and a class
+                ; method that reads the command line is not. main copies it
+                ; into a static holder the writer emits (RgArgs.java), the
+                ; same shape as __g_args on Kotlin and Dart.
+                java7 ( "RgArgs.args[" (e 1) "]")
                 csharp ('Environment.GetCommandLineArgs()[' (e 1) ' + 1]' (imp "System"))
                 go ( "os.Args[" (e 1) " + 1]"  (imp "os"))
                 swift3 ("CommandLine.arguments[" (e 1) " + 1]")
@@ -1552,7 +1596,7 @@ func r_io_get_env( name string) *GoNullable {
                 swift6 ("CommandLine.arguments.count - 1")
                 csharp ('Environment.GetCommandLineArgs().Length - 1' (imp "System"))                
                 php ( "(count($argv) - 1)" )
-                java7 ( "args.length")
+                java7 ( "RgArgs.args.length")
                 go ( "int64( len( os.Args) - 1 )"  (imp "os"))
                 es6 ( "(process.argv.length - 2)" )
                 rust ( "(std::env::args().len() as i64 - 1)")
@@ -3792,17 +3836,51 @@ def rg_read_file(path, filename):
         return None
 ")
                 )
+                ; read_file is declared optional, and Python already answers
+                ; None for a file it cannot read. C++ used to hand back the
+                ; empty string for both a missing file and an empty one.
                 cpp ( "r_cpp_readFile( " (e 1) " , " (e 2) ")" (imp "<fstream>")
+(create_polyfill
+"
+template <class T>
+class r_optional_primitive {
+  public:
+    // has_value has to start false: cpp_str_to_int and its siblings leave the
+    // field untouched when the conversion throws, and an indeterminate bool
+    // made a failed str2int read back as a value on the C++ target.
+    bool has_value = false;
+    T value = T();
+    r_optional_primitive() {}
+    // a plain value placed into an optional slot: returning a bare string
+    // from a function declared @(optional):string arrives here. Declaring
+    // any constructor takes the implicit default one away, hence the pair.
+    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
+    r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
+        has_value = rhs.has_value;
+        value = rhs.value;
+        return *this;
+    }
+    r_optional_primitive<T> & operator=(const T a_value) {
+        has_value = true;
+        value = a_value;
+        return *this;
+    }
+};
+"
+)
 (create_polyfill "
-std::string  r_cpp_readFile(const std::string& path, const std::string& filename) 
+r_optional_primitive<std::string>  r_cpp_readFile(const std::string& path, const std::string& filename)
 {
+  r_optional_primitive<std::string> res;
   std::ifstream ifs(path + \"/\" + filename);
+  if (!ifs) { return res; }
   std::string content( (std::istreambuf_iterator<char>(ifs) ),
                        (std::istreambuf_iterator<char>()    ) );
-  return content;
-}    
-    ")                        
-            
+  res = content;
+  return res;
+}
+    ")
+
                 )
                 php ("file_get_contents(" (e 1) " . \"/\" . " (e 2) ") " )
                 swift3 ("r_read_file(dirName: " (e 1) " + \"/\" + " (e 2) ") " 
@@ -3947,17 +4025,51 @@ def rg_read_file(path, filename):
         return None
 ")
                 )
+                ; read_file is declared optional, and Python already answers
+                ; None for a file it cannot read. C++ used to hand back the
+                ; empty string for both a missing file and an empty one.
                 cpp ( "r_cpp_readFile( " (e 1) " , " (e 2) ")" (imp "<fstream>")
+(create_polyfill
+"
+template <class T>
+class r_optional_primitive {
+  public:
+    // has_value has to start false: cpp_str_to_int and its siblings leave the
+    // field untouched when the conversion throws, and an indeterminate bool
+    // made a failed str2int read back as a value on the C++ target.
+    bool has_value = false;
+    T value = T();
+    r_optional_primitive() {}
+    // a plain value placed into an optional slot: returning a bare string
+    // from a function declared @(optional):string arrives here. Declaring
+    // any constructor takes the implicit default one away, hence the pair.
+    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
+    r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
+        has_value = rhs.has_value;
+        value = rhs.value;
+        return *this;
+    }
+    r_optional_primitive<T> & operator=(const T a_value) {
+        has_value = true;
+        value = a_value;
+        return *this;
+    }
+};
+"
+)
 (create_polyfill "
-std::string  r_cpp_readFile(const std::string& path, const std::string& filename) 
+r_optional_primitive<std::string>  r_cpp_readFile(const std::string& path, const std::string& filename)
 {
+  r_optional_primitive<std::string> res;
   std::ifstream ifs(path + \"/\" + filename);
+  if (!ifs) { return res; }
   std::string content( (std::istreambuf_iterator<char>(ifs) ),
                        (std::istreambuf_iterator<char>()    ) );
-  return content;
-}    
-    ")                        
-            
+  res = content;
+  return res;
+}
+    ")
+
                 )
                 php ("file_get_contents(" (e 1) " . \"/\" . " (e 2) ") " )
                 swift3 ("r_read_file(dirName: " (e 1) " + \"/\" + " (e 2) ") " 
@@ -4198,6 +4310,13 @@ static class RgFiles {
                 csharp ( "(" (e 1) ").Value" )
             }
         }
+        ; see the null? overload: an optional string carries its own presence
+        ; bit on C++, so reading the value out of one is not a no-op.
+        unwrap       cmdUnwrap:string        ( arg@(optional):string ) {
+            templates {
+                cpp ( (e 1) ".value" )
+            }
+        }
         ; `bool?` is a Nullable<bool> like the two above, and `if (unwrap ok)`
         ; without the .Value does not compile. Only C# has an entry, so every
         ; other target keeps reaching the generic overload below.
@@ -4388,12 +4507,15 @@ static class RgFiles {
                     ; An enum value is an int on every target, and Python does
                     ; not concatenate an int onto a str.
                     python ( (e 1) " + str(" (e 2) ")" )
-                    kotlin ( (e 1) " + " (e 2) ".toString()" )
+                    ; the operand is parenthesised because `.toString()` binds
+                    ; to the last TOKEN, not to the expression: `"" + i * 4`
+                    ; came out as `"" + i * 4.toString()`, which is Int * String.
+                    kotlin ( (e 1) " + (" (e 2) ").toString()" )
                     ; an enum is an int on Dart, and Dart has no String + int
-                    dart ( (e 1) " + " (e 2) ".toString()" )
+                    dart ( (e 1) " + (" (e 2) ").toString()" )
                     java7 ( (e 1) " + String.valueOf(" (e 2) ")" )
-                    csharp ( (e 1) " + " (e 2) ".ToString()" )
-                    scala ( (e 1) " + " (e 2) ".toString" )
+                    csharp ( (e 1) " + (" (e 2) ").ToString()" )
+                    scala ( (e 1) " + (" (e 2) ").toString" )
                     * ( (e 1) " + " (e 2) )
                 }
             }
@@ -4419,8 +4541,8 @@ static class RgFiles {
                     rust ( (custom _) )
                     swift3 ( (e 1) " + String(" (e 2)")" )
                     swift6 ( (e 1) " + String(" (e 2)")" )
-                    kotlin ( (e 1) " + " (e 2)".toString()" )
-                    dart ( (e 1) " + " (e 2)".toString()" )
+                    kotlin ( (e 1) " + (" (e 2) ").toString()" )
+                    dart ( (e 1) " + (" (e 2) ").toString()" )
                     cpp ( (e 1 ) " + " "r_double_to_string(" (e 2) ")" (imp "<sstream>") (imp "<iomanip>") (imp "<string>") (imp "<cstdlib>")
 (create_polyfill "
 inline std::string r_double_to_string(double v) {
@@ -4452,8 +4574,8 @@ inline std::string r_double_to_string(double v) {
                     go ( "strings.Join([]string{ " (e 1) ",strconv.FormatInt(" (e 2) ", 10) }, \"\")" (imp "strings") (imp "strconv"))
                     swift3 ( (e 1) " + String(" (e 2)")" )
                     swift6 ( (e 1) " + String(" (e 2)")" )
-                    kotlin ( (e 1) " + " (e 2)".toString()" )
-                    dart ( (e 1) " + " (e 2)".toString()" )
+                    kotlin ( (e 1) " + (" (e 2) ").toString()" )
+                    dart ( (e 1) " + (" (e 2) ").toString()" )
                     rust ( (custom _) )
                     cpp ( (e 1 ) " + std::to_string(" (e 2) ")")
                     php ( (e 1) " . " (e 2) ) 
@@ -4616,8 +4738,8 @@ inline std::string r_double_to_string(double v) {
             templates {
                     swift3 ( "String(" (e 1) ") + " (e 2) )
                     swift6 ( "String(" (e 1) ") + " (e 2) )
-                    kotlin ( (e 1) ".toString() + " (e 2) )
-                    dart ( (e 1) ".toString() + " (e 2) )
+                    kotlin ( "(" (e 1) ").toString() + " (e 2) )
+                    dart ( "(" (e 1) ").toString() + " (e 2) )
                     go ( "strings.Join([]string{ strconv.FormatFloat(" (e 1) ",'f', -1, 64)," (e 2) " }, \"\")" (imp "strings") (imp "strconv"))
                     cpp ( "r_double_to_string(" (e 1) ")" (imp "<sstream>") (imp "<iomanip>") (imp "<string>") (imp "<cstdlib>")
 (create_polyfill "
@@ -4650,8 +4772,8 @@ inline std::string r_double_to_string(double v) {
                     go ( "strings.Join([]string{ strconv.FormatInt(" (e 1) ", 10)," (e 2) " }, \"\")" (imp "strings") (imp "strconv"))
                     swift3 ( "String(" (e 1) ") + " (e 2) )
                     swift6 ( "String(" (e 1) ") + " (e 2) )
-                    kotlin ( (e 1) ".toString() + " (e 2) )
-                    dart ( (e 1) ".toString() + " (e 2) )
+                    kotlin ( "(" (e 1) ").toString() + " (e 2) )
+                    dart ( "(" (e 1) ").toString() + " (e 2) )
                     rust ( "format!(\"{}{}\", " (e 1) ", " (e 2) ")" )
                     cpp ( "std::to_string(" (e 1) ") + " (e 2) )
                     php ( (e 1) " . " (e 2) ) 
@@ -4998,7 +5120,12 @@ def r_div_f64(a, b):
                 swift3 ( "if ( " (e 1) " != nil ) {" nl I (block 2) i nl "}" nl )
                 swift6 ( "if ( " (e 1) " != nil ) {" nl I (block 2) i nl "}" nl )
                 kotlin ( "if ( " (e 1) " != null ) {" nl I (block 2) i nl "}" nl )
-                java7 ( "if ( " (e 1) ".isPresent()) {" nl I (block 2) i nl "}" nl )
+                ; NOT Optional.isPresent(): java.util.Optional is Java 8, and
+                ; an optional on this target is a nullable reference or a boxed
+                ; primitive -- which is what `null?` already compares against.
+                ; The six `isPresent()` entries were the only thing that
+                ; disagreed, and each one was a "cannot find symbol".
+                java7 ( "if ( " (e 1) " != null) {" nl I (block 2) i nl "}" nl )
                 csharp ( "if ( " (e 1) " != null) {" nl I (block 2) i nl "}" nl )
                 php ( "if ( isset( " (e 1) " ) ) {" nl I (block 2) i nl "}" nl )
                 go ( "if ( " (e 1) ".has_value) {" nl I (block 2) i nl "}" nl )
@@ -5017,7 +5144,7 @@ def r_div_f64(a, b):
                 swift3 ( "if ( " (e 1) " != nil ) {" nl I (block 2) i nl "}" nl )
                 swift6 ( "if ( " (e 1) " != nil ) {" nl I (block 2) i nl "}" nl )
                 kotlin ( "if ( " (e 1) " != null ) {" nl I (block 2) i nl "}" nl )
-                java7 ( "if ( " (e 1) ".isPresent()) {" nl I (block 2) i nl "}" nl )
+                java7 ( "if ( " (e 1) " != null) {" nl I (block 2) i nl "}" nl )
                 csharp ( "if ( " (e 1) " != null) {" nl I (block 2) i nl "}" nl )
                 php ( "if ( isset( " (e 1) " ) ) {" nl I (block 2) i nl "}" nl )
                 go ( "if ( " (e 1) ".has_value) {" nl I (block 2) i nl "}" nl )
@@ -5037,7 +5164,7 @@ def r_div_f64(a, b):
                 ranger ( "if ( " (e 1) " ) {" I nl (block 2) i nl "} {" nl I (block 3) i "}" nl)
                 php ( "if ( isset(" (e 1) ") ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 scala ( "if ( " (e 1) ".isDefined ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
-                java7 ( "if ( " (e 1) ".isPresent() ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
+                java7 ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 csharp ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 kotlin ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 rust ( "if " (e 1) ".is_some() {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
@@ -5056,7 +5183,7 @@ def r_div_f64(a, b):
                 ranger ( "if ( " (e 1) " ) {" I nl (block 2) i nl "} {" nl I (block 3) i "}" nl)
                 php ( "if ( isset(" (e 1) ") ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 scala ( "if ( " (e 1) ".isDefined ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
-                java7 ( "if ( " (e 1) ".isPresent() ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
+                java7 ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 csharp ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 kotlin ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 rust ( "if " (e 1) ".is_some() {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
@@ -5077,7 +5204,7 @@ def r_div_f64(a, b):
                 swift6 ( "if ( " (e 1) " != nil ) {" nl I (block 2) i nl "}" nl )
                 kotlin ( "if ( " (e 1) " != null ) {" nl I (block 2) i nl "}" nl )
                 dart ( "if ( " (e 1) " != null ) {" nl I (block 2) i nl "}" nl )
-                java7 ( "if ( " (e 1) ".isPresent()) {" nl I (block 2) i nl "}" nl )
+                java7 ( "if ( " (e 1) " != null) {" nl I (block 2) i nl "}" nl )
                 csharp ( "if ( " (e 1) " != null) {" nl I (block 2) i nl "}" nl )
                 ; go ( "" (e 1 ) " == nil " ) 
                 ; is_some
@@ -5096,7 +5223,7 @@ def r_div_f64(a, b):
                 ranger ( "if ( " (e 1) " ) {" I nl (block 2) i nl "} {" nl I (block 3) i "}" nl)
                 php ( "if ( isset(" (e 1) ") ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 scala ( "if ( " (e 1) ".isDefined ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
-                java7 ( "if ( " (e 1) ".isPresent() ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
+                java7 ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 csharp ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 kotlin ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 dart ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl )
@@ -5394,9 +5521,15 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
                 cpp ((e 1) ".has_value == false")     
             }
         }               
+        ; an optional string used to be a bare std::string on C++, with ""
+        ; standing in for absent. That is the one place the C++ output
+        ; disagreed with every other target: `s = ""` then `null? s` answered
+        ; true here and false on JS, Python, Go and Rust. It is an
+        ; r_optional_primitive<std::string> now, so "" is a value like any
+        ; other and the presence bit is its own.
         null?       cmdIsNotNull:boolean        ( arg@(optional):string ) {
             templates {
-                cpp ((e 1) ".empty()")
+                cpp ((e 1) ".has_value == false")
             }
         }
 
@@ -5451,7 +5584,7 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
         }               
         !null?       cmdIsNotNull:boolean        ( arg@(optional):string ) {
             templates {
-                cpp ((e 1) ".empty() == false ")
+                cpp ((e 1) ".has_value")
             }
         }
 
@@ -5501,7 +5634,8 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
                 es6 ( "( e.toString())" )
                 php ( "( $e->getMessage())" )
                 java7 ( "( e.getMessage())" )
-                cpp ( " \"unspecified error\" " )
+                ; the local the try template binds in its handler
+                cpp ( "__rg_err_msg" )
                 ; Dart has no `try` entry of its own and takes the `*` one, which
                 ; binds `e`.
                 dart ( "e.toString()" )
@@ -5526,6 +5660,17 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
                 php ( "throw new Exception(" (e 1) ");")
                 csharp ( "throw new ConfigurationErrorsException(" (e 1) ");" (imp "System.Configuration"))
                 java7 ( "throw new IllegalArgumentException(" (e 1) ");")
+                ; `throw "negative"` in C++ throws a `const char*`, which the
+                ; catch-all below caught and could say nothing about — every
+                ; error came out as "unspecified error". A std::exception
+                ; carries the text, and the try template asks it for one.
+                cpp ( "throw std::runtime_error(" (e 1) ");" (imp "<stdexcept>"))
+                ; Kotlin has no checked exceptions and needs no `throws` on the
+                ; signature, but what is thrown must be a Throwable — a String
+                ; is not, and `throw "negative"` is a kotlinc error, not a
+                ; warning. Exception(msg) puts the text where `e.message` reads
+                ; it, which is what the `error_msg` template already expects.
+                kotlin ( "throw Exception(" (e 1) ")")
                 swift3 ( 
                     nl "throw "  (e 1) ";" nl 
 (create_polyfill 
@@ -5533,6 +5678,26 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
 extension String: Error {}
 "
 )                    
+                )
+                ; swift6 had no entry of its own and fell through to `*`, which
+                ; writes `throw "negative"` — a String is not an Error, and
+                ; swiftc refuses it. A small error type rather than
+                ; `extension String: Error {}` (what swift3 does): extending a
+                ; stdlib type with a stdlib protocol is a retroactive
+                ; conformance, which Swift 6 language mode warns about.
+                ; CustomStringConvertible is what keeps `error_msg` correct
+                ; without a template of its own — `String(describing: error)`
+                ; is the message, not `RgError(message: "…")`.
+                swift6 (
+                    nl "throw RgError(message: "  (e 1) ")" nl
+(create_polyfill
+"
+struct RgError: Error, CustomStringConvertible {
+    let message: String
+    var description: String { message }
+}
+"
+)
                 )
                 scala ( "throw new customException(" (e 1) ")"
 
@@ -5578,7 +5743,18 @@ case class customException(smth:String)  extends Exception
                 ; with swift there is no do without try...
                 swift3 ( "do {" nl I (block 1) i nl "} catch { " nl I (block 2) i nl "}" )
                 swift6 ( "do {" nl I (block 1) i nl "} catch { " nl I (block 2) i nl "}" )
-                cpp ( nl "try {" nl I (block 1) i nl "} catch( ... ) {" nl I (block 2) i nl "}" nl )
+                ; The catch stays a catch-ALL — a Ranger `try` block has to
+                ; survive whatever crosses it, including a throw from a
+                ; polyfill or a library that is not a std::exception. Asking
+                ; what it was is the rethrow idiom: re-throw inside the
+                ; handler and catch it again by type. That gives `error_msg`
+                ; the real text without narrowing what is caught, and without
+                ; writing the user's catch block out twice.
+                cpp ( nl "try {" nl I (block 1) i nl "} catch( ... ) {" nl I
+                      "std::string __rg_err_msg = \"unspecified error\";" nl
+                      "try { throw; } catch( const std::exception& __rg_e ) { __rg_err_msg = __rg_e.what(); } catch( ... ) {}" nl
+                      "(void)__rg_err_msg;" nl
+                      (block 2) i nl "}" nl (imp "<stdexcept>") (imp "<string>") )
                 ; Python needs a statement in each suite, and a generated catch
                 ; block is often empty (the @serialize writer emits one), so both
                 ; suites open with `pass`.
@@ -5616,7 +5792,12 @@ case class customException(smth:String)  extends Exception
                 ; borrow alive for the whole loop, and a body that borrows the
                 ; same thing mutably cannot run. The temporary is named after
                 ; the index, so nested loops do not collide.
-                rust ( (forkctx _ ) (def 2) (def 3) "let __n_" (e 3) " = (" (e 1) ".len() as i64);" nl "for " (e 3) " in 0..__n_" (e 3) " {" nl I "let mut " (e 2) " = " (e 1) "[" (e 3) " as usize]" (cloneif 2) ";" nl (block 4) nl i "}" )
+                ; PLAN_RUST_SEMANTIC_IDIOMS K: the writer picks between the
+                ; index loop this used to be and `for v in xs.iter().copied()`
+                ; (or `.cloned()`), because only it can ask whether the body
+                ; reads the index or touches the collection.
+                ; See RustOperators.rustWriteForLoop.
+                rust ( (forkctx _ ) (def 2) (def 3) nl (custom _) )
 
                 ; idea of go for macro implementation, not working yet...         
                 go_idea  @macro(true) (nl 
@@ -6370,7 +6551,7 @@ static void r_buffer_write_file(String path, String filename, byte[] data) {
                 )
                 python ( "open(" (e 1) " + '/' + " (e 2) ", 'wb').write(" (e 3) ")" )
                 swift6 ( "try? Data(" (e 3) ").write(to: URL(fileURLWithPath: " (e 1) " + \"/\" + " (e 2) "))" (imp "Foundation") )
-                csharp ( "System.IO.File.WriteAllBytes(" (e 1) " + \"/\" + " (e 2) ", " (e 3) ")" )
+                csharp ( "System.IO.File.WriteAllBytes(" (e 1) " + \"/\" + " (e 2) ", " (e 3) ");" )
                 kotlin ( "java.io.File(" (e 1) " + \"/\" + " (e 2) ").writeBytes(" (e 3) ")" )
                 dart ( (imp "dart:io") "File((" (e 1) ") + \"/\" + (" (e 2) ")).writeAsBytesSync(" (e 3) ")" )
                 php ( "file_put_contents(" (e 1) " . '/' . " (e 2) ", " (e 3) "->d);" )
@@ -6425,7 +6606,7 @@ static byte[] r_buffer_read_file(String path, String filename) {
                 java7 ( "System.arraycopy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ");" )
                 python ( (e 1) "[" (e 2) ":" (e 2) "+" (e 5) "] = " (e 3) "[" (e 4) ":" (e 4) "+" (e 5) "]" )
                 swift6 ( (e 1) ".replaceSubrange(Int(" (e 2) ")..<Int(" (e 2) "+" (e 5) "), with: " (e 3) "[Int(" (e 4) ")..<Int(" (e 4) "+" (e 5) ")])" )
-                csharp ( "Array.Copy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ")" )
+                csharp ( "Array.Copy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ");" )
                 kotlin ( "System.arraycopy(" (e 3) ", " (e 4) ", " (e 1) ", " (e 2) ", " (e 5) ")" )
                 php ( "r_buf_copy(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ");" )
             }
@@ -6577,7 +6758,7 @@ static byte[] r_buffer_read_file(String path, String filename) {
                 java7 ( "System.arraycopy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ")" )
                 python ( (e 1) "[" (e 2) ":" (e 2) "+" (e 5) "] = " (e 3) "[" (e 4) ":" (e 4) "+" (e 5) "]" )
                 swift6 ( (e 1) ".replaceSubrange(Int(" (e 2) ")..<Int(" (e 2) "+" (e 5) "), with: " (e 3) "[Int(" (e 4) ")..<Int(" (e 4) "+" (e 5) ")])" )
-                csharp ( "Array.Copy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ")" )
+                csharp ( "Array.Copy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ");" )
                 kotlin ( "System.arraycopy(" (e 3) ", " (e 4) ", " (e 1) ", " (e 2) ", " (e 5) ")" )
             }
         }
@@ -6704,7 +6885,7 @@ static byte[] r_buffer_read_file(String path, String filename) {
                 java7 ( "System.arraycopy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ")" )
                 python ( (e 1) "[" (e 2) ":" (e 2) "+" (e 5) "] = " (e 3) "[" (e 4) ":" (e 4) "+" (e 5) "]" )
                 swift6 ( (e 1) ".replaceSubrange(Int(" (e 2) ")..<Int(" (e 2) "+" (e 5) "), with: " (e 3) "[Int(" (e 4) ")..<Int(" (e 4) "+" (e 5) ")])" )
-                csharp ( "Array.Copy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ")" )
+                csharp ( "Array.Copy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ");" )
                 kotlin ( "System.arraycopy(" (e 3) ", " (e 4) ", " (e 1) ", " (e 2) ", " (e 5) ")" )
             }
         }
@@ -7465,7 +7646,10 @@ func r_last_index_of(_ s: String, _ needle: String) -> Int {
                 cpp( "((unsigned char)" (e 1) ".at(0))")
                 dart ( (e 1) ".codeUnitAt(0)" )
                 php ( "ord(" (e 1) ")") 
-                java7 ( "((" (e 1) ".getBytes())[0])") 
+                ; getBytes() answers byte[], and a Ranger char is an int:
+                  ; `Integer ch = (...)[0]` does not compile without the widening
+                  ; cast, because Java boxes byte to Byte, not to Integer.
+                java7 ( "((int)(" (e 1) ".getBytes())[0])") 
                 swift3 ( "UInt8( (  NSString(string: " (e 1) " )     ).character( at: 0 ) )" (imp "Foundation"))
                 swift3 ( "UInt8( String( " (e 1) ".characters[" (e 1) ".startIndex]))! ")
                 swift6 ( "r_char_at(" (e 1) ", 0)"
@@ -7578,7 +7762,10 @@ func r_last_index_of(_ s: String, _ needle: String) -> Int {
             templates {
                 ranger ( "(strfromcode " (e 1) ")")
                 csharp ( "((char)" (e 1) ").ToString()") 
-                java7 ( "(new String( new char[] {" (e 1) " }))") 
+                ; the cast is not decoration: a Ranger `char` is a Java
+                ; `byte`, and a byte in a char[] initialiser is a narrowing
+                ; conversion javac refuses
+                java7 ( "(new String( new char[] {(char)(" (e 1) ") }))") 
                 kotlin ( (e 1) ".toChar().toString()")
                 swift3 ( "(String( Character( UnicodeScalar(" (e 1) " ) )))") 
                 ; A named helper, not an inline expression. UnicodeScalar has
@@ -7873,6 +8060,11 @@ class r_optional_primitive {
     // made a failed str2int read back as a value on the C++ target.
     bool has_value = false;
     T value = T();
+    r_optional_primitive() {}
+    // a plain value placed into an optional slot: returning a bare string
+    // from a function declared @(optional):string arrives here. Declaring
+    // any constructor takes the implicit default one away, hence the pair.
+    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
     r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
         has_value = rhs.has_value;
         value = rhs.value;
@@ -8056,6 +8248,11 @@ class r_optional_primitive {
     // made a failed str2int read back as a value on the C++ target.
     bool has_value = false;
     T value = T();
+    r_optional_primitive() {}
+    // a plain value placed into an optional slot: returning a bare string
+    // from a function declared @(optional):string arrives here. Declaring
+    // any constructor takes the implicit default one away, hence the pair.
+    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
     r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
         has_value = rhs.has_value;
         value = rhs.value;
@@ -8184,6 +8381,9 @@ def r_str_to_double(s):
                 ranger ( "(join " (e 1) " " (e 2) ")")          
                 java7 ( "joinStrings(" (e 1 ) ", " (e 2) ")" 
                     (imp "java.lang.StringBuilder")
+                    ; the helper takes an ArrayList, so the file that gets the
+                    ; helper needs the import even when nothing else in it does
+                    (imp "java.util.*")
 (create_polyfill "
 static String joinStrings(ArrayList<String> list, String delimiter) 
 {
@@ -8282,6 +8482,11 @@ class r_optional_primitive {
     // made a failed str2int read back as a value on the C++ target.
     bool has_value = false;
     T value = T();
+    r_optional_primitive() {}
+    // a plain value placed into an optional slot: returning a bare string
+    // from a function declared @(optional):string arrives here. Declaring
+    // any constructor takes the implicit default one away, hence the pair.
+    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
     r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
         has_value = rhs.has_value;
         value = rhs.value;
@@ -8333,6 +8538,11 @@ class r_optional_primitive {
     // made a failed str2int read back as a value on the C++ target.
     bool has_value = false;
     T value = T();
+    r_optional_primitive() {}
+    // a plain value placed into an optional slot: returning a bare string
+    // from a function declared @(optional):string arrives here. Declaring
+    // any constructor takes the implicit default one away, hence the pair.
+    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
     r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
         has_value = rhs.has_value;
         value = rhs.value;
@@ -8391,6 +8601,37 @@ r_optional_primitive<double> cpp_get_map_string_double_value( const M & m , cons
                 ; to give an optional T, so the borrow is cloned away.
                 rust ( (e 1) ".get(" (kref 2) ").cloned()" )
                 cpp ( "r_map_get_val(" (e 1) ", " (ckey 2) ")"
+; the string case below hands back one of these, so its definition has to be
+; on the page before r_map_get_val is. Same text the writer emits for an
+; optional primitive, and createPolyfill keys its dedup on the text.
+(create_polyfill
+"
+template <class T>
+class r_optional_primitive {
+  public:
+    // has_value has to start false: cpp_str_to_int and its siblings leave the
+    // field untouched when the conversion throws, and an indeterminate bool
+    // made a failed str2int read back as a value on the C++ target.
+    bool has_value = false;
+    T value = T();
+    r_optional_primitive() {}
+    // a plain value placed into an optional slot: returning a bare string
+    // from a function declared @(optional):string arrives here. Declaring
+    // any constructor takes the implicit default one away, hence the pair.
+    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
+    r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
+        has_value = rhs.has_value;
+        value = rhs.value;
+        return *this;
+    }
+    r_optional_primitive<T> & operator=(const T a_value) {
+        has_value = true;
+        value = a_value;
+        return *this;
+    }
+};
+"
+)
 (create_polyfill
 "
 // Map read that never inserts on miss (unlike std::map::operator[]) and does a
@@ -8409,9 +8650,18 @@ r_optional_primitive<double> cpp_get_map_string_double_value( const M & m , cons
 // is only ever named for a variant-valued map, so a declaration is enough here
 // and a program with no shape at all still compiles.
 template <class T> class r_optional_union;
+// Same story for a string-valued map, for a different reason: std::string has
+// no null state either, so a miss and a key holding the empty string read back
+// the same. Every other target tells those apart, and r_optional_primitive is
+// the shape an optional string already has on this one; it is defined by the
+// polyfill just above.
+#include <string>
 template<typename T> struct r_map_result { typedef T type; };
 template<typename... A> struct r_map_result<std::variant<A...>> {
     typedef r_optional_union<std::variant<A...>> type;
+};
+template<> struct r_map_result<std::string> {
+    typedef r_optional_primitive<std::string> type;
 };
 template<typename M, typename K>
 typename r_map_result<typename M::mapped_type>::type r_map_get_val( const M & m , const K & key) {
@@ -9110,7 +9360,12 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  java7 ( (e 1) ".remove((int)(" (e 2) "));" )
                  csharp ( (e 1) ".RemoveAt((int)(" (e 2) "));" )
                  scala ( (e 1) ".remove((" (e 2) ").toInt)" )
-                 rust ( (e 1) ".remove(" (e 2) " as usize);" )
+                 ; the index is parenthesised: `as` binds tighter than `-`
+                 ; in Rust, so `remove(cnt - 1 as usize)` is
+                 ; `cnt - (1 as usize)` -- i64 minus usize, which is the
+                 ; only thing standing between this compiler's own Rust
+                 ; rendering and rustc
+                 rust ( (e 1) ".remove((" (e 2) ") as usize);" )
             }
         }
 
@@ -9361,6 +9616,23 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                 ; .toMutableList(): sortedWith answers a read only List, and every
                 ; array in the writer is a MutableList
                 kotlin ( (e 1) ".sortedWith(Comparator { __a, __b -> (" (e 2) ")(__a, __b).toInt() }).toMutableList()" )
+                ; Java 7 has no lambdas and no statement expressions, so the
+                ; callback arrives as a LambdaSignature object and the sort
+                ; itself is a helper. Collections.sort is in place, and `sort`
+                ; leaves its argument alone on every other target, so the
+                ; helper sorts a COPY. Without this entry there was no java7
+                ; template at all and the operator did not match: the compiler
+                ; could not be rendered to Java at all, stopping at
+                ; "Could not match argument types for sort" in FlowCollect.
+                java7 ( "r_sort_copy(" (e 1) ", new java.util.Comparator<" (atype 1) ">() { public int compare(" (atype 1) " __a, " (atype 1) " __b) { return (" (e 2) ").run(__a, __b).intValue(); } })" (imp "java.util.*")
+(create_polyfill "
+static <T> ArrayList<T> r_sort_copy(ArrayList<T> list, java.util.Comparator<T> cmp) {
+  ArrayList<T> copy = new ArrayList<T>(list);
+  java.util.Collections.sort(copy, cmp);
+  return copy;
+}
+")
+                )
                 ; `..sort` is a cascade, so the expression is the sorted COPY --
                 ; `sort` leaves its argument alone on every other target.
                 dart ( "(" (typeof 1) ".from(" (e 1) ")..sort((__a, __b) => (" (e 2) ")(__a, __b)))" )
@@ -10688,7 +10960,7 @@ std::string r_cpp_str_to_uppercase(const std::string& original)
                 csharp ( (e 1) " != null  && " (e 2) " != null") 
 
                 php ( "isset("(e 1) ") && isset(" (e 2) ")") 
-                java7 ( (e 1) ".isPresent()  && " (e 2) ".isPresent()") 
+                java7 ( (e 1) " != null  && " (e 2) " != null") 
                 rust ( (e 1) ".is_some()  && " (e 2) ".is_some()") 
                 swift3 ( (e 1) " != nil  && " (e 2) " != nil") 
                 swift6 ( (e 1) " != nil  && " (e 2) " != nil") 
@@ -10706,7 +10978,7 @@ std::string r_cpp_str_to_uppercase(const std::string& original)
                 ranger ( "(" (e 1) " && " (e 2) ")" ) 
                 php ( (e 1) " && isset(" (e 2) ")") 
                 scala ( (e 1) " && " (e 2) ".isDefined") 
-                java7 ( (e 1) " && " (e 2) ".isPresent()") 
+                java7 ( (e 1) " && " (e 2) " != null") 
                 csharp ( (e 1) " && " (e 2) " != null") 
 
                 rust ( (e 1) " && " (e 2) ".is_some()") 
@@ -10726,7 +10998,7 @@ std::string r_cpp_str_to_uppercase(const std::string& original)
                 ranger ( "(" (e 1) " && " (e 2) ")" ) 
                 php ( "isset("(e 1) ") && " (e 2) ) 
                 scala ( ""(e 1) ".isDefined && " (e 2) ) 
-                java7 ( ""(e 1) ".isPresent() && " (e 2) ) 
+                java7 ( ""(e 1) " != null && " (e 2) ) 
                 csharp ( ""(e 1) " != null && " (e 2) ) 
 
                 rust ( ""(e 1) ".is_some() && " (e 2) ) 

@@ -1,0 +1,70 @@
+; Study 12 — a behaviour-only trait as the target's interface
+;
+; The Rust I want:
+;   trait Named    -- with one method, `label`, returning a String
+;   impl Named for User, impl Named for Bot
+;   fn show(n: &dyn Named) -> String
+;
+; A Ranger `trait` is a MIXIN: its methods are copied into each class that
+; `does` it. That is the right lowering for a trait carrying FIELDS — no
+; target has anywhere to put them, since each consumer already owns its own
+; copy — but a trait that declares only BEHAVIOUR is exactly what an interface
+; says, and every statically typed target has one:
+;
+;   Rust    a `trait`, an `impl` per consumer, `Rc<RefCell<dyn …>>` as a type
+;   C++     an abstract base class with a pure virtual, and public inheritance
+;   Go      an interface — structural, so nothing has to declare it conforms
+;   Java    an `interface` in a file of its own, and `implements`
+;   Kotlin  an `interface`, and the copied bodies become `override`s of it
+;   C#      an `interface`
+;   Dart    an abstract class, and `implements`
+;   Swift   a `protocol`, and a conformance
+;
+; Using one as a TYPE used to be silent broken output on every one of those:
+; the writer emitted the trait's NAME and declared nothing of that name, so
+; Ranger reported success and the target compiler stopped at "cannot find
+; type Named" or its local equivalent. The field-bearing case is refused
+; instead — see `attempts/04_trait_as_type.rgr` under rust/ and cpp/.
+;
+; `Sized2` below is deliberate: nothing names it as a type, so it stays a pure
+; mixin. Giving an interface to every class that consumes any behaviour-only
+; trait is a layout change — a vtable, an itable — for programs that never
+; asked for one.
+
+trait Named {
+    fn label:string () {
+        return "anon"
+    }
+}
+
+trait Sized2 {
+    fn weight:int () {
+        return 1
+    }
+}
+
+class User {
+    does Named
+    does Sized2
+    def uname:string ""
+}
+
+class Bot {
+    does Named
+    def id:int 0
+}
+
+class TraitsMain {
+    fn show:string (n:Named) {
+        return (n.label())
+    }
+
+    sfn main:void () {
+        def app:TraitsMain (new TraitsMain())
+        def u:User (new User())
+        def b:Bot (new Bot())
+        print ("user " + (app.show(u)))
+        print ("bot " + (app.show(b)))
+        print ("weight " + (to_string (u.weight())))
+    }
+}

@@ -2141,6 +2141,111 @@ class StaticAnalyzer {
 
   ; A union member that holds only scalar fields — no collection, no object, no
   ; optional. Such a case is carried by value inside the family's enum.
+  ; Is a value of this union case ever MUTATED through a narrowed binding?
+  ; `case v s:EvalValue.Str { str_append s.value x }` works behind the cell and
+  ; cannot work in the variant, where the match binds `&EvalValue_Str`. The
+  ; binding's declared type is the case class (FlowShape sets it), so the
+  ; question is: does any mutating operator have an argument whose path is
+  ; rooted at a name of this type? The counters on the field desc do not answer
+  ; it — `prop_assign_cnt` sees `=` and not an operator, and `set_cnt` counts
+  ; the constructor's own initialisation.
+  fn unionMemberIsMutatedName:boolean (v:string) {
+    if (v == "=") { return true }
+    if (v == "push") { return true }
+    if (v == "set") { return true }
+    if (v == "insert") { return true }
+    if (v == "remove") { return true }
+    if (v == "removeLast") { return true }
+    if (v == "clear") { return true }
+    if (v == "str_append") { return true }
+    if (v == "put") { return true }
+    if (v == "nullify") { return true }
+    if (v == "map_clear") { return true }
+    return false
+  }
+
+  fn nodeRootHasType:boolean (node:CodeNode typeName:string) {
+    ; the target of a mutating operator is usually a PATH — `s.value` — whose
+    ; own type is the field's. The question is about the root, `s`, so the
+    ; path's first descriptor is what has to be asked; looking only at the node
+    ; saw `string` and answered no for every such case.
+    if ((array_length node.nsp) > 0) {
+      def rootD:RangerAppParamDesc (itemAt node.nsp 0)
+      def rootNN@(optional):CodeNode rootD.nameNode
+      if (!null? rootNN) {
+        def rootN:CodeNode (unwrap rootNN)
+        if (rootN.type_name == typeName) {
+          return true
+        }
+      }
+    }
+    if (node.type_name == typeName) {
+      return true
+    }
+    if (node.eval_type_name == typeName) {
+      return true
+    }
+    if (node.hasParamDesc) {
+      def rpd:RangerAppParamDesc node.paramDesc
+      def rpdNN@(optional):CodeNode rpd.nameNode
+      if (!null? rpdNN) {
+        def rpdN:CodeNode (unwrap rpdNN)
+        if (rpdN.type_name == typeName) {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
+  fn treeMutatesType:boolean (node:CodeNode typeName:string) {
+    if node.expression {
+      if ((array_length node.children) > 1) {
+        def h:CodeNode (node.getFirst())
+        if (this.unionMemberIsMutatedName(h.vref)) {
+          def tgt:CodeNode (node.getSecond())
+          if (this.nodeRootHasType(tgt typeName)) {
+            return true
+          }
+        }
+      }
+    }
+    for node.children ch:CodeNode i {
+      if (this.treeMutatesType(ch typeName)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn unionMemberIsMutated:boolean (typeName:string) {
+    if (null? ctx) {
+      return false
+    }
+    def mroot:RangerAppWriterContext ((unwrap ctx).getRoot())
+    for mroot.definedClasses mcl:RangerAppClassDesc mci {
+      if (this.scanFnsForMutation(mcl.methods typeName)) {
+        return true
+      }
+      if (this.scanFnsForMutation(mcl.static_methods typeName)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn scanFnsForMutation:boolean (fns:[RangerAppFunctionDesc] typeName:string) {
+    for fns mf:RangerAppFunctionDesc mfi {
+      def mfNodeOpt@(optional):CodeNode mf.node
+      if (!null? mfNodeOpt) {
+        if (this.treeMutatesType((unwrap mfNodeOpt) typeName)) {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
   fn unionMemberIsScalarOnly:boolean (typeName:string) {
     if (null? ctx) {
       return false
@@ -2166,13 +2271,39 @@ class StaticAnalyzer {
           if (cvNode.hasFlag("optional")) {
             allScalar = false
           } {
-            ; A string is NOT scalar here (mirrors cppUnionValueCase): a
-            ; by-value String variant made every enum clone copy the whole
-            ; payload. Behind the member's Rc<RefCell> the clone is a pointer
-            ; bump; the generated __ops::equals still compares fields for
-            ; @(value) cases, so content equality is unaffected.
+            ; A `string` payload rides INSIDE the variant here, unlike the C++
+            ; rule this used to mirror (cppUnionValueCase, which keeps its own).
+            ; That rule existed because a by-value String variant made every
+            ; copy of the union copy the payload, and the copy that hurt was the
+            ; KIND CHECK: `case` cloned the scrutinee to match it, so asking
+            ; "which case is this" on a 40 KB accumulator was O(len).
+            ;
+            ; On Rust it no longer does. PLAN_RUST_SEMANTIC_IDIOMS E made a
+            ; shape `match` a real `match` over a REFERENCE, and a hand-written
+            ; `case` an `if let` over one; neither clones. What is left are the
+            ; copies a Ranger program actually asks for — an assignment, an
+            ; argument, a return — and a String there costs exactly what a
+            ; String field costs anywhere else in the generated code.
+            ;
+            ; So `Result`-shaped code reads as `Err(String)` rather than
+            ; `Err(Rc<RefCell<ParseOutcome_Err>>)`. Collections, maps, optionals
+            ; and object fields stay behind the cell: those are the payloads
+            ; whose copies are unbounded.
+            ;
+            ; One thing a `string` payload must NOT be: mutated through the
+            ; narrowed binding. `case v s:EvalValue.Str { s.value = … }` works
+            ; behind the cell (borrow_mut) and does not work in the variant,
+            ; where the match binds `&EvalValue_Str`. A case whose fields are
+            ; ever assigned through a path keeps the cell.
             def tn:string cvNode.type_name
             def isScalar:boolean ((((tn == "int") || (tn == "double")) || (tn == "boolean")) || (tn == "char"))
+            if (isScalar == false) {
+              if (tn == "string") {
+                if ((this.unionMemberIsMutated(typeName)) == false) {
+                  isScalar = true
+                }
+              }
+            }
             if (isScalar == false) {
               allScalar = false
             }

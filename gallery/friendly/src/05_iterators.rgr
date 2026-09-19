@@ -1,0 +1,63 @@
+; Study 05 — iterators
+;
+; The Rust I want:
+;   let sum: i64 = xs.iter().copied().sum();
+;   let evens = xs.iter().filter(|n| n % 2 == 0).count();
+;   let doubled: Vec<i64> = xs.iter().map(|n| n * 2).collect();
+;
+; Ranger has `for` over arrays and a lambda value. It has no iterator
+; trait, no adapter chain, and no `collect`. The idiomatic Ranger form is
+; a counted loop that pushes into a new array.
+
+class Stats {
+    fn total:int (xs:[int]) {
+        def acc:int 0
+        for xs v:int i {
+            acc = (acc + v)
+        }
+        return acc
+    }
+
+    fn evenCount:int (xs:[int]) {
+        def n:int 0
+        for xs v:int i {
+            if ((v % 2) == 0) {
+                n = (n + 1)
+            }
+        }
+        return n
+    }
+
+    fn doubled:[int] (xs:[int]) {
+        def out:[int]
+        for xs v:int i {
+            push out (v * 2)
+        }
+        return out
+    }
+
+    fn applyEach:[int] (xs:[int] f:(fn:int (p:int))) {
+        def out:[int]
+        for xs v:int i {
+            def next:int (f(v))
+            push out next
+        }
+        return out
+    }
+}
+
+class IterMain {
+    sfn main:void () {
+        def s:Stats (new Stats())
+        def xs:[int] ([] _:int ( 1 2 3 4 ))
+        print ("sum " + (to_string (s.total(xs))))
+        print ("evens " + (to_string (s.evenCount(xs))))
+        def twice:[int] (s.doubled(xs))
+        print ("doubled0 " + (to_string (itemAt twice 0)))
+        def addOne (fn:int (p:int) {
+            return (p + 1)
+        })
+        def bumped:[int] (s.applyEach(xs addOne))
+        print ("bumped0 " + (to_string (itemAt bumped 0)))
+    }
+}

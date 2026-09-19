@@ -1,0 +1,17 @@
+; The C++ `rg_ordered_map` helper is literal text in the writer, not codegen,
+; so nothing but the formatter reformats its method bodies. It is emitted only
+; when the program can reach a map, so this fixture declares one — the chains
+; fixture the formatting test used to share has none, and once the preamble
+; became reachability-gated there was nothing left for the test to look at.
+class MapFmtMain {
+  sfn main:void () {
+    def counts:[string:int]
+    set counts "a" 1
+    set counts "b" 2
+    def total:int 0
+    for (keys counts) k:string i {
+      total = total + (unwrap (get counts k))
+    }
+    print ("" + total)
+  }
+}

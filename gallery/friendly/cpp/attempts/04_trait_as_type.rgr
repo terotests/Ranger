@@ -1,0 +1,53 @@
+; EXPECT-ERROR: is not a type it can name
+;
+; Attempt — a FIELD-BEARING Ranger `trait` used as a type
+;
+; The C++ I want:
+;   class Named { public: virtual ~Named() {} virtual std::string label() = 0; };
+;   std::string show(std::shared_ptr<Named> n);
+;
+; A Ranger `trait` is a MIXIN: its methods are copied into each class that
+; `does` it. A trait declaring only BEHAVIOUR becomes an abstract base class
+; and can be used as a type — that is `../../src/12_behaviour_traits.rgr`, and it
+; builds and runs. This one carries a FIELD, and C++ has nothing to put it in:
+; each consumer already owns its own copy, so a base holding `name` would be a
+; second, different field. The writer used to emit `std::shared_ptr<Named>`
+; with no `class Named` anywhere in the file — accepted Ranger, and
+; `g++: 'Named' was not declared in this scope`.
+;
+; Rust refuses the same program for the same reason
+; (../rust/attempts/04_trait_as_type.rgr), and names the same way out: a class
+; with subclasses, which does become a real base type on both targets.
+
+trait Named {
+    def name:string ""
+    fn label:string () {
+        return name
+    }
+}
+
+class User {
+    does Named
+    def age:int 0
+}
+
+class Bot {
+    does Named
+    def id:int 0
+}
+
+class TraitAsType {
+    fn show:string (n:Named) {
+        return (n.label())
+    }
+
+    sfn main:void () {
+        def app:TraitAsType (new TraitAsType())
+        def u:User (new User())
+        u.name = "ada"
+        def b:Bot (new Bot())
+        b.name = "bot"
+        print (app.show(u))
+        print (app.show(b))
+    }
+}

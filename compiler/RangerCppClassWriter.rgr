@@ -1,5 +1,8 @@
 ; SPDX-License-Identifier: MIT
 
+Import "EnumAnalysis.rgr"
+Import "TraitAnalysis.rgr"
+
 class RangerCppClassWriter {
   Extends (RangerGenericClassWriter)
   def compiler:LiveCompiler
@@ -13,6 +16,58 @@ class RangerCppClassWriter {
   ; instead of std::shared_ptr. Read from the flag the first time a class or a
   ; union is written, which is before any type string is emitted.
   def cpp_single_thread:boolean false
+
+  ; Which Ranger `Enum`s are written as a C++ `enum class` rather than lowered
+  ; to a bare `int`. Same question the Rust writer asks of its own `enum`, so
+  ; the rules live in EnumNativeAnalysis (compiler/EnumAnalysis.rgr).
+  def cppEnums:EnumNativeAnalysis (new EnumNativeAnalysis())
+
+  fn cppEnumIsNative:boolean (enumName:string ctx:RangerAppWriterContext) {
+    cppEnums.targetName = "cpp"
+    cppEnums.fallbackType = "int"
+    return (cppEnums.isNative(enumName ctx))
+  }
+
+  ; Which behaviour-only Ranger `trait`s become a C++ abstract base class. The
+  ; rules are target-neutral -- every target with interfaces asks the same
+  ; question -- so they live in TraitInterfaceAnalysis
+  ; (compiler/TraitAnalysis.rgr) and this is the C++ half of the pair.
+  def cppTraits:TraitInterfaceAnalysis (new TraitInterfaceAnalysis())
+
+  fn cppTraitIsInterface:boolean (tName:string ctx:RangerAppWriterContext) {
+    return (cppTraits.isInterface(tName ctx))
+  }
+
+  fn cppClassIfaceBases:[string] (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    return (cppTraits.basesOf(cl ctx))
+  }
+
+
+  fn writeCppTraitInterfaces:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+    cppTraits.compute(ctx)
+    def root:RangerAppWriterContext (ctx.getRoot())
+    for (keys cppTraits.ifaceTraits) tn:string tni {
+      def tc:RangerAppClassDesc (ctx.findClass(tn))
+      wr.out((("class " + tn) + " { ") true)
+      wr.indent(1)
+      wr.out("public :" true)
+      wr.indent(1)
+      wr.out((("virtual ~" + tn) + "() {}") true)
+      for tc.defined_variants fnVar:string fvi {
+        def mVs:RangerAppMethodVariants (get tc.method_variants fnVar)
+        for mVs.variants variant:RangerAppFunctionDesc vi {
+          wr.out("virtual " false)
+          this.writeReturnTypeDef(variant ctx wr)
+          wr.out(((" " + variant.compiledName) + "(") false)
+          this.writeArgsDef(variant ctx wr)
+          wr.out(") = 0;" true)
+        }
+      }
+      wr.indent(-1)
+      wr.indent(-1)
+      wr.out("};" true)
+    }
+  }
 
   ; The smart pointer type for a class instance. Default is std::shared_ptr,
   ; whose count libstdc++ makes ATOMIC on any platform that has threads --
@@ -183,6 +238,9 @@ class RangerCppClassWriter {
       }
     }
     if(ctx.isEnumDefined(type_string)) {
+      if (this.cppEnumIsNative(type_string ctx)) {
+        return type_string
+      }
       return "int"
     }      
     if(ctx.isDefinedClass(type_string)) {
@@ -348,6 +406,9 @@ class RangerCppClassWriter {
       }
     }
     if(ctx.isEnumDefined(type_string)) {
+      if (this.cppEnumIsNative(type_string ctx)) {
+        return type_string
+      }
       return "int"
     }
     ; Same reason as in getObjectTypeString: a systemclass carries the target
@@ -367,6 +428,48 @@ class RangerCppClassWriter {
   fn writePtr:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if (node.type_name == "void") {
       return
+    }
+  }
+
+  ; `r_optional_primitive<T>` is the C++ shape of an optional int or double. Its
+  ; definition lived only on the `str2int` / `str2double` operator templates as a
+  ; (create_polyfill …), so a program that declared an optional primitive
+  ; PARAMETER and never called str2int emitted the type and never declared it:
+  ; "error: 'r_optional_primitive' has not been declared", and the program did
+  ; not build at all. The type is emitted from here, so the definition is too —
+  ; createPolyfill keys its dedup on the code text, so this is the same block the
+  ; operator templates install and the two never double up.
+  fn cppEmitOptionalPrimitive:void (wr:CodeWriter) {
+    def code:string "
+template <class T>
+class r_optional_primitive {
+  public:
+    // has_value has to start false: cpp_str_to_int and its siblings leave the
+    // field untouched when the conversion throws, and an indeterminate bool
+    // made a failed str2int read back as a value on the C++ target.
+    bool has_value = false;
+    T value = T();
+    r_optional_primitive() {}
+    // a plain value placed into an optional slot: returning a bare string
+    // from a function declared @(optional):string arrives here. Declaring
+    // any constructor takes the implicit default one away, hence the pair.
+    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
+    r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
+        has_value = rhs.has_value;
+        value = rhs.value;
+        return *this;
+    }
+    r_optional_primitive<T> & operator=(const T a_value) {
+        has_value = true;
+        value = a_value;
+        return *this;
+    }
+};
+"
+    def p_write:CodeWriter (wr.getTag("utilities"))
+    if ((has p_write.compiledTags code) == false) {
+      p_write.raw(code true)
+      set p_write.compiledTags code true
     }
   }
 
@@ -411,7 +514,11 @@ class RangerCppClassWriter {
         
       }   
       case RangerNodeType.Enum {
-        wr.out("int" false)
+        if (this.cppEnumIsNative(t_name ctx)) {
+          wr.out(t_name false)
+        } {
+          wr.out("int" false)
+        }
       }
       case RangerNodeType.Integer {
         def intCppType:string "int"
@@ -423,6 +530,7 @@ class RangerCppClassWriter {
           wr.addImport("<cstdint>")
         }
         if(node.hasFlag("optional")) {
+          this.cppEmitOptionalPrimitive(wr)
           wr.out(((" r_optional_primitive<" + intCppType) + "> ") false)
         } {
           wr.out(intCppType false)
@@ -452,6 +560,7 @@ class RangerCppClassWriter {
         def dblCppType:string "double"
         if (t_name == "f32") { dblCppType = "float" }
         if(node.hasFlag("optional")) {
+          this.cppEmitOptionalPrimitive(wr)
           wr.out(((" r_optional_primitive<" + dblCppType) + "> ") false)
         } {
           wr.out(dblCppType false)
@@ -459,7 +568,12 @@ class RangerCppClassWriter {
       }
       case RangerNodeType.String {
         wr.addImport("<string>")
-        wr.out("std::string" false)
+        if(node.hasFlag("optional")) {
+          this.cppEmitOptionalPrimitive(wr)
+          wr.out(" r_optional_primitive<std::string> " false)
+        } {
+          wr.out("std::string" false)
+        }
       }
       case RangerNodeType.Boolean {
         wr.out("bool" false)
@@ -520,6 +634,21 @@ class RangerCppClassWriter {
             if (!null? sysName) {
               wr.out((unwrap sysName) false)
               return
+            }
+          }
+          ; A Ranger `trait` is a MIXIN here: its methods are copied into
+          ; each class that `does` it, and no C++ type of that name is
+          ; declared. A BEHAVIOUR-ONLY trait named as a type is the case
+          ; writeCppTraitInterfaces handles -- it gets an abstract base, so
+          ; `std::shared_ptr<Named>` below is a real type. A trait carrying
+          ; FIELDS does not: its consumers own their own copies, so there is
+          ; nothing for a base to hold. That used to emit
+          ; `std::shared_ptr<Named>` with no `class Named`, which g++ refuses
+          ; while Ranger reported success. Say so instead, the way the Rust
+          ; writer does.
+          if cc.is_trait {
+            if ((this.cppTraitIsInterface(cc.name ctx)) == false) {
+              ctx.addError(node (("the C++ target writes a `trait` as a mixin, so `" + cc.name) + "` is not a type it can name. A trait that declares only METHODS becomes an abstract base class and can be used as a type; this one carries fields, which its consumers each hold their own copy of. Use a class with subclasses (`Extends(Base)`), or give the parameter a concrete type."))
             }
           }
           wr.out((this.cppPtrOpen()) false)
@@ -740,6 +869,12 @@ class RangerCppClassWriter {
         def enumName:string (itemAt node.ns 1)
         def e@(optional):RangerAppEnum (ctx.getEnum(rootObjName))
         if (!null? e) {
+          ; a native `enum class` has no implicit conversion either way, so
+          ; the member has to reach the page under its own name
+          if (this.cppEnumIsNative(rootObjName ctx)) {
+            wr.out((rootObjName + "::" + enumName) false)
+            return
+          }
           wr.out(("" + (unwrap (get e.values enumName))) false)
           return
         }
@@ -1263,6 +1398,91 @@ class RangerCppClassWriter {
       return false
     }
     return true
+  }
+
+  ; Does this program reach the ordered-map preamble? It used to be written
+  ; into every file: on study 07 of gallery/friendly that is 16 lines of Ranger
+  ; and ~150 lines of hashing and container the binary never calls.
+  ;
+  ; A Ranger map is always spelled with a KEY TYPE somewhere — a field, a
+  ; parameter, a return or a local — so a node carrying one is the signal, and
+  ; there is no way to hold a map without writing it down. Two things this had
+  ; to learn on the Rust side and that hold here too: `def m:[string:int]` is
+  ; rewritten by CollectMethods into `new Map@(string int)` before a writer
+  ; sees it, so the class name is the signal that survives; and `sfn` lands in
+  ; static_methods, so a program whose only entry point is `sfn m@(main)` has
+  ; an EMPTY methods list.
+  ;
+  ; It errs towards emitting: an unused helper is dead code the compiler drops,
+  ; a missing one is a program that does not build.
+  fn cppNodeUsesHash:boolean (node:CodeNode) {
+    if ((strlen node.key_type) > 0) {
+      return true
+    }
+    if (node.type_name == "Map") {
+      return true
+    }
+    if (node.value_type == RangerNodeType.Hash) {
+      return true
+    }
+    if (node.eval_type == RangerNodeType.Hash) {
+      return true
+    }
+    if (node.hasParamDesc) {
+      def pdNN@(optional):CodeNode node.paramDesc.nameNode
+      if (!null? pdNN) {
+        def pdN:CodeNode (unwrap pdNN)
+        if ((strlen pdN.key_type) > 0) {
+          return true
+        }
+      }
+    }
+    for node.children ch:CodeNode i {
+      if (this.cppNodeUsesHash(ch)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn cppScanFnsForHash:boolean (fns:[RangerAppFunctionDesc]) {
+    for fns m:RangerAppFunctionDesc mi {
+      def mNodeOpt@(optional):CodeNode m.node
+      if (!null? mNodeOpt) {
+        if (this.cppNodeUsesHash((unwrap mNodeOpt))) {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
+  fn cppProgramUsesHash:boolean (ctx:RangerAppWriterContext) {
+    def root:RangerAppWriterContext (ctx.getRoot())
+    for root.definedClasses cl:RangerAppClassDesc i {
+      ; a class the file never writes cannot reach the preamble, and the
+      ; operator and template classes of Lang.rgr declare maps all over —
+      ; counting them means every program "needs" it, which is how it came to
+      ; be in every file. `Map` itself is a trait class here.
+      if ((((cl.is_system || cl.is_trait) || cl.is_template) || cl.is_operator_class) || cl.is_union) {
+        continue
+      }
+      for cl.variables pvar:RangerAppParamDesc j {
+        if (!null? pvar.nameNode) {
+          def pvN:CodeNode (unwrap pvar.nameNode)
+          if ((strlen pvN.key_type) > 0) {
+            return true
+          }
+        }
+      }
+      if (this.cppScanFnsForHash(cl.methods)) {
+        return true
+      }
+      if (this.cppScanFnsForHash(cl.static_methods)) {
+        return true
+      }
+    }
+    return false
   }
 
   fn cppProgramHasWeakField:boolean (ctx:RangerAppWriterContext) {
@@ -1883,19 +2103,48 @@ class RangerCppClassWriter {
     }
     def inheritedVars:[string:boolean]
     wr.out(("class " + cl.name) , false)
+    ; the behaviour-only traits this class `does` that some signature names as
+    ; a type: each is an abstract base, and the mixin copies are the overrides
+    def ifaceBases:[string] (this.cppClassIfaceBases((unwrap cl) ctx))
+    def baseCnt:int 0
     if ( ( array_length cl.extends_classes ) > 0 ) {
       wr.out(" : " false)
       for cl.extends_classes pName:string i {
+        if (baseCnt > 0) {
+          wr.out(", " false)
+        }
         wr.out("public " false)
         wr.out(pName false)
+        baseCnt = baseCnt + 1
         def extC (ctx.findClass(pName))
         for extC.variables pvar:RangerAppParamDesc i {
           set inheritedVars pvar.name true
         }
       }
+      for ifaceBases ifName:string ifi {
+        wr.out(", public " false)
+        wr.out(ifName false)
+        baseCnt = baseCnt + 1
+      }
     } {
-      if (this.cppNeedsSharedFromThis(node)) {
-        wr.out(((" : public " + (this.cppEsft(cl.name))) + " ") , false)
+      if ((array_length ifaceBases) > 0) {
+        wr.out(" : " false)
+        for ifaceBases ifName2:string ifi2 {
+          if (baseCnt > 0) {
+            wr.out(", " false)
+          }
+          wr.out("public " false)
+          wr.out(ifName2 false)
+          baseCnt = baseCnt + 1
+        }
+        if (this.cppNeedsSharedFromThis(node)) {
+          wr.out((", public " + (this.cppEsft(cl.name))) , false)
+        }
+        wr.out(" " false)
+      } {
+        if (this.cppNeedsSharedFromThis(node)) {
+          wr.out(((" : public " + (this.cppEsft(cl.name))) + " ") , false)
+        }
       }
     }
 
@@ -2137,6 +2386,31 @@ class RangerCppClassWriter {
       wr.createTag("c++Imports")
       wr.out("" true)
       this.writeCppSingleThreadPrelude(wr)
+      ; A Ranger `Enum` whose every use a C++ `enum class` can carry is
+      ; written as one, ahead of everything that could name a member. The
+      ; underlying type is fixed at `int` -- the same type the fallback
+      ; lowering uses -- so a static_cast back is exact and nothing
+      ; downstream has to know which form the enum got.
+      def cppEnumRoot:RangerAppWriterContext (ctx.getRoot())
+      def wroteAnyEnum:boolean false
+      for (keys cppEnumRoot.definedEnums) cen:string cei {
+        if (this.cppEnumIsNative(cen ctx)) {
+          def ceDef:RangerAppEnum (unwrap (get cppEnumRoot.definedEnums cen))
+          wr.out((("enum class " + cen) + " : int {") true)
+          wr.indent(1)
+          for (keys ceDef.values) cmn:string cmi {
+            def cmv:int (unwrap (get ceDef.values cmn))
+            def ceLine:string ((cmn + " = ") + (to_string cmv))
+            wr.out((ceLine + ",") true)
+            wroteAnyEnum = true
+          }
+          wr.indent(-1)
+          wr.out("};" true)
+        }
+      }
+      if wroteAnyEnum {
+        wr.out("" true)
+      }
       wr.out("// define classes here to avoid compiler errors" true)
       wr.createTag("c++ClassDefs")
       wr.out("" true)
@@ -2219,163 +2493,176 @@ class RangerCppClassWriter {
         wr.out("}" true)
         wr.out("" true)
       }
-      wr.out("#include <string_view>" true)
-      ; the map stores its entries in a vector, so the header is needed even in
-      ; a program that declares no array of its own
-      wr.out("#include <vector>" true)
-      wr.out("#include <cstring>" true)
-      ; `rg_ordered_map::at` throws std::out_of_range, and nothing else here
-      ; guarantees the header. A program with a `main` pulls it in through the
-      ; iostream chain and never notices; a MODULE compiled for a host shell to
-      ; include -- an SDL2 or an Android host -- does not, and fails to compile
-      ; on a declaration the user never wrote.
-      wr.out("#include <stdexcept>" true)
-      wr.out("// String hashing for the map below. std::hash<std::string> is" true)
-      wr.out("// _Hash_bytes, an out-of-line MurmurHash in libstdc++ that costs a call" true)
-      wr.out("// and a per-byte mix; profiling the interpreter put it at ~10% of all" true)
-      wr.out("// instructions, since every scope lookup and every property read hashes" true)
-      wr.out("// a name. This is FxHash -- the one rustc uses for its own identifier" true)
-      wr.out("// maps -- which consumes 8 bytes per multiply-rotate and inlines." true)
-      wr.out("//" true)
-      wr.out("// The string and string_view paths MUST agree, because the const char*" true)
-      wr.out("// overloads probe the same index; they share this one function, so they" true)
-      wr.out("// agree by construction rather than by the standard's promise about" true)
-      wr.out("// hash<string> and hash<string_view>." true)
-      wr.out("static inline size_t rg_hash_bytes(const char* p, size_t n) {" true)
-      wr.out("    const size_t K = (size_t)0x517cc1b727220a95ULL;" true)
-      wr.out("    size_t h = n;" true)
-      wr.out("    size_t i = 0;" true)
-      wr.out("    while (n - i >= sizeof(size_t)) {" true)
-      wr.out("        size_t w; std::memcpy(&w, p + i, sizeof(size_t));" true)
-      wr.out("        h = ((h << 5) | (h >> (8 * sizeof(size_t) - 5))) ^ w; h *= K;" true)
-      wr.out("        i += sizeof(size_t);" true)
-      wr.out("    }" true)
-      wr.out("    while (i < n) {" true)
-      wr.out("        h = ((h << 5) | (h >> (8 * sizeof(size_t) - 5))) ^ (size_t)(unsigned char)p[i]; h *= K;" true)
-      wr.out("        i++;" true)
-      wr.out("    }" true)
-      wr.out("    return h;" true)
-      wr.out("}" true)
-      wr.out("// Any other key type keeps the standard hash; only strings are hot." true)
-      wr.out("template<typename K> struct rg_key_hash {" true)
-      wr.out("    size_t operator()(const K& k) const { return std::hash<K>{}(k); }" true)
-      wr.out("};" true)
-      wr.out("template<> struct rg_key_hash<std::string> {" true)
-      wr.out("    size_t operator()(const std::string& s) const { return rg_hash_bytes(s.data(), s.size()); }" true)
-      wr.out("};" true)
-      wr.out("// Insertion-ordered map: vector storage + open-addressed hash index." true)
-      wr.out("// Replaces std::map (sorted, O(log n) with a string compare per level):" true)
-      wr.out("// lookups hash once, and iteration follows INSERTION order, which is" true)
-      wr.out("// what JavaScript object key enumeration semantics need." true)
-      wr.out("template<typename K, typename V>" true)
-      wr.out("class rg_ordered_map {" true)
-      wr.out("public:" true)
-      wr.out("    typedef K key_type;" true)
-      wr.out("    typedef V mapped_type;" true)
-      wr.out("    std::vector<std::pair<K, V>> entries;" true)
-      wr.out("    std::vector<int32_t> index_;" true)
-      wr.out("    typedef typename std::vector<std::pair<K, V>>::iterator iterator;" true)
-      wr.out("    typedef typename std::vector<std::pair<K, V>>::const_iterator const_iterator;" true)
-      wr.out("    iterator begin() { return entries.begin(); }" true)
-      wr.out("    iterator end() { return entries.end(); }" true)
-      wr.out("    const_iterator begin() const { return entries.begin(); }" true)
-      wr.out("    const_iterator end() const { return entries.end(); }" true)
-      wr.out("    size_t size() const { return entries.size(); }" true)
-      wr.out("    void clear() { entries.clear(); index_.clear(); }" true)
-      wr.out("    void rehash_() {" true)
-      wr.out("        size_t cap = 8;" true)
-      wr.out("        while (cap < (entries.size() + 1) * 2) { cap <<= 1; }" true)
-      wr.out("        index_.assign(cap, -1);" true)
-      wr.out("        for (size_t i = 0; i < entries.size(); i++) {" true)
-      wr.out("            size_t h = rg_key_hash<K>{}(entries[i].first) & (cap - 1);" true)
-      wr.out("            while (index_[h] != -1) { h = (h + 1) & (cap - 1); }" true)
-      wr.out("            index_[h] = (int32_t)i;" true)
-      wr.out("        }" true)
-      wr.out("    }" true)
-      wr.out("    int32_t slot_(const K& k) const {" true)
-      wr.out("        if (index_.empty()) { return -1; }" true)
-      wr.out("        size_t mask = index_.size() - 1;" true)
-      wr.out("        size_t h = rg_key_hash<K>{}(k) & mask;" true)
-      wr.out("        while (true) {" true)
-      wr.out("            int32_t s = index_[h];" true)
-      wr.out("            if (s == -1) { return -1; }" true)
-      wr.out("            if (entries[(size_t)s].first == k) { return s; }" true)
-      wr.out("            h = (h + 1) & mask;" true)
-      wr.out("        }" true)
-      wr.out("    }" true)
-      wr.out("    size_t count(const K& k) const { return slot_(k) == -1 ? 0 : 1; }" true)
-      wr.out("    iterator find(const K& k) {" true)
-      wr.out("        int32_t s = slot_(k);" true)
-      wr.out("        return s == -1 ? entries.end() : entries.begin() + s;" true)
-      wr.out("    }" true)
-      wr.out("    const_iterator find(const K& k) const {" true)
-      wr.out("        int32_t s = slot_(k);" true)
-      wr.out("        return s == -1 ? entries.end() : entries.begin() + s;" true)
-      wr.out("    }" true)
-      wr.out("    V& at(const K& k) {" true)
-      wr.out("        int32_t s = slot_(k);" true)
-      wr.out("        if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); }" true)
-      wr.out("        return entries[(size_t)s].second;" true)
-      wr.out("    }" true)
-      wr.out("    const V& at(const K& k) const {" true)
-      wr.out("        int32_t s = slot_(k);" true)
-      wr.out("        if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); }" true)
-      wr.out("        return entries[(size_t)s].second;" true)
-      wr.out("    }" true)
-      wr.out("    // const char* overloads: a literal key probes WITHOUT constructing a" true)
-      wr.out("    // std::string temporary. C++17 guarantees hash<string> and" true)
-      wr.out("    // hash<string_view> agree on equal character sequences. Instantiated" true)
-      wr.out("    // lazily, so non-string-keyed maps never touch them." true)
-      wr.out("    int32_t slot_sv_(std::string_view k) const {" true)
-      wr.out("        if (index_.empty()) { return -1; }" true)
-      wr.out("        size_t mask = index_.size() - 1;" true)
-      wr.out("        size_t h = rg_hash_bytes(k.data(), k.size()) & mask;" true)
-      wr.out("        while (true) {" true)
-      wr.out("            int32_t s = index_[h];" true)
-      wr.out("            if (s == -1) { return -1; }" true)
-      wr.out("            if (entries[(size_t)s].first.compare(k) == 0) { return s; }" true)
-      wr.out("            h = (h + 1) & mask;" true)
-      wr.out("        }" true)
-      wr.out("    }" true)
-      wr.out("    size_t count(const char* k) const { return slot_sv_(k) == -1 ? 0 : 1; }" true)
-      wr.out("    iterator find(const char* k) {" true)
-      wr.out("        int32_t s = slot_sv_(k);" true)
-      wr.out("        return s == -1 ? entries.end() : entries.begin() + s;" true)
-      wr.out("    }" true)
-      wr.out("    const_iterator find(const char* k) const {" true)
-      wr.out("        int32_t s = slot_sv_(k);" true)
-      wr.out("        return s == -1 ? entries.end() : entries.begin() + s;" true)
-      wr.out("    }" true)
-      wr.out("    V& at(const char* k) {" true)
-      wr.out("        int32_t s = slot_sv_(k);" true)
-      wr.out("        if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); }" true)
-      wr.out("        return entries[(size_t)s].second;" true)
-      wr.out("    }" true)
-      wr.out("    const V& at(const char* k) const {" true)
-      wr.out("        int32_t s = slot_sv_(k);" true)
-      wr.out("        if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); }" true)
-      wr.out("        return entries[(size_t)s].second;" true)
-      wr.out("    }" true)
-      wr.out("    V& operator[](const char* k) {" true)
-      wr.out("        int32_t s = slot_sv_(k);" true)
-      wr.out("        if (s != -1) { return entries[(size_t)s].second; }" true)
-      wr.out("        return (*this)[K(k)];" true)
-      wr.out("    }" true)
-      wr.out("    V& operator[](const K& k) {" true)
-      wr.out("        int32_t s = slot_(k);" true)
-      wr.out("        if (s != -1) { return entries[(size_t)s].second; }" true)
-      wr.out("        entries.push_back(std::make_pair(k, V()));" true)
-      wr.out("        if (index_.empty() || (entries.size() + 1) * 2 > index_.size()) {" true)
-      wr.out("            rehash_();" true)
-      wr.out("        } else {" true)
-      wr.out("            size_t mask = index_.size() - 1;" true)
-      wr.out("            size_t h = rg_key_hash<K>{}(k) & mask;" true)
-      wr.out("            while (index_[h] != -1) { h = (h + 1) & mask; }" true)
-      wr.out("            index_[h] = (int32_t)(entries.size() - 1);" true)
-      wr.out("        }" true)
-      wr.out("        return entries.back().second;" true)
-      wr.out("    }" true)
-      wr.out("};" true)
+      ; PLAN: the ordered map and its hashing go in only when the program
+      ; can reach them. Study 07 of gallery/friendly is 16 lines of Ranger;
+      ; this block was ~150 lines of it.
+      if (this.cppProgramUsesHash(ctx)) {
+        ; These go through addImport rather than out as raw text. Written raw
+        ; they landed HERE, after the helpers the file emits above — including
+        ; `r_get_keys_of_map`, which returns a std::vector — so a program whose
+        ; only vector came from the map itself did not build: "'vector' in
+        ; namespace 'std' does not name a template type". addImport puts them
+        ; in the sorted block at the top with every other header.
+        ;
+        ; The map stores its entries in a vector, so that one is needed even in
+        ; a program that declares no array of its own.
+        wr.addImport("<string_view>")
+        wr.addImport("<vector>")
+        wr.addImport("<cstring>")
+        ; `rg_ordered_map::at` throws std::out_of_range, and nothing else here
+        ; guarantees the header. A program with a `main` pulls it in through the
+        ; iostream chain and never notices; a MODULE compiled for a host shell to
+        ; include -- an SDL2 or an Android host -- does not, and fails to compile
+        ; on a declaration the user never wrote. (master, PR #1014; addImport
+        ; rather than a raw #include for the ordering reason above.)
+        wr.addImport("<stdexcept>")
+        wr.out("// String hashing for the map below. std::hash<std::string> is" true)
+        wr.out("// _Hash_bytes, an out-of-line MurmurHash in libstdc++ that costs a call" true)
+        wr.out("// and a per-byte mix; profiling the interpreter put it at ~10% of all" true)
+        wr.out("// instructions, since every scope lookup and every property read hashes" true)
+        wr.out("// a name. This is FxHash -- the one rustc uses for its own identifier" true)
+        wr.out("// maps -- which consumes 8 bytes per multiply-rotate and inlines." true)
+        wr.out("//" true)
+        wr.out("// The string and string_view paths MUST agree, because the const char*" true)
+        wr.out("// overloads probe the same index; they share this one function, so they" true)
+        wr.out("// agree by construction rather than by the standard's promise about" true)
+        wr.out("// hash<string> and hash<string_view>." true)
+        wr.out("static inline size_t rg_hash_bytes(const char* p, size_t n) {" true)
+        wr.out("    const size_t K = (size_t)0x517cc1b727220a95ULL;" true)
+        wr.out("    size_t h = n;" true)
+        wr.out("    size_t i = 0;" true)
+        wr.out("    while (n - i >= sizeof(size_t)) {" true)
+        wr.out("        size_t w; std::memcpy(&w, p + i, sizeof(size_t));" true)
+        wr.out("        h = ((h << 5) | (h >> (8 * sizeof(size_t) - 5))) ^ w; h *= K;" true)
+        wr.out("        i += sizeof(size_t);" true)
+        wr.out("    }" true)
+        wr.out("    while (i < n) {" true)
+        wr.out("        h = ((h << 5) | (h >> (8 * sizeof(size_t) - 5))) ^ (size_t)(unsigned char)p[i]; h *= K;" true)
+        wr.out("        i++;" true)
+        wr.out("    }" true)
+        wr.out("    return h;" true)
+        wr.out("}" true)
+        wr.out("// Any other key type keeps the standard hash; only strings are hot." true)
+        wr.out("template<typename K> struct rg_key_hash {" true)
+        wr.out("    size_t operator()(const K& k) const { return std::hash<K>{}(k); }" true)
+        wr.out("};" true)
+        wr.out("template<> struct rg_key_hash<std::string> {" true)
+        wr.out("    size_t operator()(const std::string& s) const { return rg_hash_bytes(s.data(), s.size()); }" true)
+        wr.out("};" true)
+        wr.out("// Insertion-ordered map: vector storage + open-addressed hash index." true)
+        wr.out("// Replaces std::map (sorted, O(log n) with a string compare per level):" true)
+        wr.out("// lookups hash once, and iteration follows INSERTION order, which is" true)
+        wr.out("// what JavaScript object key enumeration semantics need." true)
+        wr.out("template<typename K, typename V>" true)
+        wr.out("class rg_ordered_map {" true)
+        wr.out("public:" true)
+        wr.out("    typedef K key_type;" true)
+        wr.out("    typedef V mapped_type;" true)
+        wr.out("    std::vector<std::pair<K, V>> entries;" true)
+        wr.out("    std::vector<int32_t> index_;" true)
+        wr.out("    typedef typename std::vector<std::pair<K, V>>::iterator iterator;" true)
+        wr.out("    typedef typename std::vector<std::pair<K, V>>::const_iterator const_iterator;" true)
+        wr.out("    iterator begin() { return entries.begin(); }" true)
+        wr.out("    iterator end() { return entries.end(); }" true)
+        wr.out("    const_iterator begin() const { return entries.begin(); }" true)
+        wr.out("    const_iterator end() const { return entries.end(); }" true)
+        wr.out("    size_t size() const { return entries.size(); }" true)
+        wr.out("    void clear() { entries.clear(); index_.clear(); }" true)
+        wr.out("    void rehash_() {" true)
+        wr.out("        size_t cap = 8;" true)
+        wr.out("        while (cap < (entries.size() + 1) * 2) { cap <<= 1; }" true)
+        wr.out("        index_.assign(cap, -1);" true)
+        wr.out("        for (size_t i = 0; i < entries.size(); i++) {" true)
+        wr.out("            size_t h = rg_key_hash<K>{}(entries[i].first) & (cap - 1);" true)
+        wr.out("            while (index_[h] != -1) { h = (h + 1) & (cap - 1); }" true)
+        wr.out("            index_[h] = (int32_t)i;" true)
+        wr.out("        }" true)
+        wr.out("    }" true)
+        wr.out("    int32_t slot_(const K& k) const {" true)
+        wr.out("        if (index_.empty()) { return -1; }" true)
+        wr.out("        size_t mask = index_.size() - 1;" true)
+        wr.out("        size_t h = rg_key_hash<K>{}(k) & mask;" true)
+        wr.out("        while (true) {" true)
+        wr.out("            int32_t s = index_[h];" true)
+        wr.out("            if (s == -1) { return -1; }" true)
+        wr.out("            if (entries[(size_t)s].first == k) { return s; }" true)
+        wr.out("            h = (h + 1) & mask;" true)
+        wr.out("        }" true)
+        wr.out("    }" true)
+        wr.out("    size_t count(const K& k) const { return slot_(k) == -1 ? 0 : 1; }" true)
+        wr.out("    iterator find(const K& k) {" true)
+        wr.out("        int32_t s = slot_(k);" true)
+        wr.out("        return s == -1 ? entries.end() : entries.begin() + s;" true)
+        wr.out("    }" true)
+        wr.out("    const_iterator find(const K& k) const {" true)
+        wr.out("        int32_t s = slot_(k);" true)
+        wr.out("        return s == -1 ? entries.end() : entries.begin() + s;" true)
+        wr.out("    }" true)
+        wr.out("    V& at(const K& k) {" true)
+        wr.out("        int32_t s = slot_(k);" true)
+        wr.out("        if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); }" true)
+        wr.out("        return entries[(size_t)s].second;" true)
+        wr.out("    }" true)
+        wr.out("    const V& at(const K& k) const {" true)
+        wr.out("        int32_t s = slot_(k);" true)
+        wr.out("        if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); }" true)
+        wr.out("        return entries[(size_t)s].second;" true)
+        wr.out("    }" true)
+        wr.out("    // const char* overloads: a literal key probes WITHOUT constructing a" true)
+        wr.out("    // std::string temporary. C++17 guarantees hash<string> and" true)
+        wr.out("    // hash<string_view> agree on equal character sequences. Instantiated" true)
+        wr.out("    // lazily, so non-string-keyed maps never touch them." true)
+        wr.out("    int32_t slot_sv_(std::string_view k) const {" true)
+        wr.out("        if (index_.empty()) { return -1; }" true)
+        wr.out("        size_t mask = index_.size() - 1;" true)
+        wr.out("        size_t h = rg_hash_bytes(k.data(), k.size()) & mask;" true)
+        wr.out("        while (true) {" true)
+        wr.out("            int32_t s = index_[h];" true)
+        wr.out("            if (s == -1) { return -1; }" true)
+        wr.out("            if (entries[(size_t)s].first.compare(k) == 0) { return s; }" true)
+        wr.out("            h = (h + 1) & mask;" true)
+        wr.out("        }" true)
+        wr.out("    }" true)
+        wr.out("    size_t count(const char* k) const { return slot_sv_(k) == -1 ? 0 : 1; }" true)
+        wr.out("    iterator find(const char* k) {" true)
+        wr.out("        int32_t s = slot_sv_(k);" true)
+        wr.out("        return s == -1 ? entries.end() : entries.begin() + s;" true)
+        wr.out("    }" true)
+        wr.out("    const_iterator find(const char* k) const {" true)
+        wr.out("        int32_t s = slot_sv_(k);" true)
+        wr.out("        return s == -1 ? entries.end() : entries.begin() + s;" true)
+        wr.out("    }" true)
+        wr.out("    V& at(const char* k) {" true)
+        wr.out("        int32_t s = slot_sv_(k);" true)
+        wr.out("        if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); }" true)
+        wr.out("        return entries[(size_t)s].second;" true)
+        wr.out("    }" true)
+        wr.out("    const V& at(const char* k) const {" true)
+        wr.out("        int32_t s = slot_sv_(k);" true)
+        wr.out("        if (s == -1) { throw std::out_of_range(\"rg_ordered_map::at\"); }" true)
+        wr.out("        return entries[(size_t)s].second;" true)
+        wr.out("    }" true)
+        wr.out("    V& operator[](const char* k) {" true)
+        wr.out("        int32_t s = slot_sv_(k);" true)
+        wr.out("        if (s != -1) { return entries[(size_t)s].second; }" true)
+        wr.out("        return (*this)[K(k)];" true)
+        wr.out("    }" true)
+        wr.out("    V& operator[](const K& k) {" true)
+        wr.out("        int32_t s = slot_(k);" true)
+        wr.out("        if (s != -1) { return entries[(size_t)s].second; }" true)
+        wr.out("        entries.push_back(std::make_pair(k, V()));" true)
+        wr.out("        if (index_.empty() || (entries.size() + 1) * 2 > index_.size()) {" true)
+        wr.out("            rehash_();" true)
+        wr.out("        } else {" true)
+        wr.out("            size_t mask = index_.size() - 1;" true)
+        wr.out("            size_t h = rg_key_hash<K>{}(k) & mask;" true)
+        wr.out("            while (index_[h] != -1) { h = (h + 1) & mask; }" true)
+        wr.out("            index_[h] = (int32_t)(entries.size() - 1);" true)
+        wr.out("        }" true)
+        wr.out("        return entries.back().second;" true)
+        wr.out("    }" true)
+        wr.out("};" true)
+      }
       wr.out("" true)
       if (this.cppProgramHasWeakField(ctx)) {
         this.writeCppWeakHelper(wr)
@@ -2391,6 +2678,9 @@ class RangerCppClassWriter {
       wr.out("template <class T> inline T& rg_arg_ref(T&& v) { return v; }" true)
       wr.out("" true)
       wr.out("// header definitions" true)
+      ; a behaviour-only trait used as a type becomes an abstract base, and a
+      ; base has to be complete before the class that derives from it
+      wr.createTag("c++TraitDefs")
       wr.createTag("c++Header")
       wr.out("" true)
 
@@ -2398,7 +2688,8 @@ class RangerCppClassWriter {
       wr.out("char **__g_argv;" true)
 
       this.CreateUnions( (unwrap this.compiler.parser) ctx (wr.getTag("c++unions")))
-      
+      this.writeCppTraitInterfaces(ctx (wr.getTag("c++TraitDefs")))
+
       header_created = true
     }
     def classWriter:CodeWriter (orig_wr.getTag("c++ClassDefs"))

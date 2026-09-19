@@ -1,0 +1,79 @@
+; Study 10 — optional parameters
+;
+; An @(optional) parameter of each kind: a string, a scalar, an object. Every
+; target has to say three things about such a parameter — how the type is
+; spelled, how "absent" is passed, and how `null?` tells absent from a value.
+;
+; What a native programmer would write:
+;   Swift/Kotlin/Dart  fn shown(maybe: String?)      — and the targets do
+;   Rust               fn shown(maybe: Option<String>)
+;   C#                 int? for the scalar, String for the reference
+;   Go                 (string, bool), or a pointer
+;
+; This study exists because the Rust writer got it wrong in a way no other
+; study caught: `writeTypeDef` already writes the `Option<…>` from the name
+; node's flag, and the parameter emitter wrapped it in a second one, so every
+; @(optional) parameter came out as `Option<Option<T>>` and rustc rejected both
+; the body and every call site. Optional LOCALS and optional RETURNS were fine —
+; they never go through the parameter emitter — which is what made the hole look
+; like a string problem when it was every optional parameter.
+;
+; It found a second one on C++: `r_optional_primitive<T>` is the shape of an
+; optional int or double there, and its definition lived only on the `str2int`
+; operator's polyfill — so a program with an optional scalar parameter that
+; never called str2int emitted the type and never declared it.
+;
+; Both are fixed. What this study still records, and cannot fix from here: on
+; C++ an optional `string` is a plain `std::string` at every position, so `""`
+; and absent are the same value. Every other target distinguishes them.
+
+class Point {
+    def x:int 0
+    def y:int 0
+}
+
+class OptionalParams {
+    fn shown:string (maybe@(optional):string) {
+        if (null? maybe) {
+            return "unknown"
+        }
+        return (unwrap maybe)
+    }
+
+    fn shownInt:int (a@(optional):int) {
+        if (null? a) {
+            return 0
+        }
+        def r:int (unwrap a)
+        return r
+    }
+
+    fn shownPoint:int (p@(optional):Point) {
+        if (null? p) {
+            return 0
+        }
+        def q:Point (unwrap p)
+        return q.x
+    }
+
+    sfn main:void () {
+        def app:OptionalParams (new OptionalParams())
+
+        def hit@(optional):string
+        hit = "ada"
+        print ("name " + (app.shown(hit)))
+
+        def miss@(optional):string
+        print ("miss " + (app.shown(miss)))
+
+        def n@(optional):int
+        n = 41
+        print ("int " + (to_string (app.shownInt(n))))
+
+        def p@(optional):Point
+        def pt:Point (new Point())
+        pt.x = 7
+        p = pt
+        print ("point " + (to_string (app.shownPoint(p))))
+    }
+}

@@ -191,7 +191,7 @@ extension RangerRustClassWriter {
     if node.hasParamDesc {
       def nn:CodeNode (itemAt node.children 1)
       def p:RangerAppParamDesc (unwrap nn.paramDesc)
-      wr.out(((this.adjustType(p.compiledName)) + " : ") false)
+      wr.out((((this.rustPubPrefix(ctx)) + (this.adjustType(p.compiledName))) + " : ") false)
       this.writeStructFieldType(p ctx wr)
       wr.out(", " true)
     }
@@ -502,7 +502,7 @@ extension RangerRustClassWriter {
       segIdx = 1
     }
     while (segIdx < (nsLen - 1)) {
-      def segName:string (this.adjustType((itemAt fc.ns segIdx)))
+      def segName:string (this.adjustIdentOrType((itemAt fc.ns segIdx) ctx))
       def haveSegD:boolean false
       def segOptional:boolean false
       def segMember:boolean false
@@ -672,7 +672,7 @@ extension RangerRustClassWriter {
             wr.out(", " false)
           }
           sgWritten = sgWritten + 1
-          wr.out((arg.name + " : ") false)
+          wr.out(((this.adjustType(arg.name)) + " : ") false)
           def sgNameN:CodeNode (unwrap arg.nameNode)
           this.writeTypeDef(sgNameN ctx wr)
         }
@@ -700,7 +700,7 @@ extension RangerRustClassWriter {
             wr.out(", " false)
           }
           sgFwd = sgFwd + 1
-          wr.out(arg.name false)
+          wr.out((this.adjustType(arg.name)) false)
         }
       }
     }
@@ -712,6 +712,196 @@ extension RangerRustClassWriter {
     wr.out("})" true)
     wr.indent(-1)
     wr.out("}" true)
+  }
+
+  ; --- library mode (PLAN_RUST_SEMANTIC_IDIOMS O) -----------------------------
+  ; `-rust-library` says the generated .rs is meant to be a crate someone
+  ; depends on, not a program to run. The two goals are different and worth
+  ; keeping apart: an application wants a `main` and cares nothing for what is
+  ; reachable from outside, a library wants a public surface and no `main` at
+  ; all. Everything the mode needs beyond that — no unused runtime helpers
+  ; (**G**), native traits (**I**) — is already the default.
+  ;
+  ; What it does NOT do, and the README says so: preserve `@params` as Rust
+  ; generics (the monomorphised `Stack_int` stays), or emit modules. Those are
+  ; separate items.
+  fn rustLibraryMode:boolean (ctx:RangerAppWriterContext) {
+    return (ctx.hasCompilerFlag("rust-library"))
+  }
+
+  fn rustPubPrefix:string (ctx:RangerAppWriterContext) {
+    if (this.rustLibraryMode(ctx)) {
+      return "pub "
+    }
+    return ""
+  }
+
+  ; PLAN_RUST_SEMANTIC_IDIOMS I: is this trait one the Rust target turns into a
+  ; real `trait`? Behaviour only — methods and no fields — and consumed by at
+  ; least one class. A field-bearing trait stays the pure mixin it is on every
+  ; other target: its fields are copied into each consumer and Rust has no
+  ; associated fields to hold them.
+  fn rustTraitIsInterface:boolean (name:string ctx:RangerAppWriterContext) {
+    if ((strlen name) == 0) {
+      return false
+    }
+    if ((ctx.isDefinedClass(name)) == false) {
+      return false
+    }
+    def tc:RangerAppClassDesc (ctx.findClass(name))
+    if (tc.is_trait == false) {
+      return false
+    }
+    if ((array_length tc.variables) > 0) {
+      return false
+    }
+    if ((array_length tc.methods) == 0) {
+      return false
+    }
+    return tc.is_extended_by_children
+  }
+
+  ; --- native Rust enums (PLAN_RUST_SEMANTIC_IDIOMS F) ------------------------
+  ; Which Ranger `Enum`s become a Rust `enum` rather than an i64. The rules are
+  ; the same ones C++ needs for `enum class`, so they live in EnumNativeAnalysis
+  ; (compiler/EnumAnalysis.rgr) and this is the Rust half of the pair.
+
+  fn rustEnumNameOf:string (node:CodeNode ctx:RangerAppWriterContext) {
+    return (rustEnums.enumNameOf(node ctx))
+  }
+
+  fn rustEnumIsNative:boolean (enumName:string ctx:RangerAppWriterContext) {
+    rustEnums.targetName = "rust"
+    rustEnums.fallbackType = "i64"
+    return (rustEnums.isNative(enumName ctx))
+  }
+
+
+  ; --- reachability of the header helpers (PLAN_RUST_SEMANTIC_IDIOMS G) -------
+  ; The map preamble and the character-indexing string helpers used to be
+  ; written into every file. On study 07 of gallery/friendly that is 16 lines of
+  ; Ranger and 195 of Rust, 140 of them `RgOrderedMap` / `FxHasher` the binary
+  ; never calls. They are emitted now only when the program can reach them.
+  ;
+  ; The question for the map is "does a hash type appear anywhere": a Ranger map
+  ; is always spelled with a key type, on a field, a parameter, a return or a
+  ; local, so a node carrying a `key_type` is the signal and there is no way to
+  ; hold one without writing it down. The question for the string helpers is
+  ; which operators lower to them — three, listed below.
+  ;
+  ; Both scans err towards emitting: a helper written and unused is a
+  ; `dead_code` allow the header already carries, a helper missing is a program
+  ; that does not build.
+  fn rustNodeUsesHash:boolean (node:CodeNode) {
+    if ((strlen node.key_type) > 0) {
+      return true
+    }
+    ; a `def m:[string:int]` local is rewritten by CollectMethods into
+    ; `new Map@(string int)` with value_type VRef, so the key_type is no longer
+    ; on the name node by the time a writer sees it — the class name is.
+    if (node.type_name == "Map") {
+      return true
+    }
+    if (node.value_type == RangerNodeType.Hash) {
+      return true
+    }
+    if (node.eval_type == RangerNodeType.Hash) {
+      return true
+    }
+    if (node.hasParamDesc) {
+      def pdNN@(optional):CodeNode node.paramDesc.nameNode
+      if (!null? pdNN) {
+        def pdN:CodeNode (unwrap pdNN)
+        if ((strlen pdN.key_type) > 0) {
+          return true
+        }
+      }
+    }
+    for node.children ch:CodeNode i {
+      if (this.rustNodeUsesHash(ch)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn rustNodeUsesStringIndex:boolean (node:CodeNode) {
+    def v:string node.vref
+    if ((((v == "indexOf") || (v == "indexOfFrom")) || (v == "lastIndexOf"))) {
+      return true
+    }
+    for node.children ch:CodeNode i {
+      if (this.rustNodeUsesStringIndex(ch)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  ; 0 = neither, 1 = maps only, 2 = string index only, 3 = both.
+  fn rustHeaderHelperNeeds:int (ctx:RangerAppWriterContext) {
+    def res:int 0
+    def root:RangerAppWriterContext (ctx.getRoot())
+    for root.definedClasses cl:RangerAppClassDesc ci {
+      ; a class the file never writes cannot reach a helper. The operator and
+      ; template classes of Lang.rgr / stdops.rgr declare maps all over, and
+      ; counting them meant every program "needed" the map preamble — which is
+      ; how it came to be in every file in the first place.
+      ; the same "this class is not written to the file" set the Weak scan uses,
+      ; minus is_generic_instance — a `Stack@(int)` IS written and may hold a
+      ; map. `Map` itself is a trait class here, which is why an unfiltered scan
+      ; said every program needed the preamble: that is how it came to be in
+      ; every file in the first place.
+      if ((((cl.is_system || cl.is_trait) || cl.is_template) || cl.is_operator_class) || cl.is_union) {
+        continue
+      }
+      for cl.variables cv:RangerAppParamDesc cvi {
+        def cvNN@(optional):CodeNode cv.nameNode
+        if (!null? cvNN) {
+          def cvN:CodeNode (unwrap cvNN)
+          if ((strlen cvN.key_type) > 0) {
+            if ((res == 0) || (res == 2)) {
+              res = (res + 1)
+            }
+          }
+        }
+      }
+      res = (this.rustScanFnList(cl.methods res))
+      ; `sfn` lands in static_methods, not methods, and a program whose only
+      ; entry point is `sfn m@(main)` has an EMPTY methods list — which is how
+      ; the first version of this scan answered "no map" for a program that is
+      ; nothing but a map.
+      res = (this.rustScanFnList(cl.static_methods res))
+      if (res == 3) {
+        return 3
+      }
+    }
+    return res
+  }
+
+  fn rustScanFnList:int (fns:[RangerAppFunctionDesc] resIn:int) {
+    def res:int resIn
+    for fns m:RangerAppFunctionDesc mi {
+      if (res == 3) {
+        return 3
+      }
+      def mNodeOpt@(optional):CodeNode m.node
+      if (null? mNodeOpt) {
+        continue
+      }
+      def mNode:CodeNode (unwrap mNodeOpt)
+      if ((res == 0) || (res == 2)) {
+        if (this.rustNodeUsesHash(mNode)) {
+          res = (res + 1)
+        }
+      }
+      if ((res == 0) || (res == 1)) {
+        if (this.rustNodeUsesStringIndex(mNode)) {
+          res = (res + 2)
+        }
+      }
+    }
+    return res
   }
 
   fn writeClass (node:CodeNode ctx:RangerAppWriterContext orig_wr:CodeWriter) {
@@ -734,11 +924,26 @@ extension RangerRustClassWriter {
     ; ended up after that line and rustc rejected the file.
     if (fileHeaderWritten == false) {
       def header:CodeWriter (wr.getTag("before_imports"))
+      ; the name set the snake_case collision guard consults; adjustType is
+      ; called from places with no ctx to build it from
+      this.rustFillIdentNames(ctx)
+      ; which of the two header helper families this program can reach
+      def helperNeeds:int (this.rustHeaderHelperNeeds(ctx))
+      ; …and which Ranger `Enum`s survive as Rust enums, whose declarations go
+      ; into the header before anything can name one
+      rustEnums.targetName = "rust"
+      rustEnums.fallbackType = "i64"
+      rustEnums.compute(ctx)
+      def needsMap:boolean ((helperNeeds == 1) || (helperNeeds == 3))
+      def needsStrIndex:boolean ((helperNeeds == 2) || (helperNeeds == 3))
       header.out("#![allow(unused_parens)]" true)
       header.out("#![allow(unused_mut)]" true)
       header.out("#![allow(unused_variables)]" true)
       header.out("#![allow(unused_assignments)]" true)
-      header.out("#![allow(non_snake_case)]" true)
+      ; PLAN_RUST_SEMANTIC_IDIOMS L: gone. Identifiers are snake_case now, and
+      ; the 81 000-line Rust rendering of this compiler draws zero naming
+      ; warnings with the allow taken away. Type names keep their spelling,
+      ; which is what Rust wants of them.
       header.out("#![allow(dead_code)]" true)
       header.out("// The clippy allows below cover shapes that mirror the Ranger source" true)
       header.out("// itself - statement-level clamp chains, nested ifs, function arity and" true)
@@ -792,6 +997,62 @@ extension RangerRustClassWriter {
       ;
       ; `Any` is the compiler's own union of every declared class, so it is not
       ; written: the enum would name every class in the program.
+      ; PLAN_RUST_SEMANTIC_IDIOMS I: the `trait NamedTrait { … }` for every
+      ; behaviour-only Ranger trait something consumes. A parent class with
+      ; subclasses gets its declaration from writeClass, but a `trait` class is
+      ; never written to the file on any target — so this one is emitted here,
+      ; from the same descs and with the same receiver rules, before anything
+      ; can name it. The consumers' `impl`s come from writeClass, alongside the
+      ; ones a subclass gets for its parent.
+      def hdrTraitRoot:RangerAppWriterContext (ctx.getRoot())
+      for hdrTraitRoot.definedClassList htName:string hti {
+        if (this.rustTraitIsInterface(htName ctx)) {
+          def htc:RangerAppClassDesc (hdrTraitRoot.findClass(htName))
+          header.out("" true)
+          header.out(("pub trait " + htName + "Trait: RgAnyRef {") true)
+          header.indent(1)
+          this.rustFillTraitMutations(htc ctx)
+          for htc.defined_variants htVar:string htvi {
+            def htVs:RangerAppMethodVariants (get htc.method_variants htVar)
+            for htVs.variants htv:RangerAppFunctionDesc htvj {
+              header.out(("fn " + (this.adjustType(htv.name)) + "(") false)
+              this.writeRustReceiver((has htc.rust_trait_mut htv.name) header)
+              rust_in_trait_decl = true
+              this.writeArgsDef(htv ctx header)
+              rust_in_trait_decl = false
+              this.writeRustFnClose(htv ctx header)
+              header.out(";" true)
+            }
+          }
+          header.indent(-1)
+          header.out("}" true)
+        }
+      }
+
+      ; PLAN_RUST_SEMANTIC_IDIOMS F: a Ranger `Enum` whose every use a Rust enum
+      ; can carry is written as one. #[repr(i64)] with explicit discriminants
+      ; keeps the integer representation exact, so `Color::Green as i64` is
+      ; still 1 and nothing downstream has to know which form it got.
+      def hdrEnumRoot:RangerAppWriterContext (ctx.getRoot())
+      def anyNativeEnum:boolean false
+      for (keys hdrEnumRoot.definedEnums) hen:string hei {
+        if (this.rustEnumIsNative(hen ctx)) {
+          def heDef:RangerAppEnum (unwrap (get hdrEnumRoot.definedEnums hen))
+          header.out("#[repr(i64)]" true)
+          header.out("#[derive(Clone, Copy, PartialEq, Eq, Debug)]" true)
+          header.out(("pub enum " + hen + " {") true)
+          for (keys heDef.values) hmn:string hmi {
+            def hmv:int (unwrap (get heDef.values hmn))
+            def heLine:string ((("    " + hmn) + " = ") + (to_string hmv))
+            header.out((heLine + ",") true)
+          }
+          header.out("}" true)
+          anyNativeEnum = true
+        }
+      }
+      if anyNativeEnum {
+        header.out("" true)
+      }
       def unionNames:[string] (this.sealableUnionNames(ctx))
       for unionNames uname:string uni {
         def ucl:RangerAppClassDesc (hdrRoot.findClass(uname))
@@ -922,111 +1183,113 @@ extension RangerRustClassWriter {
         header.out("static RG_POOL_ALLOC: RgPoolAlloc = RgPoolAlloc;" true)
         header.out("" true)
       }
-      header.out("// FxHash (rustc-hash style): these maps are keyed by short program" true)
-      header.out("// strings; SipHash's DoS resistance cost ~14% of all instructions in" true)
-      header.out("// map-heavy code. Swap back to std's default by deleting the alias." true)
-      header.out("#[derive(Default, Clone)]" true)
-      header.out("struct FxHasher { hash: u64 }" true)
-      header.out("impl std::hash::Hasher for FxHasher {" true)
-      header.out("    #[inline]" true)
-      header.out("    fn write(&mut self, bytes: &[u8]) {" true)
-      header.out("        const SEED: u64 = 0x517cc1b727220a95;" true)
-      header.out("        let mut b = bytes;" true)
-      header.out("        while b.len() >= 8 {" true)
-      header.out("            let v = u64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]);" true)
-      header.out("            self.hash = (self.hash.rotate_left(5) ^ v).wrapping_mul(SEED);" true)
-      header.out("            b = &b[8..];" true)
-      header.out("        }" true)
-      header.out("        for &x in b {" true)
-      header.out("            self.hash = (self.hash.rotate_left(5) ^ (x as u64)).wrapping_mul(SEED);" true)
-      header.out("        }" true)
-      header.out("    }" true)
-      header.out("    #[inline]" true)
-      header.out("    fn finish(&self) -> u64 { self.hash }" true)
-      header.out("}" true)
-      header.out("// Insertion-ordered map (mirrors the C++ rg_ordered_map): entries in a" true)
-      header.out("// vector plus an open-addressed FxHash index. Lookups hash once; keys()" true)
-      header.out("// iterates in INSERTION order, which is what JS key enumeration needs." true)
-      header.out("// Aliased over the HashMap name so declarations stay untouched." true)
-      header.out("#[derive(Clone)]" true)
-      header.out("struct RgOrderedMap<K, V> {" true)
-      header.out("    entries: Vec<(K, V)>," true)
-      header.out("    index: Vec<i32>," true)
-      header.out("}" true)
-      header.out("impl<K, V> Default for RgOrderedMap<K, V> {" true)
-      header.out("    fn default() -> Self { RgOrderedMap { entries: Vec::new(), index: Vec::new() } }" true)
-      header.out("}" true)
-      ; `for (k, v) in map` is how the hash form of the for loop is written,
-      ; and it needs the map to be iterable. Insertion order is the order the
-      ; entries are held in, which is the order every other target walks a
-      ; Ranger hash in.
-      header.out("impl<K, V> IntoIterator for RgOrderedMap<K, V> {" true)
-      header.out("    type Item = (K, V);" true)
-      header.out("    type IntoIter = std::vec::IntoIter<(K, V)>;" true)
-      header.out("    fn into_iter(self) -> Self::IntoIter { self.entries.into_iter() }" true)
-      header.out("}" true)
-      header.out("impl<'a, K, V> IntoIterator for &'a RgOrderedMap<K, V> {" true)
-      header.out("    type Item = &'a (K, V);" true)
-      header.out("    type IntoIter = std::slice::Iter<'a, (K, V)>;" true)
-      header.out("    fn into_iter(self) -> Self::IntoIter { self.entries.iter() }" true)
-      header.out("}" true)
-      header.out("impl<K: std::hash::Hash + Eq, V> RgOrderedMap<K, V> {" true)
-      header.out("    fn rg_hash<Q: std::hash::Hash + ?Sized>(k: &Q) -> u64 {" true)
-      header.out("        let mut h = FxHasher::default();" true)
-      header.out("        k.hash(&mut h);" true)
-      header.out("        std::hash::Hasher::finish(&h)" true)
-      header.out("    }" true)
-      header.out("    fn slot<Q>(&self, k: &Q) -> i32 where K: std::borrow::Borrow<Q>, Q: std::hash::Hash + Eq + ?Sized {" true)
-      header.out("        if self.index.is_empty() { return -1; }" true)
-      header.out("        let mask = self.index.len() - 1;" true)
-      header.out("        let mut h = (Self::rg_hash(k) as usize) & mask;" true)
-      header.out("        loop {" true)
-      header.out("            let s = self.index[h];" true)
-      header.out("            if s == -1 { return -1; }" true)
-      header.out("            if self.entries[s as usize].0.borrow() == k { return s; }" true)
-      header.out("            h = (h + 1) & mask;" true)
-      header.out("        }" true)
-      header.out("    }" true)
-      header.out("    fn rehash(&mut self) {" true)
-      header.out("        let mut cap = 8usize;" true)
-      header.out("        while cap < (self.entries.len() + 1) * 2 { cap <<= 1; }" true)
-      header.out("        self.index.clear();" true)
-      header.out("        self.index.resize(cap, -1);" true)
-      header.out("        for i in 0..self.entries.len() {" true)
-      header.out("            let mut h = (Self::rg_hash(&self.entries[i].0) as usize) & (cap - 1);" true)
-      header.out("            while self.index[h] != -1 { h = (h + 1) & (cap - 1); }" true)
-      header.out("            self.index[h] = i as i32;" true)
-      header.out("        }" true)
-      header.out("    }" true)
-      header.out("    fn insert(&mut self, k: K, v: V) -> Option<V> {" true)
-      header.out("        let s = self.slot(&k);" true)
-      header.out("        if s != -1 { return Some(std::mem::replace(&mut self.entries[s as usize].1, v)); }" true)
-      header.out("        self.entries.push((k, v));" true)
-      header.out("        if self.index.is_empty() || (self.entries.len() + 1) * 2 > self.index.len() {" true)
-      header.out("            self.rehash();" true)
-      header.out("        } else {" true)
-      header.out("            let mask = self.index.len() - 1;" true)
-      header.out("            let mut h = (Self::rg_hash(&self.entries[self.entries.len() - 1].0) as usize) & mask;" true)
-      header.out("            while self.index[h] != -1 { h = (h + 1) & mask; }" true)
-      header.out("            self.index[h] = (self.entries.len() - 1) as i32;" true)
-      header.out("        }" true)
-      header.out("        None" true)
-      header.out("    }" true)
-      header.out("    fn get<Q>(&self, k: &Q) -> Option<&V> where K: std::borrow::Borrow<Q>, Q: std::hash::Hash + Eq + ?Sized {" true)
-      header.out("        let s = self.slot(k);" true)
-      header.out("        if s == -1 { None } else { Some(&self.entries[s as usize].1) }" true)
-      header.out("    }" true)
-      header.out("    fn contains_key<Q>(&self, k: &Q) -> bool where K: std::borrow::Borrow<Q>, Q: std::hash::Hash + Eq + ?Sized {" true)
-      header.out("        self.slot(k) != -1" true)
-      header.out("    }" true)
-      header.out("    fn keys(&self) -> impl Iterator<Item = &K> { self.entries.iter().map(|e| &e.0) }" true)
-      header.out("    fn len(&self) -> usize { self.entries.len() }" true)
-      header.out("    fn clear(&mut self) {" true)
-      header.out("        self.entries.clear();" true)
-      header.out("        for s in self.index.iter_mut() { *s = -1; }" true)
-      header.out("    }" true)
-      header.out("}" true)
-      header.out("type HashMap<K, V> = RgOrderedMap<K, V>;" true)
+      if needsMap {
+        header.out("// FxHash (rustc-hash style): these maps are keyed by short program" true)
+        header.out("// strings; SipHash's DoS resistance cost ~14% of all instructions in" true)
+        header.out("// map-heavy code. Swap back to std's default by deleting the alias." true)
+        header.out("#[derive(Default, Clone)]" true)
+        header.out("struct FxHasher { hash: u64 }" true)
+        header.out("impl std::hash::Hasher for FxHasher {" true)
+        header.out("    #[inline]" true)
+        header.out("    fn write(&mut self, bytes: &[u8]) {" true)
+        header.out("        const SEED: u64 = 0x517cc1b727220a95;" true)
+        header.out("        let mut b = bytes;" true)
+        header.out("        while b.len() >= 8 {" true)
+        header.out("            let v = u64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]);" true)
+        header.out("            self.hash = (self.hash.rotate_left(5) ^ v).wrapping_mul(SEED);" true)
+        header.out("            b = &b[8..];" true)
+        header.out("        }" true)
+        header.out("        for &x in b {" true)
+        header.out("            self.hash = (self.hash.rotate_left(5) ^ (x as u64)).wrapping_mul(SEED);" true)
+        header.out("        }" true)
+        header.out("    }" true)
+        header.out("    #[inline]" true)
+        header.out("    fn finish(&self) -> u64 { self.hash }" true)
+        header.out("}" true)
+        header.out("// Insertion-ordered map (mirrors the C++ rg_ordered_map): entries in a" true)
+        header.out("// vector plus an open-addressed FxHash index. Lookups hash once; keys()" true)
+        header.out("// iterates in INSERTION order, which is what JS key enumeration needs." true)
+        header.out("// Aliased over the HashMap name so declarations stay untouched." true)
+        header.out("#[derive(Clone)]" true)
+        header.out("struct RgOrderedMap<K, V> {" true)
+        header.out("    entries: Vec<(K, V)>," true)
+        header.out("    index: Vec<i32>," true)
+        header.out("}" true)
+        header.out("impl<K, V> Default for RgOrderedMap<K, V> {" true)
+        header.out("    fn default() -> Self { RgOrderedMap { entries: Vec::new(), index: Vec::new() } }" true)
+        header.out("}" true)
+        ; `for (k, v) in map` is how the hash form of the for loop is written,
+        ; and it needs the map to be iterable. Insertion order is the order the
+        ; entries are held in, which is the order every other target walks a
+        ; Ranger hash in.
+        header.out("impl<K, V> IntoIterator for RgOrderedMap<K, V> {" true)
+        header.out("    type Item = (K, V);" true)
+        header.out("    type IntoIter = std::vec::IntoIter<(K, V)>;" true)
+        header.out("    fn into_iter(self) -> Self::IntoIter { self.entries.into_iter() }" true)
+        header.out("}" true)
+        header.out("impl<'a, K, V> IntoIterator for &'a RgOrderedMap<K, V> {" true)
+        header.out("    type Item = &'a (K, V);" true)
+        header.out("    type IntoIter = std::slice::Iter<'a, (K, V)>;" true)
+        header.out("    fn into_iter(self) -> Self::IntoIter { self.entries.iter() }" true)
+        header.out("}" true)
+        header.out("impl<K: std::hash::Hash + Eq, V> RgOrderedMap<K, V> {" true)
+        header.out("    fn rg_hash<Q: std::hash::Hash + ?Sized>(k: &Q) -> u64 {" true)
+        header.out("        let mut h = FxHasher::default();" true)
+        header.out("        k.hash(&mut h);" true)
+        header.out("        std::hash::Hasher::finish(&h)" true)
+        header.out("    }" true)
+        header.out("    fn slot<Q>(&self, k: &Q) -> i32 where K: std::borrow::Borrow<Q>, Q: std::hash::Hash + Eq + ?Sized {" true)
+        header.out("        if self.index.is_empty() { return -1; }" true)
+        header.out("        let mask = self.index.len() - 1;" true)
+        header.out("        let mut h = (Self::rg_hash(k) as usize) & mask;" true)
+        header.out("        loop {" true)
+        header.out("            let s = self.index[h];" true)
+        header.out("            if s == -1 { return -1; }" true)
+        header.out("            if self.entries[s as usize].0.borrow() == k { return s; }" true)
+        header.out("            h = (h + 1) & mask;" true)
+        header.out("        }" true)
+        header.out("    }" true)
+        header.out("    fn rehash(&mut self) {" true)
+        header.out("        let mut cap = 8usize;" true)
+        header.out("        while cap < (self.entries.len() + 1) * 2 { cap <<= 1; }" true)
+        header.out("        self.index.clear();" true)
+        header.out("        self.index.resize(cap, -1);" true)
+        header.out("        for i in 0..self.entries.len() {" true)
+        header.out("            let mut h = (Self::rg_hash(&self.entries[i].0) as usize) & (cap - 1);" true)
+        header.out("            while self.index[h] != -1 { h = (h + 1) & (cap - 1); }" true)
+        header.out("            self.index[h] = i as i32;" true)
+        header.out("        }" true)
+        header.out("    }" true)
+        header.out("    fn insert(&mut self, k: K, v: V) -> Option<V> {" true)
+        header.out("        let s = self.slot(&k);" true)
+        header.out("        if s != -1 { return Some(std::mem::replace(&mut self.entries[s as usize].1, v)); }" true)
+        header.out("        self.entries.push((k, v));" true)
+        header.out("        if self.index.is_empty() || (self.entries.len() + 1) * 2 > self.index.len() {" true)
+        header.out("            self.rehash();" true)
+        header.out("        } else {" true)
+        header.out("            let mask = self.index.len() - 1;" true)
+        header.out("            let mut h = (Self::rg_hash(&self.entries[self.entries.len() - 1].0) as usize) & mask;" true)
+        header.out("            while self.index[h] != -1 { h = (h + 1) & mask; }" true)
+        header.out("            self.index[h] = (self.entries.len() - 1) as i32;" true)
+        header.out("        }" true)
+        header.out("        None" true)
+        header.out("    }" true)
+        header.out("    fn get<Q>(&self, k: &Q) -> Option<&V> where K: std::borrow::Borrow<Q>, Q: std::hash::Hash + Eq + ?Sized {" true)
+        header.out("        let s = self.slot(k);" true)
+        header.out("        if s == -1 { None } else { Some(&self.entries[s as usize].1) }" true)
+        header.out("    }" true)
+        header.out("    fn contains_key<Q>(&self, k: &Q) -> bool where K: std::borrow::Borrow<Q>, Q: std::hash::Hash + Eq + ?Sized {" true)
+        header.out("        self.slot(k) != -1" true)
+        header.out("    }" true)
+        header.out("    fn keys(&self) -> impl Iterator<Item = &K> { self.entries.iter().map(|e| &e.0) }" true)
+        header.out("    fn len(&self) -> usize { self.entries.len() }" true)
+        header.out("    fn clear(&mut self) {" true)
+        header.out("        self.entries.clear();" true)
+        header.out("        for s in self.index.iter_mut() { *s = -1; }" true)
+        header.out("    }" true)
+        header.out("}" true)
+        header.out("type HashMap<K, V> = RgOrderedMap<K, V>;" true)
+      }
       ; Every other string operator on this target counts CHARACTERS:
       ; `strlen` is chars().count(), `charAt` is chars().nth(), `substring`
       ; skips and takes characters. `str::find` counts BYTES, so an
@@ -1036,17 +1299,19 @@ extension RangerRustClassWriter {
       ; sliced the rest of the document one byte short per accent and
       ; dropped every shape after the first. These three do the conversion
       ; once, in one place.
-      header.out("fn rg_index_of(s: &str, key: &str) -> i64 {" true)
-      header.out("    match s.find(key) { Some(b) => s[..b].chars().count() as i64, None => -1 }" true)
-      header.out("}" true)
-      header.out("fn rg_index_of_from(s: &str, key: &str, start: i64) -> i64 {" true)
-      header.out("    if start <= 0 { return rg_index_of(s, key); }" true)
-      header.out("    let b0 = match s.char_indices().nth(start as usize) { Some((b, _)) => b, None => return -1 };" true)
-      header.out("    match s[b0..].find(key) { Some(b) => start + s[b0..b0 + b].chars().count() as i64, None => -1 }" true)
-      header.out("}" true)
-      header.out("fn rg_last_index_of(s: &str, key: &str) -> i64 {" true)
-      header.out("    match s.rfind(key) { Some(b) => s[..b].chars().count() as i64, None => -1 }" true)
-      header.out("}" true)
+      if needsStrIndex {
+        header.out("fn rg_index_of(s: &str, key: &str) -> i64 {" true)
+        header.out("    match s.find(key) { Some(b) => s[..b].chars().count() as i64, None => -1 }" true)
+        header.out("}" true)
+        header.out("fn rg_index_of_from(s: &str, key: &str, start: i64) -> i64 {" true)
+        header.out("    if start <= 0 { return rg_index_of(s, key); }" true)
+        header.out("    let b0 = match s.char_indices().nth(start as usize) { Some((b, _)) => b, None => return -1 };" true)
+        header.out("    match s[b0..].find(key) { Some(b) => start + s[b0..b0 + b].chars().count() as i64, None => -1 }" true)
+        header.out("}" true)
+        header.out("fn rg_last_index_of(s: &str, key: &str) -> i64 {" true)
+        header.out("    match s.rfind(key) { Some(b) => s[..b].chars().count() as i64, None => -1 }" true)
+        header.out("}" true)
+      }
       header.out("" true)
       ; receiver-mutability pre-pass: every plain class method's
       ; &self / &mut self verdict lands on its desc BEFORE any emission,
@@ -1238,7 +1503,7 @@ extension RangerRustClassWriter {
         wr.out("#[derive(Clone)]" true)
       }
     }
-    wr.out((("struct " + cl.name) + " { ") true)
+    wr.out((((this.rustPubPrefix(ctx)) + "struct ") + cl.name + " { ") true)
     wr.indent(1)
     for allStructVars pvar:RangerAppParamDesc i {
       def pnode:CodeNode (unwrap pvar.node)
@@ -1266,7 +1531,7 @@ extension RangerRustClassWriter {
             wr.out(", " false)
           }
           written = written + 1
-          wr.out((arg.name + " : ") false)
+          wr.out(((this.adjustType(arg.name)) + " : ") false)
           def nameN:CodeNode (unwrap arg.nameNode)
           ; A parameter of a shared class carries the Rc, exactly as an
           ; ordinary method parameter does. Without this the constructor of
@@ -1463,7 +1728,10 @@ extension RangerRustClassWriter {
       if (vnn.hasFlag("main")) {
         continue _
       }
-      wr.out((("pub fn " + variant.name) + "(") false)
+      ; the one place a method name reached the output raw. Every CALL site
+      ; goes through adjustType, so once that renames, a definition that does
+      ; not is a method the calls cannot find.
+      wr.out((("pub fn " + (this.adjustType(variant.name))) + "(") false)
       this.writeArgsDef(variant ctx wr)
       this.writeRustFnClose(variant ctx wr)
       wr.out(" {" true)
@@ -1516,7 +1784,7 @@ extension RangerRustClassWriter {
         ; call sites that do NOT ask; the repair belongs there.
         variant.rust_can_be_static = (method_uses_this == false)
         
-        wr.out((("fn " + (this.adjustType(variant.name))) + "(") false)
+        wr.out(((((this.rustPubPrefix(ctx)) + "fn ") + (this.adjustType(variant.name))) + "(") false)
         if method_uses_this {
           ; For trait parent classes (is_extended_by_children), use &self for trait methods
           ; because mutation happens through RefCell when called via the trait
@@ -1671,7 +1939,7 @@ extension RangerRustClassWriter {
               }
               variant.rust_can_be_static = (method_uses_this == false)
               
-              wr.out((("fn " + (this.adjustType(variant.name))) + "(") false)
+              wr.out(((((this.rustPubPrefix(ctx)) + "fn ") + (this.adjustType(variant.name))) + "(") false)
               if method_uses_this {
                 ; A trait parent used to force `&mut self` here whatever the
                 ; body does. The family answer is on the descriptor now, and
@@ -1745,6 +2013,14 @@ extension RangerRustClassWriter {
         }
       }
     }
+    ; …and a class that `does` a behaviour-only trait is in that family too
+    if (rgAnyNeeded == false) {
+      for cl.consumes_traits rgAnyT:string rgAnyTi {
+        if (this.rustTraitIsInterface(rgAnyT ctx)) {
+          rgAnyNeeded = true
+        }
+      }
+    }
     if rgAnyNeeded {
       wr.out("" true)
       wr.out((("impl RgAnyRef for " + cl.name) + " { fn rg_as_any(&self) -> &dyn std::any::Any { self } }") true)
@@ -1815,9 +2091,20 @@ extension RangerRustClassWriter {
       wr.out("}" true)
     }
     
-    ; If this class extends a parent class, implement the parent's trait
-    if ((array_length cl.extends_classes) > 0) {
-      for cl.extends_classes parentName:string pi {
+    ; If this class extends a parent class, implement the parent's trait. A
+    ; class that `does` a behaviour-only trait is the same shape of family, so
+    ; the two lists are walked together and the emission below is shared.
+    def rustTraitParents:[string]
+    for cl.extends_classes rtpE:string rtpEi {
+      push rustTraitParents rtpE
+    }
+    for cl.consumes_traits rtpT:string rtpTi {
+      if (this.rustTraitIsInterface(rtpT ctx)) {
+        push rustTraitParents rtpT
+      }
+    }
+    if ((array_length rustTraitParents) > 0) {
+      for rustTraitParents parentName:string pi {
         def parentClass@(optional):RangerAppClassDesc (ctx.findClass(parentName))
         if (!null? parentClass) {
           def pc:RangerAppClassDesc (unwrap parentClass)
@@ -1895,6 +2182,13 @@ extension RangerRustClassWriter {
         ; is what this language is for — overflows it, with `fatal runtime
         ; error: stack overflow` and no diagnostic. A spawned thread's stack
         ; size is ours to choose, so the entry point becomes a shim.
+        ;
+        ; A library has no entry point: `-rust-library` emits the body as an
+        ; ordinary public function and no crate `main`, so the .rs can be a
+        ; `lib.rs` rather than a `main.rs`.
+        if (this.rustLibraryMode(ctx)) {
+          wr.out("pub fn __rg_main_body() {" true)
+        } {
         wr.out("fn main() {" true)
         wr.indent(1)
         wr.out("let __rg_main_thread = std::thread::Builder::new().stack_size(512 * 1024 * 1024)" true)
@@ -1903,6 +2197,7 @@ extension RangerRustClassWriter {
         wr.indent(-1)
         wr.out("}" true)
         wr.out("fn __rg_main_body() {" true)
+        }
         wr.indent(1)
         wr.newline()
         if mainReturns {
@@ -1943,6 +2238,9 @@ extension RangerRustClassWriter {
             if (!null? fmNN) {
               def fmN:CodeNode (unwrap fmNN)
               if ((fmN.code.filename) == (ctx.getRootFile())) {
+                if (this.rustLibraryMode(ctx)) {
+                  continue
+                }
                 wr.out("fn main() {" true)
                 wr.indent(1)
                 if variant.rust_can_be_static {

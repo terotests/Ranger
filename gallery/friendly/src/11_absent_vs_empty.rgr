@@ -1,0 +1,53 @@
+; Study 11 — absent is not empty
+;
+; The Rust I want:
+;   let mut s: Option<String> = None;
+;   s = Some(String::new());      // present, and empty
+;   match s { None => …, Some(v) => … }
+;
+; Ranger spells absence with @(optional) / null? / ?? / unwrap, and the
+; question this study asks is the one a target is most tempted to get wrong:
+; is an EMPTY string absent? On every target the answer has to be no. C++
+; used to lower an optional string to a bare std::string and spell absence as
+; `.empty()`, so `s = ""` read back as absent there and as present everywhere
+; else — the same program printing two different things.
+;
+; The same question for an optional int, which C++ has always carried
+; correctly (r_optional_primitive), is here so the two stay together.
+
+class AbsentMain {
+    fn report:string (label:string s@(optional):string) {
+        if (null? s) {
+            return (label + ": absent")
+        }
+        return ((label + ": present [") + (unwrap s)) + "]"
+    }
+
+    sfn main:void () {
+        def app:AbsentMain (new AbsentMain())
+
+        def s@(optional):string
+        print (app.report("unset" s))
+
+        s = ""
+        print (app.report("empty" s))
+        print ("empty ?? " + (?? s "FALLBACK"))
+
+        s = "x"
+        print (app.report("set" s))
+
+        def n@(optional):int
+        if (null? n) {
+            print "int unset: absent"
+        } {
+            print "int unset: present"
+        }
+        n = 0
+        if (null? n) {
+            print "int zero: absent"
+        } {
+            print "int zero: present"
+        }
+        print ("int zero ?? " + (to_string (?? n 99)))
+    }
+}

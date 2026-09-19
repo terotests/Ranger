@@ -525,6 +525,19 @@ extension RangerRustClassWriter {
     def fc:CodeNode (node.getFirst())
     def cmd:string fc.vref
 
+    ; a shape narrowing: an `if let`, or one arm of a real `match` when
+    ; FlowShape marked this run as a complete one (RustUnion)
+    if (cmd == "case") {
+      this.rustWriteUnionCase(node ctx wr)
+      return
+    }
+
+    ; an index loop, or `for v in xs.iter().copied()` when that is safe
+    if (cmd == "for") {
+      this.rustWriteForLoop(node ctx wr)
+      return
+    }
+
     ; `(cast x to:Sub)` where Sub extends a class that has children: the value
     ; is Rc<RefCell<dyn ParentTrait>> and the name it is bound to declares
     ; Rc<RefCell<Sub>>. No safe conversion exists between the two, so the
@@ -2579,4 +2592,217 @@ extension RangerRustClassWriter {
     }
   }
 
+}
+
+extension RangerRustClassWriter {
+
+  ; --- the generated `for` (PLAN_RUST_SEMANTIC_IDIOMS K) ----------------------
+  ; `for xs v:int i { … }` used to be, always:
+  ;
+  ;   let __n_i = (xs.len() as i64);
+  ;   for i in 0..__n_i { let mut v = xs[i as usize]; … }
+  ;
+  ; which is correct and reads as machine output. When the body never mentions
+  ; the index and never mentions the collection, and the element is a Copy
+  ; scalar, the same loop is `for v in xs.iter().copied()` — the idiom, and the
+  ; bound, the cast and the index all disappear.
+  ;
+  ; Those three conditions are what make the rewrite safe rather than merely
+  ; shorter. The iterator BORROWS the collection for the whole loop, so a body
+  ; that touches it at all keeps the index form; an index that is read needs to
+  ; exist; and a non-Copy element would bind `&T` where the index form binds an
+  ; owned clone, which changes every use in the body.
+  ;
+  ; This is deliberately not an iterator-adapter lowering. A loop that pushes is
+  ; respectable Rust; the shape of the loop was the tell.
+  ; `(e N)` is not a bare WalkNode: it brackets the walk with setInExpr, and
+  ; without that a call operand is written as a STATEMENT — `self.f(x);` with a
+  ; semicolon and a line break in the middle of the expression being built.
+  fn rustWriteOperand:void (arg:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if ((strlen arg.rust_use_tmpvar) > 0) {
+      wr.out(arg.rust_use_tmpvar false)
+      arg.rust_use_tmpvar = ""
+      return
+    }
+    ctx.setInExpr()
+    this.WalkNode(arg ctx wr)
+    ctx.unsetInExpr()
+  }
+
+  ; the same walk the Swift writer's `swift_rc` does through the compiler:
+  ; "does this body mention that name at all". A field path counts as a mention
+  ; of its root, so `xs.len()` inside the body keeps the index form.
+  fn rustTreeMentions:boolean (node:CodeNode name:string) {
+    if (node.value_type == RangerNodeType.VRef) {
+      if (node.vref == name) {
+        return true
+      }
+    }
+    if ((array_length node.ns) >= 2) {
+      if ((itemAt node.ns 0) == name) {
+        return true
+      }
+    }
+    if (node.vref == name) {
+      return true
+    }
+    for node.children ch:CodeNode i {
+      if (this.rustTreeMentions(ch name)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn rustForItemIsCopyScalar:boolean (item:CodeNode) {
+    def tn:string ""
+    if item.hasParamDesc {
+      def ipd:RangerAppParamDesc item.paramDesc
+      def ipdNN@(optional):CodeNode ipd.nameNode
+      if (!null? ipdNN) {
+        def ipdN:CodeNode (unwrap ipdNN)
+        tn = ipdN.type_name
+        if ((strlen ipdN.array_type) > 0) {
+          tn = ipdN.array_type
+        }
+      }
+    } {
+      tn = item.type_name
+      if ((strlen item.array_type) > 0) {
+        tn = item.array_type
+      }
+    }
+    if (tn == "int") { return true }
+    if (tn == "double") { return true }
+    if (tn == "boolean") { return true }
+    if (tn == "char") { return true }
+    if (TTypeRegistry.isIntAlias(tn)) { return true }
+    if (TTypeRegistry.isFloatAlias(tn)) { return true }
+    return false
+  }
+
+  ; Does the body touch the thing being iterated? The iterator borrows the
+  ; collection for the whole loop, so it has to be every NAME the collection
+  ; expression rests on, not just the last segment: `for lctx.ownedLocals …`
+  ; rests on `lctx`, and a body that passes `lctx` on mutably is a borrow error
+  ; even though it never says `ownedLocals`. Testing only the tail segment is
+  ; how five such loops got through the first time.
+  fn rustForBodyTouchesCollection:boolean (body:CodeNode coll:CodeNode) {
+    if ((strlen coll.vref) > 0) {
+      if (this.rustTreeMentions(body coll.vref)) {
+        return true
+      }
+    }
+    for coll.ns seg:string si {
+      if ((strlen seg) > 0) {
+        if (this.rustTreeMentions(body seg)) {
+          return true
+        }
+      }
+    }
+    ; an expression rather than a name — a call, an index, a chain. Anything it
+    ; borrows is invisible from here, so it keeps the index form.
+    if ((strlen coll.vref) == 0) {
+      if ((array_length coll.ns) == 0) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn rustWriteForLoop:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if ((array_length node.children) < 5) {
+      return
+    }
+    def coll:CodeNode (node.getSecond())
+    def item:CodeNode (itemAt node.children 2)
+    def idx:CodeNode (itemAt node.children 3)
+    def body:CodeNode (itemAt node.children 4)
+
+    def itemName:string item.vref
+    def idxName:string idx.vref
+
+    ; every element kind can take the iterator form: the index loop binds an
+    ; OWNED value — `xs[i]` for a Copy scalar, `xs[i].clone()` otherwise — and
+    ; `.copied()` / `.cloned()` bind exactly the same thing. Binding `&T` with a
+    ; bare `.iter()` would be the idiom a human writes, but it changes every use
+    ; of the name in the body, which is a different change.
+    def itemIsCopy:boolean (this.rustForItemIsCopyScalar(item))
+    def useIter:boolean true
+    if useIter {
+      if ((strlen idxName) > 0) {
+        if (this.rustTreeMentions(body idxName)) {
+          useIter = false
+        }
+      }
+    }
+    if useIter {
+      if (this.rustForBodyTouchesCollection(body coll)) {
+        useIter = false
+      }
+    }
+
+    if useIter {
+      def needsMut:boolean false
+      if item.hasParamDesc {
+        if (item.paramDesc.set_cnt > 0) {
+          needsMut = true
+        }
+      }
+      wr.out("for " false)
+      if needsMut {
+        wr.out("mut " false)
+      }
+      ; the BOUND NAME goes through the walker, not out as a raw vref: a
+      ; Ranger local may be called `fn` or `type`, and the reserved-word
+      ; renaming lives in the walker. `let mut fn = …` does not parse.
+      this.rustWriteOperand(item ctx wr)
+      wr.out(" in " false)
+      this.rustWriteOperand(coll ctx wr)
+      if itemIsCopy {
+        wr.out(".iter().copied() {" true)
+      } {
+        wr.out(".iter().cloned() {" true)
+      }
+      wr.indent(1)
+      def iCtx:RangerAppWriterContext (ctx.fork())
+      iCtx.restartExpressionLevel()
+      this.WalkNode(body iCtx wr)
+      wr.indent(-1)
+      wr.out("}" true)
+      return
+    }
+
+    ; the index form, unchanged: the bound is read into a local FIRST, because a
+    ; range expression that borrows keeps that borrow alive for the whole loop
+    ; and a body that borrows the same thing mutably cannot run
+    ; the temporary is named after the index, so nested loops do not collide.
+    ; It is the writer's own name, so the raw vref is the right thing here —
+    ; unlike the BOUND names, which the walker renames.
+    def nName:string ("__n_" + idxName)
+    wr.out(("let " + nName + " = (") false)
+    this.rustWriteOperand(coll ctx wr)
+    wr.out(".len() as i64);" true)
+    wr.out("for " false)
+    this.rustWriteOperand(idx ctx wr)
+    wr.out((" in 0.." + nName) false)
+    wr.out(" {" true)
+    wr.indent(1)
+    wr.out("let mut " false)
+    this.rustWriteOperand(item ctx wr)
+    wr.out(" = " false)
+    this.rustWriteOperand(coll ctx wr)
+    wr.out("[" false)
+    this.rustWriteOperand(idx ctx wr)
+    wr.out(" as usize]" false)
+    if (itemIsCopy == false) {
+      wr.out(".clone()" false)
+    }
+    wr.out(";" true)
+    def sCtx:RangerAppWriterContext (ctx.fork())
+    sCtx.restartExpressionLevel()
+    this.WalkNode(body sCtx wr)
+    wr.indent(-1)
+    wr.out("}" true)
+  }
 }

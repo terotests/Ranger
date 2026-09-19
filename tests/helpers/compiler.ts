@@ -1676,9 +1676,10 @@ export function runRustFile(rustFile: string): RunResult {
  */
 export function compileAndRunRust(
   sourceFile: string,
-  outputDir?: string
+  outputDir?: string,
+  extraFlags?: string
 ): { compile: CompileResult; run?: RunResult } {
-  const compileResult = compileRangerToRust(sourceFile, outputDir);
+  const compileResult = compileRangerToRust(sourceFile, outputDir, extraFlags);
 
   if (!compileResult.success) {
     return { compile: compileResult };

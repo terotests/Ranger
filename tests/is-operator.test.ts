@@ -67,7 +67,7 @@ describe("the `is` kind test", () => {
       expect(gen.success).toBe(true);
       expect(gen.code).toContain("matches!(v, union_Val::Val_Num(..))");
       // the `case` form clones; the `is` form must not
-      expect(gen.code).toMatch(/fn isNum\([^)]*\)[^{]*\{\s*matches!\(/);
+      expect(gen.code).toMatch(/fn is_num\([^)]*\)[^{]*\{\s*matches!\(/);
     });
 
     it("C++: holds_alternative, without the std::get the case form adds", () => {

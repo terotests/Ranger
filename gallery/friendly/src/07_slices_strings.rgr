@@ -1,0 +1,46 @@
+; Study 07 — slices and strings
+;
+; The Rust I want:
+;   fn greet(name: &str) -> String
+;   fn total(xs: &[i64]) -> i64
+;   fn first_char(s: &str) -> &str
+;
+; A borrowed Ranger `[int]` is supposed to become `&[i64]`. A borrowed
+; `string` is still often `String` rather than `&str`. There is no way
+; to write a lifetime, so a function cannot return a borrowed substring
+; of its argument — it always allocates a new string.
+
+class TextTools {
+    fn greet:string (name:string) {
+        return ("hello " + name)
+    }
+
+    fn total:int (xs:[int]) {
+        def acc:int 0
+        for xs v:int i {
+            acc = (acc + v)
+        }
+        return acc
+    }
+
+    fn firstChar:string (s:string) {
+        if ((strlen s) == 0) {
+            return ""
+        }
+        return (substring s 0 1)
+    }
+
+    fn twice:int (xs:[int]) {
+        return ((this.total(xs)) + (this.total(xs)))
+    }
+}
+
+class SliceMain {
+    sfn main:void () {
+        def t:TextTools (new TextTools())
+        print (t.greet("ada"))
+        def xs:[int] ([] _:int ( 1 2 3 ))
+        print ("twice " + (to_string (t.twice(xs))))
+        print ("first " + (t.firstChar("grace")))
+    }
+}

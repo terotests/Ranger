@@ -1,0 +1,55 @@
+; Study 04 — traits
+;
+; The Rust I want:
+;   trait Named { fn label(&self) -> String; }
+;   impl Named for User { ... }
+;   impl Display for User { ... }
+;   impl From<String> for User { ... }
+;   fn print_named(n: &dyn Named)
+;
+; Ranger `trait` + `does` is a mixin: it copies fields and methods into the
+; class. There is no way to implement a Rust standard trait, no `dyn`, and
+; no orphan-rule-shaped `impl Trait for Type` block. `asString` is the
+; Ranger spelling of Display.
+
+trait Named {
+    def name:string ""
+
+    fn label:string () {
+        return name
+    }
+}
+
+class User {
+    does Named
+    def age:int 0
+
+    fn asString:string () {
+        return (((name + " ") + (to_string age)))
+    }
+}
+
+class Bot {
+    does Named
+
+    fn asString:string () {
+        return ("bot:" + name)
+    }
+}
+
+class TraitsMain {
+    fn show:string (who:User) {
+        return (("label=" + (who.label())) + (" text=" + (who.asString())))
+    }
+
+    sfn main:void () {
+        def app:TraitsMain (new TraitsMain())
+        def u:User (new User())
+        u.name = "ada"
+        u.age = 36
+        print (app.show(u))
+        def b:Bot (new Bot())
+        b.name = "r2"
+        print (b.asString())
+    }
+}

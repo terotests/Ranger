@@ -1,5 +1,7 @@
 ; SPDX-License-Identifier: MIT
 
+Import "TraitAnalysis.rgr"
+
 ; Swift 6 Class Writer
 ; Based on Swift3 writer with updates for Swift 6 compatibility
 ; Main changes:
@@ -11,6 +13,24 @@ class RangerSwift6ClassWriter {
   def compiler:LiveCompiler
   def header_created:boolean false
   
+  ; PLAN_RUST_SEMANTIC_IDIOMS / friendly: a Ranger `fn f@(throws)` has to be
+  ; `func f() throws` in Swift, or `throw` inside it is a compile error. Ranger
+  ; already requires every call to such a function to sit inside a `try { }`
+  ; block (RangerFlowParser refuses one that does not), so the `throws` never
+  ; has to propagate to the caller: the caller's `do { } catch { }` is the try
+  ; block, and the call itself just needs the `try` keyword.
+  fn swiftThrowsMark:string (variant:RangerAppFunctionDesc) {
+    def nnOpt@(optional):CodeNode variant.nameNode
+    if (null? nnOpt) {
+      return ""
+    }
+    def nn:CodeNode (unwrap nnOpt)
+    if (nn.hasFlag("throws")) {
+      return " throws"
+    }
+    return ""
+  }
+
   fn adjustType:string (tn:string) {
     if (tn == "this") {
       return "self"
@@ -145,6 +165,45 @@ class RangerSwift6ClassWriter {
   ; S5 (PLAN_SHAPES.md): a sealable union is a native enum; construction wraps
   ; a case payload at flow sites and narrowing uses `if case let`.
   def swift_unions_written:boolean false
+
+  ; which behaviour-only Ranger `trait`s become a Swift protocol
+  def swiftTraits:TraitInterfaceAnalysis (new TraitInterfaceAnalysis())
+  def swift_traits_written:boolean false
+
+  ; A behaviour-only trait named as a type, as a Swift protocol. The mixin
+  ; copy still gives each consumer its own body; this makes the name a type,
+  ; and those bodies are the witnesses.
+  fn writeSwiftTraitProtocols:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+    if swift_traits_written {
+      return
+    }
+    swift_traits_written = true
+    swiftTraits.compute(ctx)
+    for (keys swiftTraits.ifaceTraits) tn:string tni {
+      def tc:RangerAppClassDesc (ctx.findClass(tn))
+      wr.out("" true)
+      ; the same visibility rule the classes get: a protocol more visible than
+      ; the types that witness it is the mismatch swiftc complains about
+      def tpVis:RangerDocCommentWriter (new RangerDocCommentWriter)
+      wr.out((tpVis.classVisibility(tc "" "public " "")) false)
+      wr.out(("protocol " + tn + " {") true)
+      wr.indent(1)
+      for tc.defined_variants fnVar:string fvi {
+        def mVs:RangerAppMethodVariants (get tc.method_variants fnVar)
+        for mVs.variants variant:RangerAppFunctionDesc vi {
+          wr.out(("func " + variant.compiledName + "(") false)
+          this.writeArgsDef(variant ctx wr)
+          wr.out(")" false)
+          wr.out((this.swiftThrowsMark(variant)) false)
+          wr.out(" -> " false)
+          this.writeTypeDef( (unwrap variant.nameNode) ctx wr)
+          wr.out("" true)
+        }
+      }
+      wr.indent(-1)
+      wr.out("}" true)
+    }
+  }
 
   fn writeSwiftUnionEnums:void (ctx:RangerAppWriterContext wr:CodeWriter) {
     if swift_unions_written {
@@ -471,6 +530,17 @@ class RangerSwift6ClassWriter {
             }            
             return
           }      
+          ; A trait CARRYING FIELDS is not a protocol its consumers witness:
+          ; each owns its own copy of the field, so there is nothing for the
+          ; protocol to require. It used to reach the file as the bare name,
+          ; which swiftc answers with "cannot find type in scope". A trait of
+          ; methods only is a protocol (writeSwiftTraitProtocols) and does
+          ; name a type.
+          if cc.is_trait {
+            if ((swiftTraits.isInterface(t_name ctx)) == false) {
+              ctx.addError(node (("the Swift target writes a `trait` as a mixin, so `" + t_name) + "` is not a type it can name. A trait that declares only METHODS becomes a Swift protocol and can be used as a type; this one carries fields, which its consumers each hold their own copy of. Use a class with subclasses, or give the parameter a concrete type."))
+            }
+          }
         }        
         wr.out((this.getTypeString(t_name)) false)
       }
@@ -902,6 +972,25 @@ class RangerSwift6ClassWriter {
       def obj:CodeNode (node.getSecond())
       def method:CodeNode (node.getThird())
       def args:CodeNode (itemAt node.children 3)
+      ; a call to a `@(throws)` function needs the `try` keyword, and it goes
+      ; before the RECEIVER — `try g.mustBePositive(…)`, not `g.try …`. Ranger
+      ; has already refused any such call outside a `try { }` block, so the
+      ; enclosing `do { } catch { }` is there and nothing propagates.
+      ;
+      ; The keyword covers the two positions these calls take: the right side
+      ; of an assignment, and an argument. It is NOT enough to the right of a
+      ; binary operator — `"x " + (try f())` is "'try' cannot appear to the
+      ; right of a non-assignment operator" — and covering that needs the
+      ; keyword hoisted to the front of the statement, which is not visible
+      ; from here.
+      def throwFd@(optional):RangerAppFunctionDesc node.fnDesc
+      if (!null? throwFd) {
+      }
+      if (!null? throwFd) {
+        if ((strlen (this.swiftThrowsMark((unwrap throwFd)))) > 0) {
+          wr.out("try " false)
+        }
+      }
 
       ; PLAN_FORMAT.md phase 1b. `isSimpleClassCallReceiver` answers only for a
       ; receiver that NAMES A CLASS -- a static call -- so every instance call
@@ -979,6 +1068,20 @@ class RangerSwift6ClassWriter {
         if (fnName.type_name != "void") {
           wr.out("_ = " false)
         }
+      }
+      ; a call to a `@(throws)` function needs the `try` keyword, and it goes
+      ; before the RECEIVER — `try g.mustBePositive(…)`. Ranger has already
+      ; refused any such call outside a `try { }` block (RangerFlowParser), so
+      ; the enclosing `do { } catch { }` is there and the `throws` never has to
+      ; propagate to the caller.
+      ;
+      ; The keyword covers the positions these calls take here: the right side
+      ; of an assignment and an argument. It is NOT enough to the right of a
+      ; binary operator — `"x " + (try f())` is "'try' cannot appear to the
+      ; right of a non-assignment operator" — and covering that needs the
+      ; keyword at the front of the statement, which is not visible from here.
+      if (fnName.hasFlag("throws")) {
+        wr.out("try " false)
       }
       this.WriteVRef(fc ctx wr)
       wr.out("(" false)
@@ -1328,6 +1431,7 @@ class RangerSwift6ClassWriter {
     if (null? cl) {
       return
     }
+    this.writeSwiftTraitProtocols(ctx wr)
     this.writeSwiftUnionEnums(ctx wr)
     def declaredVariable:[string:boolean]
     def dblDeclaredFunction:[string:boolean]
@@ -1387,14 +1491,26 @@ class RangerSwift6ClassWriter {
 
     def parentClass:RangerAppClassDesc
     
+    ; the behaviour-only traits this class `does` that something names as a
+    ; type: each is a protocol, and the mixin copies are the witnesses. A
+    ; class with no superclass still conforms to Hashable, so the list is
+    ; never empty.
+    def swIfaces:[string] (swiftTraits.basesOf((unwrap cl) ctx))
+    def swConf:int 0
     if ( ( array_length cl.extends_classes ) > 0 ) { 
       wr.out(" : " false)
       for cl.extends_classes pName:string i {
         parentClass = (ctx.findClass(pName))
         wr.out(parentClass.compiledName false)
+        swConf = swConf + 1
       }
     } {
       wr.out(" : Hashable " false )
+      swConf = swConf + 1
+    }
+    for swIfaces ifName:string ifi {
+      wr.out((", " + ifName) false)
+      swConf = swConf + 1
     }
     
     wr.out( " { " true)
@@ -1515,7 +1631,7 @@ class RangerSwift6ClassWriter {
       }
       wr.out((("class func " + variant.compiledName) + "(") false)
       this.writeArgsDef(variant ctx wr)
-      wr.out(") -> " false)
+      wr.out(((")" + (this.swiftThrowsMark(variant))) + " -> ") false)
       this.writeTypeDef( (unwrap variant.nameNode) ctx wr)
       wr.out(" {" true)
       wr.indent(1)
@@ -1592,7 +1708,7 @@ class RangerSwift6ClassWriter {
           this.writeArgsDef(variant ctx wr)
         }
         
-        wr.out(") -> " false)
+        wr.out(((")" + (this.swiftThrowsMark(variant))) + " -> ") false)
         this.writeTypeDef( (unwrap variant.nameNode) ctx wr)
         wr.out(" {" true)
         wr.indent(1)
