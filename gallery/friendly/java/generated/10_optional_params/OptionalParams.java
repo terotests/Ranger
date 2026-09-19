@@ -3,6 +3,7 @@ import java.io.*;
 public class OptionalParams { 
   
   public static void main(String [] args ) {
+    RgArgs.args = args;
     final OptionalParams app = new OptionalParams();
     String hit = null;
     hit = "ada";

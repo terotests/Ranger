@@ -3,6 +3,7 @@ import java.io.*;
 public class OwnershipMain { 
   
   public static void main(String [] args ) {
+    RgArgs.args = args;
     final PointOps ops = new PointOps();
     final Point origin = new Point(3, 4);
     System.out.println(String.valueOf( "manhattan " + String.valueOf(ops.manhattan(origin) ) ) );

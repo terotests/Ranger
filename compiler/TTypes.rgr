@@ -139,12 +139,12 @@ class TTypes {
             case RangerNodeType.ArrayLiteral {
                 return "ArrayLiteral"
             }
-            default {
-                return "InvalidValueTypeEnum"
-            }
-
         }        
-        return ""
+        ; the `default` arm returned this and the line below returned "",
+        ; which was unreachable -- javac rejects a statement after a switch
+        ; whose every arm returns, and no other target minds. One fallback
+        ; now, in the place Ranger requires a function to have one.
+        return "InvalidValueTypeEnum"
     }
 
     static fn baseTypeAsEval (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {  

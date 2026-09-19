@@ -4,6 +4,7 @@ import java.util.*;
 public class SliceMain { 
   
   public static void main(String [] args ) {
+    RgArgs.args = args;
     final TextTools t = new TextTools();
     System.out.println(String.valueOf( t.greet("ada") ) );
     final ArrayList<Integer> xs = new ArrayList<Integer>(Arrays.asList( new Integer[] {1, 2, 3}));

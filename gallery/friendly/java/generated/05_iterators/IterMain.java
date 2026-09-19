@@ -4,6 +4,7 @@ import java.io.*;
 public class IterMain { 
   
   public static void main(String [] args ) {
+    RgArgs.args = args;
     final Stats s = new Stats();
     final ArrayList<Integer> xs = new ArrayList<Integer>(Arrays.asList( new Integer[] {1, 2, 3, 4}));
     System.out.println(String.valueOf( "sum " + String.valueOf(s.total(xs) ) ) );

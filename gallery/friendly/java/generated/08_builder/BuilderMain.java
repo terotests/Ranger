@@ -3,6 +3,7 @@ import java.io.*;
 public class BuilderMain { 
   
   public static void main(String [] args ) {
+    RgArgs.args = args;
     final RequestBuild b = new RequestBuild();
     final Request start = new Request("", "/", 80);
     final Request step1 = b.withHost(start, "localhost");

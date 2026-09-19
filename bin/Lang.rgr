@@ -1564,7 +1564,11 @@ inline r_optional_primitive<std::string> r_cpp_env_var(const std::string& name) 
                 llvm ( "(shell_arg " (e 1) ")")
                 cpp ( "std::string(__g_argv[" (e 1) " + 1])")
                 php ( "$argv[" (e 1) " + 1]" )
-                java7 ( "args[" (e 1) "]")
+                ; `args` is in scope only inside main on Java, and a class
+                ; method that reads the command line is not. main copies it
+                ; into a static holder the writer emits (RgArgs.java), the
+                ; same shape as __g_args on Kotlin and Dart.
+                java7 ( "RgArgs.args[" (e 1) "]")
                 csharp ('Environment.GetCommandLineArgs()[' (e 1) ' + 1]' (imp "System"))
                 go ( "os.Args[" (e 1) " + 1]"  (imp "os"))
                 swift3 ("CommandLine.arguments[" (e 1) " + 1]")
@@ -1592,7 +1596,7 @@ inline r_optional_primitive<std::string> r_cpp_env_var(const std::string& name) 
                 swift6 ("CommandLine.arguments.count - 1")
                 csharp ('Environment.GetCommandLineArgs().Length - 1' (imp "System"))                
                 php ( "(count($argv) - 1)" )
-                java7 ( "args.length")
+                java7 ( "RgArgs.args.length")
                 go ( "int64( len( os.Args) - 1 )"  (imp "os"))
                 es6 ( "(process.argv.length - 2)" )
                 rust ( "(std::env::args().len() as i64 - 1)")
@@ -7758,7 +7762,10 @@ func r_last_index_of(_ s: String, _ needle: String) -> Int {
             templates {
                 ranger ( "(strfromcode " (e 1) ")")
                 csharp ( "((char)" (e 1) ").ToString()") 
-                java7 ( "(new String( new char[] {" (e 1) " }))") 
+                ; the cast is not decoration: a Ranger `char` is a Java
+                ; `byte`, and a byte in a char[] initialiser is a narrowing
+                ; conversion javac refuses
+                java7 ( "(new String( new char[] {(char)(" (e 1) ") }))") 
                 kotlin ( (e 1) ".toChar().toString()")
                 swift3 ( "(String( Character( UnicodeScalar(" (e 1) " ) )))") 
                 ; A named helper, not an inline expression. UnicodeScalar has
@@ -9353,7 +9360,12 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  java7 ( (e 1) ".remove((int)(" (e 2) "));" )
                  csharp ( (e 1) ".RemoveAt((int)(" (e 2) "));" )
                  scala ( (e 1) ".remove((" (e 2) ").toInt)" )
-                 rust ( (e 1) ".remove(" (e 2) " as usize);" )
+                 ; the index is parenthesised: `as` binds tighter than `-`
+                 ; in Rust, so `remove(cnt - 1 as usize)` is
+                 ; `cnt - (1 as usize)` -- i64 minus usize, which is the
+                 ; only thing standing between this compiler's own Rust
+                 ; rendering and rustc
+                 rust ( (e 1) ".remove((" (e 2) ") as usize);" )
             }
         }
 

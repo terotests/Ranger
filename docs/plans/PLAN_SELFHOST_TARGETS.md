@@ -1,9 +1,7 @@
 # PLAN_SELFHOST_TARGETS — rendering this compiler to every target, and building it
 
-> **Status: C++, Go, Python, Kotlin and C# build. Rust type-checks with 9
-> known errors. Java produces a file for the first time and needs an
-> `org.json` polyfill to finish. Dart, Swift and LLVM are unmeasured here for
-> want of a toolchain.**
+> **Status: C++, Go, Python, Kotlin, C#, Java and Rust all build. Dart, Swift
+> and LLVM are unmeasured here for want of a toolchain.**
 
 The strongest test a target writer has is the compiler's own sources: 60-odd
 `.rgr` files, every operator, every shape, every optional, 60–90 thousand lines
@@ -19,8 +17,8 @@ whole language at once, and it finds what the studies cannot.
 | Python | yes | `py_compile` clean | `npm run selfhost:check:python` |
 | Kotlin | yes | `kotlinc` clean | `npm run selfhost:check:kotlin` |
 | C# | yes | `mcs` clean | `npm run selfhost:check:csharp` |
-| Rust | yes | 9 rustc errors, known | `bash scripts/rust-selfhost-check.sh` |
-| Java | yes, 223 files | 157 javac errors, 152 of them one missing dependency | see below |
+| Rust | yes | `rustc` clean, and the binary runs | `bash scripts/rust-selfhost-check.sh` |
+| Java | yes, 228 files | `javac` clean | `npm run selfhost:check:java` |
 | Dart | yes | `dart analyze` — no `dart` on this machine | `npm run selfhost:check:dart` |
 | Swift | untested | no `swiftc` on this machine | — |
 
@@ -33,8 +31,8 @@ statement. The java7, Dart and PHP entries beside them carry a `;`; the C#
 entries did not, so fifteen call sites in the compiler's own buffer and package
 code were `mcs` syntax errors. The C# rendering of this compiler now builds.
 
-**Java — four writer holes, and it produces a file at all.** Before this it
-stopped in the type checker and wrote nothing:
+**Java — six writer holes, before it produced a file at all.** Before these
+it stopped in the type checker and wrote nothing:
 
 1. **`sort` had no `java7` template.** The operator did not match, and
    `FlowCollect` — which sorts the serialized classes topologically — stopped
@@ -62,24 +60,55 @@ stopped in the type checker and wrote nothing:
    Java 8 type, and an optional on this target is a nullable reference or a
    boxed primitive — which is what `null?` already compares against.
 
-## What Java still needs
+## What Java needed, and got
 
-`org.json` — 152 of the 157 remaining errors. Kotlin had the same problem and
-solved it in `lib/JSON.rgr` with a ~180-line polyfill that declares
-`JSONObject`, `JSONArray`, a reader and a writer, so a generated file builds
-with a plain `kotlinc` line and no dependency. Java needs the same class set,
-and the `java7` entries in `lib/JSON.rgr` need to stop importing
-`org.json.*`. That is the whole remaining blocker and it is mechanical.
+**`org.json` — 152 of the 157.** The JSON systemclasses named `JSONObject` and
+`JSONArray` and the java7 entries imported them from `org.json`, a Maven
+dependency nothing puts on a plain `javac` line. Kotlin had the same problem
+and solved it in `lib/JSON.rgr` with a polyfill declaring the classes; Java
+writes one public type per file, so the writer emits `JSONObject.java`,
+`JSONArray.java`, `JSONException.java` and `RgJson.java` itself when the
+program uses JSON, and the `(imp "org.json.…")` lines are gone. The set is the
+API the java7 templates actually call: `isNull` (by key and by index),
+`optString` / `optInt` / `optDouble` / `optBoolean` returning boxed values so
+`o.isNull(k) ? null : o.optInt(k)` types, `getJSONObject`, `getJSONArray`,
+`put`, `names`, `length`, `get`, a `toString` that writes JSON and a
+constructor that reads it.
 
-Five other errors, each its own small thing:
+**The command line.** `args` is a parameter of `main` on Java, so a class
+method that reads it cannot. Kotlin and Dart copy it into a file-scope global;
+Java has no file scope, so `RgArgs.java` holds a static field that `main`
+assigns as its first statement.
 
-- `args` is only in scope inside `main` on Java, and two call sites outside it
-  read the command line. Kotlin and Dart copy it into a `__g_args` global in
-  `main`; Java has no file scope, so it needs a static holder.
-- `charcode` returns a Ranger `char`, which is a `byte` here, and
-  `def ch:int (charcode …)` is a widening every other target does implicitly.
-- one `byte`/`char` narrowing in `DictNode`.
-- one singleton class missing its generated `__singleton()`.
+**`@singleton(true)` had no accessor.** Call sites already wrote
+`ClassName.__singleton()` through the ordinary static path and the definition
+was simply missing, exactly as it had been on C#.
+
+**A Ranger `char` is an `int` here now, not a `byte`.** The operators that make
+one are declared to return `char` while the code that reads it says
+`def ch:int`. Java widens `byte` to `int` freely but BOXES it to `Byte`, so
+`Integer ch = someByte` is a type error and `Integer ch = someInt` is not.
+`chararray` stays `byte[]`, and `strfromcode` casts.
+
+**`final` on an assigned parameter.** Every parameter carried `final`, which is
+what lets an inner class capture one — Java 7 requires it and the lambda
+lowering depends on it. Two methods rebind their parameter, which `final`
+forbids, so the ones with `set_cnt > 0` no longer get it.
+
+**Four unreachable statements**, all in the compiler's own sources and all dead
+on every target: two abandoned tails after a `return`, and two `switch`es whose
+`default` arm returned the same value as the line below it. javac is the only
+target that says so. The dead tails are deleted and the duplicated fallbacks
+folded into the one place Ranger requires a function to have one.
+
+## Rust — one operator, nine errors
+
+All nine were the same template. `remove_at` wrote
+`xs.remove(i as usize)`, and `as` binds tighter than `-` in Rust, so
+`children.remove(cnt - 1 as usize)` parsed as `cnt - (1 as usize)`: an `i64`
+minus a `usize`, which is three errors per site and there were three sites.
+Parenthesising the index is the whole fix. `rustc --emit=metadata` is clean
+now, a full `rustc -o` produces a binary, and the binary runs.
 
 ## How to check
 
@@ -90,12 +119,8 @@ npm run selfhost:check:go
 npm run selfhost:check:python
 npm run selfhost:check:kotlin      # needs kotlinc
 npm run selfhost:check:csharp      # needs mcs
+npm run selfhost:check:java        # needs javac
 bash scripts/rust-selfhost-check.sh
-# Java has no script yet, because it does not pass:
-#   node bin/output.js -l=java7 ./compiler/Compiler.rgr -nodecli \
-#     -d=./tmp/selfhost-java -o=ranger_compiler.java
-#   javac -nowarn -Xmaxerrs 10000 -d tmp/selfhost-java/cls \
-#     $(find tmp/selfhost-java -name '*.java')
 ```
 
 Related: [PLAN_RUST_SEMANTIC_IDIOMS.md](PLAN_RUST_SEMANTIC_IDIOMS.md),

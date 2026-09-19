@@ -748,18 +748,9 @@ extension RangerFlowParser {
         }
       }
 
-      return
-
-      def instances:CodeNode (node.getThird())
-      def new_class@(lives):RangerAppClassDesc (new RangerAppClassDesc ())
-      new_class.name = nameNode.vref
-      new_class.nameNode = nameNode
-      ctx.addClass(nameNode.vref new_class)
-      new_class.is_system_union = true
-      for instances.children ch:CodeNode i {
-        push new_class.is_union_of ch.vref
-      }
-      nameNode.clDesc = new_class
+      ; What used to follow this `return` was an unreachable copy of the
+      ; `union` handler just below, differing only in is_system_union. Dead on
+      ; every target; javac is the only one that says so.
       return
     }
 

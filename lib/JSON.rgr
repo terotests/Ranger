@@ -21,7 +21,10 @@
 ; it, both spelled in full so that no `use` line is needed.
 systemclass JSONDataObject {
     es6 Object
-    java7 JSONObject ( (imp "org.json.JSONObject") )
+    ; no (imp): org.json is not on the classpath, and the Java writer emits
+    ; JSONObject.java / JSONArray.java / RgJson.java itself when the program
+    ; uses JSON -- the same reason Kotlin carries a polyfill below
+    java7 JSONObject
     kotlin JSONObject
     go "map[string]interface{}"
     swift3 '[String:Any]'
@@ -35,7 +38,7 @@ systemclass JSONDataObject {
 
 systemclass JSONArrayObject {
     es6 JSONArrayObject2
-    java7 JSONArray ( (imp "org.json.JSONArray") )
+    java7 JSONArray
     kotlin JSONArray
     go "[]interface{}"
     swift3 '[Any]'
@@ -385,7 +388,7 @@ inline std::string rg_json_arr_to_string(const rg_json_arr& a) { std::string out
             es6 ( 
                 "console.log(JSON.stringify(" (e 1) "));" nl
             )
-            java7 @macro(true) ("print (to_string " (e 1) " )" (imp "org.json.JSONObject"))
+            java7 @macro(true) ("print (to_string " (e 1) " )")
             python ( "print(json.dumps(" (e 1) "))" (imp "json") )
             rust @macro(true) ("print (to_string " (e 1) " )")
         }
@@ -2486,7 +2489,7 @@ inline rg_json_arr rg_json_get_arr(const rg_json_obj& o, const std::string& k) {
             swift3 (  (e 1) '[' (e 2) '] as? [String:Any] ')
             swift6 (  (e 1) '[' (e 2) '] as? [String:Any] ')
             ranger ( '(getObject ' (e 1) ' ' (e 2) ')')
-            java7 ( "__getJSONObj(" (e 1) ", " (e 2) " )" (imp 'org.json.JSONException')
+            java7 ( "__getJSONObj(" (e 1) ", " (e 2) " )"
 
 (create_polyfill '
 static JSONObject __getJSONObj(JSONObject o, String item) 
@@ -2988,9 +2991,6 @@ static ArrayList<String> __getJSONKeys(JSONObject obj)
     return list;
 }    
     ")                               
-            (imp "org.json.JSONObject")    
-            (imp "org.json.JSONArray")    
-            
             )
             go ("(func() []string {" nl I
                     "keys := reflect.ValueOf(" (e 1) ").MapKeys()" nl
@@ -3587,7 +3587,7 @@ inline rg_json_arr rg_json_as_arr(const rg_json_val& v) {
             )
             es6 ( (e 1) "[" (e 2) "]")
             ranger( "(getValue " (e 1) " " (e 2) " )")
-            java7(  '__getJSONValue(' (e 1) ', ' (e 2) ')' (imp 'org.json.JSONObject') (imp 'org.json.JSONArray') (imp 'org.json.JSONException')
+            java7(  '__getJSONValue(' (e 1) ', ' (e 2) ')'
 
 (create_polyfill '
 static Object __getJSONValue(JSONArray o, Integer item) 
@@ -4595,7 +4595,7 @@ inline rg_json_obj rg_json_parse_obj(const std::string& s) {
             )
             swift3 ( 'try JSONSerialization.jsonObject(with: ' (e 1) ', options:[]) as! [String:Any]' (imp 'Foundation') )
             swift6 ( 'try JSONSerialization.jsonObject(with: ' (e 1) ', options:[]) as! [String:Any]' (imp 'Foundation') )
-            java7 ("new JSONObject(" (e 1) ")"  (imp "org.json.JSONObject") (plugin 'maven' (  (dep 'org.json' 'json' '20171018'  ) ) ))
+            java7 ("new JSONObject(" (e 1) ")")
             kotlin ("JSONObject(" (e 1) ")")
             go ( "__r_json_to_interface(" (e 1) ")" (imp "encoding/json")
 
@@ -5615,7 +5615,7 @@ inline rg_json_arr rg_json_as_arr(const rg_json_val& v) {
             swift3 ( '[Any]()' )
             swift6 ( '[Any]()' )
             ranger ("(json_array )")
-            java7 ("new JSONArray()" (imp "org.json.JSONArray") (plugin 'maven' (  (dep 'org.json' 'json' '20171018'  ) ) ))
+            java7 ("new JSONArray()")
             kotlin ("JSONArray()")
             go ( "make([]interface{},0)" )
             php ( "array()" )
@@ -5675,7 +5675,7 @@ inline rg_json_arr rg_json_as_arr(const rg_json_val& v) {
             swift3 ( '[String:Any]()' )
             swift6 ( '[String:Any]()' )
             ranger ("(json_object )")
-            java7 ("new JSONObject()" (imp "org.json.JSONObject") (plugin 'maven' (  (dep 'org.json' 'json' '20171018'  ) ) ))
+            java7 ("new JSONObject()")
             kotlin ("JSONObject()")
             go ( "make(map[string]interface{})" )
             php ( "array()")
@@ -5694,7 +5694,7 @@ enum RJson { Null, Bool(bool), Int(i64), Double(f64), Str(String), Arr(Vec<RJson
             swift3 ("[" ( repeat_from 1 (  (block 1) ) ) "]")
             swift6 ("[" ( repeat_from 1 (  (block 1) ) ) "]")
             ranger ("(json_array " ( repeat 1 (  (block 1) ) ) ")")
-            java7 ("new JSONArray" (imp "org.json.JSONArray") (plugin 'maven' (  (dep 'org.json' 'json' '20171018'  ) ) ))
+            java7 ("new JSONArray")
             go ( "make([]interface{},0)" )
             php ( "array()" )
             python ("[" ( repeat_from 1 (  (block 1) ) ) "]")

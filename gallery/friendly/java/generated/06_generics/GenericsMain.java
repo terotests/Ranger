@@ -3,6 +3,7 @@ import java.io.*;
 public class GenericsMain { 
   
   public static void main(String [] args ) {
+    RgArgs.args = args;
     final Stack_int ints = new Stack_int();
     ints.put(7);
     ints.put(8);

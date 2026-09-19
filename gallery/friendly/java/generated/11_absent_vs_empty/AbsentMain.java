@@ -3,6 +3,7 @@ import java.io.*;
 public class AbsentMain { 
   
   public static void main(String [] args ) {
+    RgArgs.args = args;
     final AbsentMain app = new AbsentMain();
     String s = null;
     System.out.println(String.valueOf( app.report("unset", s) ) );

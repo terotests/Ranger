@@ -3,6 +3,7 @@ import java.io.*;
 public class EnumsMain { 
   
   public static void main(String [] args ) {
+    RgArgs.args = args;
     final EnumsMain app = new EnumsMain();
     System.out.println(String.valueOf( "color " + app.colorName(1) ) );
     System.out.println(String.valueOf( app.describe((new Message_Ping())) ) );

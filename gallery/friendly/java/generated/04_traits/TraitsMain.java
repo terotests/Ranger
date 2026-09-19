@@ -3,6 +3,7 @@ import java.io.*;
 public class TraitsMain { 
   
   public static void main(String [] args ) {
+    RgArgs.args = args;
     final TraitsMain app = new TraitsMain();
     final User u = new User();
     u.name = "ada";

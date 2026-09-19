@@ -4,6 +4,7 @@ import java.io.*;
 public class OptionResultMain { 
   
   public static void main(String [] args ) {
+    RgArgs.args = args;
     final Lookup box = new Lookup();
     final ArrayList<String> names = new ArrayList<String>(Arrays.asList( new String[] {"ada", "grace"}));
     final String hit = box.findName(names, "ada");
