@@ -143,6 +143,13 @@ SUITES=(
   evg:toolbar:test
   evg:overlay:test
   evg:fixed:test
+  # An absolute box under a `display: grid` parent, which was dropped — and
+  # the connectors that make an arrow between two cards survive a reflow.
+  evg:connector:test
+  # Surfaces: the anchor named rather than guessed from a sibling, an ordered
+  # fallback list, fit-viewport, and the presentation a menu switches to when
+  # the page is a phone.
+  evg:popover:test
   evg:style:test
   # `@vars` and `var()`: the palette a theme replaces instead of ninety rules.
   # Two of its checks are not about colour — that a name nobody defined is

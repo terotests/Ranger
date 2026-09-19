@@ -1,0 +1,14 @@
+{"evg":1,"root":{"tag":"div","props":{"class-name":"page"},"children":[
+  {"tag":"div","props":{"class-name":"card","anchor-name":"--orders"},"children":[
+    {"tag":"span","props":{"class-name":"label"},"text":"Orders"},
+    {"tag":"span","props":{"class-name":"value"},"text":"1 284"}
+  ]},
+  {"tag":"div","props":{"class-name":"card","anchor-name":"--revenue"},"children":[
+    {"tag":"span","props":{"class-name":"label"},"text":"Revenue"},
+    {"tag":"span","props":{"class-name":"value"},"text":"48 190"}
+  ]},
+  {"tag":"connector","props":{"class-name":"flow"}},
+  {"tag":"div","props":{"class-name":"badge"},"children":[
+    {"tag":"span","props":{"class-name":"badge-text"},"text":"7"}
+  ]}
+]}}

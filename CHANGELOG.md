@@ -9,6 +9,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Two worked examples, as fixtures.** `lib/evg/agent/fixtures/popover.*` is a
+  menu bar whose open menu is anchored by name and becomes a bottom sheet
+  below 600px; `connector.*` is two cards with an arrow between them and a
+  count badge on a corner, in a grid that goes to one column under a media
+  query — the arrow follows without being mentioned. Both are a `.evg.json`
+  and a `.css`, rendered at two widths with
+  `npm run agent:render -- <doc> out.png -w <w> -h <h> -css <sheet>`.
+
+- **Popovers: a surface knows where it fits, and what to be when it does
+  not.** EVG already drew overlay surfaces in a real top layer — after the
+  whole normal tree, outside every clip — and flipped them at a page edge.
+  Four things now turn that into a menu system. `position-anchor: --file`
+  names the box to position against (an `anchor-name` or an `#id`) instead of
+  finding it among the surface's own siblings, so a menu no longer has to be
+  declared beside its trigger; it also marks the element as a surface, as does
+  the new `popover` tag. `position-area: bottom start` is the side and the
+  cross-axis alignment in one declaration, and `position-try-fallbacks:
+  "top start, right start"` is an ordered list of areas tried until one is
+  wholly on the page — `position-try-order: most-space` takes the roomiest
+  instead of the first. `fit-viewport: true` clamps a surface to the room it
+  actually has and, with `overflow` set, `scrollHeight` is the rest of the
+  menu. `presentation: anchored | sheet | fullscreen` and `sheet-below: 600px`
+  cover the case no placement can: at 390 wide an anchored menu is the wrong
+  widget, so it becomes a sheet along the bottom edge with its children laid
+  out again at the page's width. `overflow-y`/`overflow-x` are accepted and
+  set `overflow`, which this engine has one of. And `anchor()` is read in the
+  inset properties — `left: calc(anchor(right) - 12px)` — which places one
+  edge against one edge of the anchor, with both insets on an axis stretching
+  the box between them; that is the badge-on-a-corner case no area can state.
+  [`lib/evg/EVGLayout.rgr`](lib/evg/EVGLayout.rgr),
+  `npm run evg:popover:test`, and the README's
+  [Surfaces](lib/evg/README.md#surfaces-popovers-anchors-and-presentation).
+
+- **Connectors: a line between two elements, drawn by the layout.** A
+  `connector` names two boxes (`from`/`to`, an `anchor-name` such as
+  `--orders` or an `#id`), and EVG writes its `d` on every layout pass from
+  the rectangles they came out as. `from-side`/`to-side` default to `auto`,
+  which picks the facing pair — so the same connector leaves the right edge
+  while two cards sit side by side and the bottom edge once the grid stacks
+  them on a phone. `routing` is `straight`, `orthogonal` or `bezier`;
+  `arrow-start`/`arrow-end` are `open` (stroked) or `triangle` (filled) at
+  `arrow-size`; everything else is the stroke vocabulary a `path` already
+  has. `path` is unchanged and still the right tool when the author owns the
+  geometry. [`lib/evg/EVGConnector.rgr`](lib/evg/EVGConnector.rgr),
+  `npm run evg:connector:test`.
+
 - **Erazer turns a UI screenshot into an EVG layout.** `gallery/erazer`
   grows colour regions, nests them, and guesses widget classes (button,
   text field, tab, menu, checkbox, slider, label, icon) instead of tracing the
@@ -127,6 +173,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     for every element it compares against.
 
 ### Fixed
+
+- **`@media` was silently inert in every CLI tool.** `EVGStyleSheet` evaluates
+  a media query against a viewport the caller states, and a query it cannot
+  evaluate does not apply — but `EVGStyleLoader`, which every `-css` flag goes
+  through, never stated one. So the responsive half of a stylesheet did
+  nothing in the PNG, PDF, HTML, JSON and display-list tools while the same
+  sheet worked in an application, with no warning either way: the page
+  rendered, and it rendered wrong. The tools know their page size before they
+  apply anything, and now pass it.
+
+- **`position: absolute` was dropped inside a `display: grid` parent.**
+  `layoutGrid` left out-of-flow children out of the placement, which is
+  right — an absolute box takes no track — and then nothing laid them out at
+  all: the box kept zero size at (0,0), so an absolutely positioned `div`
+  vanished and a `path` drew its own coordinates in the page's top-left
+  corner with `left`/`top` ignored. The same element under a flex or block
+  parent was placed correctly, which made it look like a `path` bug. The
+  out-of-flow pass is now one function (`EVGLayout.layoutOutOfFlowChild`)
+  that both flow and grid run.
 
 - **An array literal survives a call whose result is dereferenced.**
   `(box.take(([] _:string ( "a" "b" )))).count()` emitted

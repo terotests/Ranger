@@ -510,6 +510,24 @@ class JSXToEVG {
             return "path"
         }
 
+        ; A connector is a path whose `d` the layout writes — see
+        ; EVGConnector.rgr. It keeps its own tag so the layout can find it.
+        if (jsxTag == "connector") {
+            return "connector"
+        }
+        if (jsxTag == "Connector") {
+            return "connector"
+        }
+
+        ; A popover is a container that is a surface — out of flow, in the top
+        ; layer, placed against an anchor. See EVGElement.isSurface.
+        if (jsxTag == "popover") {
+            return "popover"
+        }
+        if (jsxTag == "Popover") {
+            return "popover"
+        }
+
         ; An imported SVG document. It becomes a path element because that is
         ; what it is once SvgParser has resolved it — a piece of vector art
         ; sized and placed by its element box — and reusing the type means the

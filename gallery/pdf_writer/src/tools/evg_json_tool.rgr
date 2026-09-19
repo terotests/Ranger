@@ -129,6 +129,9 @@ class EVGJsonTool {
             print (("Error: could not read " + inputFile) + " as a document")
             return
         }
+        ; The size `@media` is asked about, which this tool knows and the
+        ; sheet cannot.
+        styles.setViewport(pageWidth pageHeight)
         def usedTheme:string (styles.applyTo(root))
         if (styles.hasFiles()) {
             styles.report(usedTheme)

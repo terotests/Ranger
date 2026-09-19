@@ -1,0 +1,30 @@
+{"evg":1,"root":{"tag":"div","props":{"class-name":"app"},"children":[
+  {"tag":"div","props":{"class-name":"bar"},"children":[
+    {"tag":"span","props":{"class-name":"title open","anchor-name":"--file"},"text":"File"},
+    {"tag":"span","props":{"class-name":"title"},"text":"Edit"},
+    {"tag":"span","props":{"class-name":"title"},"text":"View"},
+    {"tag":"span","props":{"class-name":"title"},"text":"Help"}
+  ]},
+  {"tag":"div","props":{"class-name":"canvas"},"children":[
+    {"tag":"div","props":{"class-name":"cards"},"children":[
+      {"tag":"div","props":{"class-name":"card"},"children":[
+        {"tag":"span","props":{"class-name":"card-title"},"text":"Orders"},
+        {"tag":"span","props":{"class-name":"card-value"},"text":"1 284"}
+      ]},
+      {"tag":"div","props":{"class-name":"card"},"children":[
+        {"tag":"span","props":{"class-name":"card-title"},"text":"Revenue"},
+        {"tag":"span","props":{"class-name":"card-value"},"text":"48 190"}
+      ]}
+    ]}
+  ]},
+  {"tag":"popover","props":{"class-name":"menu"},"children":[
+    {"tag":"span","props":{"class-name":"item"},"text":"New Tab"},
+    {"tag":"span","props":{"class-name":"item"},"text":"New Window"},
+    {"tag":"span","props":{"class-name":"item"},"text":"Open…"},
+    {"tag":"div","props":{"class-name":"sep"}},
+    {"tag":"span","props":{"class-name":"item"},"text":"Save"},
+    {"tag":"span","props":{"class-name":"item"},"text":"Save As…"},
+    {"tag":"div","props":{"class-name":"sep"}},
+    {"tag":"span","props":{"class-name":"item"},"text":"Close Window"}
+  ]}
+]}}
