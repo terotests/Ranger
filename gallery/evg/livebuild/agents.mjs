@@ -387,6 +387,13 @@ export function frameFixture(kind) {
   return { kind: SEED_KINDS.includes(kind) ? kind : "dashboard", events, doc: seedDoc(kind) };
 }
 
+// One line per applied batch, so the host can read it with an offset and never
+// half-parse a write in flight.
+const OPS_LOG = ".applied-ops.log";
+const OPS_LOG_SNIPPET =
+  'const fs=require("fs");try{const o=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));' +
+  'if(o&&Array.isArray(o.ops)&&o.ops.length)fs.appendFileSync(process.argv[2],JSON.stringify(o.ops)+"\\n");}catch(e){}';
+
 function installEvgAgent(dir) {
   const src = path.join(root, "lib/evg/bin/evg_agent.js");
   if (!fs.existsSync(src)) return false;
@@ -401,16 +408,17 @@ function installEvgAgent(dir) {
     [
       "#!/bin/sh",
       'dir=$(dirname "$0")',
-      // Only `patch` is buffered, and only a batch the tool said it APPLIED is
-      // recorded: a rejection exits 0 with `"ok":false`, and a panel showing
-      // ops that never landed would be worse than an empty one.
+      // Only `patch` is buffered, and only a batch the tool said it APPLIED to
+      // the live document is recorded: a rejection exits 0 with `"ok":false`,
+      // and `--out=elsewhere.json` names that file in `wrote`. A panel showing
+      // ops that never reached the phone would be worse than an empty one.
       'if [ "$1" = "patch" ]; then',
       '  out=$(node "$dir/evg_agent.js" "$@")',
       "  status=$?",
       `  printf '%s\\n' "$out"`,
       '  if [ "$status" = "0" ] && [ -f "$3" ]; then',
       "    case \"$out\" in",
-      `      *'\"ok\":true'*) node -e '${OPS_LOG_SNIPPET}' "$3" "$dir/${OPS_LOG}" ;;`,
+      `      *'\"ok\":true'*doc.evg.json*) node -e '${OPS_LOG_SNIPPET}' "$3" "$dir/${OPS_LOG}" ;;`,
       "    esac",
       "  fi",
       "  exit $status",
@@ -423,19 +431,14 @@ function installEvgAgent(dir) {
   return true;
 }
 
-// One line per applied batch, so the host can read it with an offset and never
-// half-parse a write in flight.
-const OPS_LOG = ".applied-ops.log";
-const OPS_LOG_SNIPPET =
-  'const fs=require("fs");try{const o=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));' +
-  'if(o&&Array.isArray(o.ops)&&o.ops.length)fs.appendFileSync(process.argv[2],JSON.stringify(o.ops)+"\\n");}catch(e){}';
-
 function watchOps(workspace, onOps) {
   const file = path.join(workspace, OPS_LOG);
+  // A session workspace outlives the run, so last run's batches are dropped
+  // here rather than replayed into this one's panel.
   try {
     fs.rmSync(file, { force: true });
   } catch {
-    /* a session workspace keeps the last run's log */
+    /* held open elsewhere — the offset below starts at 0 either way */
   }
   let seen = 0;
   const tick = () => {

@@ -349,6 +349,7 @@ function start(keepPicture) {
   });
   on("error", (d) => {
     $("think").append("\n\nerror: " + (d.text || "failed"));
+    pendingBreak = true;
   });
   on("done", (d) => {
     $("go").disabled = false;

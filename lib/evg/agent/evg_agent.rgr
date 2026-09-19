@@ -335,6 +335,12 @@ class EvgAgent {
 
     ; One op, if what it wrote now reads the same as a fresh element of that tag.
     fn defaultNote:string (op:EVGPatchOp) {
+        ; An empty value IS the request to go back to the default — the inverse
+        ; of a property that had never been set writes one. Saying it landed on
+        ; the default would be reporting the caller's own instruction back.
+        if ((strlen op.value) == 0) {
+            return ""
+        }
         def hit@(optional):EVGElement (insp.elementAt(op.at))
         if (null? hit) {
             return ""
