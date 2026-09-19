@@ -1,0 +1,55 @@
+
+* Ranger Compiler v3.5.1
+
+  Input:  /home/user/Ranger/gallery/rustfriendly/src/01_ownership.rgr
+  Output: 01_ownership.rs
+  Target: Rust
+
+─────────────────────────────────────────────────────
+
+Livecompiler starting with language => rust
+[1/5] Collecting methods...
+[2/5] Analyzing code...
+[3/5] Static analysis for rust
+ownership[infer] fn set:
+  param 'idx' -> borrowed
+  param 'item' -> borrowed
+ownership[infer] fn insert:
+  param 'idx' -> borrowed
+  param 'item' -> borrowed
+ownership[infer] fn get:
+  param 'idx' -> borrowed
+ownership[infer] fn add:
+  param 'item' -> borrowed
+ownership[infer] fn map:
+  param 'cb' -> borrowed
+ownership[infer] fn Constructor:
+  param 'x' -> borrowed
+  param 'x' -> borrowed
+  param 'y' -> borrowed
+  param 'y' -> borrowed
+ownership[infer] fn manhattan:
+  param 'p' -> borrowed
+ownership[infer] fn addPoints:
+  param 'a' -> borrowed
+  param 'b' -> borrowed
+ownership[infer] fn add:
+  param 'amount' -> borrowed
+ownership[infer] fn adopt:
+  param 'c' -> moved (kids)
+ownership[rust] class Point -> value
+ownership[rust] class PointOps -> value
+ownership[rust] class Counter -> Rc<RefCell> (aliased and mutated in main)
+ownership[rust] class TreeNode -> Rc<RefCell> (weak field TreeNode.parent)
+ownership[rust] class OwnershipMain -> value
+[4/5] Generating code...
+[5/5] Writing output...
+
+─────────────────────────────────────────────────────
+
+[OK] Compilation successful!
+
+  Output: /home/user/Ranger/gallery/rustfriendly/generated/01_ownership.rs
+  Time:   508ms
+
+Saving results to path : /home/user/Ranger/gallery/rustfriendly/generated

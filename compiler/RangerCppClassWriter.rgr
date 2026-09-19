@@ -370,6 +370,43 @@ class RangerCppClassWriter {
     }
   }
 
+  ; `r_optional_primitive<T>` is the C++ shape of an optional int or double. Its
+  ; definition lived only on the `str2int` / `str2double` operator templates as a
+  ; (create_polyfill …), so a program that declared an optional primitive
+  ; PARAMETER and never called str2int emitted the type and never declared it:
+  ; "error: 'r_optional_primitive' has not been declared", and the program did
+  ; not build at all. The type is emitted from here, so the definition is too —
+  ; createPolyfill keys its dedup on the code text, so this is the same block the
+  ; operator templates install and the two never double up.
+  fn cppEmitOptionalPrimitive:void (wr:CodeWriter) {
+    def code:string "
+template <class T>
+class r_optional_primitive {
+  public:
+    // has_value has to start false: cpp_str_to_int and its siblings leave the
+    // field untouched when the conversion throws, and an indeterminate bool
+    // made a failed str2int read back as a value on the C++ target.
+    bool has_value = false;
+    T value = T();
+    r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
+        has_value = rhs.has_value;
+        value = rhs.value;
+        return *this;
+    }
+    r_optional_primitive<T> & operator=(const T a_value) {
+        has_value = true;
+        value = a_value;
+        return *this;
+    }
+};
+"
+    def p_write:CodeWriter (wr.getTag("utilities"))
+    if ((has p_write.compiledTags code) == false) {
+      p_write.raw(code true)
+      set p_write.compiledTags code true
+    }
+  }
+
   fn writeTypeDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def v_type:RangerNodeType node.value_type    
     def t_name:string node.type_name
@@ -423,6 +460,7 @@ class RangerCppClassWriter {
           wr.addImport("<cstdint>")
         }
         if(node.hasFlag("optional")) {
+          this.cppEmitOptionalPrimitive(wr)
           wr.out(((" r_optional_primitive<" + intCppType) + "> ") false)
         } {
           wr.out(intCppType false)
@@ -452,6 +490,7 @@ class RangerCppClassWriter {
         def dblCppType:string "double"
         if (t_name == "f32") { dblCppType = "float" }
         if(node.hasFlag("optional")) {
+          this.cppEmitOptionalPrimitive(wr)
           wr.out(((" r_optional_primitive<" + dblCppType) + "> ") false)
         } {
           wr.out(dblCppType false)

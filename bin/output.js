@@ -28832,6 +28832,14 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
               return;
             }
           };
+          cppEmitOptionalPrimitive (wr) {
+            const code = "\ntemplate <class T>\nclass r_optional_primitive {\n  public:\n    // has_value has to start false: cpp_str_to_int and its siblings leave the\n    // field untouched when the conversion throws, and an indeterminate bool\n    // made a failed str2int read back as a value on the C++ target.\n    bool has_value = false;\n    T value = T();\n    r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {\n        has_value = rhs.has_value;\n        value = rhs.value;\n        return *this;\n    }\n    r_optional_primitive<T> & operator=(const T a_value) {\n        has_value = true;\n        value = a_value;\n        return *this;\n    }\n};\n";
+            const p_write = wr.getTag("utilities");
+            if ( ( typeof(p_write.compiledTags[code] ) != "undefined" && Object.prototype.hasOwnProperty.call(p_write.compiledTags, code) ) == false ) {
+              p_write.raw(code, true);
+              p_write.compiledTags[code] = true;
+            }
+          };
           writeTypeDef (node, ctx, wr) {
             let v_type = node.value_type;
             let t_name = node.type_name;
@@ -28891,6 +28899,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   wr.addImport("<cstdint>");
                 }
                 if ( node.hasFlag("optional") ) {
+                  this.cppEmitOptionalPrimitive(wr);
                   wr.out((" r_optional_primitive<" + intCppType) + "> ", false);
                 } else {
                   wr.out(intCppType, false);
@@ -28922,6 +28931,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                   dblCppType = "float";
                 }
                 if ( node.hasFlag("optional") ) {
+                  this.cppEmitOptionalPrimitive(wr);
                   wr.out((" r_optional_primitive<" + dblCppType) + "> ", false);
                 } else {
                   wr.out(dblCppType, false);

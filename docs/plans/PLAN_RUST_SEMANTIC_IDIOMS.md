@@ -1,8 +1,8 @@
-# PLAN_RUST_SEMANTIC_IDIOMS — closing the semantic gap the rustfriendly study found
+# PLAN_RUST_SEMANTIC_IDIOMS — closing the semantic gap the friendly study found
 
 > **Status: P0 landed. P1 and beyond wait for the target lowering IR.** The three
 > correctness items — **A**, **B**, **C1** — are in, with the gallery study as
-> their gate (`npm run rustfriendly:test`). The rest is parked: the ownership
+> their gate (`bash gallery/friendly/compile.sh`). The rest is parked: the ownership
 > vocabulary of §1, the handle/data split (**J**) and the borrow-provenance
 > inference (**M**) are cheap inside a lowering IR and expensive as further
 > text-template special cases, so the refactor changes their cost, not just their
@@ -13,7 +13,7 @@
 > all three bugs were still live in the new layout, and the split changed none of
 > the study's `generated/*.rs` by a byte.
 
-`gallery/rustfriendly` (PR #1010) asks a question
+The Rust study in `gallery/friendly` (PR #1010) asks a question
 [PLAN_RUST_IDIOMATICITY](PLAN_RUST_IDIOMATICITY.md) did not. That plan measured
 *texture* — clippy warnings, casts, `return` vs tail expression — and drove it
 from 1395 warnings to 0. The study asks whether the Rust **says what a Rust
@@ -198,9 +198,29 @@ wrapped. The object case keeps the ownership model through the `Option` — the
 `Option` outside the cell, the shape an optional field takes.
 
 **Gate.** The old `attempts/02_optional_string_param.rgr` was promoted to
-[`gallery/rustfriendly/src/10_optional_params.rgr`](../../gallery/rustfriendly/src/10_optional_params.rgr):
-an optional string, scalar and object parameter in one program, compiled,
-rustc-built and run by `compile.sh`.
+[`gallery/friendly/src/10_optional_params.rgr`](../../gallery/friendly/src/10_optional_params.rgr)
+— a shared study, so all ten targets build it and six of them run it. All six
+print the same four lines.
+
+**And it found the same class of bug on C++.** `r_optional_primitive<T>` is the
+C++ shape of an optional scalar, and its definition lived only on the `str2int`
+operator's polyfill — so a program with an optional scalar parameter or return
+that never called `str2int` emitted the type and never declared it
+(`error: 'r_optional_primitive' has not been declared`). The gallery had been
+working around it with a `str2int` helper in `src/06_generics.rgr` that nothing
+called. The definition is now emitted where the type is
+([`RangerCppClassWriter.cppEmitOptionalPrimitive`](../../compiler/RangerCppClassWriter.rgr)),
+keyed on the same text so it never doubles up with the operator's copy, and the
+dummy helper is gone.
+
+**One C++ divergence this study records and does not fix.** An optional `string`
+on C++ is a plain `std::string` at every position — field, local and parameter —
+and `null?` on one is an emptiness test. A program that stores `""` in an
+optional reads it back as absent: `PRESENT[]` on every other target, `ABSENT` on
+C++. That is the only place in the ten studies where the same Ranger prints a
+different answer, and no study catches it, because study 10 passes a non-empty
+string. Closing it means giving C++ `std::optional` for strings, which is
+`gallery/friendly/cpp/README.md` item 4, not this plan.
 
 ### B. `try` / `throw` silently drops the catch
 
@@ -244,8 +264,14 @@ gallery program that is built to Rust by an npm script — `invaders`, `pong`,
 `js_parser`, `ts_parser`, `jpeg_scaler`, `evg_component_tool`, `pptx_web`,
 `evg_trace_cli` — came back with zero dropped catches.
 
-**Gate.** [`gallery/rustfriendly/attempts/09_throw_panics.rgr`](../../gallery/rustfriendly/attempts/09_throw_panics.rgr),
+**Gate.** [`gallery/friendly/rust/attempts/09_throw_panics.rgr`](../../gallery/friendly/rust/attempts/09_throw_panics.rgr),
 which `compile.sh` now requires to be refused with this error.
+
+**Swift and Kotlin have the same shape of problem**, per the sibling studies:
+`throw "negative"` is not a `Error` / `Throwable` there, so the file does not
+compile — which at least fails loudly. C++ catches with `catch(...)` and loses
+`error_msg`. The rule this item establishes is target-independent: refuse what
+the target cannot express until it can.
 
 ### C. A `trait` used as a type emits an undefined type
 
@@ -260,7 +286,7 @@ the trait, so the trait name falls through to `getObjectTypeString` — a bare
 1. *Done.* A compile error naming the trait and the spelling that does work:
    `Extends(Base)`, which emits a real Rust trait object. Silent broken output
    is the worst of the three outcomes. Gate:
-   [`gallery/rustfriendly/attempts/04_trait_as_type.rgr`](../../gallery/rustfriendly/attempts/04_trait_as_type.rgr).
+   [`gallery/friendly/rust/attempts/04_trait_as_type.rgr`](../../gallery/friendly/rust/attempts/04_trait_as_type.rgr).
 2. *After the lowering IR.* Item **I**.
 
 The same hole is still open in the C++ writer — `std::shared_ptr<Named>` with no
@@ -605,9 +631,12 @@ portable Ranger semantics* — without Ranger becoming a way to write Rust.
 ## Gate
 
 **Done, and it is where the rest of this plan is checked.**
-`npm run rustfriendly:test` compiles each of the ten studies, `rustc`s it and
-runs the binary — and then requires every file in `attempts/` to be *refused*,
-with the error that file declares on its first line:
+The study moved to [`gallery/friendly`](../../gallery/friendly/README.md), where
+the same ten `src/` programs are compiled to ten targets and the Rust study is
+one of them. `bash gallery/friendly/compile.sh rust` compiles each study,
+`rustc`s it and runs the binary — and then requires every file in
+`rust/attempts/` to be *refused*, with the error that file declares on its first
+line:
 
 ```text
 ; EXPECT-ERROR: <substring the compiler must print>
@@ -624,15 +653,25 @@ whose arms do not, **D** with a `Result`-shaped union in a hot loop (the O(len)
 copy §1 warns about), **J** with two names for one shared object across a method
 that calls another method on it.
 
+Because `src/` is shared, each of those lands on all ten targets at once, and
+that is the point: the optional-parameter study was written for Rust and found
+the same class of bug on C++ the first time it ran there. A Rust-only fixture
+would not have.
+
 ## How to check
 
 ```sh
 npm run compile
-npm run rustfriendly:test        # ten studies built and run, three attempts refused
+bash gallery/friendly/compile.sh rust   # ten studies built and run, three attempts refused
+bash gallery/friendly/compile.sh        # all ten targets
 npm run test:rust
 npx vitest run --config tests/vitest.config.ts codegen-rust.test.ts
 bash scripts/rust-selfhost-check.sh
 ```
+
+Toolchains on the machine this was last run on: node, python3, go, g++, javac,
+rustc. `swiftc`, `kotlinc`, `dart` and `mcs` were absent, so those four targets
+were checked as writer output only.
 
 Known-red at the time of writing, and none of it from this plan: 19 tests across
 `ranger-engine` (13), `codegen-rust` (2, `format!` flattening),
@@ -641,6 +680,6 @@ plus 9 rustc errors from `rust-selfhost-check.sh`. Every one of those counts is
 identical with and without the P0 changes, checked by rebuilding from
 `origin/master` and re-running.
 
-Related: [`gallery/rustfriendly/README.md`](../../gallery/rustfriendly/README.md),
+Related: [`gallery/friendly/rust/README.md`](../../gallery/friendly/rust/README.md),
 [PLAN_RUST_IDIOMATICITY.md](PLAN_RUST_IDIOMATICITY.md),
 [PLAN_RUST_OWNERSHIP.md](PLAN_RUST_OWNERSHIP.md), [PLAN_SHAPES.md](PLAN_SHAPES.md).

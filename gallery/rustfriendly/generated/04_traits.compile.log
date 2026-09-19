@@ -1,0 +1,41 @@
+
+* Ranger Compiler v3.5.1
+
+  Input:  /home/user/Ranger/gallery/rustfriendly/src/04_traits.rgr
+  Output: 04_traits.rs
+  Target: Rust
+
+─────────────────────────────────────────────────────
+
+Livecompiler starting with language => rust
+[1/5] Collecting methods...
+[2/5] Analyzing code...
+[3/5] Static analysis for rust
+ownership[infer] fn set:
+  param 'idx' -> borrowed
+  param 'item' -> borrowed
+ownership[infer] fn insert:
+  param 'idx' -> borrowed
+  param 'item' -> borrowed
+ownership[infer] fn get:
+  param 'idx' -> borrowed
+ownership[infer] fn add:
+  param 'item' -> borrowed
+ownership[infer] fn map:
+  param 'cb' -> borrowed
+ownership[infer] fn show:
+  param 'who' -> borrowed
+ownership[rust] class User -> value
+ownership[rust] class Bot -> value
+ownership[rust] class TraitsMain -> value
+[4/5] Generating code...
+[5/5] Writing output...
+
+─────────────────────────────────────────────────────
+
+[OK] Compilation successful!
+
+  Output: /home/user/Ranger/gallery/rustfriendly/generated/04_traits.rs
+  Time:   327ms
+
+Saving results to path : /home/user/Ranger/gallery/rustfriendly/generated

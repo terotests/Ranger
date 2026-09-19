@@ -1,0 +1,65 @@
+warning: type `union_Guarded` should have an upper camel case name
+  --> /home/user/Ranger/gallery/rustfriendly/generated/09_errors.rs:20:10
+   |
+20 | pub enum union_Guarded {
+   |          ^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `UnionGuarded`
+   |
+   = note: `#[warn(non_camel_case_types)]` (part of `#[warn(nonstandard_style)]`) on by default
+
+warning: variant `Guarded_Ok` should have an upper camel case name
+  --> /home/user/Ranger/gallery/rustfriendly/generated/09_errors.rs:21:5
+   |
+21 |     Guarded_Ok(Guarded_Ok),
+   |     ^^^^^^^^^^ help: convert the identifier to upper camel case: `GuardedOk`
+
+warning: variant `Guarded_Err` should have an upper camel case name
+  --> /home/user/Ranger/gallery/rustfriendly/generated/09_errors.rs:22:5
+   |
+22 |     Guarded_Err(Rc<RefCell<Guarded_Err>>),
+   |     ^^^^^^^^^^^ help: convert the identifier to upper camel case: `GuardedErr`
+
+warning: type `Guarded_Ok` should have an upper camel case name
+   --> /home/user/Ranger/gallery/rustfriendly/generated/09_errors.rs:158:8
+    |
+158 | struct Guarded_Ok { 
+    |        ^^^^^^^^^^ help: convert the identifier to upper camel case: `GuardedOk`
+
+warning: type `Guarded_Err` should have an upper camel case name
+   --> /home/user/Ranger/gallery/rustfriendly/generated/09_errors.rs:172:8
+    |
+172 | struct Guarded_Err { 
+    |        ^^^^^^^^^^^ help: convert the identifier to upper camel case: `GuardedErr`
+
+warning: type `Guarded__ops` should have an upper camel case name
+   --> /home/user/Ranger/gallery/rustfriendly/generated/09_errors.rs:186:8
+    |
+186 | struct Guarded__ops { 
+    |        ^^^^^^^^^^^^ help: convert the identifier to upper camel case: `GuardedOps`
+
+warning: type `Guarded_Ok` is more private than the item `union_Guarded::Guarded_Ok::0`
+   --> /home/user/Ranger/gallery/rustfriendly/generated/09_errors.rs:21:16
+    |
+ 21 |     Guarded_Ok(Guarded_Ok),
+    |                ^^^^^^^^^^ field `union_Guarded::Guarded_Ok::0` is reachable at visibility `pub`
+    |
+note: but type `Guarded_Ok` is only usable at visibility `pub(crate)`
+   --> /home/user/Ranger/gallery/rustfriendly/generated/09_errors.rs:158:1
+    |
+158 | struct Guarded_Ok { 
+    | ^^^^^^^^^^^^^^^^^
+    = note: `#[warn(private_interfaces)]` on by default
+
+warning: type `Guarded_Err` is more private than the item `union_Guarded::Guarded_Err::0`
+   --> /home/user/Ranger/gallery/rustfriendly/generated/09_errors.rs:22:17
+    |
+ 22 |     Guarded_Err(Rc<RefCell<Guarded_Err>>),
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^ field `union_Guarded::Guarded_Err::0` is reachable at visibility `pub`
+    |
+note: but type `Guarded_Err` is only usable at visibility `pub(crate)`
+   --> /home/user/Ranger/gallery/rustfriendly/generated/09_errors.rs:172:1
+    |
+172 | struct Guarded_Err { 
+    | ^^^^^^^^^^^^^^^^^^
+
+warning: 8 warnings emitted
+

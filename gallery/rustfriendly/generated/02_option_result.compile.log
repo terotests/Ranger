@@ -1,0 +1,60 @@
+
+* Ranger Compiler v3.5.1
+
+  Input:  /home/user/Ranger/gallery/rustfriendly/src/02_option_result.rgr
+  Output: 02_option_result.rs
+  Target: Rust
+
+─────────────────────────────────────────────────────
+
+Livecompiler starting with language => rust
+[1/5] Collecting methods...
+[2/5] Analyzing code...
+[3/5] Static analysis for rust
+ownership[infer] fn set:
+  param 'idx' -> borrowed
+  param 'item' -> borrowed
+ownership[infer] fn insert:
+  param 'idx' -> borrowed
+  param 'item' -> borrowed
+ownership[infer] fn get:
+  param 'idx' -> borrowed
+ownership[infer] fn add:
+  param 'item' -> borrowed
+ownership[infer] fn map:
+  param 'cb' -> borrowed
+ownership[infer] fn Constructor:
+  param 'value' -> borrowed
+  param 'value' -> borrowed
+ownership[infer] fn Constructor:
+  param 'message' -> borrowed
+  param 'message' -> borrowed
+ownership[infer] fn equals:
+  param 'a' -> borrowed
+  param 'b' -> borrowed
+ownership[infer] fn notEquals:
+  param 'a' -> borrowed
+  param 'b' -> borrowed
+ownership[infer] fn findName:
+  param 'names' -> borrowed
+  param 'key' -> borrowed
+ownership[infer] fn parseInt:
+  param 'text' -> borrowed
+ownership[infer] fn describe:
+  param 'r' -> borrowed
+ownership[rust] class ParseOutcome_Ok -> value
+ownership[rust] class ParseOutcome_Err -> Rc<RefCell> (member of union ParseOutcome)
+ownership[rust] class ParseOutcome__ops -> value
+ownership[rust] class Lookup -> value
+ownership[rust] class OptionResultMain -> value
+[4/5] Generating code...
+[5/5] Writing output...
+
+─────────────────────────────────────────────────────
+
+[OK] Compilation successful!
+
+  Output: /home/user/Ranger/gallery/rustfriendly/generated/02_option_result.rs
+  Time:   289ms
+
+Saving results to path : /home/user/Ranger/gallery/rustfriendly/generated

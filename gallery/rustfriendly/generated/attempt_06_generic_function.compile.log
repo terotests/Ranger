@@ -1,0 +1,56 @@
+
+* Ranger Compiler v3.5.1
+
+  Input:  /home/user/Ranger/gallery/rustfriendly/attempts/06_generic_function.rgr
+  Output: attempt_06_generic_function.rs
+  Target: Rust
+
+─────────────────────────────────────────────────────
+
+Livecompiler starting with language => rust
+[1/5] Collecting methods...
+[2/5] Analyzing code...
+
+
+/home/user/Ranger/gallery/rustfriendly/attempts/06_generic_function.rgr:9:26
+
+  [FAIL] WriteVREF -> Undefined variable x in class Vector node : x:T
+
+     9 │ fn identity @params(T):T (x:T) {
+                                   ^── here
+    10 │     return x
+
+
+/home/user/Ranger/gallery/rustfriendly/attempts/06_generic_function.rgr:9:26
+
+  [FAIL] WriteVREF -> Undefined variable x in class Vector node : (x:T)
+
+     9 │ fn identity @params(T):T (x:T) {
+                                   ^── here
+    10 │     return x
+
+
+/home/user/Ranger/gallery/rustfriendly/attempts/06_generic_function.rgr:15:21
+
+  [FAIL] WriteVREF -> Undefined variable identity in class GenericFnMain node : identity
+
+    14 │     sfn main:void () {
+    15 │         print ("" + (identity@(int)(3)))
+                              ^── here
+    16 │     }
+
+
+/home/user/Ranger/gallery/rustfriendly/attempts/06_generic_function.rgr:15:21
+
+  [FAIL] WriteVREF -> Undefined variable identity in class GenericFnMain node : (identity (3))
+
+    14 │     sfn main:void () {
+    15 │         print ("" + (identity@(int)(3)))
+                              ^── here
+    16 │     }
+
+
+─────────────────────────────────────────────────────
+
+[FAIL] Compilation FAILED (4 errors)
+
