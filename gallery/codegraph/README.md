@@ -71,6 +71,9 @@ npm run codegraph:sdl          # native SDL2 window (macOS / Linux)
 npm run codegraph:sdl:smoke    # headless dummy video driver
 ```
 
+The SDL window is the same app as the tab, including UML hover cards. Rebuild
+after pull (`npm run codegraph:sdl`) so the binary picks up host and graph changes.
+
 Open `/codegraph/` and pick **calls.rgr**, **animals.rgr**, **css**, **evg**,
 **zip**, **cpp**, or the **diff** of calls.rgr against calls_v2.rgr. A pick
 the tab has not fetched yet (the gallery pack behind css / evg / zip, the
