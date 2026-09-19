@@ -119,6 +119,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The front-page Targets section is the idiom comparison table.**
+  Primary / Thinner / Experimental chips come out. The table has every
+  official source back end, including TypeScript (`T | undefined`,
+  union types, `export`), PHP and Scala. Swift 3, LLVM and WASM stay
+  out: they are an older dialect and two IR writers, not source you
+  check in.
+
 - **The repository root, and the compiler folder, hold the product.** The root
   had 71 markdown files, nine compiled JavaScript files, eleven buffer and JPEG
   probes, a rustc log, a Node stack trace and a `pubspec.yaml` naming a Dart

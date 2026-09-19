@@ -248,41 +248,230 @@ Pricing.kt</code></pre>
 <section class="section section--dark" id="targets">
   <div class="wrap">
     <p class="label reveal">Targets</p>
+    <h2 class="display display--md reveal">Would a native programmer keep the file?</h2>
     <p class="lead lead--wide reveal">
-      Target quality varies by language and by feature area. These are the tiers from
-      <a class="u" href="https://github.com/terotests/Ranger/blob/master/TARGET_NOTES.md">TARGET_NOTES.md</a>.
-      CI compares the capability matrix against a checked-in baseline, so any change —
-      a regression or an improvement — fails the build until the record is updated.
+      Same Ranger source, same printed answers on every target that ran. The
+      ranking is about <strong>idiom</strong>, not about whether the compiler
+      produced a file.
+      <a class="u" href="https://github.com/terotests/Ranger/blob/master/TARGET_NOTES.md">TARGET_NOTES.md</a>
+      still has the maturity tiers and the CI capability matrix.
     </p>
-    <p class="lead lead--wide reveal">
-      <strong>How the count works.</strong> <code>-l=</code> takes fourteen values, and
-      that is the number of code-generating back ends. Two of them have a flag that
-      changes the output language: <code>-typescript</code> on the JavaScript back end
-      writes TypeScript, and <code>-wat</code> on the LLVM back end writes WebAssembly
-      text. That is the sixteen rows below, and the fifteen columns of the syntax-app
-      matrix, which covers every back end plus TypeScript.
+    <p class="reveal">
+      TypeScript is the JavaScript writer plus types and <code>export</code>.
+      PHP and Scala are official <code>-l=</code> back ends that did not have
+      a study folder yet — they belong in the table anyway.
     </p>
+    <ol class="rank reveal">
+      <li>Python</li>
+      <li>JavaScript</li>
+      <li>TypeScript</li>
+      <li>Dart</li>
+      <li>Swift</li>
+      <li>Kotlin</li>
+      <li>C#</li>
+      <li>Java</li>
+      <li>PHP</li>
+      <li>Scala</li>
+      <li>Go</li>
+      <li>C++</li>
+      <li>Rust</li>
+    </ol>
 
-    <div class="tiers">
-      <div class="tier tier--a reveal">
-        <p class="label">Primary</p>
-        <p class="tier__note">Exercised by the test suite and by gallery programs as large as the compiler itself.</p>
-        <ul class="chips">
-          <li>JavaScript / ES2015</li><li>TypeScript</li><li>Kotlin</li><li>Swift 3</li><li>Swift 6</li>
-          <li>C#</li><li>C++14</li><li>Rust</li><li>Go</li><li>Python 3</li><li>Dart</li>
-        </ul>
-      </div>
-      <div class="tier reveal">
-        <p class="label">Thinner</p>
-        <p class="tier__note">Operator templates and syntax-app coverage; fewer end-to-end goldens. Usable, with more gaps.</p>
-        <ul class="chips chips--dim"><li>PHP</li><li>Java 7</li><li>Scala</li></ul>
-      </div>
-      <div class="tier reveal">
-        <p class="label">Experimental</p>
-        <p class="tier__note">One back end: <code>-l=llvm</code> lowers to LLVM IR, and <code>-wat</code> exports the same IR as WebAssembly text for freestanding modules. Native builds work for demos; browser WASM is still rough.</p>
-        <ul class="chips chips--dim"><li>LLVM</li><li>WASM</li></ul>
-      </div>
+    <div class="matrix-wrap reveal">
+      <table class="matrix">
+        <caption class="sr-only">How each official source back end lowers Ranger idioms</caption>
+        <thead>
+          <tr>
+            <th scope="col">Idiom</th>
+            <th scope="col">Python</th>
+            <th scope="col">JS</th>
+            <th scope="col">TS</th>
+            <th scope="col">Dart</th>
+            <th scope="col">Swift</th>
+            <th scope="col">Kotlin</th>
+            <th scope="col">C#</th>
+            <th scope="col">Java</th>
+            <th scope="col">PHP</th>
+            <th scope="col">Scala</th>
+            <th scope="col">Go</th>
+            <th scope="col">C++</th>
+            <th scope="col">Rust</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row">Two names, one object</th>
+            <td>object</td>
+            <td>object</td>
+            <td>object</td>
+            <td>object</td>
+            <td>class / ARC</td>
+            <td>object</td>
+            <td>object</td>
+            <td>object</td>
+            <td>object</td>
+            <td>object</td>
+            <td><code>*T</code></td>
+            <td><code>shared_ptr</code></td>
+            <td><code>Rc&lt;RefCell&gt;</code></td>
+          </tr>
+          <tr>
+            <th scope="row">Weak back-edge</th>
+            <td>ignored</td>
+            <td>ignored</td>
+            <td>ignored</td>
+            <td>ignored (<code>T?</code>)</td>
+            <td><code>weak var x: T?</code></td>
+            <td>ignored (<code>T?</code>)</td>
+            <td>ignored</td>
+            <td>ignored</td>
+            <td>ignored</td>
+            <td>ignored</td>
+            <td>ignored (<code>*GoNullable</code>)</td>
+            <td><code>weak_ptr</code></td>
+            <td><code>Weak&lt;RefCell&gt;</code></td>
+          </tr>
+          <tr>
+            <th scope="row">Optional</th>
+            <td><code>None</code></td>
+            <td><code>undefined</code></td>
+            <td><code>T | undefined</code></td>
+            <td><code>T?</code></td>
+            <td><code>T?</code></td>
+            <td><code>T?</code></td>
+            <td><code>int?</code> / null</td>
+            <td><code>null</code> / <code>Integer</code></td>
+            <td><code>null</code> / <code>isset</code></td>
+            <td><code>Option[T]</code></td>
+            <td><code>*GoNullable</code></td>
+            <td><code>r_optional_*</code></td>
+            <td><code>Option&lt;T&gt;</code></td>
+          </tr>
+          <tr>
+            <th scope="row"><code>try</code> / <code>throw</code></th>
+            <td><code>raise</code> / <code>except</code></td>
+            <td><code>throw "…"</code></td>
+            <td><code>throw "…"</code></td>
+            <td><code>throw "…"</code></td>
+            <td><code>func … throws</code></td>
+            <td><code>Exception(msg)</code></td>
+            <td><code>ConfigurationErrorsException</code></td>
+            <td><code>IllegalArgumentException</code></td>
+            <td><code>throw new Exception</code></td>
+            <td><code>ScalaReturnValue</code></td>
+            <td><code>panic</code> / <code>recover</code></td>
+            <td><code>throw string</code></td>
+            <td>catch dropped, panic</td>
+          </tr>
+          <tr>
+            <th scope="row">Closed variants</th>
+            <td><code>_rg_kind</code></td>
+            <td><code>__rg_kind</code></td>
+            <td><code>__rg_kind</code> + union type</td>
+            <td>abstract class + <code>is</code></td>
+            <td>native <code>enum</code></td>
+            <td><code>sealed interface</code></td>
+            <td><code>interface</code> + <code>is</code></td>
+            <td><code>Object</code> + <code>instanceof</code></td>
+            <td>class + <code>get_class</code></td>
+            <td>class + <code>match</code></td>
+            <td>tagged struct</td>
+            <td><code>std::variant</code></td>
+            <td><code>enum</code> + <code>match</code></td>
+          </tr>
+          <tr>
+            <th scope="row">Ranger <code>Enum</code></th>
+            <td><code>int</code></td>
+            <td>number</td>
+            <td>number</td>
+            <td><code>int</code></td>
+            <td><code>Int</code></td>
+            <td><code>Int</code></td>
+            <td><code>int</code></td>
+            <td><code>Integer</code></td>
+            <td>int</td>
+            <td><code>Int</code></td>
+            <td><code>int64</code></td>
+            <td><code>enum class</code></td>
+            <td><code>enum</code></td>
+          </tr>
+          <tr>
+            <th scope="row">Ranger <code>trait</code></th>
+            <td>mixin</td>
+            <td>mixin</td>
+            <td>mixin</td>
+            <td>mixin / abstract class</td>
+            <td>mixin / <code>protocol</code></td>
+            <td>mixin / <code>interface</code></td>
+            <td>mixin / <code>interface</code></td>
+            <td>mixin / <code>interface</code></td>
+            <td>mixin</td>
+            <td>mixin</td>
+            <td>mixin / <code>interface</code></td>
+            <td>mixin / abstract base</td>
+            <td>mixin / <code>trait</code></td>
+          </tr>
+          <tr>
+            <th scope="row">Generics</th>
+            <td><code>Stack_int</code></td>
+            <td><code>Stack_int</code></td>
+            <td><code>Stack_int</code></td>
+            <td><code>Stack_int</code></td>
+            <td><code>Stack_int</code></td>
+            <td><code>Stack_int</code></td>
+            <td><code>Stack_int</code></td>
+            <td><code>Stack_int</code></td>
+            <td><code>Stack_int</code></td>
+            <td><code>Stack_int</code></td>
+            <td><code>Stack_int</code></td>
+            <td><code>Stack_int</code></td>
+            <td><code>Stack_int</code></td>
+          </tr>
+          <tr>
+            <th scope="row">Higher-order fn</th>
+            <td>callable</td>
+            <td>function</td>
+            <td>typed function</td>
+            <td><code>int Function(int)</code></td>
+            <td>closure</td>
+            <td><code>(Int) -&gt; Int</code></td>
+            <td><code>Func&lt;int, int&gt;</code></td>
+            <td><code>LambdaSignature1</code></td>
+            <td>function</td>
+            <td>function</td>
+            <td><code>func(int64) int64</code></td>
+            <td><code>std::function</code></td>
+            <td><code>&amp;mut dyn FnMut</code></td>
+          </tr>
+          <tr>
+            <th scope="row">Error type</th>
+            <td><code>Exception(str)</code></td>
+            <td>throw string</td>
+            <td>throw string</td>
+            <td>throw string</td>
+            <td><code>throws</code> / no <code>Result</code></td>
+            <td><code>Exception</code></td>
+            <td><code>ConfigurationErrorsException</code></td>
+            <td><code>IllegalArgumentException</code></td>
+            <td><code>Exception</code></td>
+            <td><code>ScalaReturnValue</code></td>
+            <td>no <code>(T, error)</code></td>
+            <td>no <code>expected</code></td>
+            <td>no <code>Result</code></td>
+          </tr>
+        </tbody>
+      </table>
     </div>
+    <p class="footnote reveal">
+      Official <code>-l=</code> source back ends are all in the table: JavaScript,
+      TypeScript (<code>-typescript</code> on the JS writer), Python, Dart, Swift&nbsp;6,
+      Kotlin, C#, Java, PHP, Scala, Go, C++ and Rust.
+      <strong>Not in the table:</strong> Swift&nbsp;3 (the older dialect of the Swift
+      column), and the IR back ends <code>-l=llvm</code> / <code>-wat</code> (LLVM and
+      WASM) — those are not source you check in.
+      The study sources live on
+      <a class="u" href="https://github.com/terotests/Ranger/tree/claude/great-bardeen-jx7vr9/gallery/friendly">gallery/friendly</a>.
+    </p>
 
     <div class="cols cols--2 rules">
       <div class="col reveal">
