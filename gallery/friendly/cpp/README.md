@@ -95,8 +95,11 @@ compiler's own enums come out native in its own C++ rendering.
 
 ### 04 — traits
 
-Mixin. No abstract base, no concepts. `show` takes
-`const shared_ptr<User>&` (or similar) — not a `User` concept.
+Mixin, for a trait that carries fields: the methods are copied into each
+consumer and the trait itself is not a type. That is the right lowering here,
+because C++ has no way to give a base class's fields to classes that already
+own their own copies. A trait that declares only BEHAVIOUR is a different
+question — see study 11 below.
 
 ### 05 — iteration
 
@@ -155,6 +158,22 @@ std::string AbsentMain::report( const std::string& label,
 
 Seven targets run it here and all seven print the same seven lines.
 
+### 11 — a behaviour-only trait as a type
+
+```cpp
+class Named { 
+  public :
+    virtual ~Named() {}
+    virtual std::string label() = 0;
+};
+class User : public Named  { ... };
+std::string TraitsMain::show( std::shared_ptr<Named> n ) { return n->label(); }
+```
+
+`Sized2` in the same file stays a mixin, because nothing names it as a type:
+a vtable in every class that consumes any behaviour-only trait is a layout
+change for programs that never asked for one.
+
 ## What I could not write
 
 `unique_ptr`, `optional`/`expected` as the *language* types, `string_view`/
@@ -179,19 +198,24 @@ splits, namespaces I control.
    the same ones the Rust writer applies to its own `enum`, and they live in
    `compiler/EnumAnalysis.rgr` so there is one answer, not two.
 6. `string_view` / `span` for borrowed `string` / `[T]`.
-7. Field-free `trait` → an abstract base or a concept.
+7. ~~Field-free `trait` → an abstract base or a concept.~~ **Done** for the
+   abstract base. A behaviour-only trait *named as a type* becomes
+   `class Named { public: virtual ~Named() {} virtual std::string label() = 0; };`
+   and its consumers derive from it publicly. Concepts are still open, and so
+   is the field-bearing case, which stays a mixin.
 8. ~~Drop the ordered-map preamble when the program has no map.~~ **Done.**
    Study 07 went from 237 lines to 88; across the ten studies the C++ output
    is about 45% shorter. The preamble still goes in when a map is reachable —
    the selfhost build of the compiler gets all of it.
 9. `int64_t` for Ranger `int`, consistently.
-10. **A `trait` used as a TYPE.** `fn show(n:Named)` emits
-    `std::shared_ptr<Named>` and never declares `Named`, so the file does not
-    compile — for a behaviour-only trait and a field-bearing one alike. Rust
-    refuses the field-bearing case and emits a real `trait` for the
-    behaviour-only one; here both are silent broken output. See
-    `gallery/friendly/rust/src/11_behaviour_traits.rgr`, which is Rust-local
-    for exactly this reason.
+10. ~~**A `trait` used as a TYPE.**~~ **Done** for the behaviour-only case.
+    `fn show(n:Named)` used to emit `std::shared_ptr<Named>` and never declare
+    `Named`, so the file did not compile while Ranger reported success. It is
+    an abstract base now (item 7), and `src/11_behaviour_traits.rgr` is the
+    study. The field-bearing case is still a mixin and using one as a type is
+    still broken output here; Rust refuses it outright
+    (`../rust/attempts/04_trait_as_type.rgr`), and doing the same is the next
+    step. Go, Java, Kotlin, C#, Dart and Swift all still have the whole hole.
 11. ~~**An optional `string` that can tell `""` from absent.**~~ **Done.**
     It was a plain `std::string` at every position — field, local and
     parameter — with `null?` an emptiness test, so a program that stored an

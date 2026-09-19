@@ -1,0 +1,57 @@
+; Study 11 (C++ only) — a behaviour-only trait as an abstract base class
+;
+; The C++ I want:
+;   class Named { public: virtual ~Named() {} virtual std::string label() = 0; };
+;   class User : public Named { ... };
+;   std::string show(std::shared_ptr<Named> n);
+;
+; A Ranger `trait` is a MIXIN: its methods are copied into each class that
+; `does` it, and the trait itself reaches no target as a type. Using one as a
+; TYPE used to emit `std::shared_ptr<Named>` with no `class Named` anywhere in
+; the file — Ranger reported success and g++ stopped at "'Named' was not
+; declared in this scope". A trait that declares only behaviour is exactly what
+; an abstract base class says, so that is what it becomes; the mixin copies are
+; the overrides. A trait carrying FIELDS stays a pure mixin.
+;
+; This study lives here rather than in ../../src because the same program does
+; not compile on Go, Java, Kotlin, C#, Dart or Swift — each of those writers
+; still names a trait type it never declares. Rust has the same study under
+; ../../rust/src for the same reason, spelled as a Rust `trait`.
+
+trait Named {
+    fn label:string () {
+        return "anon"
+    }
+}
+
+trait Sized2 {
+    fn weight:int () {
+        return 1
+    }
+}
+
+class User {
+    does Named
+    does Sized2
+    def uname:string ""
+}
+
+class Bot {
+    does Named
+    def id:int 0
+}
+
+class TraitsMain {
+    fn show:string (n:Named) {
+        return (n.label())
+    }
+
+    sfn main:void () {
+        def app:TraitsMain (new TraitsMain())
+        def u:User (new User())
+        def b:Bot (new Bot())
+        print ("user " + (app.show(u)))
+        print ("bot " + (app.show(b)))
+        print ("weight " + (to_string (u.weight())))
+    }
+}

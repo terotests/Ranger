@@ -71,8 +71,9 @@ gating it exists.
    ```
 
    and `Named` is not a declared type anywhere in the file — `rustc` stops with
-   `E0425: cannot find type 'Named' in this scope`. The C++ writer has the same
-   hole (`std::shared_ptr<Named>`, no `class Named`); ES6 is fine.
+   `E0425: cannot find type 'Named' in this scope`. The C++ writer had the same
+   hole (`std::shared_ptr<Named>`, no `class Named`), and so do the six targets
+   after it; ES6 is fine.
 
 3. **The machinery for real Rust traits already works — under a different
    spelling.** The same program written with `Extends(Named)` instead of
@@ -300,9 +301,10 @@ the trait, so the trait name falls through to `getObjectTypeString` — a bare
    [`gallery/friendly/rust/attempts/04_trait_as_type.rgr`](../../gallery/friendly/rust/attempts/04_trait_as_type.rgr).
 2. *After the lowering IR.* Item **I**.
 
-The same hole is still open in the C++ writer — `std::shared_ptr<Named>` with no
-`class Named` — and closing it there is the same one-line question in
-`RangerCppClassWriter.writeTypeDef`.
+The C++ writer had the same hole. It is closed for the behaviour-only case —
+see the sibling-target section at the end — and still open for the
+field-bearing one, where C++ should refuse the way Rust does. Go, Java, Kotlin,
+C#, Dart and Swift still have both.
 
 ---
 
@@ -593,10 +595,13 @@ and Rust has no associated fields to hold them.
 [`attempts/04_trait_as_type.rgr`](../../gallery/friendly/rust/attempts/04_trait_as_type.rgr)
 is that case, and the gate still requires it to be refused.
 
-**The same hole is still open on C++**, for both kinds of trait: that writer
-emits `std::shared_ptr<Named>` and never declares `Named`. That is why study 11
-lives under `rust/src` rather than the shared `src/` — `compile.sh` compiles a
-target-local `src/` alongside the shared one.
+**C++ now has the same split**: a behaviour-only trait used as a type is an
+abstract base class there, with the mixin copies as the overrides, and the
+field-bearing case is still broken output rather than a refusal. Study 11 stays
+under `rust/src` — with a C++ twin under `cpp/src` — rather than the shared
+`src/`, because Go, Java, Kotlin, C#, Dart and Swift still name a trait type
+they never declare. `compile.sh` compiles a target-local `src/` alongside the
+shared one.
 
 The item with the larger *idiom* payoff: it is
 what makes a generated `.rs` a crate someone can depend on. Verified reachable
@@ -1019,6 +1024,42 @@ fixed here.
 
 `buffer` and `boolean` keep the old approximation for now, documented where
 their templates are; both are narrower and neither showed up in a study.
+
+### C++ — a behaviour-only `trait` used as a type (item **I**, second half)
+
+The same finding as **I**, in the writer the study's own comment named as the
+reason it could not be shared: `fn show(n:Named)` emitted
+`std::shared_ptr<Named>` with no `class Named` anywhere in the file. Ranger
+reported success and `g++` stopped at *'Named' was not declared in this scope*
+— silent broken output, which is what Tier 0 exists to eliminate.
+
+A trait that declares only behaviour is what an abstract base class says, so
+that is what it becomes:
+
+```cpp
+class Named {
+  public :
+    virtual ~Named() {}
+    virtual std::string label() = 0;
+};
+class User : public Named { … };
+```
+
+The mixin copy still runs and the copied bodies are the overrides, so nothing
+about the existing lowering changes. Two limits, both deliberate: a trait that
+carries FIELDS stays a pure mixin (its consumers already own their own copies,
+and moving them into a base would change what every existing program stores),
+and only a trait NAMED AS A TYPE gets the base — a vtable in every class that
+consumes any behaviour-only trait is a layout change for programs that never
+asked for one. `cpp/src/11_behaviour_traits.rgr` is the study, beside the Rust
+one it mirrors.
+
+**The other six targets have the whole hole.** Go, Java and Kotlin were checked
+directly with the same program: `undefined: Named`, `cannot find symbol: class
+Named`, `unresolved reference 'Named'`. C# and Dart and Swift emit the same
+shape. Each of those languages has the type to lower it to — an `interface`, an
+`abstract class`, a `protocol` — and Go's is the easiest of all, being
+structural. None of them is done here.
 
 ### The gate that would have caught it
 

@@ -14,9 +14,10 @@
 ; `attempts/04_trait_as_type.rgr` is the field-bearing case, still refused.
 ;
 ; This study lives here rather than in ../../src because the same program does
-; not compile on C++ — that writer emits `std::shared_ptr<Named>` with no
-; `class Named` — and ../../src is shared by all ten targets. ES6 and Python
-; run it; Rust is the one that needed the type to exist.
+; not compile on Go, Java, Kotlin, C#, Dart or Swift — each of those writers
+; names a trait type it never declares — and ../../src is shared by all ten
+; targets. ES6 and Python run it. C++ has the same study under ../../cpp/src,
+; where the trait is an abstract base class.
 
 trait Named {
     fn label:string () {

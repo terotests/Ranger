@@ -18,9 +18,11 @@ to `""` read back as absent on C++ and as present everywhere else, and both
 outputs sat in this directory looking fine on their own.
 
 A target folder may hold `src/` of its own, for a study the same program cannot
-express on every target. There are two: `rust/src/11_behaviour_traits.rgr`,
-because the C++ writer names a trait type it never declares, and
-`kotlin/src/11_throw_catch.rgr`, because Rust refuses `try`/`catch` outright. It may also hold `attempts/`:
+express on every target. There are three: `rust/src/11_behaviour_traits.rgr`
+and `cpp/src/11_behaviour_traits.rgr` — the same program, because those are the
+only two targets where a behaviour-only `trait` used as a *type* reaches the
+output as a type that exists — and `kotlin/src/11_throw_catch.rgr`, because
+Rust refuses `try`/`catch` outright. It may also hold `attempts/`:
 forms *that* target cannot express.
 `compile.sh` requires each one to be **refused**, with the error it declares on
 its first line (`; EXPECT-ERROR: …`). A form the target cannot express has to
@@ -80,8 +82,11 @@ Two scores that are not the same thing:
 
 What **none** of them get from Ranger today: a `Result` / `(T, error)` /
 `throws` type, or `@params` surviving as `Stack<T>` rather than `Stack_int`.
-A real `enum` and a field-free `trait` as an interface are Rust-and-C++ only
-so far; the other eight still lower an `Enum` to an integer.
+A real `enum` and a behaviour-only `trait` as an interface are Rust-and-C++
+only so far. On the other eight an `Enum` is still an integer, and a `trait`
+used as a *type* is still silent broken output — the writer names a type it
+never declares, and Ranger reports success. Go, Java and Kotlin were checked
+directly; each stops at "undefined: Named" or its equivalent.
 
 ### Official targets not given a folder
 
@@ -109,7 +114,7 @@ in `Lang.rgr` with thinner templates. They are not in this ranking.
 | `try`/`throw` | `throw "…"` (runs) | `raise`/`except` (runs) | `throw "…"` (runs) | no `throws` (would not swiftc) | `throw "…"` **kotlinc rejects** | `ConfigurationErrorsException` (runs) | `IllegalArgumentException` (runs) | `panic`/`recover` (runs) | `throw string` / `catch(...)` (`error_msg` lost) | catch **dropped**, panic |
 | Closed variants | `__rg_kind` | `_rg_kind` | `abstract class` + `is` | native `enum` | `sealed interface` | `interface` + `is` | `Object` + `instanceof` | tagged struct | `std::variant` | `enum` + `if let` |
 | Ranger `Enum` | number | `int` | `int` | `Int` | `Int` | `int` | `Integer` | `int64` | `enum class` when every use fits | `enum` when every use fits |
-| Ranger `trait` | mixin | mixin | mixin | mixin | mixin | mixin | mixin | mixin | mixin | mixin |
+| Ranger `trait` | mixin | mixin | mixin | mixin | mixin | mixin | mixin | mixin | mixin, + abstract base when used as a type | mixin, + `trait` when used as a type |
 | Generics | `Stack_int` | `Stack_int` | `Stack_int` | `Stack_int` | `Stack_int` | `Stack_int` | `Stack_int` | `Stack_int` | `Stack_int` | `Stack_int` |
 | Higher-order fn | function | callable / hoisted def | `int Function(int)` | closure | `(Int) -> Int` | `Func<int, int>` | `LambdaSignature1` | `func(int64) int64` | `std::function` | `&mut dyn FnMut` |
 | Error type | throw string | `Exception(str)` | throw string | no `throws`/`Result` | throw string illegal | `ConfigurationErrorsException` | `IllegalArgumentException` | no `(T, error)` | no `expected` | no `Result` |
@@ -139,9 +144,12 @@ Forms no target can express, or one target cannot:
   — a **field-bearing** Ranger `trait` used as a *type*. Rust refuses it: such a
   trait is a mixin, its fields are copied into each consumer, and Rust has no
   associated fields to hold them. A **behaviour-only** trait is a real Rust
-  trait now — see [`rust/src/11_behaviour_traits.rgr`](rust/src/11_behaviour_traits.rgr).
-  The C++ writer still has the hole for both kinds (`std::shared_ptr<Named>`,
-  no `class Named`); ES6 and the other dynamic targets are fine.
+  trait now — see [`rust/src/11_behaviour_traits.rgr`](rust/src/11_behaviour_traits.rgr)
+  — and a C++ abstract base class, see
+  [`cpp/src/11_behaviour_traits.rgr`](cpp/src/11_behaviour_traits.rgr). C++ does
+  not yet refuse the field-bearing case the way Rust does. Go, Java, Kotlin, C#,
+  Dart and Swift still have the whole hole for both kinds; ES6 and the other
+  dynamic targets are fine.
 - [`rust/attempts/06_generic_function.rgr`](rust/attempts/06_generic_function.rgr)
   — Ranger rejects a free `@params` function on every target
 - [`rust/attempts/09_throw_panics.rgr`](rust/attempts/09_throw_panics.rgr)

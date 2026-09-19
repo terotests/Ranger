@@ -27,6 +27,173 @@ class RangerCppClassWriter {
     return (cppEnums.isNative(enumName ctx))
   }
 
+  ; --- a behaviour-only trait used as a TYPE ---------------------------------
+  ; A Ranger `trait` is a MIXIN: its methods are copied into each class that
+  ; `does` it, and the trait itself reaches no target as a type. Writing one as
+  ; a PARAMETER type was therefore silent broken output here -- `fn show(n:Named)`
+  ; emitted `std::shared_ptr<Named>` with no `class Named` anywhere in the file,
+  ; and Ranger reported success while g++ stopped at "'Named' was not declared
+  ; in this scope".
+  ;
+  ; A trait that declares only behaviour is exactly what an abstract base class
+  ; says, so that is what it becomes: pure virtual declarations, a virtual
+  ; destructor, and `public Named` on each consumer. The copied bodies are the
+  ; overrides, so nothing about the mixin lowering changes. A trait that carries
+  ; FIELDS stays a pure mixin -- C++ would allow the fields in a base, but the
+  ; consumers already own their own copies and moving them would change what
+  ; every existing program stores.
+  ;
+  ; Only traits NAMED AS A TYPE get the base. A vtable in every class that
+  ; consumes any behaviour-only trait is a layout change for programs that never
+  ; asked for one.
+  def cppIfaceTraits:[string:boolean]
+  def cppIfaceTraitsDone:boolean false
+
+  fn cppNodeNamesType:boolean (node:CodeNode tName:string) {
+    if (node.type_name == tName) {
+      return true
+    }
+    if (node.eval_type_name == tName) {
+      return true
+    }
+    if (node.array_type == tName) {
+      return true
+    }
+    if (node.key_type == tName) {
+      return true
+    }
+    for node.children ch:CodeNode i {
+      if (this.cppNodeNamesType(ch tName)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn cppFnsNameType:boolean (fns:[RangerAppFunctionDesc] tName:string) {
+    for fns m:RangerAppFunctionDesc mi {
+      for m.params pp:RangerAppParamDesc ppi {
+        def ppNN@(optional):CodeNode pp.nameNode
+        if (!null? ppNN) {
+          def ppN:CodeNode (unwrap ppNN)
+          if (ppN.type_name == tName) {
+            return true
+          }
+        }
+      }
+      def mNodeOpt@(optional):CodeNode m.node
+      if (null? mNodeOpt) {
+        continue
+      }
+      def mNode:CodeNode (unwrap mNodeOpt)
+      if (this.cppNodeNamesType(mNode tName)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn cppComputeIfaceTraits:void (ctx:RangerAppWriterContext) {
+    if cppIfaceTraitsDone {
+      return
+    }
+    cppIfaceTraitsDone = true
+    def root:RangerAppWriterContext (ctx.getRoot())
+    for root.definedClasses tc:RangerAppClassDesc ti {
+      if (tc.is_trait == false) {
+        continue
+      }
+      if ((array_length tc.variables) > 0) {
+        continue
+      }
+      if ((array_length tc.methods) == 0) {
+        continue
+      }
+      def used:boolean false
+      def consumed:boolean false
+      for root.definedClasses uc:RangerAppClassDesc ui {
+        if (uc.is_trait || uc.is_system) {
+          continue
+        }
+        if ((indexOf uc.consumes_traits tc.name) >= 0) {
+          consumed = true
+        }
+        if used {
+          continue
+        }
+        for uc.variables uv:RangerAppParamDesc uvi {
+          def uvNN@(optional):CodeNode uv.nameNode
+          if (!null? uvNN) {
+            def uvN:CodeNode (unwrap uvNN)
+            if (uvN.type_name == tc.name) {
+              used = true
+            }
+          }
+        }
+        if (this.cppFnsNameType(uc.methods tc.name)) {
+          used = true
+        }
+        if (this.cppFnsNameType(uc.static_methods tc.name)) {
+          used = true
+        }
+      }
+      ; nothing `does` it means nothing would override the pure virtuals
+      if (used && consumed) {
+        set cppIfaceTraits tc.name true
+      }
+    }
+  }
+
+  fn cppTraitIsInterface:boolean (tName:string ctx:RangerAppWriterContext) {
+    if ((strlen tName) == 0) {
+      return false
+    }
+    this.cppComputeIfaceTraits(ctx)
+    if (has cppIfaceTraits tName) {
+      return true
+    }
+    return false
+  }
+
+  ; The interface traits this class consumes, in `consumes_traits` order.
+  fn cppClassIfaceBases:[string] (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    def res:[string]
+    for cl.consumes_traits tn:string tni {
+      if (this.cppTraitIsInterface(tn ctx)) {
+        if ((indexOf res tn) < 0) {
+          push res tn
+        }
+      }
+    }
+    return res
+  }
+
+  fn writeCppTraitInterfaces:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+    this.cppComputeIfaceTraits(ctx)
+    def root:RangerAppWriterContext (ctx.getRoot())
+    for (keys cppIfaceTraits) tn:string tni {
+      def tc:RangerAppClassDesc (ctx.findClass(tn))
+      wr.out((("class " + tn) + " { ") true)
+      wr.indent(1)
+      wr.out("public :" true)
+      wr.indent(1)
+      wr.out((("virtual ~" + tn) + "() {}") true)
+      for tc.defined_variants fnVar:string fvi {
+        def mVs:RangerAppMethodVariants (get tc.method_variants fnVar)
+        for mVs.variants variant:RangerAppFunctionDesc vi {
+          wr.out("virtual " false)
+          this.writeReturnTypeDef(variant ctx wr)
+          wr.out(((" " + variant.compiledName) + "(") false)
+          this.writeArgsDef(variant ctx wr)
+          wr.out(") = 0;" true)
+        }
+      }
+      wr.indent(-1)
+      wr.indent(-1)
+      wr.out("};" true)
+    }
+  }
+
   ; The smart pointer type for a class instance. Default is std::shared_ptr,
   ; whose count libstdc++ makes ATOMIC on any platform that has threads --
   ; a lock-prefixed increment for every copy, in a program that may well have
@@ -2046,19 +2213,48 @@ class r_optional_primitive {
     }
     def inheritedVars:[string:boolean]
     wr.out(("class " + cl.name) , false)
+    ; the behaviour-only traits this class `does` that some signature names as
+    ; a type: each is an abstract base, and the mixin copies are the overrides
+    def ifaceBases:[string] (this.cppClassIfaceBases((unwrap cl) ctx))
+    def baseCnt:int 0
     if ( ( array_length cl.extends_classes ) > 0 ) {
       wr.out(" : " false)
       for cl.extends_classes pName:string i {
+        if (baseCnt > 0) {
+          wr.out(", " false)
+        }
         wr.out("public " false)
         wr.out(pName false)
+        baseCnt = baseCnt + 1
         def extC (ctx.findClass(pName))
         for extC.variables pvar:RangerAppParamDesc i {
           set inheritedVars pvar.name true
         }
       }
+      for ifaceBases ifName:string ifi {
+        wr.out(", public " false)
+        wr.out(ifName false)
+        baseCnt = baseCnt + 1
+      }
     } {
-      if (this.cppNeedsSharedFromThis(node)) {
-        wr.out(((" : public " + (this.cppEsft(cl.name))) + " ") , false)
+      if ((array_length ifaceBases) > 0) {
+        wr.out(" : " false)
+        for ifaceBases ifName2:string ifi2 {
+          if (baseCnt > 0) {
+            wr.out(", " false)
+          }
+          wr.out("public " false)
+          wr.out(ifName2 false)
+          baseCnt = baseCnt + 1
+        }
+        if (this.cppNeedsSharedFromThis(node)) {
+          wr.out((", public " + (this.cppEsft(cl.name))) , false)
+        }
+        wr.out(" " false)
+      } {
+        if (this.cppNeedsSharedFromThis(node)) {
+          wr.out(((" : public " + (this.cppEsft(cl.name))) + " ") , false)
+        }
       }
     }
 
@@ -2585,6 +2781,9 @@ class r_optional_primitive {
       wr.out("template <class T> inline T& rg_arg_ref(T&& v) { return v; }" true)
       wr.out("" true)
       wr.out("// header definitions" true)
+      ; a behaviour-only trait used as a type becomes an abstract base, and a
+      ; base has to be complete before the class that derives from it
+      wr.createTag("c++TraitDefs")
       wr.createTag("c++Header")
       wr.out("" true)
 
@@ -2592,7 +2791,8 @@ class r_optional_primitive {
       wr.out("char **__g_argv;" true)
 
       this.CreateUnions( (unwrap this.compiler.parser) ctx (wr.getTag("c++unions")))
-      
+      this.writeCppTraitInterfaces(ctx (wr.getTag("c++TraitDefs")))
+
       header_created = true
     }
     def classWriter:CodeWriter (orig_wr.getTag("c++ClassDefs"))
