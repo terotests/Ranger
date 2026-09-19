@@ -360,6 +360,8 @@
     "rangerflow:web:serve": "bash gallery/rangerflow/web/standalone/build.sh && node gallery/rangerflow/web/standalone/serve.mjs",
     "rangerflow:demo:web": "bash gallery/rangerflow/web/standalone/build.sh && node gallery/rangerflow/web/standalone/serve.mjs --open",
     "rangerflow:web:test": "bash gallery/rangerflow/web/standalone/build.sh && node gallery/rangerflow/web/standalone/smoke.mjs --all",
+    "rangerflow:forge:install": "npm --prefix gallery/rangerflow/forge install --no-audit --no-fund",
+    "rangerflow:forge:build": "npm --prefix gallery/rangerflow/forge run build",
     "rangerflow:forge:test": "node --test gallery/rangerflow/forge/test/*.test.mjs",
     "rangerflow:artifacts": "bash gallery/rangerflow/web/standalone/build.sh && node gallery/rangerflow/web/standalone/smoke.mjs --all --shots gallery/rangerflow/artifacts && cp gallery/rangerflow/artifacts/scenario_erd.png gallery/rangerflow/artifacts/01_schema_editor_webgl.png",
     "datagrid:test": "bash scripts/rgr-suite.sh ./gallery/datagrid/tests/GridTest.rgr ./gallery/datagrid/bin GridTest.js",

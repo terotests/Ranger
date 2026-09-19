@@ -87,14 +87,16 @@ Confluence     paste
 - `?embed=1` hides the toolbars, the minimap and the handles, fits the diagram
   to whatever size the frame is, and turns every press into a pan. A corner
   link opens the same diagram in the full editor.
-- **Confluence Cloud:** install the tiny Forge app in
-  [`forge/`](forge/README.md). After that, paste either link into a page —
-  Confluence replaces it with a RangerFlow macro (650 px high, as wide as the
-  editor's center / wide / full-width control). No `/iframe`, no sizes. The
-  diagram still runs on GitHub Pages; the app is an iframe wrapper with URL
-  autoconvert. Without the app, paste the embed link and pick **Embed**, or
-  use an iframe macro: a github.io URL is not a first-class Smart Link embed,
-  which is why the wrapper exists.
+- **Confluence Cloud:** a pasted github.io link is a Smart Link, not an
+  embed. Confluence shows *We can't display content from this type of
+  terotests.github.io link* — GitHub Pages is not a Smart Link provider, and
+  the crawler never receives `#rf=`, so the card cannot be the diagram. Install
+  the Forge app in [`forge/`](forge/README.md) (`npm run rangerflow:forge:install`
+  then `npm run rangerflow:forge:build`, then `login` / `register` / `deploy` /
+  `install:confluence` in that folder). After that, paste becomes a RangerFlow
+  macro (650 px high, then fitted; center / wide / full-width from the editor).
+  No `/iframe`, no sizes. Until the app is on the site, **Copy picture** puts a
+  PNG on the clipboard and paste lands the drawing as an image.
 - `npm run rangerflow:doc:test` draws every example as SVG, saves it, opens
   the save in a fresh page and compares the two SVG strings, so a field the
   document forgets fails a test rather than a reader.

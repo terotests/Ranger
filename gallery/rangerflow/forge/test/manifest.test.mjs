@@ -41,4 +41,26 @@ describe("manifest", () => {
     const src = fs.readdirSync(path.join(ROOT, "src"));
     assert.deepEqual(src.sort(), ["frontend.js", "share-url.mjs"]);
   });
+
+  it("documents the Smart Link github.io refusal the paste currently hits", () => {
+    const readme = fs.readFileSync(path.join(ROOT, "README.md"), "utf8");
+    assert.match(readme, /can't display content from this type of terotests\.github\.io link/);
+  });
+
+  it("gitignores the Custom UI bundle and node_modules so they are built locally", () => {
+    const ignore = fs.readFileSync(path.join(ROOT, ".gitignore"), "utf8");
+    assert.match(ignore, /^node_modules\/$/m);
+    assert.match(ignore, /^static\/rangerflow\/macro\.js$/m);
+    assert.match(ignore, /^\.forge\/$/m);
+  });
+
+  it("refuses to deploy the placeholder app.id", async () => {
+    const { appIdFromManifest, PLACEHOLDER_APP_ID } =
+      await import("../scripts/check-ready.mjs");
+    assert.equal(appIdFromManifest(yaml), PLACEHOLDER_APP_ID);
+    assert.equal(
+      appIdFromManifest("app:\n  id: ari:cloud:ecosystem::app/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee\n"),
+      "ari:cloud:ecosystem::app/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+    );
+  });
 });
