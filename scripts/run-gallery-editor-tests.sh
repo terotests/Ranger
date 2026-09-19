@@ -585,6 +585,10 @@ for suite in "${SUITES[@]}"; do
   fi
   if [ -n "$bad" ]; then
     failed+=("$suite ($bad)")
+    # A 31-check suite's first failure used to be hidden by `tail -30`
+    # of later PASSes, which is how a flake on `evg:view:check` could
+    # fail CI with no name of the check that failed.
+    printf '%s\n' "$out" | grep -E '  FAIL |SOME FAILED|^passed=' || true
     printf '%s\n' "$out" | tail -30
     printf '    %s FAILED — %s\n' "$suite" "$bad"
   else
