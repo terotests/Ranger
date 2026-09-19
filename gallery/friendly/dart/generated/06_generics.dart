@@ -11,13 +11,13 @@ void main(List<String> args) {
   ints.put(8);
   print( "int-size " + (ints.size().toString()) );
   int? top = ints.peek();
-  print( "int-top " + (((top != null) ? top! : 0).toString()) );
+  print( "int-top " + ((top ?? 0).toString()) );
   Stack_string words =  Stack_string();
   words.put("ada");
   words.put("grace");
   print( "str-size " + (words.size().toString()) );
   String? lastWord = words.peek();
-  print( "str-top " + ((lastWord != null) ? lastWord! : "?") );
+  print( "str-top " + (lastWord ?? "?") );
 }
 
 class Stack_int {

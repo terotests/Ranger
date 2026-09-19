@@ -1,16 +1,19 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
+from typing import Optional
+
 
 
 class Point:
-  def __init__(self, x, y):
+  def __init__(self, x: int, y: int) -> None:
     self.x = 0
     self.y = 0
     self.x = x;
     self.y = y;
 class PointOps:
-  def __init__(self):
+  def __init__(self) -> None:
     pass
-  def manhattan(self, p):
+  def manhattan(self, p: Point) -> int:
     ax = p.x
     if ax < 0:
       ax = 0 - ax;
@@ -18,27 +21,27 @@ class PointOps:
     if ay < 0:
       ay = 0 - ay;
     return ax + ay;
-  def addPoints(self, a, b):
+  def addPoints(self, a: Point, b: Point) -> Point:
     return Point(a.x + b.x, a.y + b.y);
 class Counter:
-  def __init__(self):
+  def __init__(self) -> None:
     self.value = 0
-  def reading(self):
+  def reading(self) -> int:
     return self.value;
-  def add(self, amount):
+  def add(self, amount: int) -> None:
     self.value = self.value + amount;
 class TreeNode:
-  def __init__(self):
+  def __init__(self) -> None:
     self.name = ""
     self.kids = []
     self.parent = None
-  def adopt(self, c):
+  def adopt(self, c: TreeNode) -> None:
     c.parent = self;
     self.kids.append(c)
-  def childCount(self):
+  def childCount(self) -> int:
     return len(self.kids);
 class OwnershipMain:
-  def __init__(self):
+  def __init__(self) -> None:
     pass
 # Main entry point
 def main():

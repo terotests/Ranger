@@ -1,25 +1,28 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
+from typing import Optional
+
 
 
 class User:
-  def __init__(self):
+  def __init__(self) -> None:
     self.age = 0
     self.name = ""
-  def asString(self):
+  def asString(self) -> str:
     return (self.name + " ") + str(self.age);
-  def label(self):
+  def label(self) -> str:
     return self.name;
 class Bot:
-  def __init__(self):
+  def __init__(self) -> None:
     self.name = ""
-  def asString(self):
+  def asString(self) -> str:
     return "bot:" + self.name;
-  def label(self):
+  def label(self) -> str:
     return self.name;
 class TraitsMain:
-  def __init__(self):
+  def __init__(self) -> None:
     pass
-  def show(self, who):
+  def show(self, who: User) -> str:
     return ("label=" + who.label()) + (" text=" + who.asString());
 # Main entry point
 def main():

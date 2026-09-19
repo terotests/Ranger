@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
+from typing import Optional
+
 
 
 class AbsentMain:
-  def __init__(self):
+  def __init__(self) -> None:
     pass
-  def report(self, label, s):
+  def report(self, label: str, s: Optional[str]) -> str:
     if s is None:
       return label + ": absent";
     return ((label + ": present [") + s) + "]";

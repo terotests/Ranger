@@ -16,7 +16,7 @@ function __js_main() {
   console.log(app.report("unset", s));
   s = "";
   console.log(app.report("empty", s));
-  console.log("empty ?? " + (((typeof(s) !== "undefined" && s != null ) ) ? s : "FALLBACK"));
+  console.log("empty ?? " + (s ?? "FALLBACK"));
   s = "x";
   console.log(app.report("set", s));
   let n;
@@ -31,6 +31,6 @@ function __js_main() {
   } else {
     console.log("int zero: present");
   }
-  console.log("int zero ?? " + ((((typeof(n) !== "undefined" && n != null ) ) ? n : 99).toString()));
+  console.log("int zero ?? " + ((n ?? 99).toString()));
 }
 __js_main();

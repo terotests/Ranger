@@ -13,13 +13,13 @@ fun main(args : Array<String>) {
   ints.put(8);
   println( "int-size " + (ints.size().toString()) )
   val top : Int?  = ints.peek();
-  println( "int-top " + ((if ((top != null)) top!! else 0).toString()) )
+  println( "int-top " + ((top ?: 0).toString()) )
   val words : Stack_string  =  Stack_string();
   words.put("ada");
   words.put("grace");
   println( "str-size " + (words.size().toString()) )
   val lastWord : String?  = words.peek();
-  println( "str-top " + (if ((lastWord != null)) lastWord!! else "?") )
+  println( "str-top " + (lastWord ?: "?") )
 }
 
 class Stack_int 

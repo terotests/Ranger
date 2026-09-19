@@ -556,8 +556,10 @@ describe("Python target: Google docstrings that pdoc reads", () => {
   });
 
   it("writes the docstring INSIDE the def, as the first statement", () => {
+    // the signature carries its annotations now, so the docstring is the line
+    // after `def find(self, _id: str) -> EVGA11yNode:`
     expect(py).toMatch(
-      /def find\(self, _id\):\s*\n\s*"""Finds an accessibility node by its stable identifier\./
+      /def find\(self, _id: str\) -> EVGA11yNode:\s*\n\s*"""Finds an accessibility node by its stable identifier\./
     );
   });
 

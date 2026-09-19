@@ -135,9 +135,9 @@ func __main__swift() {
   let box : Lookup = Lookup()
   let names : [String] = ["ada", "grace"]
   let hit : String? = box.findName(names : names, key : "ada")
-  print("found " + ((hit != nil ) ? hit! : "unknown"))
+  print("found " + (hit ?? "unknown"))
   let miss : String? = box.findName(names : names, key : "alan")
-  print("miss " + ((miss != nil ) ? miss! : "unknown"))
+  print("miss " + (miss ?? "unknown"))
   if ( miss == nil ) {
     print("miss is empty")
   }

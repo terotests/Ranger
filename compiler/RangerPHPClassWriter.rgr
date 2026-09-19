@@ -1,10 +1,113 @@
 ; SPDX-License-Identifier: MIT
 
+Import "EnumAnalysis.rgr"
+Import "ForLoopAnalysis.rgr"
+
 class RangerPHPClassWriter {
   Extends (RangerGenericClassWriter)
   def compiler:LiveCompiler
   def thisName:string "this"
   def wrote_header:boolean false
+
+  ; which Ranger `Enum`s survive as a PHP 8.1 `enum` rather than a bare int.
+  ; Same question Rust and C++ ask: compiler/EnumAnalysis.rgr.
+  def phpEnums:EnumNativeAnalysis (new EnumNativeAnalysis())
+  def php_enums_written:boolean false
+
+  ; can a `for` be the target's own loop over the collection?
+  ; Target-neutral question, one place: compiler/ForLoopAnalysis.rgr
+  def phpLoops:ForLoopShape (new ForLoopShape())
+
+  ; `foreach ($xs as $v)` when the body reads neither the index nor the
+  ; collection; the counting loop this used to write otherwise. Only the
+  ; writer can ask that question, so the template hands the whole statement
+  ; over (Lang.rgr: `php ( (forkctx _) (def 2) (def 3) (custom _) )`).
+  fn phpWriteForLoop:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if ((array_length node.children) < 5) {
+      return
+    }
+    def coll:CodeNode (node.getSecond())
+    def item:CodeNode (itemAt node.children 2)
+    def idx:CodeNode (itemAt node.children 3)
+    def body:CodeNode (itemAt node.children 4)
+
+    if (phpLoops.canIterate(node)) {
+      wr.out("foreach ( " false)
+      this.WalkNode(coll ctx wr)
+      wr.out(" as " false)
+      this.WalkNode(item ctx wr)
+      wr.out(" ) {" true)
+      wr.indent(1)
+      def rCtx:RangerAppWriterContext (ctx.fork())
+      rCtx.restartExpressionLevel()
+      this.WalkNode(body rCtx wr)
+      wr.indent(-1)
+      wr.out("}" true)
+      return
+    }
+
+    wr.out("for ( " false)
+    this.WalkNode(idx ctx wr)
+    wr.out(" = 0; " false)
+    this.WalkNode(idx ctx wr)
+    wr.out(" < count(" false)
+    this.WalkNode(coll ctx wr)
+    wr.out("); " false)
+    this.WalkNode(idx ctx wr)
+    wr.out("++) {" true)
+    wr.indent(1)
+    this.WalkNode(item ctx wr)
+    wr.out(" = " false)
+    this.WalkNode(coll ctx wr)
+    wr.out("[" false)
+    this.WalkNode(idx ctx wr)
+    wr.out("];" true)
+    def sCtx:RangerAppWriterContext (ctx.fork())
+    sCtx.restartExpressionLevel()
+    this.WalkNode(body sCtx wr)
+    wr.indent(-1)
+    wr.out("}" true)
+  }
+
+  ; Nothing else routes a template through this writer, so the only command
+  ; that arrives is the one Lang.rgr declares `(custom _)` for it.
+  fn CustomOperator:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def fc:CodeNode (node.getFirst())
+    if (fc.vref == "for") {
+      this.phpWriteForLoop(node ctx wr)
+    }
+  }
+
+  fn phpEnumIsNative:boolean (enumName:string ctx:RangerAppWriterContext) {
+    phpEnums.targetName = "php"
+    phpEnums.fallbackType = "int"
+    return (phpEnums.isNative(enumName ctx))
+  }
+
+  ; `enum Color : int { case Red = 0; }`. The backing type is pinned to int --
+  ; the type the fallback lowering uses -- so `->value` is exact and nothing
+  ; downstream has to know which form the enum got.
+  fn writePhpNativeEnums:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+    if php_enums_written {
+      return
+    }
+    php_enums_written = true
+    def enumRoot:RangerAppWriterContext (ctx.getRoot())
+    for (keys enumRoot.definedEnums) pen:string pei {
+      if (this.phpEnumIsNative(pen ctx)) {
+        def peDef:RangerAppEnum (unwrap (get enumRoot.definedEnums pen))
+        wr.out("" true)
+        wr.out(("enum " + pen + " : int {") true)
+        wr.indent(1)
+        for (keys peDef.values) pmn:string pmi {
+          def pmv:int (unwrap (get peDef.values pmn))
+          wr.out(("case " + (ctx.transformWord(pmn)) + " = " + (to_string pmv) + ";") true)
+        }
+        wr.indent(-1)
+        wr.out("}" true)
+      }
+    }
+  }
   fn adjustType:string (tn:string) {
     if (tn == "this") {
       return "this"
@@ -94,6 +197,11 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
         def enumName:string (itemAt node.ns 1)
         def e@(optional):RangerAppEnum (ctx.getEnum(rootObjName))
         if (!null? e) {
+          ; `Color::Green`, not `1`, when the enum survives as a PHP enum
+          if (this.phpEnumIsNative(rootObjName ctx)) {
+            wr.out((rootObjName + "::" + (ctx.transformWord(enumName))) false)
+            return
+          }
           wr.out(("" + (unwrap (get e.values enumName))) false)
           return
         }
@@ -423,11 +531,154 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
  
   } 
 
+  ; --- typed properties (PHP 7.4) -------------------------------------------
+  ; `var $x;` told a reader of the output nothing the Ranger source did not
+  ; already say better. A declared type does, and PHP enforces it: the
+  ; constructor below assigns every field its Ranger default before anything
+  ; can read one, so a typed property is never touched uninitialized.
+  ;
+  ; A type the writer cannot name is left off rather than guessed. `declare(
+  ; strict_types=1)` is NOT written, so the coercions the untyped form allowed
+  ; still happen at the boundary instead of becoming a TypeError.
+  fn phpTypeNameFor:string (tn:string ctx:RangerAppWriterContext) {
+    if ((strlen tn) == 0) {
+      return ""
+    }
+    switch tn {
+      case "int" {
+        return "int"
+      }
+      case "char" {
+        return "int"
+      }
+      case "double" {
+        return "float"
+      }
+      case "string" {
+        return "string"
+      }
+      case "boolean" {
+        return "bool"
+      }
+    }
+    if (ctx.isDefinedClass(tn)) {
+      def cc:RangerAppClassDesc (ctx.findClass(tn))
+      if cc.is_union {
+        return ""
+      }
+      if cc.is_system {
+        return ""
+      }
+      if cc.is_trait {
+        return ""
+      }
+      if cc.is_template {
+        return ""
+      }
+      if cc.is_generic_instance {
+        return ""
+      }
+      return tn
+    }
+    def eDef@(optional):RangerAppEnum ((ctx.getRoot()).getEnum(tn))
+    if (!null? eDef) {
+      if (this.phpEnumIsNative(tn ctx)) {
+        return tn
+      }
+      return "int"
+    }
+    return ""
+  }
+
+  fn phpPropertyType:string (nn:CodeNode ctx:RangerAppWriterContext) {
+    def v_type:RangerNodeType nn.value_type
+    if (((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.VRef)) || (v_type == RangerNodeType.NoType)) {
+      v_type = (nn.typeNameAsType(ctx))
+    }
+    ; a lambda-valued field: PHP would want `callable`, which a closure
+    ; property is not assignable to in every version
+    if (v_type == RangerNodeType.ExpressionType) {
+      return ""
+    }
+    def base:string ""
+    if ((v_type == RangerNodeType.Array) || (v_type == RangerNodeType.Hash)) {
+      base = "array"
+    }
+    if ((strlen base) == 0) {
+      base = (this.phpTypeNameFor(nn.type_name ctx))
+    }
+    if ((strlen base) == 0) {
+      switch v_type {
+        case RangerNodeType.Integer {
+          base = "int"
+        }
+        case RangerNodeType.Char {
+          base = "int"
+        }
+        case RangerNodeType.Double {
+          base = "float"
+        }
+        case RangerNodeType.String {
+          base = "string"
+        }
+        case RangerNodeType.Boolean {
+          base = "bool"
+        }
+      }
+    }
+    if ((strlen base) == 0) {
+      return ""
+    }
+    if (nn.hasFlag("optional")) {
+      return ("?" + base)
+    }
+    return base
+  }
+
+  ; The declaration's own initializer. A typed property PHP cannot see a value
+  ; for throws on the first read -- "must not be accessed before
+  ; initialization" -- and the constructor is free to read one field while
+  ; setting another. Every type that has a literal PHP accepts in a property
+  ; declaration gets one here; a non-nullable OBJECT type has none, so those
+  ; stay untyped rather than becoming a runtime error.
+  fn phpPropertyDefault:string (pt:string) {
+    if ((strlen pt) == 0) {
+      return ""
+    }
+    if ((charAt pt 0) == (ccode "?")) {
+      return " = null"
+    }
+    switch pt {
+      case "int" {
+        return " = 0"
+      }
+      case "float" {
+        return " = 0.0"
+      }
+      case "string" {
+        return " = ''"
+      }
+      case "bool" {
+        return " = false"
+      }
+      case "array" {
+        return " = []"
+      }
+    }
+    return ""
+  }
+
   fn writeClassVarDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.hasParamDesc {
       def nn:CodeNode (itemAt node.children 1)
       def p:RangerAppParamDesc nn.paramDesc
-      wr.out((("var $" + p.compiledName) + ";") true)
+      def pt:string (this.phpPropertyType(nn ctx))
+      def pd:string (this.phpPropertyDefault(pt))
+      if (((strlen pt) > 0) && ((strlen pd) > 0)) {
+        wr.out((("public " + pt + " $" + p.compiledName) + pd + ";") true)
+      } {
+        wr.out((("public $" + p.compiledName) + ";") true)
+      }
     }
   }
   ; The constructor of a `record` holds a marker parameter for each keyword,
@@ -582,6 +833,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       wr.out("" true)
       wrote_header = true
     }
+    this.writePhpNativeEnums(ctx wr)
     wr.out(("class " + cl.name) false)
     def parentClass:RangerAppClassDesc  
     if ( ( array_length cl.extends_classes ) > 0 ) { 

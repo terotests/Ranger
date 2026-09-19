@@ -111,9 +111,9 @@ fun main(args : Array<String>) {
   val box : Lookup  =  Lookup();
   val names : MutableList<String>  = arrayListOf<String>("ada", "grace");
   val hit : String?  = box.findName(names, "ada");
-  println( "found " + (if ((hit != null)) hit!! else "unknown") )
+  println( "found " + (hit ?: "unknown") )
   val miss : String?  = box.findName(names, "alan");
-  println( "miss " + (if ((miss != null)) miss!! else "unknown") )
+  println( "miss " + (miss ?: "unknown") )
   if ( miss== null ) {
     println( "miss is empty" )
   }

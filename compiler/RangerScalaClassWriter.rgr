@@ -1,6 +1,8 @@
 ; SPDX-License-Identifier: MIT
 
 Import "TraitAnalysis.rgr"
+Import "EnumAnalysis.rgr"
+Import "ForLoopAnalysis.rgr"
 
   class RangerScalaClassWriter {
   Extends ( RangerGenericClassWriter )
@@ -121,7 +123,12 @@ Import "TraitAnalysis.rgr"
       }   
       
       case RangerNodeType.Enum {
-        wr.out("Int" false)
+        def scEnumName:string (scEnums.enumNameOf(node ctx))
+        if (this.scEnumIsNative(scEnumName ctx)) {
+          wr.out(scEnumName false)
+        } {
+          wr.out("Int" false)
+        }
       }
       case RangerNodeType.Integer {
         wr.out("Int" false)
@@ -222,7 +229,12 @@ Import "TraitAnalysis.rgr"
       }   
       
       case RangerNodeType.Enum {
-        wr.out("Int" false)
+        def scEnumName:string (scEnums.enumNameOf(node ctx))
+        if (this.scEnumIsNative(scEnumName ctx)) {
+          wr.out(scEnumName false)
+        } {
+          wr.out("Int" false)
+        }
       }
       case RangerNodeType.Integer {
         wr.out("Int" false)
@@ -281,6 +293,11 @@ Import "TraitAnalysis.rgr"
         def enumName:string (itemAt node.ns 1)
         def e@(optional):RangerAppEnum (ctx.getEnum(rootObjName))
         if (!null? e) {
+          ; `Color.Green`, not `1`, when the enum survives as a Scala type
+          if (this.scEnumIsNative(rootObjName ctx)) {
+            wr.out((rootObjName + "." + (ctx.transformWord(enumName))) false)
+            return
+          }
           wr.out(("" + (unwrap (get e.values enumName))) false)
           return
         }
@@ -460,6 +477,27 @@ Import "TraitAnalysis.rgr"
           wr.out('val __break__ = new Breaks' true)
           wr.out('__break__.breakable {' true)
           wr.indent(1)
+        }
+
+        ; `for (v <- xs)` when the body reads neither the index nor the
+        ; collection; the index form below otherwise
+        if (scLoops.canIterate(node)) {
+          wr.out( 'for( ' false )
+          this.WalkNode( itemNode ctx wr )
+          wr.out( ' <- ' false)
+          this.WalkNode( listNode ctx wr )
+          wr.out(' ) {' true)
+          wr.indent(1)
+          this.WalkNode( bodyNode ctx wr )
+          wr.indent(-1)
+          wr.out("}" true)
+          if( break_cnt > 0  ) {
+            wr.indent(-1)
+            wr.out("}" true)
+            wr.indent(-1)
+            wr.out("}" true)
+          }
+          return
         }
 
         wr.out( 'for( ' false )
@@ -668,6 +706,49 @@ Import "TraitAnalysis.rgr"
   def scalaTraits:TraitInterfaceAnalysis (new TraitInterfaceAnalysis())
   def scala_traits_written:boolean false
 
+  ; which Ranger `Enum`s survive as a Scala type rather than a bare Int.
+  ; Same question Rust and C++ ask: compiler/EnumAnalysis.rgr.
+  def scEnums:EnumNativeAnalysis (new EnumNativeAnalysis())
+  def scala_enums_written:boolean false
+
+  ; can a `for` be the target's own loop over the collection?
+  ; Target-neutral question, one place: compiler/ForLoopAnalysis.rgr
+  def scLoops:ForLoopShape (new ForLoopShape())
+
+  fn scEnumIsNative:boolean (enumName:string ctx:RangerAppWriterContext) {
+    scEnums.targetName = "scala"
+    scEnums.fallbackType = "Int"
+    return (scEnums.isNative(enumName ctx))
+  }
+
+  ; A sealed class with one `case object` per member, rather than the Scala 3
+  ; `enum`: this writer emits no other Scala 3 construct, and the sealed form
+  ; compiles on both dialects while giving the same things -- a real type, a
+  ; named member, exhaustive `match`. The member keeps its integer as `value`
+  ; so the two lowerings stay interchangeable.
+  fn writeScalaNativeEnums:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+    if scala_enums_written {
+      return
+    }
+    scala_enums_written = true
+    def enumRoot:RangerAppWriterContext (ctx.getRoot())
+    for (keys enumRoot.definedEnums) sen:string sei {
+      if (this.scEnumIsNative(sen ctx)) {
+        def seDef:RangerAppEnum (unwrap (get enumRoot.definedEnums sen))
+        wr.out("" true)
+        wr.out(("sealed abstract class " + sen + "(val value : Int)") true)
+        wr.out(("object " + sen + " {") true)
+        wr.indent(1)
+        for (keys seDef.values) smn:string smi {
+          def smv:int (unwrap (get seDef.values smn))
+          wr.out(("case object " + (ctx.transformWord(smn)) + " extends " + sen + "(" + (to_string smv) + ")") true)
+        }
+        wr.indent(-1)
+        wr.out("}" true)
+      }
+    }
+  }
+
   fn writeScalaTraitDefs:void (ctx:RangerAppWriterContext wr:CodeWriter) {
     if scala_traits_written {
       return
@@ -708,6 +789,7 @@ Import "TraitAnalysis.rgr"
       init_done = true
       wr.createTag("beginning")
     }
+    this.writeScalaNativeEnums(ctx wr)
     this.writeScalaTraitDefs(ctx wr)
     def importFork:CodeWriter (wr.getTag("imports"))
     def b_class_has_content ( cl.has_constructor || ( has cl.variables) || (has cl.defined_variants) || (has cl.extends_classes) )

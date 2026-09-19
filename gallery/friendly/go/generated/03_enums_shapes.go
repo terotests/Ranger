@@ -4,6 +4,13 @@ import (
   "fmt"
 )
 
+type Color int64
+const (
+  ColorRed Color = 0
+  ColorGreen Color = 1
+  ColorBlue Color = 2
+)
+
 const (
   union_Message_tag_Message_Ping = 1
   union_Message_tag_Message_Text = 2
@@ -125,11 +132,11 @@ func CreateNew_EnumsMain() *EnumsMain {
   me := new(EnumsMain)
   return me;
 }
-func (this *EnumsMain) colorName (c int64) string {
-  if  c == 0 {
+func (this *EnumsMain) colorName (c Color) string {
+  if  c == ColorRed {
     return "red"
   }
-  if  c == 1 {
+  if  c == ColorGreen {
     return "green"
   }
   return "blue"
@@ -155,7 +162,7 @@ func (this *EnumsMain) describe (m union_Message) string {
 }
 func main() {
   var app *EnumsMain= CreateNew_EnumsMain(); _ = app
-  fmt.Println( "color " + app.colorName(1) )
+  fmt.Println( "color " + app.colorName(ColorGreen) )
   fmt.Println( app.describe(mk_union_Message_Message_Ping(CreateNew_Message_Ping())) )
   fmt.Println( app.describe(mk_union_Message_Message_Text(CreateNew_Message_Text("hi"))) )
   fmt.Println( app.describe(mk_union_Message_Message_Move(CreateNew_Message_Move(int64(2), int64(3)))) )

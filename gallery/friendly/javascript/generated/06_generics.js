@@ -50,12 +50,12 @@ function __js_main() {
   ints.put(8);
   console.log("int-size " + (ints.size().toString()));
   const top = ints.peek();
-  console.log("int-top " + ((((typeof(top) !== "undefined" && top != null ) ) ? top : 0).toString()));
+  console.log("int-top " + ((top ?? 0).toString()));
   const words = new Stack_string();
   words.put("ada");
   words.put("grace");
   console.log("str-size " + (words.size().toString()));
   const lastWord = words.peek();
-  console.log("str-top " + (((typeof(lastWord) !== "undefined" && lastWord != null ) ) ? lastWord : "?"));
+  console.log("str-top " + (lastWord ?? "?"));
 }
 __js_main();

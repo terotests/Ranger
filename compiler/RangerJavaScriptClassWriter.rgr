@@ -5,6 +5,7 @@ Import "TraitAnalysis.rgr"
 
 Import "TTypeRegistry.rgr"
 Import "ForLoopAnalysis.rgr"
+Import "EnumAnalysis.rgr"
 
 Import "WebPageWriter.rgr"
 
@@ -549,7 +550,12 @@ class RangerJavaScriptClassWriter {
         
       }   
       case RangerNodeType.Enum {
-        wr.out("number" false)
+        def tsEnumName:string (tsEnums.enumNameOf(node ctx))
+        if (this.tsEnumIsNative(tsEnumName ctx)) {
+          wr.out(tsEnumName false)
+        } {
+          wr.out("number" false)
+        }
       }
       case RangerNodeType.Integer {
         wr.out("number" false)
@@ -649,6 +655,11 @@ class RangerJavaScriptClassWriter {
         def enumName:string (itemAt node.ns 1)
         def e@(optional):RangerAppEnum (ctx.getEnum(rootObjName))
         if (!null? e) {
+          ; `Color.Green`, not `1`, when the enum survives as a TS enum
+          if (this.tsEnumIsNative(rootObjName ctx)) {
+            wr.out((rootObjName + "." + (ctx.transformWord(enumName))) false)
+            return
+          }
           wr.out(("" + (unwrap (get e.values enumName))) false)
           return
         }
@@ -882,6 +893,51 @@ class RangerJavaScriptClassWriter {
   ; there is nothing for an interface to promise.
   def tsTraits:TraitInterfaceAnalysis (new TraitInterfaceAnalysis())
   def ts_traits_written:boolean false
+
+  ; which Ranger `Enum`s survive as a TypeScript `enum` rather than a number.
+  ; Same question Rust and C++ ask: compiler/EnumAnalysis.rgr. TypeScript only:
+  ; plain JavaScript has no enum, and a frozen object in its place is a real
+  ; runtime value with its own identity -- a change of program, not of
+  ; spelling. There the integer lowering stays.
+  def tsEnums:EnumNativeAnalysis (new EnumNativeAnalysis())
+  def ts_enums_written:boolean false
+
+  fn tsEnumIsNative:boolean (enumName:string ctx:RangerAppWriterContext) {
+    if (target_typescript == false) {
+      return false
+    }
+    tsEnums.targetName = "typescript"
+    tsEnums.fallbackType = "number"
+    return (tsEnums.isNative(enumName ctx))
+  }
+
+  ; `enum Color { Red = 0, Green = 1 }`. A TypeScript enum member IS its
+  ; number at runtime, so the emitted JavaScript behaves exactly as the
+  ; integer lowering did.
+  fn writeTsNativeEnums:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+    if ts_enums_written {
+      return
+    }
+    ts_enums_written = true
+    if (target_typescript == false) {
+      return
+    }
+    def enumRoot:RangerAppWriterContext (ctx.getRoot())
+    for (keys enumRoot.definedEnums) ten:string tei {
+      if (this.tsEnumIsNative(ten ctx)) {
+        def teDef:RangerAppEnum (unwrap (get enumRoot.definedEnums ten))
+        wr.out("" true)
+        wr.out(("export enum " + ten + " {") true)
+        wr.indent(1)
+        for (keys teDef.values) tmn:string tmi {
+          def tmv:int (unwrap (get teDef.values tmn))
+          wr.out(((ctx.transformWord(tmn)) + " = " + (to_string tmv) + ",") true)
+        }
+        wr.indent(-1)
+        wr.out("}" true)
+      }
+    }
+  }
 
   fn writeTsTraitInterfaces:void (ctx:RangerAppWriterContext wr:CodeWriter) {
     if ts_traits_written {
@@ -1214,6 +1270,7 @@ class RangerJavaScriptClassWriter {
 
     ; after the header, never before it: the first line of a -nodecli file is
     ; a shebang, and nothing may precede it
+    this.writeTsNativeEnums(ctx wr)
     this.writeTsTraitInterfaces(ctx wr)
 
     if cl.has_doc {

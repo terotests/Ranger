@@ -93,9 +93,9 @@ function __js_main() {
   const box = new Lookup();
   const names = ["ada", "grace"];
   const hit = box.findName(names, "ada");
-  console.log("found " + (((typeof(hit) !== "undefined" && hit != null ) ) ? hit : "unknown"));
+  console.log("found " + (hit ?? "unknown"));
   const miss = box.findName(names, "alan");
-  console.log("miss " + (((typeof(miss) !== "undefined" && miss != null ) ) ? miss : "unknown"));
+  console.log("miss " + (miss ?? "unknown"));
   if ( typeof(miss) === "undefined" ) {
     console.log("miss is empty");
   }

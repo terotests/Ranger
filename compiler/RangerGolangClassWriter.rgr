@@ -2,6 +2,7 @@
 
 Import "TraitAnalysis.rgr"
 Import "ForLoopAnalysis.rgr"
+Import "EnumAnalysis.rgr"
 
 class RangerGolangClassWriter {
   Extends (RangerGenericClassWriter)
@@ -19,6 +20,50 @@ class RangerGolangClassWriter {
   ; field per variant. Construction wraps a case into the handle; narrowing
   ; switches on the tag. Replaces the earlier marker-interface step.
   def go_unions_written:boolean false
+
+  ; which Ranger `Enum`s survive as a Go named type rather than a bare int64.
+  ; Same question Rust and C++ ask: compiler/EnumAnalysis.rgr.
+  def goEnums:EnumNativeAnalysis (new EnumNativeAnalysis())
+  def go_enums_written:boolean false
+
+  fn goEnumIsNative:boolean (enumName:string ctx:RangerAppWriterContext) {
+    goEnums.targetName = "go"
+    goEnums.fallbackType = "int64"
+    return (goEnums.isNative(enumName ctx))
+  }
+
+  ; Go has no member namespace, so `Color.Green` becomes the constant
+  ; `ColorGreen` of the named type `Color`. The prefix is what every Go
+  ; codebase writes for the same reason, and it keeps two enums that share a
+  ; member name apart.
+  fn goEnumMemberName:string (enumName:string memberName:string ctx:RangerAppWriterContext) {
+    return (enumName + (ctx.transformWord(memberName)))
+  }
+
+  ; `type Color int64` plus a const block. The underlying type is int64 --
+  ; the type the fallback lowering uses -- so a conversion back is exact.
+  fn writeGoNativeEnums:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+    if go_enums_written {
+      return
+    }
+    go_enums_written = true
+    def enumRoot:RangerAppWriterContext (ctx.getRoot())
+    for (keys enumRoot.definedEnums) gen:string gei {
+      if (this.goEnumIsNative(gen ctx)) {
+        def geDef:RangerAppEnum (unwrap (get enumRoot.definedEnums gen))
+        wr.out("" true)
+        wr.out(("type " + gen + " int64") true)
+        wr.out("const (" true)
+        wr.indent(1)
+        for (keys geDef.values) gmn:string gmi {
+          def gmv:int (unwrap (get geDef.values gmn))
+          wr.out(((this.goEnumMemberName(gen gmn ctx)) + " " + gen + " = " + (to_string gmv)) true)
+        }
+        wr.indent(-1)
+        wr.out(")" true)
+      }
+    }
+  }
   def httpServerWriter:RangerGolangHttpServerWriter (new RangerGolangHttpServerWriter())
 
   fn writeGoUnionStructs:void (ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -475,7 +520,12 @@ class RangerGolangClassWriter {
         }
       }
       case RangerNodeType.Enum {
-        wr.out("int64" false)
+        def goEnumName:string (goEnums.enumNameOf(node ctx))
+        if (this.goEnumIsNative(goEnumName ctx)) {
+          wr.out(goEnumName false)
+        } {
+          wr.out("int64" false)
+        }
       }
       case RangerNodeType.Integer {
         wr.out("int64" false)
@@ -645,6 +695,11 @@ class RangerGolangClassWriter {
         def enumName:string (itemAt node.ns 1)
         def e@(optional):RangerAppEnum (ctx.getEnum(rootObjName))
         if (!null? e) {
+          ; `ColorGreen`, not `1`, when the enum survives as a Go type
+          if (this.goEnumIsNative(rootObjName ctx)) {
+            wr.out((this.goEnumMemberName(rootObjName enumName ctx)) false)
+            return
+          }
           wr.out(("" + (unwrap (get e.values enumName) ) ) false)
           return
         }
@@ -799,6 +854,11 @@ class RangerGolangClassWriter {
       def enumName:string (itemAt node.ns 1)
       def e@(optional):RangerAppEnum (ctx.getEnum(rootObjName))
       if (!null? e) {
+        ; `ColorGreen`, not `1`, when the enum survives as a Go type
+        if (this.goEnumIsNative(rootObjName ctx)) {
+          wr.out((this.goEnumMemberName(rootObjName enumName ctx)) false)
+          return
+        }
         wr.out(("" + (unwrap (get e.values enumName) ) ) false)
         return
       }
@@ -2299,6 +2359,7 @@ class RangerGolangClassWriter {
       }
       wr.createTag("utilities")
       did_write_nullable = true
+      this.writeGoNativeEnums(ctx wr)
       this.writeGoTraitInterfaces(ctx wr)
     }
     this.writeGoUnionStructs(ctx wr)

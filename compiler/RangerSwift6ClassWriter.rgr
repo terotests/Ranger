@@ -2,6 +2,7 @@
 
 Import "TraitAnalysis.rgr"
 Import "ForLoopAnalysis.rgr"
+Import "EnumAnalysis.rgr"
 
 ; Swift 6 Class Writer
 ; Based on Swift3 writer with updates for Swift 6 compatibility
@@ -173,6 +174,42 @@ class RangerSwift6ClassWriter {
   ; Target-neutral question, one place: compiler/ForLoopAnalysis.rgr
   def swiftLoopLoops:ForLoopShape (new ForLoopShape())
   def swift_traits_written:boolean false
+
+  ; which Ranger `Enum`s survive as a Swift `enum` rather than an Int.
+  ; Same question Rust and C++ ask: compiler/EnumAnalysis.rgr.
+  def swEnums:EnumNativeAnalysis (new EnumNativeAnalysis())
+  def swift_enums_written:boolean false
+
+  fn swEnumIsNative:boolean (enumName:string ctx:RangerAppWriterContext) {
+    swEnums.targetName = "swift"
+    swEnums.fallbackType = "Int"
+    return (swEnums.isNative(enumName ctx))
+  }
+
+  ; `enum Color : Int { case Red = 0 }`. The raw type is pinned to Int -- the
+  ; type the fallback lowering uses -- so `.rawValue` is exact and nothing
+  ; downstream has to know which form the enum got.
+  fn writeSwiftNativeEnums:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+    if swift_enums_written {
+      return
+    }
+    swift_enums_written = true
+    def enumRoot:RangerAppWriterContext (ctx.getRoot())
+    for (keys enumRoot.definedEnums) sen:string sei {
+      if (this.swEnumIsNative(sen ctx)) {
+        def seDef:RangerAppEnum (unwrap (get enumRoot.definedEnums sen))
+        wr.out("" true)
+        wr.out(("enum " + sen + " : Int {") true)
+        wr.indent(1)
+        for (keys seDef.values) smn:string smi {
+          def smv:int (unwrap (get seDef.values smn))
+          wr.out(("case " + (ctx.transformWord(smn)) + " = " + (to_string smv)) true)
+        }
+        wr.indent(-1)
+        wr.out("}" true)
+      }
+    }
+  }
 
   ; A behaviour-only trait named as a type, as a Swift protocol. The mixin
   ; copy still gives each consumer its own body; this makes the name a type,
@@ -468,7 +505,12 @@ class RangerSwift6ClassWriter {
         wr.out(')' false)
       }      
       case RangerNodeType.Enum {
-        wr.out("Int" false)
+        def swEnumName:string (swEnums.enumNameOf(node ctx))
+        if (this.swEnumIsNative(swEnumName ctx)) {
+          wr.out(swEnumName false)
+        } {
+          wr.out("Int" false)
+        }
       }
       case RangerNodeType.Integer {
         wr.out("Int" false)
@@ -560,6 +602,11 @@ class RangerSwift6ClassWriter {
       def e@(optional):RangerAppEnum (ctx.getEnum(rootObjName))
       if (!null? e) {
         def enumName:string (itemAt node.ns 1)
+        ; `Color.Red`, not `0`, when the enum survives as a Swift enum
+        if (this.swEnumIsNative(rootObjName ctx)) {
+          wr.out((rootObjName + "." + (ctx.transformWord(enumName))) false)
+          return
+        }
         wr.out(("" + (unwrap (get e.values enumName))) false)
       } {
         if node.hasParamDesc {
@@ -584,6 +631,11 @@ class RangerSwift6ClassWriter {
         def enumName:string (itemAt node.ns 1)
         def e@(optional):RangerAppEnum (ctx.getEnum(rootObjName))
         if (!null? e) {
+          ; `Color.Green`, not `1`, when the enum survives as a Swift enum
+          if (this.swEnumIsNative(rootObjName ctx)) {
+            wr.out((rootObjName + "." + (ctx.transformWord(enumName))) false)
+            return
+          }
           wr.out(("" + (unwrap (get e.values enumName))) false)
           return
         }
@@ -1513,6 +1565,7 @@ class RangerSwift6ClassWriter {
     if (null? cl) {
       return
     }
+    this.writeSwiftNativeEnums(ctx wr)
     this.writeSwiftTraitProtocols(ctx wr)
     this.writeSwiftUnionEnums(ctx wr)
     def declaredVariable:[string:boolean]

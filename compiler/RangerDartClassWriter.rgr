@@ -2,6 +2,7 @@
 
 Import "TraitAnalysis.rgr"
 Import "ForLoopAnalysis.rgr"
+Import "EnumAnalysis.rgr"
 
 ; Dart / Flutter package target writer.
 ; Focus: idiomatic Dart for shared application logic (models, validation,
@@ -21,6 +22,41 @@ class RangerDartClassWriter {
   ; Target-neutral question, one place: compiler/ForLoopAnalysis.rgr
   def dartLoops:ForLoopShape (new ForLoopShape())
   def dart_traits_written:boolean false
+
+  ; which Ranger `Enum`s survive as a Dart `enum` rather than an int.
+  ; Same question Rust and C++ ask: compiler/EnumAnalysis.rgr.
+  def dartEnums:EnumNativeAnalysis (new EnumNativeAnalysis())
+  def dart_enums_written:boolean false
+
+  fn dartEnumIsNative:boolean (enumName:string ctx:RangerAppWriterContext) {
+    dartEnums.targetName = "dart"
+    dartEnums.fallbackType = "int"
+    return (dartEnums.isNative(enumName ctx))
+  }
+
+  ; `enum Color { Red, Green, Blue }`. A Dart enum carries no discriminant of
+  ; its own, and needs none: an enum only reaches this form when no use in the
+  ; program observes its integer value.
+  fn writeDartNativeEnums:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+    if dart_enums_written {
+      return
+    }
+    dart_enums_written = true
+    def enumRoot:RangerAppWriterContext (ctx.getRoot())
+    for (keys enumRoot.definedEnums) den:string dei {
+      if (this.dartEnumIsNative(den ctx)) {
+        def deDef:RangerAppEnum (unwrap (get enumRoot.definedEnums den))
+        wr.out("" true)
+        wr.out(("enum " + den + " {") true)
+        wr.indent(1)
+        for (keys deDef.values) dmn:string dmi {
+          wr.out(((ctx.transformWord(dmn)) + ",") true)
+        }
+        wr.indent(-1)
+        wr.out("}" true)
+      }
+    }
+  }
 
   ; A behaviour-only trait named as a type, as an abstract class its consumers
   ; `implement`. The mixin copy still gives each consumer its own body; this
@@ -295,7 +331,12 @@ class RangerDartClassWriter {
         wr.out(")" false)
       }
       case RangerNodeType.Enum {
-        wr.out("int" false)
+        def dEnumName:string (dartEnums.enumNameOf(node ctx))
+        if (this.dartEnumIsNative(dEnumName ctx)) {
+          wr.out(dEnumName false)
+        } {
+          wr.out("int" false)
+        }
       }
       case RangerNodeType.Integer {
         wr.out("int" false)
@@ -392,6 +433,11 @@ class RangerDartClassWriter {
         def enumName:string (itemAt node.ns 1)
         def e@(optional):RangerAppEnum (ctx.getEnum(rootObjName))
         if (!null? e) {
+          ; `Color.Green`, not `1`, when the enum survives as a Dart enum
+          if (this.dartEnumIsNative(rootObjName ctx)) {
+            wr.out((rootObjName + "." + (ctx.transformWord(enumName))) false)
+            return
+          }
           wr.out(("" + (unwrap (get e.values enumName))) false)
           return
         }
@@ -761,6 +807,7 @@ class RangerDartClassWriter {
       wrote_header = true
     }
 
+    this.writeDartNativeEnums(ctx wr)
     this.writeDartTraitInterfaces(ctx wr)
     this.writeDartUnionInterfaces(ctx wr)
     wr.out("" true)

@@ -1,5 +1,11 @@
 using System;
 
+public enum Color : int {
+  Red = 0,
+  Green = 1,
+  Blue = 2,
+}
+
 public interface union_Message { }
 class Message_Ping  : union_Message {
 }
@@ -64,16 +70,16 @@ class Message__ops  {
 class EnumsMain  {
   static void Main( string [] args ) {
     EnumsMain app = new EnumsMain();
-    Console.WriteLine("color " + app.colorName(1));
+    Console.WriteLine("color " + app.colorName(Color.Green));
     Console.WriteLine(app.describe((new Message_Ping())));
     Console.WriteLine(app.describe((new Message_Text("hi"))));
     Console.WriteLine(app.describe((new Message_Move(2, 3))));
   }
-  public String colorName( int c ) {
-    if ( c == 0 ) {
+  public String colorName( Color c ) {
+    if ( c == Color.Red ) {
       return "red";
     }
-    if ( c == 1 ) {
+    if ( c == Color.Green ) {
       return "green";
     }
     return "blue";

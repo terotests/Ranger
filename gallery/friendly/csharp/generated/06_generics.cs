@@ -8,13 +8,13 @@ class GenericsMain  {
     ints.put(8);
     Console.WriteLine("int-size " + ints.size().ToString());
     int? top = ints.peek();
-    Console.WriteLine("int-top " + (((top != null) ? ((top).Value) : 0).ToString()));
+    Console.WriteLine("int-top " + ((top ?? 0).ToString()));
     Stack_string words = new Stack_string();
     words.put("ada");
     words.put("grace");
     Console.WriteLine("str-size " + words.size().ToString());
     String lastWord = words.peek();
-    Console.WriteLine("str-top " + ((lastWord != null) ? lastWord : "?"));
+    Console.WriteLine("str-top " + (lastWord ?? "?"));
   }
 }
 class Stack_int  {

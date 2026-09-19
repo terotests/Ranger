@@ -1,8 +1,11 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
+from typing import Optional
+
 
 
 class GenericsMain:
-  def __init__(self):
+  def __init__(self) -> None:
     pass
 # Main entry point
 def main():
@@ -19,13 +22,13 @@ def main():
   lastWord = words.peek()
   print("str-top " + (lastWord if (lastWord is not None) else "?"))
 class Stack_int:
-  def __init__(self):
+  def __init__(self) -> None:
     self.items = []
-  def put(self, item):
+  def put(self, item: int) -> None:
     self.items.append(item)
-  def size(self):
+  def size(self) -> int:
     return len(self.items);
-  def peek(self):
+  def peek(self) -> Optional[int]:
     found = None
     n = len(self.items)
     if n == 0:
@@ -33,13 +36,13 @@ class Stack_int:
     found = self.items[(n - 1)];
     return found;
 class Stack_string:
-  def __init__(self):
+  def __init__(self) -> None:
     self.items = []
-  def put(self, item):
+  def put(self, item: str) -> None:
     self.items.append(item)
-  def size(self):
+  def size(self) -> int:
     return len(self.items);
-  def peek(self):
+  def peek(self) -> Optional[str]:
     found = None
     n = len(self.items)
     if n == 0:

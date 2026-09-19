@@ -2576,7 +2576,190 @@ class StaticAnalyzer {
     return false
   }
 
-  fn walkForSharing:void (node:CodeNode fnCtx:RangerAppWriterContext fnName:string mutated:[string]) {
+  ; --- a store that MOVES rather than shares ---------------------------------
+  ; `push lines line` marks the stored class shared, because a named value put
+  ; into an object graph is held there "while the name stays reachable". In the
+  ; shopping-cart shape the name does NOT stay reachable: `add` makes the line,
+  ; fills it, pushes it and returns. The collection is its only owner, and on
+  ; Rust that is `Vec<CartLine>` rather than `Vec<Rc<RefCell<CartLine>>>` --
+  ; which also makes `Cart::clone()` copy the lines, as anyone would expect,
+  ; instead of handing out a second cart that shares them.
+  ;
+  ; The store is a MOVE only when every one of these holds. Sharing stands
+  ; otherwise, because being wrong in that direction is a program that does not
+  ; compile or that silently stops aliasing.
+
+  ; Does `name` name this node -- as a bare name, or as the root of a path?
+  fn nodeNamesLocal:boolean (node:CodeNode name:string) {
+    if node.expression {
+      return false
+    }
+    if ((array_length node.ns) > 0) {
+      return ((itemAt node.ns 0) == name)
+    }
+    return (node.vref == name)
+  }
+
+  ; A use of `name` anywhere later in the source than `afterSp`.
+  fn nameUsedAfter:boolean (node:CodeNode name:string afterSp:int) {
+    if (this.nodeNamesLocal(node name)) {
+      if (node.sp > afterSp) {
+        return true
+      }
+    }
+    for node.children ch:CodeNode i {
+      if (this.nameUsedAfter(ch name afterSp)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  ; `def other <name>` -- something else now points at the same object.
+  fn nameIsAliased:boolean (node:CodeNode name:string) {
+    if node.expression {
+      if ((array_length node.children) > 2) {
+        def head:CodeNode (node.getFirst())
+        if (head.vref == "def") {
+          def val:CodeNode (itemAt node.children 2)
+          if (this.nodeNamesLocal(val name)) {
+            return true
+          }
+        }
+      }
+    }
+    for node.children ch2:CodeNode i2 {
+      if (this.nameIsAliased(ch2 name)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  ; The `def` that creates `name`, counted: exactly one is a local made here.
+  fn countDefsOfName:int (node:CodeNode name:string) {
+    def cnt:int 0
+    if node.expression {
+      if ((array_length node.children) > 1) {
+        def head:CodeNode (node.getFirst())
+        if (head.vref == "def") {
+          def nameNode:CodeNode (node.getSecond())
+          if (nameNode.vref == name) {
+            cnt = 1
+          }
+        }
+      }
+    }
+    for node.children ch3:CodeNode i3 {
+      cnt = (cnt + (this.countDefsOfName(ch3 name)))
+    }
+    return cnt
+  }
+
+  ; The `def` node for `name`, or null when there is not exactly one.
+  fn findDefOfName@(optional):CodeNode (node:CodeNode name:string) {
+    if node.expression {
+      if ((array_length node.children) > 1) {
+        def head:CodeNode (node.getFirst())
+        if (head.vref == "def") {
+          def nameNode:CodeNode (node.getSecond())
+          if (nameNode.vref == name) {
+            def hit@(optional):CodeNode node
+            return hit
+          }
+        }
+      }
+    }
+    for node.children ch4:CodeNode i4 {
+      def found@(optional):CodeNode (this.findDefOfName(ch4 name))
+      if (!null? found) {
+        return found
+      }
+    }
+    def none@(optional):CodeNode
+    return none
+  }
+
+  ; The nearest enclosing block, so that a local made ONCE and pushed inside a
+  ; loop stays shared: its `def` sits in an outer block, the store in the
+  ; loop's own.
+  fn nearestBlockSp:int (node:CodeNode) {
+    def cur@(optional weak):CodeNode node.parent
+    while (!null? cur) {
+      def c:CodeNode (unwrap cur)
+      if c.is_block_node {
+        return c.sp
+      }
+      cur = c.parent
+    }
+    return -1
+  }
+
+  fn storeIsLocalMove:boolean (body:CodeNode storeNode:CodeNode stored:CodeNode name:string fnCtx:RangerAppWriterContext) {
+    ; a synthesized node has no source position, and the whole test is an
+    ; ordering on those
+    if (storeNode.sp <= 0) {
+      return false
+    }
+    if (stored.expression) {
+      return false
+    }
+    ; a path (`a.b`) is a read out of an object graph, never a local to move
+    if ((array_length stored.ns) > 1) {
+      return false
+    }
+    def p:RangerAppParamDesc (fnCtx.getVariableDef(name))
+    if ((strlen p.name) == 0) {
+      return false
+    }
+    if p.is_class_variable {
+      return false
+    }
+    if p.is_captured {
+      return false
+    }
+    ; exactly one `def name` in this body: a local made here, not a parameter
+    if ((this.countDefsOfName(body name)) != 1) {
+      return false
+    }
+    def defNodeOpt@(optional):CodeNode (this.findDefOfName(body name))
+    if (null? defNodeOpt) {
+      return false
+    }
+    def defNode:CodeNode (unwrap defNodeOpt)
+    if (defNode.sp <= 0) {
+      return false
+    }
+    if (defNode.sp > storeNode.sp) {
+      return false
+    }
+    ; the `def` and the store share a block, so the object is made fresh on
+    ; every path that reaches the store
+    def defBlock:int (this.nearestBlockSp(defNode))
+    def storeBlock:int (this.nearestBlockSp(storeNode))
+    if (defBlock < 0) {
+      return false
+    }
+    if (defBlock != storeBlock) {
+      return false
+    }
+    if (this.nameIsAliased(body name)) {
+      return false
+    }
+    ; the store is the last thing that names it. The bound is the END of the
+    ; store expression, not its start: `(push lines line)` holds `line` as its
+    ; own child, and that child sits after the opening paren.
+    def storeEnd:int storeNode.ep
+    if (storeEnd <= storeNode.sp) {
+      return false
+    }
+    if (this.nameUsedAfter(body name storeEnd)) {
+      return false
+    }
+    return true
+  }
+
+  fn walkForSharing:void (body:CodeNode node:CodeNode fnCtx:RangerAppWriterContext fnName:string mutated:[string]) {
     if node.expression {
       if ((array_length node.children) > 0) {
         def first:CodeNode (node.getFirst())
@@ -2594,7 +2777,11 @@ class StaticAnalyzer {
             if ((strlen storedName) > 0) {
               def storedClass:string (this.nodeClassNameOf(stored fnCtx))
               if ((strlen storedClass) > 0) {
-                this.markClassShared(storedClass ("stored in " + fnName))
+                ; ...unless the name does not stay reachable: a local built
+                ; here and pushed for the last time is a move, not sharing
+                if ((this.storeIsLocalMove(body node stored storedName fnCtx)) == false) {
+                  this.markClassShared(storedClass ("stored in " + fnName))
+                }
               }
             }
           }
@@ -2712,7 +2899,7 @@ class StaticAnalyzer {
       }
     }
     for node.children child:CodeNode i {
-      this.walkForSharing(child fnCtx fnName mutated)
+      this.walkForSharing(body child fnCtx fnName mutated)
     }
   }
 
@@ -2766,7 +2953,7 @@ class StaticAnalyzer {
         currentFunction = fn
         def mutated:[string]
         this.collectMutatedNames((unwrap fn.fnBody) mutated)
-        this.walkForSharing((unwrap fn.fnBody) (unwrap fn.fnCtx) fn.name mutated)
+        this.walkForSharing((unwrap fn.fnBody) (unwrap fn.fnBody) (unwrap fn.fnCtx) fn.name mutated)
       }
     }
   }
