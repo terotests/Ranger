@@ -140,6 +140,13 @@ text node is filled from the machine's context, and `check` walks every state
 the machine can reach: a state with no page, a page no state renders and an id
 that is not an event are the three defects an agent cannot see and this names.
 
+`app/APP.md` is the app's memory — half generated from the files (every state
+and event, every context key and who writes and reads it), half written by the
+agent (what the app is for, and the decisions a later pass must not undo).
+`memo` refreshes the generated half without touching a line anybody wrote, and
+`check` reports a memory that has stopped matching the app, because the next
+pass will believe it.
+
 ## The wire
 
 One JSON object per line. The HTTP door copies each line onto an SSE event

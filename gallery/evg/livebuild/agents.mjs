@@ -373,6 +373,72 @@ function carryAttachment(from, to) {
 // "here is the SVG" would put every one of them through its context on the way
 // into a patch, to be copied out again unchanged. The host traces it once and
 // leaves the patch already written, so using the picture costs one command.
+// --- WHY THE GUIDE TALKS ABOUT MEMORY ----------------------------------------
+//
+// A one-screen document needs no memory: the document IS the state, and an
+// agent that reads it knows everything. An app is not one thing — it is a
+// machine, a page per state, and a data model spread across both — and an
+// agent comes back to it with none of yesterday in its head. Without somewhere
+// to look first it renames a key, adds a screen the nav does not reach, and
+// stores a total it could have computed.
+//
+// `APP.md` is that somewhere, and the guide's job is to make reading it the
+// first move and refreshing it the last one. The tool checks the second: a
+// memory that has stopped matching the app is a finding, because the next pass
+// will believe it.
+function appSection(dir) {
+  if (!fs.existsSync(path.join(dir, "app", "machine.json"))) return "";
+  return `
+## This is an app, not one screen
+
+\`app/machine.json\` is the state machine and \`app/pages/<state>.evg.json\`
+is the screen for each state. The machine decides which page is on
+screen; a page never changes the page. An element's \`id\` is the event
+its press sends, and \`{key}\` in a text node is filled from the
+machine's context.
+
+**Read \`app/APP.md\` before you change anything.** It is this app's
+memory: what it is for, every state and the events it takes, every
+context key and who writes and reads it, and the decisions a later pass
+must not undo. You wrote most of it; the tables in the middle are
+rewritten from the files, so they cannot lie to you.
+
+\`\`\`
+./evg-app states app            every state, its page, the events it takes
+./evg-app model  app            every context key: who writes it, who reads it
+./evg-app press  app nav.routes route.add
+                                send events, print where each one lands
+./evg-app check  app            every page measured, every id checked against
+                                the machine, the data model, and the memory
+./evg-app memo   app            refresh APP.md — do this after any change to
+                                the machine, the pages or the keys
+\`\`\`
+
+The loop is the same one you already use, with one more step at the end:
+
+1. \`APP.md\`, then \`states\` — what exists.
+2. \`patch\` the page, or the machine.
+3. \`check\` — every screen, not just the one you touched.
+4. \`memo\` — so the next pass reads what you did, not what was true
+   before it.
+
+**The data model is the part that rots first.** A page reads \`{trips}\`,
+a transition assigns \`trips\`, the machine starts with a \`trips\` —
+nothing but the spelling ties those three together. \`check\` reports a
+key a page reads and the machine never has, a key a transition assigns
+that was never declared, and a key nothing shows. Before adding a key,
+look at whether one already means what you want.
+
+Three things \`check\` finds that you cannot see by looking:
+
+- a state whose page does not exist — a screen the app can reach and
+  does not have;
+- a page no state renders — work that went nowhere, or a rename;
+- an \`id\` that is not an event of that state — a dead button, which
+  looks exactly like a live one.
+`;
+}
+
 function attachmentSection(dir) {
   const a = attachmentOf(dir);
   if (!a) return "";
@@ -588,7 +654,7 @@ then read \`layout.json\`. You may also write \`App.rgr\` with Ranger that
 builds the same tree.
 
 Do not leave the workspace. Do not require confirmation.
-${attachmentSection(dir)}`;
+${appSection(dir)}${attachmentSection(dir)}`;
 }
 
 export const SEED_KINDS = ["dashboard", "settings", "invoices", "empty"];
@@ -642,10 +708,25 @@ function installEvgImage(dir) {
   return true;
 }
 
+// The app door, when it has been built. `npm run livebuild:app:build` compiles
+// it; an app workspace is the only one that needs it.
+function installEvgApp(dir) {
+  const src = path.join(root, "gallery/evg/bin/evg_app.js");
+  if (!fs.existsSync(src)) return false;
+  fs.copyFileSync(src, path.join(dir, "evg_app_tool.js"));
+  fs.writeFileSync(
+    path.join(dir, "evg-app"),
+    `#!/bin/sh\nexec node "$(dirname "$0")/evg_app_tool.js" "$@"\n`,
+    { mode: 0o755 },
+  );
+  return true;
+}
+
 function installEvgAgent(dir) {
   const src = path.join(root, "lib/evg/bin/evg_agent.js");
   if (!fs.existsSync(src)) return false;
   installEvgImage(dir);
+  installEvgApp(dir);
   fs.copyFileSync(src, path.join(dir, "evg_agent.js"));
   // The shim also leaves the ops behind. A workspace agent patches through
   // this script, and the host has no other way to learn WHAT it changed: it

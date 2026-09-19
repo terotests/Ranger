@@ -90,6 +90,50 @@ if (!doc.includes("4 tallennettua")) throw new Error("{trips} was not filled fro
 if (doc.includes("{trips}")) throw new Error("the binding was left in the page");
 console.log("  render      {trips} → 4, the page a host would paint");
 
+// --- the data model and the memory ------------------------------------------
+
+const model = app("model", fixture);
+if (model.count !== 0) throw new Error(`the fixture model has problems: ${model.problems.join("; ")}`);
+const trips = model.keys.find((k) => k.key === "trips");
+if (!trips || !trips.declared) throw new Error("trips is not in the model");
+if (!/route.add/.test(trips.writtenBy)) throw new Error("the model lost who writes trips");
+if (!/routes/.test(trips.readBy)) throw new Error("the model lost who reads trips");
+console.log(`  model       ${model.keys.length} key(s): ${trips.key} written by ${trips.writtenBy}, read by ${trips.readBy}`);
+
+// The memory is half generated and half written, and the written half has to
+// survive a refresh — a memory that eats what somebody wrote into it will not
+// be written into twice.
+const memoPath = path.join(fixture, "APP.md");
+const before = fs.readFileSync(memoPath, "utf8");
+const memo = app("memo", fixture);
+if (!memo.kept) throw new Error("memo did not know there was a file already");
+const after = fs.readFileSync(memoPath, "utf8");
+for (const kept of ["## What this app is for", "## Decisions", "stored, not counted"]) {
+  if (!after.includes(kept)) throw new Error(`memo dropped the hand-written "${kept}"`);
+}
+if (after !== before) throw new Error("a refresh with nothing changed rewrote the file");
+console.log("  memo        APP.md refreshed, every hand-written line kept");
+
+// An app that changed and a memory that did not is the failure this exists to
+// catch, along with a key the machine gained and nothing declared.
+const stale = fs.mkdtempSync(path.join(os.tmpdir(), "evg-app-stale-"));
+fs.cpSync(fixture, stale, { recursive: true });
+const machine = JSON.parse(fs.readFileSync(path.join(stale, "machine.json"), "utf8"));
+machine.states.routes.on["route.remove"] = { actions: [{ assign: { deleted: { value: "1" } } }] };
+fs.writeFileSync(path.join(stale, "machine.json"), JSON.stringify(machine));
+const drifted = app("check", stale);
+const saidDrift = drifted.problems.join(" | ");
+if (!/APP\.md no longer describes/.test(saidDrift)) throw new Error(`stale memory went unreported: ${saidDrift}`);
+if (!/not in the machine's initial context/.test(saidDrift)) throw new Error(`the undeclared key went unreported: ${saidDrift}`);
+// …and refreshing the memory is what clears the first of them.
+app("memo", stale);
+const refreshed = app("check", stale);
+if (/APP\.md no longer describes/.test(refreshed.problems.join(" | "))) {
+  throw new Error("a refreshed memory still reads as stale");
+}
+console.log("  stale       a changed app with an old memory is caught, and memo clears it");
+fs.rmSync(stale, { recursive: true, force: true });
+
 // --- the broken app ---------------------------------------------------------
 //
 // Three defects, one per line of `check`'s reason for existing.
@@ -129,4 +173,4 @@ if (bad.count < 3) throw new Error(`three defects, ${bad.count} reported`);
 console.log(`  broken      ${bad.count} problems named: missing page, orphan page, dead id`);
 fs.rmSync(broken, { recursive: true, force: true });
 
-console.log("ALL PASS — a machine, a page per state, and nothing pressable that is dead");
+console.log("ALL PASS — a machine, a page per state, a model that agrees with itself, a memory that does not rot");

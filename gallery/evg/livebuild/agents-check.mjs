@@ -236,6 +236,31 @@ if (fs.existsSync(path.join(root, "lib/evg/bin/evg_agent.js"))) {
   clearAttachment(dir);
 }
 
+// An app workspace gets a different guide, and the tool to work it with. What
+// is checked here is the habit the guide has to teach: read the memory first,
+// refresh it last — because an agent comes back to a multi-screen app with
+// none of the last pass in its head.
+{
+  resetSession("dashboard");
+  const dir = sessionDir();
+  fs.rmSync(path.join(dir, "app"), { recursive: true, force: true });
+  const plain = fs.readFileSync(path.join(dir, "AGENTS.md"), "utf8");
+  if (/This is an app/.test(plain)) throw new Error("a one-screen workspace was told it is an app");
+  fs.cpSync(path.join(here, "fixtures/app"), path.join(dir, "app"), { recursive: true });
+  prepareSession("add a fourth screen", { kind: "dashboard" });
+  const guide = fs.readFileSync(path.join(dir, "AGENTS.md"), "utf8");
+  for (const need of ["This is an app", "app/APP.md", "./evg-app check", "./evg-app memo", "data model"]) {
+    if (!guide.includes(need)) throw new Error(`the app guide never mentions ${need}`);
+  }
+  if (fs.existsSync(path.join(root, "gallery/evg/bin/evg_app.js"))) {
+    if (!fs.existsSync(path.join(dir, "evg-app"))) throw new Error("no ./evg-app in the workspace");
+    console.log("  app         guide + ./evg-app, memory first and last");
+  } else {
+    console.log("  app         guide only — gallery/evg/bin/evg_app.js is not built");
+  }
+  fs.rmSync(path.join(dir, "app"), { recursive: true, force: true });
+}
+
 const selfWs = fs.mkdtempSync(path.join(os.tmpdir(), "evg-self-"));
 fs.writeFileSync(
   path.join(selfWs, "doc.evg.json"),

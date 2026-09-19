@@ -100,6 +100,30 @@ do: an instance with fields that survives the next build, which is where a
 row's own timer or scroll position lives. Until an app needs one, it does not
 need one.
 
+### 2.3 The memory
+
+An agent comes back to this app with none of the last pass in its head. It can
+read the files — but what it needs first is not a file, it is the shape: which
+screens exist, which keys mean what, and what was decided and must not be
+undone. Without somewhere to look first it renames a key, adds a fifth screen
+the nav does not reach, and stores a total it could have computed.
+
+`app/APP.md` is that somewhere, and the split is the whole design:
+
+| half | who writes it | what it holds |
+| --- | --- | --- |
+| generated | `evg_app memo`, from the files | every state, its page, the events it takes, the ids on it; every context key and who writes and reads it |
+| written | the agent | what the app is for; the decisions a later pass must not undo |
+
+Neither half works alone. All hand-written, it drifts and is then worse than
+nothing, because the next pass believes it. All generated, it has no intent in
+it — nothing says *why* a key is stored rather than computed.
+
+So the generated half is rewritten from the files on every `memo`, and `check`
+compares what is in the file with what would be written now: **a memory that
+has stopped matching the app is a finding.** The guide makes reading it the
+first move and refreshing it the last one.
+
 ## 3. The loop
 
 ```
@@ -226,7 +250,12 @@ npm run livebuild:app               # the fixture app, and a broken one
 Statechart + EVGTreeJson + EVGMeasure, tied together and nothing else. The
 fixture in `fixtures/app` is three screens with a working bottom nav and a
 counter only a transition can change; `check` walks all three, measures each,
-and reads every `id` back against the machine.
+reads every `id` back against the machine, checks the data model, and refuses
+a memory that no longer matches the app.
+
+`model` and `memo` are the other two verbs: the first says who writes and who
+reads each context key, the second refreshes `app/APP.md` without touching a
+line anybody wrote into it.
 
 Two things this stage already taught, which is what a stage is for:
 

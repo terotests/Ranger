@@ -8,6 +8,8 @@
 ;   evg_app press  <app> EVENT…          send events, print where each lands
 ;   evg_app check  <app> [--width=390 --height=844]
 ;   evg_app render <app> [EVENT…] [--out=FILE]
+;   evg_app model  <app>                 the data model: who writes each key, who reads it
+;   evg_app memo   <app>                 refresh APP.md — the app's own memory
 ;
 ; PLAN_LIVE_APP.md, stage S1. The live-build demo designs ONE screen, and a
 ; screen with a tab bar that does nothing is a picture of an app. This is the
@@ -62,6 +64,8 @@ class EvgAppTool {
         print "  press  <app> EVENT…          send events, print where each lands"
         print "  check  <app> [--width=N] [--height=N]"
         print "  render <app> [EVENT…] [--out=FILE]   the page for the state those events reach"
+        print "  model  <app>                 the data model: who writes each key, who reads it"
+        print "  memo   <app>                 refresh APP.md — the app's own memory"
         print ""
         print "An app is <app>/machine.json and <app>/pages/<state>.evg.json."
     }
@@ -99,6 +103,14 @@ class EvgAppTool {
         }
         if (verb == "render") {
             this.render(loaded)
+            return
+        }
+        if (verb == "model") {
+            this.model(loaded)
+            return
+        }
+        if (verb == "memo") {
+            this.memo(loaded)
             return
         }
         this.usage()
@@ -215,6 +227,389 @@ class EvgAppTool {
         print out
     }
 
+    ; --- the data model -------------------------------------------------------
+    ;
+    ; --- WHY A DATA MODEL IS A THING TO CHECK ---------------------------------
+    ;
+    ; A page reads `{trips}`. A transition assigns `trips`. The machine starts
+    ; with a `trips` in its context. Nothing in the app says those three are
+    ; the same thing — they agree by spelling, across three files, and an agent
+    ; that comes back to this app tomorrow with none of yesterday in its head
+    ; will rename one of them.
+    ;
+    ; Every way they can disagree is silent. A page that binds a key the
+    ; machine never has renders the braces, which looks like a design choice
+    ; at a glance. A transition that assigns a key nothing declared works
+    ; perfectly until a page tries to show it before the first press. A key in
+    ; the context that no page shows is either dead weight or a screen
+    ; somebody forgot to finish.
+    ;
+    ; So the model is derived, from the three places it actually lives, and the
+    ; disagreements are the answer.
+
+    fn model:void (sc:Statechart) {
+        def keys:[string]
+        def writers:[string]
+        def readers:[string]
+        this.gatherModel(sc keys writers readers)
+        def declared:[string]
+        this.declaredKeys(sc declared)
+
+        def problems:[string]
+        this.modelProblems(sc problems)
+        def out:string "{\"keys\":["
+        def i:int 0
+        while (i < (array_length keys)) {
+            def key:string (itemAt keys i)
+            if (i > 0) {
+                out = (out + ",")
+            }
+            out = (out + "\n  {\"key\":")
+            out = (out + (EVGTreeJson.str(key)))
+            out = ((out + ",\"declared\":") + (EvgAppTool.boolText((EvgAppTool.mentions(declared key)))))
+            out = ((out + ",\"writtenBy\":") + (EVGTreeJson.str((itemAt writers i))))
+            out = ((out + ",\"readBy\":") + (EVGTreeJson.str((itemAt readers i))))
+            out = (out + "}")
+            i = (i + 1)
+        }
+        if ((array_length keys) > 0) {
+            out = (out + "\n")
+        }
+        out = (out + "],\"problems\":")
+        out = (out + (EvgAppTool.strArray(problems)))
+        out = ((out + ",\"count\":") + (to_string (array_length problems)))
+        out = (out + "}")
+        print out
+    }
+
+    ; The three ways the model can disagree with itself, in one place because
+    ; `check` asks the same question `model` does and neither may be the one
+    ; that knows less.
+    fn modelProblems:void (sc:Statechart problems:[string]) {
+        def keys:[string]
+        def writers:[string]
+        def readers:[string]
+        this.gatherModel(sc keys writers readers)
+        def declared:[string]
+        this.declaredKeys(sc declared)
+        def i:int 0
+        while (i < (array_length keys)) {
+            def key:string (itemAt keys i)
+            def wrote:string (itemAt writers i)
+            def read:string (itemAt readers i)
+            def isDeclared:boolean (EvgAppTool.mentions(declared key))
+            ; Read, and nothing anywhere puts a value there: the page shows its
+            ; own braces and looks like it meant to.
+            if ((strlen read) > 0) {
+                if (isDeclared == false) {
+                    if ((strlen wrote) == 0) {
+                        push problems ((("{" + key) + "} is read by ") + (read + ", and the machine never has it"))
+                    }
+                }
+            }
+            ; Assigned but not declared: right after the press, wrong before it.
+            if ((strlen wrote) > 0) {
+                if (isDeclared == false) {
+                    push problems (((key + " is assigned by ") + wrote) + ", but is not in the machine's initial context")
+                }
+            }
+            ; Declared and shown nowhere. A guard may be its only reader, so
+            ; this is said plainly and is not a defect on its own.
+            if ((strlen read) == 0) {
+                if (isDeclared) {
+                    push problems ((key + " is in the context and no page shows it"))
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Every key the app mentions, and where. Three walks: the initial context,
+    ; the assigns on every transition, and the `{…}` in every page's text.
+    fn gatherModel:void (sc:Statechart keys:[string] writers:[string] readers:[string]) {
+        def declared:[string]
+        this.declaredKeys(sc declared)
+        def d:int 0
+        while (d < (array_length declared)) {
+            EvgAppTool.note(keys writers readers (itemAt declared d) "" "")
+            d = (d + 1)
+        }
+        def i:int 0
+        while (i < (array_length sc.states)) {
+            def st:ScState (itemAt sc.states i)
+            this.noteAssigns(keys writers readers st.transitions)
+            this.noteAssigns(keys writers readers st.always)
+            i = (i + 1)
+        }
+        this.noteAssigns(keys writers readers sc.transitions)
+
+        def k:int 0
+        while (k < (array_length sc.states)) {
+            def st:ScState (itemAt sc.states k)
+            if (this.isLeaf(sc st.path)) {
+                def file:string (this.pageOf(st.path))
+                def text@(optional):string (EvgAppTool.slurp(file))
+                if ((null? text) == false) {
+                    def root@(optional):EVGElement (EVGTreeJson.fromText((unwrap text)))
+                    if ((null? root) == false) {
+                        def found:[string]
+                        this.bindingsOf((unwrap root) found)
+                        def f:int 0
+                        while (f < (array_length found)) {
+                            EvgAppTool.note(keys writers readers (itemAt found f) "" st.path)
+                            f = (f + 1)
+                        }
+                    }
+                }
+            }
+            k = (k + 1)
+        }
+    }
+
+    fn noteAssigns:void (keys:[string] writers:[string] readers:[string] ts:[ScTransition]) {
+        def i:int 0
+        while (i < (array_length ts)) {
+            def t:ScTransition (itemAt ts i)
+            def label:string t.event
+            if ((strlen label) == 0) {
+                label = "always"
+            }
+            def a:int 0
+            while (a < (array_length t.assigns)) {
+                def asg:ScAssign (itemAt t.assigns a)
+                EvgAppTool.note(keys writers readers asg.key label "")
+                a = (a + 1)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; One mention of one key, folded into the three parallel lists.
+    sfn note:void (keys:[string] writers:[string] readers:[string] key:string wrote:string read:string) {
+        if ((strlen key) == 0) {
+            return
+        }
+        def at@(mutable):int (0 - 1)
+        def i@(mutable):int 0
+        while (i < (array_length keys)) {
+            if ((itemAt keys i) == key) {
+                at = i
+            }
+            i = (i + 1)
+        }
+        if (at < 0) {
+            push keys key
+            push writers wrote
+            push readers read
+            return
+        }
+        if ((strlen wrote) > 0) {
+            set writers at (EvgAppTool.joined((itemAt writers at) wrote))
+        }
+        if ((strlen read) > 0) {
+            set readers at (EvgAppTool.joined((itemAt readers at) read))
+        }
+    }
+
+    sfn joined:string (list:string item:string) {
+        if ((strlen list) == 0) {
+            return item
+        }
+        if ((indexOf list item) >= 0) {
+            return list
+        }
+        return ((list + ", ") + item)
+    }
+
+    fn declaredKeys:void (sc:Statechart out:[string]) {
+        def runner (new ScRunner)
+        runner.start(sc)
+        def i:int 0
+        while (i < (array_length runner.keys)) {
+            push out (itemAt runner.keys i)
+            i = (i + 1)
+        }
+    }
+
+    ; The `{key}` names in a page's text, whatever the text around them.
+    fn bindingsOf:void (el:EVGElement out:[string]) {
+        if ((strlen el.textContent) > 0) {
+            EvgAppTool.scanBindings(el.textContent out)
+        }
+        def i:int 0
+        while (i < (array_length el.children)) {
+            this.bindingsOf((itemAt el.children i) out)
+            i = (i + 1)
+        }
+    }
+
+    sfn scanBindings:void (text:string out:[string]) {
+        def n:int (strlen text)
+        def i@(mutable):int 0
+        while (i < n) {
+            if ((charAt text i) == 123) {
+                def j@(mutable):int (i + 1)
+                def close@(mutable):int (0 - 1)
+                while (j < n) {
+                    if ((charAt text j) == 125) {
+                        if (close < 0) {
+                            close = j
+                        }
+                    }
+                    j = (j + 1)
+                }
+                if (close < 0) {
+                    i = n
+                } {
+                    def key:string (substring text (i + 1) close)
+                    if ((strlen key) > 0) {
+                        if ((EvgAppTool.mentions(out key)) == false) {
+                            push out key
+                        }
+                    }
+                    i = (close + 1)
+                }
+            } {
+                i = (i + 1)
+            }
+        }
+    }
+
+    ; --- the memory -----------------------------------------------------------
+    ;
+    ; --- WHY AN APP NEEDS A FILE ABOUT ITSELF ---------------------------------
+    ;
+    ; An agent comes back to this app with none of yesterday in its head. It can
+    ; read the files — but what it needs first is not a file, it is the shape:
+    ; which screens exist, which keys mean what, and what was decided and must
+    ; not be undone. Without that it renames a key, adds a fifth screen the nav
+    ; does not reach, and stores a total it could have computed.
+    ;
+    ; So `APP.md` is half generated and half written, and the split is the whole
+    ; design. Generated: the states, the pages, the events, the keys and who
+    ; touches them — facts, rewritten from the files on every refresh, so they
+    ; cannot drift. Written: what the app is FOR and what was decided — which
+    ; no tool can derive and which is the part worth keeping.
+    ;
+    ; A memory that could disagree with the code would be worse than none.
+
+    fn memo:void (sc:Statechart) {
+        def path:string (appDir + "/APP.md")
+        def old:string ""
+        def had@(optional):string (EvgAppTool.slurp(path))
+        if ((null? had) == false) {
+            old = (unwrap had)
+        }
+        def body:string (this.generated(sc))
+        def text:string (EvgAppTool.merged(old body sc.id))
+        EvgAppTool.spit(path text)
+        def out:string "{\"wrote\":"
+        out = (out + (EVGTreeJson.str(path)))
+        out = ((out + ",\"kept\":") + (EvgAppTool.boolText(((strlen old) > 0))))
+        out = ((out + ",\"bytes\":") + (to_string (strlen text)))
+        out = (out + "}")
+        print out
+    }
+
+    ; The part this tool owns: what the files say, as two tables.
+    fn generated:string (sc:Statechart) {
+        def out:string "## The screens\n\n"
+        out = (out + "| state | page | takes | pressable |\n")
+        out = (out + "| --- | --- | --- | --- |\n")
+        def i:int 0
+        while (i < (array_length sc.states)) {
+            def st:ScState (itemAt sc.states i)
+            if (this.isLeaf(sc st.path)) {
+                def ids:[string]
+                def file:string (this.pageOf(st.path))
+                def text@(optional):string (EvgAppTool.slurp(file))
+                def page:string ("pages/" + (st.path + ".evg.json"))
+                if (null? text) {
+                    page = "— missing —"
+                } {
+                    def root@(optional):EVGElement (EVGTreeJson.fromText((unwrap text)))
+                    if ((null? root) == false) {
+                        this.idsOf((unwrap root) ids)
+                    }
+                }
+                out = (((out + "| `") + st.path) + "` | ")
+                out = ((out + page) + " | ")
+                out = ((out + (EvgAppTool.commas(this.eventsOf(sc st.path)))) + " | ")
+                out = ((out + (EvgAppTool.commas(ids))) + " |\n")
+            }
+            i = (i + 1)
+        }
+
+        def keys:[string]
+        def writers:[string]
+        def readers:[string]
+        this.gatherModel(sc keys writers readers)
+        def declared:[string]
+        this.declaredKeys(sc declared)
+        out = (out + "\n## The data model\n\n")
+        out = (out + "| key | in the initial context | written by | read by |\n")
+        out = (out + "| --- | --- | --- | --- |\n")
+        def k:int 0
+        while (k < (array_length keys)) {
+            def key:string (itemAt keys k)
+            out = (((out + "| `") + key) + "` | ")
+            out = ((out + (EvgAppTool.boolText((EvgAppTool.mentions(declared key))))) + " | ")
+            out = ((out + (EvgAppTool.orDash((itemAt writers k)))) + " | ")
+            out = ((out + (EvgAppTool.orDash((itemAt readers k)))) + " |\n")
+            k = (k + 1)
+        }
+        return out
+    }
+
+    ; The file, with everything outside the markers left exactly as it was.
+    sfn merged:string (old:string body:string id:string) {
+        def head:string "<!-- evg_app:generated — rewritten by `evg_app memo`; edit above and below, not here -->"
+        def tail:string "<!-- /evg_app:generated -->"
+        def block:string ((((head + "\n\n") + body) + "\n") + tail)
+        if ((strlen old) == 0) {
+            def fresh:string (("# " + id) + "\n\n## What this app is for\n\n")
+            fresh = (fresh + "_One paragraph. What somebody does with it, and what it is not._\n\n")
+            fresh = (fresh + block)
+            fresh = (fresh + "\n\n## Decisions\n\n")
+            fresh = (fresh + "_Anything a later pass must not undo: why a key is stored rather than\n")
+            fresh = (fresh + "computed, why a screen is its own state, what was tried and dropped._\n")
+            return fresh
+        }
+        def from:int (indexOf old head)
+        if (from < 0) {
+            return (((old + "\n") + block) + "\n")
+        }
+        def endAt:int (indexOf old tail)
+        if (endAt < 0) {
+            return (((substring old 0 from) + block) + "\n")
+        }
+        def after:string (substring old (endAt + (strlen tail)) (strlen old))
+        return (((substring old 0 from) + block) + after)
+    }
+
+    sfn commas:string (items:[string]) {
+        if ((array_length items) == 0) {
+            return "—"
+        }
+        def out@(mutable):string ""
+        def i@(mutable):int 0
+        while (i < (array_length items)) {
+            if (i > 0) {
+                out = (out + ", ")
+            }
+            out = (((out + "`") + (itemAt items i)) + "`")
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn orDash:string (text:string) {
+        if ((strlen text) == 0) {
+            return "—"
+        }
+        return text
+    }
+
     ; --- render ---------------------------------------------------------------
 
     ; The page the app is showing after those presses, with the context filled
@@ -290,6 +685,8 @@ class EvgAppTool {
             i = (i + 1)
         }
         this.unusedPages(used problems)
+        this.modelProblems(sc problems)
+        this.memoryProblems(sc problems)
 
         def out:string "{\"states\":"
         out = (out + (to_string n))
@@ -381,6 +778,24 @@ class EvgAppTool {
                 }
             }
             i = (i + 1)
+        }
+    }
+
+    ; A memory that has quietly stopped matching the app is worse than none:
+    ; the next pass reads it, believes it, and works from a description of an
+    ; app that no longer exists. So the generated half is compared with what it
+    ; would be written as now, and a difference is a finding like any other.
+    fn memoryProblems:void (sc:Statechart problems:[string]) {
+        def path:string (appDir + "/APP.md")
+        def had@(optional):string (EvgAppTool.slurp(path))
+        if (null? had) {
+            push problems "there is no APP.md — run `evg_app memo` and then write what this app is for"
+            return
+        }
+        def text:string (unwrap had)
+        def body:string (this.generated(sc))
+        if ((indexOf text body) < 0) {
+            push problems "APP.md no longer describes this app — run `evg_app memo`"
         }
     }
 
