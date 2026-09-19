@@ -155,6 +155,41 @@ ring and a real text field have something to attach to. This is the same
 distinction as an SSR page versus a re-render: the frontend is dumb, but it
 keeps what it has.
 
+### 3.1 What the runtime is today, exactly
+
+The loop above is the design. What S2 built is one rung below it, and the
+difference is worth writing down rather than discovering:
+
+```
+  browser                     node server                  ranger, per call
+  ─────────────────────       ──────────────────────       ────────────────────
+  click → {x,y}          ───► /app/press                   evg_app hit    ─┐
+  paint(display list)    ◄───   holds events:[]      ───►  evg_app render ─┤ 3
+                                                           evg_livebuild  ─┘ spawns
+```
+
+- **Nothing of the app runs in the tab.** The page posts a point and paints a
+  display list. No Worker, no compiled `App.rgr`, no ops — that is S4 and S3b.
+- **The program is the machine, interpreted.** `ScRunner` walks `machine.json`;
+  `EVGTreeJson` reads the page; `EVGLayout` lays it out; `EVGHitTest` answers
+  the point. Nothing is generated and nothing is compiled per app — the same
+  `evg_app.js` runs every app there will ever be.
+- **The runtime is stateless and replay-based.** The server holds a list of
+  event names and nothing else. Every request replays that list from the
+  machine's initial state, rebuilds the page and throws it away. State is
+  therefore a pure function of `(machine, pages, events)`, which is why the
+  tool can be a program that starts and ends, and why a reload loses nothing.
+- **The cost is three processes and ~300ms per press** on this machine, and no
+  node, no component and no timer survives a press. That is the price of
+  having no runtime at all, and it is the right price while an app is three
+  screens and a counter.
+
+**There is no `ComponentEngine` here, and nothing needs one yet.** `EVGComponent`
+is for an instance that must outlive a rebuild — a row's own timer, an open
+dropdown, a scroll position — and a page read from a file has no builder to
+give a home to. The moment a page is built by code, that changes, and that is
+the same moment the app moves into the tab: see §4 and S4.
+
 ---
 
 ## 4. Where the compiler runs
