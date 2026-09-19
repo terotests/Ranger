@@ -1,6 +1,7 @@
 # PLAN_RUST_SEMANTIC_IDIOMS — closing the semantic gap the friendly study found
 
-> **Status: P0 landed. P1: G, F, E done, D open. P2: I done. P3: K done.** The three
+> **Status: P0 landed. P1: D, E, F, G done. P2: I done, H and J open.
+> P3: K done, L and M open. P4: O done for its public-surface half.** The three
 > correctness items — **A**, **B**, **C1** — are in, with the gallery study as
 > their gate (`bash gallery/friendly/compile.sh`). The rest is parked: the ownership
 > vocabulary of §1, the handle/data split (**J**) and the borrow-provenance
@@ -302,19 +303,38 @@ syntax and no language change.
 
 ### D. Value semantics for shape case payloads
 
-**Status: open, and deliberately not attempted blind.** The blanket rule is one
-line to delete; the question is what replaces it. The measured reason for it
-(`RangerCppClassWriter.rgr:281`) is that a by-value `String` variant made every
-*copy* of the union copy the payload, and a kind check on a 40 KB accumulator
-went O(len). **E** removed one source of those copies — the general shape `case`
-no longer clones the union to match it, it matches a reference — but assignment,
-argument passing and returns still clone, so the cost is reduced, not gone.
+**Status: done for the payload half, on Rust.** A `string` payload rides inside
+the variant now, so a `Result`-shaped shape reads as
 
-The criterion the replacement needs is two-part: *is this case aliased* (which
-`markClassShared` already answers) **and** *is the union copied on a hot path*
-(which nothing answers today). Shipping only the first half is a knowing
-performance regression in this compiler's own hot loop. The second half is a
-loop-invariance question, and it is one of the things §1's lowering IR is for.
+```rust
+pub enum union_ParseOutcome {
+    ParseOutcome_Ok(ParseOutcome_Ok),
+    ParseOutcome_Err(ParseOutcome_Err),
+}
+```
+
+rather than an `Err` behind `Rc<RefCell<…>>`. Collections, maps, optionals and
+object fields stay behind the cell: those are the payloads whose copies are
+unbounded.
+
+**What changed the answer was E.** The old rule — a `string` is not scalar, so
+the case is shared — existed because a by-value `String` variant made every copy
+of the union copy the payload, and the copy that hurt was the *kind check*:
+`case` cloned the scrutinee to match it, so asking "which case is this" on a
+40 KB accumulator was O(len). On Rust it no longer does. A shape `match` is a
+real `match` over a reference and a hand-written `case` is an `if let` over one;
+neither clones. The Rust rendering of the compiler has **zero** clone-at-kind-check
+sites left. What remains are the copies a Ranger program actually asks for — an
+assignment, an argument, a return — where a `String` costs exactly what a
+`String` field costs anywhere else in the generated code.
+
+The C++ writer keeps its own rule (`cppUnionValueCase`), because nothing changed
+there: its `case` still copies to test.
+
+**Still open: the second step.** A one-field case unwrapping to its payload type
+— `Ok(i64)` rather than `Ok(ParseOutcome_Ok)` — is a lowering change that also
+rewrites every field read on a narrowed name, and it is what would make this
+read as `Result<i64, String>` rather than as a two-variant enum of structs.
 
 The §1 distinction, applied. `ParseOutcome_Err(Rc<RefCell<ParseOutcome_Err>>)`
 becomes a plain variant, and a single-field case can drop its generated struct
@@ -734,7 +754,25 @@ of semantic interfaces the backends map:
 A design problem of its own. Explicitly **not** a blocker for **I** — a
 generated trait is useful before it is `Display`.
 
-### O. Preserved generics as a library mode
+### O. A library mode — partly done
+
+**Status: the mode exists; generics and modules are not in it.**
+`-rust-library` says the generated `.rs` is a crate someone depends on rather
+than a program to run: every struct, field and method is `pub`, and there is no
+crate `main` — the entry body becomes `pub fn __rg_main_body()`, so the file can
+be a `lib.rs`. All eleven Rust studies build under
+`rustc --crate-type=lib` with zero errors, and `compile.sh` checks that on
+every run. The default build is byte-identical to before.
+
+Two of the things this mode wanted arrived as their own items and are on by
+default: no unused runtime helpers (**G**) and native traits (**I**).
+
+**Not in it, and the reason each is its own change.** Preserved `@params` as
+Rust generics — `Stack<T>` instead of `Stack_int` / `Stack_string` — is a
+monomorphisation change, not an emission one. Modules need a notion of
+file-scoped visibility Ranger does not have. Both stay below.
+
+### O-rest. Preserved generics
 
 Monomorphizing `Stack@(int)` into `Stack_int` is a reasonable compilation
 strategy and should stay the default. It is a problem only when the generated
@@ -765,7 +803,7 @@ document. Both recorded so they are decisions rather than omissions.
 | P0 | **A** optional parameter | **done** | no |
 | P0 | **B** refuse lossy `try` | **done**, flag for the compiler's own 12 sites | no |
 | P0 | **C1** refuse trait-as-type | **done** | no |
-| P1 | **D** value semantics for shape payloads | open — needs the hot-copy half | helps |
+| P1 | **D** value semantics for shape payloads | **done** for the payload half | helps |
 | P1 | **E** real `match` arms (statement form) | **done** | helps |
 | P1 | **F** real `enum` + use-site casts | **done** | no |
 | P1 | **G** reachability-driven helpers | **done** | no |
@@ -776,7 +814,7 @@ document. Both recorded so they are decisions rather than omissions.
 | P3 | **L** snake_case | blocked on serialize names | no |
 | P3 | **M** borrow-provenance inference | medium | yes |
 | P4 | **N** semantic interfaces | design | no |
-| P4 | **O** library mode | medium | no |
+| P4 | **O** library mode (public surface) | **done**; generics/modules not | no |
 | P4 | **P** consuming `self`, concurrency | language | no |
 
 **Where this stands.** P0 removed the three footguns the study walked into, two
@@ -788,7 +826,7 @@ selfhost build stays at its 9 pre-existing rustc errors, all ten `friendly`
 targets compile and run, the four gallery programs build clean, and the suite is
 the same 19 failures as `origin/master`.
 
-What is left divides sharply. **D** needs one analysis it does not have. **H** is a language
+What is left divides sharply. **H** is a language
 change across ten targets and wants an expression `match` first. **J** and **M**
 are the two items §1 says are cheap inside a lowering IR and expensive without
 one, and **J** has three design questions open besides. **L** is blocked on

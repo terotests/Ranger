@@ -191,7 +191,7 @@ extension RangerRustClassWriter {
     if node.hasParamDesc {
       def nn:CodeNode (itemAt node.children 1)
       def p:RangerAppParamDesc (unwrap nn.paramDesc)
-      wr.out(((this.adjustType(p.compiledName)) + " : ") false)
+      wr.out((((this.rustPubPrefix(ctx)) + (this.adjustType(p.compiledName))) + " : ") false)
       this.writeStructFieldType(p ctx wr)
       wr.out(", " true)
     }
@@ -712,6 +712,28 @@ extension RangerRustClassWriter {
     wr.out("})" true)
     wr.indent(-1)
     wr.out("}" true)
+  }
+
+  ; --- library mode (PLAN_RUST_SEMANTIC_IDIOMS O) -----------------------------
+  ; `-rust-library` says the generated .rs is meant to be a crate someone
+  ; depends on, not a program to run. The two goals are different and worth
+  ; keeping apart: an application wants a `main` and cares nothing for what is
+  ; reachable from outside, a library wants a public surface and no `main` at
+  ; all. Everything the mode needs beyond that — no unused runtime helpers
+  ; (**G**), native traits (**I**) — is already the default.
+  ;
+  ; What it does NOT do, and the README says so: preserve `@params` as Rust
+  ; generics (the monomorphised `Stack_int` stays), or emit modules. Those are
+  ; separate items.
+  fn rustLibraryMode:boolean (ctx:RangerAppWriterContext) {
+    return (ctx.hasCompilerFlag("rust-library"))
+  }
+
+  fn rustPubPrefix:string (ctx:RangerAppWriterContext) {
+    if (this.rustLibraryMode(ctx)) {
+      return "pub "
+    }
+    return ""
   }
 
   ; PLAN_RUST_SEMANTIC_IDIOMS I: is this trait one the Rust target turns into a
@@ -1702,7 +1724,7 @@ extension RangerRustClassWriter {
         wr.out("#[derive(Clone)]" true)
       }
     }
-    wr.out((("struct " + cl.name) + " { ") true)
+    wr.out((((this.rustPubPrefix(ctx)) + "struct ") + cl.name + " { ") true)
     wr.indent(1)
     for allStructVars pvar:RangerAppParamDesc i {
       def pnode:CodeNode (unwrap pvar.node)
@@ -1980,7 +2002,7 @@ extension RangerRustClassWriter {
         ; call sites that do NOT ask; the repair belongs there.
         variant.rust_can_be_static = (method_uses_this == false)
         
-        wr.out((("fn " + (this.adjustType(variant.name))) + "(") false)
+        wr.out(((((this.rustPubPrefix(ctx)) + "fn ") + (this.adjustType(variant.name))) + "(") false)
         if method_uses_this {
           ; For trait parent classes (is_extended_by_children), use &self for trait methods
           ; because mutation happens through RefCell when called via the trait
@@ -2135,7 +2157,7 @@ extension RangerRustClassWriter {
               }
               variant.rust_can_be_static = (method_uses_this == false)
               
-              wr.out((("fn " + (this.adjustType(variant.name))) + "(") false)
+              wr.out(((((this.rustPubPrefix(ctx)) + "fn ") + (this.adjustType(variant.name))) + "(") false)
               if method_uses_this {
                 ; A trait parent used to force `&mut self` here whatever the
                 ; body does. The family answer is on the descriptor now, and
@@ -2378,6 +2400,13 @@ extension RangerRustClassWriter {
         ; is what this language is for — overflows it, with `fatal runtime
         ; error: stack overflow` and no diagnostic. A spawned thread's stack
         ; size is ours to choose, so the entry point becomes a shim.
+        ;
+        ; A library has no entry point: `-rust-library` emits the body as an
+        ; ordinary public function and no crate `main`, so the .rs can be a
+        ; `lib.rs` rather than a `main.rs`.
+        if (this.rustLibraryMode(ctx)) {
+          wr.out("pub fn __rg_main_body() {" true)
+        } {
         wr.out("fn main() {" true)
         wr.indent(1)
         wr.out("let __rg_main_thread = std::thread::Builder::new().stack_size(512 * 1024 * 1024)" true)
@@ -2386,6 +2415,7 @@ extension RangerRustClassWriter {
         wr.indent(-1)
         wr.out("}" true)
         wr.out("fn __rg_main_body() {" true)
+        }
         wr.indent(1)
         wr.newline()
         if mainReturns {
@@ -2426,6 +2456,9 @@ extension RangerRustClassWriter {
             if (!null? fmNN) {
               def fmN:CodeNode (unwrap fmNN)
               if ((fmN.code.filename) == (ctx.getRootFile())) {
+                if (this.rustLibraryMode(ctx)) {
+                  continue
+                }
                 wr.out("fn main() {" true)
                 wr.indent(1)
                 if variant.rust_can_be_static {

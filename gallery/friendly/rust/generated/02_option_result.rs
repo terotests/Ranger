@@ -19,7 +19,7 @@ use std::cell::RefCell;
 #[derive(Clone)]
 pub enum union_ParseOutcome {
     ParseOutcome_Ok(ParseOutcome_Ok),
-    ParseOutcome_Err(Rc<RefCell<ParseOutcome_Err>>),
+    ParseOutcome_Err(ParseOutcome_Err),
 }
 pub trait RgAnyRef { fn rg_as_any(&self) -> &dyn std::any::Any; }
 fn rg_downcast<T: 'static, D: ?Sized + RgAnyRef>(v: &Rc<RefCell<D>>) -> Rc<RefCell<T>> {
@@ -35,7 +35,7 @@ impl RgIdentical for union_ParseOutcome {
     fn rg_identical(&self, other: &Self) -> bool {
         match (self, other) {
             (union_ParseOutcome::ParseOutcome_Ok(a), union_ParseOutcome::ParseOutcome_Ok(b)) => a == b,
-            (union_ParseOutcome::ParseOutcome_Err(a), union_ParseOutcome::ParseOutcome_Err(b)) => Rc::ptr_eq(a, b),
+            (union_ParseOutcome::ParseOutcome_Err(a), union_ParseOutcome::ParseOutcome_Err(b)) => a == b,
             _ => false,
         }
     }
@@ -56,7 +56,7 @@ impl ParseOutcome_Ok {
     me
   }
 }
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 struct ParseOutcome_Err { 
   message : String, 
 }
@@ -91,7 +91,7 @@ impl ParseOutcome__ops {
     }
     if let union_ParseOutcome::ParseOutcome_Err(__ea1) = &a { /* union case */
       if let union_ParseOutcome::ParseOutcome_Err(__eb1) = &b { /* union case */
-        if  __ea1.borrow().message != __eb1.borrow().message {
+        if  __ea1.message != __eb1.message {
           return false;
         }
         return true;
@@ -128,11 +128,11 @@ impl Lookup {
   }
   fn parseInt(text : &str) -> union_ParseOutcome {
     if  text.is_empty() {
-      return union_ParseOutcome::ParseOutcome_Err(Rc::new(RefCell::new(ParseOutcome_Err::new("empty".to_string()))));
+      return union_ParseOutcome::ParseOutcome_Err(ParseOutcome_Err::new("empty".to_string()));
     }
     let parsed : Option<i64> = text.parse::<i64>().ok();
     if  parsed.is_none() {
-      return union_ParseOutcome::ParseOutcome_Err(Rc::new(RefCell::new(ParseOutcome_Err::new("not a number".to_string()))));
+      return union_ParseOutcome::ParseOutcome_Err(ParseOutcome_Err::new("not a number".to_string()));
     }
     union_ParseOutcome::ParseOutcome_Ok(ParseOutcome_Ok::new(parsed.unwrap()))
   }
@@ -143,7 +143,7 @@ impl Lookup {
         out = format!("{}{}", "ok:".to_string(), o.value);
       }
       union_ParseOutcome::ParseOutcome_Err(e) => {
-        out = format!("{}{}", "err:".to_string(), e.borrow().message);
+        out = format!("{}{}", "err:".to_string(), e.message);
       }
     }
     out.clone()

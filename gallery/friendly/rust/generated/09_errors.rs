@@ -19,7 +19,7 @@ use std::cell::RefCell;
 #[derive(Clone)]
 pub enum union_Guarded {
     Guarded_Ok(Guarded_Ok),
-    Guarded_Err(Rc<RefCell<Guarded_Err>>),
+    Guarded_Err(Guarded_Err),
 }
 pub trait RgAnyRef { fn rg_as_any(&self) -> &dyn std::any::Any; }
 fn rg_downcast<T: 'static, D: ?Sized + RgAnyRef>(v: &Rc<RefCell<D>>) -> Rc<RefCell<T>> {
@@ -35,7 +35,7 @@ impl RgIdentical for union_Guarded {
     fn rg_identical(&self, other: &Self) -> bool {
         match (self, other) {
             (union_Guarded::Guarded_Ok(a), union_Guarded::Guarded_Ok(b)) => a == b,
-            (union_Guarded::Guarded_Err(a), union_Guarded::Guarded_Err(b)) => Rc::ptr_eq(a, b),
+            (union_Guarded::Guarded_Err(a), union_Guarded::Guarded_Err(b)) => a == b,
             _ => false,
         }
     }
@@ -56,7 +56,7 @@ impl Guarded_Ok {
     me
   }
 }
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 struct Guarded_Err { 
   message : String, 
 }
@@ -91,7 +91,7 @@ impl Guarded__ops {
     }
     if let union_Guarded::Guarded_Err(__ea1) = &a { /* union case */
       if let union_Guarded::Guarded_Err(__eb1) = &b { /* union case */
-        if  __ea1.borrow().message != __eb1.borrow().message {
+        if  __ea1.message != __eb1.message {
           return false;
         }
         return true;
@@ -118,7 +118,7 @@ impl Guard {
   }
   fn check(value : i64) -> union_Guarded {
     if  value < 0 {
-      return union_Guarded::Guarded_Err(Rc::new(RefCell::new(Guarded_Err::new("negative".to_string()))));
+      return union_Guarded::Guarded_Err(Guarded_Err::new("negative".to_string()));
     }
     union_Guarded::Guarded_Ok(Guarded_Ok::new(value))
   }
@@ -129,7 +129,7 @@ impl Guard {
         out = format!("{}{}", "ok:".to_string(), o.value);
       }
       union_Guarded::Guarded_Err(e) => {
-        out = format!("{}{}", "err:".to_string(), e.borrow().message);
+        out = format!("{}{}", "err:".to_string(), e.message);
       }
     }
     out.clone()

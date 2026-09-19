@@ -39126,7 +39126,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 if ( node.hasParamDesc ) {
                   const nn = node.children[1];
                   const p = nn.paramDesc;
-                  wr.out(this.adjustType(p.compiledName) + " : ", false);
+                  wr.out((this.rustPubPrefix(ctx) + this.adjustType(p.compiledName)) + " : ", false);
                   this.writeStructFieldType(p, ctx, wr);
                   wr.out(", ", true);
                 }
@@ -39583,6 +39583,15 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 wr.out("})", true);
                 wr.indent(-1);
                 wr.out("}", true);
+              };
+              rustLibraryMode (ctx) {
+                return ctx.hasCompilerFlag("rust-library");
+              };
+              rustPubPrefix (ctx) {
+                if ( this.rustLibraryMode(ctx) ) {
+                  return "pub ";
+                }
+                return "";
               };
               rustTraitIsInterface (name, ctx) {
                 if ( name.length == 0 ) {
@@ -40429,7 +40438,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                 wr.out("#[derive(Clone)]", true);
                               }
                             }
-                            wr.out(("struct " + cl.name) + " { ", true);
+                            wr.out(((this.rustPubPrefix(ctx) + "struct ") + cl.name) + " { ", true);
                             wr.indent(1);
                             for ( let i = 0; i < allStructVars.length; i++) {
                               var pvar = allStructVars[i];
@@ -40704,7 +40713,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                   }
                                 }
                                 variant_1.rust_can_be_static = method_uses_this == false;
-                                wr.out(("fn " + this.adjustType(variant_1.name)) + "(", false);
+                                wr.out(((this.rustPubPrefix(ctx) + "fn ") + this.adjustType(variant_1.name)) + "(", false);
                                 if ( method_uses_this ) {
                                   let method_is_in_trait = false;
                                   if ( cl.is_extended_by_children ) {
@@ -40850,7 +40859,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                         }
                                       }
                                       variant_2.rust_can_be_static = method_uses_this_1 == false;
-                                      wr.out(("fn " + this.adjustType(variant_2.name)) + "(", false);
+                                      wr.out(((this.rustPubPrefix(ctx) + "fn ") + this.adjustType(variant_2.name)) + "(", false);
                                       if ( method_uses_this_1 ) {
                                         if ( pc.is_extended_by_children ) {
                                           this.rustFillTraitMutations(pc, ctx);
@@ -41070,14 +41079,18 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                               const nn_1 = variant_6.nameNode;
                               if ( nn_1.hasFlag("main") && nn_1.code.filename == ctx.getRootFile() ) {
                                 const mainReturns = nn_1.type_name.length > 0 && nn_1.type_name != "void";
-                                wr.out("fn main() {", true);
-                                wr.indent(1);
-                                wr.out("let __rg_main_thread = std::thread::Builder::new().stack_size(512 * 1024 * 1024)", true);
-                                wr.out("  .spawn(__rg_main_body).expect(\"could not start the main thread\");", true);
-                                wr.out("__rg_main_thread.join().expect(\"main thread panicked\");", true);
-                                wr.indent(-1);
-                                wr.out("}", true);
-                                wr.out("fn __rg_main_body() {", true);
+                                if ( this.rustLibraryMode(ctx) ) {
+                                  wr.out("pub fn __rg_main_body() {", true);
+                                } else {
+                                  wr.out("fn main() {", true);
+                                  wr.indent(1);
+                                  wr.out("let __rg_main_thread = std::thread::Builder::new().stack_size(512 * 1024 * 1024)", true);
+                                  wr.out("  .spawn(__rg_main_body).expect(\"could not start the main thread\");", true);
+                                  wr.out("__rg_main_thread.join().expect(\"main thread panicked\");", true);
+                                  wr.indent(-1);
+                                  wr.out("}", true);
+                                  wr.out("fn __rg_main_body() {", true);
+                                }
                                 wr.indent(1);
                                 wr.newline();
                                 if ( mainReturns ) {
@@ -41115,6 +41128,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                     if ( (typeof(fmNN) !== "undefined" && fmNN != null )  ) {
                                       const fmN = fmNN;
                                       if ( fmN.code.filename == ctx.getRootFile() ) {
+                                        if ( this.rustLibraryMode(ctx) ) {
+                                          continue;
+                                        }
                                         wr.out("fn main() {", true);
                                         wr.indent(1);
                                         if ( variant_7.rust_can_be_static ) {
@@ -76486,7 +76502,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                         allScalar = false;
                                       } else {
                                         const tn = cvNode.type_name;
-                                        const isScalar = ((tn == "int" || tn == "double") || tn == "boolean") || tn == "char";
+                                        const isScalar = (((tn == "int" || tn == "double") || tn == "boolean") || tn == "char") || tn == "string";
                                         if ( isScalar == false ) {
                                           allScalar = false;
                                         }

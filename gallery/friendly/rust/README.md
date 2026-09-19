@@ -153,9 +153,12 @@ pub enum union_ParseOutcome {
 fn parseInt(text : &str) -> union_ParseOutcome { /* … */ }
 ```
 
-`Ok` holds only an `int`, so it is a value struct inside the tag. `Err` holds
-a `string`, which is not a scalar, so that case is a cell. A human writes
-`Result<i64, String>`. `match` is a pair of `if let`s, not a `match`, and it
+Both cases are value structs inside the tag now — `Err` used to be
+`Rc<RefCell<ParseOutcome_Err>>` because a `string` was not counted as scalar.
+That rule protected the *kind check*, which used to clone the scrutinee to
+test it; a real `match` over a reference does not, so the cost it guarded is
+gone. A human still writes `Result<i64, String>`: the remaining distance is
+one-field cases unwrapping to their payload type. `match` is a pair of `if let`s, not a `match`, and it
 is a statement that writes a local — not an expression, so there is no
 `?` and no `let n = parse_int(s)?;`.
 
@@ -443,6 +446,8 @@ it, and the numbers above have been re-checked against them.
 | `match` over a shape was a chain of `if let` | a Rust `match`, no wildcard when the arms cover the enum |
 | `for` was always an index loop with a hoisted bound and a cast | `for v in xs.iter().copied()` where that is safe |
 | a behaviour-only `trait` as a type named a type that did not exist | `pub trait NamedTrait` + one `impl` per consumer ([study 11](src/11_behaviour_traits.rgr)) |
+| a `shape` case holding a `string` sat behind `Rc<RefCell<…>>` | it rides inside the variant; collections and objects still take the cell |
+| the output was always a program | `-rust-library` gives it a public surface and no `main` |
 | `try` / `catch` compiles and drops the catch | compile error on `-l=rust` naming the replacement |
 | `trait` as a type → `&mut Named`, no such type, `E0425` | compile error naming `Extends(Base)`, which does work |
 | `attempts/` run by hand, if at all | run by `compile.sh`; each must be refused with its declared error |
@@ -558,7 +563,10 @@ gallery/friendly/
 ```
 
 `bash gallery/friendly/compile.sh rust` runs all of it; without the argument it
-runs all ten targets.
+runs all ten targets. The Rust arm also rebuilds every study with
+`-rust-library` and checks it under `rustc --crate-type=lib` — that mode gives
+the output a public surface and no crate `main`, for when the `.rs` is meant to
+be a crate rather than a program.
 
 Related: [`docs/plans/PLAN_RUST_SEMANTIC_IDIOMS.md`](../../../docs/plans/PLAN_RUST_SEMANTIC_IDIOMS.md)
 (where this study's findings are tracked),

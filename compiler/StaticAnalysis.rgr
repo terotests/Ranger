@@ -2166,13 +2166,26 @@ class StaticAnalyzer {
           if (cvNode.hasFlag("optional")) {
             allScalar = false
           } {
-            ; A string is NOT scalar here (mirrors cppUnionValueCase): a
-            ; by-value String variant made every enum clone copy the whole
-            ; payload. Behind the member's Rc<RefCell> the clone is a pointer
-            ; bump; the generated __ops::equals still compares fields for
-            ; @(value) cases, so content equality is unaffected.
+            ; A `string` payload rides INSIDE the variant here, unlike the C++
+            ; rule this used to mirror (cppUnionValueCase, which keeps its own).
+            ; That rule existed because a by-value String variant made every
+            ; copy of the union copy the payload, and the copy that hurt was the
+            ; KIND CHECK: `case` cloned the scrutinee to match it, so asking
+            ; "which case is this" on a 40 KB accumulator was O(len).
+            ;
+            ; On Rust it no longer does. PLAN_RUST_SEMANTIC_IDIOMS E made a
+            ; shape `match` a real `match` over a REFERENCE, and a hand-written
+            ; `case` an `if let` over one; neither clones. What is left are the
+            ; copies a Ranger program actually asks for — an assignment, an
+            ; argument, a return — and a String there costs exactly what a
+            ; String field costs anywhere else in the generated code.
+            ;
+            ; So `Result`-shaped code reads as `Err(String)` rather than
+            ; `Err(Rc<RefCell<ParseOutcome_Err>>)`. Collections, maps, optionals
+            ; and object fields stay behind the cell: those are the payloads
+            ; whose copies are unbounded.
             def tn:string cvNode.type_name
-            def isScalar:boolean ((((tn == "int") || (tn == "double")) || (tn == "boolean")) || (tn == "char"))
+            def isScalar:boolean (((((tn == "int") || (tn == "double")) || (tn == "boolean")) || (tn == "char")) || (tn == "string"))
             if (isScalar == false) {
               allScalar = false
             }

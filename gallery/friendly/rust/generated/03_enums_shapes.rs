@@ -27,7 +27,7 @@ pub enum Color {
 #[derive(Clone)]
 pub enum union_Message {
     Message_Ping(Message_Ping),
-    Message_Text(Rc<RefCell<Message_Text>>),
+    Message_Text(Message_Text),
     Message_Move(Message_Move),
 }
 pub trait RgAnyRef { fn rg_as_any(&self) -> &dyn std::any::Any; }
@@ -44,7 +44,7 @@ impl RgIdentical for union_Message {
     fn rg_identical(&self, other: &Self) -> bool {
         match (self, other) {
             (union_Message::Message_Ping(a), union_Message::Message_Ping(b)) => a == b,
-            (union_Message::Message_Text(a), union_Message::Message_Text(b)) => Rc::ptr_eq(a, b),
+            (union_Message::Message_Text(a), union_Message::Message_Text(b)) => a == b,
             (union_Message::Message_Move(a), union_Message::Message_Move(b)) => a == b,
             _ => false,
         }
@@ -62,7 +62,7 @@ impl Message_Ping {
     }
   }
 }
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 struct Message_Text { 
   body : String, 
 }
@@ -111,7 +111,7 @@ impl Message__ops {
     }
     if let union_Message::Message_Text(__ea1) = &a { /* union case */
       if let union_Message::Message_Text(__eb1) = &b { /* union case */
-        if  __ea1.borrow().body != __eb1.borrow().body {
+        if  __ea1.body != __eb1.body {
           return false;
         }
         return true;
@@ -164,7 +164,7 @@ impl EnumsMain {
         out = "ping".to_string();
       }
       union_Message::Message_Text(t) => {
-        out = format!("{}{}", "text:".to_string(), t.borrow().body);
+        out = format!("{}{}", "text:".to_string(), t.body);
       }
       union_Message::Message_Move(mv) => {
         out = format!("{}{}{}{}", "move:".to_string(), mv.dx, ",".to_string(), mv.dy);
@@ -182,6 +182,6 @@ fn __rg_main_body() {
   let mut app : EnumsMain = EnumsMain::new();
   println!("{}{}", "color ".to_string(), EnumsMain::colorName(Color::Green));
   println!("{}", app.describe(&union_Message::Message_Ping(Message_Ping::new())));
-  println!("{}", app.describe(&union_Message::Message_Text(Rc::new(RefCell::new(Message_Text::new("hi".to_string()))))));
+  println!("{}", app.describe(&union_Message::Message_Text(Message_Text::new("hi".to_string()))));
   println!("{}", app.describe(&union_Message::Message_Move(Message_Move::new(2, 3))));
 }

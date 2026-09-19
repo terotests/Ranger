@@ -266,6 +266,34 @@ compile_one() {
     done
   fi
 
+  # `-rust-library` (PLAN_RUST_SEMANTIC_IDIOMS O): the same sources as a crate
+  # someone depends on rather than a program to run -- public surface, no
+  # `main`. Checked with --crate-type=lib, which is the thing the mode is for.
+  if [[ "$lang" == "rust" ]]; then
+    local libout="$bin/librs"
+    mkdir -p "$libout"
+    local lsrc
+    for lsrc in "${srclist[@]}"; do
+      local lname
+      lname="$(basename "$lsrc" .rgr)"
+      echo "==> library $lname"
+      set +e
+      node "$COMPILER" -l=rust -rust-library "$lsrc" -d="$libout" -o="${lname}.rs" -nodecli >"$libout/${lname}.log" 2>&1
+      set -e
+      if grep -E '\[FAIL\]|Compilation FAILED' "$libout/${lname}.log" >/dev/null; then
+        echo "    Ranger compile FAILED -- see $libout/${lname}.log"
+        fail=1
+        continue
+      fi
+      if ! rustc --edition 2021 --crate-type=lib -o "$libout/${lname}.rlib" "$libout/${lname}.rs" 2>"$libout/${lname}.rustc.log"; then
+        echo "    rustc --crate-type=lib FAILED -- see $libout/${lname}.rustc.log"
+        fail=1
+        continue
+      fi
+      echo "    lib ok"
+    done
+  fi
+
   if [[ "$fail" -ne 0 ]]; then
     echo "$lang: one or more studies failed"
     return 1
