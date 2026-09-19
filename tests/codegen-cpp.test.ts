@@ -293,6 +293,10 @@ describe("C++ Code Generation", () => {
 // program WITH a main pulls <stdexcept> in through the iostream chain and never
 // notices the prelude does not include it. A module does not, and failed to
 // compile on a declaration the user never wrote.
+//
+// The fixture keeps a map for that reason: the preamble that throws is emitted
+// only when the program can reach it, so a module without one has nothing to
+// include and would assert nothing.
 describe("C++ module for a host shell", () => {
   const MODULE = `${FIXTURES_DIR}/module_no_main.rgr`;
 
@@ -300,7 +304,9 @@ describe("C++ module for a host shell", () => {
     const result = getGeneratedCppCode(MODULE);
     expect(result.success, `Failed: ${result.error}`).toBe(true);
     expect(result.code).toContain("std::out_of_range");
-    expect(result.code).toContain("#include <stdexcept>");
+    // the writer pads its includes, and this one goes through addImport now
+    // rather than a raw line, so match on the header rather than the spacing
+    expect(result.code).toMatch(/#include\s+<stdexcept>/);
   });
 
   it("emits no main, so a host can supply one", () => {

@@ -1,7 +1,13 @@
 ; A module a HOST SHELL includes: no `main`, because the platform calls the
 ; host and the host calls this. An SDL2, Android or iOS host is this shape.
+;
+; It keeps a MAP on purpose. `rg_ordered_map::at` throws std::out_of_range, so
+; the map preamble is what needs <stdexcept>, and the preamble only goes in
+; when the program can reach it. Without the map there is nothing here that
+; throws and nothing to include -- which is correct, and tests nothing.
 class Shared {
     def frames:int 0
+    def labels:[string:string]
     Constructor () {
     }
     fn greeting:string () {
@@ -12,5 +18,15 @@ class Shared {
     }
     fn frameCount:int () {
         return frames
+    }
+    fn label:string (key:string) {
+        def found@(optional):string (get labels key)
+        if (null? found) {
+            return ""
+        }
+        return (unwrap found)
+    }
+    fn setLabel:void (key:string value:string) {
+        set labels key value
     }
 }
