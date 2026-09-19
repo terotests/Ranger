@@ -234,6 +234,16 @@ behaviour and prints each site, and the three `scripts/rust-selfhost-*.sh` pass
 it with a comment naming this item. Removing the flag means porting those twelve
 sites, and it is the first thing **H** makes possible.
 
+**And one more, outside the compiler.** `from_string` in `lib/JSON.rgr` is
+`@(throws)`, and its own comment says the catch block "is what a Ranger program
+uses to notice bad input". So **JSON parsing has no error path at all on the
+Rust target** — bad input panics. `tests/compiler-json.test.ts` builds its
+fixture with the flag and a comment saying exactly this; its happy path (text
+produced by `to_string` two lines earlier) is unaffected. Nothing else is: every
+gallery program that is built to Rust by an npm script — `invaders`, `pong`,
+`js_parser`, `ts_parser`, `jpeg_scaler`, `evg_component_tool`, `pptx_web`,
+`evg_trace_cli` — came back with zero dropped catches.
+
 **Gate.** [`gallery/rustfriendly/attempts/09_throw_panics.rgr`](../../gallery/rustfriendly/attempts/09_throw_panics.rgr),
 which `compile.sh` now requires to be refused with this error.
 
@@ -624,10 +634,12 @@ npx vitest run --config tests/vitest.config.ts codegen-rust.test.ts
 bash scripts/rust-selfhost-check.sh
 ```
 
-Known-red at the time of writing, and none of it from this plan: two tests in
-`codegen-rust.test.ts` (`format!` flattening) and 9 rustc errors from
-`rust-selfhost-check.sh`. Both counts are identical with and without the P0
-changes.
+Known-red at the time of writing, and none of it from this plan: 19 tests across
+`ranger-engine` (13), `codegen-rust` (2, `format!` flattening),
+`compiler-ownership` (2), `engine-imports` (1) and `ts-to-ranger-native` (1),
+plus 9 rustc errors from `rust-selfhost-check.sh`. Every one of those counts is
+identical with and without the P0 changes, checked by rebuilding from
+`origin/master` and re-running.
 
 Related: [`gallery/rustfriendly/README.md`](../../gallery/rustfriendly/README.md),
 [PLAN_RUST_IDIOMATICITY.md](PLAN_RUST_IDIOMATICITY.md),
