@@ -3,6 +3,7 @@
 ## Summary (December 2025)
 
 ### Recently Fixed
+- Issue #93 (fixed): `start server <port>` on a class annotated `@(HttpServer)` emitted `server.start(port)` on es6 -- a call to a method NOTHING generated. Every Ranger HTTP server compiled cleanly to JavaScript, printed its startup line and died on the next statement with `TypeError: server.start is not a function`. The Go writer had a whole `RangerGolangHttpServerWriter` behind a `(custom _)` template; JavaScript had a one-line template and no writer at all, and `tests/fixtures/http_server.rgr` was never executed by anything. Fixed with `RangerJavaScriptHttpServerWriter`: node's own `http` module plus an adapter giving the Express-shaped `req`/`res` the `http_*` templates were written against -- no npm dependency. Gated by `tests/http-server.test.ts`, which RUNS the server (September 2026)
 - Issue #91 (fixed): `on_keypress` was unusable in two ways at once. Its emitted handler took parameters named `str` and `key`, so a Ranger variable called `key` -- the obvious name -- was SHADOWED: the block received the host runtime's key OBJECT instead of the string, and the handler's assignment landed on its own parameter. Name the variable anything else and the other half bit: the compiler emits `const` for a local nothing in the SOURCE assigns, so the first keypress died with `TypeError: Assignment to constant variable`, at runtime, in raw mode, with the screen already cleared. Fixed by prefixing the handler's parameters and declaring `keyvar@(mutates)`. `gallery/invaders` had been relying on the broken behaviour and is corrected. Gated by `tests/codegen-keypress.test.ts` (September 2026)
 - Issue #88 (fixed): `join` emitted `strings.Join(...)` on Go without declaring the `strings` import, so a program whose ONLY use of that package was `join` compiled to Go that did not build (`undefined: strings`). Seventeen other Go templates reaching into that package declare it, so the defect was invisible in any program that also called one of them. Gated by `tests/fixtures/join_strings.rgr`, in which `join` is the sole user of the package (September 2026)
 - Issue #83 (fixed): the PHP writer turned a `$` inside a string literal into `\"`, so `"literal $HOME stays"` came out as `"literal \"HOME stays"` — a parse error, and not the escape that was intended either. One character in `EncodeString`: the `case 36` arm emitted `(strfromcode 34)`, copied from the `case 34` arm above it. Any Ranger program carrying a shell fragment, a template, a currency amount or a regular expression through a string literal built PHP that does not parse. Gated by `tests/codegen-php.test.ts` (September 2026)
@@ -2934,6 +2935,96 @@ Depth is now bounded by real nesting and no longer grows with the file.
 Fixed. Found while adding `tests/es-conformance-targets.test.ts`, and initially
 misattributed to that suite's 2,138-probe corpus — which in fact parses at depth
 70. The corpus only made an existing marginal condition reproducible.
+
+## Issue #93: every JavaScript HTTP server died on `start`
+
+**Status: fixed.**
+
+```ranger
+class Srv@(HttpServer) {
+    fn index@(GET "/"):void (req:HttpRequest res:HttpResponse) {
+        http_set_status res 200
+        http_send res "hello"
+    }
+}
+sfn m@(main):void () {
+    def s:Srv (new Srv())
+    start s 8781
+}
+```
+
+```
+[OK] Compilation successful!
+```
+
+```
+listening on 8781
+TypeError: server.start is not a function
+```
+
+### The cause
+
+The `start` operator in `Lang.rgr`:
+
+```ranger
+start@(moves@( 1 )) cmdHttpServerStart:void (server:HttpServer port:int) {
+    templates {
+        go ( (custom _) )
+        es6 ( (e 1) ".start(" (e 2) ")" )
+    }
+}
+```
+
+On Go, `(custom _)` routes the node into `RangerGolangHttpServerWriter`, which
+reads the `@(GET "/path")` annotations off the class and emits a `ServeMux`, a
+handler per route, and `http.ListenAndServe`. On es6 the template emitted a
+method call — and nothing, anywhere, generated a `start` method. The JavaScript
+writer contained the string "HttpServer" zero times.
+
+So the whole feature was Go-only, and said nothing about it.
+
+### Why nothing noticed
+
+`tests/fixtures/http_server.rgr` exists and no test file references it. A
+compiled-but-never-run fixture cannot catch a defect whose emitted text looks
+perfectly reasonable.
+
+### The fix
+
+`compiler/RangerJavaScriptHttpServerWriter.rgr`, mirroring the Go one: the es6
+template becomes `(custom _)`, `RangerJavaScriptClassWriter.CustomOperator`
+intercepts `start` on an `@(HttpServer)` class, and the writer emits a node
+`http.createServer` with a route table.
+
+**No dependency.** The `http_*` templates were written against an Express-shaped
+API — `res.status(…)`, `res.send(…)`, `req.query[…]` — so something has to
+provide that shape. A generated adapter does; adding a package.json dependency to
+make a language feature work would not. The adapter is also where the two targets
+are made to agree:
+
+* `http_get_path` is `r.URL.Path` on Go, so the wrapped request's `url` is the
+  path with the query string removed — node's raw `req.url` keeps it.
+* `http_get_param` is `r.PathValue(name)` on Go, so the adapter matches the same
+  `{name}` segment syntax.
+* A path that matches with the wrong verb is **405**, not 404, which is the
+  distinction the Go writer makes.
+* `http_set_status` then `http_send` is Express ordering; node wants the head
+  written before the body, so the wrapper holds status and headers until `send`.
+
+SSE is included: `@(SSE "/path")` gets the event-stream headers, `sse_send`
+frames `event:`/`data:`, and `sse_is_connected` follows the socket.
+
+### The test
+
+`tests/http-server.test.ts` compiles the fixture, **starts it**, and makes real
+requests: the method and path, a `{id}` path parameter, a query parameter, a
+request header, 404, 405, and an SSE stream read until both events arrive. A
+codegen assertion would not have caught the original defect.
+
+Verified by running the same program on both targets and getting identical
+answers on all five routes and the SSE stream.
+
+---
 
 ## Issue #92: `on_keypress` on Go declares a Windows-only symbol at package level
 
