@@ -11,6 +11,7 @@
 ; ============================================================================
 
 Import "CodeGraphPages.rgr"
+Import "../../uast/src/JsDoc.rgr"
 Import "../../rangerflow/core/GraphModel.rgr"
 Import "../../rangerflow/core/FlowEvents.rgr"
 Import "../../rangerflow/core/FlowShapes.rgr"
@@ -663,7 +664,11 @@ class CodeGraphFlow {
         if ((strlen raw) == 0) {
             return ""
         }
+        def parsed:string (JsDoc.asComment(raw))
         def s:string raw
+        if ((strlen parsed) > 0) {
+            s = parsed
+        }
         while ((strlen s) > 0) {
             def ch:int (charAt s 0)
             if ((ch == 32) || (ch == 9) || (ch == 10) || (ch == 13) || (ch == 42)) {

@@ -16,6 +16,7 @@ Import "UastFrontend.rgr"
 Import "UastSemantic.rgr"
 Import "UastKind.rgr"
 Import "UastTypeScript.rgr"
+Import "JsDoc.rgr"
 Import "../../ts_parser/ts_parser_simple.rgr"
 Import "../../../lib/ranger-dir.rgr"
 Import "UastDirOps.rgr"
@@ -1626,7 +1627,7 @@ class UastTs {
         while (j < i) {
             def c:Token (itemAt tokens j)
             if ((c.tokenType == "LineComment") || (c.tokenType == "BlockComment")) {
-                push parts (this.commentLine(c.value))
+                push parts c.value
                 lastEnd = c.end
             }
             j = (j + 1)
@@ -1637,7 +1638,7 @@ class UastTs {
         if (this.hasBlankLine(lastEnd start)) {
             return ""
         }
-        return (join parts "\n")
+        return (JsDoc.asComment((join parts "\n")))
     }
 
     fn hasBlankLine:boolean (fromPos:int toPos:int) {

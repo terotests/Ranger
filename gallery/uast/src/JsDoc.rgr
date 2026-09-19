@@ -1,0 +1,526 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; ============================================================================
+; JsDoc.rgr — unwrap /** */, strip per-line *, split description vs @tags.
+; ============================================================================
+;
+; Same comment-level shape jsdoc-parse / doctrine expose after JSDoc3 has
+; run: a description plus tags with title, type string, name, and text.
+; There is no type AST. UAST stores `asComment` so hover cards show an
+; overview instead of raw stars and braces.
+;
+; Accepts a full `/** … */` block, a ts_lexer BlockComment interior
+; (delimiters already dropped, leading `*` from `/**` still there), or a
+; plain `//` / `/*` line.
+; ============================================================================
+
+class JsDocTag {
+    def title:string ""
+    def typeName:string ""
+    def name:string ""
+    def description:string ""
+    def optional:boolean false
+    def defaultValue:string ""
+
+    Constructor () {
+    }
+
+    sfn create:JsDocTag (title:string) {
+        def t (new JsDocTag)
+        t.title = title
+        return t
+    }
+
+    fn asLine:string () {
+        if (JsDocTag.isOverviewTitle(title)) {
+            return ""
+        }
+        if (JsDocTag.isFlagTitle(title)) {
+            return ""
+        }
+        if (title == "param") {
+            if ((strlen name) == 0) {
+                return ""
+            }
+            if ((strlen description) > 0) {
+                return ((("@param " + name) + " — ") + description)
+            }
+            return ("@param " + name)
+        }
+        if (title == "returns") {
+            if ((strlen description) == 0) {
+                return ""
+            }
+            return ("@returns " + description)
+        }
+        if ((strlen description) > 0) {
+            return ((("@" + title) + " ") + description)
+        }
+        return ("@" + title)
+    }
+
+    sfn isOverviewTitle:boolean (title:string) {
+        if (title == "classdesc") {
+            return true
+        }
+        if (title == "description") {
+            return true
+        }
+        return false
+    }
+
+    sfn isFlagTitle:boolean (title:string) {
+        if (title == "class") {
+            return true
+        }
+        if (title == "chainable") {
+            return true
+        }
+        if (title == "private") {
+            return true
+        }
+        if (title == "public") {
+            return true
+        }
+        if (title == "protected") {
+            return true
+        }
+        if (title == "static") {
+            return true
+        }
+        if (title == "async") {
+            return true
+        }
+        if (title == "override") {
+            return true
+        }
+        if (title == "abstract") {
+            return true
+        }
+        if (title == "readonly") {
+            return true
+        }
+        if (title == "inner") {
+            return true
+        }
+        if (title == "instance") {
+            return true
+        }
+        if (title == "global") {
+            return true
+        }
+        if (title == "done") {
+            return true
+        }
+        return false
+    }
+}
+
+class JsDoc {
+    def description:string ""
+    def tags:[JsDocTag]
+
+    Constructor () {
+    }
+
+    sfn parse:JsDoc (raw:string) {
+        def doc (new JsDoc)
+        if ((strlen raw) == 0) {
+            return doc
+        }
+        def body:string (JsDoc.stripWrap(raw))
+        def lines:[string] (JsDoc.bodyLines(body))
+        def descParts:[string]
+        def current@(optional):JsDocTag
+        def i:int 0
+        while (i < (array_length lines)) {
+            def line:string (itemAt lines i)
+            if (JsDoc.lineIsTag(line)) {
+                def tag:JsDocTag (JsDoc.parseTagLine(line))
+                push doc.tags tag
+                current = tag
+            } {
+                if (null? current) {
+                    if ((strlen line) > 0) {
+                        push descParts line
+                    } {
+                        if ((array_length descParts) > 0) {
+                            push descParts ""
+                        }
+                    }
+                } {
+                    def cur:JsDocTag (unwrap current)
+                    if ((strlen cur.description) == 0) {
+                        cur.description = line
+                    } {
+                        cur.description = ((cur.description + "\n") + line)
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        doc.description = (JsDoc.joinDesc(descParts))
+        def ti:int 0
+        while (ti < (array_length doc.tags)) {
+            def fin:JsDocTag (itemAt doc.tags ti)
+            fin.description = (trim_right fin.description)
+            ti = (ti + 1)
+        }
+        return doc
+    }
+
+    sfn overview:string (raw:string) {
+        def doc:JsDoc (JsDoc.parse(raw))
+        return (doc.overviewText())
+    }
+
+    sfn asComment:string (raw:string) {
+        def doc:JsDoc (JsDoc.parse(raw))
+        return (doc.commentText())
+    }
+
+    fn overviewText:string () {
+        if ((strlen description) > 0) {
+            return description
+        }
+        def i:int 0
+        while (i < (array_length tags)) {
+            def t:JsDocTag (itemAt tags i)
+            if (JsDocTag.isOverviewTitle(t.title)) {
+                if ((strlen t.description) > 0) {
+                    return t.description
+                }
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn commentText:string () {
+        def lines:[string]
+        def over:string (this.overviewText())
+        if ((strlen over) > 0) {
+            push lines over
+        }
+        def sawTag:boolean false
+        def i:int 0
+        while (i < (array_length tags)) {
+            def t:JsDocTag (itemAt tags i)
+            def row:string (t.asLine())
+            if ((strlen row) > 0) {
+                if (((strlen over) > 0) && (sawTag == false)) {
+                    push lines ""
+                }
+                push lines row
+                sawTag = true
+            }
+            i = (i + 1)
+        }
+        return (join lines "\n")
+    }
+
+    fn tagNamed@(optional):JsDocTag (title:string) {
+        def i:int 0
+        while (i < (array_length tags)) {
+            def t:JsDocTag (itemAt tags i)
+            if (t.title == title) {
+                def hit@(optional):JsDocTag t
+                return hit
+            }
+            i = (i + 1)
+        }
+        def miss@(optional):JsDocTag
+        return miss
+    }
+
+    fn tagCount:int (title:string) {
+        def n:int 0
+        def i:int 0
+        while (i < (array_length tags)) {
+            def t:JsDocTag (itemAt tags i)
+            if (t.title == title) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    fn mentionsTag:boolean (title:string) {
+        return ((this.tagCount(title)) > 0)
+    }
+
+    sfn stripWrap:string (raw:string) {
+        def s:string (trim raw)
+        if ((startsWith s "/**") && (endsWith s "*/")) {
+            return (substring s 3 ((strlen s) - 2))
+        }
+        if ((startsWith s "/*") && (endsWith s "*/")) {
+            return (substring s 2 ((strlen s) - 2))
+        }
+        return s
+    }
+
+    sfn bodyLines:[string] (body:string) {
+        def raw:[string] (strsplit body "\n")
+        def out:[string]
+        def i:int 0
+        while (i < (array_length raw)) {
+            push out (JsDoc.stripLine((itemAt raw i)))
+            i = (i + 1)
+        }
+        return out
+    }
+
+    sfn stripLine:string (line:string) {
+        def s:string line
+        if ((strlen s) > 0) {
+            if ((charAt s ((strlen s) - 1)) == 13) {
+                s = (substring s 0 ((strlen s) - 1))
+            }
+        }
+        s = (JsDoc.trimLeft(s))
+        if ((strlen s) > 0) {
+            if ((charAt s 0) == 42) {
+                s = (substring s 1 (strlen s))
+                if ((strlen s) > 0) {
+                    if ((charAt s 0) == 32) {
+                        s = (substring s 1 (strlen s))
+                    }
+                }
+            }
+        }
+        return (trim_right s)
+    }
+
+    sfn trimLeft:string (s:string) {
+        def a:int 0
+        def n:int (strlen s)
+        while (a < n) {
+            def ch:int (charAt s a)
+            if ((ch == 32) || (ch == 9)) {
+                a = (a + 1)
+            } {
+                break
+            }
+        }
+        if (a == 0) {
+            return s
+        }
+        return (substring s a n)
+    }
+
+    sfn lineIsTag:boolean (line:string) {
+        if ((strlen line) < 2) {
+            return false
+        }
+        if ((charAt line 0) != 64) {
+            return false
+        }
+        def ch:int (charAt line 1)
+        if ((ch >= 65) && (ch <= 90)) {
+            return true
+        }
+        if ((ch >= 97) && (ch <= 122)) {
+            return true
+        }
+        return false
+    }
+
+    sfn parseTagLine:JsDocTag (line:string) {
+        def i:int 1
+        while (i < (strlen line)) {
+            def ch:int (charAt line i)
+            def ok:boolean false
+            if ((ch >= 65) && (ch <= 90)) {
+                ok = true
+            }
+            if ((ch >= 97) && (ch <= 122)) {
+                ok = true
+            }
+            if ((ch >= 48) && (ch <= 57)) {
+                ok = true
+            }
+            if ok {
+                i = (i + 1)
+            } {
+                break
+            }
+        }
+        def title:string (JsDoc.canonicalTitle((substring line 1 i)))
+        def rest:string ""
+        if (i < (strlen line)) {
+            rest = (trim (substring line i (strlen line)))
+        }
+        def tag:JsDocTag (JsDocTag.create(title))
+        JsDoc.fillTag(tag rest)
+        return tag
+    }
+
+    sfn canonicalTitle:string (title:string) {
+        def t:string (to_lowercase title)
+        if ((t == "arg") || (t == "argument")) {
+            return "param"
+        }
+        if (t == "return") {
+            return "returns"
+        }
+        if (t == "exception") {
+            return "throws"
+        }
+        if (t == "const") {
+            return "constant"
+        }
+        if (t == "constructor") {
+            return "class"
+        }
+        if (t == "desc") {
+            return "description"
+        }
+        if (t == "prop") {
+            return "property"
+        }
+        return t
+    }
+
+    sfn fillTag:void (tag:JsDocTag rest:string) {
+        def s:string rest
+        if ((strlen s) > 0) {
+            if ((charAt s 0) == 123) {
+                def pair:[string] (JsDoc.readBrace(s))
+                tag.typeName = (itemAt pair 0)
+                s = (trim (itemAt pair 1))
+            }
+        }
+        if (JsDoc.tagTakesName(tag.title)) {
+            if ((strlen s) > 0) {
+                def np:[string] (JsDoc.readName(s))
+                tag.name = (itemAt np 0)
+                tag.description = (JsDoc.stripLeadDash((itemAt np 1)))
+                tag.optional = ((itemAt np 2) == "1")
+                tag.defaultValue = (itemAt np 3)
+            }
+            return
+        }
+        tag.description = (JsDoc.stripLeadDash(s))
+    }
+
+    sfn tagTakesName:boolean (title:string) {
+        if (title == "param") {
+            return true
+        }
+        if (title == "property") {
+            return true
+        }
+        if (title == "typedef") {
+            return true
+        }
+        if (title == "callback") {
+            return true
+        }
+        if (title == "template") {
+            return true
+        }
+        if (title == "member") {
+            return true
+        }
+        if (title == "name") {
+            return true
+        }
+        if (title == "borrows") {
+            return true
+        }
+        return false
+    }
+
+    sfn readBrace:[string] (s:string) {
+        def depth:int 0
+        def i:int 0
+        while (i < (strlen s)) {
+            def ch:int (charAt s i)
+            if (ch == 123) {
+                depth = (depth + 1)
+            }
+            if (ch == 125) {
+                depth = (depth - 1)
+                if (depth == 0) {
+                    def inner:string (substring s 1 i)
+                    def rest:string (substring s (i + 1) (strlen s))
+                    return ([] _:string ( inner rest ))
+                }
+            }
+            i = (i + 1)
+        }
+        return ([] _:string ( "" s ))
+    }
+
+    sfn readName:[string] (s:string) {
+        def t:string (trim s)
+        if ((strlen t) == 0) {
+            return ([] _:string ( "" "" "0" "" ))
+        }
+        if ((charAt t 0) == 91) {
+            def close:int (indexOf t "]")
+            if (close < 0) {
+                return ([] _:string ( t "" "1" "" ))
+            }
+            def inner:string (substring t 1 close)
+            def rest:string (trim (substring t (close + 1) (strlen t)))
+            def eq:int (indexOf inner "=")
+            if (eq >= 0) {
+                def n:string (trim (substring inner 0 eq))
+                def d:string (substring inner (eq + 1) (strlen inner))
+                return ([] _:string ( n rest "1" d ))
+            }
+            return ([] _:string ( (trim inner) rest "1" "" ))
+        }
+        def i:int 0
+        while (i < (strlen t)) {
+            def ch:int (charAt t i)
+            if ((ch == 32) || (ch == 9)) {
+                break
+            }
+            i = (i + 1)
+        }
+        def n2:string (substring t 0 i)
+        def rest2:string (trim (substring t i (strlen t)))
+        return ([] _:string ( n2 rest2 "0" "" ))
+    }
+
+    sfn stripLeadDash:string (s:string) {
+        def t:string (trim s)
+        if (startsWith t "- ") {
+            return (trim (substring t 2 (strlen t)))
+        }
+        if (startsWith t "— ") {
+            return (trim (substring t 2 (strlen t)))
+        }
+        return t
+    }
+
+    sfn joinDesc:string (parts:[string]) {
+        def a:int 0
+        def b:int (array_length parts)
+        while (a < b) {
+            if ((strlen (itemAt parts a)) == 0) {
+                a = (a + 1)
+            } {
+                break
+            }
+        }
+        while (b > a) {
+            if ((strlen (itemAt parts (b - 1))) == 0) {
+                b = (b - 1)
+            } {
+                break
+            }
+        }
+        def out:[string]
+        def i:int a
+        while (i < b) {
+            push out (itemAt parts i)
+            i = (i + 1)
+        }
+        return (join out "\n")
+    }
+}

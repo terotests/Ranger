@@ -71,6 +71,7 @@ class CodeGraphTest {
         CodeGraphTest.testClicks(c)
         CodeGraphTest.testHistory(c)
         CodeGraphTest.testRenderCap(c)
+        CodeGraphTest.testJsDocHover(c)
         def code:int (c.report())
         if (code != 0) {
             exit 1
@@ -537,5 +538,15 @@ class CodeGraphTest {
         c.eqStr("kind class" hit.dataKind "class")
         c.ok("and the session accepts it" (session2.handleClick(hit)))
         c.eqStr("navigating to the class page" session2.pageId "class:Order")
+    }
+
+    sfn testJsDocHover:void (c:CGChecker) {
+        c.section("JSDoc hover card")
+        def raw:string "/**\n * The current Immer draft from produce is always a proxy.\n * @param {Object} base\n * @param {Function} recipe\n * @returns {Object}\n */"
+        def card:string (CodeGraphFlow.hoverCard("method" "produce(base, recipe)" "" raw "immer.js" 12 "Click to read the source"))
+        c.ok("card keeps the overview" ((indexOf card "The current Immer draft") >= 0))
+        c.ok("card has no star prefix" ((indexOf card "* The current") < 0))
+        c.ok("card has no {Object}" ((indexOf card "{Object}") < 0))
+        c.ok("card names @param base" ((indexOf card "@param base") >= 0))
     }
 }

@@ -54,6 +54,7 @@ class UastTsTest {
         UastTsTest.testPackageDts(c)
         UastTsTest.testAppComponent(c)
         UastTsTest.testFromDir(c)
+        UastTsTest.testJsDoc(c)
         def code:int (c.report())
         if (code != 0) {
             exit 1
@@ -473,6 +474,33 @@ class UastTsTest {
         c.ok("absolute App.tsx loads GameView" (absModel.mentionsSymbol("function:GameView")))
         c.ok("absolute App.tsx loads StoryList" (absModel.mentionsSymbol("function:StoryList")))
         c.ok("absolute path does not drop ./components" ((UastQuery.diagnosticMentions(absModel "unresolved import ./components/GameView")) == false))
+    }
+
+    sfn testJsDoc:void (c:UastTsChecker) {
+        print "== JSDoc comments become an overview"
+        def model:UastCodeModel (UastTs.fromFile("gallery/uast/fixtures/jsdoc_produce.ts"))
+        if ((indexOf model.title " FAIL ") >= 0) {
+            print ("  FAIL " + model.title)
+            c.ok("parse jsdoc_produce.ts" false)
+            return
+        }
+        c.ok("produce function" (model.mentionsSymbol("function:produce")))
+        def produce:UastSymbol (model.symbolById("function:produce"))
+        c.ok("produce overview" ((indexOf produce.comment "The current Immer draft") == 0))
+        c.ok("produce has no star prefix" ((indexOf produce.comment "*") < 0))
+        c.ok("produce has no {Object}" ((indexOf produce.comment "{Object}") < 0))
+        c.ok("produce keeps @param base" ((indexOf produce.comment "@param base") >= 0))
+        def chain:UastSymbol (model.symbolById("class:Chainable"))
+        c.eqStr("Chainable overview is @classdesc" chain.comment "has a chainable method")
+        def method:UastSymbol (model.symbolById("method:Chainable.method"))
+        c.eqStr("method overview" method.comment "returns itself")
+        def g:CodeGraph (UastToCodeGraph.project(model))
+        c.ok("projected Chainable" (g.hasClass("Chainable")))
+        def cc:CodeClass (g.classByName("Chainable"))
+        c.eqStr("projected classdesc" cc.comment "has a chainable method")
+        c.ok("projected method" (g.hasMethod("Chainable.method")))
+        def mm:CodeMethod (g.methodById("Chainable.method"))
+        c.eqStr("projected method comment" mm.comment "returns itself")
     }
 
     sfn hasField:boolean (cls:CodeClass name:string fieldType:string) {
