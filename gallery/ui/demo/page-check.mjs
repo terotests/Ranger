@@ -27,6 +27,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "node:http";
 import { requireHostTool, findChromium } from "../conformance/dom-adapter.mjs";
+import { parsePresets } from "../../../lib/evg/gl/effect-presets.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..", "..", "..");
@@ -1051,6 +1052,77 @@ console.log("--- the effects demo's stylesheet is live ---");
   const back = await skyParams();
   ok("reset puts the shipped sheet back", back && back.density === 1.5, JSON.stringify(back));
   // And the scroll position too, for the same reason.
+  await page.evaluate(() => window.scrollTo(0, 0));
+}
+
+console.log("--- and the background can be swapped for a preset ---");
+{
+  // THE PICKER WRITES CSS AND NOTHING ELSE. So what is checked is the round
+  // trip: a preset chosen in the rail, the numbers out of `effect-presets.css`
+  // arriving in the display list, and the stylesheet in the page saying what
+  // is on screen. The file is read HERE as well, so a preset somebody edits
+  // changes both sides of the comparison and neither is a copy.
+  const presets = parsePresets(
+    fs.readFileSync(path.join(ROOT, "lib", "evg", "gl", "effect-presets.css"), "utf8"));
+  const offered = await page.evaluate(() =>
+    [...document.querySelectorAll("#fxpreset option")].map((o) => o.value).filter(Boolean));
+  ok("the rail offers every preset in the file",
+    offered.length === presets.length && presets.every((p) => offered.includes(p.name)),
+    offered.join(" "));
+
+  const instOf = (id) => page.evaluate((want) => {
+    const l = JSON.parse(window.__lastList || "{}");
+    return (l.effects || []).find((e) => e.id === want) || null;
+  }, id);
+  const pick = async (name) => {
+    // `evaluate` rather than `selectOption`, for the reason the reset above
+    // is: reaching a control scrolls the page, and the blocks after this one
+    // measure the canvas.
+    await page.evaluate((v) => {
+      const sel = document.getElementById("fxpreset");
+      sel.value = v;
+      sel.dispatchEvent(new Event("change", { bubbles: true }));
+    }, name);
+  };
+  const waitKind = (id, kind) => page.waitForFunction(([want, k]) => {
+    const l = JSON.parse(window.__lastList || "{}");
+    const e = (l.effects || []).find((x) => x.id === want);
+    return !!e && e.kind === k;
+  }, [id, kind], { timeout: 15000 }).then(() => true, () => false);
+
+  // A SOURCE preset lands on the sky, which is the element whose own
+  // background it draws.
+  const tide = presets.find((p) => p.name === "fx-tide");
+  await pick("fx-tide");
+  ok("a source preset becomes the sky's effect", await waitKind("fx-sky", "plasma-wave"));
+  const sky = await instOf("fx-sky");
+  ok("with the file's own numbers in the list",
+    sky && Object.keys(tide.params).every((k) => sky.p[k] === tide.params[k]),
+    JSON.stringify(sky && sky.p));
+
+  // A BACKDROP preset lands on the PANE instead: it draws what is behind an
+  // element, and the sky's own background would paint over it a moment later.
+  // The sky is left exactly as the picker before it left it.
+  await pick("fx-rain");
+  ok("a backdrop preset becomes the pane's effect", await waitKind("fx-glass", "raindrop"));
+  const stillTide = await instOf("fx-sky");
+  ok("and the sky it was not meant for is untouched",
+    stillTide && stillTide.kind === "plasma-wave", JSON.stringify(stillTide && stillTide.kind));
+  const pane = await instOf("fx-glass");
+  ok("the pane keeps its own box", pane && pane.box[2] === 360 && pane.r === 30,
+    JSON.stringify(pane && { box: pane.box, r: pane.r }));
+
+  // AND THE STYLESHEET IN THE PAGE SAYS SO — the picker types, it does not
+  // reach past the editor into the painter.
+  const typed = await page.evaluate(() => document.getElementById("fxcss").value);
+  const glassBlock = typed.slice(typed.indexOf(".fx-glass {"), typed.indexOf("}", typed.indexOf(".fx-glass {")));
+  ok("what it typed is in the editor, under the pane",
+    /evg-surface-effect:\s*raindrop/.test(glassBlock) && /evg-fx-refract/.test(glassBlock),
+    glassBlock.replace(/\s+/g, " ").slice(0, 120));
+
+  await page.evaluate(() => document.getElementById("fxcssreset").click());
+  const backToSky = await waitKind("fx-sky", "starfield");
+  ok("and reset puts both back", backToSky && await waitKind("fx-glass", "liquid-glass"));
   await page.evaluate(() => window.scrollTo(0, 0));
 }
 

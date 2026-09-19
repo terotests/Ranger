@@ -2,11 +2,10 @@
  *
  * Presets: effects that are already a look.
  *
- * Each block below is one element's worth of CSS — paste it into the editor
- * under the canvas on the gallery's effects demo (`?demo=effects`, the
- * textarea holds `effects.css`) in place of what `.fx-sky` says, or copy one
- * into a stylesheet of your own. Every effect here is a name and some numbers;
- * there is no code to copy with them.
+ * Each block below is one element's worth of CSS. The gallery's effects demo
+ * (`?demo=effects`) has them in its rail and types the one you pick into the
+ * stylesheet under its canvas; or copy one into a sheet of your own. Every
+ * effect here is a name and some numbers; there is no code to copy with them.
  *
  * WHAT EACH BLOCK MUST CARRY is `evg-surface-effect` (which effect),
  * `evg-effect-on: always` where it moves on its own clock, its own
