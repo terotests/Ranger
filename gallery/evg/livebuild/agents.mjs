@@ -280,6 +280,31 @@ export const ATTACH_BASE = "attachment";
 
 const imageBin = path.join(root, "lib/evg/bin/evg_image_tool.js");
 
+// WHY A MISSING BINARY IS A BUG AND NOT A CONFIGURATION.
+//
+// Every one of these tools is compiled from Ranger into `bin/`, and `bin/` is
+// ignored by git. A fresh clone therefore HAS the source and NOT the tool, and
+// the installers used to answer that by quietly leaving the shim out. The
+// workspace then looked complete and was not: an agent told to run
+// `./evg-app init` found no such file, reported the workspace was missing it,
+// and stopped — which is exactly what happened, and it cost a session.
+//
+// So build it. It is a few seconds, once per clone, paid by the first person
+// who needs it. A failure is printed rather than swallowed, and the caller is
+// told, so the guide can stop promising a tool that is not there.
+function ensureTool(bin, args, what) {
+  if (fs.existsSync(bin)) return true;
+  const r = spawnSync("bash", ["scripts/rgr-suite.sh", ...args], {
+    cwd: root,
+    encoding: "utf8",
+    maxBuffer: 40 * 1024 * 1024,
+  });
+  if (fs.existsSync(bin)) return true;
+  const text = `${r.stdout || ""}${r.stderr || ""}`;
+  console.error(`[livebuild] could not build ${what}:\n${text.slice(-1200)}`);
+  return false;
+}
+
 // Compile the bitmap tool if this clone has not needed it yet. The decoders
 // and the tracer make it a slow build, so it is paid for by the first person
 // who attaches a picture rather than by everybody who serves the page.
@@ -387,7 +412,7 @@ function carryAttachment(from, to) {
 // memory that has stopped matching the app is a finding, because the next pass
 // will believe it.
 function appSection(dir) {
-  if (!fs.existsSync(path.join(dir, "app", "machine.json"))) return noAppSection();
+  if (!fs.existsSync(path.join(dir, "app", "machine.json"))) return noAppSection(dir);
   const code = fs.existsSync(path.join(dir, "app", "App.rgr"));
   return `${code ? codeAppSection() : dataAppSection()}`;
 }
@@ -400,7 +425,23 @@ function appSection(dir) {
 // `#page` and `currentPage` and finds nothing there either, which is an hour
 // spent proving an absence. Say it up front: one document is one screen, and
 // several screens is a different thing that already exists.
-function noAppSection() {
+function noAppSection(dir) {
+  // A guide that names a tool the workspace does not have sends the agent
+  // looking for it, and an agent that cannot find a tool it was promised
+  // reports the workspace is broken — which it is. Say the honest thing.
+  if (!fs.existsSync(path.join(dir, "evg-app"))) {
+    return `
+## This document is one screen
+
+A document has no navigation in it. There is no \`href\`, no \`goto\`, no
+hidden page — a press on a tab you draw does nothing, because a screen is
+a picture and a picture has no states. Several screens is an app, and the
+tool that makes one (\`./evg-app\`) is NOT in this workspace: it failed
+to build on this machine. Design the screen, and if the task needs more
+than one, say that \`./evg-app\` is missing rather than looking for
+another way — there is not one.
+`;
+  }
   return `
 ## This document is one screen
 
@@ -836,7 +877,9 @@ const OPS_LOG_SNIPPET =
 // decoders and the tracer make it a slow compile to pay for on every clone.
 function installEvgImage(dir) {
   const src = path.join(root, "lib/evg/bin/evg_image_tool.js");
-  if (!fs.existsSync(src)) return false;
+  if (!ensureTool(src, ["./lib/evg/tools/evg_image_tool.rgr", "./lib/evg/bin", "evg_image_tool.js"], "evg-image")) {
+    return false;
+  }
   fs.copyFileSync(src, path.join(dir, "evg_image_tool.js"));
   fs.writeFileSync(
     path.join(dir, "evg-image"),
@@ -850,7 +893,9 @@ function installEvgImage(dir) {
 // it; an app workspace is the only one that needs it.
 function installEvgApp(dir) {
   const src = path.join(root, "gallery/evg/bin/evg_app.js");
-  if (!fs.existsSync(src)) return false;
+  if (!ensureTool(src, ["./gallery/evg/livebuild/EvgAppTool.rgr", "./gallery/evg/bin", "evg_app.js"], "evg-app")) {
+    return false;
+  }
   fs.copyFileSync(src, path.join(dir, "evg_app_tool.js"));
   // An app is data or code, and the agent should not have to hold which in
   // its head to ask a question. The shim looks: an `App.rgr` beside the
@@ -900,7 +945,9 @@ function installEvgApp(dir) {
 
 function installEvgAgent(dir) {
   const src = path.join(root, "lib/evg/bin/evg_agent.js");
-  if (!fs.existsSync(src)) return false;
+  if (!ensureTool(src, ["./lib/evg/agent/evg_agent.rgr", "./lib/evg/bin", "evg_agent.js"], "evg-agent")) {
+    return false;
+  }
   installEvgImage(dir);
   installEvgApp(dir);
   fs.copyFileSync(src, path.join(dir, "evg_agent.js"));
@@ -1023,16 +1070,16 @@ export function resetSession(kind = "dashboard") {
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, "doc.evg.json"), seedDoc(kind));
   fs.writeFileSync(path.join(dir, "TASK.md"), "Seed: " + kind + "\n");
-  fs.writeFileSync(
-    path.join(dir, "AGENTS.md"),
-    workspaceGuide("The phone already has a UI in doc.evg.json. Wait for the next task."),
-  );
   try {
     fs.unlinkSync(path.join(dir, ".cursor-follow"));
   } catch {
     /* first */
   }
   installEvgAgent(dir);
+  fs.writeFileSync(
+    path.join(dir, "AGENTS.md"),
+    workspaceGuide("The phone already has a UI in doc.evg.json. Wait for the next task.", dir),
+  );
   if (!fs.existsSync(path.join(dir, ".git"))) seedGit(dir);
   return dir;
 }
@@ -1101,8 +1148,8 @@ export function prepareSession(task, { git = false, kind = "dashboard" } = {}) {
   if (!looksLikeEvg(existing)) resetSession(kind);
   const doc = fs.readFileSync(path.join(dir, "doc.evg.json"), "utf8");
   fs.writeFileSync(path.join(dir, "TASK.md"), followUpTask(task, doc));
-  fs.writeFileSync(path.join(dir, "AGENTS.md"), workspaceGuide(task, dir));
   installEvgAgent(dir);
+  fs.writeFileSync(path.join(dir, "AGENTS.md"), workspaceGuide(task, dir));
   if (git && !fs.existsSync(path.join(dir, ".git"))) seedGit(dir);
   return dir;
 }
@@ -1113,8 +1160,12 @@ function makeWorkspace(task, { git = false, doc = "", kind = "dashboard" } = {})
   fs.writeFileSync(path.join(dir, "doc.evg.json"), text);
   fs.writeFileSync(path.join(dir, "TASK.md"), task + "\n");
   carryAttachment(sessionDir(), dir);
-  fs.writeFileSync(path.join(dir, "AGENTS.md"), workspaceGuide(task, dir));
+  // Tools first: the guide describes the workspace, so it has to be written
+  // after the workspace is finished. The other way round it promises tools
+  // that are not there yet — which is how an agent was told to run a command
+  // that did not exist.
   installEvgAgent(dir);
+  fs.writeFileSync(path.join(dir, "AGENTS.md"), workspaceGuide(task, dir));
   if (git) seedGit(dir);
   return dir;
 }

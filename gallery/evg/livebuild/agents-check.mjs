@@ -259,12 +259,12 @@ if (fs.existsSync(path.join(root, "lib/evg/bin/evg_agent.js"))) {
   for (const need of ["This is an app", "app/APP.md", "./evg-app check", "./evg-app memo", "data model"]) {
     if (!guide.includes(need)) throw new Error(`the app guide never mentions ${need}`);
   }
-  if (fs.existsSync(path.join(root, "gallery/evg/bin/evg_app.js"))) {
-    if (!fs.existsSync(path.join(dir, "evg-app"))) throw new Error("no ./evg-app in the workspace");
-    console.log("  app         guide + ./evg-app, memory first and last");
-  } else {
-    console.log("  app         guide only — gallery/evg/bin/evg_app.js is not built");
-  }
+  // Unconditional, and it was not: skipping this when the binary happened to
+  // be missing is what let a workspace ship without `./evg-app` for a whole
+  // session. `bin/` is ignored by git, so "not built" is the state of every
+  // fresh clone — the installer builds it, and this is what says it did.
+  if (!fs.existsSync(path.join(dir, "evg-app"))) throw new Error("no ./evg-app in the workspace");
+  console.log("  app         guide + ./evg-app, memory first and last");
   // A code app gets the other guide, and the shim has to know the difference
   // without being told — an agent should not carry which kind it is holding.
   fs.cpSync(path.join(here, "fixtures/codeapp"), path.join(dir, "app"), { recursive: true });
