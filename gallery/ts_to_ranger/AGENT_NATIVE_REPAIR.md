@@ -216,7 +216,7 @@ the native target. Feasibility investigated; concrete touch points:
 | File | Change |
 |------|--------|
 | `compiler/TTypeRegistry.rgr` | register `u8`/`u16`/`u32`/`i32`/`f32` names; `nameToNodeType` → `Integer`/`Double`; add `targetTypeString` cases (es6 `number`, go `int/float64`) |
-| `compiler/ng_RangerCppClassWriter.rgr` | `getObjectTypeString` / `getTypeString2` / scalar decls → `uint8_t` etc. |
+| `compiler/RangerCppClassWriter.rgr` | `getObjectTypeString` / `getTypeString2` / scalar decls → `uint8_t` etc. |
 | `compiler/ng_FlowWork.rgr` | `shouldBeEqualTypes` / `shouldBeType`: allow `int ↔ {u8,u16,u32,i32}` and `double ↔ f32` (same pattern as existing `char ↔ int`) |
 | `compiler/Lang.rgr` | arithmetic operator overloads (`+ - * / %`, comparisons) must accept the alias types, or the analyzer canonicalizes them to int/double for operator matching (`Could not match argument types for +` otherwise) |
 

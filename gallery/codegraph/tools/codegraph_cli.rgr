@@ -7,10 +7,10 @@
 ;   npm run codegraph:analyze -- gallery/codegraph/fixtures/calls.rgr
 ;   npm run codegraph:analyze -- gallery/uast/fixtures/cpp
 ;   npm run codegraph:analyze -- tests/fixtures/pkg/app
-;   npm run codegraph:analyze -- compiler/ng_RangerAppClassDesc.rgr --max=24
+;   npm run codegraph:analyze -- compiler/RangerAppClassDesc.rgr --max=24
 ;   npm run codegraph:analyze -- https://github.com/org/repo.git
 ;
-; A compiler fragment (ng_RangerAppClassDesc.rgr and its siblings) has no
+; A compiler fragment (RangerAppClassDesc.rgr and its siblings) has no
 ; Import of the types it names. VirtualCompiler already loads those classes
 ; for itself, through ng_RangerFlowParser; compiling the fragment as a
 ; program does not. This CLI compiles that parser unit and filters to the
@@ -61,7 +61,7 @@ class CodeGraphCli {
         def model:CodeGraph (new CodeGraph)
         if (CodeGraphCli.isCompilerFragment(file)) {
             def base:string (CodeGraphCli.baseName(file))
-            def entry:string "compiler/ng_RangerFlowParser.rgr"
+            def entry:string "compiler/RangerFlowParser.rgr"
             if ((strlen filter) == 0) {
                 filter = base
             }
@@ -76,7 +76,7 @@ class CodeGraphCli {
         if ((indexOf model.title " FAIL ") >= 0) {
             print ("compilation failed: " + model.title)
             if (CodeGraphCli.isCompilerFragment(file)) {
-                print "a compiler fragment is not a standalone program; this CLI compiles compiler/ng_RangerFlowParser.rgr for those files"
+                print "a compiler fragment is not a standalone program; this CLI compiles compiler/RangerFlowParser.rgr for those files"
             }
             exit 1
         }
@@ -194,16 +194,16 @@ class CodeGraphCli {
 
     sfn isCompleteCompilerProgram:boolean (file:string) {
         def b:string (CodeGraphCli.baseName(file))
-        if (b == "ng_Compiler.rgr") {
+        if (b == "Compiler.rgr") {
             return true
         }
         if (b == "VirtualCompiler.rgr") {
             return true
         }
-        if (b == "ng_RangerFlowParser.rgr") {
+        if (b == "RangerFlowParser.rgr") {
             return true
         }
-        if (b == "ng_LiveCompiler.rgr") {
+        if (b == "LiveCompiler.rgr") {
             return true
         }
         return false

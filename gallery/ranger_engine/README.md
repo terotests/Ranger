@@ -279,4 +279,4 @@ RANGER_LIB="./compiler/;./lib/" node bin/rg_run.js program.rgr
 ```
 
 The design notes, and the reasoning behind the two-half split, are in
-[`PLAN_RANGER_ENGINE.md`](../../PLAN_RANGER_ENGINE.md).
+[`PLAN_RANGER_ENGINE.md`](PLAN_RANGER_ENGINE.md).

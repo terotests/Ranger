@@ -82,7 +82,7 @@ re-serializes, and never touches a byte the user did not ask it to touch.
 
 The alternative — `MdToRich` into `RichDocument`, edit with
 `DocxEditController`, serialize back with `MdToMd` — is written down in
-[`PLAN.md`](PLAN.md)'s diagram and should be **withdrawn as the editing path**.
+[`PLAN.md`](../../legacy/docs/PLAN.md)'s diagram and should be **withdrawn as the editing path**.
 It is the shortest route to reusing docx's editor and the longest route to a
 markdown file anyone would keep. (`MdToRich` still has a use: handing a
 markdown document to the `.docx` *writer*. That is an export, it runs once, and
@@ -542,7 +542,7 @@ nothing to resize.
 
 ## 6. The performance budget — met, and measured
 
-[`PLAN.md`](PLAN.md) §6b measured a full reparse-and-relayout at **142 ms for a
+[`PLAN.md`](../../legacy/docs/PLAN.md) §6b measured a full reparse-and-relayout at **142 ms for a
 63 KB document**, down from 382 ms, and calls the remainder "the text
 measurement itself". A keystroke cannot cost that. The target is **16 ms**
 inside a paragraph of a 63 KB file.

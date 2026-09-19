@@ -3,7 +3,7 @@
 Four verbs over an EVG document. An agent with a shell already has everything
 it needs to edit one; MCP, a widget and an editor panel are transports over
 exactly these, added when something needs them. The plan they belong to is
-[`PLAN_AI_BRIDGE.md`](../../../PLAN_AI_BRIDGE.md).
+[`PLAN_AI_BRIDGE.md`](../../../docs/plans/PLAN_AI_BRIDGE.md).
 
 ```bash
 npm run agent -- outline <doc.evg.json> [--depth=N] [--at=PATH]

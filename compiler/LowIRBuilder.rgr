@@ -1,0 +1,3695 @@
+; SPDX-License-Identifier: MIT
+
+
+Import "LowIR.rgr"
+Import "LowIRRuntime.rgr"
+Import "LowIRTarget.rgr"
+
+class LowIRLowerContext {
+  def ctx@(weak):RangerAppWriterContext
+  def builder:LowIRBuilder
+  def target:LowIRTarget
+  def ptrType:string "i32"
+  def slots:[string:string]
+  ; Names that arrive as SSA function PARAMETERS rather than slots. loadSlot
+  ; answers a bare `%name` for these and a zero for anything else it does not
+  ; know -- an unknown name used to be emitted verbatim, which is a value
+  ; nothing defines.
+  def paramNames:[string]
+  ; Names bound from a CLOSURE ENVIRONMENT. The closure record owns these (its
+  ; typedesc frees them when the record is released), so the body must neither
+  ; release them at scope end nor claim ownership when it assigns to one.
+  def capturedNames:[string]
+  ; One entry per active loop shadow (used only to balance push/pop), and a
+  ; monotonic counter that makes every shadow alloca name unique.
+  def shadowStack:[string]
+  def shadowCounter:int 0
+  ; Names whose NEXT bindSlot must allocate a brand-new alloca instead of
+  ; storing into the existing one, because a `def` redeclared a name that is
+  ; already live. Sharing the slot is wrong twice over: with a narrower outer
+  ; type it stores 8 bytes into an `alloca i32` and smashes the frame, and with
+  ; the same type it makes the scope-end release free whatever the OUTER binding
+  ; held on paths where the declaration never ran.
+  def forceFreshSlots:[string]
+  ; Redeclaration journal, unwound by lowerBlock so an inner block's `def` does
+  ; not permanently steal the name from the enclosing scope: slot, IR type, and
+  ; whether the outer binding was an owned string/object/collection local.
+  def reslotNames:[string]
+  def reslotPrevSlots:[string]
+  def reslotPrevTypes:[string]
+  def reslotOwnedStr:[int]
+  def reslotOwnedObj:[int]
+  def reslotOwnedColl:[int]
+  def slotTypes:[string:string]
+  def objectSlots:[string:string]
+  def collectionSlots:[string:string]
+  def ptrArrayElemTypes:[string:string]
+  ; Declared VALUE type of a LOCAL `[string:T]` map ("int"/"boolean"/"string"/…).
+  ; Fields carry this on their LowIRField; locals have no field to carry it, and
+  ; without it a `set m k true` stored an i1 into the i64 value slot.
+  def smapValueTypes:[string:string]
+  def imapValueTypes:[string:string]
+  def ownedObjectLocals:[string]
+  def ownedCollectionLocals:[string]
+  def ownedStringLocals:[string]
+  def pendingStringTemps:[string]
+  def pendingObjectTemps:[string]
+  ; L3 value boxing: names mutated inside a capturing lambda of this scope
+  ; (candidates), and the subset actually boxed with their cell byte size. A
+  ; boxed local's slot holds a heap-cell pointer; reads/writes go through it.
+  def boxedCandidates:[string:int]
+  def boxedLocals:[string:int]
+  ; the IR type inside each boxed cell -- "i32" unless said otherwise
+  def boxedTypes:[string:string]
+  def escapedLocals:[string:string]
+  def currentRetType:string "i32"
+  def llvmRetType:string "i32"
+  def className:string ""
+  def selfPtr:string ""
+  ; Innermost loop's exit and continue targets. `break`/`continue` branch to
+  ; these; empty means "not inside a loop", where both are no-ops. Saved and
+  ; restored around each loop body rather than kept in a stack, which is what
+  ; makes nesting work.
+  def breakLabel:string ""
+  def continueLabel:string ""
+  ; Innermost `try` block's catch label, empty outside one. This backend has no
+  ; exceptions, so the one raise the compiler's own sources rely on --
+  ; `(unwrap x)` where x is null -- is turned into a branch here. Cleared while
+  ; the catch body itself is lowered, so a failing unwrap in the handler does
+  ; not loop back into it.
+  def catchLabel:string ""
+  ; Where the innermost loop body's owned locals begin. `break`/`continue` jump
+  ; PAST the end-of-body release, so they have to emit it themselves.
+  def loopOwnedMark:int 0
+  def loopOwnedStrMark:int 0
+  def loopOwnedCollMark:int 0
+}
+
+; Capture layout for one lambda's closure environment (L2+). The closure record
+; is [ fn_index@0 | capture0 | capture1 | … ]; each capture i is stored at
+; offsets[i] with IR type irTypes[i] and kind kinds[i] (0=value copy, 1=string
+; dup/owned, 2=object retain/owned). objClasses[i] is the object class name for
+; kind-2 captures (for field access inside the body), "" otherwise.
+class LambdaCaptureInfo {
+  def names:[string]
+  def irTypes:[string]
+  def kinds:[int]
+  def objClasses:[string]
+  ; For a kind-3 (boxed) capture: the IR type the shared cell HOLDS. The cell is
+  ; always reached by pointer, but what is inside it is the local's own type,
+  ; and the body has to read and write it at that width.
+  def boxTypes:[string]
+  ; A captured COLLECTION is a descriptor like any other pointer, but the body
+  ; also needs to know it IS one -- otherwise `push res x` inside a `map`
+  ; lambda found no collection slot and pushed into a zero.
+  def collKinds:[string]
+  def elemTypes:[string]
+  def smapValTypes:[string]
+  def offsets:[int]
+  def totalBytes:int 4
+  def hasOwned:boolean false
+  def tdName:string ""
+  ; The enclosing object. A lambda body has no `self` parameter, so `this.m()`
+  ; inside one had nothing to call through; the closure carries the enclosing
+  ; receiver like any other capture.
+  def capturesSelf:boolean false
+  def selfOffset:int 0
+  def selfClass:string ""
+}
+
+class LowIRBuilderPass {
+  def irModule:LowIRModule (new LowIRModule())
+  def usedMapRuntime:boolean false
+  def usedArrayRuntime:boolean false
+  def usedPtrArrayRuntime:boolean false
+  def usedMemRuntime:boolean false
+  ; An already-lowered receiver pointer for an instance call whose receiver is
+  ; an EXPRESSION rather than a name -- `((X.__singleton()).mint())`. The
+  ; name-based resolution has nothing to look up for those and produced an
+  ; empty operand: `inttoptr i64 % to %struct.X*`.
+  def exprRecvPtr:string ""
+  ; lambda hoisted-function name -> its call_indirect signature ("i32,…:ret")
+  def lambdaSigMap:[string:string]
+  ; lambda hoisted-function name -> its lambda fnDesc (for body lowering pass)
+  def lambdaByName:[string:RangerAppFunctionDesc]
+  def lambdaNames:[string]
+  ; lambda name -> how deeply it is nested inside other lambdas
+  def lambdaDepths:[string:int]
+  def lambdaCounter:int 0
+  ; lambda compiledName -> its closure-env capture layout (computed lazily at the
+  ; first lowerLambdaValue, read back when the hoisted body is lowered).
+  def lambdaCaptures:[string:LambdaCaptureInfo]
+  ; VIRTUAL DISPATCH. This target emits one plain function per method, named
+  ; after the class that DECLARES it, so a call through a base-class reference
+  ; ("langWriter.writeClass(…)" where langWriter is declared
+  ; RangerGenericClassWriter but holds a RangerJavaScriptClassWriter) bound to
+  ; the base implementation and the override was never reached.
+  ;
+  ; Keys are "<declaringClass>|<methodName>" for every method some subclass
+  ; overrides; virtualImplOf maps "<runtimeClass>|<methodName>" to the class
+  ; whose implementation that runtime class should use. A dispatcher function
+  ; per key compares the object's type descriptor against each candidate.
+  def virtualKeys:[string]
+  def virtualIsKey:[string:boolean]
+  def virtualCases:[string:[string]]
+  def virtualImplOf:[string:string]
+  def virtualDescOf:[string:RangerAppFunctionDesc]
+  ; Enum type NAMES, collected once per module. An enum is an int on every
+  ; target, but llvmTypeForRanger only knew the primitive spellings, so a field
+  ; `def eval_type:RangerNodeType` got the pointer type while every
+  ; `RangerNodeType.X` constant is an i32 -- and the comparison between them
+  ; did not typecheck in the IR.
+  def appRoot@(weak):RangerAppWriterContext
+
+  ; A parameter/value typed as a lambda/function `(fn:… (…))` — its runtime value
+  ; is an i32 closure-record pointer. Detected by the ExpressionType marker the
+  ; frontend puts on lambda-typed nodes.
+  fn isLambdaTypeNode:boolean (node:CodeNode) {
+    if (node.value_type == RangerNodeType.ExpressionType) {
+      return true
+    }
+    if (node.eval_type == RangerNodeType.ExpressionType) {
+      return true
+    }
+    if node.has_lambda {
+      return true
+    }
+    return false
+  }
+
+  fn canLowerFunction:boolean (fnDesc:RangerAppFunctionDesc ctx:RangerAppWriterContext) {
+    if (fnDesc.is_static == false) {
+      return false
+    }
+    return (this.canLowerMethod(fnDesc))
+  }
+
+  ; The synthesized constructor of a `record` carries TWO parameters per field:
+  ; a marker that holds the keyword's name and no type at all, beside the
+  ; parameter that holds the value. Only a language with keyword arguments
+  ; writes the marker, and every other writer filters it out (see
+  ; RangerCppClassWriter.writeArgsDef). This backend did not, so the marker's
+  ; empty type made canLowerMethod refuse the constructor and no record class
+  ; -- including every class a `shape` desugars to -- had one emitted at all.
+  fn isKeywordMarkerParam:boolean (p:RangerAppParamDesc) {
+    if (null? p.nameNode) {
+      return false
+    }
+    return (p.nameNode.hasFlag("keyword"))
+  }
+
+  fn canLowerInstanceMethod:boolean (fnDesc:RangerAppFunctionDesc ctx:RangerAppWriterContext) {
+    if fnDesc.is_static {
+      return false
+    }
+    return (this.canLowerMethod(fnDesc))
+  }
+
+  fn isMainEntry:boolean (fnDesc:RangerAppFunctionDesc ctx:RangerAppWriterContext) {
+    if (null? fnDesc.nameNode) {
+      return false
+    }
+    def nn (unwrap fnDesc.nameNode)
+    if (nn.hasFlag("main")) {
+      if (nn.code.filename == (ctx.getRootFile())) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn shouldExport:boolean (fnDesc:RangerAppFunctionDesc ctx:RangerAppWriterContext) {
+    if (this.isMainEntry(fnDesc ctx)) {
+      return true
+    }
+    if (ctx.hasCompilerFlag("freestanding")) {
+      return true
+    }
+    if (fnDesc.name == "main") {
+      return false
+    }
+    if (fnDesc.is_static == false) {
+      return false
+    }
+    return (this.canLowerFunction(fnDesc ctx))
+  }
+
+  fn memEnabled:boolean (lctx:LowIRLowerContext) {
+    def memTarget (LowIRTarget.resolve((unwrap lctx.ctx)))
+    if (memTarget.usesLibc == false) {
+      return false
+    }
+    return this.usedMemRuntime
+  }
+
+  ; Object reference-counting enabled: the libc path (full RC), OR the WASM
+  ; free-list path under -wasmrc. This gates ONLY the object new/release path;
+  ; string/array RC stays behind memEnabled/usesLibc because their WASM runtime
+  ; (ranger_ptrarray_*, ranger_str_*) is not emitted yet (PLAN_WASM_MEMORY v2).
+  fn objRcEnabled:boolean (lctx:LowIRLowerContext) {
+    def memTarget (LowIRTarget.resolve((unwrap lctx.ctx)))
+    if (memTarget.usesLibc) {
+      return true
+    }
+    def ctx (unwrap lctx.ctx)
+    return (ctx.hasCompilerFlag("wasmrc"))
+  }
+
+  ; The freestanding-WASM string runtime (ranger_str_*) is in play: non-libc
+  ; target under -wasmrc. When true, string ops route to the WASM-native runtime
+  ; (ranger_str_len/concat/from_int/dup/cmp) instead of libc (strlen/sprintf/...).
+  ; Owned string locals are freed on BOTH runtimes: the libc path frees the
+  ; ranger_strdup copy, the freestanding-WASM path frees the ranger_str_dup one.
+  ; This used to be wasmStrEnabled alone, which meant every `def s:string ...`
+  ; on a native target leaked its private copy for the lifetime of the process.
+  ; The engine saves the current script source into a local on every JS call, so
+  ; richards leaked a 32 KB copy of the whole benchmark per call -- gigabytes in
+  ; seconds, and the reason the native build could never finish one.
+  fn strRcEnabled:boolean (lctx:LowIRLowerContext) {
+    def memTarget (LowIRTarget.resolve((unwrap lctx.ctx)))
+    if (memTarget.usesLibc) {
+      return true
+    }
+    return (this.wasmStrEnabled(lctx))
+  }
+
+  fn wasmStrEnabled:boolean (lctx:LowIRLowerContext) {
+    def memTarget (LowIRTarget.resolve((unwrap lctx.ctx)))
+    if (memTarget.usesLibc) {
+      return false
+    }
+    def ctx (unwrap lctx.ctx)
+    return (ctx.hasCompilerFlag("wasmrc"))
+  }
+
+  fn isLowerableParamType:boolean (typeName:string) {
+    if (LowIRUtil.isSupportedParam(typeName)) {
+      return true
+    }
+    if ((strlen typeName) == 0) {
+      return false
+    }
+    if (LowIRUtil.isArrayTypeName(typeName)) {
+      return true
+    }
+    return true
+  }
+
+  fn isEnumTypeName:boolean (typeName:string) {
+    if (null? this.appRoot) {
+      return false
+    }
+    def r (unwrap this.appRoot)
+    return (r.isEnumDefined(typeName))
+  }
+
+  fn llvmTypeForRanger:string (typeName:string ptrType:string) {
+    if (LowIRUtil.isStringType(typeName)) {
+      return "i8*"
+    }
+    if (this.isEnumTypeName(typeName)) {
+      return "i32"
+    }
+    if (LowIRUtil.isBufferTypeName(typeName)) {
+      return ptrType
+    }
+    if (LowIRUtil.isArrayTypeName(typeName)) {
+      return ptrType
+    }
+    def mapped (LowIRUtil.typeFromRanger(typeName))
+    if ((strlen mapped) > 0) {
+      return mapped
+    }
+    return ptrType
+  }
+
+  fn varTypeName:string (nameNode:CodeNode) {
+    if ((strlen nameNode.type_name) > 0) {
+      return nameNode.type_name
+    }
+    if (nameNode.value_type == RangerNodeType.Array) {
+      if ((strlen nameNode.array_type) > 0) {
+        return ("[" + nameNode.array_type + "]")
+      }
+    }
+    ; A map type has no type_name either. Leaving it blank made canLowerMethod
+    ; refuse the whole method (`fn f:[string:boolean] ()` was silently skipped),
+    ; and every call to it referenced a function that was never emitted.
+    if (nameNode.value_type == RangerNodeType.Hash) {
+      return ("[" + nameNode.key_type + ":" + nameNode.array_type + "]")
+    }
+    return nameNode.eval_type_name
+  }
+
+  ; Is this a REFCOUNTED Ranger object -- one with an object header that
+  ; ranger_obj_retain / ranger_obj_release may be handed? A JSON value is not:
+  ; it belongs to runtime/ranger_json.c and has no header, so releasing one
+  ; freed `body - RANGER_HEADER_SIZE`, a pointer no allocator ever gave out.
+  ; Its slot is still recorded as an object slot, because that is what routes
+  ; `keys` / `length` / `set` on the name to the JSON runtime.
+  fn isRefCountedObjectType:boolean (typeName:string) {
+    if (LowIRUtil.isJsonTypeName(typeName)) {
+      return false
+    }
+    return (this.isObjectTypeName(typeName))
+  }
+
+  fn lowerConcatOperand:string (node:CodeNode isStr:boolean lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def v (this.lowerExpr(node lctx))
+    if (isStr == false) {
+      if (this.exprProducesI1(node lctx)) {
+        v = (builder.emitZextI1ToI32(v))
+      }
+    }
+    return v
+  }
+
+  fn emitStrdupExpr:string (strPtr:string lctx:LowIRLowerContext) {
+    def dupArgs:[string]
+    def dupArgTypes:[string]
+    push dupArgs strPtr
+    push dupArgTypes "i8*"
+    def dupFn:string "ranger_strdup"
+    if (this.wasmStrEnabled(lctx)) {
+      dupFn = "ranger_str_dup"
+    }
+    return (lctx.builder.emitCall(dupFn "i8*" dupArgs dupArgTypes))
+  }
+
+  fn hasExternDecl:boolean (fnName:string) {
+    for this.irModule.externDecls d:LowIRExternDecl i {
+      if (d.fnName == fnName) {
+        return true
+      }
+    }
+    return false
+  }
+
+  ; Count the UTF-8 byte length of a string. The host charAt returns a UTF-16
+  ; code unit; codepoints in the BMP encode to 1-3 UTF-8 bytes. (Surrogate pairs
+  ; / 4-byte sequences are rare in compiler string literals and counted as 3+3.)
+  ; Must stay derived from LowIRUtil.utf8Bytes, not recomputed here: this
+  ; length sizes the `[N x i8]` that llvmEscapeCString fills, and the two
+  ; agreeing with each other by accident is what hid the double-encoding bug.
+  fn utf8ByteLen:int (text:string) {
+    return (array_length (LowIRUtil.utf8Bytes(text)))
+  }
+
+  fn stringGlobalByteLen:int (gname:string) {
+    for this.irModule.stringGlobals g:LowIRStringGlobal i {
+      if (g.name == gname) {
+        return g.byteLen
+      }
+    }
+    return 0
+  }
+
+  fn printTextFromNode:string (node:CodeNode) {
+    if (node.value_type == RangerNodeType.String) {
+      return node.string_value
+    }
+    return ""
+  }
+
+  fn emitPrintfFmt:void (fmt:string args:[string] argTypes:[string] lctx:LowIRLowerContext) {
+    def target (lctx.target)
+    if ((strlen target.ioFn) == 0) {
+      return
+    }
+    def builder (lctx.builder)
+    def gname (this.internStringGlobal(fmt false))
+    def byteLen (this.stringGlobalByteLen(gname))
+    def fmtPtr (builder.emitStrPtr(gname byteLen))
+    def callArgs:[string]
+    def callTypes:[string]
+    push callArgs fmtPtr
+    push callTypes "i8*"
+    for args a:string i {
+      push callArgs a
+    }
+    for argTypes at:string i {
+      push callTypes at
+    }
+    builder.emitCall(target.ioFn target.ioFnRet callArgs callTypes)
+  }
+
+  fn lowerPrint:void (node:CodeNode lctx:LowIRLowerContext) {
+    def textNode (node.getSecond())
+    def text (this.printTextFromNode(textNode))
+    if ((strlen text) > 0) {
+      this.emitIoString(text true lctx)
+      return
+    }
+    def strPtr (this.lowerExpr(textNode lctx))
+    def args:[string]
+    def argTypes:[string]
+    push args strPtr
+    push argTypes "i8*"
+    this.emitPrintfFmt("%s\n" args argTypes lctx)
+  }
+
+  fn lowerWrite:void (node:CodeNode lctx:LowIRLowerContext) {
+    def textNode (node.getSecond())
+    def text (this.printTextFromNode(textNode))
+    if ((strlen text) > 0) {
+      this.emitIoString(text false lctx)
+      return
+    }
+    def strPtr (this.lowerExpr(textNode lctx))
+    def args:[string]
+    def argTypes:[string]
+    push args strPtr
+    push argTypes "i8*"
+    this.emitPrintfFmt("%s" args argTypes lctx)
+  }
+
+  fn lowerExit:void (node:CodeNode lctx:LowIRLowerContext) {
+    def target (lctx.target)
+    if (target.usesLibc == false) {
+      return
+    }
+    def builder (lctx.builder)
+    def codeNode (node.getSecond())
+    def code (this.lowerExpr(codeNode lctx))
+    def exitParams:[string]
+    push exitParams "i32"
+    this.ensureExternDecl("exit" "void" exitParams false)
+    def args:[string]
+    def argTypes:[string]
+    push args code
+    push argTypes "i32"
+    builder.emitCall("exit" "void" args argTypes)
+    builder.terminateUnreachable()
+  }
+
+  fn lowerSleepMs:void (node:CodeNode lctx:LowIRLowerContext) {
+    def target (lctx.target)
+    if (target.usesLibc == false) {
+      return
+    }
+    def builder (lctx.builder)
+    def msNode (node.getSecond())
+    def ms (this.lowerExpr(msNode lctx))
+    def irI32:string "i32"
+    def thousand (builder.emitConst(irI32 "1000"))
+    def usec (builder.emitBin("mul" irI32 ms thousand))
+    def usleepParams:[string]
+    push usleepParams "i32"
+    this.ensureExternDecl("usleep" "i32" usleepParams false)
+    def args:[string]
+    def argTypes:[string]
+    push args usec
+    push argTypes "i32"
+    builder.emitCall("usleep" "i32" args argTypes)
+  }
+
+  fn lowerTerminalEsc:void (text:string lctx:LowIRLowerContext) {
+    this.emitIoString(text false lctx)
+  }
+
+  fn emitTermVoidCall:void (fnName:string lctx:LowIRLowerContext) {
+    def target (lctx.target)
+    if (target.usesLibc == false) {
+      return
+    }
+    def args:[string]
+    def argTypes:[string]
+    lctx.builder.emitCall(fnName "void" args argTypes)
+  }
+
+  fn lowerClearScreen:void (node:CodeNode lctx:LowIRLowerContext) {
+    this.emitTermVoidCall("ranger_clear_screen" lctx)
+  }
+
+  fn lowerHideCursor:void (node:CodeNode lctx:LowIRLowerContext) {
+    this.emitTermVoidCall("ranger_hide_cursor" lctx)
+  }
+
+  fn lowerShowCursor:void (node:CodeNode lctx:LowIRLowerContext) {
+    this.emitTermVoidCall("ranger_show_cursor" lctx)
+  }
+
+  fn lowerMoveCursor:void (node:CodeNode lctx:LowIRLowerContext) {
+    def target (lctx.target)
+    if (target.usesLibc == false) {
+      return
+    }
+    def builder (lctx.builder)
+    def xNode (node.getSecond())
+    def yNode (node.getThird())
+    def x (this.lowerExpr(xNode lctx))
+    def y (this.lowerExpr(yNode lctx))
+    def args:[string]
+    def argTypes:[string]
+    push args x
+    push argTypes "i32"
+    push args y
+    push argTypes "i32"
+    builder.emitCall("ranger_move_cursor" "void" args argTypes)
+  }
+
+  fn forIndexName:string (idxNode:CodeNode) {
+    if ((strlen idxNode.vref) > 0) {
+      return idxNode.vref
+    }
+    return "i"
+  }
+
+  fn resolveItemClass:string (itemNode:CodeNode) {
+    if ((strlen itemNode.eval_type_name) > 0) {
+      return itemNode.eval_type_name
+    }
+    return itemNode.type_name
+  }
+
+  fn lowerPollKeypress:string (lctx:LowIRLowerContext) {
+    def args:[string]
+    def argTypes:[string]
+    return (lctx.builder.emitCall("ranger_poll_key" "i8*" args argTypes))
+  }
+
+  fn lowerOnKeypress:void (node:CodeNode lctx:LowIRLowerContext) {
+    def args:[string]
+    def argTypes:[string]
+    lctx.builder.emitCall("ranger_term_init" "void" args argTypes)
+  }
+
+  fn lowerShellArgCnt:string (lctx:LowIRLowerContext) {
+    def args:[string]
+    def argTypes:[string]
+    return (lctx.builder.emitCall("ranger_shell_arg_cnt" "i32" args argTypes))
+  }
+
+  fn lowerShellArg:string (node:CodeNode lctx:LowIRLowerContext) {
+    def idxNode (node.getSecond())
+    def idx (this.lowerExpr(idxNode lctx))
+    def args:[string]
+    def argTypes:[string]
+    push args idx
+    push argTypes "i32"
+    return (lctx.builder.emitCall("ranger_shell_arg" "i8*" args argTypes))
+  }
+
+  fn lowerReadFile:string (node:CodeNode lctx:LowIRLowerContext) {
+    def pathNode (node.getSecond())
+    def fileNode (node.getThird())
+    def path (this.lowerExpr(pathNode lctx))
+    def file (this.lowerExpr(fileNode lctx))
+    def args:[string]
+    def argTypes:[string]
+    push args path
+    push argTypes "i8*"
+    push args file
+    push argTypes "i8*"
+    return (lctx.builder.emitCall("ranger_read_file" "i8*" args argTypes))
+  }
+
+  fn lowerCreateDir:void (node:CodeNode lctx:LowIRLowerContext) {
+    def pathNode (node.getSecond())
+    def path (this.lowerExpr(pathNode lctx))
+    def ps:[string]
+    push ps "i8*"
+    def voidType:string "void"
+    this.ensureExternDecl("ranger_create_dir" voidType ps false)
+    def args:[string]
+    def argTypes:[string]
+    push args path
+    push argTypes "i8*"
+    lctx.builder.emitCall("ranger_create_dir" voidType args argTypes)
+  }
+
+  ; `nullify x` clears an optional. Optionals are NULL pointers here, so the
+  ; slot is overwritten with a null of whatever type it already holds; a slot
+  ; the function has never bound has nothing to clear.
+  fn lowerBufferAlloc:string (node:CodeNode lctx:LowIRLowerContext) {
+    def sizeNode (node.getSecond())
+    def size (this.lowerExpr(sizeNode lctx))
+    def args:[string]
+    def argTypes:[string]
+    push args size
+    push argTypes "i32"
+    return (lctx.builder.emitCall("ranger_buffer_alloc" lctx.ptrType args argTypes))
+  }
+
+  ; Byte length of an already-lowered buffer value (buffers are length-prefixed
+  ; on this runtime, the same layout lowerBufferLength reads).
+  fn lowerBufferLength:string (node:CodeNode lctx:LowIRLowerContext) {
+    def bufNode (node.getSecond())
+    def buf (this.lowerExpr(bufNode lctx))
+    def args:[string]
+    def argTypes:[string]
+    push args buf
+    push argTypes lctx.ptrType
+    return (lctx.builder.emitCall("ranger_buffer_length" "i32" args argTypes))
+  }
+
+  fn lowerBufferGet:string (node:CodeNode lctx:LowIRLowerContext) {
+    def bufNode (node.getSecond())
+    def offNode (node.getThird())
+    def buf (this.lowerExpr(bufNode lctx))
+    def off (this.lowerExpr(offNode lctx))
+    def args:[string]
+    def argTypes:[string]
+    push args buf
+    push argTypes lctx.ptrType
+    push args off
+    push argTypes "i32"
+    return (lctx.builder.emitCall("ranger_buffer_get" "i32" args argTypes))
+  }
+
+  fn lowerBufferSet:string (node:CodeNode lctx:LowIRLowerContext) {
+    def bufNode (node.getSecond())
+    def offNode (node.getThird())
+    def valNode (itemAt node.children 3)
+    def buf (this.lowerExpr(bufNode lctx))
+    def off (this.lowerExpr(offNode lctx))
+    def val (this.lowerExpr(valNode lctx))
+    def args:[string]
+    def argTypes:[string]
+    push args buf
+    push argTypes lctx.ptrType
+    push args off
+    push argTypes "i32"
+    push args val
+    push argTypes "i32"
+    lctx.builder.emitCall("ranger_buffer_set" "void" args argTypes)
+    return ""
+  }
+
+  ; `buffer_fill buf value start end` -- the byte-buffer twin of
+  ; int_buffer_fill, which had a lowering while this one did not. jpeg_scaler
+  ; is the program that wanted it.
+  fn lowerBufferFill:string (node:CodeNode lctx:LowIRLowerContext) {
+    def bufNode (node.getSecond())
+    def valNode (node.getThird())
+    def startNode (itemAt node.children 3)
+    def endNode (itemAt node.children 4)
+    def buf (this.lowerExpr(bufNode lctx))
+    def val (this.lowerExpr(valNode lctx))
+    def start (this.lowerExpr(startNode lctx))
+    def end (this.lowerExpr(endNode lctx))
+    def args:[string]
+    def argTypes:[string]
+    push args buf
+    push argTypes lctx.ptrType
+    push args val
+    push argTypes "i32"
+    push args start
+    push argTypes "i32"
+    push args end
+    push argTypes "i32"
+    lctx.builder.emitCall("ranger_buffer_fill" "void" args argTypes)
+    return ""
+  }
+
+  fn lowerBufferReadFile:string (node:CodeNode lctx:LowIRLowerContext) {
+    def pathNode (node.getSecond())
+    def fileNode (node.getThird())
+    def path (this.lowerExpr(pathNode lctx))
+    def file (this.lowerExpr(fileNode lctx))
+    def args:[string]
+    def argTypes:[string]
+    push args path
+    push argTypes "i8*"
+    push args file
+    push argTypes "i8*"
+    return (lctx.builder.emitCall("ranger_buffer_read_file" lctx.ptrType args argTypes))
+  }
+
+  fn lowerBufferWriteFile:string (node:CodeNode lctx:LowIRLowerContext) {
+    def pathNode (node.getSecond())
+    def fileNode (node.getThird())
+    def bufNode (itemAt node.children 3)
+    def path (this.lowerExpr(pathNode lctx))
+    def file (this.lowerExpr(fileNode lctx))
+    def buf (this.lowerExpr(bufNode lctx))
+    def args:[string]
+    def argTypes:[string]
+    push args path
+    push argTypes "i8*"
+    push args file
+    push argTypes "i8*"
+    push args buf
+    push argTypes lctx.ptrType
+    lctx.builder.emitCall("ranger_buffer_write_file" "void" args argTypes)
+    return ""
+  }
+
+  fn lowerIntBufferAlloc:string (node:CodeNode lctx:LowIRLowerContext) {
+    def sizeNode (node.getSecond())
+    def size (this.lowerExpr(sizeNode lctx))
+    def args:[string]
+    def argTypes:[string]
+    push args size
+    push argTypes "i32"
+    return (lctx.builder.emitCall("ranger_int_buffer_alloc" lctx.ptrType args argTypes))
+  }
+
+  fn lowerIntBufferGet:string (node:CodeNode lctx:LowIRLowerContext) {
+    def bufNode (node.getSecond())
+    def idxNode (node.getThird())
+    def buf (this.lowerExpr(bufNode lctx))
+    def idx (this.lowerExpr(idxNode lctx))
+    def args:[string]
+    def argTypes:[string]
+    push args buf
+    push argTypes lctx.ptrType
+    push args idx
+    push argTypes "i32"
+    return (lctx.builder.emitCall("ranger_int_buffer_get" "i32" args argTypes))
+  }
+
+  fn lowerIntBufferSet:string (node:CodeNode lctx:LowIRLowerContext) {
+    def bufNode (node.getSecond())
+    def idxNode (node.getThird())
+    def valNode (itemAt node.children 3)
+    def buf (this.lowerExpr(bufNode lctx))
+    def idx (this.lowerExpr(idxNode lctx))
+    def val (this.lowerExpr(valNode lctx))
+    def args:[string]
+    def argTypes:[string]
+    push args buf
+    push argTypes lctx.ptrType
+    push args idx
+    push argTypes "i32"
+    push args val
+    push argTypes "i32"
+    lctx.builder.emitCall("ranger_int_buffer_set" "void" args argTypes)
+    return ""
+  }
+
+  fn promoteToF64:string (node:CodeNode val:string lctx:LowIRLowerContext) {
+    if (this.exprIsF64(node)) {
+      return val
+    }
+    return (lctx.builder.emitCast("sitofp" "f64" "i32" val))
+  }
+
+  fn lowerToDouble:string (node:CodeNode lctx:LowIRLowerContext) {
+    def inNode (node.getSecond())
+    ; `(to_double (to_int x))` is the source idiom for "truncate toward zero,
+    ; stay a double" -- it is how floorD/truncD are written. Taken literally it
+    ; routes the value through a 32-bit int, so anything past 2^31 came back as
+    ; INT32_MIN: every Date in milliseconds (946684800000 for 2000-01-01) landed
+    ; on -2147483648. Lower the pair as one libm trunc instead, which is exact
+    ; over the whole double range.
+    if inNode.has_operator {
+      if ((inNode.getOperator()) == "to_int") {
+        def innerNode (inNode.getSecond())
+        if (this.exprIsF64(innerNode)) {
+          def iv (this.lowerExpr(innerNode lctx))
+          return (this.emitLibmCall("trunc" iv lctx))
+        }
+      }
+    }
+    def val (this.lowerExpr(inNode lctx))
+    return (this.promoteToF64(inNode val lctx))
+  }
+
+  ; Format a double the way JavaScript does (never "%g").
+  fn emitDoubleToString:string (value:string lctx:LowIRLowerContext) {
+    def decl:[string]
+    push decl "double"
+    this.ensureExternDecl("ranger_double_to_string" "i8*" decl false)
+    def cArgs:[string]
+    def cTypes:[string]
+    push cArgs value
+    push cTypes "f64"
+    return (lctx.builder.emitCall("ranger_double_to_string" "i8*" cArgs cTypes))
+  }
+
+  ; Call a one-argument libm double function on an already-lowered value.
+  fn emitLibmCall:string (fnName:string value:string lctx:LowIRLowerContext) {
+    def decl:[string]
+    push decl "double"
+    this.ensureExternDecl(fnName "double" decl false)
+    def cArgs:[string]
+    def cTypes:[string]
+    push cArgs value
+    push cTypes "f64"
+    return (lctx.builder.emitCall(fnName "f64" cArgs cTypes))
+  }
+
+  fn lowerToInt:string (node:CodeNode lctx:LowIRLowerContext) {
+    def inNode (node.getSecond())
+    def val (this.lowerExpr(inNode lctx))
+    if (this.exprIsF64(inNode)) {
+      return (lctx.builder.emitCast("fptosi" "i32" "f64" val))
+    }
+    return val
+  }
+
+  ; `floor` is double -> int. Without a case here the operator fell through to
+  ; the `*` template in Lang.rgr -- which is JavaScript's `Math.floor(...)` --
+  ; and the backend turned that into a bare `%floor` SSA reference that nothing
+  ; ever defined, so codegen "succeeded" and clang rejected the module.
+  ; libm's floor() rounds toward negative infinity; fptosi alone truncates
+  ; toward zero, which differs for every negative non-integer.
+  fn lowerFloor:string (node:CodeNode lctx:LowIRLowerContext) {
+    def inNode (node.getSecond())
+    def val (this.lowerExpr(inNode lctx))
+    if (this.exprIsF64(inNode)) {
+      def fParams:[string]
+      push fParams "double"
+      this.ensureExternDecl("floor" "double" fParams false)
+      def fArgs:[string]
+      def fArgTypes:[string]
+      push fArgs val
+      push fArgTypes "f64"
+      def floored (lctx.builder.emitCall("floor" "f64" fArgs fArgTypes))
+      return (lctx.builder.emitCast("fptosi" "i32" "f64" floored))
+    }
+    return val
+  }
+
+  fn lowerIntBufferFill:string (node:CodeNode lctx:LowIRLowerContext) {
+    def bufNode (node.getSecond())
+    def valNode (node.getThird())
+    def startNode (itemAt node.children 3)
+    def endNode (itemAt node.children 4)
+    def buf (this.lowerExpr(bufNode lctx))
+    def val (this.lowerExpr(valNode lctx))
+    def start (this.lowerExpr(startNode lctx))
+    def end (this.lowerExpr(endNode lctx))
+    def args:[string]
+    def argTypes:[string]
+    push args buf
+    push argTypes lctx.ptrType
+    push args val
+    push argTypes "i32"
+    push args start
+    push argTypes "i32"
+    push args end
+    push argTypes "i32"
+    lctx.builder.emitCall("ranger_int_buffer_fill" "void" args argTypes)
+    return ""
+  }
+
+  fn lowerCharAt:string (node:CodeNode lctx:LowIRLowerContext) {
+    def textNode (node.getSecond())
+    def posNode (node.getThird())
+    def text (this.lowerExpr(textNode lctx))
+    def pos (this.lowerExpr(posNode lctx))
+    def args:[string]
+    def argTypes:[string]
+    push args text
+    push argTypes "i8*"
+    push args pos
+    push argTypes "i32"
+    return (lctx.builder.emitCall("ranger_char_at" "i32" args argTypes))
+  }
+
+  fn lowerSubstring:string (node:CodeNode lctx:LowIRLowerContext) {
+    def textNode (node.getSecond())
+    def startNode (node.getThird())
+    def endNode (itemAt node.children 3)
+    def text (this.lowerExpr(textNode lctx))
+    def start (this.lowerExpr(startNode lctx))
+    def end (this.lowerExpr(endNode lctx))
+    def args:[string]
+    def argTypes:[string]
+    push args text
+    push argTypes "i8*"
+    push args start
+    push argTypes "i32"
+    push args end
+    push argTypes "i32"
+    def subRes (lctx.builder.emitCall("ranger_substring" "i8*" args argTypes))
+    this.registerFreshStringTemp(subRes lctx)
+    return subRes
+  }
+
+  fn lowerAtArgs:string (textNode:CodeNode posNode:CodeNode lctx:LowIRLowerContext) {
+    def text (this.lowerExpr(textNode lctx))
+    def pos (this.lowerExpr(posNode lctx))
+    def args:[string]
+    def argTypes:[string]
+    push args text
+    push argTypes "i8*"
+    push args pos
+    push argTypes "i32"
+    def chPtr (lctx.builder.emitCall("ranger_at_char" "i8*" args argTypes))
+    def dupArgs:[string]
+    def dupArgTypes:[string]
+    push dupArgs chPtr
+    push dupArgTypes "i8*"
+    return (lctx.builder.emitCall("ranger_strdup" "i8*" dupArgs dupArgTypes))
+  }
+
+  fn lowerAt:string (node:CodeNode lctx:LowIRLowerContext) {
+    return (this.lowerAtArgs((node.getSecond()) (node.getThird()) lctx))
+  }
+
+  fn lowerAtCall:string (argsNode:CodeNode lctx:LowIRLowerContext) {
+    if ((array_length argsNode.children) < 2) {
+      return ""
+    }
+    return (this.lowerAtArgs((itemAt argsNode.children 0) (itemAt argsNode.children 1) lctx))
+  }
+
+  fn lowerPtrIsNull:string (ptr:string lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def vt:string (builder.emittedType(ptr))
+    if ((vt == "i32") || (vt == "i1")) {
+      def zeroI (builder.emitConst(vt "0"))
+      return (builder.emitIcmpTyped("eq" vt ptr zeroI))
+    }
+    if (vt == "f64") {
+      def zeroF (builder.emitConst("f64" "0.0"))
+      return (builder.emitIcmpTyped("eq" "f64" ptr zeroF))
+    }
+    def asInt (builder.emitPtrToInt(ptr))
+    def zero (builder.emitConst(lctx.ptrType "0"))
+    return (builder.emitIcmpTyped("eq" lctx.ptrType asInt zero))
+  }
+
+  ; `!null? x`. `x` is usually a POINTER, but an optional whose value type is a
+  ; primitive (`def idx@(optional) (get someIntMap k)`) is already an integer,
+  ; and ptrtoint over one does not assemble. The type the builder actually
+  ; emitted says which it is.
+  fn lowerPtrIsNotNull:string (ptr:string lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def vt:string (builder.emittedType(ptr))
+    if ((vt == "i32") || (vt == "i1")) {
+      def zeroI (builder.emitConst(vt "0"))
+      return (builder.emitIcmpTyped("ne" vt ptr zeroI))
+    }
+    if (vt == "f64") {
+      def zeroF (builder.emitConst("f64" "0.0"))
+      return (builder.emitIcmpTyped("ne" "f64" ptr zeroF))
+    }
+    def asInt (builder.emitPtrToInt(ptr))
+    def zero (builder.emitConst(lctx.ptrType "0"))
+    return (builder.emitIcmpTyped("ne" lctx.ptrType asInt zero))
+  }
+
+  fn loadArrayDescExpr:string (arrNode:CodeNode lctx:LowIRLowerContext) {
+    def desc (this.loadPtrArrayDescExpr(arrNode lctx))
+    if (arrNode.value_type == RangerNodeType.VRef) {
+      if ((strlen (this.ptrArrayDescFromVref(arrNode.vref lctx))) > 0) {
+        return desc
+      }
+      if (this.resolvesToField(arrNode.vref lctx)) {
+        if (this.fieldIsPtrArraySlot(lctx.className arrNode.vref)) {
+          return (this.emitFieldLoad(arrNode.vref lctx))
+        }
+      }
+    }
+    return (this.lowerExpr(arrNode lctx))
+  }
+
+  ; True when a value pushed into a ptr-array is a 32-bit int that must be widened
+  ; to the pointer-sized element slot (i.e. not an object pointer, string, or double).
+  ; An element READ OUT of a pointer array is already pointer-sized: the runtime
+  ; getter returns i64. exprIsObjectPtr only recognises VRefs, so pushing one
+  ; array's element into another produced `zext i32 <i64 value> to i64` -- an
+  ; operand type clang rejects outright.
+  ; Whether a value has to be widened before it goes into a pointer-sized
+  ; array slot. `emitted` is the type the builder actually produced for it,
+  ; which settles the question outright when it is known; the shape tests
+  ; below are the fallback for values it did not produce.
+  fn pushValueNeedsWiden:boolean (itemNode:CodeNode value:string lctx:LowIRLowerContext) {
+    def et:string (lctx.builder.emittedType(value))
+    if ((strlen et) > 0) {
+      if (et == "i32") { return true }
+      if (et == "i1") { return true }
+      return false
+    }
+    return (this.pushItemNeedsWiden(itemNode lctx))
+  }
+
+  ; The declared element type name of an array referenced by arrNode (field,
+  ; receiver.field, or "" if unknown).
+  ; Is this expression an ARRAY (rather than a string)? Only reads type
+  ; information -- it must not emit anything, because it decides which lowering
+  ; runs.
+  ; `indexOf xs v` over a pointer array: the position of the first element
+  ; equal to `v`, or -1. Emitted as a loop rather than sent to C, because the
+  ; element may be an object, a string pointer or a widened int and only this
+  ; side knows which.
+  ; `([] _:T ( a b c ))` and the untyped `([] a b c)`. The element type comes
+  ; from the declared one when there is one, and otherwise from the first
+  ; element -- the compiler writes `def skip_if ([] "Extends" "operator" …)`
+  ; with no annotation at all. Nothing lowered this: the literal answered its
+  ; FIRST element, so `indexOf skip_if x` searched a string as if it were an
+  ; array descriptor.
+  ; The literal does not always arrive with has_operator set, so the head vref
+  ; is the reliable test.
+  ; `def xs ([] "a" "b")`. By the time the backend sees it the `[]` head is
+  ; gone: the value node IS the array, with the elements as its children and
+  ; nothing on the node itself to say so. What does say so is the DEFINITION --
+  ; the flow parser gave the name an array type. Without this the literal
+  ; lowered to its first element, so `indexOf skip_if x` searched a string as
+  ; if it were an array descriptor.
+  fn isArrayLiteralValue:boolean (nameNode:CodeNode val:CodeNode) {
+    if (nameNode.value_type != RangerNodeType.Array) {
+      return false
+    }
+    if (val.has_operator) { return false }
+    if (val.has_call) { return false }
+    if (val.hasFnCall) { return false }
+    if (val.has_lambda) { return false }
+    if (val.has_lambda_call) { return false }
+    if (val.is_direct_method_call) { return false }
+    if (val.hasNewOper) { return false }
+    if ((strlen val.vref) > 0) { return false }
+    return ((array_length val.children) > 0)
+  }
+
+  ; Does this node look like a bare array literal -- `([] a b c)` -- rather
+  ; than a call, a `new`, a name or a grouping of one array?
+  fn isArrayLiteralShape:boolean (val:CodeNode) {
+    if (val.has_operator) { return false }
+    if (val.has_call) { return false }
+    if (val.hasFnCall) { return false }
+    if (val.has_lambda) { return false }
+    if (val.has_lambda_call) { return false }
+    if (val.is_direct_method_call) { return false }
+    if (val.hasNewOper) { return false }
+    if ((strlen val.vref) > 0) { return false }
+    return ((array_length val.children) > 1)
+  }
+
+  ; "[string]" -> "string". A map type ("[k:v]") is not an array and answers "".
+  ; The same builder, told the element type outright -- `return ([] "a" "b")`
+  ; has no declaration to read it from, only the function's return type.
+  ; `for map item:T key { }` and `for map key { }` over a string-keyed map.
+  ; The map runtime keeps its entries in insertion order and answers the i-th
+  ; live key, so the loop is an index walk over RtSMap_keyAt -- the same shape
+  ; `keys` uses. Answers false when the loop source is not a string map, and
+  ; the array lowering below then runs unchanged.
+  fn emitStrcmpEq:string (lhs:string rhs:string ctx:LowIRLowerContext) {
+    def args:[string]
+    def argTypes:[string]
+    push args lhs
+    push argTypes "i8*"
+    push args rhs
+    push argTypes "i8*"
+    def cmp (ctx.builder.emitCall("strcmp" "i32" args argTypes))
+    def zero (ctx.builder.emitConst("i32" "0"))
+    return (ctx.builder.emitIcmp("eq" cmp zero))
+  }
+
+  ; strfromcode/rawbytechar: turn an integer code into a freshly allocated
+  ; string. The runtime returns a heap pointer (UTF-8 for strfromcode, a single
+  ; raw byte for rawbytechar).
+  ; to_string(value): format an integer (or double) into a fresh heap string.
+  ; The receiver CLASS of a `(property obj field)` node ("" when unknown).
+  fn propertyReadClass:string (node:CodeNode lctx:LowIRLowerContext) {
+    if ((this.isPropertyReadNode(node)) == false) {
+      return ""
+    }
+    def objNode (node.getSecond())
+    if ((strlen objNode.eval_type_name) > 0) {
+      return objNode.eval_type_name
+    }
+    if (objNode.value_type == RangerNodeType.VRef) {
+      return (this.resolveObjectClass(objNode.vref lctx))
+    }
+    return ""
+  }
+
+  fn isPropertyReadNode:boolean (node:CodeNode) {
+    if ((array_length node.children) != 3) {
+      return false
+    }
+    def head (node.getFirst())
+    if (head.value_type != RangerNodeType.VRef) {
+      return false
+    }
+    return (head.vref == "property")
+  }
+
+  ; (property obj fieldName): read `fieldName` off the object produced by the
+  ; `obj` expression. The receiver may be any expression (a call, an itemAt),
+  ; so it is lowered to a value and reinterpreted as the struct pointer.
+  fn lowerPropertyRead:string (node:CodeNode lctx:LowIRLowerContext) {
+    def objNode (node.getSecond())
+    def propNode (node.getThird())
+    def fieldName:string propNode.vref
+    def cls:string objNode.eval_type_name
+    if ((strlen cls) == 0) {
+      if (objNode.value_type == RangerNodeType.VRef) {
+        cls = (this.resolveObjectClass(objNode.vref lctx))
+      }
+    }
+    if ((strlen cls) == 0) {
+      return (lctx.builder.emitConst("i32" "0"))
+    }
+    def objVal (this.lowerExpr(objNode lctx))
+    def objPtr (lctx.builder.emitIntToStructPtr(cls objVal))
+    return (this.emitFieldLoadOn(cls objPtr fieldName lctx))
+  }
+
+  fn isLibmUnaryOp:boolean (op:string) {
+    if (op == "tan") { return true }
+    if (op == "sin") { return true }
+    if (op == "cos") { return true }
+    if (op == "asin") { return true }
+    if (op == "acos") { return true }
+    if (op == "atan") { return true }
+    if (op == "sqrt") { return true }
+    if (op == "log") { return true }
+    if (op == "exp") { return true }
+    return false
+  }
+
+  fn isLibmBinaryOp:boolean (op:string) {
+    if (op == "atan2") { return true }
+    if (op == "pow") { return true }
+    return false
+  }
+
+  fn lowerLibmUnary:string (fnName:string node:CodeNode lctx:LowIRLowerContext) {
+    def aNode (node.getSecond())
+    def av (this.promoteToF64(aNode (this.lowerExpr(aNode lctx)) lctx))
+    def decl:[string]
+    push decl "double"
+    this.ensureExternDecl(fnName "double" decl false)
+    def cArgs:[string]
+    def cTypes:[string]
+    push cArgs av
+    push cTypes "f64"
+    return (lctx.builder.emitCall(fnName "f64" cArgs cTypes))
+  }
+
+  fn lowerLibmBinary:string (fnName:string node:CodeNode lctx:LowIRLowerContext) {
+    def aNode (node.getSecond())
+    def bNode (node.getThird())
+    def av (this.promoteToF64(aNode (this.lowerExpr(aNode lctx)) lctx))
+    def bv (this.promoteToF64(bNode (this.lowerExpr(bNode lctx)) lctx))
+    def decl:[string]
+    push decl "double"
+    push decl "double"
+    this.ensureExternDecl(fnName "double" decl false)
+    def cArgs:[string]
+    def cTypes:[string]
+    push cArgs av
+    push cTypes "f64"
+    push cArgs bv
+    push cTypes "f64"
+    return (lctx.builder.emitCall(fnName "f64" cArgs cTypes))
+  }
+
+  ; strlen of an ALREADY-CHOSEN operand node (lowerStrlen takes the operator
+  ; node and reads its second child).
+  ; Peel `(unwrap x)` wrappers off an expression.
+  fn unwrapUnwrapOper:CodeNode (node:CodeNode) {
+    def n (this.unwrapCondExpr(node))
+    if n.has_operator {
+      if ((n.getOperator()) == "unwrap") {
+        return (this.unwrapUnwrapOper((n.getSecond())))
+      }
+    }
+    return n
+  }
+
+  fn isIntArrayTypeNode:boolean (node:CodeNode) {
+    if (node.value_type == RangerNodeType.Array) {
+      return (node.array_type == "int")
+    }
+    return false
+  }
+
+  ; An `[int:T]` map whose values are NOT ints: object or string references,
+  ; which are pointer sized. The generated RtMap_* runtime stores 4-byte slots
+  ; and cannot hold one, and a reference in a map has to be retained or the map
+  ; outlives what it points at -- so these route to RtIMap_* in
+  ; runtime/ranger_rt.c, the integer-keyed twin of the string-map runtime.
+  fn isIntKeyValueMapTypeNode:boolean (node:CodeNode) {
+    if (node.value_type == RangerNodeType.Hash) {
+      if (node.key_type == "int") {
+        if ((strlen node.array_type) == 0) {
+          return false
+        }
+        return (node.array_type != "int")
+      }
+    }
+    return false
+  }
+
+  ; An int key arrives as i32 (or i1 for a boolean-typed expression); RtIMap
+  ; takes i64, so widen rather than letting the call type-mismatch.
+  fn widenToI64:string (val:string keyNode:CodeNode lctx:LowIRLowerContext) {
+    if (this.exprProducesI1(keyNode lctx)) {
+      return (lctx.builder.emitCast("zext" "i64" "i1" val))
+    }
+    return (lctx.builder.emitCast("zext" "i64" "i32" val))
+  }
+
+  fn emitIMapCall:string (fnName:string retType:string desc:string rest:[string] restTypes:[string] lctx:LowIRLowerContext) {
+    this.ensureIMapExterns()
+    def args:[string]
+    def argTypes:[string]
+    push args desc
+    push argTypes "i64"
+    def i:int 0
+    while (i < (array_length rest)) {
+      push args (itemAt rest i)
+      push argTypes (itemAt restTypes i)
+      i = (i + 1)
+    }
+    return (lctx.builder.emitCall(fnName retType args argTypes))
+  }
+
+  ; The map descriptor for a name bound to an int-keyed reference map, or "".
+  ; 0 plain / 1 owned object / 2 owned string, matching RtIMap's valkind.
+  fn isIntIntMapTypeNode:boolean (node:CodeNode) {
+    if (node.value_type == RangerNodeType.Hash) {
+      if (node.key_type == "int") {
+        return (node.array_type == "int")
+      }
+    }
+    return false
+  }
+
+  ; A `[string:T]` map. The generated RtMap_* runtime hashes an i32 key with
+  ; `key % cap` and stores 4-byte slots, so it cannot hold one: the key has to
+  ; be hashed by CONTENT and both key and value are pointer-sized. These route
+  ; to the RtSMap_* functions in runtime/ranger_rt.c instead, which also keep
+  ; INSERTION order -- JavaScript enumerates string keys that way and the
+  ; TypeScript engine's object model depends on it.
+  ; Extern declarations for the string-map runtime (runtime/ranger_rt.c).
+  fn emitSMapNew:string (lctx:LowIRLowerContext) {
+    return (this.emitSMapNewKind(0 lctx))
+  }
+
+  ; valKind: 0 plain / 1 owned object / 2 owned string. A map that OWNS its
+  ; values retains on put and releases on overwrite, remove and free -- without
+  ; it an object stored in a map died with the local that produced it.
+  fn emitSMapNewKind:string (valKind:int lctx:LowIRLowerContext) {
+    this.ensureSMapExterns()
+    def kindArgs:[string]
+    def kindTypes:[string]
+    push kindArgs (lctx.builder.emitConst("i32" ("" + valKind)))
+    push kindTypes "i32"
+    return (lctx.builder.emitCall("RtSMap_new_kind" "i64" kindArgs kindTypes))
+  }
+
+  ; The ownership kind implied by a map's declared VALUE type.
+  fn emitSMapCall:string (fnName:string retType:string descIn:string rest:[string] restTypes:[string] lctx:LowIRLowerContext) {
+    this.ensureSMapExterns()
+    ; A descriptor the resolution could not work out used to be emitted as an
+    ; empty operand -- `call i32 @RtSMap_size(i64 )`, which does not parse.
+    def desc:string descIn
+    if ((strlen desc) == 0) {
+      desc = (lctx.builder.emitConst("i64" "0"))
+    }
+    def args:[string]
+    def argTypes:[string]
+    push args desc
+    push argTypes "i64"
+    def i:int 0
+    while (i < (array_length rest)) {
+      push args (itemAt rest i)
+      push argTypes (itemAt restTypes i)
+      i = (i + 1)
+    }
+    return (lctx.builder.emitCall(fnName retType args argTypes))
+  }
+
+  ; `(keys m)` on a string map: a fresh pointer-array of the keys, in insertion
+  ; order. Built here rather than in C so the array is an ordinary RtPtrArray
+  ; the rest of the backend already understands -- the C side only answers how
+  ; many keys there are and what the i-th one is.
+  ; ---------------------------------------------------------------------------
+  ; JSON.
+  ;
+  ; A JSON value is an int64 handle into runtime/ranger_json.c. The @serialize
+  ; machinery generates a toDictionary / fromDictionary pair for every
+  ; serializable class, so these operators are not optional for a target that
+  ; wants to compile the compiler -- they are most of what that generated code
+  ; is made of.
+  ; ---------------------------------------------------------------------------
+
+  ; The JSON systemclass a node evaluates to, or "" when it is not JSON. A
+  ; local's class is on objectSlots (recorded when the slot was bound); an
+  ; expression carries it on eval_type_name / type_name.
+  ; `EnumName.Member` -> the member's integer value, or "" when the node is not
+  ; an enum reference. Enums are `Enum X:int ( A B C )`, so the value is just
+  ; the position, and the writer context already holds the table.
+  fn nodeIsJson:boolean (node:CodeNode lctx:LowIRLowerContext) {
+    return ((strlen (this.jsonTypeNameOfNode(node lctx))) > 0)
+  }
+
+  ; Which RtJson_set_* / RtJson_push_* to call for a value expression:
+  ; "json", "str", "bool", "double" or "int".
+  fn jsonValueKind:string (valNode:CodeNode lctx:LowIRLowerContext) {
+    if (this.nodeIsJson(valNode lctx)) {
+      return "json"
+    }
+    if (this.exprIsStringish(valNode lctx)) {
+      return "str"
+    }
+    def tn:string valNode.eval_type_name
+    if ((strlen tn) == 0) {
+      tn = valNode.type_name
+    }
+    if (tn == "boolean") { return "bool" }
+    if (tn == "bool") { return "bool" }
+    if (tn == "double") { return "double" }
+    if (tn == "float") { return "double" }
+    if (tn == "string") { return "str" }
+    if (this.exprProducesI1(valNode lctx)) {
+      return "bool"
+    }
+    return "int"
+  }
+
+  ; The ANSI escape operators of CLIProgress. Each is a constant string; they
+  ; all carry a `*` template (the empty string), so they type checked here and
+  ; then emitted their own name as a value. The escapes match the es6 and cpp
+  ; templates rather than the empty fallback -- a native build writes to a
+  ; terminal, and is_tty already guards the colour output.
+  fn emitAnsiConst:string (code:string lctx:LowIRLowerContext) {
+    def esc:string ((strfromcode 27) + "[" + code + "m")
+    def g (this.internStringGlobal(esc false))
+    def bl (this.stringGlobalByteLen(g))
+    return (lctx.builder.emitStrPtr(g bl))
+  }
+
+  fn tryLowerAnsi:string (opName:string lctx:LowIRLowerContext) {
+    if (opName == "ansi_reset") { return (this.emitAnsiConst("0" lctx)) }
+    if (opName == "ansi_bold") { return (this.emitAnsiConst("1" lctx)) }
+    if (opName == "ansi_dim") { return (this.emitAnsiConst("2" lctx)) }
+    if (opName == "ansi_green") { return (this.emitAnsiConst("32" lctx)) }
+    if (opName == "ansi_red") { return (this.emitAnsiConst("31" lctx)) }
+    if (opName == "ansi_yellow") { return (this.emitAnsiConst("33" lctx)) }
+    if (opName == "ansi_blue") { return (this.emitAnsiConst("34" lctx)) }
+    if (opName == "ansi_magenta") { return (this.emitAnsiConst("35" lctx)) }
+    if (opName == "ansi_cyan") { return (this.emitAnsiConst("36" lctx)) }
+    if (opName == "ansi_gray") { return (this.emitAnsiConst("90" lctx)) }
+    if (opName == "ansi_white") { return (this.emitAnsiConst("37" lctx)) }
+    if (opName == "ansi_bg_red") { return (this.emitAnsiConst("41" lctx)) }
+    if (opName == "ansi_bg_green") { return (this.emitAnsiConst("42" lctx)) }
+    return ""
+  }
+
+  fn emitJsonCall:string (fnName:string retType:string args:[string] argTypes:[string] cParams:[string] lctx:LowIRLowerContext) {
+    this.ensureJsonExtern(fnName retType cParams)
+    return (lctx.builder.emitCall(fnName retType args argTypes))
+  }
+
+  ; `json_object` / `json_array` -> a fresh handle.
+  ; The (object, key) getters. `retIr` is the IR type the C function answers.
+  ; `set obj key value` on a JSON object.
+  ; `push arr value` on a JSON array.
+  ; One-handle helpers: keys / array_length / to_string / isArray / parse.
+  ; `getValue arr index`
+  ; `case value binding:T { }` where value is a JSON union. The runtime tags
+  ; every node with its kind, so the narrowing is a kind test plus one read.
+  ; Kind numbers mirror the RJ_* constants in runtime/ranger_json.c.
+  fn jsonCaseKindFor:int (typeName:string) {
+    if (typeName == "boolean") { return 1 }
+    if (typeName == "bool") { return 1 }
+    if (typeName == "int") { return 2 }
+    if (typeName == "double") { return 3 }
+    if (typeName == "float") { return 3 }
+    if (typeName == "string") { return 4 }
+    if (typeName == "JSONArrayObject") { return 5 }
+    if (typeName == "JSONDataObject") { return 6 }
+    return -1
+  }
+
+  ; `(sort arr cb)` -> a NEW array, leaving the argument alone, which is the
+  ; operator's contract on every target. The comparator is an ordinary Ranger
+  ; lambda, so it is called through the closure record the same way
+  ; lowerLambdaCall does: the first word of the record is the function index.
+  ;
+  ; Insertion sort, emitted as IR rather than handed to a C helper: qsort would
+  ; need a C-callable comparator, and the closure ABI (env pointer + indirect
+  ; call through the signature table) only exists on this side.
+  ;
+  ; The result array does NOT own its elements (element kind 0): it holds the
+  ; same pointers the source array does, and the source keeps owning them.
+  ; `insert xs i v` / `remove xs i` / `array_extract xs i`. The emitted
+  ; RtPtrArray_* runtime has no element-shifting routine, so these three go to
+  ; C, which writes the shared descriptor directly (ranger_mem.c).
+  fn emitArrayRemoveCall:string (node:CodeNode lctx:LowIRLowerContext) {
+    def arrNode (node.getSecond())
+    def idxNode (node.getThird())
+    def desc (this.loadArrayDescExpr(arrNode lctx))
+    def idx (this.lowerExpr(idxNode lctx))
+    def ps:[string]
+    push ps "i64"
+    push ps "i32"
+    this.ensureExternDecl("ranger_ptrarray_remove" "i64" ps false)
+    def args:[string]
+    def argTypes:[string]
+    push args desc
+    push argTypes lctx.ptrType
+    push args idx
+    push argTypes "i32"
+    return (lctx.builder.emitCall("ranger_ptrarray_remove" lctx.ptrType args argTypes))
+  }
+
+  ; `clear xs` -- drop every element. The length is written straight through
+  ; the descriptor by the C helper.
+  ; `array_extract` is `remove` that answers the element it took out. A string
+  ; element comes back as an integer slot value and has to become a pointer
+  ; again, the mirror of what lowerPush stores.
+  ; `(? cond a b)`. Branches rather than a `select`, because either arm may
+  ; call something and a select evaluates both.
+  ; `reverse` -> a new array holding the same elements back to front. Like
+  ; `sort` the result borrows: the source array keeps owning its elements.
+  ; Two-string -> scalar helpers (indexOf / lastIndexOf / contains), and the
+  ; one-string -> string ones (to_lowercase / to_uppercase). All live in
+  ; runtime/ranger_rt.c: they are ordinary C, and emitting a search loop as IR
+  ; would buy nothing.
+  ; A C helper that answers a boolean returns int; Ranger booleans are i1, so
+  ; the result is compared against zero. Without this a `||` over one of them
+  ; emitted `or i1 <i32 value>, ...`.
+  fn toI1:string (v:string lctx:LowIRLowerContext) {
+    def zero (lctx.builder.emitConst("i32" "0"))
+    return (lctx.builder.emitIcmp("ne" v zero))
+  }
+
+  ; Three-string -> string helper (`replace`). The result is a fresh malloc'd
+  ; buffer, so it is registered as a temp the way lowerStr1Fn does -- without
+  ; that every `(replace s a b)` in an expression leaks.
+  ; (string, string, int) -> scalar (`indexOfFrom`).
+  ; One string -> scalar (`dir_exists`).
+  ; A no-argument C helper answering a fresh string.
+  fn isStringKeyMapTypeNode:boolean (node:CodeNode) {
+    if (node.value_type == RangerNodeType.Hash) {
+      return (LowIRUtil.isStringType(node.key_type))
+    }
+    return false
+  }
+
+  fn isObjectPtrArrayTypeNode:boolean (node:CodeNode) {
+    if (node.value_type == RangerNodeType.Array) {
+      if ((strlen node.array_type) > 0) {
+        if (node.array_type != "int") {
+          ; `[boolean]` and `[char]` are not references. Only "int" was spelled
+          ; out here, so every other primitive element type fell through to the
+          ; object case: the array was built with element kind 1 (owned
+          ; objects) and its scope-end release called ranger_obj_release on the
+          ; literal `true`, a wild pointer.
+          if (this.isPlainValueArrayTypeNode(node)) {
+            return false
+          }
+          return true
+        }
+      }
+    }
+    return false
+  }
+
+  ; An array whose elements live in the ptr-array's pointer-sized slots as RAW
+  ; VALUES rather than references -- `[double]`, `[float]`, `[boolean]`,
+  ; `[char]`. Reading one back is a truncation, not a dereference, and nothing
+  ; is released per element.
+  fn isPlainValueArrayTypeNode:boolean (node:CodeNode) {
+    if (this.isDoubleArrayTypeNode(node)) {
+      return true
+    }
+    if (node.value_type == RangerNodeType.Array) {
+      if (LowIRUtil.isStringType(node.array_type)) {
+        return false
+      }
+      return (LowIRUtil.isSupportedPrimitive(node.array_type))
+    }
+    return false
+  }
+
+  ; A `[double]` array. Its elements live in the ptr-array's pointer-sized
+  ; slots as RAW BIT PATTERNS (bitcast both ways) -- there is no separate
+  ; double-typed array runtime, and a double is exactly 64 bits.
+  fn isDoubleArrayTypeNode:boolean (node:CodeNode) {
+    if (node.value_type == RangerNodeType.Array) {
+      if (node.array_type == "double") {
+        return true
+      }
+      if (node.array_type == "float") {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn isStringArrayTypeNode:boolean (node:CodeNode) {
+    if (node.value_type == RangerNodeType.Array) {
+      return (LowIRUtil.isStringType(node.array_type))
+    }
+    return false
+  }
+
+  ; elemKind: 0 = plain values (int, no element release), 1 = owned objects
+  ; (obj_release each on free), 2 = owned strings (str_release each on free).
+  ; The value is written to the descriptor's flag word; the release runtime
+  ; dispatches on it. libc reads it as a truthy "owned" flag (kind 1 = its
+  ; existing object-array behaviour).
+  fn isOwnedCollectionLocal:boolean (varName:string lctx:LowIRLowerContext) {
+    for lctx.ownedCollectionLocals own:string i {
+      if (own == varName) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn bindPtrArraySlot:void (varName:string desc:string lctx:LowIRLowerContext owned:boolean) {
+    this.bindSlot(varName lctx.ptrType desc lctx)
+    set lctx.collectionSlots varName "ptr_array"
+    ; A name declared twice in one function (two branches of a long evaluator)
+    ; must be released ONCE at scope end. Registering it per declaration emitted
+    ; two releases of the same descriptor.
+    if (this.isOwnedCollectionLocal(varName lctx)) {
+      return
+    }
+    if owned {
+      push lctx.ownedCollectionLocals varName
+    } {
+      ; On freestanding WASM every locally-created array (including [int], which
+      ; is owned=0 at the element level) must still be freed at scope end — its
+      ; backing store and descriptor live on the free-list heap. ranger_ptrarray_
+      ; release reads the descriptor's owned flag, so it frees int arrays without
+      ; touching elements. The libc path keeps its existing behaviour.
+      if (this.wasmCollectionRcEnabled(lctx)) {
+        push lctx.ownedCollectionLocals varName
+      }
+    }
+  }
+
+  ; Collections are freed on scope exit on the freestanding-WASM path too (not
+  ; only libc): -wasmrc routes their allocation to the free-list heap, so they
+  ; can — and must — be released.
+  fn wasmCollectionRcEnabled:boolean (lctx:LowIRLowerContext) {
+    def memTarget (LowIRTarget.resolve((unwrap lctx.ctx)))
+    if (memTarget.usesLibc) {
+      return false
+    }
+    def ctx (unwrap lctx.ctx)
+    return (ctx.hasCompilerFlag("wasmrc"))
+  }
+
+  fn collectionKind:string (varName:string lctx:LowIRLowerContext) {
+    if (has lctx.collectionSlots varName) {
+      return (unwrap (get lctx.collectionSlots varName))
+    }
+    return ""
+  }
+
+  fn arrayLenOff:int (lctx:LowIRLowerContext) {
+    if (lctx.ptrType == "i64") {
+      return 8
+    }
+    return 4
+  }
+
+  fn arrayCapOff:int (lctx:LowIRLowerContext) {
+    if (lctx.ptrType == "i64") {
+      return 12
+    }
+    return 8
+  }
+
+  fn arrayDescBytes:int (lctx:LowIRLowerContext) {
+    if (lctx.ptrType == "i64") {
+      return 20
+    }
+    return 16
+  }
+
+  fn bindCollectionSlot:void (varName:string kind:string desc:string lctx:LowIRLowerContext) {
+    this.bindSlot(varName lctx.ptrType desc lctx)
+    set lctx.collectionSlots varName kind
+    if (this.isOwnedCollectionLocal(varName lctx)) {
+      return
+    }
+    ; On freestanding WASM a locally-created map is freed at scope end too. The
+    ; release loop dispatches by collectionKind (map -> RtMap_free).
+    if (this.wasmCollectionRcEnabled(lctx)) {
+      push lctx.ownedCollectionLocals varName
+    }
+  }
+
+  fn loadCollectionDesc:string (varName:string lctx:LowIRLowerContext) {
+    return (this.loadSlot(varName lctx.ptrType lctx))
+  }
+
+  fn emitDescLoad:string (desc:string byteOff:int lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def pt (lctx.ptrType)
+    def off (builder.emitConst(pt ("" + byteOff)))
+    def addr (builder.emitBin("add" pt desc off))
+    return (builder.emitPtrLoad(addr))
+  }
+
+  fn emitRtArrayNewEmpty:string (lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def descBytes (builder.emitConst("i32" ("" + (this.arrayDescBytes(lctx)))))
+    def desc (builder.emitHeapAlloc(descBytes))
+    def sixteen (builder.emitConst("i32" "16"))
+    def data (builder.emitHeapAlloc(sixteen))
+    builder.emitPtrStore(desc data)
+    def zero (builder.emitConst("i32" "0"))
+    builder.emitStoreI32At(desc (this.arrayLenOff(lctx)) zero)
+    def four (builder.emitConst("i32" "4"))
+    builder.emitStoreI32At(desc (this.arrayCapOff(lctx)) four)
+    return desc
+  }
+
+  fn emitRtArrayNewSized:string (cap:string lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def descBytes (builder.emitConst("i32" ("" + (this.arrayDescBytes(lctx)))))
+    def desc (builder.emitHeapAlloc(descBytes))
+    def four (builder.emitConst("i32" "4"))
+    def nbytes (builder.emitBin("mul" "i32" cap four))
+    def data (builder.emitHeapAlloc(nbytes))
+    builder.emitPtrStore(desc data)
+    def zero (builder.emitConst("i32" "0"))
+    builder.emitStoreI32At(desc (this.arrayLenOff(lctx)) zero)
+    builder.emitStoreI32At(desc (this.arrayCapOff(lctx)) cap)
+    return desc
+  }
+
+  fn emitRtArrayGet:string (desc:string idx:string lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def pt (lctx.ptrType)
+    def data (this.emitDescLoad(desc 0 lctx))
+    def four (builder.emitConst("i32" "4"))
+    def offI32 (builder.emitBin("mul" "i32" idx four))
+    def off (builder.emitZextI32ToPtr(offI32))
+    def slot (builder.emitBin("add" pt data off))
+    return (builder.emitPtrLoadTyped(slot "i32"))
+  }
+
+  fn emitRtArraySet:void (desc:string idx:string val:string lctx:LowIRLowerContext) {
+    this.usedArrayRuntime = true
+    def builder (lctx.builder)
+    def args:[string]
+    def argTypes:[string]
+    push args desc
+    push argTypes lctx.ptrType
+    push args idx
+    push argTypes "i32"
+    push args val
+    push argTypes "i32"
+    def voidType:string "void"
+    builder.emitCall("RtArray_set" voidType args argTypes)
+  }
+
+  fn emitRtArrayLen:string (desc:string lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    return (builder.emitI32At(desc (this.arrayLenOff(lctx))))
+  }
+
+  fn emitRtMapNew:string (cap:string lctx:LowIRLowerContext) {
+    this.usedMapRuntime = true
+    def builder (lctx.builder)
+    def args:[string]
+    def argTypes:[string]
+    push args cap
+    push argTypes "i32"
+    return (builder.emitCall("RtMap_new" lctx.ptrType args argTypes))
+  }
+
+  fn emitRtMapPut:void (desc:string key:string val:string lctx:LowIRLowerContext) {
+    this.usedMapRuntime = true
+    def builder (lctx.builder)
+    def args:[string]
+    def argTypes:[string]
+    push args desc
+    push argTypes lctx.ptrType
+    push args key
+    push argTypes "i32"
+    push args val
+    push argTypes "i32"
+    def voidType:string "void"
+    builder.emitCall("RtMap_put" voidType args argTypes)
+  }
+
+  fn emitRtMapGet:string (desc:string key:string lctx:LowIRLowerContext) {
+    this.usedMapRuntime = true
+    def builder (lctx.builder)
+    def args:[string]
+    def argTypes:[string]
+    push args desc
+    push argTypes lctx.ptrType
+    push args key
+    push argTypes "i32"
+    return (builder.emitCall("RtMap_get" "i32" args argTypes))
+  }
+
+  fn emitRtMapHas:string (desc:string key:string lctx:LowIRLowerContext) {
+    this.usedMapRuntime = true
+    def builder (lctx.builder)
+    def args:[string]
+    def argTypes:[string]
+    push args desc
+    push argTypes lctx.ptrType
+    push args key
+    push argTypes "i32"
+    return (builder.emitCall("RtMap_has" "i32" args argTypes))
+  }
+
+  ; The class's own variables preceded by every INHERITED one, base first. The
+  ; struct is flat -- there is no LLVM-side inheritance -- so a field declared
+  ; on a base class has to be in the derived struct or its index comes back -1
+  ; and the load is `getelementptr … i32 -1`, which clang rejects.
+  ;
+  ; A derived class may RESTATE a base field (RangerAppFunctionDesc does, to
+  ; change its ownership annotation): the first declaration wins, so the two
+  ; names stay one slot.
+  fn collectStructVars:[RangerAppParamDesc] (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    def out:[RangerAppParamDesc]
+    def seen:[string:boolean]
+    this.collectStructVarsInto(cl ctx out seen 0)
+    return out
+  }
+
+  fn collectStructVarsInto:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext out@(mutates):[RangerAppParamDesc] seen@(mutates):[string:boolean] depth:int) {
+    if (depth > 16) {
+      return
+    }
+    for cl.extends_classes baseName:string bi {
+      if (ctx.isDefinedClass(baseName)) {
+        def baseCl (ctx.findClass(baseName))
+        this.collectStructVarsInto(baseCl ctx out seen (depth + 1))
+      }
+    }
+    for cl.variables v@(lives):RangerAppParamDesc i {
+      if (has seen v.name) {
+        continue
+      }
+      set seen v.name true
+      push out v
+    }
+  }
+
+  ; A loop's item and index names SHADOW anything of the same name outside it.
+  ; Without that a nested loop reuses the enclosing loop's slot -- and the
+  ; compiler's own source nests `for … i { … for … i { … } }` freely -- so the
+  ; inner loop reset the outer loop's counter and the outer loop never ended.
+  ; That is what made the native build allocate until the process died.
+  ;
+  ; The inner binding gets its OWN alloca under a generated name; the previous
+  ; mapping is put back by restoreShadow when the body is done.
+  fn shadowBind:string (varName:string irType:string value:string lctx:LowIRLowerContext) {
+    if ((has lctx.slots varName) == false) {
+      this.bindSlot(varName irType value lctx)
+      return ""
+    }
+    def prev:string (unwrap (get lctx.slots varName))
+    ; A MONOTONIC counter, not the stack depth: two sibling loops at the same
+    ; depth would otherwise pick the same alloca name.
+    lctx.shadowCounter = (lctx.shadowCounter + 1)
+    def fresh:string ("%" + varName + "_sh" + ("" + lctx.shadowCounter))
+    lctx.builder.emitAlloca(irType fresh)
+    lctx.builder.emitStore(irType value fresh)
+    set lctx.slots varName fresh
+    set lctx.slotTypes varName irType
+    return prev
+  }
+
+  fn restoreShadow:void (varName:string prev:string lctx:LowIRLowerContext) {
+    if ((strlen prev) == 0) {
+      return
+    }
+    set lctx.slots varName prev
+  }
+
+  ; True when varName is queued for a fresh alloca (see forceFreshSlots); the
+  ; entry is consumed, so a second bindSlot for the same name reuses the new slot.
+  fn takeForceFresh:boolean (varName:string lctx:LowIRLowerContext) {
+    def n (array_length lctx.forceFreshSlots)
+    def idx:int -1
+    def fi:int 0
+    while (fi < n) {
+      if ((itemAt lctx.forceFreshSlots fi) == varName) {
+        idx = fi
+        fi = n
+      } {
+        fi = fi + 1
+      }
+    }
+    if (idx < 0) {
+      return false
+    }
+    remove_index lctx.forceFreshSlots idx
+    return true
+  }
+
+  fn bindSlot:void (varName:string irType:string value:string lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def wantFresh:boolean (this.takeForceFresh(varName lctx))
+    if (wantFresh == false) {
+      if (has lctx.slots varName) {
+        def slot (unwrap (get lctx.slots varName))
+        builder.emitStore(irType value slot)
+        set lctx.slotTypes varName irType
+        return
+      }
+    }
+    def slotName:string ("%" + varName + "_addr")
+    if wantFresh {
+      lctx.shadowCounter = (lctx.shadowCounter + 1)
+      slotName = ("%" + varName + "_rd" + ("" + lctx.shadowCounter) + "_addr")
+    }
+    builder.emitAlloca(irType slotName)
+    ; Zero-init pointer slots in the entry block (before the value store) so that
+    ; owned object/collection locals defined inside a conditional branch but
+    ; released unconditionally at scope end hold NULL on skipped paths. Releasing
+    ; NULL is a guarded no-op; releasing garbage (uninitialized alloca) crashes.
+    ; Only needed (and only valid) on manual-memory targets that emit the ARC
+    ; runtime; other backends (e.g. WASM) manage slots differently.
+    if (this.memEnabled(lctx)) {
+      if (irType == lctx.ptrType) {
+        builder.emitZeroInitToEntry(irType slotName)
+      }
+    }
+    ; String slots need the same guard, for the same reason: `def second:string
+    ; (at source i)` nested three ifs deep is still released on the exit path
+    ; that never reached it, and the alloca would hold whatever the stack had.
+    ; ranger_str_release treats NULL as nothing to free.
+    if (this.strRcEnabled(lctx)) {
+      if (irType == "i8*") {
+        builder.emitNullInitToEntry(irType slotName)
+      }
+    }
+    builder.emitStore(irType value slotName)
+    set lctx.slots varName slotName
+    set lctx.slotTypes varName irType
+  }
+
+  ; Read a local. A BOXED local -- one a capturing lambda assigns to -- keeps
+  ; its value in a shared heap cell, and the slot holds the cell. Reading it is
+  ; therefore two loads, and doing that HERE is what makes every consumer agree:
+  ; a field receiver, a method receiver and a call argument all read through
+  ; this, and each of them used to get the cell where it wanted the value.
+  fn loadSlot:string (varName:string irType:string lctx:LowIRLowerContext) {
+    if (has lctx.boxedLocals varName) {
+      def cellPtr (this.loadSlotRaw(varName lctx.ptrType lctx))
+      def logT:string (this.boxedCellType(varName lctx))
+      def raw (lctx.builder.emitLoadTypedAt(cellPtr 0 (this.boxedStorageType(logT))))
+      if (logT == "i1") {
+        return (this.toI1(raw lctx))
+      }
+      return raw
+    }
+    return (this.loadSlotRaw(varName irType lctx))
+  }
+
+  ; The slot itself, cell and all -- for the code that OWNS the cell: the
+  ; assignment that writes through it, the closure layout that captures it, and
+  ; the scope-end release that frees it.
+  fn loadSlotRaw:string (varName:string irType:string lctx:LowIRLowerContext) {
+    if (has lctx.slots varName) {
+      def slot (unwrap (get lctx.slots varName))
+      def builder (lctx.builder)
+      def loadType (irType)
+      if (has lctx.slotTypes varName) {
+        loadType = (unwrap (get lctx.slotTypes varName))
+      }
+      ; objectSlots forces the POINTER type, but only when the slot has no
+      ; recorded type of its own. It is never cleared, so a name redeclared
+      ; later in the same function (`def cv:EvalValue` … `def cv:double`) keeps
+      ; the stale class entry; slotTypes always reflects the latest store, and
+      ; every object binding records the pointer type there anyway.
+      if ((has lctx.slotTypes varName) == false) {
+        if (has lctx.objectSlots varName) {
+          loadType = lctx.ptrType
+        }
+      }
+      return (builder.emitLoad(loadType slot))
+    }
+    ; A FUNCTION PARAMETER is an SSA name, not a slot, so the bare name is
+    ; right for one. Any other unknown name is a name this function never
+    ; defined, and emitting it produced IR that would not assemble -- a zero of
+    ; the requested type keeps the module valid and localises the damage.
+    if (this.isParamName(varName lctx)) {
+      return ("%" + varName)
+    }
+    def z:string "0"
+    if (irType == "i8*") {
+      return "null"
+    }
+    if (irType == "f64") {
+      z = "0.0"
+    }
+    ; An unknown OBJECT name (one objectSlots knows the class of, or one the
+    ; caller asked for at the pointer width) answers a pointer-sized zero.
+    if (has lctx.objectSlots varName) {
+      return (lctx.builder.emitConst(lctx.ptrType "0"))
+    }
+    return (lctx.builder.emitConst(irType z))
+  }
+
+  fn isParamName:boolean (varName:string lctx:LowIRLowerContext) {
+    for lctx.paramNames pn:string i {
+      if (pn == varName) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn fieldIrTypeFor:string (className:string fieldName:string) {
+    for this.irModule.structs st:LowIRStruct i {
+      if (st.name != className) {
+        continue
+      }
+      for st.fields f:LowIRField i {
+        if (f.name == fieldName) {
+          return f.irType
+        }
+      }
+    }
+    return "i32"
+  }
+
+  fn fieldIsPtrArraySlot:boolean (className:string fieldName:string) {
+    for this.irModule.structs st:LowIRStruct i {
+      if (st.name != className) {
+        continue
+      }
+      for st.fields f:LowIRField i {
+        if (f.name == fieldName) {
+          return f.isPtrArray
+        }
+      }
+    }
+    return false
+  }
+
+  fn fieldIsObjectSlot:boolean (className:string fieldName:string) {
+    for this.irModule.structs st:LowIRStruct i {
+      if (st.name != className) {
+        continue
+      }
+      for st.fields f:LowIRField i {
+        if (f.name == fieldName) {
+          return f.isObject
+        }
+      }
+    }
+    return false
+  }
+
+  ; The RtSMap descriptor behind `vref`, whether it is a local slot or a field
+  ; (bare or `recv.field`). "" when the name is not a string map.
+  ; A string map key must reach the runtime as an i8*. A key that came out of a
+  ; `[string]` array or a pointer-sized slot is an integer address at this
+  ; point, so it is converted; one the backend already knows is a string is
+  ; passed through.
+  fn strKeyPtr:string (keyNode:CodeNode key:string lctx:LowIRLowerContext) {
+    ; Decide on the SLOT, not the declaration. A `for xs kk:string` loop
+    ; variable is declared string but bound into a pointer-sized integer slot,
+    ; so the declaration says i8* while the value in hand is i64.
+    if (keyNode.value_type == RangerNodeType.VRef) {
+      if (has lctx.slotTypes keyNode.vref) {
+        def kst (unwrap (get lctx.slotTypes keyNode.vref))
+        if (kst == "i8*") {
+          return key
+        }
+        return (lctx.builder.emitIntToI8Ptr(key lctx.ptrType))
+      }
+    }
+    if (this.exprIsStringish(keyNode lctx)) {
+      return key
+    }
+    if (this.exprIsString(keyNode)) {
+      return key
+    }
+    return (lctx.builder.emitIntToI8Ptr(key lctx.ptrType))
+  }
+
+  ; "int", "string" or "" (an object/pointer value) for the map named by vref.
+  ; Does this name refer to a [string:T] map? Reads type information only --
+  ; smapDescFromVref EMITS a field load, so it can not be used as a predicate.
+  ; True when `vref` names a string map whose VALUES are ints.
+  fn fieldIsIntMapSlot:boolean (className:string fieldName:string) {
+    for this.irModule.structs st:LowIRStruct i {
+      if (st.name != className) {
+        continue
+      }
+      for st.fields f:LowIRField i {
+        if (f.name == fieldName) {
+          return f.isIntMap
+        }
+      }
+    }
+    return false
+  }
+
+  fn fieldIsStringMapSlot:boolean (className:string fieldName:string) {
+    for this.irModule.structs st:LowIRStruct i {
+      if (st.name != className) {
+        continue
+      }
+      for st.fields f:LowIRField i {
+        if (f.name == fieldName) {
+          return f.isStringMap
+        }
+      }
+    }
+    return false
+  }
+
+  fn fieldIsStringSlot:boolean (className:string fieldName:string) {
+    for this.irModule.structs st:LowIRStruct i {
+      if (st.name != className) {
+        continue
+      }
+      for st.fields f:LowIRField i {
+        if (f.name == fieldName) {
+          return f.isString
+        }
+      }
+    }
+    return false
+  }
+
+  fn fieldIsBufferSlot:boolean (className:string fieldName:string) {
+    for this.irModule.structs st:LowIRStruct i {
+      if (st.name != className) {
+        continue
+      }
+      for st.fields f:LowIRField i {
+        if (f.name == fieldName) {
+          return f.isBuffer
+        }
+      }
+    }
+    return false
+  }
+
+  fn fieldIsBoolSlot:boolean (className:string fieldName:string) {
+    for this.irModule.structs st:LowIRStruct i {
+      if (st.name != className) {
+        continue
+      }
+      for st.fields f:LowIRField i {
+        if (f.name == fieldName) {
+          return f.isBool
+        }
+      }
+    }
+    return false
+  }
+
+  fn loadPtrArrayDescExpr:string (arrNode:CodeNode lctx:LowIRLowerContext) {
+    if (arrNode.value_type == RangerNodeType.VRef) {
+      def desc (this.ptrArrayDescFromVref(arrNode.vref lctx))
+      if ((strlen desc) > 0) {
+        return desc
+      }
+    }
+    return (this.lowerExpr(arrNode lctx))
+  }
+
+  ; The declared element type of an array field on the given class, or "".
+  fn fieldArrayElemType:string (className:string fieldName:string lctx:LowIRLowerContext) {
+    def appCtx (unwrap lctx.ctx)
+    if (false == (has appCtx.definedClasses className)) {
+      return ""
+    }
+    def cl (unwrap (get appCtx.definedClasses className))
+    ; INHERITED fields too -- the struct is flat, and a field declared on a
+    ; base class is just as much a field of this one.
+    def allVars (this.collectStructVars(cl appCtx))
+    for allVars v:RangerAppParamDesc i {
+      if (v.name == fieldName) {
+        if (null? v.nameNode) {
+          return ""
+        }
+        def nn (unwrap v.nameNode)
+        return nn.array_type
+      }
+    }
+    return ""
+  }
+
+  ; A `[int]` array stored as a ptr-array holds its int values in pointer-sized
+  ; (i64) slots. Element reads/writes therefore need an i64<->i32 conversion.
+  fn lowerItemAt:string (node:CodeNode lctx:LowIRLowerContext) {
+    def arrNode (node.getSecond())
+    def idxNode (node.getThird())
+    def idx (this.lowerExpr(idxNode lctx))
+    if (arrNode.value_type == RangerNodeType.VRef) {
+      def kind (this.collectionKind(arrNode.vref lctx))
+      if (kind == "array") {
+        def desc (this.loadCollectionDesc(arrNode.vref lctx))
+        return (this.emitRtArrayGet(desc idx lctx))
+      }
+      if (kind == "ptr_array") {
+        def desc (this.loadSlot(arrNode.vref lctx.ptrType lctx))
+        return (this.emitPtrArrayElemGet(desc idx arrNode lctx))
+      }
+    }
+    def desc (this.loadPtrArrayDescExpr(arrNode lctx))
+    return (this.emitPtrArrayElemGet(desc idx arrNode lctx))
+  }
+
+  fn emitFieldLoadOn:string (className:string structPtr:string fieldName:string lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def idx (this.findFieldIndex(className fieldName this.irModule))
+    def fieldPtr (builder.emitGep(className structPtr idx))
+    def ftype (this.fieldIrTypeFor(className fieldName))
+    def raw (builder.emitLoad(ftype fieldPtr))
+    if (this.fieldIsStringSlot(className fieldName)) {
+      return (builder.emitIntToI8Ptr(raw lctx.ptrType))
+    }
+    if (this.fieldIsBoolSlot(className fieldName)) {
+      def zero (builder.emitConst("i32" "0"))
+      return (builder.emitIcmp("ne" raw zero))
+    }
+    return raw
+  }
+
+  ; An expression that already carries a reference the caller owns: a call
+  ; result, a `new`, or an operator that BUILDS a fresh collection. Everything
+  ; else names something someone else still owns.
+  ; A VRef naming a ptr-array the current scope does NOT own: a field, a
+  ; parameter, or any array slot not registered as an owned local.
+  ; `def b:[T] a` names the SAME array as `a`: the new local is a second owner
+  ; and releases it at scope end, so the count has to grow. Only an alias needs
+  ; this -- a fresh array (a call result, `keys`, `strsplit`) already arrives
+  ; with the caller's reference.
+  fn retainAliasedArray:void (valNode:CodeNode desc:string lctx:LowIRLowerContext) {
+    if ((this.memEnabled(lctx)) == false) {
+      return
+    }
+    if (valNode.value_type == RangerNodeType.VRef) {
+      this.emitPtrArrayRetain(desc lctx)
+      return
+    }
+    ; Reading an array OUT of a collection is an alias too -- the map or the
+    ; array it came from still holds it. `def gs:[string] (unwrap (get m k))`
+    ; bound an owned local with no matching retain, so the scope-end release
+    ; freed an array the map was still pointing at.
+    if (this.isBorrowedArrayExpr(valNode)) {
+      this.emitPtrArrayRetain(desc lctx)
+    }
+  }
+
+  ; An expression that hands back an array somebody ELSE owns: a read out of a
+  ; map or an array, or the same read behind an `unwrap`. A call result is not
+  ; one of these -- it arrives with the caller's own reference, and retaining it
+  ; would leak.
+  fn isBorrowedArrayExpr:boolean (valNode:CodeNode) {
+    if ((array_length valNode.children) == 0) {
+      return false
+    }
+    def head:CodeNode (valNode.getFirst())
+    if (head.vref == "unwrap") {
+      if ((array_length valNode.children) > 1) {
+        return (this.isBorrowedArrayExpr((valNode.getSecond())))
+      }
+      return false
+    }
+    if (head.vref == "get") {
+      return true
+    }
+    if (head.vref == "itemAt") {
+      return true
+    }
+    if (head.vref == "at") {
+      return true
+    }
+    return false
+  }
+
+  ; Bump a string map's refcount: the value gains another owner.
+  fn emitSMapRetain:void (desc:string lctx:LowIRLowerContext) {
+    def relParams:[string]
+    push relParams lctx.ptrType
+    this.ensureExternDecl("RtSMap_retain" "void" relParams false)
+    def args:[string]
+    def argTypes:[string]
+    push args desc
+    push argTypes lctx.ptrType
+    lctx.builder.emitCall("RtSMap_retain" "void" args argTypes)
+  }
+
+  ; Bump a ptr-array descriptor's refcount: the value gains another owner.
+  fn emitFieldStoreOn:void (className:string structPtr:string fieldName:string value:string lctx:LowIRLowerContext) {
+    this.emitFieldStoreOnEx(className structPtr fieldName value false lctx)
+  }
+
+  ; srcIsFresh: the value is a freshly-constructed object (rc=1, sole owner) that
+  ; the field takes over by MOVE (no retain). A borrowed value (local/param/field)
+  ; is RETAINED so the field holds a counted reference — RC then frees it exactly
+  ; once regardless of how many fields alias it (cycles still leak, never crash).
+  fn emitObjRetainPtr:void (ptr:string lctx:LowIRLowerContext) {
+    def args:[string]
+    def argTypes:[string]
+    push args ptr
+    push argTypes lctx.ptrType
+    lctx.builder.emitCall("ranger_obj_retain" "void" args argTypes)
+  }
+
+  fn emitObjReleasePtr:void (ptr:string lctx:LowIRLowerContext) {
+    def args:[string]
+    def argTypes:[string]
+    push args ptr
+    push argTypes lctx.ptrType
+    lctx.builder.emitCall("ranger_obj_release" "void" args argTypes)
+  }
+
+  fn emitFieldLoad:string (fieldName:string lctx:LowIRLowerContext) {
+    return (this.emitFieldLoadOn(lctx.className lctx.selfPtr fieldName lctx))
+  }
+
+  fn emitFieldStore:void (fieldName:string value:string lctx:LowIRLowerContext) {
+    this.emitFieldStoreOn(lctx.className lctx.selfPtr fieldName value lctx)
+  }
+
+  ; The object class of an object-typed field on the given class, or "".
+  fn resolveObjectPtr:string (varName:string className:string lctx:LowIRLowerContext) {
+    if (varName == "this") {
+      return lctx.selfPtr
+    }
+    if (has lctx.slots varName) {
+      def addr (this.loadSlot(varName lctx.ptrType lctx))
+      return (lctx.builder.emitIntToStructPtr(className addr))
+    }
+    ; A field of the current class used as a receiver (e.g. this.currentChunk.next):
+    ; load the field's object pointer from self, then reinterpret as the struct.
+    if (this.resolvesToField(varName lctx)) {
+      def raw (this.emitFieldLoad(varName lctx))
+      return (lctx.builder.emitIntToStructPtr(className raw))
+    }
+    def addr (this.loadSlot(varName lctx.ptrType lctx))
+    return (lctx.builder.emitIntToStructPtr(className addr))
+  }
+
+  fn joinDotPrefix:string (parts:[string] count:int) {
+    def out:string ""
+    def i:int 0
+    while (i < count) {
+      if (i > 0) {
+        out = (out + ".")
+      }
+      out = (out + (itemAt parts i))
+      i = i + 1
+    }
+    return out
+  }
+
+  ; Resolve the object class of a (possibly dotted) receiver chain, e.g.
+  ; "huffman.dcTable0" -> HuffmanTable.
+  fn resolveObjectClassChain:string (varName:string lctx:LowIRLowerContext) {
+    if ((indexOf varName ".") < 0) {
+      return (this.resolveObjectClass(varName lctx))
+    }
+    def parts:[string] (strsplit varName ".")
+    def n:int (array_length parts)
+    def cls (this.resolveObjectClass((itemAt parts 0) lctx))
+    def i:int 1
+    while (i < n) {
+      if ((strlen cls) == 0) {
+        return ""
+      }
+      cls = (this.fieldObjectClassName(cls (itemAt parts i) lctx))
+      i = i + 1
+    }
+    return cls
+  }
+
+  ; Resolve the runtime struct pointer for a (possibly dotted) receiver chain.
+  fn resolveObjectPtrChain:string (varName:string className:string lctx:LowIRLowerContext) {
+    if ((indexOf varName ".") < 0) {
+      return (this.resolveObjectPtr(varName className lctx))
+    }
+    def parts:[string] (strsplit varName ".")
+    def n:int (array_length parts)
+    def cls (this.resolveObjectClass((itemAt parts 0) lctx))
+    def ptr (this.resolveObjectPtr((itemAt parts 0) cls lctx))
+    def i:int 1
+    while (i < n) {
+      def fld:string (itemAt parts i)
+      def fcls (this.fieldObjectClassName(cls fld lctx))
+      def raw (this.emitFieldLoadOn(cls ptr fld lctx))
+      ptr = (lctx.builder.emitIntToStructPtr(fcls raw))
+      cls = fcls
+      i = i + 1
+    }
+    return ptr
+  }
+
+  fn resolveObjectClass:string (varName:string lctx:LowIRLowerContext) {
+    if (varName == "this") {
+      return lctx.className
+    }
+    if (has lctx.objectSlots varName) {
+      return (unwrap (get lctx.objectSlots varName))
+    }
+    if (this.resolvesToField(varName lctx)) {
+      def fc (this.fieldObjectClassName(lctx.className varName lctx))
+      if ((strlen fc) > 0) {
+        return fc
+      }
+    }
+    return ""
+  }
+
+  fn resolveFieldPtrExpr:string (vref:string lctx:LowIRLowerContext) {
+    def dotPos:int (indexOf vref ".")
+    if (dotPos < 0) {
+      return ""
+    }
+    def parts:[string] (strsplit vref ".")
+    if ((array_length parts) < 2) {
+      return ""
+    }
+    def recv (itemAt parts 0)
+    def fld (itemAt parts 1)
+    def cls (this.resolveObjectClass(recv lctx))
+    if ((strlen cls) == 0) {
+      return ""
+    }
+    def sptr (this.resolveObjectPtr(recv cls lctx))
+    def builder (lctx.builder)
+    def idx (this.findFieldIndex(cls fld this.irModule))
+    return (builder.emitGep(cls sptr idx))
+  }
+
+  fn isObjectArrayField:boolean (v:RangerAppParamDesc) {
+    if (null? v.nameNode) {
+      return false
+    }
+    def nn (unwrap v.nameNode)
+    if (LowIRUtil.isArrayTypeName(nn.type_name)) {
+      return true
+    }
+    if (nn.value_type == RangerNodeType.Array) {
+      if ((strlen nn.array_type) > 0) {
+        if (nn.array_type != "int") {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
+  ; Resolve the class name a (new X(...)) expression constructs. clDesc is set by
+  ; flow analysis for in-body expressions, but field-default value nodes are not
+  ; always flow-analyzed, so fall back to the class name vref (child 1) when the
+  ; name resolves to a defined class.
+  fn emitFieldDefault:void (className:string objPtr:string fieldName:string valNode:CodeNode lctx:LowIRLowerContext) {
+    if valNode.hasNewOper {
+      def clsName (this.newTargetClassName(valNode lctx))
+      if ((strlen clsName) == 0) {
+        ; A synthesized default-construct for an uninitialized object field
+        ; (e.g. `def huffman:HuffmanDecoder`) carries no class info on the node;
+        ; fall back to the field's declared object type.
+        clsName = (this.fieldObjectClassName(className fieldName lctx))
+      }
+      if ((strlen clsName) > 0) {
+        def newPtr (this.lowerNewObject(clsName (valNode.getThird()) lctx))
+        ; the default `(new T)` is a fresh sole-owner object -> move into the field
+        this.emitFieldStoreOnEx(className objPtr fieldName newPtr true lctx)
+        return
+      }
+    }
+    def tmp (this.lowerExpr(valNode lctx))
+    this.emitFieldStoreOn(className objPtr fieldName tmp lctx)
+  }
+
+  fn initFieldDefaultsInObject:void (className:string objPtr:string lctx:LowIRLowerContext) {
+    def appCtx (unwrap lctx.ctx)
+    if (false == (has appCtx.definedClasses className)) {
+      return
+    }
+    def cl (unwrap (get appCtx.definedClasses className))
+    ; Inherited fields need their defaults too, or a base-class field starts as
+    ; whatever the allocator left there.
+    def allVars (this.collectStructVars(cl appCtx))
+    for allVars v:RangerAppParamDesc i {
+      if (this.isObjectArrayField(v)) {
+        continue
+      }
+      if (null? v.def_value) {
+        continue
+      }
+      if ((v.has_default == false) && (v.init_cnt == 0)) {
+        continue
+      }
+      this.emitFieldDefault(className objPtr v.name (unwrap v.def_value) lctx)
+    }
+  }
+
+  fn initFieldDefaultsInConstructor:void (className:string lctx:LowIRLowerContext) {
+    this.initFieldDefaultsInObject(className lctx.selfPtr lctx)
+  }
+
+  fn initArrayFieldsInConstructor:void (className:string lctx:LowIRLowerContext) {
+    this.initArrayFieldsInObject(className lctx.selfPtr lctx)
+  }
+
+  ; True when the class has at least one owned field (a string field today;
+  ; object/ptr-array fields are borrow until borrow analysis promotes them), so
+  ; its objects need a type descriptor for recursive destruction on WASM.
+  fn classHasOwnedFields:boolean (className:string) {
+    for this.irModule.typeDescs td:LowIRTypeDesc i {
+      if (td.className == className) {
+        for td.fields fd:LowIRTypeFieldDesc j {
+          if (fd.owned == 1) {
+            return true
+          }
+          ; WASM retains object fields (kind 1), so they are freed on destruction
+          ; too — the class needs a descriptor even if only object fields are owned.
+          if this.irModule.useFreeListHeap {
+            if (fd.kind == 1) {
+              return true
+            }
+          }
+        }
+      }
+    }
+    return false
+  }
+
+  ; The argument list of a `new`. `hasNewOper` is set on the enclosing node as
+  ; well as on the `new` expression itself, so a caller's `node.getThird()` can
+  ; hand back the WHOLE `(new Class (args))` rather than its argument list --
+  ; which it does for a dotted class name such as a shape's `new Val.Num(42)`.
+  ; Taking the third child of that is the argument list either way.
+  fn newArgListOf:CodeNode (argsNode:CodeNode) {
+    if ((array_length argsNode.children) > 2) {
+      def head:CodeNode (argsNode.getFirst())
+      if (head.vref == "new") {
+        return (argsNode.getThird())
+      }
+    }
+    return argsNode
+  }
+
+  fn findFieldIndex:int (className:string fieldName:string module:LowIRModule) {
+    for module.structs st:LowIRStruct i {
+      if (st.name != className) {
+        continue
+      }
+      def fi:int 0
+      for st.fields f:LowIRField i {
+        if (f.name == fieldName) {
+          return fi
+        }
+        fi = fi + 1
+      }
+    }
+    return -1
+  }
+
+  ; Does a BARE name refer to a field of the current class? Only when nothing
+  ; in scope binds it: a local or a parameter SHADOWS a field of the same name,
+  ; which is what every other target does. This backend asked about the field
+  ; first, so RangerAppClassDesc's `hasDuplicateMethodSignature(fnDesc: …)` read
+  ; the class's own inherited `fnDesc` field instead of its argument -- an
+  ; overloaded method anywhere in a program crashed the compiler.
+  fn resolvesToField:boolean (fieldName:string lctx:LowIRLowerContext) {
+    if (has lctx.slots fieldName) {
+      return false
+    }
+    return (this.isClassField(fieldName lctx.className this.irModule))
+  }
+
+  ; Is this the class's CONSTRUCTOR, or merely a method that happens to be
+  ; called `Constructor`? RangerFlowParser has the latter -- its handler for the
+  ; `constructor` keyword -- and the name alone was the whole test, so the
+  ; class's field-default initialisation was injected into that handler. Calling
+  ; it reset every field of the live parser: `walkAlso` lost the generated
+  ; @serialize extensions before StartWalk could walk them, which left every
+  ; generated method with no fnCtx and crashed the writer on it.
+  ;
+  ; The module-level loop already gets this right -- it emits `Constructor` from
+  ; cl.methods only when the class has no real constructor -- so a class whose
+  ; has_constructor is set can only reach here with the genuine one.
+  fn isRealConstructor:boolean (fnDesc:RangerAppFunctionDesc className:string appCtx:RangerAppWriterContext) {
+    if (fnDesc.name != "Constructor") {
+      return false
+    }
+    if ((has appCtx.definedClasses className) == false) {
+      return false
+    }
+    def cl (unwrap (get appCtx.definedClasses className))
+    return cl.has_constructor
+  }
+
+  fn isClassField:boolean (fieldName:string className:string module:LowIRModule) {
+    if ((strlen className) == 0) {
+      return false
+    }
+    return (this.findFieldIndex(className fieldName module) >= 0)
+  }
+
+  fn structFieldCount:int (className:string module:LowIRModule) {
+    for module.structs st:LowIRStruct i {
+      if (st.name == className) {
+        return (array_length st.fields)
+      }
+    }
+    return 0
+  }
+
+  ; Generate `ClassName___singleton()` for a @singleton(true) class on the WAT
+  ; backend: lazily construct the instance into a mutable wasm global and return
+  ; it. Body:  cur = global; if (cur == 0) { obj = new Class(); global = obj;
+  ; return obj }  return cur.  Supports no-argument construction (field defaults
+  ; + a no-arg Constructor). Blocks are ordered init-before-return so the
+  ; structured WAT reconstruction keeps both arms.
+  ; ======================================================================
+  ; Lambdas / closures (WAT backend). Each lambda body is hoisted to a
+  ; top-level function `lambdaN(%__env, params…)`; the value is a closure record
+  ; [ fn_index | captures… ] and a call goes through call_indirect. L0/L1:
+  ; non-capturing. Env is threaded for a uniform representation.
+  ; ======================================================================
+  ; `depth` is how deeply this lambda is NESTED inside other lambdas, which is
+  ; the order its body has to be lowered in (see lowerLambdaBodies).
+  ; call_indirect signature: env(i32) + declared param IR types, then ":ret".
+  fn addLambdaSig:void (sig:string) {
+    for this.irModule.lambdaSigs s:string i {
+      if (s == sig) {
+        return
+      }
+    }
+    push this.irModule.lambdaSigs sig
+  }
+
+  ; OUTERMOST FIRST. A lambda's capture layout is computed where the closure is
+  ; CREATED, and a nested lambda is created inside its parent's body -- so the
+  ; parent's body has to be lowered first or the child's body is emitted before
+  ; anything knows what it captures. The record built later then carried the
+  ; captures while the body never read them: the flow parser's
+  ; `opParams.parallelTree( xValue { … set regToArg … } )`, nested in an
+  ; `opFnList.forEach`, got a null map and a truncated key.
+  ; Does this subtree assign to `name`? (an assignment node [= <name> …],
+  ; directly or wrapped in an infix "=" node). Used to find which captured
+  ; locals a lambda mutates, so they can be boxed (L3).
+  ; Pre-pass over a method: any captured local that some capturing lambda in the
+  ; method MUTATES is a boxing candidate (finalised in lowerVarDef once its type
+  ; is known to be a value type). Recurses into nested lambdas. WAT-only.
+  ; L3 value boxing runs on the native path too. Without it a captured local is
+  ; COPIED into the closure, so a lambda that mutates one never writes it back
+  ; -- and the flow parser counts a method's `static` prefix that way:
+  ;   def idx 0
+  ;   node.children.forEach({ if(item.vref == 'static') { idx = idx + 1 } })
+  ; With idx stuck at 0 every `static fn` in a class was read one child off, so
+  ; the natively built compiler reported "Class X does not have method y" for
+  ; every static method there is.
+  ; A four-byte reference-counted cell with no typedesc, for a boxed value
+  ; local. The two backends spell ranger_obj_new differently: natively the
+  ; second parameter is a POINTER (a literal `ptr null` here), on WASM it is a
+  ; data-segment offset, which is an i32 there.
+  ; What a boxed local's cell holds. Anything recorded before this existed, and
+  ; anything captured from a context that did not say, is the original i32.
+  fn boxedCellType:string (varName:string lctx:LowIRLowerContext) {
+    if (has lctx.boxedTypes varName) {
+      def t:string (unwrap (get lctx.boxedTypes varName))
+      if ((strlen t) > 0) {
+        return t
+      }
+    }
+    return "i32"
+  }
+
+  fn emitBoxCell:string (lctx:LowIRLowerContext) {
+    return (this.emitBoxCellSized(lctx 4))
+  }
+
+  ; Promote a local to a shared heap cell and bind the slot to it. Both the
+  ; declaration with a plain initializer and the one initialized by a CALL need
+  ; this -- the call path used to return before the promotion could happen, so
+  ; `def acc:Box (mk(0))` followed by `xs.forEach({ acc = … })` wrote to a copy.
+  ; What actually goes INTO a fresh cell. A string cell has to own its bytes,
+  ; the same way an unboxed owned string local does -- the promotion used to
+  ; happen BEFORE emitOwnedStringInit ran, so the cell held a pointer somebody
+  ; else owned and the scope-end release freed the cell while the bytes stayed
+  ; (or worse, the other owner freed the bytes while the cell still named them).
+  ; The copy is claimed out of the statement arena because the cell holds it
+  ; past the end of the statement.
+  fn boxInitValue:string (irType:string value:string lctx:LowIRLowerContext) {
+    if (irType == "i8*") {
+      def copy (this.emitStrdupExpr(value lctx))
+      this.claimStringTemp(copy lctx)
+      return copy
+    }
+    return value
+  }
+
+  fn bindBoxedLocal:void (varName:string irType:string value:string lctx:LowIRLowerContext) {
+    def storeT:string (this.boxedStorageType(irType))
+    def cellBytes:int (this.irTypeBytes(storeT lctx))
+    def cell (this.emitBoxCellSized(lctx cellBytes))
+    def cellVal:string (this.widenForBoxCell(value irType lctx))
+    lctx.builder.emitStoreTypedAt(cell 0 cellVal storeT)
+    this.bindSlot(varName lctx.ptrType cell lctx)
+    set lctx.boxedLocals varName cellBytes
+    ; the LOGICAL type, not the storage width: a boolean lives in the cell as an
+    ; i32 and has to come back out as an i1
+    set lctx.boxedTypes varName irType
+    if (this.isOwnedObjectLocal(varName lctx) == false) {
+      push lctx.ownedObjectLocals varName
+    }
+  }
+
+  ; Which locals can live in a shared cell. A reference (i8* / pointer) belongs
+  ; here as much as a scalar does: `s = (s + x)` inside a lambda REBINDS the
+  ; captured name, and without a cell the new pointer went to a copy and the
+  ; enclosing `s` never changed -- it came out empty where every other target
+  ; had "123".
+  ; Which locals may live in a shared cell. VALUES only, and that boundary is
+  ; empirical rather than principled: a reference is also reached by paths that
+  ; do not read it as a value at all -- it is copied into a closure env, handed
+  ; to a callee that keeps it, compared for identity, released at scope end --
+  ; and a cell in the middle of any of those is silently the wrong pointer.
+  ; Boxing strings crashed `compiler/test_call.rgr` in CodeNode.fromList with a
+  ; null element, and boxing objects crashed
+  ; `gallery/game_engine/v2/web/web_live3d_host.rgr` in ranger_obj_retain.
+  ; Reading through the cell in loadSlot is necessary for those to work, and it
+  ; is not sufficient; see "What is left" in TARGET_NOTES.md.
+  fn isBoxableIrType:boolean (irType:string) {
+    if (irType == "i32") { return true }
+    if (irType == "i1") { return true }
+    if (irType == "f64") { return true }
+    if (irType == "i8*") { return true }
+    ; and references. Boxing SOME mutated captures and not others is worse than
+    ; boxing none: in transformDotMethodCallExpr the loop advances both
+    ; `method_name` (a string) and `classDesc` (an object), and promoting only
+    ; the first made the second look up a new name in the old class.
+    if (irType == "i64") { return true }
+    return false
+  }
+
+  ; A boolean is stored as a word; everything else is stored as itself.
+  fn boxedStorageType:string (logicalType:string) {
+    if (logicalType == "i1") {
+      return "i32"
+    }
+    return logicalType
+  }
+
+  fn widenForBoxCell:string (value:string logicalType:string lctx:LowIRLowerContext) {
+    if (logicalType == "i1") {
+      return (lctx.builder.emitZextI1ToI32(value))
+    }
+    return value
+  }
+
+  ; A cell wide enough for what it holds. It was fixed at four bytes, which is
+  ; the reason only i32 and i1 could ever be boxed -- a captured `double` that a
+  ; lambda assigned to had nowhere to live, so the mutation went to a copy and
+  ; was lost. lambda_callback's `sum` came out 0 instead of 21.
+  fn emitBoxCellSized:string (lctx:LowIRLowerContext byteSize:int) {
+    def builder (lctx.builder)
+    def cellTarget (LowIRTarget.resolve((unwrap lctx.ctx)))
+    def bytes (builder.emitConst("i32" ("" + byteSize)))
+    if cellTarget.usesLibc {
+      this.usedMemRuntime = true
+      this.ensureMemExtern(cellTarget)
+      def la:[string]
+      def lat:[string]
+      push la bytes
+      push lat "i32"
+      push la "ptr null"
+      push lat ""
+      return (builder.emitCallWithSig("ranger_obj_new" lctx.ptrType "i32, ptr" la lat))
+    }
+    def ca:[string]
+    def cat:[string]
+    push ca bytes
+    push cat "i32"
+    push ca (builder.emitConst("i32" "0"))
+    push cat "i32"
+    return (builder.emitCall("ranger_obj_new" lctx.ptrType ca cat))
+  }
+
+  fn computeBoxedCandidates:void (fnDesc:RangerAppFunctionDesc lctx:LowIRLowerContext) {
+    if (this.objRcEnabled(lctx) == false) {
+      return
+    }
+    this.collectBoxedCandidates(fnDesc lctx)
+  }
+
+  fn collectBoxedCandidates:void (m:RangerAppFunctionDesc lctx:LowIRLowerContext) {
+    for m.myLambdas lam:RangerAppFunctionDesc i {
+      if (!null? lam.fnBody) {
+        if (!null? lam.node) {
+          def lnode (unwrap lam.node)
+          if (!null? lnode.lambda_ctx) {
+            def lc (unwrap lnode.lambda_ctx)
+            def body (unwrap lam.fnBody)
+            for lc.captured_variables cn:string j {
+              if (this.nodeAssignsToName(body cn)) {
+                set lctx.boxedCandidates cn 4
+              }
+            }
+          }
+        }
+      }
+      this.collectBoxedCandidates(lam lctx)
+    }
+  }
+
+  ; Analyse and lay out one lambda's closure environment (L2+). Reads the
+  ; frontend's capture set (node.lambda_ctx.captured_variables) and classifies
+  ; each captured enclosing local as value (copy), string (dup/owned), object
+  ; (retain/owned), or boxed value (L3: a shared heap cell, retain/owned) using
+  ; the CREATING context's slot types. Assigns each an env offset (fn_index sits
+  ; at 0) and, if any capture is owned, registers a closure typedesc so
+  ; obj_release frees the captured strings/objects/cells. Memoised per lambda so
+  ; the creating site and the hoisted-body site share one layout.
+  ; Byte width of an IR type in a closure record. Pointer-sized on the target
+  ; the module is being built for -- the freestanding WASM path is 32-bit and
+  ; keeps its four-byte slots.
+  fn irTypeBytes:int (irType:string lctx:LowIRLowerContext) {
+    if (irType == "f64") {
+      return 8
+    }
+    if (irType == "i64") {
+      return 8
+    }
+    if (irType == "i8*") {
+      if (lctx.ptrType == "i64") {
+        return 8
+      }
+      return 4
+    }
+    if (irType == lctx.ptrType) {
+      if (lctx.ptrType == "i64") {
+        return 8
+      }
+      return 4
+    }
+    return 4
+  }
+
+  ; The class a lambda ultimately belongs to: its own container, or the one of
+  ; the function it was written inside, following `insideFn` up through nested
+  ; lambdas. Asking the lowering CONTEXT instead is order dependent -- the
+  ; layout is cached per lambda and the first body to build it wins.
+  ; The names one lambda's closure record has to carry: the ones its own body
+  ; reads from the enclosing scope, PLUS the ones any lambda nested inside it
+  ; reads from outside itself.
+  ;
+  ; The frontend's capture set is per lambda, and a nested lambda's env is built
+  ; from the slots live while the OUTER body is lowered. So a name only the
+  ; inner lambda touches -- `c.method_variants.forEach({ item.variants.forEach({
+  ; if (has varNames item.name) … }) })` in the flow parser -- reached neither
+  ; env: the outer lambda did not capture `varNames` because it does not name
+  ; it, and the inner one then had no slot to copy from. The map arrived as a
+  ; null pointer and the compiler died inside RtMap_has.
+  ;
+  ; The lambda's OWN parameters are excluded: they live in its frame, and a
+  ; capture of the same name would be restored over the parameter at entry.
+  ; A lambda literal -> a closure record (RC object) [ fn_index | captures… ].
+  ; L0/L1 non-capturing = just fn_index; L2 stores captured value copies, string
+  ; dups, and retained object refs into the env. Returns the record pointer.
+  ; Call a lambda value: load fn_index from the record and call_indirect, passing
+  ; the record itself as the hidden env (first arg).
+  fn isOwnedObjectLocal:boolean (varName:string lctx:LowIRLowerContext) {
+    for lctx.ownedObjectLocals n:string i {
+      if (n == varName) {
+        return true
+      }
+    }
+    return false
+  }
+
+  ; objectSlots records a CLASS for a name but is never cleared, so a name
+  ; redeclared with a scalar type later in the same function still looks like an
+  ; object there. The slot's recorded type is the current truth.
+  fn slotHoldsObject:boolean (varName:string lctx:LowIRLowerContext) {
+    if ((has lctx.objectSlots varName) == false) {
+      return false
+    }
+    if (has lctx.slotTypes varName) {
+      def st:string (unwrap (get lctx.slotTypes varName))
+      if (st != lctx.ptrType) {
+        return false
+      }
+    }
+    return true
+  }
+
+  ; --- string RC (freestanding WASM, -wasmrc) ------------------------------
+  ; Games churn temporary strings ("SCORE " + n) every frame; without release
+  ; the heap grows unbounded. Owned string locals are released at scope end via
+  ; ranger_str_release (a no-op for static literal pointers below the heap base).
+  fn isOwnedStringLocal:boolean (varName:string lctx:LowIRLowerContext) {
+    for lctx.ownedStringLocals n:string i {
+      if (n == varName) {
+        return true
+      }
+    }
+    return false
+  }
+
+  ; --- fresh-string temp arena (statement-scoped) -------------------------
+  ; A fresh heap string produced mid-expression (concat/to_string/string-call)
+  ; that is not (yet) owned by a local. Registered here, then either CLAIMED by
+  ; an owner (assigned to a local, or returned/escaped) or FLUSHED at statement
+  ; end. This frees inline throwaways like `host.drawText("S " + n)` — the concat
+  ; result and its int->string temporaries — every statement, so a frame loop
+  ; stays heap-flat without the value ever being bound to a named local.
+  fn registerFreshStringTemp:void (tmp:string lctx:LowIRLowerContext) {
+    if (this.strRcEnabled(lctx) == false) {
+      return
+    }
+    push lctx.pendingStringTemps tmp
+  }
+
+  ; the temp became owned (moved to a local) or escaped (returned) -> drop it
+  ; from the pending set so it is not double-freed at statement end.
+  fn claimStringTemp:void (tmp:string lctx:LowIRLowerContext) {
+    if (this.strRcEnabled(lctx) == false) {
+      return
+    }
+    def kept:[string]
+    for lctx.pendingStringTemps t:string i {
+      if (t != tmp) {
+        push kept t
+      }
+    }
+    lctx.pendingStringTemps = kept
+  }
+
+  ; release + drop every pending temp registered since `mark`. Emits into the
+  ; current block, so callers must flush while the temps still dominate (i.e. at
+  ; the end of the linear statement / condition that produced them).
+  fn flushStringTempsFrom:void (mark:int lctx:LowIRLowerContext) {
+    if (this.strRcEnabled(lctx) == false) {
+      return
+    }
+    def n (array_length lctx.pendingStringTemps)
+    if (n <= mark) {
+      return
+    }
+    def k mark
+    while (< k n) {
+      this.emitStrReleasePtr((itemAt lctx.pendingStringTemps k) lctx)
+      k = (+ k 1)
+    }
+    def kept:[string]
+    def j 0
+    while (< j mark) {
+      push kept (itemAt lctx.pendingStringTemps j)
+      j = (+ j 1)
+    }
+    lctx.pendingStringTemps = kept
+  }
+
+  ; --- fresh object temp arena (statement-scoped) ------------------------
+  ; A fresh RC object produced mid-expression that no local owns yet — today an
+  ; inline lambda value used directly as a call argument, e.g.
+  ; `apply((fn:… (){}) v)`. The closure record is allocated but never bound, so
+  ; it is registered here and released at statement/return end (mirrors the
+  ; string temp arena). Objects that ARE bound to a local claim themselves out.
+  fn registerFreshObjectTemp:void (tmp:string lctx:LowIRLowerContext) {
+    if (this.objRcEnabled(lctx) == false) {
+      return
+    }
+    push lctx.pendingObjectTemps tmp
+  }
+
+  fn claimObjectTemp:void (tmp:string lctx:LowIRLowerContext) {
+    if (this.objRcEnabled(lctx) == false) {
+      return
+    }
+    def kept:[string]
+    for lctx.pendingObjectTemps t:string i {
+      if (t != tmp) {
+        push kept t
+      }
+    }
+    lctx.pendingObjectTemps = kept
+  }
+
+  fn flushObjectTempsFrom:void (mark:int lctx:LowIRLowerContext) {
+    if (this.objRcEnabled(lctx) == false) {
+      return
+    }
+    def n (array_length lctx.pendingObjectTemps)
+    if (n <= mark) {
+      return
+    }
+    def k mark
+    while (< k n) {
+      this.emitObjReleasePtr((itemAt lctx.pendingObjectTemps k) lctx)
+      k = (+ k 1)
+    }
+    def kept:[string]
+    def j 0
+    while (< j mark) {
+      push kept (itemAt lctx.pendingObjectTemps j)
+      j = (+ j 1)
+    }
+    lctx.pendingObjectTemps = kept
+  }
+
+  ; free a bare string pointer (an intermediate temporary) via ranger_str_release
+  fn emitStrReleasePtr:void (ptr:string lctx:LowIRLowerContext) {
+    def args:[string]
+    def argTypes:[string]
+    push args ptr
+    push argTypes "i8*"
+    lctx.builder.emitCall("ranger_str_release" "void" args argTypes)
+  }
+
+  ; Release one owned collection local (free backing store + descriptor, and, for
+  ; element-owned object arrays, each element). Escaped collections (returned or
+  ; stored into a field) are skipped. Used at scope end and per loop iteration.
+  ; Prepare a string value for a freshly-defined owned local and register it for
+  ; scope-end release. Fresh strings (concat/to_string/string-call) are owned
+  ; directly; borrowed ones (literal/VRef/field) are dup'd so the local owns a
+  ; private copy. Non-wasm targets keep the legacy always-dup behaviour.
+  ; Reassignment of an owned string local: free the previous buffer first, then
+  ; own the new value (fresh directly, borrowed dup'd). `strPtr` already holds the
+  ; new value, computed independently of the old slot, so freeing old is safe
+  ; even for `s = (s + "x")` (concat copied the old bytes into a fresh buffer).
+  fn isCapturedName:boolean (varName:string lctx:LowIRLowerContext) {
+    for lctx.capturedNames n:string i {
+      if (n == varName) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn strictOwnershipEnabled:boolean (lctx:LowIRLowerContext) {
+    def ctx (unwrap lctx.ctx)
+    return (ctx.hasCompilerFlag("strict-ownership"))
+  }
+
+  ; Diagnostic (manual targets + -strict-ownership): emit a per-exit summary of
+  ; how each owned local is disposed, so the target-specific ownership handling
+  ; is visible in the IR. Foundation for turning ambiguous cases into warnings.
+  ; A copy of `names` without `varName`. Returned rather than removed in place:
+  ; a parameter this backend only reads is a `const&` on the C++ target, so an
+  ; erase through it does not compile.
+  fn withoutName:[string] (names:[string] varName:string) {
+    def out:[string]
+    for names n:string i {
+      if (n != varName) {
+        push out n
+      }
+    }
+    return out
+  }
+
+  ; Undo every redeclaration journalled since `mark`, putting the enclosing
+  ; scope's slot, IR type and OWNERSHIP back in place.
+  ;
+  ; The ownership half is the part that bites. The owned-local lists hold NAMES
+  ; and are walked once at function exit, where the name is bound to the outer
+  ; slot again. `fn f(wr:CodeWriter) { … if c { def wr (new CodeWriter) … } }`
+  ; -- which the flow parser's convertToUnion does verbatim -- therefore had the
+  ; exit path release whatever `wr` held, and on the paths where the `if` never
+  ; ran that is the CALLER's writer. The caller went on using freed memory.
+  ;
+  ; The inner value is NOT released here. Emitting a block-end release for it
+  ; looks tidier but is wrong whenever the block did not run to its end on every
+  ; path, and freeing a still-referenced object hands the next `new` the same
+  ; address. Redeclarations are rare and the process is short-lived, so the inner
+  ; value is left to leak rather than risk that.
+  ; Has the block being written already ended (return / break / continue)?
+  ; Everything after that in the same statement list is unreachable.
+  fn blockClosed:boolean (lctx:LowIRLowerContext) {
+    if (null? lctx.builder.currentBlock) {
+      return false
+    }
+    def cur (unwrap lctx.builder.currentBlock)
+    return (cur.termKind != "")
+  }
+
+  ; Lower a statement list, STOPPING at the first terminator.
+  ;
+  ; A LowIRBlock keeps its terminator apart from its instructions and the writer
+  ; prints the instructions first, so anything lowered after a `return` was
+  ; emitted BEFORE the `ret` -- and therefore ran. RangerFlowParser's
+  ; WalkCollectMethods has a bare `return` with a page of dead code after it,
+  ; so the release epilogue the return emitted was followed by the dead code AND
+  ; by the function's own epilogue: every owned local was released twice, and
+  ; the freshly built operator nodes were handed back to the allocator while
+  ; stdCommands still pointed at them.
+  fn isAssignNode:boolean (node:CodeNode) {
+    if ((array_length node.children) < 3) {
+      return false
+    }
+    def fc (node.getFirst())
+    return (fc.vref == "=")
+  }
+
+  ; Statement wrapper: after a leaf statement lowers, release the fresh-string
+  ; temporaries it produced but nobody claimed (inline throwaways such as
+  ; `host.drawText("S " + n)`), so a frame loop stays heap-flat. Statements that
+  ; terminate the block (return) or open nested regions (if/while/for) manage
+  ; their own temps and their condition flush; here the current block is either
+  ; terminated (skip — cannot emit past a terminator) or the range is already
+  ; empty, so this flush is a safe leaf-only cleanup.
+  ; The IR type a declaration asks for, or "" when it cannot be told from the
+  ; node alone. Used only to notice that a re-`def` of a live name needs a slot
+  ; of a different width.
+  fn declaredIrTypeOf:string (nameNode:CodeNode lctx:LowIRLowerContext) {
+    if (this.isIntArrayTypeNode(nameNode)) { return lctx.ptrType }
+    if (this.isStringArrayTypeNode(nameNode)) { return lctx.ptrType }
+    if (this.isPlainValueArrayTypeNode(nameNode)) { return lctx.ptrType }
+    if (this.isObjectPtrArrayTypeNode(nameNode)) { return lctx.ptrType }
+    if (this.isStringKeyMapTypeNode(nameNode)) { return lctx.ptrType }
+    if (this.isIntKeyValueMapTypeNode(nameNode)) { return lctx.ptrType }
+    if (this.isIntIntMapTypeNode(nameNode)) { return lctx.ptrType }
+    def tn:string (this.varTypeName(nameNode))
+    if ((strlen tn) == 0) {
+      return ""
+    }
+    if (LowIRUtil.isStringType(tn)) { return "i8*" }
+    if (this.isEnumTypeName(tn)) { return "i32" }
+    if (LowIRUtil.isSupportedPrimitive(tn)) { return (LowIRUtil.typeFromRanger(tn)) }
+    if (this.isObjectTypeName(tn)) { return lctx.ptrType }
+    return ""
+  }
+
+  ; `def x …` when `x` is already bound -- a parameter, or a local of an
+  ; enclosing block. Every other Ranger backend gives that declaration a
+  ; variable of its own (a C++/JS block-scoped `let`); sharing the outer slot
+  ; broke two ways here:
+  ;
+  ;   * ng_TTypes' baseTypeAsEval declares `vType` as an enum and again, in the
+  ;     else branch, as a string. The shared `alloca i32` then took an 8-byte
+  ;     `store i8*` and smashed the locals next to it.
+  ;   * ng_RangerFlowParser's convertToUnion takes `wr:CodeWriter` and does
+  ;     `def wr (new CodeWriter)` inside an `if`. The name went on the owned-
+  ;     object list, and the single scope-end release then freed whatever the
+  ;     slot held -- on the paths where that `if` never ran, the CALLER's writer.
+  ;
+  ; So the trigger is the redeclaration itself, not a change of type. Give it its
+  ; own alloca and journal the old binding (slot, IR type, ownership) so
+  ; lowerBlock can hand the name back to the enclosing scope intact.
+  fn noteRedeclaration:void (varName:string nameNode:CodeNode lctx:LowIRLowerContext) {
+    if ((has lctx.slots varName) == false) {
+      return
+    }
+    def curIr:string ""
+    if (has lctx.slotTypes varName) {
+      curIr = (unwrap (get lctx.slotTypes varName))
+    }
+    def wasStr:int 0
+    def wasObj:int 0
+    def wasColl:int 0
+    if (this.isOwnedStringLocal(varName lctx)) { wasStr = 1 }
+    if (this.isOwnedObjectLocal(varName lctx)) { wasObj = 1 }
+    if (this.isOwnedCollectionLocal(varName lctx)) { wasColl = 1 }
+    push lctx.reslotNames varName
+    push lctx.reslotPrevSlots (unwrap (get lctx.slots varName))
+    push lctx.reslotPrevTypes curIr
+    push lctx.reslotOwnedStr wasStr
+    push lctx.reslotOwnedObj wasObj
+    push lctx.reslotOwnedColl wasColl
+    push lctx.forceFreshSlots varName
+  }
+
+  ; Operators whose LLVM lowering yields an i64 (not the usual i32).
+  ; The object class of the assignment target (a field, possibly receiver.field),
+  ; used to resolve a `new` whose own node lacks class info (synthesized default).
+  fn assignTargetFieldClass:string (varName:string lctx:LowIRLowerContext) {
+    if ((indexOf varName ".") >= 0) {
+      def parts:[string] (strsplit varName ".")
+      if ((array_length parts) >= 2) {
+        def recv (itemAt parts 0)
+        def fld (itemAt parts 1)
+        def cls (this.resolveObjectClass(recv lctx))
+        if ((strlen cls) > 0) {
+          return (this.fieldObjectClassName(cls fld lctx))
+        }
+      }
+      return ""
+    }
+    if (this.resolvesToField(varName lctx)) {
+      return (this.fieldObjectClassName(lctx.className varName lctx))
+    }
+    return ""
+  }
+
+  fn isCompareOp:boolean (op:string) {
+    if (op == "==") {
+      return true
+    }
+    if (op == "!=") {
+      return true
+    }
+    if (op == "<") {
+      return true
+    }
+    if (op == ">") {
+      return true
+    }
+    if (op == "<=") {
+      return true
+    }
+    if (op == ">=") {
+      return true
+    }
+    return false
+  }
+
+  fn unwrapInfixExpr:CodeNode (node:CodeNode) {
+    if node.infix_operator {
+      if (!null? node.infix_node) {
+        return (unwrap node.infix_node)
+      }
+    }
+    return node
+  }
+
+  fn condVref:string (node:CodeNode) {
+    if (node.value_type == RangerNodeType.VRef) {
+      return node.vref
+    }
+    if ((array_length node.children) > 0) {
+      def child (itemAt node.children 0)
+      return (this.condVref(child))
+    }
+    return ""
+  }
+
+  ; An operand of `&&` / `||`, guaranteed to be an i1.
+  ; Compare an already-lowered switch subject against one case value.
+  fn emitSwitchCaseTest:string (subj:string subjNode:CodeNode caseNode:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def subjIsStr:boolean false
+    if ((builder.emittedType(subj)) == "i8*") {
+      subjIsStr = true
+    }
+    if (this.exprIsStringish(subjNode lctx)) {
+      subjIsStr = true
+    }
+    if subjIsStr {
+      def caseVal (this.lowerExpr(caseNode lctx))
+      return (this.emitStrcmpEq(subj caseVal lctx))
+    }
+    def cv (this.lowerExpr(caseNode lctx))
+    def st:string (builder.emittedType(subj))
+    if ((strlen st) == 0) {
+      st = "i32"
+    }
+    return (builder.emitIcmpTyped("eq" st subj cv))
+  }
+
+  ; `try { … } { … }`. There is no unwinding on this backend and nothing that
+  ; throws except a failing `unwrap`, so the handler is an ordinary block the
+  ; failing unwrap branches to. That is exactly what the compiler's own sources
+  ; use it for: RangerFlowParser's EnterStaticMethod does
+  ;   try { def m (unwrap (desc.findStaticMethod(…))) … } { ctx.addError(…) }
+  ; and with the handler dropped, the null went straight into `m.fnCtx = …`.
+  ; `v == 0 ? fallback : v` for an i8*, without a select instruction.
+  fn emitStrOrDefault:string (value:string fallback:string lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    lctx.shadowCounter = (lctx.shadowCounter + 1)
+    def slot:string ("%eslot" + ("" + lctx.shadowCounter))
+    builder.emitAlloca("i8*" slot)
+    def asInt (builder.emitPtrToInt(value))
+    def zero (builder.emitConst(lctx.ptrType "0"))
+    def isNull (builder.emitIcmpTyped("eq" lctx.ptrType asInt zero))
+    def nullL (builder.freshLabel("em_null"))
+    def okL (builder.freshLabel("em_ok"))
+    def endL (builder.freshLabel("em_end"))
+    builder.terminateBrIf(isNull nullL okL)
+    builder.startBlock(nullL)
+    builder.emitStore("i8*" fallback slot)
+    builder.terminateBr(endL)
+    builder.startBlock(okL)
+    builder.emitStore("i8*" value slot)
+    builder.terminateBr(endL)
+    builder.startBlock(endL)
+    return (builder.emitLoad("i8*" slot))
+  }
+
+  fn emptyStrList:[string] () {
+    def e:[string]
+    return e
+  }
+
+  ; A null `unwrap` inside a `try` jumps to the handler. Only pointer-shaped
+  ; values are checked: `unwrap` over an int or a boolean cannot be the failing
+  ; kind, and comparing one against zero would branch on a legitimate 0.
+  fn guardUnwrapInTry:void (value:string lctx:LowIRLowerContext) {
+    if ((strlen lctx.catchLabel) == 0) {
+      return
+    }
+    def builder (lctx.builder)
+    def vt:string (builder.emittedType(value))
+    def isPtr:boolean false
+    if (vt == lctx.ptrType) { isPtr = true }
+    if (vt == "i8*") { isPtr = true }
+    if (isPtr == false) {
+      return
+    }
+    ; an i8* zero is spelled `null`; `add i8* 0, 0` is not an instruction
+    def zero:string "null"
+    if (vt != "i8*") {
+      zero = (builder.emitConst(vt "0"))
+    }
+    def isNull (builder.emitIcmpTyped("eq" vt value zero))
+    def okL (builder.freshLabel("unwrap_ok"))
+    builder.terminateBrIf(isNull lctx.catchLabel okL)
+    builder.startBlock(okL)
+  }
+
+  ; --- shapes (PLAN_SHAPES.md) ------------------------------------------
+  ;
+  ; A shape desugars to one record class per case plus a union over them, so on
+  ; this backend a shape value is simply a pointer to the case object. Every
+  ; object already carries its RangerTypeDesc, and the virtual dispatcher
+  ; already narrows on it -- so `is` and `case` are the same descriptor compare
+  ; that dispatch uses, and no new representation is needed.
+  ;
+  ; The case class an `x:Shape.Case` binding names. The desugaring has already
+  ; rewritten `Shape.Case` to the generated record name by the time this runs.
+  fn shapeCaseClassName:string (itemNode:CodeNode) {
+    def tn:string itemNode.type_name
+    if ((strlen tn) == 0) {
+      tn = itemNode.eval_type_name
+    }
+    ; `Shape.Case` spelled with a dot names the same generated `Shape_Case`
+    def dotAt:int (indexOf tn ".")
+    if (dotAt > 0) {
+      tn = ((substring tn 0 dotAt) + ("_" + (substring tn (dotAt + 1) (strlen tn))))
+    }
+    return tn
+  }
+
+  ; Does the module carry a runtime type descriptor for this class? A `union`
+  ; over SYSTEM classes -- the JSON family is the one in this compiler -- has no
+  ; lowered struct and no descriptor, because that family lives in
+  ; runtime/ranger_json.c rather than in the object system. Narrowing one is not
+  ; a descriptor compare, so `case`/`is` over it is left alone here exactly as
+  ; it was before this backend understood the operators at all.
+  fn moduleHasTypeDesc:boolean (className:string) {
+    for this.irModule.typeDescs td:LowIRTypeDesc i {
+      if (td.className == className) {
+        return true
+      }
+    }
+    return false
+  }
+
+  ; `ranger_obj_type(v) == @Case_typeDesc` -- false for a null v, because
+  ; ranger_obj_type answers 0 for one and no descriptor lives at address 0.
+  fn emitShapeKindTest:string (val:string caseClass:string lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def pt:string lctx.ptrType
+    def typeParams:[string]
+    push typeParams pt
+    this.ensureExternDecl("ranger_obj_type" pt typeParams false)
+    def args:[string]
+    def argTypes:[string]
+    push args val
+    push argTypes pt
+    def rtType (builder.emitCall("ranger_obj_type" pt args argTypes))
+    def tdp (builder.emitTypeDescPtr(caseClass))
+    return (builder.emitIcmpTyped("eq" pt rtType tdp))
+  }
+
+  ; `(is v _:Shape.Case)` -- the kind test alone, as an expression.
+  fn lowerShapeIs:string (node:CodeNode lctx:LowIRLowerContext) {
+    def valNode (node.getSecond())
+    def itemNode (node.getThird())
+    def caseClass:string (this.shapeCaseClassName(itemNode))
+    if ((this.moduleHasTypeDesc(caseClass)) == false) {
+      return ""
+    }
+    def val (this.lowerExpr(valNode lctx))
+    return (this.emitShapeKindTest(val caseClass lctx))
+  }
+
+  ; `case v x:Shape.Case { … }` -- the same test, and the arm runs with `x`
+  ; bound to the very same pointer, narrowed to the case class. Nothing is
+  ; copied: the binding aliases the scrutinee, exactly as the C#/Kotlin/Dart
+  ; `is` narrowing does.
+  ; `break` / `continue`: branch to the innermost loop's exit or condition
+  ; block. Neither was lowered at all before -- they emitted NOTHING, so a loop
+  ; whose only way out was a `break` spun forever. That is what made every
+  ; exponent literal (`1e5`, whose lexer loop ends on a break) hang the engine.
+  ;
+  ; Statements after the jump are unreachable but still get lowered, so a fresh
+  ; block catches them: appending them to the block just terminated would put
+  ; instructions after a terminator, which is invalid IR.
+  ; Emit releases for the locals the innermost loop body introduced, WITHOUT
+  ; retiring them from the owned lists (unlike releaseLoopBodyOwned, which runs
+  ; once at the bottom of the body and does retire them).
+  fn lowerLoopJump:void (target:string lctx:LowIRLowerContext) {
+    if ((strlen target) == 0) {
+      return
+    }
+    def builder (lctx.builder)
+    if (!null? builder.currentBlock) {
+      def cur (unwrap builder.currentBlock)
+      if (cur.termKind != "") {
+        return
+      }
+    }
+    ; Everything this iteration allocated is released on the way out. The
+    ; end-of-body release is at the BOTTOM of the loop, which a jump never
+    ; reaches -- so a loop that exits through `break` leaked every object the
+    ; final iteration made, and one that `continue`s leaked on every turn.
+    ; The owned lists are not truncated here: lowering continues after the jump,
+    ; and the bottom-of-body release still needs to see them.
+    this.emitLoopBodyReleases(lctx)
+    builder.terminateBr(target)
+    builder.startBlock((builder.freshLabel("after_jump")))
+  }
+
+  ; Release owned-object locals that were introduced within a loop body (indices
+  ; >= ownedBefore), then drop them from the function-level list so the scope-end
+  ; cleanup does not double-release. Escaped locals are skipped by releaseOwned
+  ; Local. Gated on -wasmrc so the native path's existing behaviour is unchanged.
+  ; Release a loop-body local and NULL its slot. The slot is zero-initialised
+  ; once, at function entry, not per iteration -- so a local declared inside a
+  ; branch that a later iteration does not take would still hold the pointer
+  ; released on the previous turn, and be released a second time.
+  ; The collection twin of releaseAndClearOwnedLocal: same stale-slot hazard,
+  ; and a descriptor released twice takes its refcount below zero and frees a
+  ; live array.
+  ; Operators whose result is an i8* string in the LLVM backend.
+  ; A string expression that yields a FRESHLY heap-allocated buffer uniquely
+  ; owned by this expression: a concat, a string-producing operator
+  ; (to_string/substring/strfromcode/...), or a string-returning call whose
+  ; result the caller owns (return convention marks it escaped, not freed, in
+  ; the callee). Such a value is owned directly (no dup) and released at scope
+  ; end. Literals and VRefs are NOT fresh (borrowed) -> the caller dups to own a
+  ; private copy. Conservative: unknown shapes return false; the dup path is
+  ; always safe (owns a private heap copy), it just costs one extra alloc/free.
+  fn lowerArithF64OrI32:string (intKind:string fpKind:string node:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def aNode (node.getSecond())
+    def bNode (node.getThird())
+    ; The expression is floating-point if either operand is, or if the operator
+    ; itself yields double (e.g. Ranger's `/` is float division: int/int -> double).
+    if (((this.exprIsF64(node)) || (this.exprIsF64(aNode))) || (this.exprIsF64(bNode))) {
+      def a (this.promoteToF64(aNode (this.lowerExpr(aNode lctx)) lctx))
+      def b (this.promoteToF64(bNode (this.lowerExpr(bNode lctx)) lctx))
+      return (builder.emitBin(fpKind "f64" a b))
+    }
+    def a (this.lowerExpr(aNode lctx))
+    def b (this.lowerExpr(bNode lctx))
+    return (builder.emitBin(intKind "i32" a b))
+  }
+
+  ; `&&` and `||` SHORT CIRCUIT: the right operand is only evaluated when the
+  ; left does not already settle the answer. Emitting `and i1 a, b` instead
+  ; evaluated both, which is not merely wasteful -- the compiler's own sources
+  ; guard a dereference that way:
+  ;
+  ;   if ( returnedValue.hasParamDesc && (!null? returnedValue.paramDesc.nameNode) )
+  ;
+  ; With both sides evaluated, the guarded read of a null paramDesc happened
+  ; anyway. JavaScript, C++ and every other target short circuit, so code like
+  ; this is everywhere.
+  ;
+  ; The answer travels through a slot rather than a phi: allocas are hoisted to
+  ; the entry block, and on WAT an alloca slot is just a local, so the same
+  ; shape works on both backends.
+  fn finishObjectCall:string (rv:string) {
+    if ((strlen rv) > 0) {
+      return rv
+    }
+    def voidTag:string "__void__"
+    return voidTag
+  }
+
+  ; The object class produced by an EXPRESSION used as a call receiver
+  ; (`(itemAt xs i).m()`, `(property o f).m()`), or "" when it is not one.
+  ; Object class of a receiver that is an object-typed field of the current class.
+  fn fieldReceiverClass:string (recvName:string lctx:LowIRLowerContext) {
+    if ((strlen lctx.className) == 0) {
+      return ""
+    }
+    if (this.resolvesToField(recvName lctx)) {
+      return (this.fieldObjectClassName(lctx.className recvName lctx))
+    }
+    return ""
+  }
+
+  fn callArgsNode:CodeNode (node:CodeNode) {
+    if node.has_call {
+      if ((array_length node.children) > 3) {
+        return (itemAt node.children 3)
+      }
+    }
+    return (node.getSecond())
+  }
+
+  fn resolveMethodName:string (node:CodeNode defaultName:string) {
+    if ((strlen defaultName) > 0) {
+      return defaultName
+    }
+    if (!null? node.fnDesc) {
+      def fd (unwrap node.fnDesc)
+      return fd.name
+    }
+    def callee (node.getFirst())
+    def v:string callee.vref
+    def dotPos:int (indexOf v ".")
+    if (dotPos >= 0) {
+      def parts:[string] (strsplit v ".")
+      if ((array_length parts) >= 2) {
+        return (itemAt parts 1)
+      }
+    }
+    return ""
+  }
+
+  ; The IR type of a lambda-call argument. It used to answer i32 for anything
+  ; without a slot, so `cb(this ...)` declared an i32 parameter and handed it
+  ; the pointer-sized `ptrtoint` -- IR clang will not parse.
+  fn argIrType:string (arg:CodeNode lctx:LowIRLowerContext) {
+    if (arg.value_type == RangerNodeType.String) {
+      return "i8*"
+    }
+    if (arg.value_type == RangerNodeType.VRef) {
+      if (arg.vref == "this") {
+        return lctx.ptrType
+      }
+      if (has lctx.slotTypes arg.vref) {
+        def st (unwrap (get lctx.slotTypes arg.vref))
+        if ((strlen st) > 0) {
+          return st
+        }
+      }
+      if (has lctx.objectSlots arg.vref) {
+        return lctx.ptrType
+      }
+      if (has lctx.collectionSlots arg.vref) {
+        return lctx.ptrType
+      }
+    }
+    def tn:string arg.eval_type_name
+    if ((strlen tn) == 0) {
+      tn = arg.type_name
+    }
+    if ((strlen tn) > 0) {
+      if (LowIRUtil.isStringType(tn)) {
+        return "i8*"
+      }
+      if (LowIRUtil.isSupportedPrimitive(tn)) {
+        return (LowIRUtil.typeFromRanger(tn))
+      }
+      if (this.isObjectTypeName(tn)) {
+        return lctx.ptrType
+      }
+    }
+    if (this.exprIsStringish(arg lctx)) {
+      return "i8*"
+    }
+    return "i32"
+  }
+
+  ; An ARRAY LITERAL in argument position -- `fromList( ([] _:CodeNode (a b c)) )`,
+  ; which is what the variadic `r.expression` macro expands to -- has no `def`
+  ; to hang its element type on, so nothing built the array and the call was
+  ; handed the FIRST element instead. The parameter's declaration supplies the
+  ; type; everything else is the same path a `def` takes.
+  fn paramIrTypeFromDesc:string (paramIndex:int fnDesc:RangerAppFunctionDesc lctx:LowIRLowerContext) {
+    if (paramIndex >= (array_length fnDesc.params)) {
+      return "i32"
+    }
+    def p (itemAt fnDesc.params paramIndex)
+    if (null? p.nameNode) {
+      return "i32"
+    }
+    def pn (unwrap p.nameNode)
+    return (this.llvmTypeForRanger(pn.type_name lctx.ptrType))
+  }
+
+  ; The class whose emitted function actually carries `methodName`: the class
+  ; itself when it declares it, otherwise the nearest base that does.
+  ; Coerce an argument to the parameter's declared IR type, using what the
+  ; builder actually emitted. Widths otherwise disagree in the shapes the type
+  ; tests cannot see -- a lambda-typed parameter handed a pointer-sized zero,
+  ; a boolean local passed where an int is declared.
+  fn methodOwnerClass:string (className:string methodName:string lctx:LowIRLowerContext) {
+    if ((strlen className) == 0) {
+      return className
+    }
+    if (null? lctx.ctx) {
+      return className
+    }
+    def appCtx (unwrap lctx.ctx)
+    return (this.methodOwnerClassIn(className methodName appCtx 0))
+  }
+
+  ; --- virtual dispatch --------------------------------------------------
+  ; The compiler's own architecture is one base writer plus a dozen subclasses
+  ; that override its methods, and every call goes through a base-typed field.
+  ; Without dispatch the LLVM build produced the BASE writer's output for every
+  ; language.
+
+  fn virtualKeyOf:string (className:string methodName:string) {
+    return (className + "|" + methodName)
+  }
+
+  ; The TOPMOST ancestor of `className` that declares `methodName` -- the class
+  ; a call site names when it dispatches, and the one the dispatcher is keyed
+  ; on. methodOwnerClassIn finds the NEAREST one, which is the opposite end.
+  fn classIsLowered:boolean (cl:RangerAppClassDesc) {
+    if (cl.is_operator_class || cl.is_trait || cl.is_system || cl.is_union) {
+      return false
+    }
+    return true
+  }
+
+  fn classInheritsFrom:boolean (className:string baseName:string appCtx:RangerAppWriterContext depth:int) {
+    if (depth > 16) {
+      return false
+    }
+    if ((has appCtx.definedClasses className) == false) {
+      return false
+    }
+    def cl (unwrap (get appCtx.definedClasses className))
+    for cl.extends_classes b:string bi {
+      if (b == baseName) {
+        return true
+      }
+      if (this.classInheritsFrom(b baseName appCtx (depth + 1))) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn virtualDispatcherName:string (className:string methodName:string) {
+    return ("__vd_" + className + "_" + methodName)
+  }
+
+  fn hasVirtualDispatcher:boolean (className:string methodName:string) {
+    def key:string (this.virtualKeyOf(className methodName))
+    if ((has this.virtualIsKey key) == false) {
+      return false
+    }
+    def cases (unwrap (get this.virtualCases key))
+    return ((array_length cases) > 0)
+  }
+
+  fn emitVirtualDispatchers:void (appCtx:RangerAppWriterContext) {
+    for this.virtualKeys key:string ki {
+      def parts:[string] (strsplit key "|")
+      if ((array_length parts) != 2) {
+        continue
+      }
+      def top:string (itemAt parts 0)
+      def meth:string (itemAt parts 1)
+      if ((this.hasVirtualDispatcher(top meth)) == false) {
+        continue
+      }
+      if ((has this.virtualDescOf key) == false) {
+        continue
+      }
+      this.emitOneVirtualDispatcher(top meth (unwrap (get this.virtualDescOf key)) (unwrap (get this.virtualCases key)) appCtx)
+    }
+  }
+
+  fn emitDispatchTailCall:void (builder:LowIRBuilder cls:string meth:string retType:string argNames:[string] argTypes:[string]) {
+    def args:[string]
+    def types:[string]
+    ; %self is passed straight through: the module uses opaque pointers, so the
+    ; subclass struct pointer the callee declares and the base one this function
+    ; takes are the same value.
+    push args "%self"
+    push types (LowIRUtil.structPtrType(cls))
+    for argNames a:string i {
+      push args a
+      push types (itemAt argTypes i)
+    }
+    def callRes (builder.emitCall((LowIRUtil.mangleMethod(cls meth)) retType args types))
+    if (retType == "void") {
+      builder.terminateRet("void" "")
+      return
+    }
+    builder.terminateRet(retType callRes)
+  }
+
+  ; A call that returns an OBJECT hands back a reference the caller owns. When
+  ; nothing binds it -- an intermediate like `(this.eval(x)).toNumber()` -- that
+  ; reference has no owner at all, which is what kept half the engine's values
+  ; alive forever. Registering it in the statement arena releases it once the
+  ; statement finishes; binding it to a local or returning it claims it back.
+  fn registerCallObjectTemp:void (node:CodeNode tmp:string lctx:LowIRLowerContext) {
+    if ((this.memEnabled(lctx)) == false) {
+      return
+    }
+    if (null? node.fnDesc) {
+      return
+    }
+    def fd (unwrap node.fnDesc)
+    if (null? fd.nameNode) {
+      return
+    }
+    def rn (unwrap fd.nameNode)
+    if ((this.isObjectTypeName((this.varTypeName(rn)))) == false) {
+      return
+    }
+    push lctx.pendingObjectTemps tmp
+  }
+
+  ; Is `fnName` a function this module emits? Checked before a call whose
+  ; callee name came out of a fallback path.
+  ; True when the callee name was mangled from a DOTTED receiver whose first
+  ; segment is neither a class nor a name this scope knows -- the shape
+  ; resolveCalleeName falls back to when everything else failed.
+  fn moduleHasFunction:boolean (fnName:string) {
+    for this.irModule.functions f:LowIRFunction i {
+      if (f.name == fnName) {
+        return true
+      }
+    }
+    for this.irModule.lambdaTableFuncs lf:string j {
+      if (lf == fnName) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn resolveCalleeName:string (callee:CodeNode) {
+    if ((array_length callee.ns) >= 2) {
+      def cls (itemAt callee.ns 0)
+      def meth (itemAt callee.ns 1)
+      return (LowIRUtil.mangleMethod(cls meth))
+    }
+    def v:string callee.vref
+    def dotPos:int (indexOf v ".")
+    if (dotPos >= 0) {
+      def parts:[string] (strsplit v ".")
+      if ((array_length parts) >= 2) {
+        def p0 (itemAt parts 0)
+        def p1 (itemAt parts 1)
+        if (p0 != "this") {
+          return (LowIRUtil.mangleMethod(p0 p1))
+        }
+      }
+    }
+    return v
+  }
+}
+
+Import "LowIRExpr.rgr"
+Import "LowIRStmt.rgr"
+Import "LowIRObject.rgr"
+Import "LowIRCollections.rgr"
+Import "LowIRLambda.rgr"
+Import "LowIROwnership.rgr"
+Import "LowIRExtern.rgr"

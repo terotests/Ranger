@@ -398,4 +398,4 @@ utility-class theme needs compound and attribute selectors; `gallery/css`'s
 - [`gallery/game_engine/ui/`](../game_engine/ui/) — focus and keyboard, still SoftCanvas-bound
 - [`lib/evg/android/`](../../lib/evg/android/README.md) — the Android/JVM display-list backend the dashboard port draws through
 
-Roadmap: [`PLAN.md`](PLAN.md).
+Roadmap: [`PLAN.md`](../../legacy/docs/PLAN.md).

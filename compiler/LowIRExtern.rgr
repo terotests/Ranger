@@ -1,0 +1,474 @@
+; SPDX-License-Identifier: MIT
+
+; The runtime the lowered module calls into: libc, the buffer and memory
+; helpers, the map externs, interned string globals, and the intrinsics that
+; replace a call outright.
+
+extension LowIRBuilderPass {
+
+  fn ensureExternDecl:void (fnName:string retType:string paramTypes:[string] isVararg:boolean) {
+    if (this.hasExternDecl(fnName)) {
+      return
+    }
+    def decl@(lives):LowIRExternDecl (new LowIRExternDecl())
+    decl.fnName = fnName
+    decl.retType = retType
+    decl.isVararg = isVararg
+    for paramTypes pt:string i {
+      push decl.paramTypes pt
+    }
+    push this.irModule.externDecls decl
+  }
+
+  fn ensureLibcExtern:void (target:LowIRTarget) {
+    def ioParams:[string]
+    push ioParams "i8*"
+    this.ensureExternDecl(target.ioFn target.ioFnRet ioParams target.ioFnVararg)
+    def mallocParams:[string]
+    push mallocParams target.ptrType
+    this.ensureExternDecl("malloc" target.ptrType mallocParams false)
+    def callocParams:[string]
+    push callocParams target.ptrType
+    push callocParams target.ptrType
+    this.ensureExternDecl("calloc" target.ptrType callocParams false)
+    def reallocParams:[string]
+    push reallocParams target.ptrType
+    push reallocParams target.ptrType
+    this.ensureExternDecl("realloc" target.ptrType reallocParams false)
+    def strcmpParams:[string]
+    push strcmpParams "i8*"
+    push strcmpParams "i8*"
+    this.ensureExternDecl("strcmp" "i32" strcmpParams false)
+    def strlenParams:[string]
+    push strlenParams "i8*"
+    this.ensureExternDecl("strlen" "i32" strlenParams false)
+    def termInitParams:[string]
+    this.ensureExternDecl("ranger_term_init" "void" termInitParams false)
+    def pollParams:[string]
+    this.ensureExternDecl("ranger_poll_key" "i8*" pollParams false)
+    def termVoidParams:[string]
+    this.ensureExternDecl("ranger_clear_screen" "void" termVoidParams false)
+    this.ensureExternDecl("ranger_hide_cursor" "void" termVoidParams false)
+    this.ensureExternDecl("ranger_show_cursor" "void" termVoidParams false)
+    def moveParams:[string]
+    push moveParams "i32"
+    push moveParams "i32"
+    this.ensureExternDecl("ranger_move_cursor" "void" moveParams false)
+    def sprintfParams:[string]
+    push sprintfParams "i8*"
+    push sprintfParams "i8*"
+    this.ensureExternDecl("sprintf" "i32" sprintfParams true)
+    def shellCntParams:[string]
+    this.ensureExternDecl("ranger_shell_arg_cnt" "i32" shellCntParams false)
+    def shellArgParams:[string]
+    push shellArgParams "i32"
+    this.ensureExternDecl("ranger_shell_arg" "i8*" shellArgParams false)
+    def readFileParams:[string]
+    push readFileParams "i8*"
+    push readFileParams "i8*"
+    this.ensureExternDecl("ranger_read_file" "i8*" readFileParams false)
+    def charAtParams:[string]
+    push charAtParams "i8*"
+    push charAtParams "i32"
+    this.ensureExternDecl("ranger_char_at" "i32" charAtParams false)
+    def atCharParams:[string]
+    push atCharParams "i8*"
+    push atCharParams "i32"
+    this.ensureExternDecl("ranger_at_char" "i8*" atCharParams false)
+    def substringParams:[string]
+    push substringParams "i8*"
+    push substringParams "i32"
+    push substringParams "i32"
+    this.ensureExternDecl("ranger_substring" "i8*" substringParams false)
+    def str2dblParams:[string]
+    push str2dblParams "i8*"
+    this.ensureExternDecl("ranger_str2double" "f64" str2dblParams false)
+    def str2intParams:[string]
+    push str2intParams "i8*"
+    this.ensureExternDecl("ranger_str2int" "i32" str2intParams false)
+    def cliInitParams:[string]
+    push cliInitParams "i32"
+    push cliInitParams "i8**"
+    this.ensureExternDecl("ranger_cli_init" "void" cliInitParams false)
+    def strdupParams:[string]
+    push strdupParams "i8*"
+    this.ensureExternDecl("ranger_strdup" "i8*" strdupParams false)
+    ; Every owned string local is a ranger_strdup copy, so the matching free has
+    ; to be declared for any libc target -- not only for programs that also use
+    ; the object runtime, which is where ensureMemExtern declares it.
+    def strRelDeclParams:[string]
+    push strRelDeclParams "i8*"
+    this.ensureExternDecl("ranger_str_release" "void" strRelDeclParams false)
+    def fromCodeParams:[string]
+    push fromCodeParams "i32"
+    this.ensureExternDecl("ranger_str_fromcode" "i8*" fromCodeParams false)
+    def fromByteParams:[string]
+    push fromByteParams "i32"
+    this.ensureExternDecl("ranger_str_frombyte" "i8*" fromByteParams false)
+    def freeParams:[string]
+    push freeParams "i8*"
+    this.ensureExternDecl("free" "void" freeParams false)
+    this.ensureBufferExtern(target)
+  }
+
+  fn ensureBufferExtern:void (target:LowIRTarget) {
+    if (this.hasExternDecl("ranger_buffer_alloc")) {
+      return
+    }
+    def ptrType (target.ptrType)
+    def allocParams:[string]
+    push allocParams "i32"
+    this.ensureExternDecl("ranger_buffer_alloc" ptrType allocParams false)
+    def bufLenParams:[string]
+    push bufLenParams ptrType
+    this.ensureExternDecl("ranger_buffer_length" "i32" bufLenParams false)
+    def bufGetParams:[string]
+    push bufGetParams ptrType
+    push bufGetParams "i32"
+    this.ensureExternDecl("ranger_buffer_get" "i32" bufGetParams false)
+    def bufSetParams:[string]
+    push bufSetParams ptrType
+    push bufSetParams "i32"
+    push bufSetParams "i32"
+    this.ensureExternDecl("ranger_buffer_set" "void" bufSetParams false)
+    def bufReadParams:[string]
+    push bufReadParams "i8*"
+    push bufReadParams "i8*"
+    this.ensureExternDecl("ranger_buffer_read_file" ptrType bufReadParams false)
+    def bufWriteParams:[string]
+    push bufWriteParams "i8*"
+    push bufWriteParams "i8*"
+    push bufWriteParams ptrType
+    this.ensureExternDecl("ranger_buffer_write_file" "void" bufWriteParams false)
+    def relParams:[string]
+    push relParams ptrType
+    this.ensureExternDecl("ranger_buffer_release" "void" relParams false)
+    def intAllocParams:[string]
+    push intAllocParams "i32"
+    this.ensureExternDecl("ranger_int_buffer_alloc" ptrType intAllocParams false)
+    def intGetParams:[string]
+    push intGetParams ptrType
+    push intGetParams "i32"
+    this.ensureExternDecl("ranger_int_buffer_get" "i32" intGetParams false)
+    def intSetParams:[string]
+    push intSetParams ptrType
+    push intSetParams "i32"
+    push intSetParams "i32"
+    this.ensureExternDecl("ranger_int_buffer_set" "void" intSetParams false)
+    def intFillParams:[string]
+    push intFillParams ptrType
+    push intFillParams "i32"
+    push intFillParams "i32"
+    push intFillParams "i32"
+    this.ensureExternDecl("ranger_int_buffer_fill" "void" intFillParams false)
+    this.ensureExternDecl("ranger_int_buffer_release" "void" relParams false)
+    def byteFillParams:[string]
+    push byteFillParams ptrType
+    push byteFillParams "i32"
+    push byteFillParams "i32"
+    push byteFillParams "i32"
+    this.ensureExternDecl("ranger_buffer_fill" "void" byteFillParams false)
+  }
+
+  fn ensureMemExtern:void (target:LowIRTarget) {
+    if (this.hasExternDecl("ranger_obj_new")) {
+      return
+    }
+    def destroyTy:string "ptr"
+    def declSig:string "(i32, ptr)"
+    def objNewParams:[string]
+    push objNewParams "i32"
+    push objNewParams destroyTy
+    def decl@(lives):LowIRExternDecl (new LowIRExternDecl())
+    decl.fnName = "ranger_obj_new"
+    decl.retType = target.ptrType
+    decl.paramTypes = objNewParams
+    decl.declSig = declSig
+    push this.irModule.externDecls decl
+    def relParams:[string]
+    push relParams target.ptrType
+    this.ensureExternDecl("ranger_obj_release" "void" relParams false)
+    def strRelParams:[string]
+    push strRelParams "i8*"
+    this.ensureExternDecl("ranger_str_release" "void" strRelParams false)
+    def liveParams:[string]
+    this.ensureExternDecl("ranger_mem_live_objects" "i32" liveParams false)
+    def voidParams:[string]
+    this.ensureExternDecl("ranger_mem_reset_stats" "void" voidParams false)
+    this.ensureExternDecl("ranger_obj_retain" "void" relParams false)
+    def pushOwnedParams:[string]
+    push pushOwnedParams target.ptrType
+    push pushOwnedParams target.ptrType
+    this.ensureExternDecl("ranger_ptrarray_push_owned" "void" pushOwnedParams false)
+    this.ensureExternDecl("ranger_ptrarray_release" "void" relParams false)
+  }
+
+  fn internStringGlobal:string (text:string withNewline:boolean) {
+    for this.irModule.stringGlobals g:LowIRStringGlobal i {
+      if (g.text == text) {
+        if (g.withNewline == withNewline) {
+          return g.name
+        }
+      }
+    }
+    def cnt (array_length this.irModule.stringGlobals)
+    def gname:string (".str." + ("" + cnt))
+    def g@(lives):LowIRStringGlobal (new LowIRStringGlobal())
+    g.name = gname
+    g.text = text
+    g.withNewline = withNewline
+    def contentBytes (this.utf8ByteLen(text))
+    if withNewline {
+      g.byteLen = contentBytes + 2
+    } {
+      g.byteLen = contentBytes + 1
+    }
+    push this.irModule.stringGlobals g
+    return gname
+  }
+
+  fn emitIoString:void (text:string withNewline:boolean lctx:LowIRLowerContext) {
+    if ((strlen text) == 0) {
+      return
+    }
+    def target (lctx.target)
+    if ((strlen target.ioFn) == 0) {
+      return
+    }
+    def builder (lctx.builder)
+    def gname (this.internStringGlobal(text withNewline))
+    def byteLen (this.stringGlobalByteLen(gname))
+    def strPtr (builder.emitStrPtr(gname byteLen))
+    def args:[string]
+    def argTypes:[string]
+    push args strPtr
+    push argTypes "i8*"
+    def voidType:string "void"
+    if (target.ioFnRet == voidType) {
+      builder.emitCall(target.ioFn voidType args argTypes)
+      return
+    }
+    builder.emitCall(target.ioFn target.ioFnRet args argTypes)
+  }
+
+  fn lowerWriteFile:void (node:CodeNode lctx:LowIRLowerContext) {
+    def pathNode (node.getSecond())
+    def fileNode (node.getThird())
+    def dataNode (itemAt node.children 3)
+    def path (this.lowerExpr(pathNode lctx))
+    def file (this.lowerExpr(fileNode lctx))
+    def data (this.lowerExpr(dataNode lctx))
+    def ps:[string]
+    push ps "i8*"
+    push ps "i8*"
+    push ps "i8*"
+    def voidType:string "void"
+    this.ensureExternDecl("ranger_write_file" voidType ps false)
+    def args:[string]
+    def argTypes:[string]
+    push args path
+    push argTypes "i8*"
+    push args file
+    push argTypes "i8*"
+    push args data
+    push argTypes "i8*"
+    lctx.builder.emitCall("ranger_write_file" voidType args argTypes)
+  }
+
+  fn ensureIMapExterns:void () {
+    def pKV:[string]
+    push pKV "i64"
+    push pKV "i64"
+    push pKV "i64"
+    def pK:[string]
+    push pK "i64"
+    push pK "i64"
+    def pM:[string]
+    push pM "i64"
+    def pKind:[string]
+    push pKind "i32"
+    def none:[string]
+    this.ensureExternDecl("RtIMap_new" "i64" none false)
+    this.ensureExternDecl("RtIMap_new_kind" "i64" pKind false)
+    this.ensureExternDecl("RtIMap_set" "void" pKV false)
+    this.ensureExternDecl("RtIMap_get" "i64" pK false)
+    this.ensureExternDecl("RtIMap_has" "i32" pK false)
+    this.ensureExternDecl("RtIMap_remove" "void" pK false)
+    this.ensureExternDecl("RtIMap_size" "i32" pM false)
+    this.ensureExternDecl("RtIMap_free" "void" pM false)
+    this.ensureExternDecl("RtIMap_retain" "void" pM false)
+  }
+
+  fn ensureSMapExterns:void () {
+    def pOnly:[string]
+    push pOnly "i64"
+    def pStr:[string]
+    push pStr "i64"
+    push pStr "i8*"
+    def pStrVal:[string]
+    push pStrVal "i64"
+    push pStrVal "i8*"
+    push pStrVal "i64"
+    def pIdx:[string]
+    push pIdx "i64"
+    push pIdx "i32"
+    def none:[string]
+    def pKind:[string]
+    push pKind "i32"
+    this.ensureExternDecl("RtSMap_new" "i64" none false)
+    this.ensureExternDecl("RtSMap_new_kind" "i64" pKind false)
+    this.ensureExternDecl("RtSMap_put" "void" pStrVal false)
+    this.ensureExternDecl("RtSMap_get" "i64" pStr false)
+    this.ensureExternDecl("RtSMap_has" "i32" pStr false)
+    this.ensureExternDecl("RtSMap_remove" "void" pStr false)
+    this.ensureExternDecl("RtSMap_size" "i32" pOnly false)
+    this.ensureExternDecl("RtSMap_keyAt" "i8*" pIdx false)
+    this.ensureExternDecl("RtSMap_free" "void" pOnly false)
+  }
+
+  fn ensureJsonExtern:void (fnName:string retType:string params:[string]) {
+    this.ensureExternDecl(fnName retType params false)
+  }
+
+  fn tryLowerIntrinsic:string (fnName:string argsNode:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def notIntrinsic:string ""
+    def handledVoid:string "__void__"
+    if (fnName == "Mem_alloc") {
+      if ((array_length argsNode.children) > 0) {
+        def nbytes (this.lowerExpr((itemAt argsNode.children 0) lctx))
+        return (builder.emitHeapAlloc(nbytes))
+      }
+      return notIntrinsic
+    }
+    if (fnName == "Mem_loadI32") {
+      if ((array_length argsNode.children) > 0) {
+        def ptr (this.lowerExpr((itemAt argsNode.children 0) lctx))
+        return (builder.emitPtrLoad(ptr))
+      }
+      return notIntrinsic
+    }
+    if (fnName == "Mem_storeI32") {
+      if ((array_length argsNode.children) > 1) {
+        def ptr (this.lowerExpr((itemAt argsNode.children 0) lctx))
+        def val (this.lowerExpr((itemAt argsNode.children 1) lctx))
+        builder.emitPtrStore(ptr val)
+        return handledVoid
+      }
+      return notIntrinsic
+    }
+    if (fnName == "Mem_loadU8") {
+      if ((array_length argsNode.children) > 0) {
+        def ptr (this.lowerExpr((itemAt argsNode.children 0) lctx))
+        return (builder.emitPtrLoad8(ptr))
+      }
+      return notIntrinsic
+    }
+    if (fnName == "Mem_storeU8") {
+      if ((array_length argsNode.children) > 1) {
+        def ptr (this.lowerExpr((itemAt argsNode.children 0) lctx))
+        def val (this.lowerExpr((itemAt argsNode.children 1) lctx))
+        builder.emitPtrStore8(ptr val)
+        return handledVoid
+      }
+      return notIntrinsic
+    }
+    if (fnName == "Mem_memSize") {
+      return (builder.emitMemSize())
+    }
+    if (fnName == "Mem_memGrow") {
+      if ((array_length argsNode.children) > 0) {
+        def pages (this.lowerExpr((itemAt argsNode.children 0) lctx))
+        return (builder.emitMemGrow(pages))
+      }
+      return notIntrinsic
+    }
+    if (fnName == "RangerMem_liveObjects") {
+      this.usedMemRuntime = true
+      this.ensureMemExtern((LowIRTarget.resolve((unwrap lctx.ctx))))
+      def args:[string]
+      def argTypes:[string]
+      return (builder.emitCall("ranger_mem_live_objects" "i32" args argTypes))
+    }
+    ; RangerMem.mapPutIfPresent(m key v) -- one lookup instead of the two that
+    ; `if (has m k) { set m k v }` costs. Answers whether the key was there.
+    if (fnName == "RangerMem_mapPutIfPresent") {
+      if ((array_length argsNode.children) > 2) {
+        this.usedMemRuntime = true
+        def ppDecl:[string]
+        push ppDecl "i64"
+        push ppDecl "i8*"
+        push ppDecl "i64"
+        this.ensureExternDecl("RtSMap_put_if_present" "i32" ppDecl false)
+        def ppMapNode (itemAt argsNode.children 0)
+        def ppDesc (this.smapDescFromVref(ppMapNode.vref lctx))
+        def ppRest:[string]
+        def ppTypes:[string]
+        push ppRest (this.lowerExpr((itemAt argsNode.children 1) lctx))
+        push ppTypes "i8*"
+        push ppRest (this.lowerExpr((itemAt argsNode.children 2) lctx))
+        push ppTypes "i64"
+        def ppRes (this.emitSMapCall("RtSMap_put_if_present" "i32" ppDesc ppRest ppTypes lctx))
+        return (this.toI1(ppRes lctx))
+      }
+      return notIntrinsic
+    }
+    ; RangerMem.mapValueUnique(m key) -- is the value under `key` held by
+    ; nothing but the map itself? The test runs entirely in the runtime, where
+    ; no local holds the value, so it needs no calibration: rc == 1 means the
+    ; map's reference and nothing else. The caller may then update that value in
+    ; place instead of allocating a replacement.
+    if (fnName == "RangerMem_mapValueUnique") {
+      if ((array_length argsNode.children) > 1) {
+        this.usedMemRuntime = true
+        this.ensureMemExtern((LowIRTarget.resolve((unwrap lctx.ctx))))
+        def uqDecl:[string]
+        push uqDecl "i64"
+        push uqDecl "i8*"
+        this.ensureExternDecl("rt_smap_value_unique" "i32" uqDecl false)
+        def mapNode (itemAt argsNode.children 0)
+        def uqDesc (this.smapDescFromVref(mapNode.vref lctx))
+        def uqRest:[string]
+        def uqTypes:[string]
+        push uqRest (this.lowerExpr((itemAt argsNode.children 1) lctx))
+        push uqTypes "i8*"
+        def uqRes (this.emitSMapCall("rt_smap_value_unique" "i32" uqDesc uqRest uqTypes lctx))
+        return (this.toI1(uqRes lctx))
+      }
+      return notIntrinsic
+    }
+    ; RangerMem.refCount(v) -- how many references the runtime is tracking for
+    ; this object. Only meaningful where objects are reference counted; on the
+    ; targets that are not, the class body's `return 0` stands, and a caller
+    ; that uses it to decide whether a value is uniquely owned simply never
+    ; takes its fast path.
+    if (fnName == "RangerMem_refCount") {
+      if ((array_length argsNode.children) > 0) {
+        this.usedMemRuntime = true
+        this.ensureMemExtern((LowIRTarget.resolve((unwrap lctx.ctx))))
+        ; Declared here, not with the other mem externs: a diagnostic nothing
+        ; calls must not add a line to every module's IR.
+        def rcDecl:[string]
+        push rcDecl lctx.ptrType
+        this.ensureExternDecl("ranger_obj_refcount" "i32" rcDecl false)
+        def rcArgs:[string]
+        def rcArgTypes:[string]
+        push rcArgs (this.lowerExpr((itemAt argsNode.children 0) lctx))
+        push rcArgTypes lctx.ptrType
+        return (builder.emitCall("ranger_obj_refcount" "i32" rcArgs rcArgTypes))
+      }
+      return notIntrinsic
+    }
+    if (fnName == "RangerMem_resetStats") {
+      this.usedMemRuntime = true
+      this.ensureMemExtern((LowIRTarget.resolve((unwrap lctx.ctx))))
+      def args:[string]
+      def argTypes:[string]
+      def voidType:string "void"
+      builder.emitCall("ranger_mem_reset_stats" voidType args argTypes)
+      return handledVoid
+    }
+    return notIntrinsic
+  }
+
+}

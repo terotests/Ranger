@@ -73,7 +73,7 @@ const host = ProcessUiHost.__singleton();
 host.notifyPath = (path) => { /* sync view model + re-render */ };
 ```
 
-**Docs:** [PROCESS_MVP.md](PROCESS_MVP.md) (scope), [PROCESS_STATUS.md](PROCESS_STATUS.md) (compiler checklist), [PROCESS_RUNTIME_INVARIANTS.md](PROCESS_RUNTIME_INVARIANTS.md) (dispatch turn / one notify), [PROCESS_UI_NOTIFY.md](PROCESS_UI_NOTIFY.md) (notify batching), [PROCESS_UI_VIEW_MODELS.md](PROCESS_UI_VIEW_MODELS.md) (view DTO assignment). **Gallery:** [process_counter_board](gallery/process_counter_board/README.md) (Vite + React host for `@process`).
+**Docs:** [PROCESS_MVP.md](docs/plans/process/PROCESS_MVP.md) (scope), [PROCESS_STATUS.md](docs/plans/process/PROCESS_STATUS.md) (compiler checklist), [PROCESS_RUNTIME_INVARIANTS.md](docs/plans/process/PROCESS_RUNTIME_INVARIANTS.md) (dispatch turn / one notify), [PROCESS_UI_NOTIFY.md](docs/plans/process/PROCESS_UI_NOTIFY.md) (notify batching), [PROCESS_UI_VIEW_MODELS.md](legacy/docs/PROCESS_UI_VIEW_MODELS.md) (view DTO assignment). **Gallery:** [process_counter_board](gallery/process_counter_board/README.md) (Vite + React host for `@process`).
 
 ## Getting started with Claude Code
 
@@ -120,8 +120,9 @@ prints on a cold checkout.
 - [`gallery/README.md`](gallery/README.md) - index of the application stack (AGPL): EVG, Office, DataGrid, parsers, games, and `@process` host apps
 - [`LICENSING.md`](LICENSING.md) - MIT compiler vs AGPL gallery
 - [`TARGET_NOTES.md`](TARGET_NOTES.md) - what each target language supports and where it falls short
-- [`PLAN_FORMATS.md`](PLAN_FORMATS.md) — the architecture for reading more than three file formats: the layer stack, the internal models, and the phased roadmap after DOCX/XLSX/PPTX. Phase 1 is `.odp` beside `.pptx`, run as the experiment that proves or disproves the shared scene
-- [`PLAN_API_DOCS.md`](PLAN_API_DOCS.md) — the design for `doc { … }` declarations: API metadata attached to a Ranger declaration that never restates what the compiler already knows, the `no doc` / `doc` / `doc public` visibility rule, a canonical **ApiIR** that names a logical module and no namespace, and the outputs built from it — native doc comments and annotations per target (XML doc, TSDoc, DocC, KDoc, rustdoc, Javadoc, dartdoc, Doxygen, docstrings), and the language × platform split that separates C# from Unity and Dart from Flutter
+- [`PLAN_FORMATS.md`](docs/plans/PLAN_FORMATS.md) — the architecture for reading more than three file formats: the layer stack, the internal models, and the phased roadmap after DOCX/XLSX/PPTX. Phase 1 is `.odp` beside `.pptx`, run as the experiment that proves or disproves the shared scene
+- [`PLAN_API_DOCS.md`](docs/plans/PLAN_API_DOCS.md) — the design for `doc { … }` declarations: API metadata attached to a Ranger declaration that never restates what the compiler already knows, the `no doc` / `doc` / `doc public` visibility rule, a canonical **ApiIR** that names a logical module and no namespace, and the outputs built from it — native doc comments and annotations per target (XML doc, TSDoc, DocC, KDoc, rustdoc, Javadoc, dartdoc, Doxygen, docstrings), and the language × platform split that separates C# from Unity and Dart from Flutter
+- [`docs/plans/`](docs/plans/README.md) — the plans that are still open: language, shapes, ownership, LLVM/WASM, the portable JS stdlib, formats and tooling. Finished ones move to [`legacy/docs/`](legacy/docs/README.md)
 - [`CHANGELOG.md`](CHANGELOG.md) - version history
 - [`AGENTS.md`](AGENTS.md) — git/PR rules and Ranger gotchas for AI agents; links the [FAQ](https://terotests.github.io/Ranger/docs/faq/)
 - `ai/` — short offline notes for assistants (`README.md`, `QUICKREF.md`, `GRAMMAR.md`, `INTROSPECTION.md`); prefer the docs site when online
@@ -142,7 +143,7 @@ cross-target gate: Go, Kotlin, Python, C#, Dart and Swift 6 each compile, and
 where the toolchain is on `PATH` they build and answer the Node benchmark cases
 (`npm run test:tsengine`). Dart also keeps the `gallery/ts_parser` golden
 (AST identical to the JS `-d` demo). Details:
-[`TS_ENGINE_PERF.md`](TS_ENGINE_PERF.md), [`TARGET_NOTES.md`](TARGET_NOTES.md).
+[`TS_ENGINE_PERF.md`](gallery/ranger_engine/TS_ENGINE_PERF.md), [`TARGET_NOTES.md`](TARGET_NOTES.md).
 
 **Thinner CI** — `PHP`, `Java 7` and `Scala` still have operator templates and
 appear in the syntax-app matrix, but they are not on the large-engine golden
@@ -434,7 +435,7 @@ Two things about that table are worth knowing before quoting it. **Every row is
 checked against Node's answer** and the command exits non-zero if any engine
 disagrees — a fast wrong answer is not a result. And **the strcat row flatters
 us**: QuickJS 2021-03-27 has no string ropes, so its `s += "ab"` is quadratic.
-Quote the excluding-strcat number. [`QUICKJS_COMPARISON.md`](QUICKJS_COMPARISON.md)
+Quote the excluding-strcat number. [`QUICKJS_COMPARISON.md`](gallery/ranger_engine/QUICKJS_COMPARISON.md)
 has the measurement methodology and a source-level comparison of what the two
 engines do differently.
 
@@ -590,9 +591,9 @@ npx vitest run tests/compiler-sourcemap.test.ts
 
 **Implementation notes** (for compiler hackers)
 
-- `compiler/ng_SourceMap.rgr` — `SourceMapBuilder`, VLQ encoder, `addMappingFromNode()` uses `node.getLine()` + `node.code.getColumn(sp)` (not stale `node.row`).
-- `compiler/ng_writer.rgr` — `lineNumber` / `columnNumber` on emit, `walkNodeStack`, `outMapped()`, `.map` write in `CodeFileSystem.saveTo`.
-- Flag: `compiler/ng_Compiler.rgr` → `flag sourcemap`; enabled in `VirtualCompiler.rgr` via `fileSystem.enableSourceMaps()`.
+- `compiler/SourceMap.rgr` — `SourceMapBuilder`, VLQ encoder, `addMappingFromNode()` uses `node.getLine()` + `node.code.getColumn(sp)` (not stale `node.row`).
+- `compiler/CodeWriter.rgr` — `lineNumber` / `columnNumber` on emit, `walkNodeStack`, `outMapped()`, `.map` write in `CodeFileSystem.saveTo`.
+- Flag: `compiler/Compiler.rgr` → `flag sourcemap`; enabled in `VirtualCompiler.rgr` via `fileSystem.enableSourceMaps()`.
 
 ## Getting started with Hello World
 
@@ -971,7 +972,7 @@ Dart and Python `public` writes the export list itself — a barrel file and
 `__all__` are exactly the kind of list that rots when a person maintains it. A
 class with no doc block is not opted into the API model and compiles exactly as
 it did before. Design and the remaining targets:
-[`PLAN_API_DOCS.md`](PLAN_API_DOCS.md).
+[`PLAN_API_DOCS.md`](docs/plans/PLAN_API_DOCS.md).
 
 ## Types
 
@@ -1633,16 +1634,16 @@ are Ranger source under `compiler/`. Changing them means compiling the compiler
 with itself:
 
 ```bash
-npm run compile      # compiler/ng_Compiler.rgr -> bin/output.js, and copies Lang.rgr to bin/
+npm run compile      # compiler/Compiler.rgr -> bin/output.js, and copies Lang.rgr to bin/
 npm test             # the suite runs against the compiler you just built
 ```
 
 `npm run compile` is the self-hosting step: the current `bin/output.js` compiles
 the new sources into the next `bin/output.js`. A change that breaks codegen can
 therefore break the compiler that builds the next one, so keep the previous
-`bin/output.js` until the tests pass; `versions/<target>/compiler.js` holds
-earlier builds. The standalone form is `ranger-compiler -compiler -copysrc`,
-which writes `bin/ng_Compiler.js`.
+`bin/output.js` until the tests pass -- `git checkout bin/output.js` restores
+the last committed build, and the git history of that one file is the rollback.
+The published CLI is `dist/rgrc.js`, built by `npm run build:dist`.
 
 # Annotations
 

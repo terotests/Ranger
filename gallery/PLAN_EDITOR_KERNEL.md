@@ -259,7 +259,7 @@ what is wanted:
 > **Generics arrived**, so the kernel holds its own operations and the rows
 > below are choices rather than workarounds. What was asked for, what shipped,
 > and the one warning still open — the representation of `@(optional)`, which a
-> `Maybe<T>` would inherit — are in [`PLAN_GENERICS.md`](../PLAN_GENERICS.md).
+> `Maybe<T>` would inherit — are in [`PLAN_GENERICS.md`](../docs/plans/PLAN_GENERICS.md).
 
 | idiom | example | use it for |
 |---|---|---|
@@ -316,7 +316,7 @@ Landed with generics. `OfficeHistory` is now `@params(Op)` and holds the
 operations; all four editors use it — `OfficeHistory@(DocEditOp)`,
 `@(SpreadsheetUndoOp)`, `@(BookDocument)`, `@(PptxEditSnapshot)` — and
 `PptxEdit` gave up its own history array and cursor. That was the acceptance
-test named in [`PLAN_GENERICS.md`](../PLAN_GENERICS.md), and it is met.
+test named in [`PLAN_GENERICS.md`](../docs/plans/PLAN_GENERICS.md), and it is met.
 
 *Still open:* the **wiring test** — one test that drives a transaction through
 all four editors and asserts that one action is one undo in each. Four

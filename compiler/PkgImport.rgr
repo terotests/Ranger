@@ -5,9 +5,10 @@
 ; Fetching a Git pack is compiler/PkgFetch.rgr; this only looks up files that
 ; are already on disk.
 ;
-; JSON is a tiny object/string/int reader so this file does not pull
-; compiler/ng_jsonParser.rgr (that parser is not part of the compiler
-; compile graph and does not type-check there).
+; JSON is a tiny object/string/int reader written for this file. The general
+; reader is lib/JSON.rgr, which the compiler already imports through
+; stdlib.rgr; this one answers three questions about a ranger.json without
+; building a document.
 
 Import "InputFileSystem.rgr"
 

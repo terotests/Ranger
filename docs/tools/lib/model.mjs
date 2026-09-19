@@ -1,7 +1,7 @@
 /**
  * The operator model: types, categories and signatures.
  *
- * The category predicates follow compiler/ng_RangerDocGenerator.rgr, so the
+ * The category predicates follow compiler/RangerDocGenerator.rgr, so the
  * groups of the site are the groups that the `-operatordoc` option writes. The
  * bitwise group is an addition: the operators of that group are numeric, and a
  * reader looks for them under their own heading.

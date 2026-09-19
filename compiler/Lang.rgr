@@ -8946,7 +8946,7 @@ bool r_string_ends_with(const std::string& str, const std::string& suffix) {
         ; change only the first one -- JavaScript, Go, C++ and Python -- and the
         ; other half changed them all, so the same program gave two answers.
         ; The compiler itself wants every occurrence: the trigraph escaping of
-        ; ng_RangerCppClassWriter.rgr calls `(replace s "??=" ...)` on a whole
+        ; RangerCppClassWriter.rgr calls `(replace s "??=" ...)` on a whole
         ; generated file.
         replace _:string (str:string oldStr:string newStr:string) {
             templates {
@@ -10945,7 +10945,7 @@ std::string r_cpp_str_to_uppercase(const std::string& original)
             }
         }
 
-        ; proc_send is lowered in ng_RangerProcessProcSend.rgr (typed handler methods, overload match).
+        ; proc_send is lowered in RangerProcessProcSend.rgr (typed handler methods, overload match).
 
         begin_dispatch_turn@(moves@( 1 )) cmdBeginDispatchTurn:void (root:RangerProcessBase) {
             templates {

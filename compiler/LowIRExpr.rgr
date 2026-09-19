@@ -1,0 +1,2498 @@
+; SPDX-License-Identifier: MIT
+
+; Lowering an expression to LowIR. `lowerExpr` is the dispatcher; the rest is
+; what each kind of expression costs in instructions -- a call, a string
+; concatenation, a comparison, a cast, an optional unwrapped.
+
+extension LowIRBuilderPass {
+
+  fn exprIsObjectPtr:boolean (node:CodeNode lctx:LowIRLowerContext) {
+    if (node.hasNewOper) {
+      return true
+    }
+    ; `this` is the self POINTER, converted with ptrtoint wherever it is used
+    ; as a value. It is a parameter, not a slot, so the name-based tests below
+    ; never saw it: `(ast == this)` compared two i64s as i32.
+    if (node.value_type == RangerNodeType.VRef) {
+      if (node.vref == "this") {
+        return true
+      }
+    }
+    ; `unwrap x` is a no-op at this level: it has the pointer-ness of its
+    ; operand. Without this `push kids (unwrap node.body)` looked like a scalar
+    ; and the already-pointer-sized field load was widened with `zext i32`.
+    if node.has_operator {
+      if ((node.getOperator()) == "unwrap") {
+        return (this.exprIsObjectPtr((node.getSecond()) lctx))
+      }
+    }
+    ; A CALL returning a class is pointer-sized too. Only `new` and VRefs were
+    ; recognised, so `push node.children (this.parseBindingElement())` treated
+    ; the returned object as a 32-bit scalar and widened it -- `zext i32` over a
+    ; value that was already i64.
+    if ((node.has_call || node.is_direct_method_call) || node.hasFnCall) {
+      if (!null? node.fnDesc) {
+        def cfd (unwrap node.fnDesc)
+        if (!null? cfd.nameNode) {
+          def crn (unwrap cfd.nameNode)
+          if (this.isObjectTypeName(crn.type_name)) {
+            return true
+          }
+        }
+      }
+    }
+    if (node.value_type != RangerNodeType.VRef) {
+      return false
+    }
+    if ((indexOf node.vref ".") >= 0) {
+      def parts:[string] (strsplit node.vref ".")
+      if ((array_length parts) >= 2) {
+        def recv (itemAt parts 0)
+        def fld (itemAt parts 1)
+        def cls (this.resolveObjectClass(recv lctx))
+        if ((strlen cls) > 0) {
+          if (this.fieldIsStringSlot(cls fld)) {
+            return false
+          }
+          if (this.fieldIsBufferSlot(cls fld)) {
+            return false
+          }
+          if (this.fieldIsBoolSlot(cls fld)) {
+            return false
+          }
+          if (this.fieldIsPtrArraySlot(cls fld)) {
+            return false
+          }
+          def ftype (this.fieldIrTypeFor(cls fld))
+          if (ftype == "i32") {
+            return false
+          }
+          ; a double is pointer-WIDTH but is not a reference
+          if (ftype == "f64") {
+            return false
+          }
+          return true
+        }
+      }
+    }
+    if (this.resolvesToField(node.vref lctx)) {
+      if (this.fieldIsStringSlot(lctx.className node.vref)) {
+        return false
+      }
+      if (this.fieldIsBufferSlot(lctx.className node.vref)) {
+        return false
+      }
+      if (this.fieldIsBoolSlot(lctx.className node.vref)) {
+        return false
+      }
+      if (this.fieldIsPtrArraySlot(lctx.className node.vref)) {
+        return false
+      }
+      def ftype (this.fieldIrTypeFor(lctx.className node.vref))
+      if (ftype == "i32") {
+        return false
+      }
+      return true
+    }
+    if (has lctx.objectSlots node.vref) {
+      return true
+    }
+    return false
+  }
+
+  fn exprIsString:boolean (node:CodeNode) {
+    if (node.value_type == RangerNodeType.String) {
+      return true
+    }
+    ; Only a bare grouping `( expr )` forwards the question to its children. An
+    ; expression that APPLIES something answers with its own result type, not
+    ; its operands': `(indexOf path "ranger:")` is an int even though a string
+    ; literal sits inside it, and recursing made `(indexOf path "x") == 0`
+    ; compile to strcmp on the i32 index. Concatenation is not lost -- callers
+    ; ask exprIsStringish, which handles `+` from the operand types.
+    if (node.has_operator || node.has_call || node.is_direct_method_call || node.hasFnCall) {
+      return false
+    }
+    if (node.expression) {
+      for node.children item:CodeNode i {
+        if (this.exprIsString(item)) {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
+  fn exprMightBeString:boolean (node:CodeNode lctx:LowIRLowerContext) {
+    if (this.exprIsStringish(node lctx)) {
+      return true
+    }
+    if (node.has_operator) {
+      def op (node.getOperator())
+      if (op == "+") {
+        def aNode (node.getSecond())
+        def bNode (node.getThird())
+        if ((this.exprIsStringish(aNode lctx)) || (this.exprIsStringish(bNode lctx))) {
+          return true
+        }
+      }
+    }
+    if (node.infix_operator) {
+      if (!null? node.infix_node) {
+        return (this.exprMightBeString((unwrap node.infix_node) lctx))
+      }
+    }
+    return false
+  }
+
+  fn lowerStringConcat:string (aNode:CodeNode bNode:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def aStr (this.exprIsStringish(aNode lctx))
+    def bStr (this.exprIsStringish(bNode lctx))
+    if (this.exprIsString(aNode)) {
+      aStr = true
+    }
+    if (this.exprIsString(bNode)) {
+      bStr = true
+    }
+    ; freestanding WASM: convert int operands to strings, then ranger_str_concat.
+    if (this.wasmStrEnabled(lctx)) {
+      def aV (this.lowerConcatOperand(aNode aStr lctx))
+      def sa aV
+      if (aStr == false) {
+        def a1:[string]
+        def a1t:[string]
+        push a1 aV
+        push a1t "i32"
+        sa = (builder.emitCall("ranger_str_from_int" "i8*" a1 a1t))
+      }
+      def bV (this.lowerConcatOperand(bNode bStr lctx))
+      def sb bV
+      if (bStr == false) {
+        def b1:[string]
+        def b1t:[string]
+        push b1 bV
+        push b1t "i32"
+        sb = (builder.emitCall("ranger_str_from_int" "i8*" b1 b1t))
+      }
+      def cargs:[string]
+      def cargTypes:[string]
+      push cargs sa
+      push cargTypes "i8*"
+      push cargs sb
+      push cargTypes "i8*"
+      def cres (builder.emitCall("ranger_str_concat" "i8*" cargs cargTypes))
+      ; register the intermediates + result with the statement arena. The
+      ; int->string conversions we just allocated (aStr/bStr == false) are fresh;
+      ; a fresh nested operand (concat/to_string result) is already pending from
+      ; its own producer, so it is not re-registered. Borrowed operands
+      ; (literal/VRef/field) are never registered. Everything unclaimed is freed
+      ; at statement end (concat already copied the bytes into `cres`).
+      if (aStr == false) {
+        this.registerFreshStringTemp(sa lctx)
+      }
+      if (bStr == false) {
+        this.registerFreshStringTemp(sb lctx)
+      }
+      this.registerFreshStringTemp(cres lctx)
+      return cres
+    }
+    ; Per-operand format AND argument type. A non-string operand used to be
+    ; assumed i32, so concatenating a DOUBLE emitted `%d` and passed the f64
+    ; value in an i32 slot -- invalid IR, and the wrong text if it had linked.
+    ; %g matches what to_string does for a double on this target.
+    ; A double operand is FORMATTED first and concatenated as a string: "%g"
+    ; would truncate it to six significant digits.
+    def aIsF64:boolean false
+    def bIsF64:boolean false
+    def aFmt:string "%d"
+    def aType:string "i32"
+    if aStr {
+      aFmt = "%s"
+      aType = "i8*"
+    } {
+      if (this.exprIsF64(aNode)) {
+        aFmt = "%s"
+        aType = "i8*"
+        aIsF64 = true
+      }
+    }
+    def bFmt:string "%d"
+    def bType:string "i32"
+    if bStr {
+      bFmt = "%s"
+      bType = "i8*"
+    } {
+      if (this.exprIsF64(bNode)) {
+        bFmt = "%s"
+        bType = "i8*"
+        bIsF64 = true
+      }
+    }
+    ; Lower the operands BEFORE fixing the format: the guesses above read the
+    ; source node, and a few shapes (a ternary over strings, a captured local)
+    ; are only settled by the type the builder actually emitted. Getting this
+    ; wrong printed a pointer with %d and passed it in an i32 slot.
+    def aVal0 (this.lowerConcatOperand(aNode aStr lctx))
+    def aVal:string aVal0
+    if aIsF64 {
+      aVal = (this.emitDoubleToString(aVal0 lctx))
+      this.registerFreshStringTemp(aVal lctx)
+    }
+    def bVal0 (this.lowerConcatOperand(bNode bStr lctx))
+    def bVal:string bVal0
+    if bIsF64 {
+      bVal = (this.emitDoubleToString(bVal0 lctx))
+      this.registerFreshStringTemp(bVal lctx)
+    }
+    def aEmitT:string (builder.emittedType(aVal))
+    if (aEmitT == "i8*") {
+      aFmt = "%s"
+      aType = "i8*"
+    }
+    def bEmitT:string (builder.emittedType(bVal))
+    if (bEmitT == "i8*") {
+      bFmt = "%s"
+      bType = "i8*"
+    }
+    ; ...and the mirror: a value the guess called a string but that came out as
+    ; an integer.
+    if ((strlen aEmitT) > 0) {
+      if (aEmitT != "i8*") {
+        if (aType == "i8*") {
+          if (aIsF64 == false) {
+            aFmt = "%d"
+            aType = "i32"
+            aVal = (this.coerceArg(aVal "i32" lctx))
+          }
+        }
+      }
+    }
+    if ((strlen bEmitT) > 0) {
+      if (bEmitT != "i8*") {
+        if (bType == "i8*") {
+          if (bIsF64 == false) {
+            bFmt = "%d"
+            bType = "i32"
+            bVal = (this.coerceArg(bVal "i32" lctx))
+          }
+        }
+      }
+    }
+    if (aType == "i32") {
+      aVal = (this.coerceArg(aVal "i32" lctx))
+    }
+    if (bType == "i32") {
+      bVal = (this.coerceArg(bVal "i32" lctx))
+    }
+    ; Both sides ended up strings, which is the overwhelmingly common `+`.
+    ; Formatting them costs five traversals of the operands and two
+    ; allocations, all through printf: measure with snprintf, allocate, format
+    ; with sprintf, strdup the result, free the buffer. callgrind on the
+    ; compiler compiling itself put strlen at 46% of all instructions and
+    ; malloc at another 11%, and this is where they came from. One runtime call
+    ; does it in one traversal each and one allocation.
+    def concatTarget (LowIRTarget.resolve((unwrap lctx.ctx)))
+    if (concatTarget.usesLibc && ((aType == "i8*") && (bType == "i8*"))) {
+      def ccParams:[string]
+      push ccParams "i8*"
+      push ccParams "i8*"
+      this.ensureExternDecl("ranger_str_concat2" "i8*" ccParams false)
+      def ccArgs:[string]
+      def ccTypes:[string]
+      push ccArgs aVal
+      push ccTypes "i8*"
+      push ccArgs bVal
+      push ccTypes "i8*"
+      def ccRes (builder.emitCall("ranger_str_concat2" "i8*" ccArgs ccTypes))
+      ; the result is a fresh malloc'd buffer bound to no local, exactly like
+      ; the strdup the general path returns
+      this.registerFreshStringTemp(ccRes lctx)
+      return ccRes
+    }
+    def fmtLit:string (aFmt + bFmt)
+    def fmtG (this.internStringGlobal(fmtLit false))
+    def fmtPtr (builder.emitStrPtr(fmtG (this.stringGlobalByteLen(fmtG))))
+    ; MEASURE, then allocate. The buffer used to be a fixed 4096 bytes, so any
+    ; concatenation whose result was longer wrote past it -- appending a suffix
+    ; to a 32 KB source file corrupted the heap before the program did anything.
+    def measParams:[string]
+    push measParams "i8*"
+    push measParams "i64"
+    push measParams "i8*"
+    this.ensureExternDecl("snprintf" "i32" measParams true)
+    def nullSized (builder.emitConst(lctx.ptrType "0"))
+    def nullBuf (builder.emitIntToI8Ptr(nullSized lctx.ptrType))
+    def zeroLen (builder.emitConst("i64" "0"))
+    def measArgs:[string]
+    def measTypes:[string]
+    push measArgs nullBuf
+    push measTypes "i8*"
+    push measArgs zeroLen
+    push measTypes "i64"
+    push measArgs fmtPtr
+    push measTypes "i8*"
+    push measArgs aVal
+    push measTypes aType
+    push measArgs bVal
+    push measTypes bType
+    def needLen (builder.emitCall("snprintf" "i32" measArgs measTypes))
+    def onePad (builder.emitConst("i32" "1"))
+    def sz (builder.emitBin("add" "i32" needLen onePad))
+    def raw (builder.emitHeapAlloc(sz))
+    def buf (builder.emitIntToI8Ptr(raw lctx.ptrType))
+    def args:[string]
+    def argTypes:[string]
+    push args buf
+    push argTypes "i8*"
+    push args fmtPtr
+    push argTypes "i8*"
+    push args aVal
+    push argTypes aType
+    push args bVal
+    push argTypes bType
+    builder.emitCall("sprintf" "i32" args argTypes)
+    def memTarget (LowIRTarget.resolve((unwrap lctx.ctx)))
+    if (memTarget.usesLibc) {
+      def dup (this.emitStrdupExpr(buf lctx))
+      def freeArgs:[string]
+      def freeArgTypes:[string]
+      push freeArgs buf
+      push freeArgTypes "i8*"
+      def voidType:string "void"
+      builder.emitCall("free" voidType freeArgs freeArgTypes)
+      ; Hand the result to the statement arena, exactly as the wasm path does
+      ; for ranger_str_concat: an inline throwaway like `print("n=" + n)` binds
+      ; to no local, so without this nobody ever frees it.
+      this.registerFreshStringTemp(dup lctx)
+      return dup
+    }
+    return buf
+  }
+
+  fn lowerNullify:void (node:CodeNode lctx:LowIRLowerContext) {
+    def target (node.getSecond())
+    if (target.value_type != RangerNodeType.VRef) {
+      return
+    }
+    def varName:string target.vref
+    if ((has lctx.slots varName) == false) {
+      return
+    }
+    def slotType:string lctx.ptrType
+    if (has lctx.slotTypes varName) {
+      slotType = (unwrap (get lctx.slotTypes varName))
+    }
+    ; A BOXED local's slot holds the shared cell, not the value: nulling the
+    ; slot would drop the cell on the floor and leave the closure writing into
+    ; memory this scope no longer names. `nullify` means "the VALUE is gone",
+    ; so it goes through the cell like every other write.
+    if (has lctx.boxedLocals varName) {
+      def cellPtr (this.loadSlotRaw(varName lctx.ptrType lctx))
+      def logT:string (this.boxedCellType(varName lctx))
+      def storeT:string (this.boxedStorageType(logT))
+      def zero (lctx.builder.emitConst(storeT "0"))
+      if (storeT == "i8*") {
+        zero = "null"
+      }
+      lctx.builder.emitStoreTypedAt(cellPtr 0 zero storeT)
+      return
+    }
+    def nullVal (lctx.builder.emitConst(slotType "0"))
+    if (slotType == "i8*") {
+      nullVal = "null"
+    }
+    def slot (unwrap (get lctx.slots varName))
+    lctx.builder.emitStore(slotType nullVal slot)
+  }
+
+  fn exprIsF64:boolean (node:CodeNode) {
+    if (node.value_type == RangerNodeType.Double) {
+      return true
+    }
+    if (node.eval_type == RangerNodeType.Double) {
+      return true
+    }
+    if (node.type_name == "double") {
+      return true
+    }
+    if (node.eval_type_name == "double") {
+      return true
+    }
+    ; libm calls answer a double even when the node carries no type info.
+    if node.has_operator {
+      def fop (node.getOperator())
+      if (this.isLibmUnaryOp(fop)) { return true }
+      if (this.isLibmBinaryOp(fop)) { return true }
+      if (fop == "M_PI") { return true }
+      if (fop == "to_double") { return true }
+      if (fop == "wall_clock_ms") { return true }
+      if (fop == "random") { return true }
+    }
+    return false
+  }
+
+  fn lowerStr2Double:string (node:CodeNode lctx:LowIRLowerContext) {
+    def inNode (node.getSecond())
+    def val (this.lowerExpr(inNode lctx))
+    def args:[string]
+    def argTypes:[string]
+    push args val
+    push argTypes "i8*"
+    return (lctx.builder.emitCall("ranger_str2double" "f64" args argTypes))
+  }
+
+  fn lowerStr2Int:string (node:CodeNode lctx:LowIRLowerContext) {
+    def inNode (node.getSecond())
+    def val (this.lowerExpr(inNode lctx))
+    def args:[string]
+    def argTypes:[string]
+    push args val
+    push argTypes "i8*"
+    return (lctx.builder.emitCall("ranger_str2int" "i32" args argTypes))
+  }
+
+  fn exprIsPtrSizedRead:boolean (rawNode:CodeNode lctx:LowIRLowerContext) {
+    ; `( (itemAt xs i) )` -- a parenthesised group is one more node in the way,
+    ; and stopping at it reported "not a pointer read" and widened an i64.
+    def itemNode (this.unwrapCondExpr(rawNode))
+    if ((itemNode.has_operator) == false) {
+      return false
+    }
+    def op (itemNode.getOperator())
+    ; `unwrap` is transparent: `push list (unwrap (get m n))` is the same read
+    ; with a wrapper around it, and stopping at the wrapper widened a value
+    ; that was already pointer sized.
+    if (op == "unwrap") {
+      return (this.exprIsPtrSizedRead((itemNode.getSecond()) lctx))
+    }
+    if ((op != "itemAt") && (op != "get")) {
+      return false
+    }
+    def collNode (itemNode.getSecond())
+    ; `(get m k)` on a MAP: the runtime answers i64 for every value kind except
+    ; int, so an object or string value is already pointer sized. Only the
+    ; array element type was consulted, so `push list (get map n)` widened a
+    ; value that was an i64 already.
+    if (op == "get") {
+      if (collNode.value_type == RangerNodeType.VRef) {
+        def mk:string (this.smapValueKind(collNode.vref lctx))
+        if (this.isStringMapVref(collNode.vref lctx)) {
+          if (mk == "int") {
+            return false
+          }
+          return true
+        }
+      }
+    }
+    def elemType (this.arrayElemTypeName(collNode lctx))
+    if ((strlen elemType) == 0) {
+      return false
+    }
+    ; Only the types the runtime stores as a pointer. Anything scalar still
+    ; needs the widen, so an unknown element type keeps the old behaviour.
+    if (LowIRUtil.isStringType(elemType)) {
+      return true
+    }
+    if (elemType == "int") { return false }
+    if (elemType == "boolean") { return false }
+    if (elemType == "double") { return false }
+    if (elemType == "float") { return false }
+    if (elemType == "char") { return false }
+    return true
+  }
+
+  fn lowerToString:string (node:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def valNode (node.getSecond())
+    def isF64 (this.exprIsF64(valNode))
+    def val (this.lowerExpr(valNode lctx))
+    ; A BOOLEAN answers "true"/"false", the way every other target spells it --
+    ; not the 1/0 that "%d" writes. `to_string (a == b)` came out as `1`.
+    if (isF64 == false) {
+      if (this.exprProducesI1(valNode lctx)) {
+        if ((this.wasmStrEnabled(lctx)) == false) {
+          def tG (this.internStringGlobal("true" false))
+          def fG (this.internStringGlobal("false" false))
+          lctx.shadowCounter = (lctx.shadowCounter + 1)
+          def bslot:string ("%bstr" + ("" + lctx.shadowCounter))
+          builder.emitAlloca("i8*" bslot)
+          def tL (builder.freshLabel("bs_true"))
+          def fL (builder.freshLabel("bs_false"))
+          def eL (builder.freshLabel("bs_end"))
+          builder.terminateBrIf(val tL fL)
+          builder.startBlock(tL)
+          builder.emitStore("i8*" (builder.emitStrPtr(tG (this.stringGlobalByteLen(tG)))) bslot)
+          builder.terminateBr(eL)
+          builder.startBlock(fL)
+          builder.emitStore("i8*" (builder.emitStrPtr(fG (this.stringGlobalByteLen(fG)))) bslot)
+          builder.terminateBr(eL)
+          builder.startBlock(eL)
+          return (builder.emitLoad("i8*" bslot))
+        }
+      }
+    }
+    ; A boolean operand arrives as i1; sprintf's "%d" takes an i32. Widen it
+    ; here so `to_string (v.isFunction())` does not pass an i1 in an i32 slot.
+    if (isF64 == false) {
+      if (this.exprProducesI1(valNode lctx)) {
+        val = (builder.emitZextI1ToI32(val))
+      }
+    }
+    ; freestanding WASM: ranger_str_from_int (f64 truncated to i32 for now).
+    if (this.wasmStrEnabled(lctx)) {
+      def iv val
+      if isF64 {
+        iv = (builder.emitCast("fptosi" "i32" "f64" val))
+      }
+      def sargs:[string]
+      def sargTypes:[string]
+      push sargs iv
+      push sargTypes "i32"
+      def sres (builder.emitCall("ranger_str_from_int" "i8*" sargs sargTypes))
+      this.registerFreshStringTemp(sres lctx)
+      return sres
+    }
+    ; A double formats by JavaScript's rules, not "%g" -- see
+    ; ranger_double_to_string. sprintf stays for the integer case.
+    if isF64 {
+      def dstr (this.emitDoubleToString(val lctx))
+      this.registerFreshStringTemp(dstr lctx)
+      return dstr
+    }
+    def sz (builder.emitConst("i32" "64"))
+    def raw (builder.emitHeapAlloc(sz))
+    def buf (builder.emitIntToI8Ptr(raw lctx.ptrType))
+    def fmtLit:string "%d"
+    def valType:string "i32"
+    def fmtG (this.internStringGlobal(fmtLit false))
+    def args:[string]
+    def argTypes:[string]
+    push args buf
+    push argTypes "i8*"
+    push args (builder.emitStrPtr(fmtG (this.stringGlobalByteLen(fmtG))))
+    push argTypes "i8*"
+    push args val
+    push argTypes valType
+    builder.emitCall("sprintf" "i32" args argTypes)
+    def memTarget (LowIRTarget.resolve((unwrap lctx.ctx)))
+    if (memTarget.usesLibc) {
+      def dup (this.emitStrdupExpr(buf lctx))
+      def freeArgs:[string]
+      def freeArgTypes:[string]
+      push freeArgs buf
+      push freeArgTypes "i8*"
+      builder.emitCall("free" "void" freeArgs freeArgTypes)
+      return dup
+    }
+    return buf
+  }
+
+  fn lowerStrFromCode:string (node:CodeNode fnName:string lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def codeNode (node.getSecond())
+    def code (this.lowerExpr(codeNode lctx))
+    def args:[string]
+    def argTypes:[string]
+    push args code
+    push argTypes "i32"
+    def codeRes (builder.emitCall(fnName "i8*" args argTypes))
+    this.registerFreshStringTemp(codeRes lctx)
+    return codeRes
+  }
+
+  fn lowerStrlenOn:string (textNode:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def strPtr (this.lowerExpr(textNode lctx))
+    def args:[string]
+    def argTypes:[string]
+    push args strPtr
+    push argTypes "i8*"
+    def lenFn:string "strlen"
+    if (this.wasmStrEnabled(lctx)) {
+      lenFn = "ranger_str_len"
+    }
+    return (builder.emitCall(lenFn "i32" args argTypes))
+  }
+
+  fn lowerStrlen:string (node:CodeNode lctx:LowIRLowerContext) {
+    def irI32:string "i32"
+    def textNode (node.getSecond())
+    def text (this.printTextFromNode(textNode))
+    def builder (lctx.builder)
+    if ((strlen text) > 0) {
+      def len (strlen text)
+      return (builder.emitConst(irI32 ("" + len)))
+    }
+    def strPtr (this.lowerExpr(textNode lctx))
+    def args:[string]
+    def argTypes:[string]
+    push args strPtr
+    push argTypes "i8*"
+    def lenFn:string "strlen"
+    if (this.wasmStrEnabled(lctx)) {
+      lenFn = "ranger_str_len"
+    }
+    return (builder.emitCall(lenFn "i32" args argTypes))
+  }
+
+  fn lowerEnumRef:string (node:CodeNode lctx:LowIRLowerContext) {
+    if (node.eval_type != RangerNodeType.Enum) {
+      return ""
+    }
+    if ((array_length node.ns) < 2) {
+      return ""
+    }
+    if (null? lctx.ctx) {
+      return ""
+    }
+    def ctx (unwrap lctx.ctx)
+    def rootObjName:string (itemAt node.ns 0)
+    def e@(optional):RangerAppEnum (ctx.getEnum(rootObjName))
+    if (null? e) {
+      return ""
+    }
+    def enumName:string (itemAt node.ns 1)
+    def theEnum (unwrap e)
+    if ((has theEnum.values enumName) == false) {
+      return ""
+    }
+    def v:int (unwrap (get theEnum.values enumName))
+    return (lctx.builder.emitConst("i32" ("" + v)))
+  }
+
+  fn lowerTernary:string (node:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def condNode (node.getSecond())
+    def aNode (node.getThird())
+    def bNode (itemAt node.children 3)
+    def irt:string (this.argIrType(aNode lctx))
+    if (irt == "i1") {
+      irt = "i32"
+    }
+    def slot (builder.emitAlloca(irt (builder.freshTemp("tern"))))
+    def cond (this.lowerCond(condNode lctx))
+    def aL (builder.freshLabel("tern_a"))
+    def bL (builder.freshLabel("tern_b"))
+    def endL (builder.freshLabel("tern_end"))
+    builder.terminateBrIf(cond aL bL)
+    builder.startBlock(aL)
+    def av (this.lowerExpr(aNode lctx))
+    if (this.exprProducesI1(aNode lctx)) {
+      av = (builder.emitZextI1ToI32(av))
+    }
+    builder.emitStore(irt av slot)
+    builder.terminateBr(endL)
+    builder.startBlock(bL)
+    def bv (this.lowerExpr(bNode lctx))
+    if (this.exprProducesI1(bNode lctx)) {
+      bv = (builder.emitZextI1ToI32(bv))
+    }
+    builder.emitStore(irt bv slot)
+    builder.terminateBr(endL)
+    builder.startBlock(endL)
+    return (builder.emitLoad(irt slot))
+  }
+
+  fn lowerStr2Fn:string (node:CodeNode fnName:string retType:string lctx:LowIRLowerContext) {
+    def aNode (node.getSecond())
+    def bNode (node.getThird())
+    def a (this.lowerExpr(aNode lctx))
+    def b (this.lowerExpr(bNode lctx))
+    def ps:[string]
+    push ps "i8*"
+    push ps "i8*"
+    this.ensureExternDecl(fnName retType ps false)
+    def args:[string]
+    def argTypes:[string]
+    push args a
+    push argTypes "i8*"
+    push args b
+    push argTypes "i8*"
+    return (lctx.builder.emitCall(fnName retType args argTypes))
+  }
+
+  fn lowerStr3Fn:string (node:CodeNode fnName:string lctx:LowIRLowerContext) {
+    def aNode (node.getSecond())
+    def bNode (node.getThird())
+    def cNode (itemAt node.children 3)
+    def a (this.lowerExpr(aNode lctx))
+    def b (this.lowerExpr(bNode lctx))
+    def c (this.lowerExpr(cNode lctx))
+    def ps:[string]
+    push ps "i8*"
+    push ps "i8*"
+    push ps "i8*"
+    this.ensureExternDecl(fnName "i8*" ps false)
+    def args:[string]
+    def argTypes:[string]
+    push args a
+    push argTypes "i8*"
+    push args b
+    push argTypes "i8*"
+    push args c
+    push argTypes "i8*"
+    def res (lctx.builder.emitCall(fnName "i8*" args argTypes))
+    this.registerFreshStringTemp(res lctx)
+    return res
+  }
+
+  fn lowerStr2IntFn:string (node:CodeNode fnName:string retType:string lctx:LowIRLowerContext) {
+    def aNode (node.getSecond())
+    def bNode (node.getThird())
+    def cNode (itemAt node.children 3)
+    def a (this.lowerExpr(aNode lctx))
+    def b (this.lowerExpr(bNode lctx))
+    def c (this.lowerExpr(cNode lctx))
+    def ps:[string]
+    push ps "i8*"
+    push ps "i8*"
+    push ps "i32"
+    this.ensureExternDecl(fnName retType ps false)
+    def args:[string]
+    def argTypes:[string]
+    push args a
+    push argTypes "i8*"
+    push args b
+    push argTypes "i8*"
+    push args c
+    push argTypes "i32"
+    return (lctx.builder.emitCall(fnName retType args argTypes))
+  }
+
+  fn lowerStr1IntFn:string (node:CodeNode fnName:string retType:string lctx:LowIRLowerContext) {
+    def aNode (node.getSecond())
+    def a (this.lowerExpr(aNode lctx))
+    def ps:[string]
+    push ps "i8*"
+    this.ensureExternDecl(fnName retType ps false)
+    def args:[string]
+    def argTypes:[string]
+    push args a
+    push argTypes "i8*"
+    return (lctx.builder.emitCall(fnName retType args argTypes))
+  }
+
+  fn lowerStr0Fn:string (fnName:string lctx:LowIRLowerContext) {
+    def ps:[string]
+    this.ensureExternDecl(fnName "i8*" ps false)
+    def args:[string]
+    def argTypes:[string]
+    def res (lctx.builder.emitCall(fnName "i8*" args argTypes))
+    this.registerFreshStringTemp(res lctx)
+    return res
+  }
+
+  fn lowerStr1Fn:string (node:CodeNode fnName:string lctx:LowIRLowerContext) {
+    def aNode (node.getSecond())
+    def a (this.lowerExpr(aNode lctx))
+    def ps:[string]
+    push ps "i8*"
+    this.ensureExternDecl(fnName "i8*" ps false)
+    def args:[string]
+    def argTypes:[string]
+    push args a
+    push argTypes "i8*"
+    def res (lctx.builder.emitCall(fnName "i8*" args argTypes))
+    this.registerFreshStringTemp(res lctx)
+    return res
+  }
+
+  fn lowerStruct:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    def st@(lives):LowIRStruct (new LowIRStruct())
+    st.name = cl.name
+    def ptrType (this.irModule.ptrType)
+    def structVars (this.collectStructVars(cl ctx))
+    for structVars v:RangerAppParamDesc i {
+      if (null? v.nameNode) {
+        continue
+      }
+      def nn (unwrap v.nameNode)
+      def f@(lives):LowIRField (new LowIRField())
+      f.name = v.name
+      def isObjArray:boolean false
+      if (LowIRUtil.isArrayTypeName(nn.type_name)) {
+        isObjArray = true
+      } {
+        if (nn.value_type == RangerNodeType.Array) {
+          if ((strlen nn.array_type) > 0) {
+            ; All array-typed fields (including [int]) are stored as ptr-arrays:
+            ; element access uses RtPtrArray_* and the field must be allocated in
+            ; the constructor. (Local [int] vars still use the inline RtArray desc.)
+            isObjArray = true
+          }
+        }
+      }
+      def isStrMap:boolean false
+      def isIntRefMap:boolean false
+      if (nn.value_type == RangerNodeType.Hash) {
+        if (LowIRUtil.isStringType(nn.key_type)) {
+          isStrMap = true
+        } {
+          ; `[int:T]` with a REFERENCE value: RtIMap_*, not the 4-byte RtMap_*.
+          if (nn.key_type == "int") {
+            if ((strlen nn.array_type) > 0) {
+              if (nn.array_type != "int") {
+                isIntRefMap = true
+              }
+            }
+          }
+        }
+      }
+      ; An int-keyed reference map is a KIND of its own, and saying so has to
+      ; exclude the object fallback below -- this branch used to fall straight
+      ; through it, so the field came out flagged BOTH isIntMap and isObject.
+      ; lowerTypeDesc asks about isObject first, so the destructor handed an
+      ; RtIMap pointer to ranger_obj_release, which read an object header that
+      ; was never there. EvPropertyBag.slots is one of these.
+      if isIntRefMap {
+        f.irType = ptrType
+        f.isIntMap = true
+        if (LowIRUtil.isStringType(nn.array_type)) {
+          f.isIntMapStr = true
+        }
+        push st.fields f
+        continue
+      }
+      if isStrMap {
+        f.irType = ptrType
+        f.isStringMap = true
+        if (nn.array_type == "int") {
+          f.isStringMapInt = true
+        }
+        if (nn.array_type == "boolean") {
+          f.isStringMapInt = true
+        }
+        if (LowIRUtil.isStringType(nn.array_type)) {
+          f.isStringMapStr = true
+        }
+      } {
+      if isObjArray {
+        f.irType = ptrType
+        f.isPtrArray = true
+      } {
+        if (LowIRUtil.isBufferTypeName(nn.type_name)) {
+          f.irType = ptrType
+          f.isBuffer = true
+        } {
+          if (LowIRUtil.isStringType(nn.type_name)) {
+            f.irType = ptrType
+            f.isString = true
+          } {
+            if (nn.type_name == "boolean") {
+              f.irType = "i32"
+              f.isBool = true
+            } {
+              if (LowIRUtil.isSupportedPrimitive(nn.type_name)) {
+                f.irType = (LowIRUtil.fieldIrType(nn.type_name))
+              } {
+                ; An ENUM field is an int, not an object. Without this
+                ; `def eval_type:RangerNodeType` became a pointer-sized field
+                ; and every `node.eval_type == RangerNodeType.Array` compared
+                ; an i64 against the i32 the enum constant lowers to.
+                if (this.isEnumTypeName(nn.type_name)) {
+                  f.irType = "i32"
+                } {
+                  f.irType = ptrType
+                  f.isObject = true
+                }
+              }
+            }
+          }
+        }
+      }
+      }
+      push st.fields f
+    }
+    push this.irModule.structs st
+    def target (LowIRTarget.resolve(ctx))
+    this.lowerTypeDesc(st target)
+  }
+
+  fn exprCarriesFreshRef:boolean (node:CodeNode lctx:LowIRLowerContext) {
+    def n (this.unwrapInfixExpr(node))
+    if n.hasNewOper {
+      return true
+    }
+    if ((n.has_call || n.is_direct_method_call) || n.hasFnCall) {
+      return true
+    }
+    if n.has_operator {
+      def op (n.getOperator())
+      if (op == "keys") { return true }
+      if (op == "strsplit") { return true }
+      if (op == "make") { return true }
+    }
+    return false
+  }
+
+  fn exprIsBorrowedPtrArrayRef:boolean (node:CodeNode lctx:LowIRLowerContext) {
+    def vr:string node.vref
+    if ((indexOf vr ".") >= 0) {
+      def parts:[string] (strsplit vr ".")
+      if ((array_length parts) >= 2) {
+        def n:int (array_length parts)
+        def recvPrefix:string (this.joinDotPrefix(parts (n - 1)))
+        def fld (itemAt parts (n - 1))
+        def cls (this.resolveObjectClassChain(recvPrefix lctx))
+        if ((strlen cls) > 0) {
+          return (this.fieldIsPtrArraySlot(cls fld))
+        }
+      }
+      return false
+    }
+    if (this.resolvesToField(vr lctx)) {
+      return (this.fieldIsPtrArraySlot(lctx.className vr))
+    }
+    if ((this.collectionKind(vr lctx)) != "ptr_array") {
+      return false
+    }
+    for lctx.ownedCollectionLocals own:string i {
+      if (own == vr) {
+        return false
+      }
+    }
+    return true
+  }
+
+  fn exprIsI64Operator:boolean (node:CodeNode) {
+    def n (this.unwrapInfixExpr(node))
+    if n.has_operator {
+      if ((n.getOperator()) == "file_mtime") {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn unwrapCondExpr:CodeNode (node:CodeNode) {
+    def n (this.unwrapInfixExpr(node))
+    if n.expression {
+      def ecnt (array_length n.children)
+      if (ecnt == 1) {
+        return (this.unwrapCondExpr((itemAt n.children 0)))
+      }
+    }
+    ; A parenthesised group does not always carry the `expression` flag, and
+    ; stopping at it hid the comparison inside: `if (isStatic == false)` then
+    ; looked like a scalar and the i1 was wrapped in a second `icmp ne i32`.
+    ; Only a pure wrapper is peeled -- one child, no name, nothing applied.
+    if ((array_length n.children) == 1) {
+      if ((strlen n.vref) == 0) {
+        if ((n.has_operator || n.has_call) == false) {
+          if ((n.hasFnCall || n.is_direct_method_call) == false) {
+            if ((n.has_lambda || n.has_lambda_call) == false) {
+              if (n.hasNewOper == false) {
+                if (n.value_type != RangerNodeType.Array) {
+                  return (this.unwrapCondExpr((itemAt n.children 0)))
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    return n
+  }
+
+  fn exprProducesI1:boolean (node:CodeNode lctx:LowIRLowerContext) {
+    def exprNode (this.unwrapCondExpr(node))
+    if (exprNode.value_type == RangerNodeType.Boolean) {
+      return true
+    }
+    ; A BOXED boolean local -- one a lambda assigns to -- reads back through its
+    ; cell, and the read narrows the stored word to i1. Without this the slot
+    ; looked like a plain pointer and `to_string flag` took the "%d" path,
+    ; printing 1 where every other target prints true.
+    if (exprNode.value_type == RangerNodeType.VRef) {
+      if (has lctx.boxedLocals exprNode.vref) {
+        if ((this.boxedCellType(exprNode.vref lctx)) == "i1") {
+          return true
+        }
+      }
+    }
+    ; A boolean FIELD read off an expression receiver: emitFieldLoadOn narrows
+    ; a bool slot to i1, so the comparison has to agree.
+    def pi1cls:string (this.propertyReadClass(exprNode lctx))
+    if ((strlen pi1cls) > 0) {
+      def pi1Node (exprNode.getThird())
+      if (this.fieldIsBoolSlot(pi1cls pi1Node.vref)) {
+        return true
+      }
+    }
+    ; Operators that answer a boolean. The C helpers behind them return int and
+    ; are narrowed to i1 at the call site, so every consumer has to agree they
+    ; are i1 -- otherwise a comparison widens the wrong side.
+    if exprNode.has_operator {
+      def bOp (exprNode.getOperator())
+      if (bOp == "has") { return true }
+      if (bOp == "contains") { return true }
+      if (bOp == "file_exists") { return true }
+      if (bOp == "startsWith") { return true }
+      if (bOp == "endsWith") { return true }
+      if (bOp == "dir_exists") { return true }
+      if (bOp == "isArray") { return true }
+      if (bOp == "getBoolean") { return true }
+      if (bOp == "is_tty") { return true }
+      ; A COMPARISON is an i1 by construction. Leaving this out made
+      ; `if (isStatic == false)` wrap the icmp in a second `icmp ne i32`.
+      if (this.isCompareOp(bOp)) { return true }
+      if (bOp == "&&") { return true }
+      if (bOp == "||") { return true }
+      if (bOp == "!") { return true }
+      if (bOp == "null?") { return true }
+      if (bOp == "!null?") { return true }
+    }
+    ; A call THROUGH a lambda value: lowerLambdaCall types the call_indirect
+    ; from the node's own eval type, so a boolean-returning callback answers i1
+    ; and the `if` around it has to compare an i1, not an i32.
+    if exprNode.has_lambda_call {
+      if (exprNode.eval_type_name == "boolean") {
+        return true
+      }
+    }
+    if (exprNode.has_call || exprNode.is_direct_method_call || exprNode.hasFnCall) {
+      if (!null? exprNode.fnDesc) {
+        def fd (unwrap exprNode.fnDesc)
+        if (!null? fd.nameNode) {
+          def rn (unwrap fd.nameNode)
+          if (rn.type_name == "boolean") {
+            return true
+          }
+        }
+      }
+    }
+    if (exprNode.value_type == RangerNodeType.VRef) {
+      if (has lctx.slotTypes exprNode.vref) {
+        def st (unwrap (get lctx.slotTypes exprNode.vref))
+        if (st == "i1") {
+          return true
+        }
+      }
+      if (this.resolvesToField(exprNode.vref lctx)) {
+        if (this.fieldIsBoolSlot(lctx.className exprNode.vref)) {
+          return true
+        }
+      }
+      if ((indexOf exprNode.vref ".") >= 0) {
+        def parts:[string] (strsplit exprNode.vref ".")
+        if ((array_length parts) >= 2) {
+          def recv (itemAt parts 0)
+          def fld (itemAt parts 1)
+          def cls (this.resolveObjectClass(recv lctx))
+          if ((strlen cls) > 0) {
+            if (this.fieldIsBoolSlot(cls fld)) {
+              return true
+            }
+          }
+        }
+      }
+    }
+    if exprNode.has_operator {
+      def op (exprNode.getOperator())
+      if (op == "||") {
+        return true
+      }
+      if (op == "&&") {
+        return true
+      }
+      if (op == "null?") {
+        return true
+      }
+      if (op == "!null?") {
+        return true
+      }
+      return (this.isCompareOp(op))
+    }
+    return false
+  }
+
+  fn lowerCondOperand:string (node:CodeNode lctx:LowIRLowerContext) {
+    return (this.lowerCond(node lctx))
+  }
+
+  fn lowerCond:string (node:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def condNode (this.unwrapCondExpr(node))
+    if (condNode.value_type == RangerNodeType.VRef) {
+      def vref:string condNode.vref
+      if (has lctx.slotTypes vref) {
+        def st (unwrap (get lctx.slotTypes vref))
+        if (st == "i1") {
+          return (this.loadSlot(vref "i1" lctx))
+        }
+      }
+      if (this.resolvesToField(vref lctx)) {
+        if (this.fieldIsBoolSlot(lctx.className vref)) {
+          return (this.emitFieldLoad(vref lctx))
+        }
+      }
+    }
+    def v (this.lowerExpr(condNode lctx))
+    ; What was actually EMITTED settles it: a comparison already answers i1,
+    ; and wrapping it in `icmp ne i32` produced IR that would not assemble.
+    if ((builder.emittedType(v)) == "i1") {
+      return v
+    }
+    if (this.exprProducesI1(condNode lctx)) {
+      return v
+    }
+    def vref (this.condVref(condNode))
+    if ((strlen vref) > 0) {
+      if (has lctx.slotTypes vref) {
+        def st (unwrap (get lctx.slotTypes vref))
+        if (st == "i1") {
+          return v
+        }
+      }
+    }
+    ; A POINTER-sized condition -- `if (node.left)` on an optional reference
+    ; field, or on an object local -- has to be tested in the pointer type.
+    ; Testing it against an i32 zero emitted `icmp ne i32 <i64 value>, 0`, which
+    ; is invalid IR on a 64-bit target and would have looked only at the low
+    ; half of the address if it had been accepted.
+    ; The type the builder actually emitted decides the comparison; the
+    ; source-shape tests below are only for values it did not produce (a
+    ; parameter, a global).
+    def emitted:string (builder.emittedType(v))
+    if ((strlen emitted) > 0) {
+      if (emitted == "f64") {
+        def zeroFe (builder.emitConst("f64" "0.0"))
+        return (builder.emitIcmpTyped("ne" "f64" v zeroFe))
+      }
+      def zeroE (builder.emitConst(emitted "0"))
+      return (builder.emitIcmpTyped("ne" emitted v zeroE))
+    }
+    if (lctx.ptrType != "i32") {
+      if (this.exprIsObjectPtr(condNode lctx)) {
+        def zeroP (builder.emitConst(lctx.ptrType "0"))
+        return (builder.emitIcmpTyped("ne" lctx.ptrType v zeroP))
+      }
+    }
+    ; A DOUBLE condition -- `if (x)` on a numeric field -- compares against 0.0
+    ; in f64. Against an i32 zero it was invalid IR, and would have read the
+    ; low half of the bit pattern if it had been accepted.
+    if (this.exprIsF64(condNode)) {
+      def zeroF (builder.emitConst("f64" "0.0"))
+      return (builder.emitIcmpTyped("ne" "f64" v zeroF))
+    }
+    def zero (builder.emitConst("i32" "0"))
+    return (builder.emitIcmp("ne" v zero))
+  }
+
+  fn lowerExpr:string (node:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def irI32:string "i32"
+    def irF64:string "f64"
+    def irI1:string "i1"
+    def zero:string "0"
+    def one:string "1"
+
+    ; a call through a lambda value -> call_indirect (checked before has_call,
+    ; which is also set on the node)
+    if node.has_lambda_call {
+      return (this.lowerLambdaCall(node lctx))
+    }
+    ; a lambda literal -> a closure record
+    if node.has_lambda {
+      return (this.lowerLambdaValue(node lctx))
+    }
+
+    ; `(new T)` in VALUE position -- a call argument, a `set m k (new T())`, a
+    ; `push xs (new T())`. It also carries has_call (the constructor), so the
+    ; branch below claimed it first and lowerCall fell through to a bare
+    ; `%new`. Every place that already handled `new` did so before calling
+    ; lowerExpr at all, which is why only these positions were affected.
+    if node.hasNewOper {
+      def newCls (this.newTargetClassName(node lctx))
+      if ((strlen newCls) > 0) {
+        return (this.lowerNewObject(newCls (node.getThird()) lctx))
+      }
+    }
+
+    if (node.has_call || node.is_direct_method_call) {
+      return (this.lowerCall(node lctx))
+    }
+
+    ; `(property obj field)` — the flow parser rewrites a field read off an
+    ; EXPRESSION receiver (`(itemAt xs i).isHole`) into this shape. It does not
+    ; carry has_operator, so it slipped past the operator switch and reached the
+    ; VRef path, which emitted the bare head name `%property` -- not a value.
+    if (this.isPropertyReadNode(node)) {
+      return (this.lowerPropertyRead(node lctx))
+    }
+
+    if node.infix_operator {
+      if (!null? node.infix_node) {
+        return (this.lowerExpr((unwrap node.infix_node) lctx))
+      }
+    }
+
+    if node.has_operator {
+      def opName (node.getOperator())
+      ; JSON first: keys / array_length / to_string are shared with the
+      ; collection operators, and the receiver decides which one is meant.
+      if (opName == "json_object") {
+        return (this.lowerJsonNew("RtJson_new_object" lctx))
+      }
+      if (opName == "json_array") {
+        return (this.lowerJsonNew("RtJson_new_array" lctx))
+      }
+      if (opName == "getStr") {
+        return (this.lowerJsonGet(node "RtJson_get_str" "i8*" "i8*" lctx))
+      }
+      if (opName == "getInt") {
+        def rawI (this.lowerJsonGet(node "RtJson_get_int" "i64" "i64" lctx))
+        return (lctx.builder.emitCast("trunc" "i32" "i64" rawI))
+      }
+      if (opName == "getDouble") {
+        return (this.lowerJsonGet(node "RtJson_get_double" "f64" "f64" lctx))
+      }
+      if (opName == "getBoolean") {
+        return (this.toI1((this.lowerJsonGet(node "RtJson_get_bool" "i32" "i32" lctx)) lctx))
+      }
+      if (opName == "getObject") {
+        return (this.lowerJsonGet(node "RtJson_get_object" "i64" "i64" lctx))
+      }
+      if (opName == "getArray") {
+        return (this.lowerJsonGet(node "RtJson_get_array" "i64" "i64" lctx))
+      }
+      if (opName == "getValue") {
+        return (this.lowerJsonGetValue(node lctx))
+      }
+      if (opName == "isArray") {
+        return (this.toI1((this.lowerJson1(node "RtJson_is_array" "i32" lctx)) lctx))
+      }
+      ; `asArray` narrows a union to an array handle -- the same pointer.
+      if (opName == "asArray") {
+        return (this.lowerExpr((node.getSecond()) lctx))
+      }
+      if (opName == "from_string") {
+        return (this.lowerJson1(node "RtJson_parse" "i64" lctx))
+      }
+      if (opName == "get") {
+        return (this.lowerCollectionGet(node lctx))
+      }
+      if (opName == "has") {
+        return (this.lowerCollectionHas(node lctx))
+      }
+      if (opName == "array_length") {
+        if (this.nodeIsJson((node.getSecond()) lctx)) {
+          return (this.lowerJson1(node "RtJson_length" "i32" lctx))
+        }
+        return (this.lowerCollectionLen(node lctx))
+      }
+      if (opName == "keys") {
+        if (this.nodeIsJson((node.getSecond()) lctx)) {
+          return (this.lowerJson1(node "RtJson_keys" "i64" lctx))
+        }
+        return (this.lowerSMapKeys(node lctx))
+      }
+      ; `indexOf` is BOTH the string search and the array one -- the compiler
+      ; writes `(indexOf m.isCalledBy this)` to find an element. Lowering every
+      ; one to ranger_str_index_of handed a descriptor to a routine expecting
+      ; i8*, which clang rejects.
+      if (opName == "indexOf") {
+        if (this.nodeIsArrayExpr((node.getSecond()) lctx)) {
+          return (this.lowerArrayIndexOf(node lctx))
+        }
+        return (this.lowerStr2Fn(node "ranger_str_index_of" "i32" lctx))
+      }
+      if (opName == "lastIndexOf") {
+        return (this.lowerStr2Fn(node "ranger_str_last_index_of" "i32" lctx))
+      }
+      if (opName == "contains") {
+        return (this.toI1((this.lowerStr2Fn(node "ranger_str_contains" "i32" lctx)) lctx))
+      }
+      if (opName == "startsWith") {
+        return (this.toI1((this.lowerStr2Fn(node "ranger_str_starts_with" "i32" lctx)) lctx))
+      }
+      if (opName == "endsWith") {
+        return (this.toI1((this.lowerStr2Fn(node "ranger_str_ends_with" "i32" lctx)) lctx))
+      }
+      ; `replace` changes EVERY occurrence (the operator's documented contract),
+      ; so the C helper loops rather than stopping at the first hit.
+      if (opName == "replace") {
+        return (this.lowerStr3Fn(node "ranger_str_replace" lctx))
+      }
+      if (opName == "indexOfFrom") {
+        return (this.lowerStr2IntFn(node "ranger_str_index_of_from" "i32" lctx))
+      }
+      if (opName == "sha256") {
+        return (this.lowerStr1Fn(node "ranger_sha256_hex" lctx))
+      }
+      if (opName == "sort") {
+        return (this.lowerArraySort(node lctx))
+      }
+      ; The ternary `(? cond a b)`. `max` and `min` are macros that expand to
+      ; it, so a `(max a b)` anywhere emitted a bare `%?`.
+      if (opName == "?") {
+        return (this.lowerTernary(node lctx))
+      }
+      ; `join xs sep` -- the ptr-array of strings and the separator go to C,
+      ; which knows the descriptor layout (the same one strsplit builds).
+      if (opName == "join") {
+        def jArrNode (node.getSecond())
+        def jSepNode (node.getThird())
+        def jDesc (this.loadArrayDescExpr(jArrNode lctx))
+        def jSep (this.lowerExpr(jSepNode lctx))
+        def jPs:[string]
+        push jPs "i64"
+        push jPs "i8*"
+        this.ensureExternDecl("ranger_str_join" "i8*" jPs false)
+        def jArgs:[string]
+        def jTypes:[string]
+        push jArgs jDesc
+        push jTypes lctx.ptrType
+        push jArgs jSep
+        push jTypes "i8*"
+        def jRes (lctx.builder.emitCall("ranger_str_join" "i8*" jArgs jTypes))
+        this.registerFreshStringTemp(jRes lctx)
+        return jRes
+      }
+      ; `current_time_ms` -- the same wall clock `wall_clock_ms` already reads.
+      def ansiV:string (this.tryLowerAnsi(opName lctx))
+      if ((strlen ansiV) > 0) {
+        return ansiV
+      }
+      if (opName == "is_tty") {
+        def ttyPs:[string]
+        this.ensureExternDecl("ranger_is_tty" "i32" ttyPs false)
+        def ttyArgs:[string]
+        def ttyTypes:[string]
+        return (this.toI1((lctx.builder.emitCall("ranger_is_tty" "i32" ttyArgs ttyTypes)) lctx))
+      }
+      if (opName == "current_time_ms") {
+        def tPs:[string]
+        this.ensureExternDecl("ranger_wall_clock_ms" "double" tPs false)
+        def tArgs:[string]
+        def tTypes:[string]
+        return (lctx.builder.emitCall("ranger_wall_clock_ms" "f64" tArgs tTypes))
+      }
+      ; A charbuffer is the string's own bytes on this backend, the way the C++
+      ; template hands back `c_str()`.
+      if (opName == "to_charbuffer") {
+        return (this.lowerExpr((node.getSecond()) lctx))
+      }
+      ; `array_extract xs i` removes the i-th element AND answers it.
+      if (opName == "array_extract") {
+        return (this.lowerArrayExtract(node lctx))
+      }
+      if (opName == "reverse") {
+        return (this.lowerArrayReverse(node lctx))
+      }
+      if (opName == "trim") {
+        return (this.lowerStr1Fn(node "ranger_str_trim" lctx))
+      }
+      if (opName == "trim_right") {
+        return (this.lowerStr1Fn(node "ranger_str_trim_right" lctx))
+      }
+      if (opName == "normalize") {
+        return (this.lowerStr1Fn(node "ranger_path_normalize" lctx))
+      }
+      ; `pathname` is the compiler's own name for dirname.
+      if ((opName == "path_dirname") || (opName == "pathname")) {
+        return (this.lowerStr1Fn(node "ranger_path_dirname" lctx))
+      }
+      if (opName == "current_directory") {
+        return (this.lowerStr0Fn("ranger_current_directory" lctx))
+      }
+      ; The directory of argv[0]: the compiler looks for Lang.rgr and lib/ next
+      ; to its own executable, the same rule the C++ build follows.
+      if (opName == "install_directory") {
+        return (this.lowerStr0Fn("ranger_install_directory" lctx))
+      }
+      if (opName == "to_lowercase") {
+        return (this.lowerStr1Fn(node "ranger_str_lower" lctx))
+      }
+      if (opName == "to_uppercase") {
+        return (this.lowerStr1Fn(node "ranger_str_upper" lctx))
+      }
+      if (opName == "file_exists") {
+        return (this.toI1((this.lowerStr2Fn(node "ranger_file_exists" "i32" lctx)) lctx))
+      }
+      if (opName == "dir_exists") {
+        return (this.toI1((this.lowerStr1IntFn(node "ranger_dir_exists" "i32" lctx)) lctx))
+      }
+      ; `env_var` is optional:string. An unset variable is a NULL pointer, which
+      ; is what `null?` on a string compares against on this backend.
+      if (opName == "env_var") {
+        return (this.lowerStr1Fn(node "ranger_env_var" lctx))
+      }
+      ; `cast` carries no runtime meaning here: every object is an untyped
+      ; pointer in the IR, so the value passes through. Without this the node
+      ; reached the VRef path and emitted a bare `%cast`.
+      if (opName == "cast") {
+        return (this.lowerExpr((node.getSecond()) lctx))
+      }
+      ; The message the last `throw` stored. A module with no throw in it never
+      ; writes the global, so the load answers 0 and the empty string stands in
+      ; for the placeholder this used to return unconditionally.
+      if (opName == "error_msg") {
+        this.irModule.usesErrorMsg = true
+        def emRaw (lctx.builder.emitGlobalGet("__rg_error_msg"))
+        def emPtr (lctx.builder.emitIntToI8Ptr(emRaw lctx.ptrType))
+        def emG (this.internStringGlobal("" false))
+        def emLen (this.stringGlobalByteLen(emG))
+        def emEmpty (lctx.builder.emitStrPtr(emG emLen))
+        return (this.emitStrOrDefault(emPtr emEmpty lctx))
+      }
+      if (opName == "M_PI") {
+        return (lctx.builder.emitConst("f64" "3.141592653589793"))
+      }
+      ; libm unary/binary doubles. Each maps 1:1 onto the C function of the
+      ; same name, so one shared lowering covers them all.
+      if (this.isLibmUnaryOp(opName)) {
+        return (this.lowerLibmUnary(opName node lctx))
+      }
+      if (this.isLibmBinaryOp(opName)) {
+        return (this.lowerLibmBinary(opName node lctx))
+      }
+      if (opName == "buffer_to_string") {
+        def bNode2 (node.getSecond())
+        def bufV (this.lowerExpr(bNode2 lctx))
+        def bLen (this.emitPtrArrayLenOrBufferLen(bufV lctx))
+        def bp:[string]
+        push bp "i64"
+        push bp "i32"
+        this.ensureExternDecl("ranger_buffer_to_string" "i8*" bp false)
+        def bArgs:[string]
+        def bTypes:[string]
+        push bArgs bufV
+        push bTypes lctx.ptrType
+        push bArgs bLen
+        push bTypes "i32"
+        def bRes (lctx.builder.emitCall("ranger_buffer_to_string" "i8*" bArgs bTypes))
+        this.registerFreshStringTemp(bRes lctx)
+        return bRes
+      }
+      if (opName == "file_mtime") {
+        return (this.lowerStr2Fn(node "ranger_file_mtime" "i64" lctx))
+      }
+      if (opName == "random") {
+        def rp:[string]
+        this.ensureExternDecl("ranger_random" "double" rp false)
+        def rArgs:[string]
+        def rTypes:[string]
+        return (lctx.builder.emitCall("ranger_random" "f64" rArgs rTypes))
+      }
+      if (opName == "wall_clock_ms") {
+        def wp:[string]
+        this.ensureExternDecl("ranger_wall_clock_ms" "double" wp false)
+        def wArgs:[string]
+        def wTypes:[string]
+        return (lctx.builder.emitCall("ranger_wall_clock_ms" "f64" wArgs wTypes))
+      }
+      ; `strsplit s sep` -> a fresh ptr-array of owned strings, built by the C
+      ; runtime (the RtPtrArray_* routines are emitted IR and cannot be called
+      ; from C, but the descriptor layout is shared).
+      if (opName == "strsplit") {
+        def spA (node.getSecond())
+        def spB (node.getThird())
+        def spAv (this.lowerExpr(spA lctx))
+        def spBv (this.lowerExpr(spB lctx))
+        def spDecl:[string]
+        push spDecl "i8*"
+        push spDecl "i8*"
+        this.ensureExternDecl("ranger_str_split" lctx.ptrType spDecl false)
+        def spArgs:[string]
+        def spTypes:[string]
+        push spArgs spAv
+        push spTypes "i8*"
+        push spArgs spBv
+        push spTypes "i8*"
+        return (lctx.builder.emitCall("ranger_str_split" lctx.ptrType spArgs spTypes))
+      }
+      if (opName == "strlen") {
+        return (this.lowerStrlen(node lctx))
+      }
+      if (opName == "is") {
+        if ((array_length node.children) > 2) {
+          return (this.lowerShapeIs(node lctx))
+        }
+      }
+      ; `to <Union> v` -- widen a case value to the union that holds it. Every
+      ; target that boxes a case makes this the identity, and this one does
+      ; too: a union value IS the pointer to the case object. Without a
+      ; lowering the widened operand fell through to the unknown-name path and
+      ; became the constant 0, so `Value.equals(a b)` -- whose arguments the
+      ; front end widens -- compared 0 against 0.
+      if (opName == "to") {
+        if ((array_length node.children) > 2) {
+          return (this.lowerExpr((node.getThird()) lctx))
+        }
+      }
+      ; `identical a b` -- are these two names the SAME object? An object
+      ; travels as its pointer here, so the question is a pointer compare. It
+      ; had no lowering at all, so it answered false for every pair, including
+      ; a value and its own alias. The generated equality of a shape's
+      ; @(reference) case asks it (PLAN_SHAPES.md S4).
+      if (opName == "identical") {
+        if ((array_length node.children) > 2) {
+          def idA (this.lowerExpr((node.getSecond()) lctx))
+          def idB (this.lowerExpr((node.getThird()) lctx))
+          return (lctx.builder.emitIcmpTyped("eq" lctx.ptrType idA idB))
+        }
+      }
+      if (opName == "length") {
+        def lenNode (node.getSecond())
+        if (lenNode.value_type == RangerNodeType.VRef) {
+          def pdesc (this.ptrArrayDescFromVref(lenNode.vref lctx))
+          if ((strlen pdesc) > 0) {
+            return (this.emitPtrArrayLen(pdesc lctx))
+          }
+        }
+        if ((strlen (this.collectionKind(lenNode.vref lctx))) > 0) {
+          return (this.lowerCollectionLen(node lctx))
+        }
+        if (lenNode.value_type == RangerNodeType.String) {
+          return (this.lowerStrlen(node lctx))
+        }
+        ; None of the shapes above: a `length` with no answer used to fall out
+        ; of the switch and emit a bare `%length`. A string expression (a field
+        ; read, a call) is the remaining case; anything else is a collection.
+        if (this.exprIsStringish(lenNode lctx)) {
+          return (this.lowerStrlen(node lctx))
+        }
+        ; A `charbuffer` IS the string's own bytes on this backend (that is what
+        ; to_charbuffer answers), so its length is the string length. Sending it
+        ; to the collection path answered the pointer itself.
+        def lenInner (this.unwrapUnwrapOper(lenNode))
+        def lenTn:string lenInner.eval_type_name
+        if ((strlen lenTn) == 0) {
+          lenTn = lenInner.type_name
+        }
+        if (lenTn == "charbuffer") {
+          return (this.lowerStrlenOn(lenInner lctx))
+        }
+        if (LowIRUtil.isStringType(lenTn)) {
+          return (this.lowerStrlenOn(lenInner lctx))
+        }
+        return (this.lowerCollectionLen(node lctx))
+      }
+      if (opName == "itemAt") {
+        return (this.lowerItemAt(node lctx))
+      }
+      if (opName == "make") {
+        return (this.lowerCollectionMake(node lctx))
+      }
+      if (opName == "poll_keypress") {
+        return (this.lowerPollKeypress(lctx))
+      }
+      if (opName == "shell_arg_cnt") {
+        return (this.lowerShellArgCnt(lctx))
+      }
+      if (opName == "shell_arg") {
+        return (this.lowerShellArg(node lctx))
+      }
+      if (opName == "read_file") {
+        return (this.lowerReadFile(node lctx))
+      }
+      if (opName == "buffer_alloc") {
+        return (this.lowerBufferAlloc(node lctx))
+      }
+      if (opName == "buffer_length") {
+        return (this.lowerBufferLength(node lctx))
+      }
+      if (opName == "buffer_get") {
+        return (this.lowerBufferGet(node lctx))
+      }
+      if (opName == "buffer_fill") {
+        return (this.lowerBufferFill(node lctx))
+      }
+      if (opName == "buffer_set") {
+        return (this.lowerBufferSet(node lctx))
+      }
+      if (opName == "buffer_read_file") {
+        return (this.lowerBufferReadFile(node lctx))
+      }
+      if (opName == "buffer_write_file") {
+        return (this.lowerBufferWriteFile(node lctx))
+      }
+      if (opName == "int_buffer_alloc") {
+        return (this.lowerIntBufferAlloc(node lctx))
+      }
+      if (opName == "int_buffer_get") {
+        return (this.lowerIntBufferGet(node lctx))
+      }
+      if (opName == "int_buffer_set") {
+        return (this.lowerIntBufferSet(node lctx))
+      }
+      if (opName == "int_buffer_fill") {
+        return (this.lowerIntBufferFill(node lctx))
+      }
+      if (opName == "to_double") {
+        return (this.lowerToDouble(node lctx))
+      }
+      if (opName == "to_int") {
+        return (this.lowerToInt(node lctx))
+      }
+      if (opName == "floor") {
+        return (this.lowerFloor(node lctx))
+      }
+      if (opName == "str2double") {
+        return (this.lowerStr2Double(node lctx))
+      }
+      if (opName == "str2int") {
+        return (this.lowerStr2Int(node lctx))
+      }
+      if (opName == "charAt") {
+        return (this.lowerCharAt(node lctx))
+      }
+      ; `ccode "["` / `charcode s` -- the code unit at index 0. Both carry a
+      ; `*` template, so they type checked here all along and then emitted a
+      ; bare `%ccode`, a name that is never defined, because nothing lowered
+      ; them. `ccode` of a LITERAL is a compile-time constant, which is what
+      ; the `(cc 1)` template does on the text targets.
+      if ((opName == "ccode") || (opName == "charcode")) {
+        def ccNode (node.getSecond())
+        if (ccNode.value_type == RangerNodeType.String) {
+          def ccLit:string ccNode.string_value
+          if ((strlen ccLit) > 0) {
+            def ccVal:int (charcode ccLit)
+            return (lctx.builder.emitConst("i32" ("" + ccVal)))
+          }
+          return (lctx.builder.emitConst("i32" "0"))
+        }
+        def ccStr (this.lowerExpr(ccNode lctx))
+        def ccPs:[string]
+        push ccPs "i8*"
+        push ccPs "i32"
+        this.ensureExternDecl("ranger_char_at" "i32" ccPs false)
+        def ccArgs:[string]
+        def ccTypes:[string]
+        push ccArgs ccStr
+        push ccTypes "i8*"
+        push ccArgs (lctx.builder.emitConst("i32" "0"))
+        push ccTypes "i32"
+        return (lctx.builder.emitCall("ranger_char_at" "i32" ccArgs ccTypes))
+      }
+      if (opName == "substring") {
+        return (this.lowerSubstring(node lctx))
+      }
+      if (opName == "to_string") {
+        if (this.nodeIsJson((node.getSecond()) lctx)) {
+          def jstr (this.lowerJson1(node "RtJson_stringify" "i8*" lctx))
+          this.registerFreshStringTemp(jstr lctx)
+          return jstr
+        }
+        return (this.lowerToString(node lctx))
+      }
+      if (opName == "strfromcode") {
+        return (this.lowerStrFromCode(node "ranger_str_fromcode" lctx))
+      }
+      if (opName == "rawbytechar") {
+        return (this.lowerStrFromCode(node "ranger_str_frombyte" lctx))
+      }
+      if (opName == "at") {
+        return (this.lowerAt(node lctx))
+      }
+      if (opName == "null?") {
+        def argNode (node.getSecond())
+        def ptr (this.lowerExpr(argNode lctx))
+        if (this.exprIsObjectPtr(argNode lctx)) {
+          def zero (builder.emitConst(lctx.ptrType "0"))
+          return (builder.emitIcmpTyped("eq" lctx.ptrType ptr zero))
+        }
+        return (this.lowerPtrIsNull(ptr lctx))
+      }
+      if (opName == "!null?") {
+        def argNode (node.getSecond())
+        def ptr (this.lowerExpr(argNode lctx))
+        if (this.exprIsObjectPtr(argNode lctx)) {
+          def zero (builder.emitConst(lctx.ptrType "0"))
+          return (builder.emitIcmpTyped("ne" lctx.ptrType ptr zero))
+        }
+        return (this.lowerPtrIsNotNull(ptr lctx))
+      }
+      if (opName == "unwrap") {
+        def argNode (node.getSecond())
+        def uv (this.lowerExpr(argNode lctx))
+        this.guardUnwrapInTry(uv lctx)
+        return uv
+      }
+      def binResult (this.lowerBinaryOp(opName node lctx))
+      if ((strlen binResult) > 0) {
+        return binResult
+      }
+    }
+
+    if (node.infix_operator) {
+      if (!null? node.infix_node) {
+        return (this.lowerExpr((unwrap node.infix_node) lctx))
+      }
+    }
+
+    if node.expression {
+      if ((node.hasFnCall == false) && (node.is_direct_method_call == false) && (node.has_call == false)) {
+        def ecnt (array_length node.children)
+        if (ecnt > 0) {
+          return (this.lowerExpr((itemAt node.children 0) lctx))
+        }
+      }
+    }
+
+    if (node.isPrimitive()) {
+      switch node.value_type {
+        case RangerNodeType.Integer {
+          return (builder.emitConst(irI32 ("" + node.int_value)))
+        }
+        case RangerNodeType.Double {
+          return (builder.emitConst(irF64 ("" + node.double_value)))
+        }
+        case RangerNodeType.Boolean {
+          if node.boolean_value {
+            return (builder.emitConst(irI1 one))
+          }
+          return (builder.emitConst(irI1 zero))
+        }
+      }
+    }
+
+    if (node.value_type == RangerNodeType.String) {
+      def text (node.string_value)
+      def gname (this.internStringGlobal(text false))
+      def byteLen (this.stringGlobalByteLen(gname))
+      return (builder.emitStrPtr(gname byteLen))
+    }
+
+    if node.hasNewOper {
+      def clsName (this.newTargetClassName(node lctx))
+      if ((strlen clsName) > 0) {
+        def argsNode (node.getThird())
+        return (this.lowerNewObject(clsName argsNode lctx))
+      }
+    }
+
+    if (node.value_type == RangerNodeType.VRef) {
+      ; `RangerNodeType.VRef` and friends: an enum member is an integer
+      ; constant, the way every text writer spells it. Without this the name
+      ; fell through to the slot read below and emitted a bare `%RangerNodeType.NoType`
+      ; -- 900 undefined values in the compiler's own IR.
+      def enumConst:string (this.lowerEnumRef(node lctx))
+      if ((strlen enumConst) > 0) {
+        return enumConst
+      }
+      ; `this` as a value (e.g. `return this`, `f(this)`): the self pointer is
+      ; the LLVM parameter %self, not a slot named %this. Objects travel as the
+      ; pointer-sized integer, so convert.
+      if (node.vref == "this") {
+        if ((strlen lctx.selfPtr) > 0) {
+          return (builder.emitPtrToInt(lctx.selfPtr))
+        }
+      }
+      ; L3: a boxed value local — read the current value through the shared cell.
+      ; a boxed local reads through loadSlot like any other name
+      if ((indexOf node.vref ".") >= 0) {
+        def parts:[string] (strsplit node.vref ".")
+        if ((array_length parts) >= 2) {
+          ; last segment is the field; everything before it is the receiver chain
+          ; (`h.pos.x` -> receiver `h.pos`, field `x`), resolved by loading each
+          ; intermediate object field.
+          def n:int (array_length parts)
+          def recvPrefix:string (this.joinDotPrefix(parts (n - 1)))
+          def fld (itemAt parts (n - 1))
+          def cls (this.resolveObjectClassChain(recvPrefix lctx))
+          if ((strlen cls) > 0) {
+            def sptr (this.resolveObjectPtrChain(recvPrefix cls lctx))
+            return (this.emitFieldLoadOn(cls sptr fld lctx))
+          }
+        }
+      }
+      if (this.resolvesToField(node.vref lctx)) {
+        return (this.emitFieldLoad(node.vref lctx))
+      }
+      if (has lctx.collectionSlots node.vref) {
+        def collKind (unwrap (get lctx.collectionSlots node.vref))
+        if (collKind == "ptr_array") {
+          return (this.loadSlot(node.vref lctx.ptrType lctx))
+        }
+        if (collKind == "array") {
+          return (this.loadCollectionDesc(node.vref lctx))
+        }
+      }
+      return (this.loadSlot(node.vref irI32 lctx))
+    }
+
+    if node.hasFnCall {
+      return (this.lowerCall(node lctx))
+    }
+
+    if node.is_direct_method_call {
+      return (this.lowerCall(node lctx))
+    }
+
+    return (builder.emitConst(irI32 zero))
+  }
+
+  fn operatorReturnsString:boolean (op:string) {
+    if (op == "strfromcode") {
+      return true
+    }
+    if (op == "rawbytechar") {
+      return true
+    }
+    if (op == "shell_arg") {
+      return true
+    }
+    if (op == "to_string") {
+      return true
+    }
+    if (op == "substring") {
+      return true
+    }
+    ; The rest of the string-producing operators. Leaving them out made a
+    ; concat classify the operand as an int: the format took %d and the
+    ; argument was passed as i32 while the value was an i8*, which clang
+    ; rejects outright.
+    if (op == "trim") { return true }
+    if (op == "trim_right") { return true }
+    if (op == "normalize") { return true }
+    if (op == "path_dirname") { return true }
+    if (op == "pathname") { return true }
+    if (op == "current_directory") { return true }
+    if ((indexOf op "ansi_") == 0) { return true }
+    if (op == "install_directory") { return true }
+    if (op == "to_lowercase") { return true }
+    if (op == "to_uppercase") { return true }
+    if (op == "replace") { return true }
+    if (op == "join") { return true }
+    if (op == "read_file") { return true }
+    if (op == "buffer_to_string") { return true }
+    if (op == "env_var") { return true }
+    if (op == "sha256") { return true }
+    if (op == "getStr") { return true }
+    return false
+  }
+
+  fn exprIsFreshString:boolean (node:CodeNode lctx:LowIRLowerContext) {
+    if (this.strRcEnabled(lctx) == false) {
+      return false
+    }
+    def exprNode (this.unwrapCondExpr(node))
+    if exprNode.has_operator {
+      def op (exprNode.getOperator())
+      if (this.operatorReturnsString(op)) {
+        return true
+      }
+      if (op == "+") {
+        def aNode (exprNode.getSecond())
+        def bNode (exprNode.getThird())
+        if ((this.exprMightBeString(aNode lctx)) || (this.exprMightBeString(bNode lctx))) {
+          return true
+        }
+      }
+    }
+    ; A string-returning call is deliberately NOT treated as fresh. The return
+    ; path does not dup, so a getter (`return this.name`) hands back a borrowed
+    ; field pointer; owning+freeing it would dangle the field. Duping the result
+    ; (the not-fresh path) is always safe — at worst it leaks a genuinely fresh
+    ; callee result, which is recoverable, whereas a wrong free corrupts memory.
+    return false
+  }
+
+  fn exprIsStringish:boolean (node:CodeNode lctx:LowIRLowerContext) {
+    def exprNode (this.unwrapCondExpr(node))
+    if (this.exprProducesI1(exprNode lctx)) {
+      return false
+    }
+    if (this.exprIsString(exprNode)) {
+      return true
+    }
+    if (exprNode.has_call || exprNode.is_direct_method_call || exprNode.hasFnCall) {
+      if (!null? exprNode.fnDesc) {
+        def fd (unwrap exprNode.fnDesc)
+        if (!null? fd.nameNode) {
+          def rn (unwrap fd.nameNode)
+          if (LowIRUtil.isStringType(rn.type_name)) {
+            return true
+          }
+        }
+      }
+    }
+    ; A ZERO-ARGUMENT operator (`(ansi_green)`, `(current_directory)`) does not
+    ; always carry has_operator on the node the concat sees, so ask the head
+    ; name directly as well -- otherwise the format took %d for a value that
+    ; was an i8*.
+    if ((array_length exprNode.children) > 0) {
+      def headVref:string (exprNode.getVRefAt(0))
+      if ((strlen headVref) > 0) {
+        if (this.operatorReturnsString(headVref)) {
+          return true
+        }
+      }
+    }
+    ; ...and once the wrappers are peeled the call can be the bare name.
+    if ((strlen exprNode.vref) > 0) {
+      if ((has lctx.slots exprNode.vref) == false) {
+        if (this.operatorReturnsString(exprNode.vref)) {
+          return true
+        }
+      }
+    }
+    if exprNode.has_operator {
+      def eop (exprNode.getOperator())
+      if (this.operatorReturnsString(eop)) {
+        return true
+      }
+      ; A ternary answers a string when its branches do.
+      if (eop == "?") {
+        if ((array_length exprNode.children) > 3) {
+          if (this.exprIsStringish((exprNode.getThird()) lctx)) {
+            return true
+          }
+          if (this.exprIsStringish((itemAt exprNode.children 3) lctx)) {
+            return true
+          }
+        }
+      }
+      ; `(unwrap x)` is the optional's value: ask what is inside. `print v + " = "
+      ; + (unwrap (get m v))` is the shape that exposed this -- the wrapper hid
+      ; a string map read, so the concat formatted a pointer with %d.
+      if ((eop == "unwrap") || (eop == "??")) {
+        if (this.exprIsStringish((exprNode.getSecond()) lctx)) {
+          return true
+        }
+      }
+      ; `(get m k)` / `(itemAt xs i)` answer a string when the COLLECTION holds
+      ; strings, which only the collection can say.
+      if ((eop == "get") || (eop == "itemAt")) {
+        def collNode2 (exprNode.getSecond())
+        if (collNode2.value_type == RangerNodeType.VRef) {
+          if ((this.smapValueKind(collNode2.vref lctx)) == "string") {
+            return true
+          }
+        }
+        if (LowIRUtil.isStringType((this.arrayElemTypeName(collNode2 lctx)))) {
+          return true
+        }
+      }
+      ; ask the UNWRAPPED node: for an infix expression `node` is the wrapper,
+      ; whose own operator is not the `+`, so its operands were never inspected.
+      if (eop == "+") {
+        def aNode (exprNode.getSecond())
+        def bNode (exprNode.getThird())
+        if ((this.exprIsStringish(aNode lctx)) || (this.exprIsStringish(bNode lctx))) {
+          return true
+        }
+      }
+    }
+    if (exprNode.value_type == RangerNodeType.VRef) {
+      ; The SLOT's type is the most direct answer, and the only one available
+      ; for a captured local inside a hoisted lambda body -- its declared type
+      ; lives on the enclosing function's node, not on this reference.
+      if (has lctx.slotTypes exprNode.vref) {
+        if ((unwrap (get lctx.slotTypes exprNode.vref)) == "i8*") {
+          return true
+        }
+      }
+      if (LowIRUtil.isStringType(exprNode.type_name)) {
+        return true
+      }
+      if (LowIRUtil.isStringType(exprNode.eval_type_name)) {
+        return true
+      }
+      if ((indexOf exprNode.vref ".") >= 0) {
+        def parts:[string] (strsplit exprNode.vref ".")
+        if ((array_length parts) >= 2) {
+          def recv (itemAt parts 0)
+          def fld (itemAt parts 1)
+          def cls (this.resolveObjectClass(recv lctx))
+          if ((strlen cls) > 0) {
+            if (this.fieldIsStringSlot(cls fld)) {
+              return true
+            }
+          }
+        }
+      }
+      if (has lctx.slotTypes exprNode.vref) {
+        def st (unwrap (get lctx.slotTypes exprNode.vref))
+        if (st == "i8*") {
+          return true
+        }
+      }
+    }
+    ; Operators that RETURN a string. Without these a concat operand built by
+    ; one was treated as an int -- `("x" + (at s i))` emitted %d and passed the
+    ; char pointer in an i32 slot.
+    if exprNode.has_operator {
+      def rOp (exprNode.getOperator())
+      if (rOp == "at") { return true }
+      ; NOT charAt: `at` yields a 1-char STRING, `charAt` yields the character
+      ; CODE (an int). Listing it here made `(charAt key 0) == 48` compile to
+      ; strcmp over an i32 code and an i32 literal.
+      if (rOp == "substring") { return true }
+      if (rOp == "to_string") { return true }
+      if (rOp == "strfromcode") { return true }
+      if (rOp == "to_lowercase") { return true }
+      if (rOp == "to_uppercase") { return true }
+      if (rOp == "read_file") { return true }
+      if (rOp == "shell_arg") { return true }
+    }
+    ; An element READ out of a [string] array is a string. Without this the
+    ; element was only ever a pointer-sized value to the comparison lowering, so
+    ; `(itemAt names a) == (itemAt names b)` emitted an integer icmp -- which
+    ; compares ADDRESSES, and would have answered "not equal" for two equal
+    ; strings even if the IR had type-checked.
+    if exprNode.has_operator {
+      def sOp (exprNode.getOperator())
+      if ((sOp == "itemAt") || (sOp == "get")) {
+        def sColl (exprNode.getSecond())
+        if (LowIRUtil.isStringType((this.arrayElemTypeName(sColl lctx)))) {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
+  fn lowerStringCompare:string (aNode:CodeNode bNode:CodeNode pred:string lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def lhs (this.lowerExpr(aNode lctx))
+    def rhs (this.lowerExpr(bNode lctx))
+    def args:[string]
+    def argTypes:[string]
+    push args lhs
+    push argTypes "i8*"
+    push args rhs
+    push argTypes "i8*"
+    def cmpFn:string "strcmp"
+    if (this.wasmStrEnabled(lctx)) {
+      cmpFn = "ranger_str_cmp"
+    }
+    def sc (builder.emitCall(cmpFn "i32" args argTypes))
+    def zero (builder.emitConst("i32" "0"))
+    return (builder.emitIcmp(pred sc zero))
+  }
+
+  fn lowerCompareI32:string (aNode:CodeNode bNode:CodeNode pred:string lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def a (this.lowerExpr(aNode lctx))
+    def b (this.lowerExpr(bNode lctx))
+    ; floating-point comparison: if either side is f64, promote both and emit a
+    ; typed compare so the writer picks f64.lt/gt/le/ge/eq/ne (not i32.*_s).
+    if ((this.exprIsF64(aNode)) || (this.exprIsF64(bNode))) {
+      def af (this.promoteToF64(aNode a lctx))
+      def bf (this.promoteToF64(bNode b lctx))
+      return (builder.emitIcmpTyped(pred "f64" af bf))
+    }
+    def aI1:boolean (this.exprProducesI1(aNode lctx))
+    def bI1:boolean (this.exprProducesI1(bNode lctx))
+    if (aI1 && bI1) {
+      return (builder.emitIcmpTyped(pred "i1" a b))
+    }
+    if (aI1 || (aNode.value_type == RangerNodeType.Boolean)) {
+      a = (builder.emitZextI1ToI32(a))
+    }
+    if (bI1 || (bNode.value_type == RangerNodeType.Boolean)) {
+      b = (builder.emitZextI1ToI32(b))
+    }
+    ; A pointer-sized operand -- an object reference, or an optional field
+    ; tested against null -- must be compared in the POINTER type. Defaulting to
+    ; i32 emitted `icmp ne i32 <i64 value>, 0`, which on a 64-bit target is both
+    ; invalid IR and, if it had been accepted, would have compared only the low
+    ; half of the address.
+    if (lctx.ptrType != "i32") {
+      ; The width each side ACTUALLY has, not just whether it is recognisably a
+      ; new/vref object: a local bound from a map read, a `this`, or a call
+      ; answering a class are all pointer sized, and asking about only some of
+      ; them left `(ast == this)` comparing two i64 values as i32.
+      ;
+      ; What the builder EMITTED settles it when it knows: an enum field is an
+      ; i32 even though the shape tests below call a chained field read an
+      ; object.
+      def aEmit:string (builder.emittedType(a))
+      def bEmit:string (builder.emittedType(b))
+      if ((aEmit == "i32") && (bEmit == "i32")) {
+        return (builder.emitIcmp(pred a b))
+      }
+      def aPtr:boolean ((this.exprIsObjectPtr(aNode lctx)) || ((this.argIrType(aNode lctx)) == lctx.ptrType))
+      def bPtr:boolean ((this.exprIsObjectPtr(bNode lctx)) || ((this.argIrType(bNode lctx)) == lctx.ptrType))
+      if (aEmit == lctx.ptrType) { aPtr = true }
+      if (bEmit == lctx.ptrType) { bPtr = true }
+      if (aEmit == "i32") { aPtr = false }
+      if (bEmit == "i32") { bPtr = false }
+      if (aPtr || bPtr) {
+        if (aPtr && bPtr) {
+          return (builder.emitIcmpTyped(pred lctx.ptrType a b))
+        }
+        ; One side is pointer sized and the other is not (an integer literal --
+        ; null is 0 -- or a 32-bit value): widen it rather than truncating the
+        ; address.
+        if aPtr {
+          def bw (builder.emitCast("zext" lctx.ptrType "i32" b))
+          return (builder.emitIcmpTyped(pred lctx.ptrType a bw))
+        } {
+          def aw (builder.emitCast("zext" lctx.ptrType "i32" a))
+          return (builder.emitIcmpTyped(pred lctx.ptrType aw b))
+        }
+      }
+    }
+    return (builder.emitIcmp(pred a b))
+  }
+
+  fn lowerBinaryOp:string (opName:string node:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def irI32:string "i32"
+    def irF64:string "f64"
+    switch opName {
+      case "+" {
+        def aNode (node.getSecond())
+        def bNode (node.getThird())
+        if ((this.exprMightBeString(aNode lctx)) || (this.exprMightBeString(bNode lctx))) {
+          return (this.lowerStringConcat(aNode bNode lctx))
+        }
+        return (this.lowerArithF64OrI32("add" "fadd" node lctx))
+      }
+      case "-" {
+        return (this.lowerArithF64OrI32("sub" "fsub" node lctx))
+      }
+      case "*" {
+        return (this.lowerArithF64OrI32("mul" "fmul" node lctx))
+      }
+      case "/" {
+        return (this.lowerArithF64OrI32("sdiv" "fdiv" node lctx))
+      }
+      case "idiv" {
+        def a (this.lowerExpr((node.getSecond()) lctx))
+        def b (this.lowerExpr((node.getThird()) lctx))
+        return (builder.emitBin("sdiv" irI32 a b))
+      }
+      case "%" {
+        def a (this.lowerExpr((node.getSecond()) lctx))
+        def b (this.lowerExpr((node.getThird()) lctx))
+        def kind:string "srem"
+        return (builder.emitBin(kind irI32 a b))
+      }
+      case "bit_and" {
+        def a (this.lowerExpr((node.getSecond()) lctx))
+        def b (this.lowerExpr((node.getThird()) lctx))
+        return (builder.emitBin("and" irI32 a b))
+      }
+      case "bit_or" {
+        def a (this.lowerExpr((node.getSecond()) lctx))
+        def b (this.lowerExpr((node.getThird()) lctx))
+        return (builder.emitBin("or" irI32 a b))
+      }
+      case "bit_xor" {
+        def a (this.lowerExpr((node.getSecond()) lctx))
+        def b (this.lowerExpr((node.getThird()) lctx))
+        return (builder.emitBin("xor" irI32 a b))
+      }
+      case "bit_shl" {
+        def a (this.lowerExpr((node.getSecond()) lctx))
+        def b (this.lowerExpr((node.getThird()) lctx))
+        return (builder.emitBin("shl" irI32 a b))
+      }
+      case "bit_shr" {
+        def a (this.lowerExpr((node.getSecond()) lctx))
+        def b (this.lowerExpr((node.getThird()) lctx))
+        return (builder.emitBin("ashr" irI32 a b))
+      }
+      case "bit_ushr" {
+        ; JavaScript's >>> is a LOGICAL shift on the 32-bit value.
+        def a (this.lowerExpr((node.getSecond()) lctx))
+        def b (this.lowerExpr((node.getThird()) lctx))
+        return (builder.emitBin("lshr" irI32 a b))
+      }
+      case "bit_not" {
+        def a (this.lowerExpr((node.getSecond()) lctx))
+        def neg1 (builder.emitConst(irI32 "-1"))
+        return (builder.emitBin("xor" irI32 a neg1))
+      }
+      case "<" {
+        return (this.lowerCompareI32((node.getSecond()) (node.getThird()) "slt" lctx))
+      }
+      case ">" {
+        return (this.lowerCompareI32((node.getSecond()) (node.getThird()) "sgt" lctx))
+      }
+      case "<=" {
+        return (this.lowerCompareI32((node.getSecond()) (node.getThird()) "sle" lctx))
+      }
+      case ">=" {
+        return (this.lowerCompareI32((node.getSecond()) (node.getThird()) "sge" lctx))
+      }
+      case "==" {
+        def aNode (node.getSecond())
+        def bNode (node.getThird())
+        if (((this.exprProducesI1(aNode lctx)) == false) && ((this.exprProducesI1(bNode lctx)) == false)) {
+          if ((this.exprIsStringish(aNode lctx)) || (this.exprIsStringish(bNode lctx))) {
+            return (this.lowerStringCompare(aNode bNode "eq" lctx))
+          }
+        }
+        return (this.lowerCompareI32(aNode bNode "eq" lctx))
+      }
+      case "!=" {
+        def aNode (node.getSecond())
+        def bNode (node.getThird())
+        if (((this.exprProducesI1(aNode lctx)) == false) && ((this.exprProducesI1(bNode lctx)) == false)) {
+          if ((this.exprIsStringish(aNode lctx)) || (this.exprIsStringish(bNode lctx))) {
+            return (this.lowerStringCompare(aNode bNode "ne" lctx))
+          }
+        }
+        return (this.lowerCompareI32(aNode bNode "ne" lctx))
+      }
+      ; Both operands have to BE i1. An operand that is a bare reference
+      ; (`if (node.left && …)`) or a widened boolean arrives as an integer, and
+      ; `and i1 <i64 value>, …` does not assemble -- narrow whatever is not
+      ; already an i1.
+      case "||" {
+        return (this.lowerShortCircuit(node false lctx))
+      }
+      case "&&" {
+        return (this.lowerShortCircuit(node true lctx))
+      }
+    }
+    return ""
+  }
+
+  fn lowerShortCircuit:string (node:CodeNode isAnd:boolean lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    lctx.shadowCounter = (lctx.shadowCounter + 1)
+    def slot:string ("%sc" + ("" + lctx.shadowCounter))
+    builder.emitAlloca("i1" slot)
+    def a (this.lowerCondOperand((node.getSecond()) lctx))
+    builder.emitStore("i1" a slot)
+    def rhsL (builder.freshLabel("sc_rhs"))
+    def endL (builder.freshLabel("sc_end"))
+    ; `a && b` runs b when a is TRUE; `a || b` runs it when a is FALSE.
+    if isAnd {
+      builder.terminateBrIf(a rhsL endL)
+    } {
+      builder.terminateBrIf(a endL rhsL)
+    }
+    builder.startBlock(rhsL)
+    def b (this.lowerCondOperand((node.getThird()) lctx))
+    builder.emitStore("i1" b slot)
+    if (!null? builder.currentBlock) {
+      def rb (unwrap builder.currentBlock)
+      if (rb.termKind == "") {
+        builder.terminateBr(endL)
+      }
+    }
+    builder.startBlock(endL)
+    return (builder.emitLoad("i1" slot))
+  }
+
+  fn lowerCall:string (node:CodeNode lctx:LowIRLowerContext) {
+    def builder (lctx.builder)
+    def voidTag:string "__void__"
+    def objectCall (this.tryLowerObjectCall(node lctx))
+    if (objectCall == voidTag) {
+      return ""
+    }
+    if ((strlen objectCall) > 0) {
+      return objectCall
+    }
+    if (node.is_direct_method_call || node.has_call) {
+      return (this.lowerInstanceCall(node lctx))
+    }
+    def calleeNode (node.getFirst())
+    def argsNode (node.getSecond())
+    def calleeVref:string calleeNode.vref
+    def calleeDot:int (indexOf calleeVref ".")
+    if (calleeDot >= 0) {
+      def calleeParts:[string] (strsplit calleeVref ".")
+      if ((array_length calleeParts) >= 2) {
+        def recvPart (itemAt calleeParts 0)
+        if (recvPart == "this") {
+          def methPart (itemAt calleeParts 1)
+          calleeNode.eval_type_name = lctx.className
+          return (this.lowerInstanceCallOn(node "this" calleeNode methPart lctx))
+        }
+        if (has lctx.objectSlots recvPart) {
+          def methPart (itemAt calleeParts 1)
+          calleeNode.eval_type_name = (unwrap (get lctx.objectSlots recvPart))
+          return (this.lowerInstanceCallOn(node recvPart calleeNode methPart lctx))
+        }
+        def fcls (this.fieldReceiverClass(recvPart lctx))
+        if ((strlen fcls) > 0) {
+          def methPart (itemAt calleeParts 1)
+          calleeNode.eval_type_name = fcls
+          return (this.lowerInstanceCallOn(node recvPart calleeNode methPart lctx))
+        }
+      }
+    }
+    if ((array_length calleeNode.ns) >= 2) {
+      def recvName (itemAt calleeNode.ns 0)
+      def methName (itemAt calleeNode.ns 1)
+      if (has lctx.objectSlots recvName) {
+        calleeNode.eval_type_name = (unwrap (get lctx.objectSlots recvName))
+        return (this.lowerInstanceCallOn(node recvName calleeNode methName lctx))
+      }
+      ; A receiver that is an object-typed field of the current class (its name
+      ; may collide with a systemclass, e.g. a field named "buffer").
+      def fcls (this.fieldReceiverClass(recvName lctx))
+      if ((strlen fcls) > 0) {
+        calleeNode.eval_type_name = fcls
+        return (this.lowerInstanceCallOn(node recvName calleeNode methName lctx))
+      }
+    }
+    def fnName:string (this.resolveCalleeName(calleeNode))
+    if (fnName == "at") {
+      return (this.lowerAtCall(argsNode lctx))
+    }
+    def intrinsic (this.tryLowerIntrinsic(fnName argsNode lctx))
+    if (intrinsic == "__void__") {
+      return ""
+    }
+    if ((strlen intrinsic) > 0) {
+      return intrinsic
+    }
+    def retType:string "i32"
+    if (!null? node.fnDesc) {
+      if (!null? node.fnDesc.nameNode) {
+        def rn (unwrap node.fnDesc.nameNode)
+        retType = (this.llvmTypeForRanger(rn.type_name lctx.ptrType))
+      }
+    }
+    def args:[string]
+    def argTypes:[string]
+    def argIdx:int 0
+    for argsNode.children arg:CodeNode i {
+      if (!null? node.fnDesc) {
+        push args (this.lowerCallArgValue(arg argIdx (unwrap node.fnDesc) lctx))
+        push argTypes (this.paramIrTypeFromDesc(argIdx (unwrap node.fnDesc) lctx))
+      } {
+        push args (this.lowerExpr(arg lctx))
+        push argTypes (this.argIrType(arg lctx))
+      }
+      argIdx = argIdx + 1
+    }
+    ; A STATIC call returning an object hands back a reference the caller owns,
+    ; exactly as an instance call does. Registering only the instance path left
+    ; `EvalValue.number(...)` -- the most-called constructor in the engine --
+    ; with a reference nobody ever balanced, leaking one object per increment.
+    ; A callee mangled out of a receiver the backend could not resolve -- which
+    ; happens inside a hoisted lambda body whose capture layout was never built
+    ; -- names a function nothing defines. The test is on the RECEIVER, not on
+    ; whether the function has been emitted yet: a class lowered later in the
+    ; module, and a function calling itself, are both perfectly good callees.
+    if (this.calleeReceiverIsUnknown(calleeNode lctx)) {
+      if ((this.moduleHasFunction(fnName)) == false) {
+        if ((this.hasExternDecl(fnName)) == false) {
+        if (retType == "void") {
+          return ""
+        }
+        if (retType == "i8*") {
+          return "null"
+        }
+        if (retType == "f64") {
+          return (builder.emitConst("f64" "0.0"))
+        }
+        return (builder.emitConst(retType "0"))
+        }
+      }
+    }
+    def sCallRes (builder.emitCall(fnName retType args argTypes))
+    this.registerCallObjectTemp(node sCallRes lctx)
+    return sCallRes
+  }
+
+  fn exprRecvClassName:string (node:CodeNode lctx:LowIRLowerContext) {
+    if (this.isPropertyReadNode(node)) {
+      def pcls (this.propertyReadClass(node lctx))
+      if ((strlen pcls) > 0) {
+        def pfld (node.getThird())
+        return (this.fieldObjectClassName(pcls pfld.vref lctx))
+      }
+      return ""
+    }
+    ; A plain NAME as the innermost operand: `(unwrap nn).hasFlag(…)` bottoms
+    ; out here, and answering "" left the receiver pointer empty -- the call
+    ; came out as `inttoptr i64 % to %struct.CodeNode*`.
+    if (node.value_type == RangerNodeType.VRef) {
+      if ((strlen node.vref) > 0) {
+        def vcls:string (this.resolveObjectClassChain(node.vref lctx))
+        if ((strlen vcls) > 0) {
+          return vcls
+        }
+        if ((strlen node.eval_type_name) > 0) {
+          if (this.isObjectTypeName(node.eval_type_name)) {
+            return node.eval_type_name
+          }
+        }
+      }
+      return ""
+    }
+    if ((node.has_operator) == false) {
+      return ""
+    }
+    def rop (node.getOperator())
+    ; `unwrap x` keeps the class of its operand.
+    if (rop == "unwrap") {
+      return (this.exprRecvClassName((node.getSecond()) lctx))
+    }
+    ; `at` is element access too, and the flow parser reaches a method through
+    ; it: `push node.children ( (at item.children 0).copy() )`. Leaving it out
+    ; gave the call a null receiver.
+    if (((rop != "itemAt") && (rop != "get")) && (rop != "at")) {
+      return ""
+    }
+    def rcoll (node.getSecond())
+    def relem:string (this.arrayElemTypeName(rcoll lctx))
+    if ((strlen relem) == 0) {
+      return ""
+    }
+    if (this.isObjectTypeName(relem)) {
+      return relem
+    }
+    return ""
+  }
+
+  fn lowerCallArgValue:string (arg:CodeNode paramIndex:int fnDesc:RangerAppFunctionDesc lctx:LowIRLowerContext) {
+    if (paramIndex < (array_length fnDesc.params)) {
+      def p (itemAt fnDesc.params paramIndex)
+      if (!null? p.nameNode) {
+        def pn (unwrap p.nameNode)
+        ; The ARGUMENT has to look like a literal too. isArrayLiteralValue is
+        ; written for the `def xs:[T] …` position, where the declaration alone
+        ; settles it; in argument position any parenthesised expression with
+        ; children would otherwise match and be built as an array.
+        if (this.isArrayLiteralValue(pn arg)) {
+          ; A single-child expression is usually a GROUPING, not a one-element
+          ; literal: `f( (fnDesc.params) )` passes the array through. Only a
+          ; child that is not itself an array makes it a literal.
+          def literal:boolean true
+          if ((array_length arg.children) == 1) {
+            if (this.nodeIsArrayExpr((arg.getFirst()) lctx)) {
+              literal = false
+            }
+          }
+          if literal {
+            this.usedPtrArrayRuntime = true
+            return (this.lowerArrayLiteral(pn arg lctx))
+          }
+        }
+      }
+    }
+    return (this.lowerExpr(arg lctx))
+  }
+
+  fn coerceArg:string (value:string wantType:string lctx:LowIRLowerContext) {
+    def got:string (lctx.builder.emittedType(value))
+    if ((strlen got) == 0) {
+      return value
+    }
+    if (got == wantType) {
+      return value
+    }
+    if ((wantType == "i64") && (got == "i32")) {
+      return (lctx.builder.emitCast("zext" "i64" "i32" value))
+    }
+    if ((wantType == "i64") && (got == "i1")) {
+      return (lctx.builder.emitCast("zext" "i64" "i1" value))
+    }
+    if ((wantType == "i32") && (got == "i64")) {
+      return (lctx.builder.emitCast("trunc" "i32" "i64" value))
+    }
+    if ((wantType == "i32") && (got == "i1")) {
+      return (lctx.builder.emitZextI1ToI32(value))
+    }
+    if ((wantType == "i1") && (got == "i32")) {
+      return (this.toI1(value lctx))
+    }
+    return value
+  }
+
+}

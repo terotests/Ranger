@@ -1,0 +1,21 @@
+; SPDX-License-Identifier: MIT
+
+
+Import "RangerGenericClassWriter.rgr"
+Import "RangerJava7ClassWriter.rgr"
+Import "RangerSwift3ClassWriter.rgr"
+Import "RangerSwift6ClassWriter.rgr"
+Import "RangerCppClassWriter.rgr"
+Import "RangerRustClassWriter.rgr"
+Import "RangerKotlinClassWriter.rgr"
+Import "RangerDartClassWriter.rgr"
+Import "RangerCSharpClassWriter.rgr"
+Import "RangerScalaClassWriter.rgr"
+Import "RangerGolangClassWriter.rgr"
+Import "RangerGolangHttpServerWriter.rgr"
+Import "RangerPHPClassWriter.rgr"
+Import "RangerPythonClassWriter.rgr"
+Import "RangerJavaScriptClassWriter.rgr"
+Import "RangerRangerClassWriter.rgr"
+Import "RangerLLVMPipeline.rgr"
+

@@ -1,0 +1,313 @@
+; SPDX-License-Identifier: MIT
+
+
+Import "RangerProcessLifecycle.rgr"
+
+class RangerProcessClass {
+
+  fn emitAssignProcessId:void (wr:CodeWriter) {
+    wr.out("def __rgrIdReg (ProcessIdRegistry.__singleton())" , true)
+    wr.out("def __rgrNewId ( __rgrIdReg.allocate() )" , true)
+    wr.out("this.__rangerId = __rgrNewId" , true)
+  }
+
+  fn createProcessExtension:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext wr:CodeWriter typeId:int) {
+    wr.out("Import \"RangerProcess.rgr\"" , true)
+    def regName:string (cl.name + "__Registry")
+    def life:RangerProcessLifecycle (new RangerProcessLifecycle())
+    wr.out("class " + regName + " @singleton(true) {" , true)
+    wr.indent(1)
+    wr.out("def items:[" + cl.name + "]" , true)
+    wr.out("fn track:void (inst:" + cl.name + ") {" , true)
+    wr.indent(1)
+    wr.out("push items inst" , true)
+    wr.indent(-1)
+    wr.out("}" , true)
+    wr.out("fn untrack:void (inst:" + cl.name + ") {" , true)
+    wr.indent(1)
+    wr.out("def kept:[" + cl.name + "]" , true)
+    wr.out("for items x:" + cl.name + " i {" , true)
+    wr.indent(1)
+    wr.out("if (x.__rangerId != inst.__rangerId) {" , true)
+    wr.indent(1)
+    wr.out("push kept x" , true)
+    wr.indent(-1)
+    wr.out("}" , true)
+    wr.indent(-1)
+    wr.out("}" , true)
+    wr.out("items = kept" , true)
+    wr.indent(-1)
+    wr.out("}" , true)
+    wr.out("fn all:[" + cl.name + "] () {" , true)
+    wr.indent(1)
+    wr.out("return items" , true)
+    wr.indent(-1)
+    wr.out("}" , true)
+    wr.out("fn stopAllInstances:void () {" , true)
+    wr.indent(1)
+    wr.out("def n (size items)" , true)
+    wr.out("def i (n - 1)" , true)
+    wr.out("while (i >= 0) {" , true)
+    wr.indent(1)
+    wr.out("def inst:" + cl.name + " (at items i)" , true)
+    wr.out("if (inst.__rangerId != 0) {" , true)
+    wr.indent(1)
+    wr.out("inst.__rangerStopSubtree()" , true)
+    wr.indent(-1)
+    wr.out("}" , true)
+    wr.out("i = i - 1" , true)
+    wr.indent(-1)
+    wr.out("}" , true)
+    wr.indent(-1)
+    wr.out("}" , true)
+    wr.indent(-1)
+    wr.out("}" , true)
+    wr.out("extension " + cl.name + " {" , true)
+    wr.indent(1)
+
+    wr.out("fn __rangerRegisterRoot () {" , true)
+    wr.indent(1)
+    wr.out("this.__rangerClassName = \"" + cl.name + "\"" , true)
+    wr.out("this.__rangerTypeId = " + ("" + typeId) , true)
+    this.emitAssignProcessId(wr)
+    wr.out(regName + ".__singleton().track(this)" , true)
+    wr.indent(-1)
+    wr.out("}" , true)
+
+    wr.out("fn __rangerRegisterChild (parent:RangerProcessBase) {" , true)
+    wr.indent(1)
+    wr.out("this.__rangerClassName = \"" + cl.name + "\"" , true)
+    wr.out("this.__rangerTypeId = " + ("" + typeId) , true)
+    wr.out("this.__rangerParent = parent" , true)
+    wr.out("this.__rangerParentId = parent.__rangerId" , true)
+    this.emitAssignProcessId(wr)
+    wr.out("parent.__rangerTrackChild(this)" , true)
+    wr.out(regName + ".__singleton().track(this)" , true)
+    wr.indent(-1)
+    wr.out("}" , true)
+
+    wr.out("fn __rangerUnregister:void () {" , true)
+    wr.indent(1)
+    wr.out("this.__rangerId = 0" , true)
+    wr.out("this.__rangerParentId = 0" , true)
+    wr.indent(-1)
+    wr.out("}" , true)
+
+    life.emitInvokeMethods(cl ctx wr regName)
+    life.emitStopSubtree(cl wr regName)
+
+    this.emitStaticHelpers(cl typeId wr regName)
+
+    if ((strlen cl.process_path) > 0) {
+      wr.out("sfn processPath:string () {" , true)
+      wr.indent(1)
+      wr.out("return \"" + cl.process_path + "\"" , true)
+      wr.indent(-1)
+      wr.out("}" , true)
+    }
+
+    wr.out("sfn stopAllLive:void () {" , true)
+    wr.indent(1)
+    wr.out("def __rgrReg:" + regName + " (" + regName + ".__singleton())" , true)
+    wr.out("__rgrReg.stopAllInstances()" , true)
+    wr.indent(-1)
+    wr.out("}" , true)
+
+    wr.indent(-1)
+    wr.out("}" , true)
+  }
+
+  fn emitStaticHelpers:void (cl:RangerAppClassDesc typeId:int wr:CodeWriter regName:string) {
+    wr.out("sfn allInstances:[" + cl.name + "] () {" , true)
+    wr.indent(1)
+    wr.out("def __rgrReg:" + regName + " (" + regName + ".__singleton())" , true)
+    wr.out("return __rgrReg.items" , true)
+    wr.indent(-1)
+    wr.out("}" , true)
+    wr.out("sfn tryStopByProcessId:boolean (processId:int) {" , true)
+    wr.indent(1)
+    wr.out("def __rgrReg:" + regName + " (" + regName + ".__singleton())" , true)
+    wr.out("for __rgrReg.items inst:" + cl.name + " i {" , true)
+    wr.indent(1)
+    wr.out("if (inst.__rangerId == processId) {" , true)
+    wr.indent(1)
+    wr.out("if (inst.__rangerId != 0) {" , true)
+    wr.indent(1)
+    wr.out("inst.__rangerStopSubtree()" , true)
+    wr.out("return true" , true)
+    wr.indent(-1)
+    wr.out("}" , true)
+    wr.indent(-1)
+    wr.out("}" , true)
+    wr.indent(-1)
+    wr.out("}" , true)
+    wr.out("return false" , true)
+    wr.indent(-1)
+    wr.out("}" , true)
+    wr.out("sfn parentIdOf:int (child:RangerProcessBase) {" , true)
+    wr.indent(1)
+    wr.out("def cur@(optional):RangerProcessBase (child.__rangerParent)" , true)
+    wr.out("while ((null? cur) == false) {" , true)
+    wr.indent(1)
+    wr.out("def node:RangerProcessBase (unwrap cur)" , true)
+    wr.out("def __rgrExpectType:int " + ("" + typeId) , true)
+    wr.out("if (node.__rangerTypeId != __rgrExpectType) {" , true)
+    wr.indent(1)
+    wr.out("cur = node.__rangerParent" , true)
+    wr.indent(-1)
+    wr.out("} {" , true)
+    wr.indent(1)
+    wr.out("return node.__rangerId" , true)
+    wr.indent(-1)
+    wr.out("}" , true)
+    wr.indent(-1)
+    wr.out("}" , true)
+    wr.out("return 0" , true)
+    wr.indent(-1)
+    wr.out("}" , true)
+  }
+
+  fn emitProcessNameRegistryExtension:void (processClasses:[RangerAppClassDesc] wr:CodeWriter) {
+    wr.out("Import \"RangerProcess.rgr\"" , true)
+    wr.out("extension ProcessNameRegistry {" , true)
+    wr.indent(1)
+    wr.out("fn bindIfConfigured:void (proc:RangerProcessBase) {" , true)
+    wr.indent(1)
+    wr.out("if (proc.__rangerId == 0) {" , true)
+    wr.indent(1)
+    wr.out("return" , true)
+    wr.indent(-1)
+    wr.out("}" , true)
+    def hasNamed:boolean false
+    for processClasses cl:RangerAppClassDesc i {
+      if ((strlen cl.process_path) > 0) {
+        hasNamed = true
+      }
+    }
+    if (hasNamed) {
+      for processClasses cl:RangerAppClassDesc i {
+        if ((strlen cl.process_path) == 0) {
+          continue
+        }
+        def typeId:int (i + 1)
+        wr.out("if (proc.__rangerTypeId == " + ("" + typeId) + ") {" , true)
+        wr.indent(1)
+        wr.out("proc.__rangerPath = \"" + cl.process_path + "\"" , true)
+        wr.out("this.register(\"" + cl.process_path + "\" proc)" , true)
+        wr.out("return" , true)
+        wr.indent(-1)
+        wr.out("}" , true)
+      }
+    }
+    wr.indent(-1)
+    wr.out("}" , true)
+    wr.out("fn findProcess@(optional):RangerProcessBase (path:string) {" , true)
+    wr.indent(1)
+    wr.out("if (this.hasLive(path)) {" , true)
+    wr.indent(1)
+    wr.out("return (this.findByPath(path))" , true)
+    wr.indent(-1)
+    wr.out("}" , true)
+    wr.out("return (get byPath \"__rgr_no_such_process__\")" , true)
+    wr.indent(-1)
+    wr.out("}" , true)
+    wr.indent(-1)
+    wr.out("}" , true)
+  }
+
+  fn emitProcessRuntimeExtension:void (processClasses:[RangerAppClassDesc] wr:CodeWriter) {
+    wr.out("Import \"RangerProcess.rgr\"" , true)
+    wr.out("extension ProcessRuntime {" , true)
+    wr.indent(1)
+    wr.out("sfn collectAllLiveRoots:[RangerProcessBase] () {" , true)
+    wr.indent(1)
+    wr.out("def roots:[RangerProcessBase]" , true)
+    for processClasses cl:RangerAppClassDesc i {
+      wr.out("def __rgr_" + cl.name + "_all ( " + cl.name + ".allInstances() )" , true)
+      wr.out("for __rgr_" + cl.name + "_all __rgrRoot:" + cl.name + " i {" , true)
+      wr.indent(1)
+      wr.out("if (__rgrRoot.__rangerId != 0 && __rgrRoot.__rangerParentId == 0) {" , true)
+      wr.indent(1)
+      wr.out("push roots __rgrRoot" , true)
+      wr.indent(-1)
+      wr.out("}" , true)
+      wr.indent(-1)
+      wr.out("}" , true)
+    }
+    wr.out("return roots" , true)
+    wr.indent(-1)
+    wr.out("}" , true)
+    wr.out("sfn printProcessTree:void () {" , true)
+    wr.indent(1)
+    wr.out("def __rgrTreeView (new ProcessTreeView)" , true)
+    wr.out("def __rgrRoots (ProcessRuntime.collectAllLiveRoots())" , true)
+    wr.out("def __rgrTitle \"\"" , true)
+    wr.out("__rgrTreeView.renderRoots(__rgrRoots __rgrTitle)" , true)
+    wr.indent(-1)
+    wr.out("}" , true)
+    wr.out("sfn printProcessTreeTitled:void (title:string) {" , true)
+    wr.indent(1)
+    wr.out("def __rgrTreeView (new ProcessTreeView)" , true)
+    wr.out("def __rgrRoots (ProcessRuntime.collectAllLiveRoots())" , true)
+    wr.out("__rgrTreeView.renderRoots(__rgrRoots title)" , true)
+    wr.indent(-1)
+    wr.out("}" , true)
+    wr.out("sfn stopByProcessId:void (processId:int) {" , true)
+    wr.indent(1)
+    for processClasses cl:RangerAppClassDesc i {
+      wr.out("if (" + cl.name + ".tryStopByProcessId(processId)) {" , true)
+      wr.indent(1)
+      wr.out("return" , true)
+      wr.indent(-1)
+      wr.out("}" , true)
+    }
+    wr.indent(-1)
+    wr.out("}" , true)
+    wr.out("sfn stopByClassName:void (name:string) {" , true)
+    wr.indent(1)
+    for processClasses cl:RangerAppClassDesc i {
+      wr.out("if (name == \"" + cl.name + "\") {" , true)
+      wr.indent(1)
+      wr.out(cl.name + ".stopAllLive()" , true)
+      wr.out("return" , true)
+      wr.indent(-1)
+      wr.out("}" , true)
+    }
+    wr.indent(-1)
+    wr.out("}" , true)
+    wr.indent(-1)
+    wr.out("}" , true)
+  }
+
+  fn emitProcessTypeScriptHelpers:void (processClasses:[RangerAppClassDesc] wr:CodeWriter) {
+    def namedPaths:[string]
+    def namedClasses:[RangerAppClassDesc]
+    for processClasses cl:RangerAppClassDesc i {
+      if ((strlen cl.process_path) > 0) {
+        push namedPaths cl.process_path
+        push namedClasses cl
+      }
+    }
+    if ((size namedPaths) == 0) {
+      return
+    }
+    wr.raw("" , true)
+    wr.raw("// @process named-path helpers (generated)" , true)
+    wr.raw("export type ProcessPath = " , false)
+    def pathIdx:int 0
+    for namedPaths p:string i {
+      if (pathIdx > 0) {
+        wr.raw(" | " , false)
+      }
+      wr.raw("\"" + p + "\"" , false)
+      pathIdx = pathIdx + 1
+    }
+    wr.raw(";" , true)
+    wr.raw("export interface ProcessNameRegistry {" , true)
+    for namedClasses cl:RangerAppClassDesc i {
+      wr.raw("  findProcess(path: \"" + cl.process_path + "\"): " + cl.name + " | undefined;" , true)
+    }
+    wr.raw("  findProcess(path: string): RangerProcessBase | undefined;" , true)
+    wr.raw("}" , true)
+  }
+}

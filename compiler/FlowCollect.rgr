@@ -1,0 +1,1360 @@
+; SPDX-License-Identifier: MIT
+
+; The collect pass. Before anything is walked, every class, method, lambda and
+; doc block in the tree is turned into a description the walk can look up.
+
+extension RangerFlowParser {
+
+  fn WalkCollectTemplates:void (node@(lives):CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if ((size node.children) > 1) {
+      def isClassDecl:boolean (((node.isFirstVref("class")) || (node.isFirstVref("CreateClass"))) || (node.isFirstVref("record")))
+      if (isClassDecl && (node.hasExpressionProperty("params"))) {
+        def s:string (node.getVRefAt(1))
+        if ((ctx.hasTemplateNode(s)) == false) {
+          ctx.addTemplateClass(s node)
+        }
+        return
+      }
+    }
+    for node.children ch@(lives):CodeNode i {
+      this.WalkCollectTemplates(ch ctx wr)
+    }
+  }
+
+  fn isDocumentableHead:boolean (name:string) {
+    if (name == "fn") { return true }
+    if (name == "sfn") { return true }
+    if (name == "static") { return true }
+    if (name == "class") { return true }
+    if (name == "record") { return true }
+    if (name == "shape") { return true }
+    if (name == "enum") { return true }
+    if (name == "def") { return true }
+    if (name == "Constructor") { return true }
+    if (name == "constructor") { return true }
+    if (name == "case") { return true }
+    if (name == "variant") { return true }
+    if (name == "group") { return true }
+    if (name == "module") { return true }
+    return false
+  }
+
+  fn DetachDocBlocks:void (node@(lives):CodeNode ctx:RangerAppWriterContext) {
+    def cnt:int (node.chlen())
+    if (cnt > 2) {
+      def tailWord:CodeNode (at node.children (cnt - 2))
+      def tailBlock:CodeNode (at node.children (cnt - 1))
+      if ((tailWord.vref == "doc") && tailBlock.is_block_node) {
+        def head:string (node.getVRefAt(0))
+        if (this.isDocumentableHead(head)) {
+          node.has_doc_tail = true
+          node.docNode = tailBlock
+          remove node.children (cnt - 1)
+          remove node.children (cnt - 2)
+        }
+      }
+    }
+    ; `doc { … }` as a statement of its own binds to nothing. Silently dropping
+    ; it publishes nothing while the author believes it published something.
+    if (node.isFirstVref("doc")) {
+      if ((node.chlen()) == 2) {
+        def second:CodeNode (node.getSecond())
+        if (second.is_block_node) {
+          ctx.addError(node "documentation block is not attached to a declaration. Write it as the tail of the declaration: `} doc { … }`")
+        }
+      }
+    }
+    for node.children ch@(lives):CodeNode i {
+      this.DetachDocBlocks(ch ctx)
+    }
+  }
+
+  fn CollectMethods:void (node@(lives):CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+
+    ; the `doc { … }` tails come off first, so nothing below this line sees a
+    ; declaration node with two extra children
+    this.DetachDocBlocks(node ctx)
+    ; shapes first: everything below this line sees ordinary records and unions
+    this.DesugarShapes(node ctx wr)
+    ; then tree literals, for the same reason: everything below this line sees
+    ; ordinary `new`, assignments and calls, and nothing knows the feature is
+    ; there. One lowering, before the targets, rather than eighteen writers.
+    this.DesugarTrees(node ctx wr)
+    ; then every generic class declaration, before anything can refer to one.
+    ; A reference expands the class where it is found, so a class variable of
+    ; type `OfficeHistory@(DocEditOp)` collected before the file that declares
+    ; OfficeHistory would see an undeclared name -- which is import order
+    ; deciding whether a program compiles. Four of the docx suites compiled and
+    ; two did not, on the same source.
+    this.WalkCollectTemplates(node ctx wr)
+    this.WalkCollectMethods(node ctx wr)
+    def allTypes:[string]
+
+    def serviceBuilder (new RangerServiceBuilder)
+    serviceBuilder.CreateServices( this ctx wr )
+
+    extendedClasses.forEach({
+      ; `extension X { … }` for an X that was never declared, or an Extends of a
+      ; class the imports do not bring in: findClass answers nothing for both,
+      ; and only JavaScript survives writing through that nothing.
+      if( (ctx.isDefinedClass(index)) && (ctx.isDefinedClass(item)) ) {
+        def ch (ctx.findClass(index))
+        def parent (ctx.findClass(item))
+        ch.addParentClass(item)
+        parent.is_inherited = true
+        ; `class Child extends Base` is the CLASS HEADER form and lands here;
+        ; the statement forms (`extends Base` / `Extends(Base)` inside the body)
+        ; go through markParentClass, which also records the child and marks the
+        ; parent extended. This path recorded neither, so a target that has to
+        ; ask "is anything derived from this class?" was told no: Kotlin wrote a
+        ; final `class Base` (and final methods) that its own subclass could not
+        ; extend — one `kotlinc` error for an app that compiled everywhere else.
+        parent.is_extended_by_children = true
+        push parent.child_classes index
+
+        parent.variables.forEach({
+          ch.ctx.defineVariable(item.name item)
+        })
+      }
+    })
+
+    for classesWithTraits point:ClassJoinPoint i {
+      def cl:RangerAppClassDesc (unwrap point.class_def)
+      def joinPoint:CodeNode (unwrap point.node)
+      def traitClassDef@(lives):CodeNode (at point.node.children 1)
+      def name:string (traitClassDef.vref)
+      ; print "trait " + name + " to class " + cl.name
+        ; a trait whose class the imports never bring in: findClass answers
+        ; nothing, and only JavaScript survives reading through that nothing
+        if ((ctx.isDefinedClass(name)) == false) {
+          ctx.addError( (unwrap point.node) ('Can not join class ' + name + ' because it is not defined' ))
+          continue
+        }
+        def t:RangerAppClassDesc (ctx.findClass(name))
+        if( (size t.extends_classes) > 0 ) {
+          ctx.addError( (unwrap point.node) ('Can not join class ' + name + ' because it is inherited. Currently on base classes can be used as traits.' ))
+          continue
+        }
+        if(t.has_constructor) {
+          ctx.addError( (unwrap point.node) ('Can not join class ' + name + ' because it has a constructor function' ))
+        } {
+          ; def clBody:CodeNode (at t.node.children 2)
+          def origBody:CodeNode (at cl.node.children 2)
+          def match:RangerArgMatch (new RangerArgMatch ())
+          def params (t.node.getExpressionProperty("params"))
+          def initParams (point.node.getExpressionProperty("params"))
+          def traitParams (new RangerTraitParams)
+
+          ; print "building trait for class " + cl.name
+          if( (!null? params) && (!null? initParams) ) {
+            for params.children typeName:CodeNode i {
+              def pArg (at initParams.children i)
+              if ( 0 == (strlen pArg.vref) ) {
+                match.addNode( typeName.vref pArg)
+              } {
+                match.add(typeName.vref pArg.vref ctx)
+;                print "- add " + typeName.vref + " => " +pArg.vref
+              }
+              push traitParams.param_names typeName.vref
+              set traitParams.values typeName.vref pArg.vref
+            }
+            set cl.trait_params name traitParams
+          } {
+            match.add("T" cl.name ctx)
+          }
+
+;           print "traitparam values == " + (keys traitParams.values)
+
+          ctx.setCurrentClass( cl )          
+
+          def traitClass (ctx.findClass(traitClassDef.vref))
+          for traitClass.variables pvar:RangerAppParamDesc i {
+            def ccopy:CodeNode (pvar.node.rebuildWithType(match true))      
+            this.WalkCollectMethods( ccopy ctx wr )
+            push origBody.children ccopy
+          }
+          for traitClass.defined_variants fnVar:string i {
+            def mVs:RangerAppMethodVariants (get traitClass.method_variants fnVar)
+            for mVs.variants variant:RangerAppFunctionDesc i {
+              def ccopy:CodeNode (variant.node.rebuildWithType(match true))      
+              this.WalkCollectMethods( ccopy ctx wr )
+              push origBody.children ccopy
+            }            
+          }
+          for traitClass.static_methods variant:RangerAppFunctionDesc i {
+            def ccopy:CodeNode (variant.node.rebuildWithType(match true))      
+            this.WalkCollectMethods( ccopy ctx wr )
+            push origBody.children ccopy
+          }            
+          
+          ; def copy_of_body:CodeNode (clBody.rebuildWithType(match true))      
+          ;joinPoint.vref = "does"
+          ;joinPoint.value_type = RangerNodeType.NoType
+          ;joinPoint.expression = true
+          ;def chCnt:int (size joinPoint.children)
+          ;while( chCnt > 0 ) {
+          ;  removeLast joinPoint.children
+          ;  chCnt = chCnt - 1
+          ;}
+
+          ;ctx.setCurrentClass( cl )
+          ;for copy_of_body.children ch:CodeNode i {
+            ;push origBody.children ch
+           ; this.WalkCollectMethods( ch ctx wr )
+          ;}
+        }      
+    }
+
+    def cClassList (sort serializedClasses {
+      def left_had false
+      def right_had false
+      forEach left.variables {
+        if(item.nameNode.type_name == right.name || item.nameNode.array_type == right.name) {
+          left_had = true
+        }
+      } 
+      forEach right.variables {
+        if(item.nameNode.type_name == left.name || item.nameNode.array_type == left.name) {
+          right_had = true
+        }
+      } 
+      if(left_had) {
+        return 1
+      }
+      if(right_had) {
+        return -1
+      }
+      return 0
+    })
+
+    ; Mark every @serialize(true) class before generating any of them, so that
+    ; isSerializedClass() does not depend on the order of cClassList (mutually
+    ; referencing classes can not be topologically sorted).
+    for cClassList cl:RangerAppClassDesc i {
+      cl.is_serialized = true
+    }
+
+    for cClassList cl:RangerAppClassDesc i {
+      def ser:RangerSerializeClass (new RangerSerializeClass())
+      if( (ser.validateSerializedClass( cl (unwrap cl.ctx) )) == false ) {
+        ; The class references a type that can not be serialized. The error is
+        ; already reported at the declaration; emitting the extension would
+        ; only add confusing follow-up errors inside generated code.
+        continue
+      }
+      def extWr:CodeWriter (new CodeWriter())
+;      ser.createJSONSerializerFn( cl (unwrap cl.ctx) extWr )
+      ser.createJSONSerializerFn2( cl (unwrap cl.ctx) extWr )
+      def theCode:string (extWr.getCode())
+      def code:SourceCode (new SourceCode ( theCode))
+      code.filename = "extension " + (ctx.currentClass.name)
+      def parser:RangerLispParser (new RangerLispParser (code))
+      parser.parse((ctx.hasCompilerFlag("no-op-transform")))
+      def rn@(lives):CodeNode (unwrap parser.rootNode)
+      this.WalkCollectMethods( rn (unwrap cl.ctx) wr)
+      push walkAlso rn
+    }
+    
+    for immutableClasses cl:RangerAppClassDesc i {
+      def ser (new RangerImmutableExtension)
+      def extWr (new CodeWriter())
+      ser.createImmutableExtension( cl (unwrap cl.ctx) extWr )
+      def theCode (extWr.getCode())
+      def code (new SourceCode ( theCode ))
+      code.filename = "extension " + (cl.name)
+      def parser (new RangerLispParser (code))
+      parser.parse((ctx.hasCompilerFlag("no-op-transform")))
+      def rn@(lives):CodeNode (unwrap parser.rootNode)
+      this.WalkCollectMethods( rn (unwrap cl.ctx) wr)
+      push walkAlso rn
+    }
+
+    if ((size processClasses) > 0) {
+      def baseDesc@(optional weak):RangerAppClassDesc (ctx.findClass("RangerProcessBase"))
+      if ((null? baseDesc) == false) {
+        def baseCl:RangerAppClassDesc (unwrap baseDesc)
+        baseCl.is_extended_by_children = true
+      }
+      this.validateProcessPaths(processClasses ctx)
+      def procRtGen:RangerProcessClass (new RangerProcessClass())
+      def rtWr:CodeWriter (new CodeWriter())
+      def nameRegWr:CodeWriter (new CodeWriter())
+      procRtGen.emitProcessNameRegistryExtension(processClasses nameRegWr)
+      def nameRegCode:string (nameRegWr.getCode())
+      def nameRegSrc:SourceCode (new SourceCode (nameRegCode))
+      nameRegSrc.filename = "extension ProcessNameRegistry"
+      def nameRegParser:RangerLispParser (new RangerLispParser (nameRegSrc))
+      nameRegParser.parse((ctx.hasCompilerFlag("no-op-transform")))
+      def nameRegRn@(lives):CodeNode (unwrap nameRegParser.rootNode)
+      this.WalkCollectMethods( nameRegRn ctx wr)
+      push walkAlso nameRegRn
+
+      procRtGen.emitProcessRuntimeExtension(processClasses rtWr)
+      def rtCode:string (rtWr.getCode())
+      def rtSrc:SourceCode (new SourceCode (rtCode))
+      rtSrc.filename = "extension ProcessRuntime"
+      def rtParser:RangerLispParser (new RangerLispParser (rtSrc))
+      rtParser.parse((ctx.hasCompilerFlag("no-op-transform")))
+      def rtRn@(lives):CodeNode (unwrap rtParser.rootNode)
+      this.WalkCollectMethods( rtRn ctx wr)
+      push walkAlso rtRn
+
+      if (ctx.hasCompilerFlag("typescript")) {
+        def tsWr:CodeWriter (new CodeWriter())
+        procRtGen.emitProcessTypeScriptHelpers(processClasses tsWr)
+        set ctx.compilerSettings "processTsHelpers" (tsWr.getCode())
+      }
+    }
+
+    for processClasses cl:RangerAppClassDesc i {
+      cl.is_process = true
+      def hasProcessBase:boolean false
+      for cl.extends_classes extName:string i {
+        if (extName == "RangerProcessBase") {
+          hasProcessBase = true
+        }
+      }
+      if (hasProcessBase == false) {
+        push cl.extends_classes "RangerProcessBase"
+        def parentDesc@(optional weak):RangerAppClassDesc (ctx.findClass("RangerProcessBase"))
+        if ((null? parentDesc) == false) {
+          def parentCl:RangerAppClassDesc (unwrap parentDesc)
+          parentCl.is_extended_by_children = true
+          parentCl.is_inherited = true
+        }
+      }
+      def procGen:RangerProcessClass (new RangerProcessClass())
+      def extWr:CodeWriter (new CodeWriter())
+      def processTypeId:int (i + 1)
+      procGen.createProcessExtension( cl (unwrap cl.ctx) extWr processTypeId )
+      def theCode:string (extWr.getCode())
+      def code:SourceCode (new SourceCode ( theCode ))
+      code.filename = "extension " + (cl.name)
+      def parser:RangerLispParser (new RangerLispParser (code))
+      parser.parse((ctx.hasCompilerFlag("no-op-transform")))
+      def rn@(lives):CodeNode (unwrap parser.rootNode)
+      this.WalkCollectMethods( rn (unwrap cl.ctx) wr)
+      push walkAlso rn
+    }
+
+    ;       ctx.hadValidType( (unwrap v.nameNode) )
+    for ctx.definedClassList cname:string i {
+      push allTypes cname
+      def c (unwrap (get ctx.definedClasses cname))
+      if( c.is_system || c.is_interface || c.is_template || c.is_trait) {
+        continue
+      }
+      def varNames:[string:boolean]
+      for c.variables p:RangerAppParamDesc i {
+        ctx.hadValidType( (unwrap p.nameNode) )
+        set varNames p.name true
+      }
+      c.method_variants.forEach({
+        item.variants.forEach({
+          if(has varNames item.name) {
+            ctx.addError( (unwrap item.nameNode) 'Class has defined method and variable of the same name.')
+          }
+        })
+      })
+      ; check that no double variables..
+
+    }
+
+    for ctx.definedClassList cname:string i {
+      push allTypes cname
+    }
+
+    push allTypes "int"
+    push allTypes "string"
+    push allTypes "boolean"
+    push allTypes "double"
+
+    def Anynn@(lives) (node.newVRefNode("Any"))
+
+    def rootCtx (ctx.getRoot())
+
+    def new_class@(lives):RangerAppClassDesc (new RangerAppClassDesc ())
+    new_class.name = "Any"
+    new_class.nameNode = Anynn
+    rootCtx.addClass("Any" new_class)
+    new_class.is_union = true
+    def did_push:[string:boolean]
+    for allTypes typeName:string i {
+      if( has did_push typeName) {
+        continue
+      }
+      push new_class.is_union_of typeName
+      set did_push typeName true
+    }
+    Anynn.clDesc = new_class
+
+    this.finalizeRecordClasses(ctx wr)
+    
+    ; initialize the operator root 
+  }
+
+  fn defineFunctionParam( method:RangerAppFunctionDesc arg:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+      this.CheckTypeAnnotationOf( arg ctx wr )
+      def p@(lives):RangerAppParamDesc (new RangerAppParamDesc ())
+      p.name = arg.vref
+      ctx.assignParamCompiledName(p)
+      p.value_type = arg.value_type
+      p.node = arg
+      p.init_cnt = 1
+      p.nameNode = arg
+      p.refType = RangerNodeRefType.Weak
+      p.varType = RangerContextVarType.FunctionParameter
+      push method.params p
+      arg.hasParamDesc = true
+      arg.paramDesc = p
+      arg.eval_type = arg.value_type
+      arg.eval_type_name = arg.type_name
+      if (arg.hasFlag("strong")) {
+        p.changeStrengthSelf(1 1)
+      } {
+        arg.setFlag("lives")
+        p.changeStrengthSelf(0 1)
+      }               
+  }
+
+  fn spliceFunctionBody:CodeNode ( startIndex:int node@(temp lives):CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def block_index startIndex ; fn foo () {}
+    def ch_len ( ( size node.children ) - 1)
+    if( ch_len == startIndex ) {
+      return node
+    }
+    for node.children cb:CodeNode i {
+      if( i > startIndex ) {
+        if( (strlen cb.vref) > 0 ) {
+          if( ( ctx.hasCompilerFlag(cb.vref) ) && ( i < ch_len ) ) {
+            block_index = i + 1
+          }
+        }
+      }
+    }
+    def copyOf (node.copy())
+    while( (size node.children) > (startIndex + 1) ) {
+      removeLast node.children
+    }
+    if( block_index > startIndex ) {
+      def replacer (at copyOf.children block_index)
+      removeLast node.children
+      push node.children (replacer.copy())
+    }
+    return node
+  }
+
+  fn CreateFunctionObject:RangerAppFunctionDesc (orig_node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+
+    plugin.md "developer.md" {
+      h2 Creating new function objects
+      p 'Implemented a new, perhaps shorter way for creating new ' (b 'RangerAppFunctionDesc') 'Objects'
+      code 'RangerFlowParser::CreateFunctionObject(orig_node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)'
+    }
+
+    def subCtx (ctx.fork())
+    def node (this.spliceFunctionBody( 3 orig_node subCtx wr ))    
+    def cn:CodeNode (node.getSecond())
+    def s:string (node.getVRefAt(1))
+    cn.ifNoTypeSetToVoid()
+
+    ; not automatically assigned to some class
+    ; def currC:RangerAppClassDesc ctx.currentClass
+    ; if( (currC.hasOwnMethod(s)) && (false == (cn.hasFlag("override"))) ) {
+    ;  ctx.addError( node "Error: method of same name declared earlier. Overriding function declarations is not currently allowed!")
+    ;  return
+    ; }
+    ; if(cn.hasFlag("main")) {
+    ;  ctx.addError( node "Error: dynamic method declared as @(main). Use static 'sfn' instead of 'fn'.")
+    ;  return        
+    ; }      
+
+    def m@(lives) (r.funcdesc node ctx)
+    m.node = orig_node
+    orig_node.fnDesc = m
+    subCtx.is_function = true
+    subCtx.currentMethod = m
+    m.fnCtx = subCtx
+    if (cn.hasFlag("weak")) {
+      m.changeStrength(0 1 node)
+    } {
+      m.changeStrength(1 1 node)
+    }
+    def args:CodeNode (at node.children 2)
+    m.fnBody = (at node.children 3)
+    
+    this.CheckTypeAnnotationOf( (unwrap m.nameNode) ctx wr )
+
+    for args.children arg@(lives):CodeNode ii {
+
+      this.CheckTypeAnnotationOf( arg subCtx wr )
+      
+      def p2@(lives):RangerAppParamDesc (new RangerAppParamDesc ())
+      p2.name = arg.vref
+      p2.value_type = arg.value_type
+      p2.node = arg
+      p2.nameNode = arg
+      p2.init_cnt = 1
+      p2.refType = RangerNodeRefType.Weak
+      p2.initRefType = RangerNodeRefType.Weak
+      p2.debugString = "--> collected "
+      if (args.hasBooleanProperty("strong")) {
+        p2.refType = RangerNodeRefType.Strong
+        p2.initRefType = RangerNodeRefType.Strong
+      }
+      p2.varType = RangerContextVarType.FunctionParameter
+      push m.params p2
+      arg.hasParamDesc = true
+      arg.paramDesc = p2
+      arg.eval_type = arg.value_type
+      arg.eval_type_name = arg.type_name 
+      if (arg.hasFlag("strong")) {
+        p2.changeStrengthSelf(1 1)
+      } {
+        arg.setFlag("lives")
+        p2.changeStrengthSelf(0 1)
+      }           
+      ; subCtx.hadValidType(p2.nameNode)
+      subCtx.defineVariable(p2.name p2)
+    }    
+    return m
+  }
+
+  fn WalkCollectMethods:void (node@(lives):CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def find_more:boolean true
+
+    if( (size node.children) > 0) {
+      def fc (node.getFirst())
+      if( (size fc.ns) > 1) {
+        if( (at fc.ns 0) == "plugin" ) {
+          if(node.is_plugin) {
+            return
+          }
+          node.is_plugin = true
+          def pName (at fc.ns 1)
+          ctx.addPluginNode( pName node )
+          return 
+        }
+      }
+    }    
+    if (node.isFirstVref("defn")) {
+      return 
+    }    
+    if (node.isFirstVref("flag")) {
+      return 
+    }    
+    if (node.isFirstVref("page")) {
+      return 
+    }    
+    if (node.isFirstVref("service")) {
+      return 
+    }    
+
+    if (node.isFirstVref("operator")) {
+
+      def opRef (at node.children 0)
+      def nameNode@(lives):CodeNode (node.getSecond())
+      def opClassName (nameNode.vref)
+
+      if (nameNode.vref == "class") {
+        def new_class@(lives):RangerAppClassDesc (new RangerAppClassDesc ())
+        new_class.name = nameNode.type_name
+        new_class.nameNode = nameNode
+        nameNode.vref = nameNode.type_name
+        ctx.addClass(nameNode.vref new_class)
+      
+        ; TODO: this may be dangerous assumbtion, the 'class' type def could be removed 
+        def cSig (TFactory.new_class_signature(nameNode ctx wr))
+        cSig.is_system = true
+
+        new_class.is_system = true
+        nameNode.clDesc = new_class
+      }
+
+
+      def b_is_void ((nameNode.type_name == "void") || nameNode.is_block_node )
+      def langRef (r.vref (ctx.getTargetLang()))
+      if( has opRef.type_name ) {
+        langRef.vref = opRef.type_name
+        print 'OP type ' + opRef.type_name
+      }
+      def opLang (? ( (size node.children) > 2) (at node.children 2) langRef )
+      def opsList (last node.children )
+
+;      def listOf:CodeNode (node.getSecond())
+;      for listOf.children item@(lives):CodeNode i {
+;        ctx.createOperator(item)
+;      }
+
+      for opsList.children op:CodeNode i {
+        def fc (op.getFirst())
+        if( fc.vref == "fn") {
+          def nn (op.getSecond())
+          def args (op.getThird())
+          def opCode (at op.children 3)
+
+;          print ":: op :: " + nn.vref
+
+          def opN@(lives) (new CodeNode ( (unwrap op.code) op.sp op.ep ) )
+
+          def opName (nn.copy())
+;          def opName (new CodeNode ( (unwrap op.code) op.sp op.ep ) )
+
+          def opSig (nn.rebuildWithType( (new RangerArgMatch) false))
+          def opArgs (args.rebuildWithType( (new RangerArgMatch) false))
+
+          def opTpls (new CodeNode ( (unwrap op.code) op.sp op.ep ) )
+          opTpls.is_block_node = true
+
+          def opTemplatesMain (new CodeNode ( (unwrap op.code) op.sp op.ep ) )
+          def opTemplatesVRef (new CodeNode ( (unwrap op.code) op.sp op.ep ) )
+          def opTemplatesList (new CodeNode ( (unwrap op.code) op.sp op.ep ) )
+
+          opTemplatesVRef.vref = "templates"
+          push opTemplatesMain.children opTemplatesVRef
+          push opTemplatesMain.children opTemplatesList
+          push opTpls.children opTemplatesMain
+
+          push opN.children opName
+;          opName.vref = nn.vref
+          if(nn.hasFlag("newcontext")) {
+            opName.setFlag("newcontext")
+          }
+          opSig.vref = nn.vref
+          push opN.children opSig
+
+          ; op _:void ( this:myClass .... )
+          ; nameNode
+          def opThisNode (nameNode.rebuildWithType( (new RangerArgMatch) false))
+          opThisNode.vref = "self"
+          if(nameNode.hasFlag("mutates")) {
+            opThisNode.setFlag("mutates")
+          }
+          if(nameNode.hasFlag("immutable")) {
+            opThisNode.setFlag("immutable")
+          }
+
+          if b_is_void {
+            ; --> basebones operator without the self argument
+          } {
+            insert opArgs.children 0 opThisNode
+          }
+
+          push opN.children opArgs
+          push opN.children opTpls
+
+          if( op.hasStringProperty("doc") ) {
+              opN.setStringProperty( "doc" (op.getStringProperty("doc")) )
+          }
+
+          def opCodeNode (opCode.rebuildWithType( (new RangerArgMatch) false))
+          def actualCode (new CodeNode ( (unwrap opCode.code) op.sp op.ep ) )
+          def opLangDef (opLang.rebuildWithType( (new RangerArgMatch) false))
+
+          if(opLangDef.vref == "all") {
+              opLangDef.vref = "*"
+          }
+
+          push actualCode.children opLangDef
+          push actualCode.children opCodeNode
+          if(opLangDef.vref == "*") {
+            if(opCode.is_block_node == false) {
+              opSig.setFlag("macro")
+            }
+          }
+          if(nameNode.hasFlag("macro")) {
+            opSig.setFlag("macro")
+          }
+          if(nn.hasFlag("pure")) {
+            opSig.setFlag("pure")
+          }
+          push opTemplatesList.children actualCode 
+          ctx.createOperator(opN)
+        }
+      }
+
+      return
+
+      def instances:CodeNode (node.getThird())
+      def new_class@(lives):RangerAppClassDesc (new RangerAppClassDesc ())
+      new_class.name = nameNode.vref
+      new_class.nameNode = nameNode
+      ctx.addClass(nameNode.vref new_class)
+      new_class.is_system_union = true
+      for instances.children ch:CodeNode i {
+        push new_class.is_union_of ch.vref
+      }
+      nameNode.clDesc = new_class
+      return
+    }
+
+    if (node.isFirstVref("union")) {
+      ; `union` also names an ordinary word in a keyword table -- a two-child
+      ; node here has no member list, and reading one is a null dereference
+      ; everywhere but JavaScript
+      if ((size node.children) < 3) {
+        ctx.addError(node "union expects a name and a list of member types")
+        return
+      }
+      def nameNode@(lives):CodeNode (node.getSecond())
+      def instances:CodeNode (node.getThird())
+      def new_class@(lives):RangerAppClassDesc (new RangerAppClassDesc ())
+      new_class.name = nameNode.vref
+      new_class.nameNode = nameNode
+      ctx.addClass(nameNode.vref new_class)
+      new_class.is_union = true
+      for instances.children ch:CodeNode i {
+        push new_class.is_union_of ch.vref
+      }
+      nameNode.clDesc = new_class
+      return
+    }    
+
+    if (node.isFirstVref("systemunion")) {
+      this.registerSystemUnionFromNode(node ctx)
+      return
+    }
+    if (node.isFirstVref("systemclass")) {
+      this.registerSystemClassFromNode(node ctx)
+      return
+    }
+    ; Everything from here on is a CLASS MEMBER form, and every one of them
+    ; reads ctx.currentClass. At the top level of a file there is no current
+    ; class, so that answers nothing and the first field read went through it.
+    ; JavaScript throws where the compiler already catches; every other host
+    ; dies, so a stray member declaration killed the natively built compiler
+    ; instead of being reported.
+    if (this.isClassMemberForm(node)) {
+      if (null? ctx.currentClass) {
+        ctx.addError(node ("`" + (node.getVRefAt(0)) + "` can only appear inside a class"))
+        return
+      }
+    }
+    if (node.isFirstVref("extends")) {
+      if( ( size node.children ) > 1 ) {
+        def ee (node.getSecond())
+        def currC:RangerAppClassDesc ctx.currentClass
+        currC.addParentClass(ee.vref)
+        this.markParentClass(ee currC.name ctx)
+      }
+      find_more = false
+    }
+    if (node.isFirstVref("Extends")) {
+      def extList:CodeNode (at node.children 1)
+      def currC:RangerAppClassDesc ctx.currentClass
+      for extList.children ee:CodeNode ii {
+        currC.addParentClass(ee.vref)
+        this.markParentClass(ee currC.name ctx)
+      }
+    }
+    if ( (node.isFirstVref("constructor")) || (node.isFirstVref("Constructor"))) {
+
+      def currC:RangerAppClassDesc ctx.currentClass
+      def subCtx:RangerAppWriterContext (currC.ctx.fork())
+
+      currC.has_constructor = true
+      currC.constructor_node = node
+      def m@(lives):RangerAppFunctionDesc (new RangerAppFunctionDesc ())
+      m.name = "Constructor"
+      m.node = node
+      m.nameNode = (at node.children 0)
+      m.fnBody = (at node.children 2)
+      m.fnCtx = subCtx
+
+      def args:CodeNode (at node.children 1)
+      for args.children arg@(lives):CodeNode ii {
+        def p:RangerAppParamDesc (new RangerAppParamDesc ())
+        p.name = arg.vref
+        p.value_type = arg.value_type
+        p.node = arg
+        p.nameNode = arg
+        p.refType = RangerNodeRefType.Weak
+        p.varType = RangerContextVarType.FunctionParameter
+
+        push m.params p
+
+        arg.hasParamDesc = true
+        arg.paramDesc = p
+        arg.eval_type = arg.value_type
+        arg.eval_type_name = arg.type_name
+
+        subCtx.defineVariable(p.name p)        
+        
+      }
+      currC.constructor_fn = m
+      find_more = false
+    }
+    if (node.isFirstVref("enum")) {
+      ; a keyword can also be an ordinary word in the program's own data --
+      ; `enum _enum` in a reserved-word table declares nothing, and reading the
+      ; member list that is not there is a null dereference off JavaScript
+      if ((size node.children) < 3) {
+        ctx.addError(node "enum expects a name and a list of members")
+        return
+      }
+      def fNameNode:CodeNode (at node.children 1)
+      def enumList:CodeNode (at node.children 2)
+      def new_enum:RangerAppEnum (new RangerAppEnum ())
+      for enumList.children item:CodeNode i {
+        def fc (item.getFirst())
+        new_enum.add(fc.vref)
+      }
+      set ctx.definedEnums fNameNode.vref new_enum
+      find_more = false
+    }
+    if (node.isFirstVref("Enum")) {
+      if ((size node.children) < 3) {
+        ctx.addError(node "Enum expects a name and a list of members")
+        return
+      }
+      def fNameNode:CodeNode (at node.children 1)
+      def enumList:CodeNode (at node.children 2)
+      def new_enum:RangerAppEnum (new RangerAppEnum ())
+      for enumList.children item:CodeNode i {
+        new_enum.add(item.vref)
+      }
+      set ctx.definedEnums fNameNode.vref new_enum      
+      find_more = false
+    }
+    if (node.isFirstVref("trait")) {
+      def s:string (node.getVRefAt(1))
+      def classNameNode@(lives):CodeNode (node.getSecond())
+      def new_class@(lives):RangerAppClassDesc (new RangerAppClassDesc ())
+      new_class.name = s
+      def subCtx@(lives):RangerAppWriterContext (ctx.fork())
+      ctx.setCurrentClass(new_class)
+      subCtx.setCurrentClass(new_class)
+      new_class.ctx = subCtx
+      new_class.nameNode = classNameNode
+      ctx.addClass(s new_class)
+      new_class.classNode = node
+      new_class.node = node
+      new_class.is_trait = true
+    }
+
+    if ((node.isFirstVref("CreateClass")) || (node.isFirstVref("class")) || (node.isFirstVref("record"))) {
+
+      if( (size node.children) < 3) {
+        ctx.addError(node "Not enough arguments for creating a class")
+        return
+      }
+
+      def s:string (node.getVRefAt(1))
+
+      ; `class History @params(Op)` declares a GENERIC class. Nothing in its
+      ; body may be collected: `Op` is not a type, and a method registered
+      ; against it would be a method of a class that is never written. It is
+      ; kept as a template and every `History@(Arg)` reference expands one
+      ; concrete copy. No class descriptor is made either, which is what keeps
+      ; templates out of the class loops all fourteen writers run.
+      if (node.hasExpressionProperty("params")) {
+        if ((ctx.hasTemplateNode(s)) == false) {
+          ctx.addTemplateClass(s node)
+        }
+        find_more = false
+        return
+      }
+
+      ; Already fully collected (e.g. the same file imported via two different
+      ; path strings)? Don't re-walk the body — that registers the methods on a
+      ; throw-away desc and breaks inherited-method lookup in subclasses.
+      if (ctx.hasClass(s)) {
+        def existingCl:RangerAppClassDesc (ctx.findClass(s))
+        if (existingCl.is_collected) {
+          find_more = false
+          return
+        }
+      }
+      def classNameNode@(lives):CodeNode (node.getSecond())
+      def new_class@(lives):RangerAppClassDesc (new RangerAppClassDesc ())
+      new_class.name = s
+      new_class.compiledName = s
+      if (node.isFirstVref("record")) {
+        new_class.is_record = true
+      }
+
+      classNameNode.evalTypeClass = (TFactory.new_class_signature(classNameNode ctx wr))
+      def notOkNames ([] 'main')
+      if( (indexOf notOkNames s) >= 0) {
+        ctx.addError(classNameNode ( 'Unfortunately this class name not allowed: ' + s) )
+      }
+
+      ; illegal name check
+      switch s {
+        case "_" {
+          new_class.compiledName = 'utiltyClass'
+        }
+      }
+
+      def subCtx@(lives):RangerAppWriterContext (ctx.fork())
+      ctx.setCurrentClass(new_class)
+      subCtx.setCurrentClass(new_class)
+      new_class.ctx = subCtx
+      new_class.nameNode = classNameNode
+      ctx.addClass(s new_class)
+      new_class.is_collected = true
+      new_class.classNode = node
+      new_class.node = node
+      if(node.hasBooleanProperty("trait")) {
+        new_class.is_trait = true
+      }
+      if(classNameNode.hasFlag("immutable")) {
+        push immutableClasses new_class
+        new_class.is_immutable = true
+      }
+      this.applyProcessClassMeta(new_class classNameNode node ctx)
+      if(node.hasBooleanProperty("singleton")) {
+        new_class.is_singleton = true
+      }
+      def third (node.getThird())
+      if(third.vref == "extends") {
+        if( (node.chlen()) >= 4 ) {
+          def extClass (at node.children 3)
+          if( (strlen extClass.vref) > 0 ) {
+            ; 
+            set extendedClasses s extClass.vref
+          } {
+            ctx.addError( node "Invalid classname given for the extends keyword")
+          }
+        }
+      }
+      ; check for the extends keyword
+    }
+
+    if (node.isFirstVref("TemplateClass")) {
+      def s:string (node.getVRefAt(1))
+      ctx.addTemplateClass(s node)
+      find_more = false
+    }
+
+    if((node.isFirstVref("Extends"))) {
+      
+      def list:CodeNode (at node.children 1)
+      for list.children cname:CodeNode i {
+        ; the base may not exist -- markParentClass has already said so
+        if (ctx.isDefinedClass(cname.vref)) {
+          def extC:RangerAppClassDesc (ctx.findClass(cname.vref))
+          for extC.variables vv@(lives):RangerAppParamDesc i {
+            def currC:RangerAppClassDesc ctx.currentClass
+            def subCtx:RangerAppWriterContext currC.ctx
+            subCtx.defineVariable(vv.name vv)
+          }
+        }
+      }
+      find_more = false
+    }
+
+    if ((node.isFirstVref("def")) || (node.isFirstVref("let"))) {
+      def s:string (node.getVRefAt(1))
+      def vDef@(lives):CodeNode (at node.children 1)
+      def p:RangerAppParamDesc (new RangerAppParamDesc ())
+
+      ; TODO: check also for new...
+      ; TODO: may not work if trait has not been declared
+      if(vDef.has_type_annotation) {
+        this.CheckTypeAnnotationOf( vDef ctx wr )
+      }
+      if( s != ((ctx.transformWord(s)))) {
+        ; ctx.addError( node "Can not use reserved word " + s + " as class propery")
+      }
+      def currC:RangerAppClassDesc ctx.currentClass
+
+      ; immutable classes have only weak properties
+      if currC.is_immutable {
+        vDef.setFlag("weak")
+        if( vDef.value_type == RangerNodeType.Array) {
+          def initNode (node.newExpressionNode())
+          initNode.push( (node.newVRefNode("new")) )
+          def tDef (node.newVRefNode("Vector"))
+          
+          ; Vector@(string)
+          def vAnn (node.newExpressionNode())
+          vAnn.push( (node.newVRefNode(vDef.array_type)))
+          tDef.has_vref_annotation = true
+          tDef.vref_annotation = vAnn
+          initNode.push(tDef)
+
+          set node.children 2 (initNode)
+
+          vDef.value_type = RangerNodeType.VRef
+          vDef.type_name = "Vector"
+          ; def obj:Vector@(string)
+          def tAnn (node.newExpressionNode())
+          tAnn.push( (node.newVRefNode(vDef.array_type)))
+          vDef.has_type_annotation = true
+          vDef.type_annotation = tAnn
+
+          this.CheckTypeAnnotationOf( vDef ctx wr )
+          this.CheckVRefTypeAnnotationOf( tDef ctx wr )
+          
+        }
+        if( vDef.value_type == RangerNodeType.Hash) {
+          def initNode (node.newExpressionNode())
+          initNode.push( (node.newVRefNode("new")) )
+          def tDef (node.newVRefNode("Map"))
+          
+          ; Vector@(string)
+          def vAnn (node.newExpressionNode())
+          vAnn.push( (node.newVRefNode(vDef.key_type)))
+          vAnn.push( (node.newVRefNode(vDef.array_type)))
+          tDef.has_vref_annotation = true
+          tDef.vref_annotation = vAnn
+          initNode.push(tDef)
+          set node.children 2 (initNode)
+
+          vDef.value_type = RangerNodeType.VRef
+          vDef.type_name = "Map"
+          ; def obj:Vector@(string)
+          def tAnn (node.newExpressionNode())
+          tAnn.push( (node.newVRefNode(vDef.key_type)))
+          tAnn.push( (node.newVRefNode(vDef.array_type)))
+          vDef.has_type_annotation = true
+          vDef.type_annotation = tAnn
+
+          this.CheckTypeAnnotationOf( vDef ctx wr )
+          this.CheckVRefTypeAnnotationOf( tDef ctx wr )
+
+        }
+      }      
+
+      ; transforming reserved words here 
+      p.name = s
+      p.value_type = vDef.value_type
+      p.node = node
+      p.is_class_variable = true
+      p.varType = RangerContextVarType.Property
+      p.node = node
+      p.nameNode = vDef
+      if (node.hasFlag("static")) {
+        p.is_static = true
+      }
+      vDef.hasParamDesc = true
+      vDef.ownParamDesc = p
+      vDef.paramDesc = p
+      node.hasParamDesc = true
+      node.paramDesc = p
+
+      if (vDef.hasFlag("weak")) {
+          p.changeStrengthSelf(0 2)
+      } {
+          p.changeStrengthSelf(2 2)
+      }    
+
+      if ((size node.children) > 2) {
+        p.set_cnt = 1
+        p.init_cnt = 1
+        p.def_value = (at node.children 2)
+        p.is_optional = false
+        if(p.def_value.value_type == RangerNodeType.String) {
+          vDef.type_name = "string"
+        }
+        if(p.def_value.value_type == RangerNodeType.Integer) {
+          vDef.type_name = "int"
+        }
+        if(p.def_value.value_type == RangerNodeType.Double) {
+          vDef.type_name = "double"
+        }
+        if(p.def_value.value_type == RangerNodeType.Boolean) {
+          vDef.type_name = "boolean"
+        }
+        def valueNode (at node.children 2)
+        if( (size valueNode.children) > 0) {
+          def fc (valueNode.getFirst())
+          if(fc.vref == "new") {
+            def second (valueNode.getSecond())
+            this.CheckVRefTypeAnnotationOf( second ctx wr )
+          }
+        }
+      } {
+        p.is_optional = true
+        if (false == ((vDef.value_type == RangerNodeType.Array) || (vDef.value_type == RangerNodeType.Hash))) {         
+          vDef.setFlag("optional")
+        }
+      }
+      currC.addVariable(p)
+
+      def subCtx:RangerAppWriterContext currC.ctx
+      subCtx.defineVariable(p.name p)
+      p.is_class_variable = true
+
+      find_more = false
+    }
+    if (node.isFirstVref("operators")) {
+      def listOf:CodeNode (node.getSecond())
+      for listOf.children item@(lives):CodeNode i {
+        ctx.createOperator(item)
+      }
+      find_more = false
+    }
+    if ((node.isFirstVref("Import")) || (node.isFirstVref("import"))) {
+      ; Check if this import was already merged by mergeImports
+      ; After merging, children[0] becomes the imported AST root (no vref="Import")
+      ; and children[1] (filename) is removed
+      if ((size node.children) < 2) {
+        ; Already merged - just walk the imported content
+        for node.children item:CodeNode i {
+          this.WalkCollectMethods(item ctx wr)
+        }
+        return
+      }
+      
+      def fNameNode:CodeNode (at node.children 1)
+      def import_file:string fNameNode.string_value
+      ; `import _import` in a reserved-word table names a word, not a file: the
+      ; string value is empty, and an empty name resolves to the search
+      ; directory itself -- which exists, and cannot be read as a file
+      if (0 == (strlen import_file)) {
+        ctx.addError(node "import expects a file name string")
+        return
+      }
+      if (has ctx.already_imported import_file) {
+        ; Already imported - walk any merged children
+        for node.children item:CodeNode i {
+          this.WalkCollectMethods(item ctx wr)
+        }
+        return
+      } {
+        set ctx.already_imported import_file true
+      }
+      def envOpt (ctx.getEnv())
+      if(null? envOpt) {
+        ctx.addError( node 'Environment not defined')
+        return
+      }
+      def env (unwrap envOpt)
+      def rootCtx (ctx.getRoot())
+      def searchName:string (PkgImport.stripDot(import_file))
+      def searchPaths:[string]
+      if (PkgImport.isPkg(import_file)) {
+        def hit:PkgHit (this.prepareImport(ctx import_file))
+        if (hit.ok == false) {
+          ctx.addError(node hit.err)
+          return
+        }
+        searchName = hit.name
+        if ((strlen hit.dir) > 0) {
+          push searchPaths hit.dir
+        }
+      }
+      def wi:int 0
+      while (wi < (array_length rootCtx.libraryPaths)) {
+        push searchPaths (itemAt rootCtx.libraryPaths wi)
+        wi = (wi + 1)
+      }
+      def filePathIs (TFiles.searchEnv( env searchPaths searchName ))
+
+      if( ( file_exists env filePathIs searchName ) == false ) {
+        ctx.addError(node ('Could not import file '  + import_file))
+        return
+      }
+      def seenKey2:string ("@" + (PkgImport.foldPath((filePathIs + "/" + searchName))))
+      if (has ctx.already_imported seenKey2) {
+        for node.children item2:CodeNode i2 {
+          this.WalkCollectMethods(item2 ctx wr)
+        }
+        return
+      }
+      set ctx.already_imported seenKey2 true
+      def c:string (read_file env filePathIs searchName)
+      def code:SourceCode (new SourceCode ( (unwrap c)))
+      code.filename = import_file
+      def parser:RangerLispParser (new RangerLispParser (code))
+      parser.parse((ctx.hasCompilerFlag("no-op-transform")))
+      def rnode:CodeNode parser.rootNode
+      
+      ; Add the imported file's directory to library paths for recursive imports
+      def fullPath:string (filePathIs + "/" + searchName)
+      def importFileDir:string (path_dirname fullPath)
+      if ((strlen importFileDir) > 0) {
+        push rootCtx.libraryPaths importFileDir
+      }
+      
+      this.WalkCollectMethods( (unwrap rnode) ctx wr)
+      
+      ; Remove the directory after processing
+      if ((strlen importFileDir) > 0) {
+        removeLast rootCtx.libraryPaths
+      }
+      
+      find_more = false
+    }
+    ; consumes_traits
+    if (node.isFirstVref("does")) {
+      def defName:CodeNode (node.getSecond())
+      def currC@(lives):RangerAppClassDesc ctx.currentClass
+      push currC.consumes_traits defName.vref
+      def joinPoint@(lives):ClassJoinPoint (new ClassJoinPoint())
+      joinPoint.class_def = currC
+      joinPoint.node = node
+      push classesWithTraits joinPoint
+    } 
+
+    def b_is_main false
+    if ( node.code.filename == (ctx.getRootFile()) )  {
+      b_is_main = true
+    }
+
+    if ((node.isFirstVref("static")) ) {
+      if ((node.chlen()) >= 2) {
+        def staticCmd:string (node.getVRefAt(1))
+        if ((staticCmd == "def") || (staticCmd == "let")) {
+          def staticDecl (node.newExpressionNode())
+          for node.children ch:CodeNode i {
+            if (i == 0) {
+              continue
+            }
+            push staticDecl.children ch
+          }
+          staticDecl.setFlag("static")
+          this.WalkCollectMethods(staticDecl ctx wr)
+          find_more = false
+          return
+        }
+      }
+      if ((node.chlen()) >= 2) {
+        def secondNode (node.getSecond())
+        if ((secondNode.isFirstVref("def")) || (secondNode.isFirstVref("let"))) {
+          secondNode.setFlag("static")
+          this.WalkCollectMethods(secondNode ctx wr)
+          find_more = false
+          return
+        }
+      }
+      ; static fn foo () {}
+      if( (node.chlen()) < 5 ) {
+        ctx.addError(node "Invalid static function declaration")
+        return
+      }
+      ; static fn main () {}
+      node = (this.spliceFunctionBody( 4 node ctx wr ))
+
+      def s:string (node.getVRefAt(2))
+      if( s == "main" ) {
+        if b_is_main {
+          this.mainCnt = this.mainCnt + 1
+          if(this.mainCnt > 1) {
+            ctx.addError( node "main function can be declared only once")
+          }
+        }
+      }
+      def currC:RangerAppClassDesc ctx.currentClass
+      def m@(lives):RangerAppFunctionDesc (new RangerAppFunctionDesc ())
+      m.name = s
+      m.compiledName = (ctx.transformMemberWord(s))
+      m.node = node
+      m.is_static = true
+      m.nameNode = (at node.children 2)
+      m.nameNode.ifNoTypeSetToVoid()
+      def args:CodeNode (at node.children 3)
+      m.fnBody = (at node.children 4)
+;      m.fnCtx = (ctx.fork())
+      this.CheckTypeAnnotationOf( (unwrap m.nameNode) ctx wr )
+      args.children.forEach({
+        this.defineFunctionParam( m item ctx wr)
+      })      
+      currC.addStaticMethod(m)
+      find_more = false      
+      return
+    }
+    if ((node.isFirstVref("StaticMethod")) || (node.isFirstVref("sfn"))) {
+
+      ; static fn main () {}
+      node = (this.spliceFunctionBody( 3 node ctx wr ))
+
+      def s:string (node.getVRefAt(1))
+      def currC:RangerAppClassDesc ctx.currentClass
+      def m@(lives):RangerAppFunctionDesc (new RangerAppFunctionDesc ())
+      m.name = s
+      m.compiledName = (ctx.transformMemberWord(s))
+      m.node = node
+      m.is_static = true
+      m.nameNode = (at node.children 1)
+      m.nameNode.ifNoTypeSetToVoid()
+      def args:CodeNode (at node.children 2)
+      m.fnBody = (at node.children 3)
+;      m.fnCtx = (ctx.fork())
+      this.CheckTypeAnnotationOf( (unwrap m.nameNode) ctx wr )
+      args.children.forEach({
+        this.defineFunctionParam( m item ctx wr)
+      })      
+      currC.addStaticMethod(m)
+      find_more = false
+
+      if( m.nameNode.hasFlag("main") ) {
+        if b_is_main {
+          this.mainCnt = this.mainCnt + 1
+          if(this.mainCnt > 1) {
+            ctx.addError( node "main function can be declared only once")
+          }
+        }
+      }
+      return
+    }
+    if (node.isFirstVref("extension")) {
+      def s:string (node.getVRefAt(1))
+      ; `extension X` for an X that was never declared: findClass answers
+      ; nothing, and making that nothing the current class is a null
+      ; dereference in every method walked after it
+      if ((ctx.isDefinedClass(s)) == false) {
+        ctx.addError(node ('extension of an undefined class ' + s))
+        return
+      }
+      def old_class@(lives):RangerAppClassDesc (ctx.findClass(s))
+      ctx.setCurrentClass( old_class )
+      ; print "extension for " + s
+    }
+
+    if ((node.isFirstVref("PublicMethod")) || (node.isFirstVref("fn"))) {
+      ; --> new shortcut for function creators
+      if (null? ctx.currentClass) {
+        ctx.addError(node "`fn` can only appear inside a class")
+        return
+      }
+      def currC:RangerAppClassDesc ctx.currentClass
+      def fnObj@(lives) (r.func node (unwrap currC.ctx) wr)
+      def cn (fnObj.nameNode)
+      if( (currC.hasOwnMethod(fnObj.name)) && (false == (cn.hasFlag("override"))) ) {
+        if (currC.hasDuplicateMethodSignature(fnObj)) {
+          ctx.addError( node "Error: method with the same name and parameter signature declared earlier")
+          return
+        }
+      }
+      if(cn.hasFlag("main")) {
+        ctx.addError( node "Error: dynamic method declared as @(main). Use static 'sfn' instead of 'fn'.")
+        return        
+      }      
+      currC.addMethod(fnObj)
+      find_more = false
+      return
+    }
+    if find_more {
+      for node.children item:CodeNode i {
+        this.WalkCollectMethods(item ctx wr)
+      }
+    }
+
+    if(node.hasBooleanProperty("serialize")) {
+      push serializedClasses (unwrap ctx.currentClass)
+    }
+
+    if(node.hasBooleanProperty("process")) {
+      def procCl:RangerAppClassDesc (unwrap ctx.currentClass)
+      procCl.is_process = true
+      def procNameNode@(optional weak):CodeNode (procCl.nameNode)
+      if ((null? procNameNode) == false) {
+        def pn:CodeNode (unwrap procNameNode)
+        def procPath:string (this.readProcessPathFromClassTree(node))
+        if ((strlen procPath) > 0) {
+          procCl.process_path = procPath
+        }
+      }
+    }
+
+    if(node.hasBooleanProperty("singleton")) {
+      def singletonCl:RangerAppClassDesc (unwrap ctx.currentClass)
+      singletonCl.is_singleton = true
+    }
+
+  }
+
+}

@@ -41,7 +41,7 @@ RANGER_LIB="./compiler/Lang.rgr:./lib/stdops.rgr" \
 
 # ...including the compiler
 RANGER_LIB="./compiler/Lang.rgr:./lib/stdops.rgr" \
-  ./tmp/selfhost/rangerc -es6 ./compiler/ng_Compiler.rgr -nodecli \
+  ./tmp/selfhost/rangerc -es6 ./compiler/Compiler.rgr -nodecli \
     -d=./tmp/self -o=output.js
 ```
 
@@ -64,7 +64,7 @@ npm run selfhost:build:dart    # ...and put the library beside it
 
 RANGER_LIB="./compiler/Lang.rgr:./lib/stdops.rgr" \
   dart run ./tmp/selfhost-dart/ranger_compiler.dart \
-    -es6 ./compiler/ng_Compiler.rgr -nodecli -d=./tmp/self -o=output.js
+    -es6 ./compiler/Compiler.rgr -nodecli -d=./tmp/self -o=output.js
 ```
 
 The JavaScript the Dart build writes for the compiler is **byte-identical** to
@@ -81,7 +81,7 @@ npm run selfhost:build:python   # generate the Python, py_compile it, copy the l
 
 RANGER_LIB="./compiler/Lang.rgr:./lib/stdops.rgr" \
   python3 ./tmp/selfhost-python/ranger_compiler.py \
-    -es6 ./compiler/ng_Compiler.rgr -nodecli -d=./tmp/self -o=output.js
+    -es6 ./compiler/Compiler.rgr -nodecli -d=./tmp/self -o=output.js
 ```
 
 Its output is **byte-identical** to the Node build's as well, and reproduces
@@ -95,7 +95,7 @@ language version past C# 7, and the JSON runtime is hand written rather than
 npm run selfhost:build:csharp   # generate the C#, build it with mcs, copy the library
 
 cd tmp/selfhost-csharp && RANGER_LIB="./compiler/Lang.rgr:./lib/stdops.rgr" \
-  mono ranger_compiler.exe -es6 ../../compiler/ng_Compiler.rgr -nodecli \
+  mono ranger_compiler.exe -es6 ../../compiler/Compiler.rgr -nodecli \
     -d=../../tmp/self -o=output.js
 ```
 
@@ -110,7 +110,7 @@ errors before any of this — and still would not build:
 npm run selfhost:build:go      # generate the Go, go build it, copy the library
 
 RANGER_LIB="./compiler/Lang.rgr:./lib/stdops.rgr" \
-  ./tmp/selfhost-go/rangerc -es6 ./compiler/ng_Compiler.rgr -nodecli \
+  ./tmp/selfhost-go/rangerc -es6 ./compiler/Compiler.rgr -nodecli \
     -d=./tmp/self -o=output.js
 ```
 
@@ -124,7 +124,7 @@ back the same 70k-line source it was built from.
 npm run selfhost:build:kotlin   # generate the Kotlin, kotlinc it, copy the library
 
 cd tmp/selfhost-kotlin && RANGER_LIB="./compiler/Lang.rgr:./lib/stdops.rgr" \
-  java -Xmx8g -jar rangerc.jar -es6 ../../compiler/ng_Compiler.rgr -nodecli \
+  java -Xmx8g -jar rangerc.jar -es6 ../../compiler/Compiler.rgr -nodecli \
     -d=../../tmp/self -o=output.js
 ```
 
@@ -198,7 +198,7 @@ be for a language server.
 
 That table is how fast the compiler RUNS. How fast it BUILDS is a different
 question with a different answer, and the LLVM route wins it decisively. Both
-routes below start from the same `compiler/ng_Compiler.rgr` with the same
+routes below start from the same `compiler/Compiler.rgr` with the same
 driver, so the only variable is the backend and its toolchain:
 
 | stage | C++ route | LLVM route |
@@ -251,8 +251,8 @@ that make it self-hosting rather than merely finishing:
 
 The native binary reproduces the Node build's output **byte for byte** from the
 same sources, and the JavaScript it emits is itself a working compiler that
-reproduces itself. Smaller files check out the same way: `ng_writer.rgr` (50 KB
-of output), `ng_CodeNode.rgr` (29 KB, with an `@serialize` class) and
+reproduces itself. Smaller files check out the same way: `CodeWriter.rgr` (50 KB
+of output), `CodeNode.rgr` (29 KB, with an `@serialize` class) and
 `CLIProgress.rgr` all come out byte-identical.
 
 `lib/CmdParams.rgr` -- the compiler's own command-line parser, which has a
@@ -688,7 +688,7 @@ assumed.
   and silently breaks Node for every codepoint in U+0080..U+00FF. A
   `(strlen "<em-dash>")` probe is briefer but stakes the compiler's encoding
   correctness on one non-ASCII source character surviving every future editor —
-  and line 2 of `ng_LowIR.rgr` still carries an ASCII `?` where an em-dash was
+  and line 2 of `LowIR.rgr` still carries an ASCII `?` where an em-dash was
   lost to a bad transcode, so that is a live risk in this repo, not a
   theoretical one.
 
@@ -1149,7 +1149,7 @@ package on the classpath.
 
 ### The same self-compile on the other targets
 
-Measured with `node bin/output.js -l=<target> ./compiler/ng_Compiler.rgr
+Measured with `node bin/output.js -l=<target> ./compiler/Compiler.rgr
 -nodecli`, so this is the compiler's own diagnosis, not the target toolchain's:
 
 | Target | Errors | First thing in the way |
@@ -1197,7 +1197,7 @@ PHP, a surrogate-aware walk on C#, and `Array.from` elsewhere.
 
 ### How long the compiler takes to compile itself
 
-Same input (`./compiler/ng_Compiler.rgr` to ES6), same machine, a 4-core Xeon at
+Same input (`./compiler/Compiler.rgr` to ES6), same machine, a 4-core Xeon at
 2.80 GHz. Median of three, after a warm-up run. All three renderings emit the
 same bytes — the comparison is only meaningful because the outputs are identical.
 
@@ -1335,8 +1335,8 @@ is a borrowed slice (`&[String]`), and `.clone()` of a `&[T]` is another `&[T]`
 and writes `.to_vec()` for the owned element. Reached by any nested array, and
 by every generic class instantiated at a collection type.
 
-See [RUST_ISSUES.md](RUST_ISSUES.md) for the measurements and the order of the
-work, and [RUST_TODO.md](RUST_TODO.md).
+See [RUST_ISSUES.md](docs/plans/RUST_ISSUES.md) for the measurements and the order of the
+work, and [RUST_TODO.md](legacy/docs/RUST_TODO.md).
 
 ### What the compiler's own sources took, and where they still stop
 
@@ -1354,7 +1354,7 @@ That binary does not yet **run** a compilation to completion — see *What the
 binary still hits* at the end of this section. The rest of this records how the
 compile got there, because the number started at 4981.
 
-`node bin/output.js -l=rust ./compiler/ng_Compiler.rgr` reported 21 errors, and
+`node bin/output.js -l=rust ./compiler/Compiler.rgr` reported 21 errors, and
 all 21 were one writer bug: a `this.method(…)` written inside a `forEach` body
 came out as *"a method that stores `this` cannot be called from here on Rust:
 the constructor runs before the object is inside its Rc"*. None of the 21 was in
@@ -1786,7 +1786,7 @@ JavaScript writer did, so the record constructor of the eleven other targets
 did not compile — for example `pub fn new(xpos : , xpos : i64, …)` on Rust and
 `Point::Point( xpos , int xpos , … )` on C++.
 
-See [PLAN_CODEGEN_OWNERSHIP.md](PLAN_CODEGEN_OWNERSHIP.md) for the
+See [PLAN_CODEGEN_OWNERSHIP.md](docs/plans/PLAN_CODEGEN_OWNERSHIP.md) for the
 before-and-after of each target, and for the one change that is not made:
 `record` as a value type in C++ and in Swift. That one stays open because it
 would make the same program share an object on nine targets and copy it on
@@ -1830,7 +1830,7 @@ cd bin && go run myserver.go
 ```
 
 `tests/fixtures/http_server.rgr` is a complete example. See
-[PLAN_HTTP.md](PLAN_HTTP.md) and [TODO_HTTP.md](TODO_HTTP.md).
+[PLAN_HTTP.md](legacy/docs/PLAN_HTTP.md) and [TODO_HTTP.md](legacy/docs/TODO_HTTP.md).
 
 ## Running other programs (`run_process_result`)
 

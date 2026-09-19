@@ -6,7 +6,7 @@
 ; The class is named `ranger` with methods `obj_new` / `obj_retain` /
 ; `obj_release` so the WAT backend's mangled names are exactly `ranger_obj_new`
 ; / `ranger_obj_retain` / `ranger_obj_release` — the very symbols the compiler's
-; RC insertion already emits (ng_LowIRBuilder.rgr lowerNewObject / releaseOwned
+; RC insertion already emits (LowIRBuilder.rgr lowerNewObject / releaseOwned
 ; Local). So a program that imports this module gets drop-in memory management
 ; under -wasmrc, no codegen name changes required.
 ;

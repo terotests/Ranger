@@ -357,5 +357,5 @@ This generates [COMPLIANCE.md](COMPLIANCE.md) with detailed results.
 
 - [COMPLIANCE.md](COMPLIANCE.md) - Full compliance test results (121 features)
 - [TODO.md](TODO.md) - Potential future enhancements
-- [PLAN_TS_PARSER.md](../../PLAN_TS_PARSER.md) - Original implementation plan
+- [PLAN_TS_PARSER.md](PLAN_TS_PARSER.md) - Original implementation plan
 - [benchmark/README.md](benchmark/README.md) - Detailed benchmark information

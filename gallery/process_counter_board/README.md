@@ -4,7 +4,7 @@ Vite demo: Ranger [`counter_board.rgr`](ranger/counter_board.rgr) compiles to Ty
 
 ## Prerequisites
 
-- Ranger compiler built at repo root (`npm run compile` twice if you changed `ng_RangerFlowParser.rgr`)
+- Ranger compiler built at repo root (`npm run compile` twice if you changed `RangerFlowParser.rgr`)
 
 `npm install` runs **`build:ranger`** (postinstall) and writes [`src/generated/counter_board.ts`](src/generated/counter_board.ts). If IDE imports are red before install, run `npm run build:ranger` manually.
 

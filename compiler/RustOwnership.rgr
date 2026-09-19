@@ -1,0 +1,1554 @@
+; SPDX-License-Identifier: MIT
+
+; What Rust needs to know before it can write a line: which methods mutate
+; `this`, which fields have to sit behind a Cell, which receiver is shared and
+; which is owned. None of this writes code -- it answers the questions the
+; writers ask, over the whole class graph including inherited methods.
+
+extension RangerRustClassWriter {
+
+  fn rustReceiverPathClass@(optional):RangerAppClassDesc (fc:CodeNode ctx:RangerAppWriterContext) {
+    def rpRes@(optional):RangerAppClassDesc
+    def rpLen:int (array_length fc.ns)
+    if (rpLen < 2) {
+      return rpRes
+    }
+    if ((array_length fc.nsp) < (rpLen - 1)) {
+      return rpRes
+    }
+    def rpD:RangerAppParamDesc (itemAt fc.nsp (rpLen - 2))
+    def rpNNO@(optional):CodeNode rpD.nameNode
+    if (null? rpNNO) {
+      return rpRes
+    }
+    def rpNN:CodeNode (unwrap rpNNO)
+    if (((strlen rpNN.array_type) > 0) || ((strlen rpNN.key_type) > 0)) {
+      return rpRes
+    }
+    if (ctx.isDefinedClass(rpNN.type_name)) {
+      rpRes = (ctx.findClass(rpNN.type_name))
+    }
+    return rpRes
+  }
+
+  fn rustReceiverKnownShared:boolean (fc:CodeNode ctx:RangerAppWriterContext) {
+    ; a two-segment path whose root is not `this` is a call on a NAME —
+    ; `huffman.getDCTable(…)`, `entry.getName()`. It was falling through to
+    ; the self-call branch below and answering "unknown", which takes the
+    ; mutable borrow everywhere.
+    def rksTwoName:boolean false
+    if ((array_length fc.ns) == 2) {
+      if ((itemAt fc.ns 0) != "this") {
+        rksTwoName = true
+      }
+    }
+    if (((array_length fc.ns) != 2) || rksTwoName) {
+      ; a call through a FIELD — `this.langWriter.WriteScalarValue(…)`. The
+      ; receiver's own class answers, and for a trait family that is one
+      ; answer for every member.
+      def rksPathC@(optional):RangerAppClassDesc (this.rustReceiverPathClass(fc ctx))
+      if (null? rksPathC) {
+        return false
+      }
+      def rksPC:RangerAppClassDesc (unwrap rksPathC)
+      def rksLen:int (array_length fc.ns)
+      return (this.rustClassMethodKnownShared(rksPC (itemAt fc.ns (rksLen - 1)) ctx))
+    }
+    if ((itemAt fc.ns 0) != "this") {
+      return false
+    }
+    def ksCls@(optional):RangerAppClassDesc
+    if ((strlen rust_emit_class_name) > 0) {
+      if (ctx.isDefinedClass(rust_emit_class_name)) {
+        ksCls = (ctx.findClass(rust_emit_class_name))
+      }
+    }
+    if (null? ksCls) {
+      ksCls = (ctx.getCurrentClass())
+    }
+    if (null? ksCls) {
+      return false
+    }
+    def ksC:RangerAppClassDesc (unwrap ksCls)
+    def ksName:string (itemAt fc.ns 1)
+    if ((has ksC.method_variants ksName) == false) {
+      def ksM@(optional):RangerAppFunctionDesc (ksC.findMethod(ksName))
+      if (null? ksM) {
+        return false
+      }
+      def ksMD:RangerAppFunctionDesc (unwrap ksM)
+      return (ksMD.rust_mut_self == false)
+    }
+    def ksVs:RangerAppMethodVariants (get ksC.method_variants ksName)
+    if ((array_length ksVs.variants) == 0) {
+      return false
+    }
+    for ksVs.variants ksV:RangerAppFunctionDesc ksVi {
+      if ksV.rust_mut_self {
+        return false
+      }
+    }
+    return true
+  }
+
+  fn rustReceiverKnownMut:boolean (node:CodeNode fc:CodeNode ctx:RangerAppWriterContext) {
+    ; the CLASS's descriptor first: node.fnDesc is a third copy the receiver
+    ; pre-pass never sees, so it still carries the conservative default
+    if ((array_length fc.ns) == 2) {
+      if ((itemAt fc.ns 0) == "this") {
+        def rkCls@(optional):RangerAppClassDesc
+        if ((strlen rust_emit_class_name) > 0) {
+          if (ctx.isDefinedClass(rust_emit_class_name)) {
+            rkCls = (ctx.findClass(rust_emit_class_name))
+          }
+        }
+        if (null? rkCls) {
+          rkCls = (ctx.getCurrentClass())
+        }
+        if (!null? rkCls) {
+          def rkC:RangerAppClassDesc (unwrap rkCls)
+          def rkM@(optional):RangerAppFunctionDesc (rkC.findMethod((itemAt fc.ns 1)))
+          if (!null? rkM) {
+            def rkMD:RangerAppFunctionDesc (unwrap rkM)
+            if rkMD.rust_mut_self {
+              return true
+            }
+          }
+          ; …and the VARIANT set, which is what the signature was written
+          ; from. The two disagree whenever they disagree about the hidden
+          ; handle, and a shared borrow where the callee takes &mut self is
+          ; a compile error.
+          if (has rkC.method_variants (itemAt fc.ns 1)) {
+            def rkVs:RangerAppMethodVariants (get rkC.method_variants (itemAt fc.ns 1))
+            for rkVs.variants rkV:RangerAppFunctionDesc rkVi {
+              if rkV.rust_mut_self {
+                return true
+              }
+            }
+          }
+        }
+      }
+    }
+    if (!null? node.fnDesc) {
+      def rkFnD:RangerAppFunctionDesc (unwrap node.fnDesc)
+      if rkFnD.rust_mut_self {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn rustReceiverMutFor:boolean (node:CodeNode fc:CodeNode ctx:RangerAppWriterContext) {
+    if (!null? node.fnDesc) {
+      def rmFnD:RangerAppFunctionDesc (unwrap node.fnDesc)
+      return rmFnD.rust_mut_self
+    }
+    if ((array_length fc.ns) == 2) {
+      if ((itemAt fc.ns 0) == "this") {
+        def rmCls@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+        if (!null? rmCls) {
+          def rmC:RangerAppClassDesc (unwrap rmCls)
+          def rmM@(optional):RangerAppFunctionDesc (rmC.findMethod((itemAt fc.ns 1)))
+          if (!null? rmM) {
+            def rmMD:RangerAppFunctionDesc (unwrap rmM)
+            return rmMD.rust_mut_self
+          }
+        }
+      }
+    }
+    return true
+  }
+
+  fn rustFieldAccessorName:string (p:RangerAppParamDesc) {
+    return ("rgf_" + (this.adjustType(p.compiledName)))
+  }
+
+  fn rustFieldIsPlainString:boolean (p:RangerAppParamDesc ctx:RangerAppWriterContext) {
+    if p.rust_needs_rc_wrap {
+      return false
+    }
+    if p.is_optional {
+      return false
+    }
+    if p.rust_static_str {
+      return false
+    }
+    def nameN@(optional):CodeNode p.nameNode
+    if (null? nameN) {
+      return false
+    }
+    def nn:CodeNode (unwrap nameN)
+    if (((strlen nn.array_type) > 0) || ((strlen nn.key_type) > 0)) {
+      return false
+    }
+    def v_type:RangerNodeType nn.value_type
+    if ((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.VRef) || (v_type == RangerNodeType.NoType)) {
+      v_type = (nn.typeNameAsType(ctx))
+    }
+    if (nn.eval_type != RangerNodeType.NoType) {
+      v_type = nn.eval_type
+    }
+    return (v_type == RangerNodeType.String)
+  }
+
+  fn rustFieldIsCopyScalar:boolean (p:RangerAppParamDesc ctx:RangerAppWriterContext) {
+    if p.rust_needs_rc_wrap {
+      return false
+    }
+    if p.is_optional {
+      return false
+    }
+    def nameN@(optional):CodeNode p.nameNode
+    if (null? nameN) {
+      return false
+    }
+    def nn:CodeNode (unwrap nameN)
+    if (((strlen nn.array_type) > 0) || ((strlen nn.key_type) > 0)) {
+      return false
+    }
+    if p.rust_static_str {
+      return true
+    }
+    def v_type:RangerNodeType nn.value_type
+    if ((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.VRef) || (v_type == RangerNodeType.NoType)) {
+      v_type = (nn.typeNameAsType(ctx))
+    }
+    if (nn.eval_type != RangerNodeType.NoType) {
+      v_type = nn.eval_type
+    }
+    if (v_type == RangerNodeType.Integer) {
+      return true
+    }
+    if (v_type == RangerNodeType.Double) {
+      return true
+    }
+    if (v_type == RangerNodeType.Boolean) {
+      return true
+    }
+    if (v_type == RangerNodeType.Char) {
+      return true
+    }
+    if (v_type == RangerNodeType.Enum) {
+      return true
+    }
+    return false
+  }
+
+  fn rustNodeContainsCall:boolean (node:CodeNode) {
+    if node.hasFnCall {
+      return true
+    }
+    if node.has_call {
+      return true
+    }
+    for node.children ch:CodeNode ci {
+      if (this.rustNodeContainsCall(ch)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn containsSelfReference:boolean (node:CodeNode) {
+    ; Check if this node references a class variable (member of self)
+    if node.hasParamDesc {
+      def pp:RangerAppParamDesc node.paramDesc
+      if pp.is_class_variable {
+        return true
+      }
+    }
+    ; Check for method calls - hasFnCall typically uses &mut self
+    if node.hasFnCall {
+      ; This is a method call - it likely uses &mut self
+      return true
+    }
+    ; Recurse to children
+    for node.children child:CodeNode i {
+      if (this.containsSelfReference(child)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn rustThisSegIsMethod:boolean (segName:string ctx:RangerAppWriterContext) {
+    def tsCls@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+    if (null? tsCls) {
+      return false
+    }
+    def tsC:RangerAppClassDesc (unwrap tsCls)
+    def tsVar@(optional):RangerAppParamDesc (tsC.findVariable(segName))
+    if (!null? tsVar) {
+      return false
+    }
+    def tsM@(optional):RangerAppFunctionDesc (tsC.findMethod(segName))
+    return (!null? tsM)
+  }
+
+  fn rustMethodNeedsReceiver:boolean (fnD:RangerAppFunctionDesc body:CodeNode useCtx:RangerAppWriterContext ctx:RangerAppWriterContext) {
+    ; A method the TRAIT declares always keeps its receiver, whatever its body
+    ; does. Without one the call site writes `Parent::m(…)`, which is the
+    ; parent's own implementation — the override never runs. That is how
+    ; `lineEnding` came back as the generic writer's "" instead of the
+    ; JavaScript writer's ";", and the difference reached the emitted code.
+    def mnrClsO@(optional):RangerAppClassDesc (useCtx.getCurrentClass())
+    if (!null? mnrClsO) {
+      def mnrCls:RangerAppClassDesc (unwrap mnrClsO)
+      def mnrRootO@(optional):RangerAppClassDesc (this.rustTraitRootOf(mnrCls ctx))
+      if (!null? mnrRootO) {
+        def mnrRoot:RangerAppClassDesc (unwrap mnrRootO)
+        if (has mnrRoot.method_variants fnD.name) {
+          return true
+        }
+        if (has mnrRoot.defined_methods fnD.name) {
+          return true
+        }
+      }
+    }
+    if ((this.fnBodyUsesThis(body useCtx)) == false) {
+      return false
+    }
+    if (this.rustNeedsSelfRc(fnD ctx)) {
+      ; …but only when that handle is the CONCRETE class. In a trait family
+      ; the hidden argument is typed `dyn XTrait`, and a method the trait
+      ; does not declare cannot be called through it.
+      if ((strlen (this.rustSelfRcTraitName(useCtx))) == 0) {
+        ; …and then ALWAYS. A method that carries its own handle hands it to
+        ; something that will reach back through it, and a `&self` receiver is
+        ; a borrow of the cell held for the whole call: the caller's borrow is
+        ; still live when the callee takes its own. Reaching every field
+        ; through the handle instead borrows for one statement at a time.
+        return false
+      }
+    }
+    return true
+  }
+
+  fn rustBodyGetsOwnClassHandle:boolean (node:CodeNode useCtx:RangerAppWriterContext ctx:RangerAppWriterContext) {
+    def ownCls@(optional):RangerAppClassDesc (useCtx.getCurrentClass())
+    if (null? ownCls) {
+      return false
+    }
+    def ownC:RangerAppClassDesc (unwrap ownCls)
+    return (this.rustBodyGetsClassHandle(node ownC.name ownC))
+  }
+
+  fn rustBodyGetsClassHandle:boolean (node:CodeNode clsName:string cl:RangerAppClassDesc) {
+    if ((array_length node.ns) == 2) {
+      if ((itemAt node.ns 0) == "this") {
+        def gm@(optional):RangerAppFunctionDesc (cl.findMethod((itemAt node.ns 1)))
+        if (!null? gm) {
+          def gmD:RangerAppFunctionDesc (unwrap gm)
+          def gmNN@(optional):CodeNode gmD.nameNode
+          if (!null? gmNN) {
+            def gmN:CodeNode (unwrap gmNN)
+            if (((strlen gmN.array_type) == 0) && ((strlen gmN.key_type) == 0)) {
+              if (gmN.type_name == clsName) {
+                return true
+              }
+            }
+          }
+        }
+      }
+    }
+    for node.children ch:CodeNode i {
+      if (this.rustBodyGetsClassHandle(ch clsName cl)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn fnBodyUsesThisStruct:boolean (node:CodeNode ctx:RangerAppWriterContext) {
+    if (node.vref == "this") {
+      return false
+    }
+    if (has node.ns) {
+      if ((array_length node.ns) > 0) {
+        def firstPart:string (itemAt node.ns 0)
+        if (firstPart == "this") {
+          if ((array_length node.ns) == 2) {
+            if ((this.rustThisSegIsMethod((itemAt node.ns 1) ctx)) == false) {
+              return true
+            }
+          } {
+            return true
+          }
+        } {
+          if (ctx.isMemberVariable(firstPart)) {
+            return true
+          }
+        }
+      }
+    }
+    if ((strlen node.vref) > 0) {
+      if (ctx.isMemberVariable(node.vref)) {
+        return true
+      }
+    }
+    ; …and a field desc reached through ANOTHER object is not this object's
+    ; struct: `root.definedClasses` carries the desc of a class variable, but
+    ; the variable being read belongs to `root`. Only a bare name — an
+    ; implicit `this.x` — counts.
+    if node.hasParamDesc {
+      ; exactly one segment: a bare name, which is the implicit `this.x`. An
+      ; empty ns means the writer cannot tell what the desc belongs to, and a
+      ; dotted vref there names another object's field.
+      if ((array_length node.ns) == 1) {
+        def pp:RangerAppParamDesc node.paramDesc
+        if pp.is_class_variable {
+          return true
+        }
+      }
+    }
+    for node.children child:CodeNode i {
+      if (this.fnBodyUsesThisStruct(child ctx)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn fnBodyUsesThis:boolean (node:CodeNode ctx:RangerAppWriterContext) {
+    ; Check if this is a direct 'this' reference
+    if (node.vref == "this") {
+      return true
+    }
+    ; Check ns array for 'this' as first element (e.g., this.field)
+    if (has node.ns) {
+      if ((array_length node.ns) > 0) {
+        def firstPart:string (itemAt node.ns 0)
+        if (firstPart == "this") {
+          return true
+        }
+        ; Also check if the first part is a class member variable using context
+        if (ctx.isMemberVariable(firstPart)) {
+          return true
+        }
+      }
+    }
+    ; Check if vref is a class member variable
+    if ((strlen node.vref) > 0) {
+      if (ctx.isMemberVariable(node.vref)) {
+        return true
+      }
+    }
+    ; Check if this node references a class variable (member of self)
+    if node.hasParamDesc {
+      def pp:RangerAppParamDesc node.paramDesc
+      if pp.is_class_variable {
+        return true
+      }
+    }
+    ; Recurse to children
+    for node.children child:CodeNode i {
+      if (this.fnBodyUsesThis(child ctx)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn accessesFieldOf:boolean (node:CodeNode varName:string) {
+    if ((array_length node.ns) > 0) {
+      def firstPart:string (itemAt node.ns 0)
+      if (firstPart == varName) {
+        ; This accesses varName.something
+        if ((array_length node.ns) > 1) {
+          return true
+        }
+      }
+    }
+    ; Check children recursively
+    for node.children child:CodeNode i {
+      if (this.accessesFieldOf(child varName)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn getArgRootVar:string (node:CodeNode) {
+    ; If node has ns, use first part
+    if ((array_length node.ns) > 0) {
+      return (itemAt node.ns 0)
+    }
+    ; If node is a simple vref
+    if ((strlen node.vref) > 0) {
+      return node.vref
+    }
+    return ""
+  }
+
+  fn hasMutRefConflict:boolean (node:CodeNode fnDesc:RangerAppFunctionDesc argIdx:int givenArgs:CodeNode) {
+    def paramCnt:int (array_length fnDesc.params)
+    if (argIdx >= paramCnt) {
+      return false
+    }
+    def param:RangerAppParamDesc (itemAt fnDesc.params argIdx)
+    ; Check if this parameter needs &mut
+    def needsMut:boolean false
+    if param.needs_cpp_reference {
+      needsMut = true
+    }
+    if (param.rust_borrow_type == 2) {
+      needsMut = true
+    }
+    if (needsMut == false) {
+      return false
+    }
+    ; Get the variable name being passed
+    def argNode@(optional):CodeNode (itemAt givenArgs.children argIdx)
+    if (null? argNode) {
+      return false
+    }
+    def varName:string (this.getArgRootVar((unwrap argNode)))
+    if ((strlen varName) == 0) {
+      return false
+    }
+    ; Check if other args access fields of this variable
+    for givenArgs.children otherArg:CodeNode otherIdx {
+      if (otherIdx != argIdx) {
+        if (this.accessesFieldOf(otherArg varName)) {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
+  fn collectSelfMethodCalls:void (node:CodeNode ctx:RangerAppWriterContext calls:[string]) {
+    ; Check for method calls via vref pattern (e.g., "this.method")
+    if ((strlen node.vref) > 5) {
+      def prefix:string (substring node.vref 0 5)
+      if (prefix == "this.") {
+        ; Extract method name after "this."
+        def methodName:string (substring node.vref 5 (strlen node.vref))
+        push calls methodName
+      }
+    }
+    
+    ; Check for call expressions
+    if node.has_call {
+      if ((array_length node.children) >= 3) {
+        def callObj:CodeNode (node.getSecond())
+        def methodNode:CodeNode (node.getThird())
+        if (callObj.vref == "this") {
+          push calls methodNode.vref
+        }
+      }
+    }
+    
+    ; Recurse to children
+    for node.children child:CodeNode i {
+      this.collectSelfMethodCalls(child ctx calls)
+    }
+  }
+
+  fn rustFieldCallMutatesThis:boolean (node:CodeNode ctx:RangerAppWriterContext) {
+    if (rust_field_call_mut_ready == false) {
+      return false
+    }
+    if (node.hasFnCall == false) {
+      return false
+    }
+    if ((array_length node.children) < 1) {
+      return false
+    }
+    return (this.rustFieldPathCallMutates((node.getFirst()) ctx))
+  }
+
+  fn rustFieldPathCallMutates:boolean (fcc:CodeNode ctx:RangerAppWriterContext) {
+    def fccLen:int (array_length fcc.ns)
+    if (fccLen < 2) {
+      return false
+    }
+    def fccIdx:int 0
+    if ((itemAt fcc.ns 0) == "this") {
+      fccIdx = 1
+    }
+    ; the last segment names the method, so a field has to come before it —
+    ; `this.method()` is a call on this object, and the call graph has it
+    if (fccIdx > (fccLen - 2)) {
+      return false
+    }
+    def fccFld:string (itemAt fcc.ns fccIdx)
+    if (fccIdx == 0) {
+      if ((ctx.isMemberVariable(fccFld)) == false) {
+        return false
+      }
+    }
+    def fccClsO@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+    if (null? fccClsO) {
+      return false
+    }
+    def fccCls:RangerAppClassDesc (unwrap fccClsO)
+    def fccVarO@(optional):RangerAppParamDesc (fccCls.findVariable(fccFld))
+    if (null? fccVarO) {
+      return false
+    }
+    def fccVar:RangerAppParamDesc (unwrap fccVarO)
+    ; a cell field is written through its own cell, and an Rc field through
+    ; its own RefCell — neither of them borrows this struct mutably
+    if fccVar.rust_interior_cell {
+      return false
+    }
+    def fccNNO@(optional):CodeNode fccVar.nameNode
+    if (null? fccNNO) {
+      return false
+    }
+    def fccNN:CodeNode (unwrap fccNNO)
+    def fccIsColl:boolean (((strlen fccNN.array_type) > 0) || ((strlen fccNN.key_type) > 0))
+    if (fccIsColl == false) {
+      if fccVar.rust_needs_rc_wrap {
+        return false
+      }
+    }
+    ; …and what the callee does with its own object. The receiver's class
+    ; answers; for a trait family it answers once for the whole family.
+    def fccPathO@(optional):RangerAppClassDesc (this.rustReceiverPathClass(fcc ctx))
+    if (null? fccPathO) {
+      if (fccIsColl == false) {
+        if (ctx.isDefinedClass(fccNN.type_name)) {
+          fccPathO = (ctx.findClass(fccNN.type_name))
+        }
+      }
+    }
+    if (null? fccPathO) {
+      return false
+    }
+    def fccPath:RangerAppClassDesc (unwrap fccPathO)
+    def fccMethod:string (itemAt fcc.ns (fccLen - 1))
+    if ((fccPath.hasMethod(fccMethod)) == false) {
+      return false
+    }
+    return ((this.rustClassMethodKnownShared(fccPath fccMethod ctx)) == false)
+  }
+
+  fn rustNodeIsOwnPath:boolean (nIn:CodeNode ctx:RangerAppWriterContext) {
+    def n:CodeNode (this.rustUnwrapParens(nIn))
+    def opName:string ""
+    def opLen:int (array_length n.ns)
+    if (opLen > 0) {
+      if ((itemAt n.ns 0) == "this") {
+        if (opLen == 1) {
+          return true
+        }
+        opName = (itemAt n.ns 1)
+      } {
+        opName = (itemAt n.ns 0)
+        if ((ctx.isMemberVariable(opName)) == false) {
+          return false
+        }
+      }
+    } {
+      if (n.vref == "this") {
+        return true
+      }
+      if ((strlen n.vref) == 0) {
+        return false
+      }
+      opName = n.vref
+      if ((ctx.isMemberVariable(opName)) == false) {
+        return false
+      }
+    }
+    def opClsO@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+    if (null? opClsO) {
+      return false
+    }
+    def opCls:RangerAppClassDesc (unwrap opClsO)
+    def opVarO@(optional):RangerAppParamDesc (opCls.findVariable(opName))
+    if (null? opVarO) {
+      return false
+    }
+    def opVar:RangerAppParamDesc (unwrap opVarO)
+    ; a cell field hands out its own `&mut` through borrow_mut()
+    if opVar.rust_interior_cell {
+      return false
+    }
+    return true
+  }
+
+  fn rustArgBorrowsThisMutably:boolean (node:CodeNode ctx:RangerAppWriterContext) {
+    if (rust_field_call_mut_ready == false) {
+      return false
+    }
+    if (null? node.fnDesc) {
+      return false
+    }
+    if ((array_length node.children) < 2) {
+      return false
+    }
+    def abFd:RangerAppFunctionDesc (unwrap node.fnDesc)
+    def abArgs:CodeNode (itemAt node.children 1)
+    def abCnt:int (array_length abFd.params)
+    for abArgs.children abArg:CodeNode abI {
+      if (abI < abCnt) {
+        def abP:RangerAppParamDesc (itemAt abFd.params abI)
+        def abMut:boolean false
+        if abP.needs_cpp_reference {
+          abMut = true
+        }
+        if (abP.rust_borrow_type == 2) {
+          abMut = true
+        }
+        if abMut {
+          if (this.rustNodeIsOwnPath(abArg ctx)) {
+            return true
+          }
+        }
+      }
+    }
+    return false
+  }
+
+  fn fnBodyDirectlyMutatesThis:boolean (node:CodeNode ctx:RangerAppWriterContext) {
+    ; Debug: show every node being checked
+    
+    ; Check ns array for optional field access (requires as_mut())
+    if (has node.ns) {
+      if ((array_length node.ns) > 0) {
+        def firstPart:string (itemAt node.ns 0)
+        if (firstPart == "this") {
+          ; If there are more parts in ns (like this.field.isSet), check if any field is optional
+          if ((array_length node.ns) > 1) {
+            def secondPart:string (itemAt node.ns 1)
+            ; NOTE: reading an optional field used to count as a mutation
+            ; here, on the grounds that the path writer might reach for
+            ; as_mut(). It is only a READ, and calling it a mutation made
+            ; every such getter `&mut self` — which the call site then took
+            ; with borrow_mut(), so any method reaching its own object
+            ; through an Rc panicked at run time. A real write is caught by
+            ; the assignment and mutating-call rules below.
+            if false {
+              return true
+            }
+          }
+        }
+        ; Also check if first part is a class member that's optional — only a
+        ; member: an operator name like `itemAt` also resolves here, and its
+        ; weak-typed desc read as "optional access" made every collection
+        ; read count as a mutation
+        if (ctx.isVarDefined(firstPart)) {
+          def vDef:RangerAppParamDesc (ctx.getVariableDef(firstPart))
+          if (vDef.is_optional && vDef.is_class_variable) {
+            ; an uninitialized member collection carries is_optional on the
+            ; desc, but the Rust field is a plain Vec/HashMap, never Option
+            def vDefIsColl:boolean false
+            def vdNN@(optional):CodeNode vDef.nameNode
+            if (!null? vdNN) {
+              def vdN:CodeNode (unwrap vdNN)
+              if (((strlen vdN.array_type) > 0) || ((strlen vdN.key_type) > 0)) {
+                vDefIsColl = true
+              }
+            }
+            if (vDefIsColl == false) {
+              ; …same here: a bare read of an optional member is a read
+              if false {
+                return true
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    ; Check for assignment to class variables
+    if ((array_length node.children) >= 3) {
+      def fc:CodeNode (node.getFirst())
+      def cmd:string fc.vref
+      if (cmd == "=") {
+        def left:CodeNode (node.getSecond())
+        ; Check if left side is a class variable — a BARE one. `new_ctx.parent
+        ; = this` carries the desc of a class variable, but the field being
+        ; written belongs to new_ctx; counting it made every factory method
+        ; `&mut self`, and a call site then borrowed the cell mutably where
+        ; the signature only needed a shared borrow.
+        if left.hasParamDesc {
+          if ((array_length left.ns) <= 1) {
+            def pp:RangerAppParamDesc left.paramDesc
+            if pp.is_class_variable {
+              ; …but a CELL field is written through its own cell, which is
+              ; the whole point of putting it there: the method stays &self
+              if (pp.rust_interior_cell == false) {
+                return true
+              }
+            }
+          }
+        }
+        ; Check ns array for 'this' as first element (e.g., this.field = ...)
+        if (has left.ns) {
+          if ((array_length left.ns) > 0) {
+            def firstPart:string (itemAt left.ns 0)
+            if ((this.rustNodeIsCellField(left)) == false) {
+              if (firstPart == "this") {
+                return true
+              }
+              if (ctx.isMemberVariable(firstPart)) {
+                return true
+              }
+            }
+          }
+        }
+        ; Check if left vref is a class member variable
+        if ((strlen left.vref) > 0) {
+          if (ctx.isMemberVariable(left.vref)) {
+            if ((this.rustNodeIsCellField(left)) == false) {
+              return true
+            }
+          }
+        }
+      }
+    }
+    
+    ; a mutating method on a field held inline: `reader.seek(x)`
+    if (this.rustFieldCallMutatesThis(node ctx)) {
+      return true
+    }
+
+    ; …or a reference into this struct handed to someone else
+    if (this.rustArgBorrowsThisMutably(node ctx)) {
+      return true
+    }
+
+    ; Check for method calls on member variables (e.g., this.fontManager.loadFont())
+    ; This mutates the member variable (requires &mut self) — except a read
+    ; operator on a member collection, string or buffer: `itemAt items 0` is
+    ; a has_call on `items`, and counting it as a write made every getter
+    ; take &mut self
+    if node.has_call {
+      if ((array_length node.children) >= 3) {
+        def callObj:CodeNode (node.getSecond())
+        def methodNode:CodeNode (node.getThird())
+        def member_call_target:boolean false
+        ; `(call this m args)` is a call on THIS object, not on a field of
+        ; it: the call graph answers for it, and counting it here made every
+        ; caller of a `&self` method `&mut self` — `has` calls `find`, and
+        ; `find` only reads.
+        def callObjIsThis:boolean false
+        if (callObj.vref == "this") {
+          if ((array_length callObj.ns) <= 1) {
+            callObjIsThis = true
+          }
+        }
+        if (callObjIsThis == false) {
+        ; Check if callObj is a member variable or starts with 'this.'
+        if (has callObj.ns) {
+          if ((array_length callObj.ns) > 0) {
+            def firstPart:string (itemAt callObj.ns 0)
+            if (firstPart == "this") {
+              member_call_target = true
+            }
+            if (ctx.isMemberVariable(firstPart)) {
+              member_call_target = true
+            }
+          }
+        }
+        ; Also check vref for patterns like "this.member"
+        if ((strlen callObj.vref) > 5) {
+          def prefix:string (substring callObj.vref 0 5)
+          if (prefix == "this.") {
+            member_call_target = true
+          }
+        }
+        ; Check if callObj is a member variable directly (e.g., fontManager.loadFont())
+        if ((strlen callObj.vref) > 0) {
+          if (ctx.isMemberVariable(callObj.vref)) {
+            member_call_target = true
+          }
+        }
+        }
+        if member_call_target {
+          if (this.rustCallTargetIsCollection(callObj)) {
+            ; only the mutating collection operators write through self, and
+            ; not even those when the collection is behind a cell
+            if (this.rustIsMutatingOpName(methodNode.vref)) {
+              if ((this.rustNodeIsCellField(callObj)) == false) {
+                return true
+              }
+            }
+          } {
+            ; a user-class member: any method could mutate it — unless the
+            ; field holds an Rc. Then the callee borrows the FIELD's own cell
+            ; and never touches this struct, so counting it made every writer
+            ; that calls `this.compiler.WalkNode(…)` take `&mut self`, and a
+            ; trait signature carries that to every sibling.
+            if ((this.rustCallThroughSharedField(callObj ctx)) == false) {
+              if ((this.rustNodeIsCellField(callObj)) == false) {
+                return true
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    ; a mutating collection or buffer operation on a member target writes
+    ; through self — `push tokens t` never shows up as an `=` node
+    if ((array_length node.children) >= 2) {
+      def opFc:CodeNode (node.getFirst())
+      if (this.rustIsMutatingOpName(opFc.vref)) {
+        def opTarget:CodeNode (node.getSecond())
+        ; …a member of THIS object. A field's descriptor says "class variable"
+        ; whoever owns it, so `set ctx.someMap k v` carried the desc of a
+        ; RangerAppWriterContext field and made the method that wrote it
+        ; `&mut self` — the same mistake the assignment rule above already
+        ; guards against. Only a bare name, or a path rooted at `this`.
+        def opIsOwn:boolean false
+        def opRoot:string opTarget.vref
+        if (has opTarget.ns) {
+          if ((array_length opTarget.ns) > 0) {
+            opRoot = (itemAt opTarget.ns 0)
+          }
+        }
+        if (opRoot == "this") {
+          opIsOwn = true
+        }
+        if ((array_length opTarget.ns) <= 1) {
+          if opTarget.hasParamDesc {
+            def opTP:RangerAppParamDesc opTarget.paramDesc
+            if opTP.is_class_variable {
+              opIsOwn = true
+            }
+          }
+          if (ctx.isMemberVariable(opRoot)) {
+            opIsOwn = true
+          }
+        }
+        ; …but a CELL field is mutated through its own cell, so the method
+        ; that does it still takes `&self`
+        if opIsOwn {
+          if ((this.rustNodeIsCellField(opTarget)) == false) {
+            return true
+          }
+        }
+      }
+    }
+
+    ; Recurse to children
+    for node.children child:CodeNode i {
+      if (this.fnBodyDirectlyMutatesThis(child ctx)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn rustCallTargetIsCollection:boolean (callObj:CodeNode) {
+    if (callObj.hasParamDesc == false) {
+      return false
+    }
+    def cp:RangerAppParamDesc callObj.paramDesc
+    def cpNN@(optional):CodeNode cp.nameNode
+    if (null? cpNN) {
+      return false
+    }
+    def cpN:CodeNode (unwrap cpNN)
+    if ((strlen cpN.array_type) > 0) {
+      return true
+    }
+    if ((strlen cpN.key_type) > 0) {
+      return true
+    }
+    def tn:string cpN.type_name
+    if (tn == "string") { return true }
+    if (tn == "buffer") { return true }
+    if (tn == "charbuffer") { return true }
+    if (tn == "intbuffer") { return true }
+    if (tn == "doublebuffer") { return true }
+    return false
+  }
+
+  fn rustIsMutatingOpName:boolean (n:string) {
+    if (n == "buffer_set") { return true }
+    if (n == "int_buffer_set") { return true }
+    if (n == "double_buffer_set") { return true }
+    if (n == "buffer_fill") { return true }
+    if (n == "int_buffer_fill") { return true }
+    if (n == "double_buffer_fill") { return true }
+    if (n == "buffer_copy") { return true }
+    if (n == "int_buffer_copy") { return true }
+    if (n == "double_buffer_copy") { return true }
+    if (n == "push") { return true }
+    if (n == "str_append") { return true }
+    if (n == "map_clear") { return true }
+    if (n == "nullify") { return true }
+    if (n == "set") { return true }
+    if (n == "put") { return true }
+    if (n == "insert") { return true }
+    if (n == "clear") { return true }
+    if (n == "remove") { return true }
+    if (n == "removeIndex") { return true }
+    if (n == "removeLast") { return true }
+    ; the names Lang.rgr actually gives the in-place array operators —
+    ; `remove_index opNs idx` on a member left its method &self
+    if (n == "remove_index") { return true }
+    if (n == "array_extract") { return true }
+    if (n == "set_at") { return true }
+    if (n == "pushString") { return true }
+    if (n == "removeFirst") { return true }
+    if (n == "nullify") { return true }
+    return false
+  }
+
+  fn buildInheritedMutationGraph:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext directMutations:[string:boolean] callGraph:[string:MethodCallList]) {
+    for cl.extends_classes pName:string pi {
+      if (ctx.isDefinedClass(pName)) {
+        def pc:RangerAppClassDesc (ctx.findClass(pName))
+        for pc.defined_variants fnVar:string i {
+          def mVs:RangerAppMethodVariants (get pc.method_variants fnVar)
+          for mVs.variants variant:RangerAppFunctionDesc vi {
+            ; NOTE: a name already in the map still gets its edges collected
+            ; below; only its direct-mutation verdict is left alone.
+            def hadDirect:boolean (has directMutations variant.name)
+            ; A trait-interface method used to be marked mutating here on
+            ; principle. markTraitIfaceMutations now ORs the FAMILY's real
+            ; answer into the same map right after this walk, so the blanket
+            ; only made every caller of an inherited method `&mut self` for
+            ; no reason.
+            def inTraitIface:boolean false
+            def fnB@(optional):CodeNode variant.fnBody
+            if (!null? fnB) {
+              def fnCtx@(optional):RangerAppWriterContext variant.fnCtx
+              def useCtx:RangerAppWriterContext ctx
+              if (!null? fnCtx) {
+                useCtx = (unwrap fnCtx)
+              }
+              def fnBody:CodeNode (unwrap fnB)
+              if (hadDirect == false) {
+                if inTraitIface {
+                  set directMutations variant.name true
+                } {
+                  set directMutations variant.name (this.fnBodyDirectlyMutatesThis(fnBody useCtx))
+                }
+              }
+              ; UNION, not replace: the family graph is built by walking
+              ; every member into the same maps, and the last one written
+              ; would otherwise be the only one with edges — `writeClass`
+              ; calls `writeTypeDef` in one writer and not in the next
+              def callList:MethodCallList (new MethodCallList())
+              if (has callGraph variant.name) {
+                callList = (unwrap (get callGraph variant.name))
+              }
+              this.collectSelfMethodCalls(fnBody useCtx callList.calls)
+              set callGraph variant.name callList
+            } {
+              if (hadDirect == false) {
+                if inTraitIface {
+                  set directMutations variant.name true
+                }
+              }
+            }
+          }
+        }
+        this.buildInheritedMutationGraph(pc ctx directMutations callGraph)
+      }
+    }
+  }
+
+  fn alignTraitSelfRcNeeds:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    for cl.extends_classes parentName:string pi {
+      if (ctx.isDefinedClass(parentName)) {
+        def pc:RangerAppClassDesc (ctx.findClass(parentName))
+        if pc.is_extended_by_children {
+          for pc.defined_variants pvName:string pvi {
+            if (has cl.method_variants pvName) {
+              def pMVs:RangerAppMethodVariants (get pc.method_variants pvName)
+              def cMVs:RangerAppMethodVariants (get cl.method_variants pvName)
+              for pMVs.variants pV:RangerAppFunctionDesc pvj {
+                for cMVs.variants cV:RangerAppFunctionDesc cvj {
+                  if (pV.rust_needs_self_rc || cV.rust_needs_self_rc) {
+                    pV.rust_needs_self_rc = true
+                    cV.rust_needs_self_rc = true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  fn rustTraitRootOf@(optional):RangerAppClassDesc (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    def res@(optional):RangerAppClassDesc
+    if cl.is_extended_by_children {
+      res = cl
+      return res
+    }
+    for cl.extends_classes trParent:string trPi {
+      def trPCO@(optional):RangerAppClassDesc (ctx.findClass(trParent))
+      if (!null? trPCO) {
+        def trPC:RangerAppClassDesc (unwrap trPCO)
+        if trPC.is_extended_by_children {
+          res = trPC
+        }
+      }
+    }
+    return res
+  }
+
+  fn rustCallThroughSharedField:boolean (callObj:CodeNode ctx:RangerAppWriterContext) {
+    def sfName:string ""
+    if (has callObj.ns) {
+      def sfNsLen:int (array_length callObj.ns)
+      if (sfNsLen > 0) {
+        def sfFirst:string (itemAt callObj.ns 0)
+        if (sfFirst == "this") {
+          if (sfNsLen > 1) {
+            sfName = (itemAt callObj.ns 1)
+          }
+        } {
+          sfName = sfFirst
+        }
+      }
+    }
+    if ((strlen sfName) == 0) {
+      if ((strlen callObj.vref) > 0) {
+        sfName = callObj.vref
+      }
+    }
+    if ((strlen sfName) == 0) {
+      return false
+    }
+    def sfClsO@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+    if (null? sfClsO) {
+      return false
+    }
+    def sfCls:RangerAppClassDesc (unwrap sfClsO)
+    def sfVarO@(optional):RangerAppParamDesc (sfCls.findVariable(sfName))
+    if (null? sfVarO) {
+      return false
+    }
+    def sfVar:RangerAppParamDesc (unwrap sfVarO)
+    if (sfVar.rust_needs_rc_wrap == false) {
+      return false
+    }
+    def sfNNO@(optional):CodeNode sfVar.nameNode
+    if (null? sfNNO) {
+      return false
+    }
+    def sfNN:CodeNode (unwrap sfNNO)
+    ; a collection of shared elements is still a field of this struct
+    if ((strlen sfNN.array_type) > 0) {
+      return false
+    }
+    if ((strlen sfNN.key_type) > 0) {
+      return false
+    }
+    return true
+  }
+
+  fn rustCollectPathNames:void (node:CodeNode ctx:RangerAppWriterContext) {
+    if ((array_length node.ns) > 1) {
+      for node.ns pathSeg:string pathSegI {
+        if (pathSegI > 0) {
+          set ctx.rust_path_field_names pathSeg true
+        }
+      }
+    }
+    ; a call RECEIVER is reached through a path too. `fontManager.hasFont(…)`
+    ; reads the field before the callee borrows it, and an optional field
+    ; kept in a cell cannot answer that read: the `.borrow()` would have to
+    ; wrap the whole expression, and the Option handling is already in front
+    ; of it. Without this the field came out `RefCell<Option<Rc<…>>>` and
+    ; every read said `.as_ref().unwrap()` straight on the cell.
+    if node.hasFnCall {
+      if ((array_length node.children) > 0) {
+        def pathFc:CodeNode (node.getFirst())
+        def pathFcLen:int (array_length pathFc.ns)
+        if (pathFcLen > 1) {
+          def pathRoot:string (itemAt pathFc.ns 0)
+          if (pathRoot == "this") {
+            if (pathFcLen > 2) {
+              set ctx.rust_path_field_names (itemAt pathFc.ns 1) true
+            }
+          } {
+            set ctx.rust_path_field_names pathRoot true
+          }
+        }
+      }
+    }
+    for node.children pathCh:CodeNode pathChI {
+      this.rustCollectPathNames(pathCh ctx)
+    }
+  }
+
+  fn rustFillPathFieldNames:void (ctx:RangerAppWriterContext) {
+    def pathRoot:RangerAppWriterContext (ctx.getRoot())
+    if pathRoot.rust_path_names_ready {
+      return
+    }
+    pathRoot.rust_path_names_ready = true
+    for pathRoot.definedClassList pathCn:string pathCi {
+      def pathC:RangerAppClassDesc (unwrap (get pathRoot.definedClasses pathCn))
+      def pathCtorO@(optional):RangerAppFunctionDesc pathC.constructor_fn
+      if (!null? pathCtorO) {
+        def pathCtor:RangerAppFunctionDesc (unwrap pathCtorO)
+        def pathCtorB@(optional):CodeNode pathCtor.fnBody
+        if (!null? pathCtorB) {
+          this.rustCollectPathNames((unwrap pathCtorB) pathRoot)
+        }
+      }
+      for pathC.defined_variants pathVn:string pathVi {
+        def pathVs:RangerAppMethodVariants (get pathC.method_variants pathVn)
+        for pathVs.variants pathV:RangerAppFunctionDesc pathVj {
+          def pathB@(optional):CodeNode pathV.fnBody
+          if (!null? pathB) {
+            this.rustCollectPathNames((unwrap pathB) pathRoot)
+          }
+        }
+      }
+    }
+  }
+
+  fn rustFieldCanBeCell:boolean (p:RangerAppParamDesc ctx:RangerAppWriterContext) {
+    if p.rust_static_str {
+      return false
+    }
+    def cellNNO@(optional):CodeNode p.nameNode
+    if (null? cellNNO) {
+      return false
+    }
+    def cellNN:CodeNode (unwrap cellNNO)
+    ; a COLLECTION field: the Vec or HashMap itself goes in the cell, read
+    ; with borrow() and mutated with borrow_mut(). Both are one statement
+    ; long, which is what lets the method keep `&self`.
+    ; an uninitialised member collection carries is_optional on the desc, but
+    ; the Rust field is a plain Vec or HashMap either way
+    if ((strlen cellNN.array_type) > 0) {
+      return true
+    }
+    if ((strlen cellNN.key_type) > 0) {
+      return true
+    }
+    ; an OPTIONAL object field is a slot that gets reseated: `Option<T>` inside
+    ; a RefCell, read whole and written with replace(). Only where the field is
+    ; never reached THROUGH a path — there the read would have to wrap the
+    ; whole expression, and the path writer has already put the Option
+    ; handling in front of it.
+    if p.is_optional {
+      if (ctx.isDefinedClass(cellNN.type_name)) {
+        this.rustFillPathFieldNames(ctx)
+        def pathNameCtx:RangerAppWriterContext (ctx.getRoot())
+        if (has pathNameCtx.rust_path_field_names p.name) {
+          return false
+        }
+        return true
+      }
+      return false
+    }
+    if p.rust_needs_rc_wrap {
+      return false
+    }
+    ; a field declared without an annotation — `def target_esm false` — has no
+    ; type_name at all, so the parsed type answers instead
+    def cellT:string cellNN.type_name
+    if ((strlen cellT) == 0) {
+      def cellVt:RangerNodeType cellNN.value_type
+      if (cellNN.eval_type != RangerNodeType.NoType) {
+        cellVt = cellNN.eval_type
+      }
+      if (cellVt == RangerNodeType.Boolean) {
+        cellT = "boolean"
+      }
+      if (cellVt == RangerNodeType.Integer) {
+        cellT = "int"
+      }
+      if (cellVt == RangerNodeType.Double) {
+        cellT = "double"
+      }
+      if (cellVt == RangerNodeType.String) {
+        cellT = "string"
+      }
+    }
+    if (cellT == "boolean") {
+      return true
+    }
+    if (cellT == "int") {
+      return true
+    }
+    if (cellT == "double") {
+      return true
+    }
+    ; A string uses a RefCell, and its read is wrapped in a block so the Ref
+    ; is dropped before the statement it sits in continues — a bare
+    ; `.borrow().clone()` handed to a `&mut self` method is E0502, the very
+    ; conflict the cell exists to remove.
+    if (cellT == "string") {
+      return true
+    }
+    return false
+  }
+
+  fn rustCellIsString:boolean (p:RangerAppParamDesc) {
+    if p.is_optional {
+      return false
+    }
+    if (this.rustCellIsCollection(p)) {
+      return false
+    }
+    def csNNO@(optional):CodeNode p.nameNode
+    if (null? csNNO) {
+      return false
+    }
+    def csNN:CodeNode (unwrap csNNO)
+    if ((strlen csNN.type_name) == 0) {
+      return (csNN.eval_type == RangerNodeType.String)
+    }
+    return (csNN.type_name == "string")
+  }
+
+  fn rustCellIsCollection:boolean (p:RangerAppParamDesc) {
+    def clNNO@(optional):CodeNode p.nameNode
+    if (null? clNNO) {
+      return false
+    }
+    def clNN:CodeNode (unwrap clNNO)
+    if ((strlen clNN.array_type) > 0) {
+      return true
+    }
+    return ((strlen clNN.key_type) > 0)
+  }
+
+  fn rustCellIsCopy:boolean (p:RangerAppParamDesc) {
+    if p.is_optional {
+      return false
+    }
+    if (this.rustCellIsCollection(p)) {
+      return false
+    }
+    def ciNNO@(optional):CodeNode p.nameNode
+    if (null? ciNNO) {
+      return true
+    }
+    def ciNN:CodeNode (unwrap ciNNO)
+    if ((strlen ciNN.type_name) == 0) {
+      return (ciNN.eval_type != RangerNodeType.String)
+    }
+    return (ciNN.type_name != "string")
+  }
+
+  fn rustCellFieldDesc@(optional):RangerAppParamDesc (node:CodeNode) {
+    def cfRes@(optional):RangerAppParamDesc
+    def cfNsp:int (array_length node.nsp)
+    if (cfNsp > 0) {
+      def cfLast:RangerAppParamDesc (itemAt node.nsp (cfNsp - 1))
+      if cfLast.rust_interior_cell {
+        cfRes = cfLast
+      }
+      return cfRes
+    }
+    if (node.hasParamDesc == false) {
+      return cfRes
+    }
+    if ((array_length node.ns) > 2) {
+      return cfRes
+    }
+    if ((array_length node.ns) == 2) {
+      if ((itemAt node.ns 0) != "this") {
+        return cfRes
+      }
+    }
+    def cfP:RangerAppParamDesc (unwrap node.paramDesc)
+    if (cfP.is_class_variable == false) {
+      return cfRes
+    }
+    if cfP.rust_interior_cell {
+      cfRes = cfP
+    }
+    return cfRes
+  }
+
+  fn rustMarkInteriorCells:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    def cellRootO@(optional):RangerAppClassDesc (this.rustTraitRootOf(cl ctx))
+    if (null? cellRootO) {
+      return
+    }
+    def cellRoot:RangerAppClassDesc (unwrap cellRootO)
+    for cl.variables cellP:RangerAppParamDesc cellPi {
+      def inRoot@(optional):RangerAppParamDesc (cellRoot.findVariable(cellP.name))
+      if (!null? inRoot) {
+        continue
+      }
+      if (this.rustFieldCanBeCell(cellP ctx)) {
+        cellP.rust_interior_cell = true
+      }
+    }
+  }
+
+  fn rustFillTraitMutations:void (root:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    if root.rust_trait_mut_ready {
+      return
+    }
+    root.rust_trait_mut_ready = true
+    def family:[RangerAppClassDesc]
+    push family root
+    for root.child_classes chName:string chI {
+      if (ctx.isDefinedClass(chName)) {
+        def chC:RangerAppClassDesc (ctx.findClass(chName))
+        push family chC
+      }
+    }
+    ; the cells go in FIRST: a write to one is not a mutation of the struct,
+    ; and that is exactly what the analysis below is about to measure
+    for family cellFam:RangerAppClassDesc cellFamI {
+      this.rustMarkInteriorCells(cellFam ctx)
+    }
+    ; ONE graph for the whole family. Analysing each member on its own gets
+    ; the transitive step wrong: `WriteEnum` calls `WriteVRef`, `WriteVRef`
+    ; mutates in a SUBCLASS, and the root's own graph cannot see that — so the
+    ; root's `WriteEnum` came out `&self` calling a `&mut self`.
+    def famDirect:[string:boolean]
+    def famGraph:[string:MethodCallList]
+    rust_computing_family_mut = true
+    for family fam:RangerAppClassDesc famI {
+      def memberDirect:[string:boolean]
+      this.buildClassMutationGraph(fam ctx memberDirect famGraph)
+      this.buildInheritedMutationGraph(fam ctx memberDirect famGraph)
+      ; the union of the members' answers: one implementation that mutates
+      ; makes the method mutating for every impl of the same signature
+      for fam.defined_variants memVar:string memVi {
+        if (has memberDirect memVar) {
+          def memMut:boolean (unwrap (get memberDirect memVar))
+          if memMut {
+            set famDirect memVar true
+          }
+        }
+      }
+      ; …and the names this member only INHERITS, which is where
+      ; buildInheritedMutationGraph put the parent's own answer
+      for root.defined_variants inhVar:string inhVi {
+        if (has memberDirect inhVar) {
+          def inhMut:boolean (unwrap (get memberDirect inhVar))
+          if inhMut {
+            set famDirect inhVar true
+          }
+        }
+      }
+    }
+    rust_computing_family_mut = false
+    for root.defined_variants famVar:string famVi {
+      if (this.methodMutatesThis(famVar famDirect famGraph)) {
+        set root.rust_trait_mut famVar true
+      }
+    }
+    ; …and the answer goes onto every descriptor of every family member, both
+    ; sets of them. The trait DECLARATION and the call site read different
+    ; descriptor sets, and an inherited copy with no body of its own is never
+    ; assigned at all — it keeps the conservative default. Left alone they
+    ; disagree, and a `&mut self` declaration under a `.borrow()` call site is
+    ; a compile error (the other way round is a panic).
+    for family fam2:RangerAppClassDesc fam2I {
+      ; the name set the trait DECLARATION iterates, so the descriptors the
+      ; declaration reads are the ones that get the answer
+      for root.defined_variants tmVar:string tmVi {
+        if (has fam2.method_variants tmVar) {
+          def tmMut:boolean (has root.rust_trait_mut tmVar)
+          def tmVs:RangerAppMethodVariants (get fam2.method_variants tmVar)
+          for tmVs.variants tmV:RangerAppFunctionDesc tmVj {
+            tmV.rust_mut_self = tmMut
+          }
+          def tmM@(optional):RangerAppFunctionDesc (fam2.findMethod(tmVar))
+          if (!null? tmM) {
+            def tmMD:RangerAppFunctionDesc (unwrap tmM)
+            tmMD.rust_mut_self = tmMut
+          }
+        }
+      }
+    }
+  }
+
+  fn markTraitIfaceMutations:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext directMutations:[string:boolean]) {
+    def rootO@(optional):RangerAppClassDesc (this.rustTraitRootOf(cl ctx))
+    if (null? rootO) {
+      return
+    }
+    def root:RangerAppClassDesc (unwrap rootO)
+    this.rustFillTraitMutations(root ctx)
+    ; every method the TRAIT declares, not just the ones this class restates.
+    ; A subclass that merely inherits one still calls it through `this`, and
+    ; the caller's own receiver has to account for what the callee does.
+    for root.defined_variants fnVar:string i {
+      if (has root.rust_trait_mut fnVar) {
+        set directMutations fnVar true
+      }
+    }
+  }
+
+  fn buildClassMutationGraph:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext directMutations:[string:boolean] callGraph:[string:MethodCallList]) {
+    for cl.defined_variants fnVar:string i {
+      def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
+      for mVs.variants variant:RangerAppFunctionDesc i {
+        def fnB@(optional):CodeNode variant.fnBody
+        if (!null? fnB) {
+          def fnCtx@(optional):RangerAppWriterContext variant.fnCtx
+          def useCtx:RangerAppWriterContext ctx
+          if (!null? fnCtx) {
+            useCtx = (unwrap fnCtx)
+          }
+          def fnBody:CodeNode (unwrap fnB)
+          
+          ; Check direct mutation
+          def directlyMutates:boolean (this.fnBodyDirectlyMutatesThis(fnBody useCtx))
+          set directMutations variant.name directlyMutates
+          
+          ; Collect method calls into a MethodCallList
+          def callList:MethodCallList (new MethodCallList())
+          if (has callGraph variant.name) {
+            callList = (unwrap (get callGraph variant.name))
+          }
+          this.collectSelfMethodCalls(fnBody useCtx callList.calls)
+          set callGraph variant.name callList
+        }
+      }
+    }
+  }
+
+  fn methodTransitivelyMutates:boolean (methodName:string directMutations:[string:boolean] callGraph:[string:MethodCallList] visited:[string]) {
+    ; Check if already visited (cycle detection)
+    for visited v:string i {
+      if (v == methodName) {
+        return false  ; Cycle - assume no mutation from this path
+      }
+    }
+    push visited methodName
+    
+    ; Check direct mutation. NOTE: the value must land in a plain boolean
+    ; before the test — `def dm:boolean (get …)` makes an optional binding,
+    ; and `if dm` then tests presence, not the value, so every method in the
+    ; map counted as mutating and no method ever took `&self`.
+    if (has directMutations methodName) {
+      def dmMutates:boolean false
+      dmMutates = (unwrap (get directMutations methodName))
+      if dmMutates {
+        return true
+      }
+    }
+    
+    ; Check called methods
+    if (has callGraph methodName) {
+      def callList:MethodCallList (get callGraph methodName)
+      for callList.calls calledMethod:string i {
+        if (this.methodTransitivelyMutates(calledMethod directMutations callGraph visited)) {
+          return true
+        }
+      }
+    }
+    
+    return false
+  }
+
+  fn methodMutatesThis:boolean (methodName:string directMutations:[string:boolean] callGraph:[string:MethodCallList]) {
+    def visited:[string]
+    return (this.methodTransitivelyMutates(methodName directMutations callGraph visited))
+  }
+
+  fn fnBodyMutatesThis:boolean (node:CodeNode ctx:RangerAppWriterContext) {
+    ; This is a simplified version that doesn't use call graph
+    ; Used when we don't have the full class context
+    return (this.fnBodyDirectlyMutatesThis(node ctx))
+  }
+
+}

@@ -266,7 +266,7 @@ function main() {
     "",
     "The compiler selects one of them at the call site, and it selects by trial.",
     "These are the steps, from `TransformOpFn` in",
-    `[compiler/ng_RangerFlowParser.rgr](${blobUrl(REPOSITORY, "compiler/ng_RangerFlowParser.rgr")}):`,
+    `[compiler/RangerFlowParser.rgr](${blobUrl(REPOSITORY, "compiler/RangerFlowParser.rgr")}):`,
     "",
     "1. The compiler collects every macro with that name.",
     "2. A macro with a `?` in a type becomes one candidate per type: `string`,",

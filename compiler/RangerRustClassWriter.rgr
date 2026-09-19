@@ -1,0 +1,3056 @@
+; SPDX-License-Identifier: MIT
+
+; Helper class to hold a list of method names (for call graph)
+class MethodCallList {
+  def calls:[string]
+  
+  Constructor () {
+    def c:[string]
+    calls = c
+  }
+  
+  fn add:void (methodName:string) {
+    push calls methodName
+  }
+}
+
+class RangerRustClassWriter {
+  ; True while a method-call receiver is being written: the receiver of a
+  ; call must borrow mutably (every method takes &mut self), where a plain
+  ; field read borrows shared so that two reads of one cell can overlap.
+  def rust_writing_call_receiver:boolean false
+  ; the receiver borrow mode for the call being written: false when the
+  ; called method takes &self, so WriteVRef borrows shared and an argument
+  ; aliasing the receiver cannot panic the RefCell at runtime
+  def rust_call_receiver_mut:boolean true
+  ; set when a signature has just written `&self`/`&mut self` so that
+  ; writeArgsDef knows to lead with a comma — and only then, so an empty
+  ; parameter list closes as `(&mut self)` and not `(&mut self, )`
+  def rust_receiver_written:boolean false
+  ; a trait method signature has no body, and Rust allows no pattern in one:
+  ; `mut x : T` there is "patterns aren't allowed in functions without
+  ; bodies". The binding mode is the implementor's business anyway.
+  def rust_in_trait_decl:boolean false
+  ; set while the `unwrap` handler walks its own argument. That handler adds
+  ; the upgrade of a weak field itself, so the path writer must not add a
+  ; second one for the same read.
+  def rust_in_weak_unwrap:boolean false
+  ; set while an in-place COLLECTION operator writes its target — push,
+  ; clear, remove_index, array_extract. The target is written through, so a
+  ; trait accessor on its path hands back `&mut`, but the operator calls a
+  ; method on that reference rather than assigning to it: the `*` a real
+  ; assignment target needs would be dereferencing the method's own result.
+  def rust_lhs_is_receiver:boolean false
+  ; set while a function's RETURN type is written. A `@(weak)` return is
+  ; still an owned handle — see writeTypeDef.
+  def rust_writing_return_type:boolean false
+  ; set while the body of a method emitted WITHOUT a receiver is written. Such
+  ; a method reaches its own object only through the hidden __self_rc, and it
+  ; takes the borrow per statement rather than for the whole call — which is
+  ; what lets `def root (this.getRoot())` followed by a write through `root`
+  ; run when the root IS this object.
+  def rust_receiverless_method:boolean false
+  ; set while a call receiver is written and the callee is known to mutate
+  def rust_receiver_mut_known:boolean false
+  ; the class whose method body is being written. ctx.getCurrentClass() can
+  ; answer with something else by the time a call receiver is emitted, and a
+  ; `this.m(…)` has to resolve `m` in the class that actually declares it.
+  def rust_emit_class_name:string ""
+  ; set while a call receiver is written and the callee is known to take &self
+  def rust_receiver_shared_known:boolean false
+  ; what CreatePropertyGet already settled about the object in front of a
+  ; `(expr).field`: 0 unknown, 1 the borrow is written, 2 the object is not
+  ; a shared class. The field-tail rule in WriteVRef guesses from the field
+  ; NAME alone, and only where this says nothing.
+  def rust_prop_base_state:int 0
+  ; set while a call RECEIVER that is an expression is written and the
+  ; callee writes through it: every cell on the way to the place borrows
+  ; mutably
+  def rust_recv_place_mut:boolean false
+  ; set while a plain-path ARGUMENT is written that the callee takes by
+  ; `&mut`. An Rc handle on that path has to borrow mutably: `&mut
+  ; sc.borrow().zone` is a `&mut` into a shared borrow.
+  def rust_writing_mut_arg:boolean false
+  ; set while a call receiver PATH is written whose head is `this` and whose
+  ; target is a field held inline: the callee borrows the field, and the
+  ; field is part of this struct, so the head takes the mutable borrow
+  def rust_path_head_mut:boolean false
+  ; set once the receiver-mutability pre-pass has a first answer for every
+  ; class, so a later pass may ask what a call through a FIELD does. On the
+  ; first pass nothing is settled and every answer would read the
+  ; conservative default, which marks the whole program `&mut self`.
+  def rust_field_call_mut_ready:boolean false
+  ; set while a STRUCT FIELD's type is written. A borrowed closure needs a
+  ; lifetime to sit in a struct, and the struct has none; an owned one does
+  ; not. A parameter keeps the borrow, which is what call sites pass.
+  def rust_writing_field_type:boolean false
+
+  Extends (RangerGenericClassWriter)
+  def compiler:LiveCompiler
+  def thisName:string "self"
+  ; The declared return type of the function being written, when it is a
+  ; sealable union: a `return` of one MEMBER of the family has to be wrapped in
+  ; its enum variant, exactly as an argument or a field assignment is.
+  ; Empty for every other function.
+  def rustFnReturnsUnion:string ""
+  ; the declared return of the function being written, so a `return` can
+  ; ask what shape the caller is expecting
+  def rustFnReturnNameNode@(optional):CodeNode
+  def fileHeaderWritten:boolean false
+  ; writing the TARGET of a cell assignment: the whole collection is being
+  ; replaced, so the path names the RefCell itself rather than borrowing it
+  def rust_in_cell_assign:boolean false
+  ; the local a call receiver was hoisted into, for the hidden __self_rc
+  ; argument that follows it: reading the field a second time to build that
+  ; argument puts the borrow back that the hoist just took away
+  def rust_last_recv_tmp:string ""
+  ; computing the family's mutation answer. The inherited-graph walk otherwise
+  ; marks every trait method as mutating on principle — which is the blanket
+  ; this analysis exists to replace, and feeding it back in makes the answer
+  ; "yes" before a single body has been looked at.
+  def rust_computing_family_mut:boolean false
+  
+  ; Rust needs semicolons at end of statements
+  fn lineEnding:string () {
+    return ";"
+  }
+  
+  ; Escape Rust reserved words by prefixing with r#
+  fn adjustType:string (tn:string) {
+    switch tn {
+      case "type" { return "r#type" }
+      case "static" { return "r#static" }
+      case "async" { return "r#async" }
+      case "await" { return "r#await" }
+      case "dyn" { return "r#dyn" }
+      case "impl" { return "r#impl" }
+      case "trait" { return "r#trait" }
+      case "mod" { return "r#mod" }
+      case "pub" { return "r#pub" }
+      case "use" { return "r#use" }
+      case "extern" { return "r#extern" }
+      case "crate" { return "r#crate" }
+      case "super" { return "r#super" }
+      case "where" { return "r#where" }
+      case "unsafe" { return "r#unsafe" }
+      case "move" { return "r#move" }
+      case "ref" { return "r#ref" }
+      case "mut" { return "r#mut" }
+      case "const" { return "r#const" }
+      case "match" { return "r#match" }
+      case "as" { return "r#as" }
+      case "abstract" { return "r#abstract" }
+      case "become" { return "r#become" }
+      case "box" { return "r#box" }
+      case "do" { return "r#do" }
+      case "final" { return "r#final" }
+      case "macro" { return "r#macro" }
+      case "override" { return "r#override" }
+      case "priv" { return "r#priv" }
+      case "typeof" { return "r#typeof" }
+      case "unsized" { return "r#unsized" }
+      case "virtual" { return "r#virtual" }
+      case "yield" { return "r#yield" }
+      case "try" { return "r#try" }
+      case "fn" { return "r#fn" }
+      case "let" { return "r#let" }
+      case "loop" { return "r#loop" }
+      case "if" { return "r#if" }
+      case "else" { return "r#else" }
+      case "while" { return "r#while" }
+      case "for" { return "r#for" }
+      case "in" { return "r#in" }
+      case "return" { return "r#return" }
+      case "break" { return "r#break" }
+      case "continue" { return "r#continue" }
+      case "struct" { return "r#struct" }
+      case "enum" { return "r#enum" }
+      ; `self` cannot be a raw identifier — suffix it
+      case "self" { return "self_" }
+    }
+    return tn
+  }
+  
+  fn WriteScalarValue (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    switch node.value_type {
+      case RangerNodeType.Double {
+        wr.out((("" + node.double_value) + "_f64") false)
+      }
+      case RangerNodeType.String {
+        def s:string (this.EncodeString(node ctx wr))
+        wr.out(((("\"" + s) + "\"") + ".to_string()") false)
+      }
+      case RangerNodeType.Integer {
+        wr.out(("" + node.int_value) false)
+      }
+      case RangerNodeType.Boolean {
+        if node.boolean_value {
+          wr.out("true" false)
+        } {
+          wr.out("false" false)
+        }
+      }
+    }
+  }
+  ; a plain read whose resolved desc is a promoted static string
+  ; (rust_static_str): the value is already `&'static str` — Copy, no clone,
+  ; and any owned-String sink converts with .to_string() instead
+  fn rustStaticStrRead:boolean (node:CodeNode) {
+    def v:CodeNode node
+    while (v.expression && ((array_length v.children) == 1)) {
+      v = (v.getFirst())
+    }
+    if v.expression {
+      return false
+    }
+    if (v.value_type != RangerNodeType.VRef) {
+      return false
+    }
+    if ((array_length v.nsp) > 0) {
+      def lastP:RangerAppParamDesc (itemAt v.nsp ((array_length v.nsp) - 1))
+      return lastP.rust_static_str
+    }
+    if v.hasParamDesc {
+      def p:RangerAppParamDesc v.paramDesc
+      return p.rust_static_str
+    }
+    return false
+  }
+
+  ; a VALUE flowing into a static-string slot: a literal writes bare — no
+  ; .to_string() — and a static read writes its Copy path; anything else
+  ; walks normally and a mis-judged flow becomes a type error, never
+  ; silent corruption
+  fn rustWriteStaticStrValue:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def v:CodeNode node
+    while (v.expression && ((array_length v.children) == 1)) {
+      v = (v.getFirst())
+    }
+    if ((v.expression == false) && (v.value_type == RangerNodeType.String)) {
+      wr.out((("\"" + (this.EncodeString(v ctx wr))) + "\"") false)
+      return
+    }
+    ctx.setInExpr()
+    this.WalkNode(v ctx wr)
+    ctx.unsetInExpr()
+  }
+
+  ; a string LITERAL argument for a borrowed parameter passes bare: the
+  ; parameter is &str, and `&"lit".to_string()` allocates a String just to
+  ; borrow it (clippy's unnecessary_to_owned). Call only when the target
+  ; parameter is an immutable borrow; writes the literal and returns true,
+  ; or writes nothing.
+  fn rustTryBareStrLitArg:boolean (nVal:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def v:CodeNode nVal
+    while (v.expression && ((array_length v.children) == 1)) {
+      v = (v.getFirst())
+    }
+    if v.expression {
+      return false
+    }
+    if (v.value_type != RangerNodeType.String) {
+      return false
+    }
+    wr.out((("\"" + (this.EncodeString(v ctx wr))) + "\"") false)
+    return true
+  }
+
+  ; Is this argument a plain NAME read? A string-typed name carries
+  ; value_type String, not VRef, so a `nVal.value_type == VRef` test skipped
+  ; every string variable and left it moved (or left a &str where a String
+  ; was declared). A literal has no vref and stays out.
+  fn rustArgIsNameRead:boolean (nVal:CodeNode) {
+    def v:CodeNode nVal
+    while (v.expression && ((array_length v.children) == 1)) {
+      v = (v.getFirst())
+    }
+    if (v.value_type == RangerNodeType.VRef) {
+      return true
+    }
+    ; …and a field read whose OBJECT is an expression — `(st.getSecond())
+    ; .vref` — which is a read exactly as `st.vref` is, only spelled through
+    ; a call. It is a property node, so the expression test below turned it
+    ; away and the field moved out of its `Ref` (E0507). The callers gate
+    ; this on the PARAMETER's type, so a scalar still takes nothing.
+    if (v.isFirstVref("property")) {
+      return true
+    }
+    if v.expression {
+      return false
+    }
+    if ((strlen v.vref) > 0) {
+      return true
+    }
+    return ((array_length v.ns) > 0)
+  }
+
+  ; a read that yields a SLICE reference rather than an owned Vec — a
+  ; borrowed collection parameter, which writeArgsDef spells `&[T]`. An owned
+  ; sink converts it with .to_vec(); .clone() would only copy the reference.
+  fn rustSliceRefRead:boolean (node:CodeNode) {
+    def v:CodeNode node
+    while (v.expression && ((array_length v.children) == 1)) {
+      v = (v.getFirst())
+    }
+    if v.expression {
+      return false
+    }
+    if (((array_length v.ns) == 1) && v.hasParamDesc) {
+      def p:RangerAppParamDesc v.paramDesc
+      if (p.rust_borrow_type == 1) {
+        def pNN@(optional):CodeNode p.nameNode
+        if (!null? pNN) {
+          def pN:CodeNode (unwrap pNN)
+          if (((strlen pN.array_type) > 0) && ((strlen pN.key_type) == 0)) {
+            def ael:string pN.array_type
+            if (((((ael == "int") || (ael == "double")) || (ael == "boolean")) || (ael == "string")) || (ael == "char")) {
+              return true
+            }
+          }
+          ; …and a BUFFER, which writeArgsDef gives the same slice form. It
+          ; carries its element type in the type name rather than in
+          ; array_type, so the test above never saw one: `bytes.clone()` on
+          ; a `&[u8]` is another `&[u8]`, and the owned sink wanted a Vec.
+          if ((strlen pN.key_type) == 0) {
+            if (((pN.type_name == "buffer") || (pN.type_name == "int_buffer")) || (pN.type_name == "double_buffer")) {
+              return true
+            }
+          }
+        }
+      }
+    }
+    return false
+  }
+
+  ; a read that yields a str REFERENCE rather than an owned String — a
+  ; promoted static string, or a borrowed &str string parameter. An owned
+  ; sink converts such a read with .to_string(); .clone() would only copy
+  ; the reference.
+  fn rustStrRefRead:boolean (node:CodeNode) {
+    if (this.rustStaticStrRead(node)) {
+      return true
+    }
+    def v:CodeNode node
+    while (v.expression && ((array_length v.children) == 1)) {
+      v = (v.getFirst())
+    }
+    if v.expression {
+      return false
+    }
+    if (((v.value_type == RangerNodeType.VRef) && v.hasParamDesc) && ((array_length v.ns) == 1)) {
+      def p:RangerAppParamDesc v.paramDesc
+      if (p.rust_borrow_type == 1) {
+        def pNN@(optional):CodeNode p.nameNode
+        if (!null? pNN) {
+          def pN:CodeNode (unwrap pNN)
+          if ((pN.type_name == "string") && (((strlen pN.array_type) == 0) && ((strlen pN.key_type) == 0))) {
+            return true
+          }
+        }
+      }
+    }
+    return false
+  }
+
+  ; Calling a lambda MOVES each argument that is not Copy, and the operator
+  ; helpers written in Ranger hand the element to the callback and then keep
+  ; using it — `if cb(it, i) { res.push(it.clone()) }` is what `filter`
+  ; compiles to. Every non-scalar argument goes in as a clone; for an Rc that
+  ; is a refcount bump, and the callback owns what it was given either way.
+  ; Is this value a REFERENCE to a handle rather than a handle? `this` in a
+  ; method that carries the hidden argument is written `__self_rc`, which is
+  ; `&Rc<RefCell<T>>`, and a proven-borrowed parameter is the same shape.
+  ; Either one flowing into an owned position takes a clone.
+  ; Does the target of this assignment hold an Rc? The last segment of the
+  ; path answers — a shared-class name carries rust_needs_rc_wrap, and a
+  ; plain struct local of the same class does not.
+  fn rustLhsHoldsRc:boolean (left:CodeNode) {
+    def nspLen:int (array_length left.nsp)
+    if (nspLen > 0) {
+      def lastD:RangerAppParamDesc (itemAt left.nsp (nspLen - 1))
+      return lastD.rust_needs_rc_wrap
+    }
+    if left.hasParamDesc {
+      def lp:RangerAppParamDesc left.paramDesc
+      return lp.rust_needs_rc_wrap
+    }
+    return false
+  }
+
+  fn rustValueIsBorrowedHandle:boolean (node:CodeNode ctx:RangerAppWriterContext) {
+    def bv:CodeNode (this.rustUnwrapParens(node))
+    if (bv.vref == "this") {
+      def bvCls@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+      def bvM@(optional):RangerAppFunctionDesc (ctx.getCurrentMethod())
+      if ((!null? bvCls) && (!null? bvM)) {
+        def bvC:RangerAppClassDesc (unwrap bvCls)
+        def bvF:RangerAppFunctionDesc (this.rustEnclosingMethod((unwrap bvM)))
+        if (this.rustClassIsShared(bvC.name ctx)) {
+          return bvF.rust_needs_self_rc
+        }
+      }
+      return false
+    }
+    if (bv.value_type != RangerNodeType.VRef) {
+      return false
+    }
+    if ((array_length bv.ns) > 1) {
+      return false
+    }
+    if (bv.hasParamDesc == false) {
+      return false
+    }
+    def bvP:RangerAppParamDesc bv.paramDesc
+    return ((bvP.rust_borrow_type == 1) && bvP.rust_needs_rc_wrap)
+  }
+
+  fn CreateLambdaCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def fName:CodeNode (itemAt node.children 0)
+    def args:CodeNode (itemAt node.children 1)
+    ctx.setInExpr()
+    this.WalkNode(fName ctx wr)
+    wr.out("(" false)
+    for args.children arg:CodeNode i {
+      if (i > 0) {
+        wr.out(", " false)
+      }
+      this.WalkNode(arg ctx wr)
+      def lcCloned:boolean false
+      if (arg.expression == false) {
+        if arg.hasParamDesc {
+          def ap:RangerAppParamDesc (unwrap arg.paramDesc)
+          if ((this.rustFieldIsCopyScalar(ap ctx)) == false) {
+            wr.out(".clone()" false)
+            lcCloned = true
+          }
+        }
+      }
+      ; a lambda call MOVES its arguments, and `this` has no desc to ask
+      if (lcCloned == false) {
+        if (this.rustValueIsBorrowedHandle(arg ctx)) {
+          wr.out(".clone()" false)
+        }
+      }
+    }
+    wr.out(")" false)
+    ctx.unsetInExpr()
+    if ((ctx.expressionLevel()) == 0) {
+      wr.out(";" true)
+    }
+  }
+
+  ; A Ranger lambda is a Rust closure: `|a, b| { … }`. Without this the
+  ; generic writer's JavaScript form reached the output — `(a, b) => { … }`
+  ; — and rustc stopped at the arrow before it could look at anything else
+  ; in the file. Argument types are left to inference: a closure literal is
+  ; always written straight into the call that takes it, so the parameter's
+  ; declared FnMut type fixes them.
+  fn CreateLambda:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def lambdaCtx (unwrap node.lambda_ctx)
+    def args:CodeNode (itemAt node.children 1)
+    def body:CodeNode (itemAt node.children 2)
+    ; the parameter that receives it is `&mut dyn FnMut(…)`, so the literal
+    ; goes in as a mutable borrow. Without it rustc has no expected type to
+    ; infer the closure's own parameters from — "type annotations needed" on
+    ; every `item`.
+    wr.out("&mut |" false)
+    for args.children arg:CodeNode i {
+      if (i > 0) {
+        wr.out(", " false)
+      }
+      ; the body calls `&mut self` methods on the element as freely as any
+      ; other name, so the binding is mutable; an unused `mut` is a warning
+      wr.out(("mut " + (this.adjustType(arg.vref))) false)
+    }
+    wr.out("| {" true)
+    wr.indent(1)
+    lambdaCtx.restartExpressionLevel()
+    for body.children item:CodeNode i {
+      this.WalkNode(item lambdaCtx wr)
+    }
+    wr.newline()
+    wr.indent(-1)
+    wr.out("}" false)
+  }
+
+  ; The type of a name that holds a lambda. Rust has no bare function type,
+  ; so the closure trait stands in: FnMut, because a Ranger lambda captures
+  ; its enclosing scope by reference and is free to write through it. Left
+  ; unwritten, a callback parameter came out as `cb : )` — a parse error at
+  ; every operator helper that takes one.
+  fn writeRustLambdaType:void (expression_value:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def rv:CodeNode (itemAt expression_value.children 0)
+    def sec:CodeNode (itemAt expression_value.children 1)
+    if rust_writing_field_type {
+      wr.out("Box<dyn FnMut(" false)
+    } {
+      wr.out("&mut dyn FnMut(" false)
+    }
+    for sec.children arg:CodeNode i {
+      if (i > 0) {
+        wr.out(", " false)
+      }
+      ; the element the loop hands to the callback is the shared handle, so
+      ; the signature says so. The body agrees because applySharedClassRcWrap
+      ; marks a lambda's parameters too — both sides had to move together.
+      if ((((strlen arg.type_name) > 0) && ((strlen arg.array_type) == 0)) && ((strlen arg.key_type) == 0)) {
+        if (this.rustClassIsShared(arg.type_name ctx)) {
+          ; an `@(optional)` callback parameter keeps its Option around the
+          ; handle, the same shape a field or a local takes — the body asks
+          ; it `is_some()` and unwraps it
+          if (arg.hasFlag("optional")) {
+            wr.out((("Option<" + (this.rustSharedTypeString(arg.type_name ctx))) + ">") false)
+          } {
+            wr.out((this.rustSharedTypeString(arg.type_name ctx)) false)
+          }
+        } {
+          this.writeTypeDef(arg ctx wr)
+        }
+      } {
+        this.writeTypeDef(arg ctx wr)
+      }
+    }
+    wr.out(")" false)
+    if ((rv.type_name == "void") || (rv.eval_type_name == "void")) {
+    } {
+      wr.out(" -> " false)
+      ; …and the RETURN of a shared class is the handle too. Without this a
+      ; `map` callback that hands back a CodeNode was declared to return the
+      ; bare struct while every body returned the Rc.
+      def lrShared:boolean false
+      if ((((strlen rv.type_name) > 0) && ((strlen rv.array_type) == 0)) && ((strlen rv.key_type) == 0)) {
+        lrShared = (this.rustClassIsShared(rv.type_name ctx))
+      }
+      if lrShared {
+        if (rv.hasFlag("optional")) {
+          wr.out((("Option<" + (this.rustSharedTypeString(rv.type_name ctx))) + ">") false)
+        } {
+          wr.out((this.rustSharedTypeString(rv.type_name ctx)) false)
+        }
+      } {
+        this.writeTypeDef(rv ctx wr)
+      }
+    }
+    if rust_writing_field_type {
+      wr.out(">" false)
+    }
+  }
+
+  ; Does getObjectTypeString already hand back the whole shared handle for
+  ; this class, rather than the struct that goes inside one? A class that is
+  ; extended by children has no struct type a name can hold: it is written
+  ; as `Rc<RefCell<dyn XTrait>>`, handle and all. Sites that build the shared
+  ; form themselves must ask this first — see rustSharedTypeString.
+  ; The trait a value has to be coerced INTO on its way to this target, or ""
+  ; when nothing is needed. A subclass handle is Rc<RefCell<Sub>>, and a slot
+  ; typed with the trait parent holds Rc<RefCell<dyn ParentTrait>>: the two
+  ; are one unsizing coercion apart, and Rust will not do it implicitly
+  ; through an Option or a Weak.
+  fn rustTraitCoerceName:string (targetType:string value:CodeNode ctx:RangerAppWriterContext) {
+    if ((this.rustTypeIsOwnHandle(targetType ctx)) == false) {
+      return ""
+    }
+    def vt:string (this.rustArgValueTypeName(value))
+    if ((strlen vt) == 0) {
+      return ""
+    }
+    if (vt == targetType) {
+      return ""
+    }
+    if (this.rustTypeIsOwnHandle(vt ctx)) {
+      return ""
+    }
+    if ((this.rustClassIsShared(vt ctx)) == false) {
+      return ""
+    }
+    return targetType
+  }
+
+  ; The class an argument expression evaluates to, as far as the writer can
+  ; tell. A named value answers from its own declaration — the evaluated type
+  ; of a plain name is not always filled in — and everything else from the
+  ; expression's evaluated type. A collection-typed name yields no class
+  ; name: the annotation there describes the elements, not the value.
+  fn rustArgValueTypeName:string (nVal:CodeNode) {
+    if (nVal.value_type == RangerNodeType.VRef) {
+      if nVal.hasParamDesc {
+        def vP:RangerAppParamDesc nVal.paramDesc
+        def vNN@(optional):CodeNode vP.nameNode
+        if (!null? vNN) {
+          def vN:CodeNode (unwrap vNN)
+          if (((strlen vN.array_type) > 0) || ((strlen vN.key_type) > 0)) {
+            return ""
+          }
+          if ((strlen vN.type_name) > 0) {
+            return vN.type_name
+          }
+        }
+      }
+    }
+    if (((strlen nVal.array_type) > 0) || ((strlen nVal.key_type) > 0)) {
+      return ""
+    }
+    if ((strlen nVal.eval_type_name) > 0) {
+      return nVal.eval_type_name
+    }
+    ; An element read carries no evaluated type of its own, so the element's
+    ; class has to come from the collection it was read out of.
+    if nVal.expression {
+      if ((array_length nVal.children) >= 3) {
+        def evFirst:CodeNode (nVal.getFirst())
+        if ((evFirst.vref == "itemAt") || (evFirst.vref == "get")) {
+          return (this.rustNodeCollectionElemType((nVal.getSecond())))
+        }
+      }
+    }
+    return ""
+  }
+
+  ; The element class of a collection-typed name, read off the declaration
+  ; the path ends in — the last segment of `left.nsp`, or the whole name.
+  fn rustNodeCollectionElemType:string (coll:CodeNode) {
+    def nspLen:int (array_length coll.nsp)
+    if (nspLen > 0) {
+      def lastD:RangerAppParamDesc (itemAt coll.nsp (nspLen - 1))
+      def lNN@(optional):CodeNode lastD.nameNode
+      if (!null? lNN) {
+        def lN:CodeNode (unwrap lNN)
+        if ((strlen lN.array_type) > 0) {
+          return lN.array_type
+        }
+      }
+    }
+    if coll.hasParamDesc {
+      def cp:RangerAppParamDesc coll.paramDesc
+      def cNN@(optional):CodeNode cp.nameNode
+      if (!null? cNN) {
+        def cN:CodeNode (unwrap cNN)
+        if ((strlen cN.array_type) > 0) {
+          return cN.array_type
+        }
+      }
+    }
+    return ""
+  }
+
+  ; The trait the hidden receiver argument is typed with in the method being
+  ; written, or "" when it is typed with the container class itself. Mirrors
+  ; the choice writeArgsDef makes.
+  fn rustSelfRcTraitName:string (ctx:RangerAppWriterContext) {
+    def scCls@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+    if (null? scCls) {
+      return ""
+    }
+    def scc:RangerAppClassDesc (unwrap scCls)
+    if scc.is_extended_by_children {
+      return scc.name
+    }
+    def scM@(optional):RangerAppFunctionDesc (ctx.getCurrentMethod())
+    if (null? scM) {
+      return ""
+    }
+    def scF:RangerAppFunctionDesc (this.rustEnclosingMethod((unwrap scM)))
+    for scc.extends_classes sccP:string sccPi {
+      if (ctx.isDefinedClass(sccP)) {
+        def sccPC:RangerAppClassDesc (ctx.findClass(sccP))
+        if sccPC.is_extended_by_children {
+          if (has sccPC.defined_methods scF.name) {
+            return sccPC.name
+          }
+        }
+      }
+    }
+    return ""
+  }
+
+  fn rustTypeIsOwnHandle:boolean (type_name:string ctx:RangerAppWriterContext) {
+    def tcOpt@(optional):RangerAppClassDesc (ctx.findClass(type_name))
+    if (null? tcOpt) {
+      return false
+    }
+    def tc:RangerAppClassDesc (unwrap tcOpt)
+    ; a sealable union is an enum and an unsealable one is Rc<dyn Any>;
+    ; neither is a RefCell handle, so both take the wrap like a struct
+    if tc.is_union {
+      return false
+    }
+    return (tc.is_extended_by_children)
+  }
+
+  ; The type a shared name is declared with: the class inside one
+  ; Rc<RefCell<…>>. Wrapping getObjectTypeString unconditionally double
+  ; wrapped every class that has subclasses —
+  ; Rc<RefCell<Rc<RefCell<dyn XTrait>>>> — and .borrow() on such a name
+  ; yields another Rc, so every field read through it was "no field X on
+  ; type RefMut<'_, Rc<RefCell<dyn XTrait>>>".
+  fn rustSharedTypeString:string (type_name:string ctx:RangerAppWriterContext) {
+    if (this.rustTypeIsOwnHandle(type_name ctx)) {
+      return (this.getObjectTypeString(type_name ctx))
+    }
+    return (("Rc<RefCell<" + (this.getObjectTypeString(type_name ctx))) + ">>")
+  }
+
+  ; The same handle in its non-owning form. A `@(weak)` name holds a Weak,
+  ; is written into with Rc::downgrade and read back with upgrade(), so
+  ; declaring it as the Rc form left every such name disagreeing with both
+  ; its own stores and its own loads.
+  fn rustSharedWeakTypeString:string (type_name:string ctx:RangerAppWriterContext) {
+    if (this.rustTypeIsOwnHandle(type_name ctx)) {
+      return ((("Weak<RefCell<dyn " + type_name) + "Trait") + ">>")
+    }
+    return (("Weak<RefCell<" + (this.getObjectTypeString(type_name ctx))) + ">>")
+  }
+
+  fn rustIsCollectionTypeString:boolean (type_string:string) {
+    if ((strlen type_string) >= 2) {
+      if ((charAt type_string 0) == (ccode "[")) {
+        return true
+      }
+    }
+    return false
+  }
+
+  ; Turn a nested collection type string — "[string]", "[string:[int]]" —
+  ; into the Rust Vec / map form. Without this the fallthrough at the end of
+  ; getObjectTypeString handed back the Ranger spelling unchanged and the
+  ; field came out as `HashMap<String,[string]>`, with `string` an unknown
+  ; type.
+  fn rustCollectionTypeString:string (type_string:string ctx:RangerAppWriterContext) {
+    def n:int (strlen type_string)
+    def inner:string (substring type_string 1 (n - 1))
+    def il:int (strlen inner)
+    def depth:int 0
+    def sep:int (0 - 1)
+    def i:int 0
+    while (i < il) {
+      def c:int (charAt inner i)
+      if (c == (ccode "[")) {
+        depth = depth + 1
+      }
+      if (c == (ccode "]")) {
+        depth = depth - 1
+      }
+      if ((c == (ccode ":")) && (depth == 0)) {
+        sep = i
+      }
+      i = i + 1
+    }
+    if (sep >= 0) {
+      def kt:string (substring inner 0 sep)
+      def vt:string (substring inner (sep + 1) il)
+      return ((((("HashMap<" + (this.rustElementTypeString(kt ctx))) + ",") + (this.rustElementTypeString(vt ctx)))) + ">")
+    }
+    return (("Vec<" + (this.rustElementTypeString(inner ctx))) + ">")
+  }
+
+  ; The element of a Rust collection: a shared class is held through its Rc,
+  ; a primitive and a nested collection are held by value.
+  fn rustElementTypeString:string (type_string:string ctx:RangerAppWriterContext) {
+    if (this.rustIsCollectionTypeString(type_string)) {
+      return (this.rustCollectionTypeString(type_string ctx))
+    }
+    if (this.rustClassIsShared(type_string ctx)) {
+      return (this.rustSharedTypeString(type_string ctx))
+    }
+    return (this.getObjectTypeString(type_string ctx))
+  }
+
+  fn getObjectTypeString:string (type_string:string ctx:RangerAppWriterContext) {
+    if (this.rustIsCollectionTypeString(type_string)) {
+      return (this.rustCollectionTypeString(type_string ctx))
+    }
+    switch type_string {
+      case "int" {
+        return "i64"
+      }
+      case "string" {
+        return "String"
+      }
+      case "boolean" {
+        return "bool"
+      }
+      case "double" {
+        return "f64"
+      }
+      case "buffer" {
+        return "Vec<u8>"
+      }
+      case "int_buffer" {
+        return "Vec<i64>"
+      }
+      case "double_buffer" {
+        return "Vec<f64>"
+      }
+    }
+    ; Check if this type is a trait type (class is extended by other classes)
+    def typeClass@(optional):RangerAppClassDesc (ctx.findClass(type_string))
+    if (!null? typeClass) {
+      def tc:RangerAppClassDesc (unwrap typeClass)
+      ; D-UNION: a union of classes is a Rust enum with one variant per member
+      ; (PLAN_SHAPES.md S5). Anything else — the compiler's own `Any`, a union
+      ; over primitives — has no Rust type of its own and falls back to the
+      ; trait object, which any value can at least be coerced into.
+      if tc.is_union {
+        if (this.unionIsSealable(tc ctx)) {
+          return (this.unionInterfaceName(type_string))
+        }
+        return "Rc<dyn std::any::Any>"
+      }
+      if tc.is_extended_by_children {
+        return ("Rc<RefCell<dyn " + type_string + "Trait>>")
+      }
+      ; A systemclass names one type per target. Without this the Ranger name
+      ; reached the output and rustc saw an undeclared type: JSONDataObject
+      ; instead of the HashMap that JSON.rgr declares for Rust.
+      if tc.is_system {
+        def sysName@(optional):string (get tc.systemNames "rust")
+        if (!null? sysName) {
+          return (unwrap sysName)
+        }
+      }
+    }
+    return type_string
+  }
+  fn getTypeString:string (type_string:string) {
+    switch type_string {
+      case "int" {
+        return "i64"
+      }
+      case "string" {
+        return "String"
+      }
+      case "boolean" {
+        return "bool"
+      }
+      case "double" {
+        return "f64"
+      }
+      case "buffer" {
+        return "Vec<u8>"
+      }
+      case "int_buffer" {
+        return "Vec<i64>"
+      }
+      case "double_buffer" {
+        return "Vec<f64>"
+      }
+    }
+    return type_string
+  }
+  fn writeTypeDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    ; a lambda-typed name is a closure trait object, and none of the
+    ; Option/Weak/RefCell wrapping below applies to one — it is answered
+    ; before any of that runs
+    def lt_type:RangerNodeType node.value_type
+    if (node.eval_type != RangerNodeType.NoType) {
+      lt_type = node.eval_type
+    }
+    if (lt_type == RangerNodeType.ExpressionType) {
+      if (!null? node.expression_value) {
+        ; an uninitialized closure FIELD holds None until something is put
+        ; in it, so the Option goes around the Box the same as for any other
+        ; field of a class type
+        def lamOpt:boolean false
+        if rust_writing_field_type {
+          if (node.hasFlag("optional")) {
+            lamOpt = true
+          }
+        }
+        if lamOpt {
+          wr.out("Option<" false)
+        }
+        this.writeRustLambdaType((unwrap node.expression_value) ctx wr)
+        if lamOpt {
+          wr.out(">" false)
+        }
+        return
+      }
+    }
+    def is_optional:boolean (node.hasFlag("optional"))
+    def is_weak:boolean (node.hasFlag("weak"))
+    ; …and `@(weak)` on a RETURN says nothing about the handle handed back:
+    ; every caller binds the result to an Rc name, and the bodies return one.
+    ; Declaring the Weak form there left the signature disagreeing with both.
+    if rust_writing_return_type {
+      is_weak = false
+    }
+    ; `@(weak)` on a COLLECTION is about what the elements own, not the
+    ; container: the Vec or the map itself belongs to the field. Wrapping it
+    ; in a Weak handed back something with no len, push, get or insert on it
+    ; at all, and every use of such a field was an error.
+    if is_weak {
+      if (((strlen node.array_type) > 0) || ((strlen node.key_type) > 0)) {
+        is_weak = false
+      }
+    }
+    def is_self_referential:boolean false
+    
+    ; Check if this is a self-referential type (field type == current class)
+    def uc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+    
+    ; Check if current class is trait-related (is a trait parent or extends one)
+    def class_is_trait_related:boolean false
+    if (!null? uc) {
+      def currClass:RangerAppClassDesc (unwrap uc)
+      if (node.type_name == currClass.name) {
+        is_self_referential = true
+      }
+      ; Check if class is a trait parent
+      if currClass.is_extended_by_children {
+        class_is_trait_related = true
+      }
+      ; Check if class extends a trait parent
+      if (class_is_trait_related == false) {
+        for currClass.extends_classes extParentName:string epi {
+          def extParentClass@(optional):RangerAppClassDesc (ctx.findClass(extParentName))
+          if (!null? extParentClass) {
+            def epc:RangerAppClassDesc (unwrap extParentClass)
+            if epc.is_extended_by_children {
+              class_is_trait_related = true
+            }
+          }
+        }
+      }
+    }
+    
+    ; Check if the field type is a trait type (will be wrapped in Rc<RefCell<dyn Trait>>)
+    def field_type_is_trait:boolean false
+    def typeClass@(optional):RangerAppClassDesc (ctx.findClass(node.type_name))
+    if (!null? typeClass) {
+      def tc:RangerAppClassDesc (unwrap typeClass)
+      if tc.is_extended_by_children {
+        field_type_is_trait = true
+      }
+    }
+    
+    ; Determine if we need to wrap in RefCell for interior mutability
+    ; This is needed when: class is trait-related, field is optional, field is NOT a trait type
+    def needs_refcell_wrap:boolean ((class_is_trait_related && is_optional) && (field_type_is_trait == false))
+    ; Only wrap object types in RefCell (not primitives, arrays, etc.)
+    def is_object_type:boolean false
+    def v_type_check:RangerNodeType node.value_type
+    if ((v_type_check == RangerNodeType.Object) || (v_type_check == RangerNodeType.VRef) || (v_type_check == RangerNodeType.NoType)) {
+      v_type_check = (node.typeNameAsType(ctx))
+    }
+    if (node.eval_type != RangerNodeType.NoType) {
+      v_type_check = node.eval_type
+    }
+    ; Check if it's an object type (not primitive, array, hash, etc.)
+    if ((((((((v_type_check != RangerNodeType.Integer) && (v_type_check != RangerNodeType.Double)) && (v_type_check != RangerNodeType.String)) && (v_type_check != RangerNodeType.Boolean)) && (v_type_check != RangerNodeType.Char)) && (v_type_check != RangerNodeType.Array)) && (v_type_check != RangerNodeType.Hash)) && (v_type_check != RangerNodeType.Buffer)) {
+      is_object_type = true
+    }
+    if (is_object_type == false) {
+      needs_refcell_wrap = false
+    }
+    
+    ; Handle weak references - uses Weak<RefCell<T>> to break reference cycles
+    if is_weak {
+      ; a class with subclasses is written as the whole Rc<RefCell<dyn …>>
+      ; handle, so letting the switch below fill the hole gave
+      ; Weak<RefCell<Rc<RefCell<dyn XTrait>>>> — the weak form of a handle,
+      ; not of the object. The trait object goes straight into the Weak.
+      if (((strlen node.array_type) == 0) && ((strlen node.key_type) == 0)) {
+        if (this.rustTypeIsOwnHandle(node.type_name ctx)) {
+          def wkInner:string (("dyn " + node.type_name) + "Trait")
+          if is_optional {
+            wr.out((("Option<Weak<RefCell<" + wkInner) + ">>>") false)
+          } {
+            wr.out((("Weak<RefCell<" + wkInner) + ">>") false)
+          }
+          return
+        }
+      }
+      if is_optional {
+        wr.out("Option<Weak<RefCell<" false)
+      } {
+        wr.out("Weak<RefCell<" false)
+      }
+    } {
+      if is_optional {
+        if is_self_referential {
+          ; Self-referential optional fields need Box to break infinite recursion
+          wr.out("Option<Box<" false)
+        } {
+          if needs_refcell_wrap {
+            ; Wrap in RefCell for interior mutability in trait-related classes
+            wr.out("Option<RefCell<" false)
+          } {
+            wr.out("Option<" false)
+          }
+        }
+      }
+    }
+    def v_type:RangerNodeType node.value_type
+    if ((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.VRef) || (v_type == RangerNodeType.NoType)) {
+      v_type = (node.typeNameAsType(ctx))
+    }
+    if (node.eval_type != RangerNodeType.NoType) {
+      v_type = node.eval_type
+    }
+    switch v_type {
+      case RangerNodeType.Enum {
+        wr.out("i64" false)
+      }
+      case RangerNodeType.Integer {
+        wr.out("i64" false)
+      }
+      case RangerNodeType.Double {
+        wr.out("f64" false)
+      }
+      case RangerNodeType.String {
+        wr.out("String" false)
+      }
+      case RangerNodeType.Boolean {
+        wr.out("bool" false)
+      }
+      case RangerNodeType.Char {
+        wr.out("i64" false)
+      }
+      case RangerNodeType.CharBuffer {
+        wr.out("Vec<u8>" false)
+      }
+      case RangerNodeType.Buffer {
+        wr.out("Vec<u8>" false)
+      }
+      case RangerNodeType.IntBuffer {
+        wr.out("Vec<i64>" false)
+      }
+      case RangerNodeType.DoubleBuffer {
+        wr.out("Vec<f64>" false)
+      }
+      case RangerNodeType.Hash {
+        ; an element of a shared class follows the class (PLAN_RUST_OWNERSHIP 2b)
+        def helem:string (this.getObjectTypeString(node.array_type ctx))
+        if (this.rustClassIsShared(node.array_type ctx)) {
+          helem = (this.rustSharedTypeString(node.array_type ctx))
+        }
+        wr.out((((("HashMap<" + (this.getObjectTypeString(node.key_type ctx))) + ",") + helem) + ">") false)
+
+      }
+      case RangerNodeType.Array {
+        def aelem:string (this.getObjectTypeString(node.array_type ctx))
+        if (this.rustClassIsShared(node.array_type ctx)) {
+          aelem = (this.rustSharedTypeString(node.array_type ctx))
+        }
+        wr.out((("Vec<" + aelem) + ">") false)
+      }
+      default {
+        if (node.type_name == "void") {
+          wr.out("()" false)
+          return
+        }
+        ; Check if this type is a trait type (class is extended by other classes)
+        ; If so, use Rc<RefCell<dyn Trait>> for polymorphism with interior mutability
+        def typeClass@(optional):RangerAppClassDesc (ctx.findClass(node.type_name))
+        if (!null? typeClass) {
+          def tc:RangerAppClassDesc (unwrap typeClass)
+          if tc.is_extended_by_children {
+            wr.out(("Rc<RefCell<dyn " + node.type_name + "Trait>>") false)
+          } {
+            wr.out((this.getObjectTypeString(node.type_name ctx)) false)
+          }
+        } {
+          wr.out((this.getTypeString(node.type_name)) false)
+        }
+      }
+    }
+    ; Close wrapper types
+    if is_weak {
+      if is_optional {
+        ; Close Option<Weak<RefCell<T>>>
+        wr.out(">>>" false)
+      } {
+        ; Close Weak<RefCell<T>>
+        wr.out(">>" false)
+      }
+    } {
+      if is_optional {
+        if is_self_referential {
+          wr.out(">>" false)
+        } {
+          if needs_refcell_wrap {
+            ; Close both RefCell and Option: Option<RefCell<T>>
+            wr.out(">>" false)
+          } {
+            wr.out(">" false)
+          }
+        }
+      }
+    }
+  }
+  ; The `.upgrade()` a single-segment read of a weak field needs. Mirrors
+  ; the last-segment branch of the nsp walk: an assignment target stores
+  ; into the raw field (the store side downgrades) and an `unwrap` writes
+  ; its own upgrade, so both stay out of the way. A weak COLLECTION field
+  ; is a plain Vec or map — the annotation there is about the elements.
+  fn writeRustWeakVRefTail:void (node:CodeNode p:RangerAppParamDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    if (p.is_class_variable == false) {
+      return
+    }
+    if (ctx.in_lhs_of_assignment || rust_in_weak_unwrap) {
+      return
+    }
+    def wvNN@(optional):CodeNode p.nameNode
+    if (null? wvNN) {
+      return
+    }
+    def wvN:CodeNode (unwrap wvNN)
+    if ((wvN.hasFlag("weak")) == false) {
+      return
+    }
+    if (((strlen wvN.array_type) > 0) || ((strlen wvN.key_type) > 0)) {
+      return
+    }
+    if p.is_optional {
+      ; and_then, not map-then-unwrap: a weak reference whose referent is
+        ; gone reads as NULL, which is what `@(weak)` means everywhere else.
+        ; Unwrapping the upgrade turned a dead reference into a panic — and
+        ; the null test right above it is exactly the code asking whether the
+        ; referent is still there.
+        wr.out(".as_ref().and_then(|__w| __w.upgrade())" false)
+    } {
+      wr.out(".upgrade().unwrap()" false)
+    }
+  }
+
+  ; The text a `this` RECEIVER is written as. In a method with no `self` the
+  ; only way in is the handle, and the borrow it takes must match what the
+  ; callee asks for: a shared one nests with the shared borrows a caller may
+  ; already hold, a mutable one does not.
+  ; Does the receiver of this call have to be borrowed mutably? The callee's
+  ; own answer when the front end resolved it; otherwise, for a `this`
+  ; receiver, the method of the current class by name. Defaulting to "yes"
+  ; is safe for a struct receiver and wrong for a handle: a mutable borrow
+  ; will not nest with the shared ones a caller may already hold.
+  ; Do we POSITIVELY know the callee mutates its receiver? Only a resolved
+  ; descriptor answers; an unresolved one leaves the shared borrow, which
+  ; fails loudly at compile time rather than quietly at run time.
+  ; Is this method part of a trait interface? Such a method is emitted
+  ; `&mut self` whatever its body does — mutation through the trait goes via
+  ; the RefCell — so the receiver pre-pass has to ask the same question the
+  ; signature writer asks, per METHOD and not per class.
+  ; Does this class's `name` take `&self`? A trait family answers once for
+  ; every member: the declaration and all impls share one signature.
+  ; The class a call receiver PATH lands on — `this.langWriter.m(…)` is a call
+  ; on whatever langWriter is declared to hold.
+  ; Do we POSITIVELY know the callee takes `&self`? Only the VARIANT set
+  ; answers: it is what the signature was written from. A method missing from
+  ; it — an extension, an inherited copy — is unknown, and unknown means the
+  ; mutable borrow, which always type-checks.
+  fn rustThisPrefix:string (ctx:RangerAppWriterContext) {
+    if rust_receiverless_method {
+      ; A CALL RECEIVER takes the borrow the callee needs: the shared form
+      ; only where the callee is POSITIVELY known to take `&self`. Guessing
+      ; that wrong is a rustc error; guessing the mutable form wrong is a
+      ; panic the first time the path runs.
+      if rust_writing_call_receiver {
+        if rust_receiver_shared_known {
+          return "__self_rc.borrow()"
+        }
+        return "__self_rc.borrow_mut()"
+      }
+      ; a field being WRITTEN: the left of an assignment, or the target of a
+      ; mutating operator — the template expander marks both the same way
+      if ctx.in_lhs_of_assignment {
+        return "__self_rc.borrow_mut()"
+      }
+      ; …and everything else is a READ. Shared borrows nest, so two field
+      ; reads in one statement are two live Refs and nothing more; the
+      ; mutable form there is what turns them into a panic.
+      return "__self_rc.borrow()"
+    }
+    return thisName
+  }
+
+  ; `this` as the HEAD OF A PATH — `this.langWriter.writeFnCall(…)`. Reaching
+  ; a field is a read of this object whatever happens further along: the call
+  ; at the end borrows the field's own cell, not this one. Taking the mutable
+  ; form here held this object for the whole call, and the walkers call back
+  ; into it.
+  fn rustThisPathPrefix:string (ctx:RangerAppWriterContext) {
+    if rust_receiverless_method {
+      if ctx.in_lhs_of_assignment {
+        return "__self_rc.borrow_mut()"
+      }
+      ; `&mut __self_rc.borrow().zone` hands out a `&mut` into a shared
+      ; borrow — the argument is a place the callee writes
+      if rust_writing_mut_arg {
+        return "__self_rc.borrow_mut()"
+      }
+      ; …unless the path ends in a call on a field held INLINE. Then the
+      ; callee borrows the field mutably, the field is part of this struct,
+      ; and a shared head is "cannot borrow data in dereference of
+      ; `Ref<'_, T>` as mutable".
+      if rust_writing_call_receiver {
+        if rust_path_head_mut {
+          return "__self_rc.borrow_mut()"
+        }
+      }
+      ; The same field, reached the other way. A method whose name is also a
+      ; Lang.rgr operator — `clear`, `set` — is parsed into the
+      ; `(call obj method args)` shape, and that path marks the receiver
+      ; place rather than the call receiver: `family.clear()` inside a
+      ; receiverless method is still `&mut self.family`.
+      if rust_recv_place_mut {
+        return "__self_rc.borrow_mut()"
+      }
+      return "__self_rc.borrow()"
+    }
+    return thisName
+  }
+
+  fn WriteVRef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    ; a receiver hoisted out of this object's field: the local holds the
+    ; handle, and borrowing it touches only the callee's own cell
+    if rust_writing_call_receiver {
+      if ((strlen node.rust_use_tmpvar) > 0) {
+        wr.out(node.rust_use_tmpvar false)
+        if rust_call_receiver_mut {
+          wr.out(".borrow_mut()" false)
+        } {
+          wr.out(".borrow()" false)
+        }
+        ; the method name is part of this path — the caller writes only the
+        ; argument list after it
+        def rvLen:int (array_length node.ns)
+        def rvName:string (itemAt node.ns (rvLen - 1))
+        if ((array_length node.nsp) >= rvLen) {
+          def rvD:RangerAppParamDesc (itemAt node.nsp (rvLen - 1))
+          if ((strlen rvD.compiledName) > 0) {
+            rvName = rvD.compiledName
+          }
+        }
+        wr.out(("." + (this.adjustType(rvName))) false)
+        rust_last_recv_tmp = node.rust_use_tmpvar
+        node.rust_use_tmpvar = ""
+        return
+      }
+    }
+    if (node.vref == "this") {
+      ; `this` as a VALUE in a shared-class method is the receiver's Rc,
+      ; held as the hidden __self_rc argument — `self` there is only the
+      ; borrowed struct and cannot become an Rc<RefCell<T>> (E0308)
+      ; a receiver in a method with no `self`: the handle is the only way in,
+      ; and the borrow lasts exactly as long as the call it prefixes
+      if (rust_writing_call_receiver && rust_receiverless_method) {
+        wr.out((this.rustThisPrefix(ctx)) false)
+        return
+      }
+      if (rust_writing_call_receiver == false) {
+        def tvCls@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+        def tvM@(optional):RangerAppFunctionDesc (ctx.getCurrentMethod())
+        if ((!null? tvCls) && (!null? tvM)) {
+          def tvC:RangerAppClassDesc (unwrap tvCls)
+          def tvF:RangerAppFunctionDesc (this.rustEnclosingMethod((unwrap tvM)))
+          if (this.rustClassIsShared(tvC.name ctx)) {
+            if tvF.rust_needs_self_rc {
+              wr.out("__self_rc" false)
+              return
+            }
+          }
+        }
+      }
+      wr.out((this.rustThisPrefix(ctx)) false)
+      return
+    }
+
+    ; a field tail after a parenthesised expression keeps its dot in the
+    ; vref — `.isHole` after `(itemAt xs i)`. When the field's class is
+    ; shared, the expression yields an Rc: borrow before the field.
+    if ((strlen node.vref) > 1) {
+      if ((charAt node.vref 0) == 46) {
+        if node.hasParamDesc {
+          def dotP:RangerAppParamDesc node.paramDesc
+          def dotCls@(optional):RangerAppClassDesc dotP.propertyClass
+          if (!null? dotCls) {
+            def dotC:RangerAppClassDesc (unwrap dotCls)
+            if (this.rustClassIsShared(dotC.name ctx)) {
+              wr.out((".borrow()" + node.vref) false)
+              return
+            }
+          }
+        }
+      }
+    }
+
+    if (node.eval_type == RangerNodeType.Enum) {
+      if( (array_length node.ns) > 1) {
+        def rootObjName:string (itemAt node.ns 0)
+        def enumName:string (itemAt node.ns 1)
+        def e@(optional):RangerAppEnum (ctx.getEnum(rootObjName))
+        if (!null? e) {
+          wr.out(("" + (unwrap (get e.values enumName))) false)
+          return
+        }
+      }
+    }
+
+    ; a bare field tail after a parenthesised expression: no desc, a lone
+    ; name that is no variable, class or enum — `(itemAt xs i)` then
+    ; `isHole`, the dot already written upstream. When every class that
+    ; declares the field is shared, the expression before it yields an Rc:
+    ; borrow before the field.
+    if (((node.hasParamDesc == false) && ((array_length node.ns) == 1)) && ((strlen node.vref) > 0)) {
+      ; …but only where CreatePropertyGet could not answer. It knows the
+      ; object's declared type, which beats counting how many classes in the
+      ; program happen to declare a field of this name.
+      if (rust_prop_base_state == 0) {
+      if (((ctx.isVarDefined(node.vref)) == false) && ((ctx.hasClass(node.vref)) == false)) {
+        def dotDecl:int 0
+        def dotShared:int 0
+        def dotRoot:RangerAppWriterContext (ctx.getRoot())
+        for dotRoot.definedClasses dcl:RangerAppClassDesc dci {
+          def dfv@(optional):RangerAppParamDesc (dcl.findVariable(node.vref))
+          if (!null? dfv) {
+            dotDecl = dotDecl + 1
+            if (this.rustClassIsShared(dcl.name ctx)) {
+              dotShared = dotShared + 1
+            }
+          }
+        }
+        if ((dotDecl > 0) && (dotDecl == dotShared)) {
+          wr.out(("borrow()." + node.vref) false)
+          return
+        }
+      }
+      }
+    }
+
+    if ((array_length node.nsp) > 0) {
+      def had_static:boolean false
+      def nsp_len:int (array_length node.nsp)
+      ; a path ending in a STRING cell is read inside a block, so the Ref it
+      ; makes is dropped before the rest of the statement runs
+      def cellPathTmp:string ""
+      def cellPathLast:RangerAppParamDesc (itemAt node.nsp (nsp_len - 1))
+      if cellPathLast.rust_interior_cell {
+        if (ctx.in_lhs_of_assignment == false) {
+          if ((this.rustCellIsCopy(cellPathLast)) == false) {
+            if ((this.rustCellIsCollection(cellPathLast)) == false) {
+              cellPathTmp = (ctx.rustGetTempVar())
+              wr.out((("{ let " + cellPathTmp) + " = ") false)
+            }
+          }
+        }
+      }
+      ; A field reached through a parent-typed reference comes from the
+      ; trait's accessor. Writing to one means writing through the `&mut`
+      ; it hands back, so the whole path is dereferenced: the `*` has to go
+      ; in before the first segment, and every branch above this point has
+      ; already returned, so here is where the expression starts.
+      def lastSegThroughTrait:boolean (this.rustSegThroughTrait(node (nsp_len - 1) ctx))
+      def lastWantsMutAccessor:boolean false
+      if lastSegThroughTrait {
+        if ctx.in_lhs_of_assignment {
+          lastWantsMutAccessor = true
+          if (rust_lhs_is_receiver == false) {
+            wr.out("*" false)
+          }
+        } {
+          ; a receiver that is about to take a `&mut self` method needs the
+          ; mutable form too, but a method call derefs on its own
+          if (rust_writing_call_receiver && rust_call_receiver_mut) {
+            lastWantsMutAccessor = true
+          }
+        }
+      }
+      for node.nsp p:RangerAppParamDesc i {
+        if (i == 0) {
+          def part:string (itemAt node.ns 0)
+          if(part == "this") {
+            wr.out((this.rustThisPathPrefix(ctx)) false)
+            continue
+          }
+        }
+
+        if (i > 0) {
+          if had_static {
+            wr.out("::" false)
+          } {
+            wr.out("." false)
+          }
+        }
+        if (i == 0) {
+          ; if (p.nameNode.hasFlag("optional")) {
+          ; }
+          def part:string (itemAt node.ns 0)
+          if ((part != "this") && (ctx.isMemberVariable(part))) {
+            def uc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+            def currC:RangerAppClassDesc (unwrap uc)
+            def up@(optional):RangerAppParamDesc (currC.findVariable(part))
+            if (!null? up) {
+              if( false == (ctx.isInStatic()) ) {
+                wr.out(((this.rustThisPathPrefix(ctx)) + ".") false)
+              }               
+            }
+          }
+        }
+        def segThroughTrait:boolean (this.rustSegThroughTrait(node i ctx))
+        if segThroughTrait {
+          def segAcc:string (this.rustFieldAccessorName(p))
+          if ((i == (nsp_len - 1)) && lastWantsMutAccessor) {
+            wr.out((segAcc + "_mut()") false)
+          } {
+            wr.out((segAcc + "()") false)
+          }
+        } {
+          if ((strlen p.compiledName) > 0) {
+            wr.out((this.adjustType(p.compiledName)) false)
+          } {
+            if ((strlen p.name) > 0) {
+              wr.out((this.adjustType(p.name)) false)
+            } {
+              wr.out((this.adjustType( (itemAt node.ns i))) false)
+            }
+          }
+        }
+        ; Any Rc<RefCell<T>> segment of the path — a local at the root or a
+        ; strong shared-class field deeper in — borrows before the next part:
+        ; mutably for a call receiver or an assignment target, shared for a
+        ; read, so two reads of one cell can overlap. Weak and optional
+        ; segments have their own handling below.
+        ; NOTE: a lambda parameter bound to a shared element carries the Rc
+        ; too but never gets rust_needs_rc_wrap, so `item.field` comes out
+        ; with no borrow. Keying this off the segment's TYPE instead of the
+        ; flag fixes those and over-borrows everywhere a shared class is held
+        ; as a plain struct: 1056 -> 1404. The binding needs the flag.
+        if ((i < (nsp_len - 1)) && p.rust_needs_rc_wrap) {
+          def rcw_skip:boolean p.is_optional
+          def rcwNN@(optional):CodeNode p.nameNode
+          if (!null? rcwNN) {
+            if ((unwrap rcwNN).hasFlag("weak")) {
+              ; only a FIELD holds a Weak and needs the upgrade instead of
+              ; the borrow; a `@(weak)` parameter or local carries the Rc, so
+              ; skipping the borrow for one left `m.field` on an Rc that has
+              ; no fields and no upgrade to follow it either
+              if p.is_class_variable {
+                rcw_skip = true
+              }
+            }
+          }
+          if (rcw_skip == false) {
+            ; …and an argument the callee takes by `&mut` reaches through
+            ; this handle to a place it will write
+            ; …and so does a receiver PLACE the callee writes through:
+            ; `(keep.source).set(…)` reaches `source` through this cell
+            if (rust_writing_mut_arg || rust_recv_place_mut) {
+              wr.out(".borrow_mut()" false)
+            } {
+              if (rust_writing_call_receiver || ctx.in_lhs_of_assignment) {
+                if ((ctx.in_lhs_of_assignment == false) && (rust_call_receiver_mut == false)) {
+                  wr.out(".borrow()" false)
+                } {
+                  wr.out(".borrow_mut()" false)
+                }
+              } {
+                wr.out(".borrow()" false)
+              }
+            }
+          }
+        }
+        ; Check if this field has weak annotation
+        def field_is_weak:boolean false
+        ; A field the current class declares is read out of ITS declaration.
+        ; Where a subclass restates a parent's field with a different
+        ; strength — RangerAppParamDesc declares `nameNode` strong and
+        ; RangerAppFunctionDesc restates it `@(weak)` — the desc the parser
+        ; bound may be the other class's, and rustAllStructVars laid the
+        ; class's own declaration into the struct. Asking the wrong one left
+        ; `self.nameNode.as_ref().unwrap().borrow_mut()` on a Weak.
+        def pNameNWeak@(optional):CodeNode p.nameNode
+        if (i == 0) {
+          def rootPart:string (itemAt node.ns 0)
+          if ((rootPart != "this") && (ctx.isMemberVariable(rootPart))) {
+            def wcc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+            if (!null? wcc) {
+              def wCurrC:RangerAppClassDesc (unwrap wcc)
+              def wOwn@(optional):RangerAppParamDesc (wCurrC.findVariable(rootPart))
+              if (!null? wOwn) {
+                def wOwnD:RangerAppParamDesc (unwrap wOwn)
+                if (!null? wOwnD.nameNode) {
+                  pNameNWeak = wOwnD.nameNode
+                }
+              }
+            }
+          }
+        }
+        if (!null? pNameNWeak) {
+          def pNNWeak:CodeNode (unwrap pNameNWeak)
+          if (pNNWeak.hasFlag("weak")) {
+            ; only a FIELD holds a Weak — a `@(weak)` local keeps the Rc —
+            ; and a weak COLLECTION field is a plain Vec or map, because the
+            ; annotation there is about the elements, not the container
+            if p.is_class_variable {
+              if (((strlen pNNWeak.array_type) == 0) && ((strlen pNNWeak.key_type) == 0)) {
+                field_is_weak = true
+              }
+            }
+          }
+        }
+        ; Handle weak references - need to upgrade() to get strong reference
+        if field_is_weak {
+          if (i < (nsp_len - 1)) {
+            ; More parts coming - upgrade weak ref and access the inner value.
+            ; The borrow follows what the path is FOR: a read takes the shared
+            ; form, which nests with any other shared borrow live in the same
+            ; statement — `a.borrow().parent…borrow_mut().children.len()` is a
+            ; read, and the mutable form there panics the moment two of them
+            ; meet in one expression.
+            def wkMut:boolean false
+            if (rust_writing_call_receiver || ctx.in_lhs_of_assignment) {
+              if (ctx.in_lhs_of_assignment || rust_call_receiver_mut) {
+                wkMut = true
+              }
+            }
+            def wkBorrow:string ".borrow()"
+            if wkMut {
+              wkBorrow = ".borrow_mut()"
+            }
+            if p.is_optional {
+              wr.out((".as_ref().unwrap().upgrade().unwrap()" + wkBorrow) false)
+            } {
+              wr.out((".upgrade().unwrap()" + wkBorrow) false)
+            }
+          } {
+            ; The last segment: the field IS the value being read, and its
+            ; readers hold Rcs — `def c:ClassDesc ctx.currentClass` declares
+            ; an Rc and was handed a Weak. Two things must stay out of the
+            ; way: an assignment target (the store side downgrades into the
+            ; raw field) and an `unwrap`, which writes its own upgrade.
+            if ((ctx.in_lhs_of_assignment == false) && (rust_in_weak_unwrap == false)) {
+              if p.is_optional {
+                ; and_then, not map-then-unwrap: a weak reference whose referent is
+        ; gone reads as NULL, which is what `@(weak)` means everywhere else.
+        ; Unwrapping the upgrade turned a dead reference into a panic — and
+        ; the null test right above it is exactly the code asking whether the
+        ; referent is still there.
+        wr.out(".as_ref().and_then(|__w| __w.upgrade())" false)
+              } {
+                wr.out(".upgrade().unwrap()" false)
+              }
+            }
+          }
+        } {
+          ; Rust: If this field is optional and there are more parts after it, unwrap it
+          if p.is_optional {
+            if (i < (nsp_len - 1)) {
+              ; More parts coming - need to unwrap the Option
+              ; Check if this is a trait type (Rc<RefCell<dyn Trait>>)
+              def field_is_trait_type:boolean false
+              def pNameN@(optional):CodeNode p.nameNode
+              if (!null? pNameN) {
+                def pNN:CodeNode (unwrap pNameN)
+                def pTypeName:string pNN.type_name
+                def pTypeClass@(optional):RangerAppClassDesc (ctx.findClass(pTypeName))
+              if (!null? pTypeClass) {
+                def ptc:RangerAppClassDesc (unwrap pTypeClass)
+                if ptc.is_extended_by_children {
+                  field_is_trait_type = true
+                }
+              }
+            }
+            ; Check if the class that OWNS this field is trait-related
+            ; (Fields in trait-related classes have Option<RefCell<T>> type)
+            def owning_class_is_trait_related:boolean false
+            def pOwnerClass@(optional):RangerAppClassDesc p.propertyClass
+            ; If propertyClass is null, fall back to current class (self field)
+            if (null? pOwnerClass) {
+              if p.is_class_variable {
+                pOwnerClass = (ctx.getCurrentClass())
+              }
+            }
+            if (!null? pOwnerClass) {
+              def ownerC:RangerAppClassDesc (unwrap pOwnerClass)
+              if ownerC.is_extended_by_children {
+                owning_class_is_trait_related = true
+              }
+              if (owning_class_is_trait_related == false) {
+                for ownerC.extends_classes extParentName2:string epi2 {
+                  def extParentClass2@(optional):RangerAppClassDesc (ctx.findClass(extParentName2))
+                  if (!null? extParentClass2) {
+                    def epc2:RangerAppClassDesc (unwrap extParentClass2)
+                    if epc2.is_extended_by_children {
+                      owning_class_is_trait_related = true
+                    }
+                  }
+                }
+              }
+            }
+            ; Use borrow_mut for:
+            ; 1. Trait types (Rc<RefCell<dyn Trait>>)
+            ; 2. Non-trait optional object fields in trait-related classes (Option<RefCell<T>>)
+            ; the SHARED borrow unless something actually writes: a read
+            ; through a trait accessor takes `&self`, and two reads of one
+            ; object in a single statement are two live Refs. The mutable
+            ; form there is a panic, not a borrow error.
+            def traitSegMut:boolean false
+            if ctx.in_lhs_of_assignment {
+              traitSegMut = true
+            }
+            if (rust_writing_call_receiver && rust_call_receiver_mut) {
+              traitSegMut = true
+            }
+            if lastWantsMutAccessor {
+              traitSegMut = true
+            }
+            if field_is_trait_type {
+              if traitSegMut {
+                wr.out(".as_ref().unwrap().borrow_mut()" false)
+              } {
+                wr.out(".as_ref().unwrap().borrow()" false)
+              }
+            } {
+              if owning_class_is_trait_related {
+                ; Non-trait optional object fields in trait-related classes use Option<RefCell<T>>
+                if traitSegMut {
+                  wr.out(".as_ref().unwrap().borrow_mut()" false)
+                } {
+                  wr.out(".as_ref().unwrap().borrow()" false)
+                }
+              } {
+                ; Check if the root object (parameter) is an immutable borrow
+                ; If so, we MUST use as_ref() because we can't get &mut from &T
+                def root_is_immutable_borrow:boolean false
+                if (nsp_len > 0) {
+                  def rootParam:RangerAppParamDesc (itemAt node.nsp 0)
+                  if (rootParam.rust_borrow_type == 1) {
+                    root_is_immutable_borrow = true
+                  }
+                }
+                
+                ; a strong optional field of a shared class is
+                ; Option<Rc<RefCell<T>>>: the unwrap hands out the Rc —
+                ; through as_ref, since mutation goes through the CELL, and
+                ; an as_mut here holds the whole field mutably through the
+                ; call, conflicting with a __self_rc re-borrow (E0502)
+                def optSharedT:string ""
+                def pOptNN@(optional):CodeNode p.nameNode
+                if (!null? pOptNN) {
+                  def pOptN:CodeNode (unwrap pOptNN)
+                  optSharedT = pOptN.type_name
+                }
+                def optSegShared:boolean (this.rustClassIsShared(optSharedT ctx))
+                ; …and the field's own mark answers it too: writeStructField
+                ; gives an Option<Rc<RefCell<T>>> to anything carrying
+                ; rust_needs_rc_wrap, so the unwrap hands out an Rc there
+                ; whatever the class-level question says. Without this the
+                ; segment after it read a field straight off the handle.
+                if (optSegShared == false) {
+                  if p.rust_needs_rc_wrap {
+                    if (((strlen optSharedT) > 0) && (p.rust_static_str == false)) {
+                      optSegShared = true
+                    }
+                  }
+                }
+                if (root_is_immutable_borrow || optSegShared) {
+                  wr.out(".as_ref().unwrap()" false)
+                } {
+                  ; Check if we're on LHS of assignment - need as_mut
+                  if (ctx.isInLhs()) {
+                    wr.out(".as_mut().unwrap()" false)
+                  } {
+                    ; …and a call RECEIVER takes the borrow the callee needs.
+                    ; `as_mut()` there asks for `&mut self` from a method the
+                    ; analysis proved does not need one, and the two used to
+                    ; disagree; where the callee is positively known to take
+                    ; `&self`, the shared form is what it wants. Everything
+                    ; else keeps the mutable default.
+                    if rust_writing_call_receiver {
+                      if rust_receiver_shared_known {
+                        wr.out(".as_ref().unwrap()" false)
+                      } {
+                        wr.out(".as_mut().unwrap()" false)
+                      }
+                    } {
+                      ; …and a plain READ has no method to mutate through:
+                      ; `self.fdct.zigzagOrder[i]` asked for `&mut self` in a
+                      ; `&self` method for a field it only reads
+                      if rust_writing_mut_arg {
+                        wr.out(".as_mut().unwrap()" false)
+                      } {
+                        wr.out(".as_ref().unwrap()" false)
+                      }
+                    }
+                  }
+                }
+                if optSegShared {
+                  if rust_writing_mut_arg {
+                    wr.out(".borrow_mut()" false)
+                  } {
+                    if (rust_writing_call_receiver || ctx.in_lhs_of_assignment) {
+                      if ((ctx.in_lhs_of_assignment == false) && (rust_call_receiver_mut == false)) {
+                        wr.out(".borrow()" false)
+                      } {
+                        wr.out(".borrow_mut()" false)
+                      }
+                    } {
+                      wr.out(".borrow()" false)
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+        }
+        if (p.isClass()) {
+          had_static = true
+        }
+        ; the LAST segment of a path that names a cell field is read out of
+        ; its cell — the field is a Cell wherever it is reached from, not only
+        ; inside its own class
+        if (i == (nsp_len - 1)) {
+          if p.rust_interior_cell {
+            if (this.rustCellIsCollection(p)) {
+              if (rust_in_cell_assign == false) {
+                if ctx.in_lhs_of_assignment {
+                  wr.out(".borrow_mut()" false)
+                } {
+                  wr.out(".borrow()" false)
+                }
+              }
+            } {
+              if (ctx.in_lhs_of_assignment == false) {
+                if (this.rustCellIsCopy(p)) {
+                  wr.out(".get()" false)
+                } {
+                  wr.out((((".borrow().clone(); " + cellPathTmp) + " }")) false)
+                }
+              }
+            }
+          }
+        }
+      }
+      return
+    }
+
+    if node.hasParamDesc {
+      def part:string (itemAt node.ns 0)
+      def p:RangerAppParamDesc (unwrap node.paramDesc)
+      ; a cell field is READ out of its cell; the write side is the
+      ; assignment, which calls set() instead. A STRING cell is read inside a
+      ; block so the Ref is dropped before the statement continues — and the
+      ; block has to open before the `self.` the prefix below writes.
+      def cellRdTmp:string ""
+      if p.rust_interior_cell {
+        if (ctx.in_lhs_of_assignment == false) {
+          if ((this.rustCellIsCopy(p)) == false) {
+            if ((this.rustCellIsCollection(p)) == false) {
+              cellRdTmp = (ctx.rustGetTempVar())
+              wr.out((("{ let " + cellRdTmp) + " = ") false)
+            }
+          }
+        }
+      }
+      if ((part != "this") && (ctx.isMemberVariable(part))) {
+        def uc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+        def currC:RangerAppClassDesc (unwrap uc)
+        def up@(optional):RangerAppParamDesc (currC.findVariable(part))
+        if (!null? up) {
+          if( false == (ctx.isInStatic()) ) {
+            wr.out(((this.rustThisPathPrefix(ctx)) + ".") false)
+          }
+        }
+      }
+      if p.rust_interior_cell {
+        wr.out((this.adjustType(p.compiledName)) false)
+        ; a COLLECTION is used in place — read through borrow(), mutated
+        ; through borrow_mut(); the mutating operators mark their target the
+        ; same way an assignment does
+        if (this.rustCellIsCollection(p)) {
+          if rust_in_cell_assign {
+            return
+          }
+          if ctx.in_lhs_of_assignment {
+            wr.out(".borrow_mut()" false)
+          } {
+            wr.out(".borrow()" false)
+          }
+          return
+        }
+        if ctx.in_lhs_of_assignment {
+          return
+        }
+        if (this.rustCellIsCopy(p)) {
+          wr.out(".get()" false)
+        } {
+          wr.out(((".borrow().clone(); " + cellRdTmp) + " }") false)
+        }
+        return
+      }
+      wr.out((this.adjustType(p.compiledName)) false)
+      ; A bare name that resolves to a weak FIELD is read here, not in the
+      ; nsp walk above — `def non:ClassDesc currentClass` has one segment
+      ; and no path desc — so the upgrade has to be written here too, or
+      ; the reader gets the Weak where it declared an Rc (E0308).
+      def pWeakTail:RangerAppParamDesc (unwrap node.paramDesc)
+      this.writeRustWeakVRefTail(node pWeakTail ctx wr)
+      return
+    }
+
+    def b_was_static:boolean false
+    for node.ns part:string i {
+      if (i > 0) {
+        if ((i == 1) && b_was_static) {
+          wr.out("::" false)
+        } {
+          wr.out("." false)
+        }
+      }
+      if (i == 0) {
+        if (ctx.hasClass(part)) {
+          b_was_static = true
+        }
+        if ((part != "this") && (ctx.hasCurrentClass())) {
+          def uc@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+          def currC:RangerAppClassDesc (unwrap uc)
+          def up@(optional):RangerAppParamDesc (currC.findVariable(part))
+          if (!null? up) {
+            if( false == (ctx.isInStatic()) ) {
+              wr.out(((this.rustThisPathPrefix(ctx)) + ".") false)
+            }
+          }
+        }
+      }
+      wr.out((this.adjustType(part)) false)
+    }
+  }
+  ; A shared class in a return position hands out the Rc
+  ; (PLAN_RUST_OWNERSHIP 2b); every other return type is unchanged.
+  ; closes a signature: ")" then " -> T", with the arrow dropped for a void
+  ; function — `-> ()` is never needed
+  fn writeRustFnClose:void (variant:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    wr.out(")" false)
+    def fcnn:CodeNode (unwrap variant.nameNode)
+    if (((strlen fcnn.array_type) == 0) && ((strlen fcnn.key_type) == 0)) {
+      if (fcnn.type_name == "void") {
+        return
+      }
+    }
+    wr.out(" -> " false)
+    this.writeRustReturnType(variant ctx wr)
+  }
+
+  fn writeRustReturnType:void (variant:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    def vnn:CodeNode (unwrap variant.nameNode)
+    if (((strlen vnn.array_type) == 0) && ((strlen vnn.key_type) == 0)) {
+      if (this.rustClassIsShared(vnn.type_name ctx)) {
+        ; NOTE: a `@(weak)` return could hand back the Weak, matching the
+        ; local it usually returns, but every CALLER binds the result to an
+        ; Rc name — declaring the Weak form here costs more than the returns
+        ; it fixes (1630 -> 1915). The upgrade belongs at the `return`, which
+        ; is a change to make with the rest of the weak modelling.
+        def retSharedT:string (this.rustSharedTypeString(vnn.type_name ctx))
+        ; an @(optional) return keeps its Option around the Rc
+        if (vnn.hasFlag("optional")) {
+          wr.out((("Option<" + retSharedT) + ">") false)
+        } {
+          wr.out(retSharedT false)
+        }
+        return
+      }
+    }
+    rust_writing_return_type = true
+    this.writeTypeDef(vnn ctx wr)
+    rust_writing_return_type = false
+  }
+
+  ; Does this expression read through a shared cell (a field path rooted in
+  ; an Rc<RefCell> name) or call anything that might? Used to decide whether
+  ; an assignment must pre-evaluate its right side.
+  ; Does this expression read a FIELD out of `name` — `cc.parent`, not the
+  ; bare `cc`? Such a read borrows the cell `name` holds, and a store into
+  ; `name` in the same statement would end that borrow while it is still
+  ; live (E0506).
+  fn rustExprReadsThrough:boolean (node:CodeNode name:string) {
+    if ((array_length node.ns) >= 2) {
+      if ((itemAt node.ns 0) == name) {
+        return true
+      }
+    }
+    for node.children ch:CodeNode i {
+      if (this.rustExprReadsThrough(ch name)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn rustRhsReadsSharedCell:boolean (node:CodeNode) {
+    if ((array_length node.ns) >= 2) {
+      if ((array_length node.nsp) > 0) {
+        def rp:RangerAppParamDesc (itemAt node.nsp 0)
+        if rp.rust_needs_rc_wrap {
+          return true
+        }
+      }
+    }
+    if node.hasFnCall {
+      return true
+    }
+    for node.children child:CodeNode i {
+      if (this.rustRhsReadsSharedCell(child)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  ; The parent fields a subclass has to carry in its own layout. Rust has no
+  ; inheritance: `struct Cat` gets nothing from `struct Animal`, so a field
+  ; the parent declares is simply absent — "no field `name` on type `Cat`".
+  ; Every ancestor's variables are collected here, nearest first, skipping any
+  ; the class already declares itself (Ranger lets a subclass restate a
+  ; parent's field, and it names the same slot, so a second copy would be a
+  ; second slot).
+  ; The fields of `cl` in layout order: its own, then everything it inherits
+  ; and has not restated.
+  ; The Rust type of a field, without its name — shared by the struct
+  ; declaration and by the trait accessors that hand the field out.
+  ; Is the segment at `idx` of this path read out of a parent-typed
+  ; reference? Its owner is the segment before it, and a class that is
+  ; extended by children is written as `Rc<RefCell<dyn XTrait>>` — methods
+  ; and no fields — so the field has to come from a trait accessor.
+  ; A `dyn Trait` has no fields, and the compiler reads a parent's fields
+  ; through parent-typed references everywhere. The trait therefore hands out
+  ; each field of the trait-defining class by reference: `rgf_x()` to read,
+  ; `rgf_x_mut()` to write or mutate in place. Every implementor carries the
+  ; field in its own layout (rustAllStructVars flattens inherited fields
+  ; down), so both bodies are the same one line whichever struct implements it.
+  ; Is this field a Copy scalar? Such a field is handed back by value, not by
+  ; reference: `&bool` where a `bool` is wanted is a type error at every
+  ; single read, and a copy of an i64 is what the reference would have been
+  ; dereferenced into anyway.
+  ; A plain `string` field. Its read accessor hands back an owned String
+  ; rather than a `&String`: a borrowed one reached call sites that add
+  ; their own `&` — `map.contains_key(&x.rgf_name())` becomes `&&String`,
+  ; which satisfies no Borrow bound — and every reader of a string field in
+  ; the compiler wants a value it can keep anyway.
+  fn writeVarDef (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if node.hasParamDesc {
+      def nn:CodeNode (itemAt node.children 1)
+      def p:RangerAppParamDesc nn.paramDesc
+      ; a nested self-call ARGUMENT inside a `let` initializer: the
+      ; statement-level extraction cannot run inside the initializer, and
+      ; two mutable self borrows collide (E0499/E0502) — pull the inner
+      ; calls into temporaries first, the arg loops substitute them
+      if ((p.ref_cnt > 0) && ((array_length node.children) > 2)) {
+        this.rustExtractSelfCallConflicts((node.getThird()) ctx wr)
+      }
+      ; an unused def whose initializer CALLS something still runs for its
+      ; side effects — `def ignored:T (this.doWork(...))` is the language's
+      ; evaluate-and-discard form. Commenting it out silently dropped the
+      ; call (the for-loop update clause vanished this way). It emits as a
+      ; live `let` with an underscore name; only a call-free initializer
+      ; stays commented out.
+      def unused_def:boolean ((p.ref_cnt == 0) && (p.is_class_variable == false))
+      def unused_keeps_call:boolean false
+      if unused_def {
+        if ((array_length node.children) > 2) {
+          if (this.rustNodeContainsCall((node.getThird()))) {
+            unused_keeps_call = true
+          }
+        }
+      }
+      if (unused_def && (unused_keeps_call == false)) {
+        wr.out("// unused:  " false)
+      }
+      def unused_pfx:string ""
+      if unused_keeps_call {
+        unused_pfx = "_"
+      }
+      ; a promoted static-string local (rust_static_str): `&'static str` with
+      ; a bare-literal or Copy-read initializer — no allocation, no clone
+      if p.rust_static_str {
+        def s_mut:string "let "
+        if (p.set_cnt > 0) {
+          s_mut = "let mut "
+        }
+        wr.out((((s_mut + unused_pfx) + (this.adjustType(p.compiledName))) + " : &'static str = ") false)
+        if ((array_length node.children) > 2) {
+          this.rustWriteStaticStrValue((node.getThird()) ctx wr)
+        } {
+          wr.out("\"\"" false)
+        }
+        wr.out(";" true)
+        return
+      }
+      def map_or_hash:boolean ((nn.value_type == RangerNodeType.Array) || (nn.value_type == RangerNodeType.Hash))
+      ; Buffer type needs mut since buffer_set/buffer_fill/buffer_copy modify in place
+      def is_buffer:boolean ((nn.value_type == RangerNodeType.Buffer) || (nn.value_type == RangerNodeType.IntBuffer) || (nn.value_type == RangerNodeType.DoubleBuffer))
+      ; In Rust, calling &mut self methods requires the variable to be mut
+      ; For now, always use mut for objects and arrays to avoid borrow issues
+      def needs_mut:boolean ((((p.set_cnt > 0) || p.is_class_variable) || map_or_hash) || is_buffer)
+      def is_object:boolean (nn.value_type == RangerNodeType.Object)
+      
+      ; Check if this local variable needs Rc<RefCell<T>> wrapping (for weak ref pattern)
+      ; This is detected by static analysis when the variable is passed to a method 
+      ; whose parameter is assigned to a @(weak) field
+      def local_needs_rc_wrap:boolean p.rust_needs_rc_wrap
+      ; a local of union type initialized with `new`: the member takes its cell here
+      ; D-UNION: `def v:Shape (…)` — the local's TYPE is the enum, and the
+      ; initializer is written by rustWriteUnionValue: a member is wrapped in its
+      ; variant, a value already of the family passes as a clone.
+      def local_is_union_slot:boolean false
+      if ((array_length node.children) > 2) {
+        def initTargetOpt@(optional):RangerAppClassDesc (ctx.findClass(nn.type_name))
+        if (!null? initTargetOpt) {
+          def initTarget:RangerAppClassDesc (unwrap initTargetOpt)
+          if (this.unionIsSealable(initTarget ctx)) {
+            local_is_union_slot = true
+          }
+        }
+      }
+      
+      if (needs_mut || is_object) {
+        wr.out(((("let mut " + unused_pfx) + (this.adjustType(p.compiledName))) + " : ") false)
+      } {
+        wr.out(((("let " + unused_pfx) + (this.adjustType(p.compiledName))) + " : ") false)
+      }
+      def nameN:CodeNode (unwrap p.nameNode)
+      
+      ; Rust: Check if RHS is an optional field - we need to unwrap it and use non-optional type.
+      ; An uninitialized member COLLECTION carries is_optional on its desc,
+      ; but the Rust field is a plain Vec/HashMap, never Option — treating it
+      ; as optional dropped the declared type (`let x :  = …`) and added a
+      ; spurious .unwrap() to a field that was never Option.
+      def rhs_is_optional_field:boolean false
+      if ((array_length node.children) > 2) {
+        ; the initializer is usually parenthesised — `def p (h.payload)` —
+        ; and the wrapper carries none of the name's own information, so it
+        ; is opened before asking whether the read is of an optional field
+        def value:CodeNode (this.rustUnwrapParens((node.getThird())))
+        if (value.value_type == RangerNodeType.VRef) {
+          if ((array_length value.nsp) > 0) {
+            def lastIdx:int ((array_length value.nsp) - 1)
+            def lastParam:RangerAppParamDesc (itemAt value.nsp lastIdx)
+            if lastParam.is_optional {
+              rhs_is_optional_field = true
+              def lpNN@(optional):CodeNode lastParam.nameNode
+              if (!null? lpNN) {
+                def lpN:CodeNode (unwrap lpNN)
+                if (((strlen lpN.array_type) > 0) || ((strlen lpN.key_type) > 0)) {
+                  rhs_is_optional_field = false
+                }
+              }
+            }
+          } {
+            ; Simple variable reference (no dots) - check paramDesc directly
+            if value.hasParamDesc {
+              def vp:RangerAppParamDesc value.paramDesc
+              if vp.is_optional {
+                rhs_is_optional_field = true
+                def vpNN@(optional):CodeNode vp.nameNode
+                if (!null? vpNN) {
+                  def vpN:CodeNode (unwrap vpNN)
+                  if (((strlen vpN.array_type) > 0) || ((strlen vpN.key_type) > 0)) {
+                    rhs_is_optional_field = false
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      
+      ; a `def x@(optional):T (init)` keeps its optionality on the name
+      ; node's flag alone — the desc's is_optional stays false when an
+      ; initializer is present, so read both
+      def eff_optional:boolean p.is_optional
+      if (eff_optional == false) {
+        if (nameN.hasFlag("optional")) {
+          eff_optional = true
+        }
+      }
+      ; Write type - with Rc<RefCell<>> wrapper if needed for weak ref pattern
+      if local_needs_rc_wrap {
+        ; Variable needs Rc<RefCell<T>> type. An OPTIONAL shared local is
+        ; Option<Rc<RefCell<T>>> — the Option outside the cell, the same
+        ; shape a field takes — never Rc<RefCell<Option<T>>>. A
+        ; non-optional local writes the bare class type: writeTypeDef reads
+        ; the node's optional flag, which an initializer that was unwrapped
+        ; from an optional field leaks onto the def.
+        ; a `@(weak)` LOCAL keeps the Rc: the annotation guards against
+        ; reference cycles, and a name that dies with its scope makes none
+        def localSharedT:string (this.rustSharedTypeString(nameN.type_name ctx))
+        if (eff_optional && (((strlen nameN.array_type) == 0) && ((strlen nameN.key_type) == 0))) {
+          wr.out((("Option<" + localSharedT) + ">") false)
+        } {
+          if ((((strlen nameN.type_name) > 0) && ((strlen nameN.array_type) == 0)) && ((strlen nameN.key_type) == 0)) {
+            wr.out(localSharedT false)
+          } {
+            wr.out("Rc<RefCell<" false)
+            this.writeTypeDef(nameN ctx wr)
+            wr.out(">>" false)
+          }
+        }
+      } {
+        if rhs_is_optional_field {
+          ; Write the underlying type without Option wrapper
+          def v_type:RangerNodeType nameN.value_type
+          if ((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.VRef) || (v_type == RangerNodeType.NoType)) {
+            v_type = (nameN.typeNameAsType(ctx))
+          }
+          if (nameN.eval_type != RangerNodeType.NoType) {
+            v_type = nameN.eval_type
+          }
+          wr.out((this.getTypeString(nameN.type_name)) false)
+        } {
+          this.writeTypeDef(nameN ctx wr)
+        }
+      }
+      
+      if ((array_length node.children) > 2) {
+        wr.out(" = " false)
+
+        def value:CodeNode (node.getThird())
+        ; An initializer that is already Rc<RefCell<T>> shares the object:
+        ; clone the Rc, never wrap a second cell around it — `def b a` is the
+        ; language's aliasing form and both names must reach one cell. An
+        ; upgrade of a weak field is already an owned Rc and needs neither
+        ; the wrap nor the clone.
+        ; 0 = raw value, 1 = another wrapped name (clone), 2 = owned Rc
+        def init_rc_state:int 0
+        if local_needs_rc_wrap {
+          init_rc_state = (this.rustInitRcState(value ctx))
+        }
+
+        ; an optional shared local holds Option<Rc<RefCell<T>>> — a real
+        ; initializer goes in as Some(…); one that is itself optional (a
+        ; hash get, an optional-returning call) passes through unchanged
+        def optInitPassthrough:boolean false
+        if (local_needs_rc_wrap && eff_optional) {
+          if (value.hasFlag("optional")) {
+            optInitPassthrough = true
+          }
+          ; an optional FIELD initializer is already Option<Rc<…>>: it
+          ; passes through whole — no Some, no wrap, no unwrap
+          if rhs_is_optional_field {
+            optInitPassthrough = true
+          }
+          if (optInitPassthrough == false) {
+            wr.out("Some(" false)
+          }
+        }
+        ; …and a plain optional local — `def hit@(optional):PptxFillStyle
+        ; (itemAt styles i)` — is an `Option<T>` too. Only the shared case
+        ; was wrapped, so the element went into the slot bare.
+        def plainOptSome:boolean false
+        if ((local_needs_rc_wrap == false) && eff_optional) {
+          if (((strlen nameN.array_type) == 0) && ((strlen nameN.key_type) == 0)) {
+            if ((value.hasFlag("optional")) == false) {
+              if (rhs_is_optional_field == false) {
+                if ((this.rustExprIsOptional(value ctx)) == false) {
+                  plainOptSome = true
+                  wr.out("Some(" false)
+                }
+              }
+            }
+          }
+        }
+        ; Wrap initialization in Rc::new(RefCell::new(...)) if needed
+        if ((local_needs_rc_wrap && (init_rc_state == 0)) && (optInitPassthrough == false)) {
+          wr.out("Rc::new(RefCell::new(" false)
+        }
+
+
+        def wroteUnionInit:boolean false
+        if local_is_union_slot {
+          wroteUnionInit = (this.rustWriteUnionValue(nn.type_name value ctx wr))
+        }
+        if (wroteUnionInit == false) {
+          ctx.setInExpr()
+          this.WalkNode(value ctx wr)
+          ctx.unsetInExpr()
+          ; `this` in a value position is `__self_rc`, which is a REFERENCE
+          ; to the receiver's Rc — an owned local takes a clone of it. The
+          ; rc-state machine calls it "already an Rc" and so writes neither
+          ; the wrap nor a clone, which is right for the wrap and one short
+          ; for the binding.
+          def thisInit:CodeNode (this.rustUnwrapParens(value))
+          if (thisInit.vref == "this") {
+            def tiCls@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+            if (!null? tiCls) {
+              def tiC:RangerAppClassDesc (unwrap tiCls)
+              if (this.rustClassIsShared(tiC.name ctx)) {
+                wr.out(".clone()" false)
+              }
+            }
+          }
+          ; …and so does a BORROWED parameter bound to an owned name: the
+          ; parameter is `&Rc<RefCell<T>>` and the local declares the Rc
+          ; itself. The rc-wrap path writes its own clone, so this only
+          ; covers the untyped `def ctx (in_ctx)` shape it never sees.
+          if (local_needs_rc_wrap == false) {
+            if (thisInit.value_type == RangerNodeType.VRef) {
+              if ((array_length thisInit.ns) == 1) {
+                if thisInit.hasParamDesc {
+                  def biP:RangerAppParamDesc thisInit.paramDesc
+                  if ((biP.rust_borrow_type == 1) && biP.rust_needs_rc_wrap) {
+                    wr.out(".clone()" false)
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        ; Close Rc::new(RefCell::new(...)) if we opened it
+        if (local_needs_rc_wrap && (optInitPassthrough == false)) {
+          if (init_rc_state == 0) {
+            wr.out("))" false)
+          }
+          if (init_rc_state == 1) {
+            wr.out(".clone()" false)
+          }
+        }
+        if ((local_needs_rc_wrap && eff_optional) && (optInitPassthrough == false)) {
+          wr.out(")" false)
+        }
+        if plainOptSome {
+          wr.out(")" false)
+        }
+        ; An Option<Rc<…>> that passes through whole is still a READ of a
+        ; field, and reading a non-Copy field out of a borrowed struct moves
+        ; it — `def b (lctx.builder)` cannot take the Option out of `lctx`.
+        ; The clone is of the Option, so it costs one Rc bump.
+        if optInitPassthrough {
+          if (value.value_type == RangerNodeType.VRef) {
+            wr.out(".clone()" false)
+          }
+        }
+
+        ; If RHS was optional field, unwrap it — unless the local itself
+        ; keeps the Option (an optional shared local): Option = Option
+        if (rhs_is_optional_field && ((local_needs_rc_wrap && eff_optional) == false)) {
+          ; Clone before unwrap for object types to avoid move issues
+          def v_type:RangerNodeType nameN.value_type
+          if ((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.VRef) || (v_type == RangerNodeType.NoType)) {
+            v_type = (nameN.typeNameAsType(ctx))
+          }
+          if (v_type == RangerNodeType.Object) {
+            wr.out(".clone().unwrap()" false)
+          } {
+            wr.out(".unwrap()" false)
+          }
+        }
+        ; In Rust, reading a non-primitive variable moves it - clone to avoid E0507
+        ; Clone strings, objects, arrays when reading from self fields.
+        ; A DOTTED read reaches here whatever the front end labelled its
+        ; value_type: `def b (lctx.builder)` is a field read, and taking a
+        ; non-Copy field by value out of a borrowed struct is a move.
+        ; …and the initializer may be parenthesised — `def p (h.payload)` is
+        ; how the language writes one — so the wrapper is opened first or
+        ; none of the tests below see the name at all.
+        def valueInner:CodeNode (this.rustUnwrapParens(value))
+        def vardef_is_name_read:boolean (valueInner.value_type == RangerNodeType.VRef)
+        if (vardef_is_name_read == false) {
+          if ((array_length valueInner.ns) > 1) {
+            vardef_is_name_read = true
+          }
+        }
+        ; …and the same field read spelled through an EXPRESSION rather than a
+        ; name: `def n:string ((node.getSecond()).vref)` reads `vref` out of a
+        ; borrow exactly as `head.vref` does, but it is a property node with no
+        ; dotted path, so neither test above saw it and no clone was written —
+        ; the String moved out of the `Ref` (E0507). This is the shape the
+        ; compiler's own tree-literal lowering is written in.
+        def vardef_is_prop_get:boolean (valueInner.isFirstVref("property"))
+        if vardef_is_prop_get {
+          vardef_is_name_read = true
+        }
+        if vardef_is_name_read {
+          def should_clone_vardef:boolean false
+          ; a static-string read into an owned String local always converts —
+          ; the &'static str cannot move into a String slot (E0308)
+          ; …and so does a borrowed &str parameter: rustStrRefRead answers for
+          ; both, and unwraps a parenthesised name on the way
+          def vardef_src_ref_str:boolean (this.rustStrRefRead(valueInner))
+          if (nameN.type_name == "string") {
+            if vardef_src_ref_str {
+              should_clone_vardef = true
+            }
+            ; Clone if accessing a field (has dot path)
+            if (((array_length valueInner.ns) > 1) || vardef_is_prop_get) {
+              should_clone_vardef = true
+            } {
+              ; For simple variable references, clone if ref_cnt > 1 (used elsewhere)
+              if valueInner.hasParamDesc {
+                def vp:RangerAppParamDesc valueInner.paramDesc
+                if (vp.ref_cnt > 1) {
+                  should_clone_vardef = true
+                }
+              }
+            }
+          }
+          ; …and so is a non-scalar read through a property expression. The
+          ; dotted path gets this from the class-variable rule below, which a
+          ; property node has no descriptor for; the local's own declared type
+          ; answers instead. Scalars are Copy and take nothing.
+          if vardef_is_prop_get {
+            def pg_type:RangerNodeType nameN.value_type
+            if ((pg_type == RangerNodeType.Object) || (pg_type == RangerNodeType.VRef) || (pg_type == RangerNodeType.NoType)) {
+              pg_type = (nameN.typeNameAsType(ctx))
+            }
+            if ((((pg_type == RangerNodeType.Object) || (pg_type == RangerNodeType.Array)) || (pg_type == RangerNodeType.Hash)) || (pg_type == RangerNodeType.Buffer)) {
+              should_clone_vardef = true
+            }
+            if (pg_type == RangerNodeType.IntBuffer) {
+              should_clone_vardef = true
+            }
+          }
+          ; a borrowed parameter (&Vec<T> / &[T] / &String) read into an
+          ; owned local clones — the reference cannot move (E0308)
+          if valueInner.hasParamDesc {
+            def vpB:RangerAppParamDesc valueInner.paramDesc
+            if (vpB.rust_borrow_type > 0) {
+              if ((nn.value_type == RangerNodeType.Array) || (nn.value_type == RangerNodeType.Hash)) {
+                should_clone_vardef = true
+              }
+              if (nameN.type_name == "string") {
+                should_clone_vardef = true
+              }
+            }
+          }
+          ; Clone objects/arrays when reading from self fields (prevents E0507)
+          if valueInner.hasParamDesc {
+            def vp:RangerAppParamDesc valueInner.paramDesc
+            if vp.is_class_variable {
+              ; This is reading from a self field
+              def v_type:RangerNodeType nameN.value_type
+              if ((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.VRef) || (v_type == RangerNodeType.NoType)) {
+                v_type = (nameN.typeNameAsType(ctx))
+              }
+              ; `def b (lctx.builder)` writes no type, so the name has none to
+              ; resolve and the read looked like a scalar — it is a move of a
+              ; non-Copy field out of a borrowed struct. The field's own
+              ; declaration answers what the local's does not.
+              if ((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.VRef) || (v_type == RangerNodeType.NoType)) {
+                def vpNN@(optional):CodeNode vp.nameNode
+                if (!null? vpNN) {
+                  def vpN:CodeNode (unwrap vpNN)
+                  def fld_type:RangerNodeType vpN.value_type
+                  if ((fld_type == RangerNodeType.Object) || (fld_type == RangerNodeType.VRef) || (fld_type == RangerNodeType.NoType)) {
+                    fld_type = (vpN.typeNameAsType(ctx))
+                  }
+                  v_type = fld_type
+                }
+              }
+              if ((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.Array) || (v_type == RangerNodeType.Buffer) || (v_type == RangerNodeType.IntBuffer)) {
+                should_clone_vardef = true
+              }
+            }
+          }
+          ; …and a LOCAL collection read into another local. Rust MOVES it,
+          ; and the name it was read from is almost always still live —
+          ; `def glyphs:[int] cps` then `hasArabic(cps)`. The string rule
+          ; above asks ref_cnt the same question.
+          if valueInner.hasParamDesc {
+            def vpL:RangerAppParamDesc valueInner.paramDesc
+            if ((vpL.is_class_variable == false) && (vpL.rust_borrow_type == 0)) {
+              if (vpL.ref_cnt > 1) {
+                def vpLNN@(optional):CodeNode vpL.nameNode
+                if (!null? vpLNN) {
+                  def vpLN:CodeNode (unwrap vpLNN)
+                  if (((strlen vpLN.array_type) > 0) || ((strlen vpLN.key_type) > 0)) {
+                    should_clone_vardef = true
+                  }
+                  if (((vpLN.type_name == "buffer") || (vpLN.type_name == "int_buffer")) || (vpLN.type_name == "double_buffer")) {
+                    should_clone_vardef = true
+                  }
+                }
+              }
+            }
+          }
+          if should_clone_vardef {
+            ; a str reference (static string, borrowed &str parameter) makes
+            ; an owned String with .to_string(); .clone() would copy the &str
+            if (vardef_src_ref_str == false) {
+              if (((value.expression == false) && value.hasParamDesc) && ((array_length value.ns) == 1)) {
+                def vbp:RangerAppParamDesc value.paramDesc
+                if (vbp.rust_borrow_type == 1) {
+                  def vbpNN@(optional):CodeNode vbp.nameNode
+                  if (!null? vbpNN) {
+                    def vbpN:CodeNode (unwrap vbpNN)
+                    if ((vbpN.type_name == "string") && ((strlen vbpN.array_type) == 0)) {
+                      vardef_src_ref_str = true
+                    }
+                  }
+                }
+              }
+            }
+            if vardef_src_ref_str {
+              wr.out(".to_string()" false)
+            } {
+              ; a borrowed collection or buffer parameter is a SLICE, and
+              ; cloning one gives another slice — the owned slot wants a Vec
+              if (this.rustSliceRefRead(value)) {
+                wr.out(".to_vec()" false)
+              } {
+                wr.out(".clone()" false)
+              }
+            }
+          }
+        }
+      } {
+        if (nn.value_type == RangerNodeType.Array) {
+          wr.out(" = Vec::new()" false)
+        }
+        if (nn.value_type == RangerNodeType.Hash) {
+          wr.out(" = HashMap::default()" false)
+        }
+        ; Initialize optional variables to None in Rust
+        if (nameN.hasFlag("optional")) {
+          wr.out(" = None" false)
+        }
+      }
+      wr.out(";" false)
+      if ((p.ref_cnt == 0) && (p.is_class_variable == true)) {
+        wr.out("     // note: unused" false)
+      }
+      if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
+        wr.newline()
+      } {
+        wr.newline()
+      }
+    }
+  }
+  ; The constructor of a `record` holds a marker parameter for each keyword,
+  ; next to the parameter that carries the value. The marker has a name and no
+  ; type, and Rust has no keyword argument, so the marker must not reach the
+  ; signature: without this filter `record Point { def xpos:int 0 }` comes out
+  ; as `pub fn new(xpos : , xpos : i64) -> Point`, which does not parse.
+  ; PLAN_RUST_OWNERSHIP 2b support: is the named class one the sharing
+  ; analysis marked? On by default; -rust-value-classes opts out.
+  ; D-UNION: is this expression a `new` of a class that lives in a cell? A
+  ; value going into a union-typed slot (Rc<dyn Any>) has to carry its own
+  ; cell; a local or a field already holds one, a fresh construction does not,
+  ; so the construction site is where the wrap has to go.
+  ; Is `memberName` one of this union's members?
+  ; The declared class of a value node, as the source named it: a name carries
+  ; its desc, a `new` carries the class it constructs. Empty when neither.
+  ; Writes a value into a union-typed slot (PLAN_SHAPES.md S5) and answers true,
+  ; or answers false and writes nothing when the normal path should handle it.
+  ; A union is a Rust enum, so a MEMBER value has to be wrapped in its variant —
+  ; at the construction site if it is a `new`, around the name otherwise — while
+  ; a value that is already the union passes as a clone of the handle.
+  ; The name of the sealable union a function returns, or "" when it returns
+  ; anything else.
+  ; A case the enum carries BY VALUE (a member of a sealable union that is not
+  ; shared). Its identity question has no object behind it, so the generated
+  ; RgIdentical arm compares content — which needs PartialEq on the struct.
+  ; Would rustWriteUnionValue have to WRAP this value in an enum variant to
+  ; put it into a slot of `targetTypeName`? True only for a member of a
+  ; sealable union; a value already of the family needs no wrap, and neither
+  ; does anything else. Asked ahead of writing, so a caller can commit to a
+  ; prefix (`&`) knowing the wrap will follow.
+  ; A method of a shared class that uses `this` as a value needs the Rc that
+  ; holds the receiver, and `&mut self` cannot reach it — the shared_from_this
+  ; question in Rust form. Such a method takes a hidden first parameter
+  ; `__self_rc : &Rc<RefCell<T>>`, and every call site passes the receiver's
+  ; Rc. The reference is safe next to the `&mut self` borrow because the
+  ; callee only clones or downgrades the Rc; it never borrows the cell again.
+  ; A lambda body is written inside the body of the method that declares it,
+  ; so the `__self_rc` in scope there is the *enclosing* method's hidden
+  ; argument. The lambda's own desc never carries the flag —
+  ; computeSelfRcNeeds walks `cl.methods` and skips lambdas — so asking the
+  ; lambda whether it holds the Rc always answers no, and a `this.method(…)`
+  ; inside a `forEach` body would be reported as an impossible call from a
+  ; constructor. Hop through `insideFn` to the real method before asking.
+  ; How a def initializer relates to Rc<RefCell<T>> when the local is a
+  ; shared-class name: 0 = a raw value that needs the wrap, 1 = another
+  ; wrapped name (share it by cloning the Rc), 2 = an expression that already
+  ; produces an owned Rc (the upgrade of a weak field).
+  ; Write the receiver's Rc as the hidden first argument of a call to a
+  ; method that needs it. True when something was written.
+  ; The type the hidden receiver argument is declared with. A method of a
+  ; TRAIT interface is declared once and implemented by every subclass, and
+  ; each impl forwards to its own inherent method — so the hidden argument
+  ; cannot be typed as the container class or the two disagree
+  ; (`&Rc<RefCell<Parent>>` against `&Rc<RefCell<Child>>`). The trait object
+  ; is the one type all of them share.
+  ; …and the handle a call site holds is the CONCRETE class wherever the
+  ; receiver was declared as one. Rust will not pass `&Rc<RefCell<Child>>`
+  ; where `&Rc<RefCell<dyn ParentTrait>>` is declared, so the unsizing goes in
+  ; here. An empty answer means the two already agree.
+  ; the receiver of a method signature; the trailing comma is written by
+  ; writeArgsDef, and only when something follows
+  ; The argument list a trait forwarding body hands on to the inherent
+  ; method. It has to mirror writeArgsDef exactly — the same names, the same
+  ; skipped keyword parameters, and the hidden __self_rc where the method
+  ; takes one — or the forwarding call does not match the thing it calls.
+  fn writeArgsDef (fnDesc:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    def pms (filter (fnDesc.params) {
+      if (item.nameNode.hasFlag("keyword")) {
+        return false
+      }
+      return true
+    })
+    def lead_comma:boolean rust_receiver_written
+    rust_receiver_written = false
+    def wrote_selfrc:boolean false
+    if (this.rustNeedsSelfRc(fnDesc ctx)) {
+      if lead_comma {
+        wr.out(", " false)
+      }
+      def sccName:string (this.rustSelfRcParamType(fnDesc ctx))
+      wr.out((("__self_rc : &Rc<RefCell<" + sccName) + ">>") false)
+      wrote_selfrc = true
+    }
+    for pms arg:RangerAppParamDesc i {
+      if (((i > 0) || wrote_selfrc) || lead_comma) {
+        wr.out(", " false)
+      }
+      def nameN:CodeNode (unwrap arg.nameNode)
+      ; In Rust, object parameters that might have fields modified need 'mut'
+      def v_type:RangerNodeType nameN.value_type
+      if ((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.VRef) || (v_type == RangerNodeType.NoType)) {
+        v_type = (nameN.typeNameAsType(ctx))
+      }
+      def is_object:boolean ((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.Array) || (v_type == RangerNodeType.Hash) || (v_type == RangerNodeType.IntBuffer) || (v_type == RangerNodeType.DoubleBuffer) || (v_type == RangerNodeType.CharBuffer) || (v_type == RangerNodeType.Buffer))
+      ; Use compiledName to include any name transformations (e.g. len -> __len)
+      def paramName:string (this.adjustType(arg.compiledName))
+      def rust_mut_pfx:string "mut "
+      if rust_in_trait_decl {
+        rust_mut_pfx = ""
+      }
+      
+      ; Check static analysis flags for mutable reference requirement
+      ; rust_borrow_type: 0=owned, 1=borrow, 2=mut_borrow
+      ; needs_cpp_reference also indicates mutation (same analysis)
+      def needsMutRef:boolean false
+      if arg.needs_cpp_reference {
+        needsMutRef = true
+      }
+      if (arg.rust_borrow_type == 2) {
+        needsMutRef = true
+      }
+      
+      ; Check if parameter is assigned to a weak field - needs Rc<RefCell<T>> type
+      ; This is detected by static analysis when we see: this.weakField = param
+      if arg.rust_needs_rc_wrap {
+        ; A proven-borrowed Rc parameter takes a reference: the callee reads the
+        ; handle and never stores it, so every call site passes `&x` instead of
+        ; cloning. `.borrow()` / `.borrow_mut()` work the same through it.
+        ; a plain class name is the whole shared type on its own — a class
+        ; with subclasses already reads as Rc<RefCell<dyn XTrait>>, so
+        ; wrapping writeTypeDef here would give it a second cell
+        def argIsPlainClass:boolean (((strlen nameN.array_type) == 0) && ((strlen nameN.key_type) == 0))
+        if (argIsPlainClass && ((strlen nameN.type_name) == 0)) {
+          argIsPlainClass = false
+        }
+        if (arg.rust_borrow_type == 1) {
+          if argIsPlainClass {
+            wr.out(((paramName + " : &") + (this.rustSharedTypeString(nameN.type_name ctx))) false)
+          } {
+            wr.out((paramName + " : &Rc<RefCell<") false)
+            this.writeTypeDef(nameN ctx wr)
+            wr.out(">>" false)
+          }
+          continue
+        }
+        ; Parameter is assigned to weak field - needs Rc<RefCell<T>> type
+        if argIsPlainClass {
+          ; an @(optional) parameter is Option<…>: the body asks it
+          ; `is_none()` and unwraps it, and a caller may have nothing to pass
+          if (nameN.hasFlag("optional")) {
+            wr.out((((((rust_mut_pfx + paramName) + " : Option<") + (this.rustSharedTypeString(nameN.type_name ctx))) + ">")) false)
+          } {
+            wr.out((((rust_mut_pfx + paramName) + " : ") + (this.rustSharedTypeString(nameN.type_name ctx))) false)
+          }
+        } {
+          wr.out((rust_mut_pfx + paramName + " : Rc<RefCell<") false)
+          this.writeTypeDef(nameN ctx wr)
+          wr.out(">>" false)
+        }
+        continue
+      }
+      
+      ; Check for immutable borrow (rust_borrow_type = 1)
+      ; This is for buffer/array/object params that are not mutated
+      def needsImmutableBorrow:boolean (arg.rust_borrow_type == 1)
+      
+      ; Check if parameter is assigned - if so, make it mut
+      if needsMutRef {
+        ; Parameter is mutated - needs mut
+        wr.out((rust_mut_pfx + paramName + " : &mut ") false)
+        this.writeTypeDef(nameN ctx wr)
+      } {
+        if needsImmutableBorrow {
+          ; Parameter is borrowed but not mutated - immutable reference.
+          ; A borrowed collection or buffer of scalars is a slice: clippy's
+          ; ptr_arg — `&Vec<u8>` involves a new object where `&[u8]` will
+          ; do, and `&Vec` coerces to `&[T]` at every call site.
+          def slice_elem:string ""
+          ; a HASH carries its value type in array_type as well, so the
+          ; key_type has to be empty for this to be an array — a
+          ; `[string:string]` parameter came out as `&[String]` and every
+          ; map call on it was a missing method
+          if (((strlen nameN.array_type) > 0) && ((strlen nameN.key_type) == 0)) {
+            def ael:string nameN.array_type
+            if (((((ael == "int") || (ael == "double")) || (ael == "boolean")) || (ael == "string")) || (ael == "char")) {
+              slice_elem = (this.getObjectTypeString(ael ctx))
+            }
+          } {
+            if (nameN.type_name == "buffer") {
+              slice_elem = "u8"
+            }
+            if (nameN.type_name == "int_buffer") {
+              slice_elem = "i64"
+            }
+            if (nameN.type_name == "double_buffer") {
+              slice_elem = "f64"
+            }
+          }
+          if ((strlen slice_elem) > 0) {
+            wr.out((((paramName + " : &[") + slice_elem) + "]") false)
+          } {
+            ; a borrowed read-only string is &str: every call site coerces
+            ; (&String and &'static str alike), no allocation either way
+            if (((nameN.type_name == "string") && ((strlen nameN.array_type) == 0)) && ((strlen nameN.key_type) == 0)) {
+              wr.out((paramName + " : &str") false)
+            } {
+              wr.out((paramName + " : &") false)
+              this.writeTypeDef(nameN ctx wr)
+            }
+          }
+        } {
+          def argOptional:boolean (nameN.hasFlag("optional"))
+          if is_object {
+            wr.out((rust_mut_pfx + paramName + " : ") false)
+          } {
+            if (arg.set_cnt > 0) {
+              wr.out((rust_mut_pfx + paramName + " : ") false)
+            } {
+              wr.out((paramName + " : ") false)
+            }
+          }
+          if argOptional {
+            wr.out("Option<" false)
+          }
+          this.writeTypeDef(nameN ctx wr)
+          if argOptional {
+            wr.out(">" false)
+          }
+        }
+      }
+    }
+  }
+
+  ; Override CreateCallExpression to handle optional types in Rust
+  ; When calling a method on an optional object, we need to unwrap it first
+  ; Helper: Check if a node tree contains any self (this) reference
+  ; Any function or method call anywhere in the tree. Used to decide
+  ; whether an argument can re-enter the object graph while the
+  ; receiver's RefCell borrow is held.
+  ; Helper: Check if a function body uses 'this' (self) - for Rust static method optimization
+  ; Methods that don't reference 'this' or class variables can be emitted as static methods
+  ; This avoids E0499 errors when calling such methods with &mut self.field arguments
+  ; Does this second segment of a `this.…` path name a METHOD of the current
+  ; class rather than one of its fields?
+  ; Does the body need the STRUCT — a field of this object — as opposed to
+  ; reaching the object through its handle? A bare `this` is written as the
+  ; hidden __self_rc argument, and `this.method(…)` can be called through the
+  ; same handle, borrowing for that call and no longer. A field read or write
+  ; is what actually needs a receiver.
+  ; The receiver question for one method: does it need a `self` parameter?
+  ; A method that reaches itself only THROUGH its handle does not — see
+  ; fnBodyUsesThisStruct — but only when it actually carries the handle.
+  ; Does this body call a method on `this` that hands back another handle of
+  ; the same class? Such a handle may BE this object.
+  ; Helper: Check if a node accesses a field of the given variable
+  ; Returns true if node is like varName.field or varName.field.subfield
+  ; Helper: Get root variable name from an argument node
+  ; For a simple var reference like "child", returns "child"
+  ; Helper: Detect when we have a &mut ref conflict in function call arguments
+  ; Returns true if argIdx gets &mut and other args access fields of that same variable
+  ; ====== CALL GRAPH ANALYSIS FOR MUTATION DETECTION ======
+  ; These functions analyze method bodies to determine if they mutate 'this' (self)
+  ; We build a call graph to handle transitive mutations properly
+  
+  ; Helper: Collect all self-method calls from a node (returns method names)
+  ; `reader.seek(x)` — a method called on a field of THIS object, where the
+  ; field holds another object inline. The callee borrows the field, the
+  ; field is reached through `self`, and so a callee that takes `&mut self`
+  ; makes the method around it `&mut self` too.
+  ;
+  ; The `has_call` rule further down asks the same question, but only of the
+  ; `(call obj method args)` node the front end builds for a call on an
+  ; EXPRESSION. An ordinary `reader.seek(x)` is a `hasFnCall` node whose
+  ; receiver lives inside the dotted name `reader.seek`, and nothing looked
+  ; there — which is what 277 of the 396 rustc errors on the PPTX viewer
+  ; were, one bug in 267 different functions.
+  ; The same question of a call receiver PATH alone: `reader.seek` or
+  ; `this.reader.seek`. The emission asks it too — a path head that is
+  ; `this` has to take the mutable borrow when the field it reaches is held
+  ; inline and the callee writes to it.
+  ; Is this node a value reached through `self` — `this`, a field of this
+  ; object, or a path that starts at one? A reference taken to any of them
+  ; is a reference into this struct.
+  ; `Helper.touch(own)` where the callee takes that parameter by `&mut`.
+  ; The argument is written `&mut self.own`, which borrows this struct
+  ; mutably — so does `this` itself passed the same way, which comes out
+  ; `&mut self`. Either makes the method around the call `&mut self`.
+  ; Helper: Check if method body DIRECTLY mutates this (field assignments, optional field access)
+  ; Does NOT consider transitive mutations via method calls
+  ; is this call receiver a plain collection, string or buffer — a value
+  ; whose operators only write through self when the operator itself is a
+  ; mutating one? A user-class receiver never qualifies: any of its methods
+  ; could mutate it, and a user method may shadow an operator name.
+  ; the operator names whose first operand is written through — the same
+  ; list the template engine flags as LHS targets
+  ; Build call graph and mutation info for a class
+  ; Returns two maps: methodName -> directlyMutates (boolean), methodName -> MethodCallList
+  ; The same walk over the ancestors, for the methods a class inherits. They
+  ; are emitted into this class's impl and can be called from its own
+  ; methods, so leaving them out of the graph made a caller of an inherited
+  ; mutating method look immutable — `&self` calling a `&mut self` method.
+  ; A name the class defines itself is already in the maps and wins.
+  ; A method of the trait interface is emitted `&mut self` whatever its body
+  ; does — the same rule the signature writer applies — so anything that
+  ; calls one needs a mutable receiver too. buildInheritedMutationGraph
+  ; already says this for methods only the parent declares; a class that
+  ; OVERRIDES a trait method had its own (possibly non-mutating) answer
+  ; recorded first, and the override is emitted `&mut self` all the same.
+  ; A trait method and the inherent method each impl forwards to share one
+  ; signature, and the forwarding body is written from the PARENT's variant.
+  ; Either side wanting the hidden __self_rc argument therefore commits both
+  ; to it, or the forwarding call is an argument off in one direction or the
+  ; other. These are the descriptors the writer emits from — cl.methods holds
+  ; different ones, which is why aligning through those changed nothing.
+  ; The root of the trait family a class belongs to: itself when it has
+  ; children, otherwise the parent that does.
+  ; Does this call receiver reach through a field that holds an Rc? Such a
+  ; call borrows the field's cell, not this object's struct.
+  ; Can this field live behind a Cell? A scalar only: a collection is mutated
+  ; in place through the field, a shared class already has a cell of its own,
+  ; and an Option needs the field itself to be reseated.
+  ; A Copy scalar goes in a Cell, which never borrows at all. A String has to
+  ; use a RefCell, and the borrow lasts one statement.
+  ; a String cell owns its value on the way in; every other RefCell takes the
+  ; value as it stands
+  ; a collection cell is borrowed rather than copied out
+  ; Does this node name a cell field — as a bare name, as `this.f`, or at the
+  ; end of a path through another object?
+  fn rustNodeIsCellField:boolean (node:CodeNode) {
+    def cfD@(optional):RangerAppParamDesc (this.rustCellFieldDesc(node))
+    return (!null? cfD)
+  }
+
+  ; Every scalar field of a class in a trait family that the trait does not
+  ; expose through an accessor. The root's own fields are left alone: their
+  ; accessors hand out references, which a cell cannot serve.
+  ; One answer per trait method for the whole family, computed once and cached
+  ; on the root. A trait method is `&mut self` if ANY implementation of it
+  ; mutates its own object — the declaration and every impl share one
+  ; signature, so the answer has to be the union. It used to be a blanket
+  ; `true`: every method of every writer took `&mut self`, which means every
+  ; call through a writer handle takes the cell for the whole call, and the
+  ; compiler's writers call back into each other constantly.
+  ; Check if a method transitively mutates (directly or via called methods)
+  ; Uses visited set to prevent infinite recursion on cycles
+  ; Main entry: Check if a method mutates this (uses call graph for transitive analysis)
+  ; Legacy function - kept for compatibility but uses new analysis
+  ; Does `<obj>.<methodName>(…)` land on a method that takes the hidden
+  ; __self_rc argument, when the front end left node.fnDesc unresolved?
+  ; Resolves through the receiver's evaluated type (the current class for a
+  ; `this` receiver).
+  ; True when an argument is a named local/param — or a dotted field read,
+  ; which comes out of a Ref and cannot move (E0507) — whose type moves on
+  ; a by-value pass (String, collection, object): the call would consume
+  ; the value, so the call site has to clone. Copy scalars, weak refs and
+  ; optionals stay untouched.
+  ; Override CreateMethodCall for Rust to handle borrow conflicts with optional self members
+  ; This is used for is_direct_method_call nodes (e.g., streamBuffer.writeString(...))
+  ; Check if a node is a self method call (this.method(...))
+  ; The self calls an argument only CONTAINS, rather than IS. isSelfMethodCall
+  ; tests the argument's own head, so a call reached through anything else —
+  ; most often an index — was never seen: `itemAt outR (this.nearestIndex(…))`
+  ; borrows self to compute the index while the enclosing call is borrowing it
+  ; too, which is E0499. rustc's own advice is a local per call, so they are
+  ; collected here for the caller to hoist.
+  ; Each is collected AS IT SITS in the tree, parens and all: the operand and
+  ; index writers look for rust_use_tmpvar on the child they hold, before any
+  ; unwrapping of their own.
+  ; Nothing that opens a SCOPE is searched, and the search stops at the branch
+  ; rather than stepping over it. A loop body is the case that matters: `for
+  ; xs item { this.markAsyncFrom(item visited) }` becomes a closure taking
+  ; `item`, so the call in it borrows self when the closure runs, not here, and
+  ; a `let` lifted out of it lands where `item` does not exist. That is a block
+  ; node, not a lambda_ctx, so both are tested — along with a subtree that
+  ; merely CONTAINS a closure, which is skipped whole: an argument this pass
+  ; leaves alone still compiles, one hoisted out of its scope does not.
+  ; Check if any argument contains a self method call - returns the argument index, -1 if none
+  ; Static array literals -- ([] a b c) / ([] _:T (a b c)).
+  ;
+  ; Without this override Rust inherits the generic writer, which emits a
+  ; fixed-size array `[a, b, c]` of type [T; N]. Every Ranger array is a Vec<T>,
+  ; so the result never compiled: "expected `Vec<K>`, found `[K; 3]`". Rust
+  ; spells the Vec form `vec![...]`, which is also what the surrounding
+  ; push-based code lowers to, so the two spellings now agree.
+  fn writeArrayLiteral( node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    wr.out("vec![" false)
+    node.children.forEach({
+      if( index > 0 ) {
+        wr.out(", " false)
+      }
+      ; an element is an EXPRESSION — without saying so, a call inside one
+      ; still reads as a statement, and anything hoisted before it lands in
+      ; the middle of the literal
+      ctx.setInExpr()
+      this.WalkNode( item ctx wr )
+      ctx.unsetInExpr()
+      ; a literal element is OWNED by the Vec, so a NAME read into one moves
+      ; unless it is cloned — and the name goes on being used after the
+      ; literal, which is what Ranger's semantics say. A Copy scalar needs
+      ; nothing (clippy's clone_on_copy), and a borrowed handle clones too.
+      def alCloned:boolean false
+      if (this.rustArgIsNameRead(item)) {
+        def alCopy:boolean false
+        if item.hasParamDesc {
+          def alP:RangerAppParamDesc (unwrap item.paramDesc)
+          alCopy = (this.rustFieldIsCopyScalar(alP ctx))
+        } {
+          alCopy = true
+        }
+        if (alCopy == false) {
+          if (this.rustStrRefRead(item)) {
+            wr.out(".to_string()" false)
+          } {
+            wr.out(".clone()" false)
+          }
+          alCloned = true
+        }
+      }
+      if (alCloned == false) {
+        if (this.rustValueIsBorrowedHandle(item ctx)) {
+          wr.out(".clone()" false)
+        }
+      }
+    })
+    wr.out("]" false)
+  }
+  ; The Rust body of the synthetic `__singleton` accessor the resolver
+  ; advertises for a @singleton(true) class (findStaticMethod builds the desc;
+  ; call sites already emit `ClassName::__singleton()`). One instance per
+  ; thread in a lazy slot: singletons are shared classes, so the accessor
+  ; hands out the Rc and first-call constructor arguments win, matching es6.
+  ; does any class of the program declare a `sfn m@(main)` entry?
+  ; Custom operator handler for Rust - handles push with string conversion and optional assignments
+  ; the rust templates of these operators already write a full `( … )`
+  ; (bit ops, array_length) or an atomic postfix form (itemAt, format!) —
+  ; the expression walker's extra pair around them is clippy's
+  ; double_parens
+  ; one operand of an operator custom: bare when atomic (a literal, a
+  ; name, a path), `( … )` otherwise — and the child is told its caller
+  ; delimits it, so it adds no pair of its own
+  ; is this argument already a `&` reference — a borrowed parameter passed
+  ; straight through? `f(&x)` where x is `&[u8]` is clippy's
+  ; needless_borrow; the name alone re-borrows correctly.
+  ; the &mut twin: a mut-reference parameter passed straight through needs
+  ; no second `&mut` — the name reborrows
+  ; a bare `this` handed to a `&mut T` parameter. `self` is already the
+  ; reference the parameter wants, so `&mut self` takes a reference TO the
+  ; binding — and that binding is not declared `mut`, which is an error in
+  ; a `&self` and a `&mut self` method alike. `&mut *self` reborrows it.
+  ; A `&mut` argument that is a plain dotted path — `sc.zone`, `pres.theme`.
+  ; Nothing is called inside it, so marking the walk cannot reach a nested
+  ; call's own receiver.
+  ; The borrow an argument takes for a `&mut T` parameter.
+  ; one side of a string comparison: a literal stays `"lit"` — String
+  ; compares with &str directly
+  ; an operand cast to f64: an integer literal is the f64 literal itself
+  ; --- string concatenation as format! (PLAN_RUST_IDIOMATICITY item 5) ---
+
+  ; unwraps `( x )` nesting to the single meaningful child
+  ; A closure literal has to stay in the call that takes it. Rust infers a
+  ; closure's parameter types from the `&mut dyn FnMut(…)` it is passed to,
+  ; and a `let __arg_0 = &mut |item| …;` ahead of the call has no expected
+  ; type at all — "type annotations needed" on every parameter.
+  ; Does this expression already produce an Option? A call whose return is
+  ; declared `@(optional)` does, and so does a read of an optional name.
+  ; Wrapping one in Some() gives an Option holding an Option.
+  fn rustExprIsOptional:boolean (inNode:CodeNode ctx:RangerAppWriterContext) {
+    ; the expression is usually parenthesised — `x = (ctx.findVariable(n))` —
+    ; and the wrapper carries neither the flag nor the call's descriptor
+    def node:CodeNode (this.rustUnwrapParens(inNode))
+    if (node.hasFlag("optional")) {
+      return true
+    }
+    if (inNode.hasFlag("optional")) {
+      return true
+    }
+    if (!null? node.fnDesc) {
+      def fd:RangerAppFunctionDesc (unwrap node.fnDesc)
+      def fdNN@(optional):CodeNode fd.nameNode
+      if (!null? fdNN) {
+        if ((unwrap fdNN).hasFlag("optional")) {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
+  fn rustNodeIsLambda:boolean (node:CodeNode) {
+    def real:CodeNode (this.rustUnwrapParens(node))
+    if (!null? real.lambda_ctx) {
+      return true
+    }
+    return false
+  }
+
+  ; `(itemAt runs ri).color` — a field read on an EXPRESSION rather than on
+  ; a name. The generic writer puts the object in parentheses and writes the
+  ; field after it; on Rust an expression that yields a shared class yields
+  ; an `Rc<RefCell<T>>`, which has no fields of its own, so the read has to
+  ; go through the cell first ("no field `color` on type `Rc<RefCell<…>>`").
+  fn CreatePropertyGet:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def obj:CodeNode (node.getSecond())
+    def prop:CodeNode (node.getThird())
+    this.writeCallReceiver(obj ctx wr)
+    def pgType:string obj.eval_type_name
+    if ((strlen pgType) == 0) {
+      pgType = obj.type_name
+    }
+    ; …but a CALL already hands back a borrow of its own result, and a
+    ; second one is `.borrow().borrow()`
+    def pgInner:CodeNode (this.rustUnwrapParens(obj))
+    if (pgInner.hasFnCall || pgInner.has_call) {
+      pgType = ""
+    }
+    ; …and so does the PROPERTY, when the front end resolved which class it
+    ; belongs to — WriteVRef writes the borrow in front of a `.name` whose
+    ; desc names a shared owner. Only the unresolved ones are left here.
+    if ((strlen prop.vref) > 0) {
+      if ((charAt prop.vref 0) == 46) {
+        if prop.hasParamDesc {
+          def pgPD:RangerAppParamDesc prop.paramDesc
+          def pgOwner@(optional):RangerAppClassDesc pgPD.propertyClass
+          if (!null? pgOwner) {
+            def pgOwnerC:RangerAppClassDesc (unwrap pgOwner)
+            if (this.rustClassIsShared(pgOwnerC.name ctx)) {
+              pgType = ""
+            }
+          }
+        }
+      }
+    }
+    def pgState:int 0
+    if ((strlen pgType) > 0) {
+      if (this.rustClassIsShared(pgType ctx)) {
+        if (ctx.in_lhs_of_assignment || rust_recv_place_mut) {
+          wr.out(".borrow_mut()" false)
+        } {
+          wr.out(".borrow()" false)
+        }
+        pgState = 1
+      } {
+        pgState = 2
+      }
+    }
+    wr.out("." false)
+    def pgSaved:int rust_prop_base_state
+    rust_prop_base_state = pgState
+    this.WalkNode(prop ctx wr)
+    rust_prop_base_state = pgSaved
+  }
+
+  ; flattens a string `+` chain into its operand list, left to right, so a
+  ; whole chain becomes one format! instead of nested joins and concats
+  ; a plain string literal goes into the format string itself; a literal
+  ; that holds a brace stays a runtime argument so no escaping is needed
+  ; `format!("{}", x.to_string())` prints what `format!("{}", x)` prints —
+  ; both are Display — so an explicit to_string of a scalar drops out
+  ; writes `"fmt…", arg, arg` — the shared body of println! and format!
+  ; does this expression read through an Rc cell rooted at a body local or
+  ; parameter? A tail expression's temporaries drop AFTER the block's
+  ; locals, so a tail `tok.borrow()…` outlives `tok` (E0597) — such a
+  ; return keeps its statement form. A self-rooted read is safe: the
+  ; receiver outlives the block.
+  ; Pull the INNER self calls of a `self.f(self.g(...))` conflict out to
+  ; temporaries, wherever the shape sits in the given tree — a static or
+  ; expression wrapper hides it from the direct statement-level path.
+  ; Wrapper-aware: the extracted argument may be paren-wrapped, and the
+  ; substitution flag goes on the wrapper the arg loops iterate.
+  ; Statement level only: this writes `let` statements.
+  ; A call made THROUGH one of this object's handle fields —
+  ; `langWriter.writeClass(…)` — reads the field out of this object, and the
+  ; Ref that read makes lives to the end of the statement, which is the whole
+  ; call. The callee reaching back into this object then finds it borrowed.
+  ; The handle goes to a local first, so the read ends before the call starts.
+  ; walks a function body with the tail statement marked, so the return
+  ; custom writes the last `return x;` as the tail expression `x`
+  ; a plain scalar path: a name or a field chain with no call, no cell, no
+  ; optional and no weak segment — one that reads and writes as plain text
+  ; `x = x + e` becomes `x += e` (and -, *, /) for integer and double
+  ; targets. Returns true when it wrote the whole statement.
+  ; A raw value handed to a parameter that holds a shared class: `(new
+  ; VlJson)` is the one shared-class expression that carries no cell of its
+  ; own, so the cell goes on at the call site.
+  ; The value being stored into a `Rc<RefCell<dyn XTrait>>` field already
+  ; holds `Rc<RefCell<Sub>>`, where Sub is a member of X's family. Rust
+  ; needs the unsizing coercion, not a second cell — `Rc::new(RefCell::new(
+  ; tm.clone()))` is an Rc holding an Rc, which is not the trait object the
+  ; field declares. Returns the family root's name, or "".
+  fn rustTraitCoerceRoot:string (right:CodeNode fieldTypeName:string ctx:RangerAppWriterContext) {
+    if ((strlen fieldTypeName) == 0) {
+      return ""
+    }
+    def tcInner:CodeNode (this.rustUnwrapParens(right))
+    def tcT:string (this.rustDeclaredClassOf(tcInner))
+    if ((strlen tcT) == 0) {
+      return ""
+    }
+    if (tcT == fieldTypeName) {
+      return ""
+    }
+    if ((this.rustClassIsShared(tcT ctx)) == false) {
+      return ""
+    }
+    ; the value has to BE a handle already; a freshly built object still
+    ; needs its cell
+    if ((this.rustInitRcState(right ctx)) == 0) {
+      return ""
+    }
+    if ((ctx.isDefinedClass(tcT)) == false) {
+      return ""
+    }
+    def tcCls:RangerAppClassDesc (ctx.findClass(tcT))
+    for tcCls.extends_classes tcP:string tcPi {
+      if (tcP == fieldTypeName) {
+        return fieldTypeName
+      }
+    }
+    return ""
+  }
+
+  ; Walk an operand, or the temporary a hoist put its value in. The
+  ; hand-written collection operators do not go through the call path, so
+  ; they consume the mark themselves.
+  ; Can this class derive Clone? A trait-object field cannot, nor a closure
+  ; — and neither can a struct that holds one INLINE, however deep: `struct
+  ; UIContext { tr : UITextRenderer }` derived Clone while UITextRenderer
+  ; could not. A field behind an Rc clones the handle and asks nothing of
+  ; what is inside it.
+  ; The operators that write one ELEMENT at an index.
+  ; Does this expression mention `name` at all — as a bare name or as the
+  ; head of a path? `self.ends[self.ends.len() - 1] = i` reads the field it
+  ; is writing, and both borrows are live at once.
+  ; Does the callee take argument `idx` by `&mut`? Such an argument is an
+  ; OUT parameter: it must stay the place it names, because a copy handed to
+  ; a `&mut` collects what the callee writes and is then dropped.
+  ; A call on THIS object in either of the two shapes the front end builds:
+  ; the dotted `this.make()` and the `(call this make args)` an operator
+  ; operand carries.
+  ; `push this.items (this.make())` — the operator writes through
+  ; `&mut self.items` while the call takes `&mut self`, and both borrows are
+  ; live in the one statement (E0499). The call goes to a temporary first,
+  ; which is what the call path already does for its own arguments.
+}
+
+Import "RustOwnership.rgr"
+Import "RustCall.rgr"
+Import "RustOperators.rgr"
+Import "RustClass.rgr"
+Import "RustUnion.rgr"

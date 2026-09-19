@@ -224,7 +224,7 @@ delegates to it.
 
 ## What goes here next
 
-> **Beyond OOXML.** [`PLAN_FORMATS.md`](../../PLAN_FORMATS.md) is the phased
+> **Beyond OOXML.** [`PLAN_FORMATS.md`](../../docs/plans/PLAN_FORMATS.md) is the phased
 > plan for the formats after DOCX/XLSX/PPTX. Its Phase 1 builds **`OfficeScene`**
 > — item 10 of the ooxml roadmap — because `.odp` and `.pptx` give it two
 > producers at once, which is what this directory requires of anything shared.

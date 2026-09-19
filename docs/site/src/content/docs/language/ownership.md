@@ -201,7 +201,7 @@ yet. [The memory page](/Ranger/docs/targets/memory/) holds the emission and the
 state of each target.
 
 `strong`, `lives` and `temp` change no output on any target. The compiler reads
-`lives` and `temp` in `compiler/ng_RangerAppParamDesc.rgr`, where it follows the
+`lives` and `temp` in `compiler/RangerAppParamDesc.rgr`, where it follows the
 strength and the lifetime of each reference through the assignments.
 
 ## What to write in a program

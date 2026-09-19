@@ -1,0 +1,373 @@
+; SPDX-License-Identifier: MIT
+
+; Imports and the language document: resolving a package spec to a directory,
+; merging an imported file into the tree, and registering what `Lang.rgr`
+; declares as a system class, union or record.
+
+extension RangerFlowParser {
+
+  fn clearImports:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+
+    if (node.isFirstVref("Import")) {
+      node.expression = true
+      node.vref = ""
+      removeLast node.children
+      removeLast node.children
+    } {
+      for node.children item:CodeNode i {
+        this.clearImports(item ctx wr)
+      }
+    }
+  }
+
+  fn registerLangSystemClasses:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    this.walkLangDefinitions(node ctx)
+  }
+
+  fn walkLangDefinitions:void (node:CodeNode ctx:RangerAppWriterContext) {
+    if (node.isFirstVref("systemclass")) {
+      this.registerSystemClassFromNode(node ctx)
+      return
+    }
+    if (node.isFirstVref("systemunion")) {
+      this.registerSystemUnionFromNode(node ctx)
+      return
+    }
+    for node.children ch:CodeNode i {
+      this.walkLangDefinitions(ch ctx)
+    }
+  }
+
+  fn registerSystemClassFromNode:void (node:CodeNode ctx:RangerAppWriterContext) {
+    def nameNode@(lives):CodeNode (node.getSecond())
+    if(ctx.isDefinedClass(nameNode.vref)) {
+      def cl (ctx.findClass(nameNode.vref))
+      if( cl.is_system_union == false ) {
+        ctx.addError(node "Class already defined and it was not a systemunion.")
+      }
+      cl.is_system = true
+      def instances:CodeNode (node.getThird())
+      for instances.children ch@(lives):CodeNode i {
+        def langName:CodeNode (ch.getFirst())
+        def langClassName:CodeNode (ch.getSecond())
+        set cl.systemNodes langName.vref ch
+        if( (strlen langClassName.vref ) > 0 ) {
+          set cl.systemNames langName.vref langClassName.vref
+        }
+        if( (strlen langClassName.string_value ) > 0 ) {
+          set cl.systemNames langName.vref langClassName.string_value
+        }
+      }
+      return
+    }
+    def instances:CodeNode (node.getThird())
+    def new_class@(lives):RangerAppClassDesc (new RangerAppClassDesc ())
+    new_class.name = nameNode.vref
+    new_class.nameNode = nameNode
+    ctx.addClass(nameNode.vref new_class)
+    new_class.is_system = true
+    for instances.children ch@(lives):CodeNode i {
+      def langName:CodeNode (ch.getFirst())
+      def langClassName:CodeNode (ch.getSecond())
+      set new_class.systemNodes langName.vref ch
+      if( (strlen langClassName.vref ) > 0 ) {
+        set new_class.systemNames langName.vref langClassName.vref
+      }
+      if( (strlen langClassName.string_value ) > 0 ) {
+        set new_class.systemNames langName.vref langClassName.string_value
+      }
+    }
+    nameNode.is_system_class = true
+    nameNode.clDesc = new_class
+  }
+
+  fn registerSystemUnionFromNode:void (node:CodeNode ctx:RangerAppWriterContext) {
+    def nameNode@(lives):CodeNode (node.getSecond())
+    if(ctx.isDefinedClass(nameNode.vref)) {
+      def cl (ctx.findClass(nameNode.vref))
+      if( cl.is_system == false ) {
+        ctx.addError(node "Only system classes can be systemunions")
+      }
+      cl.is_system_union = true
+      def instances:CodeNode (node.getThird())
+      for instances.children ch:CodeNode i {
+        push cl.is_union_of ch.vref
+      }
+      return
+    }
+    def instances:CodeNode (node.getThird())
+    def new_class@(lives):RangerAppClassDesc (new RangerAppClassDesc ())
+    new_class.name = nameNode.vref
+    new_class.nameNode = nameNode
+    ctx.addClass(nameNode.vref new_class)
+    new_class.is_system_union = true
+    for instances.children ch:CodeNode i {
+      push new_class.is_union_of ch.vref
+    }
+    nameNode.clDesc = new_class
+  }
+
+  fn finalizeRecordClasses:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+    def rootCtx (ctx.getRoot())
+    for rootCtx.definedClassList cname:string i {
+      def cl:RangerAppClassDesc (rootCtx.findClass(cname))
+      if (cl.is_record) {
+        if (cl.has_constructor == false) {
+          this.buildRecordConstructor(cl ctx wr)
+        }
+      }
+    }
+  }
+
+  fn expandRecordCtorArgsIfNeeded:void (cl:RangerAppClassDesc fnDescr:RangerAppFunctionDesc params:CodeNode node:CodeNode) {
+    if (cl.is_record == false) {
+      return
+    }
+    if ((size params.children) == 0) {
+      return
+    }
+    def fc:CodeNode (first params.children)
+    if (fc.hasFlag("keyword")) {
+      return
+    }
+    def valueCnt 0
+    for fnDescr.params p:RangerAppParamDesc i {
+      if (p.nameNode.hasFlag("keyword") == false) {
+        valueCnt = valueCnt + 1
+      }
+    }
+    if ((size params.children) != valueCnt) {
+      return
+    }
+    def expanded:[CodeNode]
+    def vi 0
+    for fnDescr.params p:RangerAppParamDesc i {
+      if (p.nameNode.hasFlag("keyword")) {
+        def kw:CodeNode (node.newVRefNode(p.name))
+        kw.setFlag("keyword")
+        push expanded kw
+      } {
+        push expanded (at params.children vi)
+        vi = vi + 1
+      }
+    }
+    clear params.children
+    for expanded item:CodeNode i {
+      push params.children item
+    }
+  }
+
+  fn buildRecordConstructor:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    if ((size cl.variables) == 0) {
+      return
+    }
+    def sig:string "Constructor ("
+    def body:string "{\n"
+    def i 0
+    def cnt (size cl.variables)
+    while (i < cnt) {
+      def v:RangerAppParamDesc (at cl.variables i)
+      def tname:string v.nameNode.type_name
+      ; A collection field carries its element type on array_type / key_type and
+      ; leaves type_name empty. Without this the parameter fell through to the
+      ; "string" default below, so `record R { def xs:[int] }` generated a
+      ; constructor whose assignment could not type-check.
+      def vKeyType:string v.nameNode.key_type
+      def vArrayType:string v.nameNode.array_type
+      if ((strlen vKeyType) > 0) {
+        tname = ((("[" + vKeyType) + ":") + vArrayType) + "]"
+      } {
+        if ((strlen vArrayType) > 0) {
+          tname = ("[" + vArrayType) + "]"
+        }
+      }
+      if ((strlen tname) == 0) {
+        tname = "string"
+      }
+      if (i > 0) {
+        sig = sig + " "
+      }
+      sig = sig + v.name + "@(keyword) " + v.name + ":" + tname
+      body = body + "this." + v.name + " = " + v.name + "\n"
+      i = i + 1
+    }
+    sig = sig + ") "
+    def code:string (sig + body + "}")
+    def src:SourceCode (new SourceCode (code))
+    src.filename = ("record_ctor_" + cl.name + ".rgr")
+    def parser:RangerLispParser (new RangerLispParser (src))
+    parser.parse(false)
+    def rn@(optional):CodeNode parser.rootNode
+    if (null? rn) {
+      return
+    }
+    def subCtx:RangerAppWriterContext (unwrap cl.ctx)
+    subCtx.setCurrentClass(cl)
+    for rn.children ch:CodeNode ci {
+      if (ch.isFirstVref("Constructor")) {
+        this.WalkCollectMethods(ch subCtx wr)
+        this.Constructor(ch subCtx wr)
+        return
+      }
+    }
+  }
+
+  fn prepareImport:PkgHit (ctx:RangerAppWriterContext spec:string) {
+    def hit (new PkgHit)
+    hit.ok = true
+    hit.name = (PkgImport.stripDot(spec))
+    def envOpt (ctx.getEnv())
+    if (null? envOpt) {
+      hit.ok = false
+      hit.err = "Environment not defined"
+      return hit
+    }
+    if ((PkgImport.isPkg(spec)) == false) {
+      return hit
+    }
+    def env (unwrap envOpt)
+    def rootCtx (ctx.getRoot())
+    def startDir:string "."
+    def lp:int (array_length rootCtx.libraryPaths)
+    if (lp > 0) {
+      startDir = (itemAt rootCtx.libraryPaths (lp - 1))
+    }
+    return (PkgImport.resolve(env startDir spec rootCtx.libraryPaths))
+  }
+
+  fn mergeImports:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+
+    def envOpt (ctx.getEnv())
+    if(null? envOpt) {
+      ctx.addError( node 'Environment not defined')
+      return
+    }
+    def env (unwrap envOpt)
+    
+    if (node.isFirstVref("Import")) {
+      def fNameNode:CodeNode (at node.children 1)
+      def import_file:string fNameNode.string_value
+
+      if (has ctx.already_imported import_file) {
+        return
+      }
+
+      def source_code ""
+
+      if_javascript {
+        def ppList (ctx.findPluginsFor("import_loader"))
+        if( has ppList ) {
+          try {
+            ppList.forEach({
+              def plugin (load_compiler_plugin item)
+              def ss ( call_plugin plugin "import_loader" node ctx wr )
+              case ss str:string {
+                print "--> import  " + str
+                source_code = str
+              }
+            })
+          } {
+
+          }
+        }
+      }
+      set ctx.already_imported import_file true
+      def rootCtx (ctx.getRoot())
+      
+      ; Calculate the full path and directory of the imported file
+      def importFileDir:string ""
+      
+      if( (strlen source_code) == 0 ) {
+        def searchName:string (PkgImport.stripDot(import_file))
+        def searchPaths:[string]
+        if (PkgImport.isPkg(import_file)) {
+          def hit:PkgHit (this.prepareImport(ctx import_file))
+          if (hit.ok == false) {
+            ctx.addError(node hit.err)
+            return
+          }
+          searchName = hit.name
+          if ((strlen hit.dir) > 0) {
+            push searchPaths hit.dir
+          }
+        }
+        def pi:int 0
+        while (pi < (array_length rootCtx.libraryPaths)) {
+          push searchPaths (itemAt rootCtx.libraryPaths pi)
+          pi = (pi + 1)
+        }
+        def filePathIs (TFiles.searchEnv( env searchPaths searchName ))
+        if( ( file_exists env filePathIs searchName ) == false ) {
+          if(ctx.hasCompilerFlag("verbose")) {
+            print "import did not find the file: " + import_file
+          }
+          ctx.addError(node ('Could not import file '  + import_file))
+          return
+        }
+        if(ctx.hasCompilerFlag("verbose")) {
+          print "importing " + import_file + " from " + filePathIs
+        }
+        ; The same file reached under two spellings -- `../../evg/X.rgr` from
+        ; inside the tree and `pkg:evg/X.rgr` from a package -- is one file.
+        ; Keyed on the import string alone it is parsed twice and every class
+        ; in it is defined twice, so a tree cannot move to `pkg:` one file at
+        ; a time. Key the folded path as well.
+        def seenKey:string ("@" + (PkgImport.foldPath((filePathIs + "/" + searchName))))
+        if (has ctx.already_imported seenKey) {
+          return
+        }
+        set ctx.already_imported seenKey true
+        def c:string (read_file env filePathIs searchName)
+        source_code = (unwrap c)
+        
+        ; Extract directory of imported file for recursive imports
+        def fullPath:string (filePathIs + "/" + searchName)
+        importFileDir = (path_dirname fullPath)
+        if(ctx.hasCompilerFlag("verbose")) {
+          print "  -> file read OK, importFileDir=" + importFileDir
+        }
+      }
+      def code:SourceCode (new SourceCode ( source_code ))
+      code.filename = import_file
+      def parser:RangerLispParser (new RangerLispParser (code))
+      parser.parse((ctx.hasCompilerFlag("no-op-transform")))
+      node.expression = true
+      node.vref = ""
+      removeLast node.children
+      removeLast node.children
+
+      if(ctx.hasCompilerFlag("copysrc")) {
+        print "--> copying " + (import_file)
+        def fileWr (wr.getFileWriter("." import_file))
+        fileWr.raw( source_code false)
+      }
+
+      def rn:CodeNode (unwrap parser.rootNode)
+      
+      ; Add the imported file's directory to library paths for recursive imports
+      if ((strlen importFileDir) > 0) {
+        push rootCtx.libraryPaths importFileDir
+        if(ctx.hasCompilerFlag("verbose")) {
+          print "  -> pushed importFileDir to libraryPaths: " + importFileDir
+        }
+      }
+      
+      this.mergeImports( rn ctx wr)
+      
+      ; Remove the directory after processing (restore original paths)
+      if ((strlen importFileDir) > 0) {
+        removeLast rootCtx.libraryPaths
+      }
+      
+      push node.children rn
+      if(ctx.hasCompilerFlag("verbose")) {
+        print "  -> merged import, node now has " + (size node.children) + " children"
+      }
+    } {
+      for node.children item:CodeNode i {
+        this.mergeImports(item ctx wr)
+      }
+    }
+  }
+
+}

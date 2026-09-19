@@ -102,7 +102,7 @@ describe("operator target coverage", () => {
   // to the three-argument `if`, which is not a macro, so they terminate. Self
   // naming is therefore legal and such a check would be false-positive by
   // design. Recursion is caught exactly, at compile time, by the active-macro
-  // map in ng_parser_std_match2.rgr; see tests/macro-recursion.test.ts.
+  // map in FlowStdMatch.rgr; see tests/macro-recursion.test.ts.
 
   // A template that emits a literal false / an empty string / a "not
   // implemented" comment compiles and then silently does the wrong thing at

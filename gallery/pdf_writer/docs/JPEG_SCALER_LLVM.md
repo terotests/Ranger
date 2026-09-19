@@ -76,7 +76,7 @@ These changes live in the Ranger **compiler** and **runtime**, not in
 - `ranger_buffer.c` - byte/int buffer helpers, and `ranger_buffer_fill`
 - `ranger_rt.c` - `ranger_substring`, `ranger_str2double`, `ranger_str2int`, string helpers
 
-### Inline IR runtime (`compiler/ng_LowIRRuntime.rgr`)
+### Inline IR runtime (`compiler/LowIRRuntime.rgr`)
 
 - `RtArray_set`, `RtPtrArray_new` / `get` / `len` / `push` / `set` emitted into `.ll`
 

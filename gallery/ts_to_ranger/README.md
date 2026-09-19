@@ -215,7 +215,7 @@ files**. Ordered by how much emitter complexity they remove:
 2. **Numeric coercion (int→double widening)** — allow `int` literals in `double`
    context (`if (by < 6)`, `def x:double 0`). Removes all type-directed number
    emission. (Verified today: the compiler rejects `def a:double 5`, `b < 5`,
-   and `o.x = 10` — see `shouldBeEqualTypes` in `ng_RangerFlowParser.rgr` and
+   and `o.x = 10` — see `shouldBeEqualTypes` in `RangerFlowParser.rgr` and
    operator matching in `ng_parser_std_match.rgr`.)
 3. **Struct literal sugar** — `EntityPoseNative { x: bx, y: by }` instead of
    manual field assignment (matches TS object literal syntax).

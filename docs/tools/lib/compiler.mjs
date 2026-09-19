@@ -51,7 +51,7 @@ export function buildCompilerModule({ force = false, quiet = false } = {}) {
       CLI,
       "-nodemodule",
       "-es6",
-      "./compiler/ng_Compiler.rgr",
+      "./compiler/Compiler.rgr",
       "-d=./docs/.cache",
       "-o=rangerapi.js",
     ],

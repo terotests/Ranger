@@ -46,13 +46,13 @@ describe("self-hosting: the compiler compiles for C++", () => {
   it("generates C++ from the compiler's own sources", () => {
     fs.mkdirSync(OUT, { recursive: true });
 
-    const result = compileRanger("compiler/ng_Compiler.rgr", "cpp", OUT);
+    const result = compileRanger("compiler/Compiler.rgr", "cpp", OUT);
     expect(
       result.success,
       `C++ codegen failed: ${result.error || result.output}`
     ).toBe(true);
 
-    const generated = path.join(OUT, "ng_Compiler.cpp");
+    const generated = path.join(OUT, "Compiler.cpp");
     expect(fs.existsSync(generated), `missing ${generated}`).toBe(true);
 
     const code = fs.readFileSync(generated, "utf-8");
@@ -72,10 +72,10 @@ describe("self-hosting: the compiler compiles for C++", () => {
   const gppIt = gppAvailable ? it : it.skip;
 
   gppIt("the generated C++ passes a g++ syntax check", () => {
-    const generated = path.join(OUT, "ng_Compiler.cpp");
+    const generated = path.join(OUT, "Compiler.cpp");
     expect(
       fs.existsSync(generated),
-      "run the codegen test first — no ng_Compiler.cpp"
+      "run the codegen test first — no Compiler.cpp"
     ).toBe(true);
 
     execSync(`g++ -std=c++17 -fsyntax-only "${generated}"`, {
@@ -98,7 +98,7 @@ describe("self-hosting: the compiler compiles for Dart", () => {
   it("generates Dart from the compiler's own sources", () => {
     fs.mkdirSync(OUT, { recursive: true });
 
-    const result = compileRangerToDart("compiler/ng_Compiler.rgr", OUT, [], {
+    const result = compileRangerToDart("compiler/Compiler.rgr", OUT, [], {
       timeoutMs: 300000,
     });
     expect(
@@ -106,7 +106,7 @@ describe("self-hosting: the compiler compiles for Dart", () => {
       `Dart codegen failed: ${result.error || result.output}`
     ).toBe(true);
 
-    const generated = path.join(OUT, "ng_Compiler.dart");
+    const generated = path.join(OUT, "Compiler.dart");
     expect(fs.existsSync(generated), `missing ${generated}`).toBe(true);
 
     const code = fs.readFileSync(generated, "utf-8");
@@ -129,10 +129,10 @@ describe("self-hosting: the compiler compiles for Dart", () => {
   // ~25 s, and it is the step that catches a template producing Dart the
   // analyzer rejects — which the string assertions above cannot see.
   dartIt("the generated Dart passes `dart analyze`", () => {
-    const generated = path.join(OUT, "ng_Compiler.dart");
+    const generated = path.join(OUT, "Compiler.dart");
     expect(
       fs.existsSync(generated),
-      "run the codegen test first — no ng_Compiler.dart"
+      "run the codegen test first — no Compiler.dart"
     ).toBe(true);
 
     // `dart analyze` exits non-zero on an error and prints the list, so the
@@ -166,13 +166,13 @@ describe("self-hosting: the compiler compiles for Python", () => {
   it("generates Python from the compiler's own sources", () => {
     fs.mkdirSync(OUT, { recursive: true });
 
-    const result = compileRanger("compiler/ng_Compiler.rgr", "python", OUT);
+    const result = compileRanger("compiler/Compiler.rgr", "python", OUT);
     expect(
       result.success,
       `Python codegen failed: ${result.error || result.output}`
     ).toBe(true);
 
-    const generated = path.join(OUT, "ng_Compiler.py");
+    const generated = path.join(OUT, "Compiler.py");
     expect(fs.existsSync(generated), `missing ${generated}`).toBe(true);
 
     const code = fs.readFileSync(generated, "utf-8");
@@ -187,10 +187,10 @@ describe("self-hosting: the compiler compiles for Python", () => {
   // py_compile is the parser, which is what the lambda, switch and empty-suite
   // defects all broke.
   it("the generated Python compiles", () => {
-    const generated = path.join(OUT, "ng_Compiler.py");
+    const generated = path.join(OUT, "Compiler.py");
     expect(
       fs.existsSync(generated),
-      "run the codegen test first — no ng_Compiler.py"
+      "run the codegen test first — no Compiler.py"
     ).toBe(true);
 
     execSync(`python3 -m py_compile "${generated}"`, {
@@ -214,13 +214,13 @@ describe("self-hosting: the compiler compiles for C#", () => {
   it("generates C# from the compiler's own sources", () => {
     fs.mkdirSync(OUT, { recursive: true });
 
-    const result = compileRanger("compiler/ng_Compiler.rgr", "csharp", OUT);
+    const result = compileRanger("compiler/Compiler.rgr", "csharp", OUT);
     expect(
       result.success,
       `C# codegen failed: ${result.error || result.output}`
     ).toBe(true);
 
-    const generated = path.join(OUT, "ng_Compiler.cs");
+    const generated = path.join(OUT, "Compiler.cs");
     expect(fs.existsSync(generated), `missing ${generated}`).toBe(true);
 
     const code = fs.readFileSync(generated, "utf-8");
@@ -246,13 +246,13 @@ describe("self-hosting: the compiler compiles for C#", () => {
   const mcsIt = mcsAvailable ? it : it.skip;
 
   mcsIt("the generated C# builds", () => {
-    const generated = path.join(OUT, "ng_Compiler.cs");
+    const generated = path.join(OUT, "Compiler.cs");
     expect(
       fs.existsSync(generated),
-      "run the codegen test first — no ng_Compiler.cs"
+      "run the codegen test first — no Compiler.cs"
     ).toBe(true);
 
-    execSync(`mcs -langversion:latest -out:ng_Compiler.exe "${generated}"`, {
+    execSync(`mcs -langversion:latest -out:Compiler.exe "${generated}"`, {
       cwd: OUT,
       stdio: ["pipe", "pipe", "pipe"],
       timeout: 600000,
@@ -273,13 +273,13 @@ describe("self-hosting: the compiler compiles for Go", () => {
   it("generates Go from the compiler's own sources", () => {
     fs.mkdirSync(OUT, { recursive: true });
 
-    const result = compileRanger("compiler/ng_Compiler.rgr", "go", OUT);
+    const result = compileRanger("compiler/Compiler.rgr", "go", OUT);
     expect(
       result.success,
       `Go codegen failed: ${result.error || result.output}`
     ).toBe(true);
 
-    const generated = path.join(OUT, "ng_Compiler.go");
+    const generated = path.join(OUT, "Compiler.go");
     expect(fs.existsSync(generated), `missing ${generated}`).toBe(true);
 
     const code = fs.readFileSync(generated, "utf-8");
@@ -302,10 +302,10 @@ describe("self-hosting: the compiler compiles for Go", () => {
   const goIt = goAvailable ? it : it.skip;
 
   goIt("the generated Go builds", () => {
-    const generated = path.join(OUT, "ng_Compiler.go");
+    const generated = path.join(OUT, "Compiler.go");
     expect(
       fs.existsSync(generated),
-      "run the codegen test first — no ng_Compiler.go"
+      "run the codegen test first — no Compiler.go"
     ).toBe(true);
 
     fs.writeFileSync(path.join(OUT, "go.mod"), "module rangerc\n\ngo 1.21\n");
@@ -330,13 +330,13 @@ describe("self-hosting: the compiler compiles for Kotlin", () => {
   it("generates Kotlin from the compiler's own sources", () => {
     fs.mkdirSync(OUT, { recursive: true });
 
-    const result = compileRanger("compiler/ng_Compiler.rgr", "kotlin", OUT);
+    const result = compileRanger("compiler/Compiler.rgr", "kotlin", OUT);
     expect(
       result.success,
       `Kotlin codegen failed: ${result.error || result.output}`
     ).toBe(true);
 
-    const generated = path.join(OUT, "ng_Compiler.kt");
+    const generated = path.join(OUT, "Compiler.kt");
     expect(fs.existsSync(generated), `missing ${generated}`).toBe(true);
 
     const code = fs.readFileSync(generated, "utf-8");
@@ -363,14 +363,14 @@ describe("self-hosting: the compiler compiles for Kotlin", () => {
   const kotlinIt = kotlinAvailable ? it : it.skip;
 
   kotlinIt("the generated Kotlin builds", () => {
-    const generated = path.join(OUT, "ng_Compiler.kt");
+    const generated = path.join(OUT, "Compiler.kt");
     expect(
       fs.existsSync(generated),
-      "run the codegen test first — no ng_Compiler.kt"
+      "run the codegen test first — no Compiler.kt"
     ).toBe(true);
 
     execSync(
-      `kotlinc -J-Xmx12g "${generated}" -include-runtime -d ng_Compiler.jar`,
+      `kotlinc -J-Xmx12g "${generated}" -include-runtime -d Compiler.jar`,
       { cwd: OUT, stdio: ["pipe", "pipe", "pipe"], timeout: 2400000 }
     );
   }, 3000000);

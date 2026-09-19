@@ -158,7 +158,7 @@ to be a writer override.
 
 ### Fix
 
-`compiler/ng_RangerRustClassWriter.rgr` — added a `writeArrayLiteral` that
+`compiler/RangerRustClassWriter.rgr` — added a `writeArrayLiteral` that
 emits `vec![a, b, c]`.
 
 ### Verification
@@ -205,7 +205,7 @@ marker was emitted as a literal element and, counting as a second distinct
 
 ### Fix
 
-`compiler/ng_RangerFlowParser.rgr` — `cmdArray` now scans for a child carrying
+`compiler/RangerFlowParser.rgr` — `cmdArray` now scans for a child carrying
 both a `vref` and a `type_name` (only `name:Type` syntax sets both, and that is
 never a valid element expression) and reports:
 
@@ -386,7 +386,7 @@ So:
   nothing — the statement never reaches operator matching in this shape.
   (Tried and reverted; recorded so nobody spends the afternoon on it twice.)
 
-That left the symbol/vref scanner in `ng_parser_v2.rgr`, which absorbed the
+That left the symbol/vref scanner in `RangerLispParser.rgr`, which absorbed the
 trailing `.field` into the chain it was building and then dropped it when the
 statement turned out to be an assignment rather than a call.
 
@@ -429,7 +429,7 @@ of the parser changed** — no new operator overload, no codegen change, no type
 rule. That is the whole reason this route works where the `Lang.rgr` route
 ruled out above does not.
 
-The surgery is three moves at the detection point in `ng_parser_v2.rgr`:
+The surgery is three moves at the detection point in `RangerLispParser.rgr`:
 
 1. The children the statement node has accumulated so far *are* the receiver
    (the callee vref and its argument group). They are moved into the new
@@ -630,13 +630,13 @@ Two live sites, both silently miscompiled for as long as they have existed:
    returning.
 
 Also present, but harmless because the call was the last statement in its block:
-`compiler/ng_writer.rgr` (the compiler's own source), and
+`compiler/CodeWriter.rgr` (the compiler's own source), and
 `compiler/test_call.rgr`, where the swallowed statements meant the fixture was
 not testing what it appeared to.
 
 ### Fix
 
-`compiler/ng_parser_v2.rgr` — the block-node branch now rejects a statement whose
+`compiler/RangerLispParser.rgr` — the block-node branch now rejects a statement whose
 first character is `.`, reporting the file, line and source text plus the
 workaround. `compiler/VirtualCompiler.rgr` treats `parser.had_error` as fatal so
 no output file is written from a truncated AST (previously a parse error printed
@@ -699,7 +699,7 @@ temporary: in `(this.helper() + 1)` the infix rewriter treated `this.helper` and
 
 ### The fix
 
-`compiler/ng_parser_v2.rgr` folds the call back together while parsing. A `(`
+`compiler/RangerLispParser.rgr` folds the call back together while parsing. A `(`
 that **touches** a dotted name — no space in between — is that name's argument
 list, so the two become one call node before anything downstream sees them:
 
@@ -812,7 +812,7 @@ class Main {
 
 The `get` operator for dictionaries in ES6/JavaScript used direct bracket access `obj[key]` which returns values from the prototype chain. When `key` is `"toString"`, `obj["toString"]` returns `Object.prototype.toString` (a function) instead of `undefined`.
 
-In `ng_RangerAppClassDesc.rgr`, the `addMethod` function uses:
+In `RangerAppClassDesc.rgr`, the `addMethod` function uses:
 
 ```ranger
 def defVs:RangerAppMethodVariants (get method_variants desc.name)
@@ -1130,11 +1130,11 @@ class Dog(Animal):
 
 ### Root Cause
 
-The Python class writer (`compiler/ng_RangerPythonClassWriter.rgr`) generated `super().__init__()` without analyzing what arguments the parent constructor requires.
+The Python class writer (`compiler/RangerPythonClassWriter.rgr`) generated `super().__init__()` without analyzing what arguments the parent constructor requires.
 
 ### Resolution
 
-Modified `ng_RangerPythonClassWriter.rgr` to check if the parent class has a constructor, and if so, pass the parent constructor's parameters to `super().__init__()`:
+Modified `RangerPythonClassWriter.rgr` to check if the parent class has a constructor, and if so, pass the parent constructor's parameters to `super().__init__()`:
 
 ```ranger
 if(parentClass) {
@@ -1156,7 +1156,7 @@ if(parentClass) {
 
 ### Files Changed
 
-- `compiler/ng_RangerPythonClassWriter.rgr` - Fixed `super().__init__()` to pass parent constructor arguments
+- `compiler/RangerPythonClassWriter.rgr` - Fixed `super().__init__()` to pass parent constructor arguments
 
 ---
 
@@ -1496,7 +1496,7 @@ Ensured all `.rgr` source files and `bin/output.js` are committed with CRLF line
 
 ### Future Fix Needed
 
-Parser now normalizes CRLF, lone CR, and LF to LF in `RangerLispParser.normalizeLineEndings()` before tokenization (`compiler/ng_parser_v2.rgr`). LF-only fixtures are covered in `tests/compiler-imports.test.ts`. The CRLF-in-git workaround can be retired once all environments use the normalized parser build.
+Parser now normalizes CRLF, lone CR, and LF to LF in `RangerLispParser.normalizeLineEndings()` before tokenization (`compiler/RangerLispParser.rgr`). LF-only fixtures are covered in `tests/compiler-imports.test.ts`. The CRLF-in-git workaround can be retired once all environments use the normalized parser build.
 
 ## Issue #13: Duplicate Polyfill Generation in C++ Target
 
@@ -1547,7 +1547,7 @@ cpp ( 'r_utf8_substr(' (e 1) ', ' (e 2) ', 1)'
 ### Files Affected
 
 - `compiler/Lang.rgr` - polyfill definitions
-- `compiler/ng_RangerGenericClassWriter.rgr` or similar - polyfill emission logic
+- `compiler/RangerGenericClassWriter.rgr` or similar - polyfill emission logic
 
 ---
 
@@ -1581,13 +1581,13 @@ Type mismatch boolean <> TSNode. Can not assign variable.
 
 ### Root Cause
 
-The parser in `ng_parser_v2.rgr` was incorrectly tokenizing identifiers that started with `true` or `false`. For example, `trueType` was being split into `true` (boolean literal) + `Type` (identifier), causing parsing errors.
+The parser in `RangerLispParser.rgr` was incorrectly tokenizing identifiers that started with `true` or `false`. For example, `trueType` was being split into `true` (boolean literal) + `Type` (identifier), causing parsing errors.
 
 The `true`/`false` keyword matching checked for the character sequence but did not verify that it was followed by a word boundary character.
 
 ### Resolution
 
-Fixed `ng_parser_v2.rgr` to add word boundary checks when matching `true` and `false` keywords:
+Fixed `RangerLispParser.rgr` to add word boundary checks when matching `true` and `false` keywords:
 
 ```ranger
 ; Check for 'true' keyword - but only if followed by a word boundary
@@ -1599,8 +1599,8 @@ This ensures `true` is only recognized as a boolean literal when followed by whi
 
 ### Files Changed
 
-- `compiler/ng_parser_v2.rgr` - Added word boundary checks for `true`/`false` keyword parsing
-- `compiler/ng_RangerLispParser.rgr` - Same fix for consistency
+- `compiler/RangerLispParser.rgr` - Added word boundary checks for `true`/`false` keyword parsing
+- `compiler/RangerLispParser.rgr` - Same fix for consistency
 
 ---
 
@@ -1620,15 +1620,15 @@ Adding a new primitive-like type (such as `buffer` for binary data) to the Range
 
 When adding a `buffer` type for binary data operations, the following files needed modifications:
 
-1. **`compiler/ng_RangerAppEnums.rgr`** - Add `Buffer` to `RangerNodeType` enum
+1. **`compiler/RangerAppEnums.rgr`** - Add `Buffer` to `RangerNodeType` enum
 2. **`compiler/TTypes.rgr`** - Add cases in three places:
    - `nameToValue()` - return `RangerNodeType.Buffer` for "buffer"
    - `isPrimitive()` - return `true` for `RangerNodeType.Buffer`
    - `valueAsString()` - return "buffer" for `RangerNodeType.Buffer`
-3. **`compiler/ng_RangerAppWriterContext.rgr`** - Update two places:
+3. **`compiler/RangerAppWriterContext.rgr`** - Update two places:
    - `isPrimitiveType()` - add `|| (typeName == "buffer")`
    - `isDefinedType()` - add `|| (typeName == "buffer")`
-4. **`compiler/ng_CodeNodeCompilerExtensions.rgr`** - Add case in `defineNodeTypeTo()`:
+4. **`compiler/CodeNodeCompilerExtensions.rgr`** - Add case in `defineNodeTypeTo()`:
    ```ranger
    case "buffer" {
      node.value_type = RangerNodeType.Buffer
@@ -1636,13 +1636,13 @@ When adding a `buffer` type for binary data operations, the following files need
      node.eval_type_name = "buffer"
    }
    ```
-5. **`compiler/ng_RangerArgMatch.rgr`** - Add case in `getType()`:
+5. **`compiler/RangerArgMatch.rgr`** - Add case in `getType()`:
    ```ranger
    case "buffer" {
      return RangerNodeType.Buffer
    }
    ```
-6. **Each class writer** - Add type mapping (e.g., `ng_RangerJavaScriptClassWriter.rgr`, `ng_RangerGolangClassWriter.rgr`, etc.):
+6. **Each class writer** - Add type mapping (e.g., `RangerJavaScriptClassWriter.rgr`, `RangerGolangClassWriter.rgr`, etc.):
    - `getObjectTypeString()` or `getTypeString()`
    - `writeTypeDef()` switch cases
 7. **`compiler/Lang.rgr`** - Add `systemclass buffer { ... }` with target mappings
@@ -1686,11 +1686,11 @@ Until refactored, document the full list of files that need changes when adding 
 
 | File                                | Functions/Sections                                  |
 | ----------------------------------- | --------------------------------------------------- |
-| `ng_RangerAppEnums.rgr`             | `RangerNodeType` enum                               |
+| `RangerAppEnums.rgr`             | `RangerNodeType` enum                               |
 | `TTypes.rgr`                        | `nameToValue()`, `isPrimitive()`, `valueAsString()` |
-| `ng_RangerAppWriterContext.rgr`     | `isPrimitiveType()`, `isDefinedType()`              |
-| `ng_CodeNodeCompilerExtensions.rgr` | `defineNodeTypeTo()` switch                         |
-| `ng_RangerArgMatch.rgr`             | `getType()` switch                                  |
+| `RangerAppWriterContext.rgr`     | `isPrimitiveType()`, `isDefinedType()`              |
+| `CodeNodeCompilerExtensions.rgr` | `defineNodeTypeTo()` switch                         |
+| `RangerArgMatch.rgr`             | `getType()` switch                                  |
 | `ng_Ranger*ClassWriter.rgr`         | `getTypeString()`, `writeTypeDef()`                 |
 | `Lang.rgr`                          | `systemclass` declaration, operators                |
 
@@ -1770,7 +1770,7 @@ Implement basic control flow analysis for return statements:
 
 ### Files Likely Affected
 
-- `ng_Compiler.rgr` or similar - Function analysis phase
+- `Compiler.rgr` or similar - Function analysis phase
 - Wherever "Function does not return any values" warning is generated
 
 ### Related
@@ -1893,7 +1893,7 @@ While Go supports `*[]T` pointer parameters, this approach has drawbacks:
 
 ### Files Affected
 
-- `compiler/ng_RangerGolangClassWriter.rgr` - Go code generation
+- `compiler/RangerGolangClassWriter.rgr` - Go code generation
 - `compiler/Lang.rgr` - `push`, `clear`, `set` operator templates for Go
 
 ### Related Issues
@@ -2024,7 +2024,7 @@ When compiling `main.rgr`, the import of `ts_parser_simple.rgr` works, but `ts_t
 
 ### Root Cause
 
-In `compiler/ng_RangerFlowParser.rgr` (and `ng_FlowWork.rgr`), the `mergeImports` function uses `rootCtx.libraryPaths` to search for imports, but doesn't update the library paths based on the directory of the currently imported file. The paths are set once at compilation start and not updated for nested imports.
+In `compiler/RangerFlowParser.rgr` (and `ng_FlowWork.rgr`), the `mergeImports` function uses `rootCtx.libraryPaths` to search for imports, but doesn't update the library paths based on the directory of the currently imported file. The paths are set once at compilation start and not updated for nested imports.
 
 ### Expected Behavior
 
@@ -2036,7 +2036,7 @@ When importing a file, the compiler should:
 
 ### Resolution
 
-`mergeImports` and `WalkCollectMethods` in `compiler/ng_RangerFlowParser.rgr` (and `ng_FlowWork.rgr`) now push the imported file's directory onto `rootCtx.libraryPaths` while processing nested imports, then pop it afterward. Regression tests live in `tests/compiler-imports.test.ts` (`cross_dir_lexer.rgr` imports `ts_lexer.rgr`, which imports `ts_token.rgr`).
+`mergeImports` and `WalkCollectMethods` in `compiler/RangerFlowParser.rgr` (and `ng_FlowWork.rgr`) now push the imported file's directory onto `rootCtx.libraryPaths` while processing nested imports, then pop it afterward. Regression tests live in `tests/compiler-imports.test.ts` (`cross_dir_lexer.rgr` imports `ts_lexer.rgr`, which imports `ts_token.rgr`).
 
 ### Impact
 
@@ -2052,7 +2052,7 @@ RANGER_LIB=./compiler/Lang.rgr;./gallery/pdf_writer;./lib/evg;./gallery/ts_parse
 
 ### Proposed Fix
 
-In `ng_RangerFlowParser.rgr`, modify `mergeImports` to:
+In `RangerFlowParser.rgr`, modify `mergeImports` to:
 
 1. Extract the directory from the imported file path
 2. Push it to `libraryPaths` before processing the file
@@ -2060,7 +2060,7 @@ In `ng_RangerFlowParser.rgr`, modify `mergeImports` to:
 
 ### Files to Change
 
-- `compiler/ng_RangerFlowParser.rgr` - `mergeImports` function
+- `compiler/RangerFlowParser.rgr` - `mergeImports` function
 - `compiler/ng_FlowWork.rgr` - `mergeImports` function (if still used)
 
 ---
@@ -2500,7 +2500,7 @@ if (node.isFirstVref("systemclass")) {
 }
 ```
 
-And used dynamically in `ng_RangerGolangClassWriter.rgr` (line 314):
+And used dynamically in `RangerGolangClassWriter.rgr` (line 314):
 
 ```ranger
 if(cc.is_system) {
@@ -2511,19 +2511,19 @@ if(cc.is_system) {
 
 But many writers also have hardcoded type handling:
 
-**ng_RangerGolangClassWriter.rgr:**
+**RangerGolangClassWriter.rgr:**
 ```ranger
 case "charbuffer" { wr.out("[]byte" false) }
 case "buffer" { wr.out("[]byte" false) }
 ```
 
-**ng_RangerJavaScriptClassWriter.rgr:**
+**RangerJavaScriptClassWriter.rgr:**
 ```ranger
 case "charbuffer" { wr.out("Uint8Array" false) }
 case "buffer" { wr.out("Buffer" false) }
 ```
 
-**ng_RangerAppWriterContext.rgr (isPrimitiveType):**
+**RangerAppWriterContext.rgr (isPrimitiveType):**
 ```ranger
 if (typeName == "charbuffer") || (typeName == "buffer") || ...
 ```
@@ -2532,13 +2532,13 @@ if (typeName == "charbuffer") || (typeName == "buffer") || ...
 
 | File | Types Hardcoded |
 |------|-----------------|
-| `ng_RangerGolangClassWriter.rgr` | buffer, charbuffer |
-| `ng_RangerJavaScriptClassWriter.rgr` | buffer, charbuffer |
-| `ng_RangerSwift6ClassWriter.rgr` | buffer, charbuffer |
-| `ng_RangerRustClassWriter.rgr` | buffer |
-| `ng_RangerScalaClassWriter.rgr` | buffer |
-| `ng_RangerAppWriterContext.rgr` | buffer, charbuffer, int_buffer, double_buffer |
-| `ng_CodeNodeCompilerExtensions.rgr` | charbuffer |
+| `RangerGolangClassWriter.rgr` | buffer, charbuffer |
+| `RangerJavaScriptClassWriter.rgr` | buffer, charbuffer |
+| `RangerSwift6ClassWriter.rgr` | buffer, charbuffer |
+| `RangerRustClassWriter.rgr` | buffer |
+| `RangerScalaClassWriter.rgr` | buffer |
+| `RangerAppWriterContext.rgr` | buffer, charbuffer, int_buffer, double_buffer |
+| `CodeNodeCompilerExtensions.rgr` | charbuffer |
 | `TTypes.rgr` | buffer, charbuffer |
 
 ### Impact on HTTP Extension
@@ -2579,11 +2579,11 @@ When adding new `systemclass` definitions to `Lang.rgr`, they are not automatica
 
 ### Fix
 
-Added `compiler/TTypeRegistry.rgr` and `registerLangSystemClasses()` in `ng_RangerFlowParser.rgr`, called from `VirtualCompiler.rgr` after parsing `Lang.rgr`. Systemclasses are registered into the root context and consulted by `isPrimitiveType()` / `isDefinedType()` in `ng_RangerAppWriterContext.rgr`, removing hardcoded HTTP type checks.
+Added `compiler/TTypeRegistry.rgr` and `registerLangSystemClasses()` in `RangerFlowParser.rgr`, called from `VirtualCompiler.rgr` after parsing `Lang.rgr`. Systemclasses are registered into the root context and consulted by `isPrimitiveType()` / `isDefinedType()` in `RangerAppWriterContext.rgr`, removing hardcoded HTTP type checks.
 
 ### Root Cause (historical)
 
-The type validation in `ng_RangerAppWriterContext.rgr` uses `isDefinedType()` which has a hardcoded list of primitive types:
+The type validation in `RangerAppWriterContext.rgr` uses `isDefinedType()` which has a hardcoded list of primitive types:
 
 ```ranger
 fn isDefinedType:boolean (name:string) {
@@ -2640,7 +2640,7 @@ The cleanest long-term solution is to:
 
 ### Files Affected
 
-- `ng_RangerAppWriterContext.rgr` - `isDefinedType()` function
+- `RangerAppWriterContext.rgr` - `isDefinedType()` function
 - `ng_FlowWork.rgr` - systemclass parsing
 - `Lang.rgr` - systemclass definitions
 
@@ -2717,7 +2717,7 @@ if (cmd == "start") {
 Added systemclass annotation check in `areEqualTypes()`:
 
 ```ranger
-; In ng_RangerArgMatch.rgr
+; In RangerArgMatch.rgr
 fn areEqualTypes:boolean (type1 type2) {
     ; ... existing checks ...
     
@@ -2736,12 +2736,12 @@ fn areEqualTypes:boolean (type1 type2) {
 | File | Changes |
 |------|---------|
 | `Lang.rgr` | Added HTTP systemclasses and operators |
-| `ng_RangerAppWriterContext.rgr` | Added HTTP types to `isDefinedType()` |
-| `ng_RangerAppClassDesc.rgr` | Added `getSystemclassType()`, `isSystemclassType()` |
-| `ng_RangerArgMatch.rgr` | Added systemclass annotation check in `areEqualTypes()` |
-| `ng_CodeNode.rgr` | Added `getFlagSiblingString()` helper |
-| `ng_RangerGolangClassWriter.rgr` | Added CustomOperator handling for `start` |
-| `ng_RangerGolangHttpServerWriter.rgr` | New file for HTTP server code generation |
+| `RangerAppWriterContext.rgr` | Added HTTP types to `isDefinedType()` |
+| `RangerAppClassDesc.rgr` | Added `getSystemclassType()`, `isSystemclassType()` |
+| `RangerArgMatch.rgr` | Added systemclass annotation check in `areEqualTypes()` |
+| `CodeNode.rgr` | Added `getFlagSiblingString()` helper |
+| `RangerGolangClassWriter.rgr` | Added CustomOperator handling for `start` |
+| `RangerGolangHttpServerWriter.rgr` | New file for HTTP server code generation |
 
 ### Test File
 
@@ -2811,8 +2811,8 @@ Use the prefix `!` instead — `if (! flag) { … }` compiles and behaves the sa
 ### Status
 
 Open. `if!` is used in only two places in the repository
-(`compiler/ng_RangerFlowParser.rgr:282`, and a commented-out line in
-`ng_LiveCompiler.rgr`), both with blocks small enough to survive the re-parse,
+(`compiler/RangerFlowParser.rgr:282`, and a commented-out line in
+`LiveCompiler.rgr`), both with blocks small enough to survive the re-parse,
 which is why it has not surfaced before. Found while writing `gallery/vela`,
 which uses the workaround throughout.
 
@@ -2890,7 +2890,7 @@ open**. So 233 frames were live for nodes that had already closed.
 
 Three sites recurse, each pushing a node onto `parents` first. A literal `)` or
 `}` ends its frame with `break`, but the third site — an implicit statement
-expression inside a block, `ng_parser_v2.rgr:1054` — is closed by
+expression inside a block, `RangerLispParser.rgr:1054` — is closed by
 `end_expression`, which pops `parents` and **does not break**. That frame then
 parses the rest of the enclosing block, and the next statement recurses again on
 top of it.
@@ -2899,7 +2899,7 @@ top of it.
 
 `parseBuf` records `array_length parents` on entry and returns as soon as the
 list is shorter than that — the node this frame was parsing is gone, so the
-frame is done. Four lines in `compiler/ng_parser_v2.rgr`.
+frame is done. Four lines in `compiler/RangerLispParser.rgr`.
 
 Depth after the fix:
 
@@ -2992,7 +2992,7 @@ this.check("it ran" (res.ok()))
 
 ### The fix
 
-`transformDotMethodCallExpr` (`compiler/ng_RangerFlowParser.rgr`) rewrites
+`transformDotMethodCallExpr` (`compiler/RangerFlowParser.rgr`) rewrites
 `(recv).method(args)` into a `call` node. It walked the receiver first — to
 learn its type, which is how it decides whether this is a method call at all —
 and then put a COPY of the walked receiver into the new node.
@@ -3138,7 +3138,7 @@ from under any caller.
 
 ### Fix
 
-`transformWord` splits three ways in `ng_RangerAppWriterContext.rgr`:
+`transformWord` splits three ways in `RangerAppWriterContext.rgr`:
 
 - `transformBindingWord` -- locals, parameters, and any non-property
   `defineVariable`. Adds the es6 `null` case.
@@ -3149,9 +3149,9 @@ from under any caller.
   `null` case that moved into `transformBindingWord`.
 
 The member sites are `createStaticMethod` and the property branch of
-`defineVariable` in `ng_RangerAppWriterContext.rgr`, `r.funcdesc` in
-`ng_RangerAppFunctionDesc.rgr`, and the three/two `m.compiledName`
-assignments in `ng_FlowWork.rgr` and `ng_RangerFlowParser.rgr`.
+`defineVariable` in `RangerAppWriterContext.rgr`, `r.funcdesc` in
+`RangerAppFunctionDesc.rgr`, and the three/two `m.compiledName`
+assignments in `ng_FlowWork.rgr` and `RangerFlowParser.rgr`.
 
 Fixture, compiled to es6 and run by node:
 
@@ -3271,7 +3271,7 @@ def bad:int (ArgMain.id(n.plain))
 ## Issue #79: a Rust method returning `this` returns a clone, so a chain mutates copies
 
 **Status:** open. Found while testing chain formatting
-([`PLAN_FORMAT.md`](PLAN_FORMAT.md) phase 3) — the fixture chains six calls and
+([`PLAN_FORMAT.md`](docs/plans/PLAN_FORMAT.md) phase 3) — the fixture chains six calls and
 Rust was the one target that printed the wrong number.
 
 ### Reproduction
@@ -3406,7 +3406,7 @@ differs from a pre-fix baseline, and says why.
 ## Issue #77: `npm test` ran one of its eighty-three test files
 
 **Status:** fixed. Found while trying to verify the formatter change
-([`PLAN_FORMAT.md`](PLAN_FORMAT.md)), which is the only reason it was found at
+([`PLAN_FORMAT.md`](docs/plans/PLAN_FORMAT.md)), which is the only reason it was found at
 all — the summary line does not look like a failure.
 
 ### What it looked like
@@ -3468,7 +3468,7 @@ gives it away is the file count not matching the test count.
 **Status:** fixed for every target whose parser is installed here (JavaScript,
 C++, Go, Rust, Python). Dart, Kotlin, Swift and C# are UNCHECKED, not clean.
 Found while measuring formatter output for
-[`PLAN_FORMAT.md`](PLAN_FORMAT.md).
+[`PLAN_FORMAT.md`](docs/plans/PLAN_FORMAT.md).
 
 ### Reproduction
 
@@ -3582,7 +3582,7 @@ enough to look finished and were built the same way as the Go one.
 ## Issue #75: A trailing block on a `class` is taken for the class body, so the real body is never analysed
 
 **Status:** partially fixed. The `doc { … }` case is gone: `DetachDocBlocks`
-(`compiler/ng_RangerFlowParser.rgr`) removes a documentation tail from the
+(`compiler/RangerFlowParser.rgr`) removes a documentation tail from the
 declaration node before `CollectMethods`, so `EnterClass` counts the children it
 counted before the feature existed. `tests/api-docs.test.ts` compiles and runs
 the reproduction. The underlying arity check is still wrong for any OTHER
@@ -3618,10 +3618,10 @@ A `record` in the same shape, with a method, fails compilation outright instead.
 ### Cause
 
 The parser ends an expression at a newline when the parent is a block node
-(`compiler/ng_RangerLispParser.rgr:64`, `skip_space`), so `} doc { … }` on the closing
+(`compiler/RangerLispParser.rgr:64`, `skip_space`), so `} doc { … }` on the closing
 line stays inside the `class` expression and adds two more children to it.
 
-`EnterClass` (`compiler/ng_RangerFlowParser.rgr:2891`) then takes the class body as the
+`EnterClass` (`compiler/RangerFlowParser.rgr:2891`) then takes the class body as the
 **last** child:
 
 ```ranger
@@ -3802,7 +3802,7 @@ about 45 lines of hand-written JavaScript kept in `scripts/patch-chain-desugar.j
 
 The script's header says the bootstrap compiler "cannot emit
 tryDesugarNewMethodChain from .rgr yet". That is not what is happening. The
-Ranger source, `compiler/ng_CodeNodeCompilerExtensions.rgr:402`, is:
+Ranger source, `compiler/CodeNodeCompilerExtensions.rgr:402`, is:
 
 ```ranger
   fn tryDesugarNewMethodChain:boolean () {
@@ -3858,7 +3858,7 @@ The feature is not dead code either — `PLAN_METHOD_CHAINING.md` records phase 
 `tests/compiler-chain-kotlin-swift.test.ts` gate it with ten fixtures.
 
 It is also a trap for anyone rebuilding the compiler. Compiling
-`ng_Compiler.rgr` and copying the result over `bin/output.js` — the obvious
+`Compiler.rgr` and copying the result over `bin/output.js` — the obvious
 thing to do — removes a language feature, and the resulting compiler then
 rejects code the previous one accepted.
 
@@ -3943,7 +3943,7 @@ and the JavaScript/TypeScript/Go/Python targets do not care either way.
 
 ### Cause
 
-`ng_RangerFlowParser.rgr`. The two body forms go through `markParentClass`,
+`RangerFlowParser.rgr`. The two body forms go through `markParentClass`,
 which sets `is_inherited`, sets `is_extended_by_children`, and records the child
 in `child_classes`. The header form is collected separately into the
 `extendedClasses` map and re-applied in `CollectMethods`, which set only

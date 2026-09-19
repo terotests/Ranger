@@ -59,7 +59,7 @@ npm run codegraph:diff         # line diff, class diff, merged graph, diff pages
 npm run codegraph:app          # Full EVG chrome + shop navigation
 npm run codegraph              # SVG of the shop overview + Order zoom
 npm run codegraph:analyze -- gallery/codegraph/fixtures/calls.rgr
-npm run codegraph:analyze -- compiler/ng_RangerAppClassDesc.rgr --max=24
+npm run codegraph:analyze -- compiler/RangerAppClassDesc.rgr --max=24
 npm run codegraph:bench        # JS wall-clock stages (fixtures/calls.rgr)
 npm run codegraph:bench:rt     # JS stages for gallery/realtrainer
 npm run codegraph:bench:cpp    # same bench compiled to C++
@@ -210,14 +210,14 @@ can be compared, which is what the browser example and the unit suite do.
 
 ## Compiler fragments
 
-`compiler/ng_RangerAppClassDesc.rgr` is not a program. It names
+`compiler/RangerAppClassDesc.rgr` is not a program. It names
 `RangerAppWriterContext`, `CodeNode`, `CodeWriter` and so on without
 Importing the files that define them — those types are loaded by a parent
-(`ng_RangerFlowParser.rgr`) when the compiler is compiled as a unit.
+(`RangerFlowParser.rgr`) when the compiler is compiled as a unit.
 
 Pointing the CLI at a file under `compiler/` that is not
-`ng_Compiler.rgr` / `VirtualCompiler.rgr` / `ng_RangerFlowParser.rgr` /
-`ng_LiveCompiler.rgr` therefore compiles **`compiler/ng_RangerFlowParser.rgr`**
+`Compiler.rgr` / `VirtualCompiler.rgr` / `RangerFlowParser.rgr` /
+`LiveCompiler.rgr` therefore compiles **`compiler/RangerFlowParser.rgr`**
 and keeps classes whose source path matches the file you named.
 
 ## Files

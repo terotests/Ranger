@@ -283,7 +283,7 @@ the same program with and without each annotation.
 | `temp` | No change | No change | No change | No change |
 
 `lives` and `temp` are read by the lifetime bookkeeping of the compiler
-(`compiler/ng_RangerAppParamDesc.rgr`), not by a writer of a target language.
+(`compiler/RangerAppParamDesc.rgr`), not by a writer of a target language.
 
 ### `weak` on Rust needs the shared-class model
 

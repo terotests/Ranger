@@ -152,7 +152,7 @@ Observed while prototyping:
   failed to compile with `function variable not found writeByte`. Root cause:
   `buffer` is declared in `compiler/Lang.rgr` as a `systemclass` (so it is also
   a *defined class*), and the receiver resolver in
-  `compiler/ng_RangerFlowParser.rgr` checked "is this a class?" **before** "is
+  `compiler/RangerFlowParser.rgr` checked "is this a class?" **before** "is
   this a variable/field?". A field named `buffer` (as `BitWriter` has) was
   therefore resolved to the empty system type, so `buffer.writeByte(...)` looked
   the method up on the type and failed. Fix: a field/local now shadows a

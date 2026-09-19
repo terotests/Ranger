@@ -16,10 +16,11 @@ RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr \
   node bin/output.js -es6 path/to/File.rgr -d=/tmp -o=File.js -nodecli 2>&1 | grep -A3 FAIL
 ```
 
-The compiler **exits 0 even when compilation fails** — it prints `[FAIL]` and
-`Compilation FAILED` and returns success. Never chain a run onto a build with
-`&&`; for suites use `bash scripts/rgr-suite.sh <src> <outdir> <out.js>`, which
-reads the log and fails properly.
+A failed compile prints `[FAIL]` and `Compilation FAILED` and exits non-zero.
+Compilers **through 3.5.1 returned success** there, so a run chained onto a
+build with `&&` ran the previous build; for suites use
+`bash scripts/rgr-suite.sh <src> <outdir> <out.js>`, which reads the log as well
+and is right on either compiler.
 
 ## The errors that point at the wrong line
 

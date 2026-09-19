@@ -559,7 +559,7 @@ shipped a PNG would also have draw commands.
   can be wrong. Swapping in `gallery/text_editor` on the same canvas is the
   next step there.
 
-The design these are measured against is [`PLAN.md`](PLAN.md), and the WYSIWYG
+The design these are measured against is [`PLAN.md`](../../legacy/docs/PLAN.md), and the WYSIWYG
 half is [`PLAN_WYSIWYG.md`](PLAN_WYSIWYG.md).
 
 **Who owns the document once a reader edits it** is settled by the tabs above:

@@ -1701,7 +1701,7 @@ void buildCodes(std::vector<int>& codes) {
 
 #### How It Works
 
-The static analyzer (`ng_StaticAnalysis.rgr`) scans function bodies for:
+The static analyzer (`StaticAnalysis.rgr`) scans function bodies for:
 
 1. **Mutating operators**: `set`, `push`, `int_buffer_set`, `buffer_set`, etc.
 2. **Function parameters**: Distinguishes parameters from local variables

@@ -52,7 +52,7 @@ database behind this" are different statements.
 
 ## What is here now
 
-This is Phases 0–3 of [`PLAN_RANGERDBVIEWER.md`](../../PLAN_RANGERDBVIEWER.md):
+This is Phases 0–3 of [`PLAN_RANGERDBVIEWER.md`](PLAN_RANGERDBVIEWER.md):
 open a database, describe it, list it, page it, draw it, export it.
 
 | | |

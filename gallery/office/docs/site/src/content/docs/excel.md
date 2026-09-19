@@ -92,7 +92,7 @@ npm run datagrid:parity
 | Path | Role |
 | --- | --- |
 | [`gallery/datagrid/`](https://github.com/terotests/Ranger/tree/master/gallery/datagrid) | Grid, workbook, formulas, xlsx, web host |
-| [`gallery/datagrid/docs/PLAN.md`](https://github.com/terotests/Ranger/blob/master/gallery/datagrid/docs/PLAN.md) | Design notes |
+| [`gallery/datagrid/docs/PLAN.md`](../../../../../../../legacy/docs/PLAN.md) | Design notes |
 | [`gallery/office/`](https://github.com/terotests/Ranger/tree/master/gallery/office) | Shared fonts, theme colour, history |
 
 A published facade, when it exists, will follow the PowerPoint pattern: a
