@@ -184,6 +184,9 @@ function staticFile(urlPath) {
   if (urlPath === "/evg-html.js") {
     return path.join(root, "lib/evg/html/evg-html.js");
   }
+  if (urlPath === "/evg-inspect.js") {
+    return path.join(root, "lib/evg/inspect/evg-inspect.js");
+  }
   if (urlPath.startsWith("/fonts/")) {
     const name = path.basename(urlPath);
     const fonts = path.join(root, "gallery/pdf_writer/assets/fonts/Noto_Sans");
@@ -275,6 +278,7 @@ function main() {
           added: 0,
           nodes: frame.nodes || 0,
           list: frame.list || { cmds: [] },
+          inspect: frame.inspect || null,
         }),
       );
       return;

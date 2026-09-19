@@ -75,6 +75,7 @@ import { attach } from "…/lib/evg/inspect/evg-inspect.js";
 
 attach({
   surface,                    // the <canvas> or <svg> the app paints into
+  onSelect: (path, node) => {}, // optional — pick / tree click
   app: {
     tree:  () => app.inspectJson(gen),        // REQUIRED
     node:  (path) => app.inspectNodeJson(path),

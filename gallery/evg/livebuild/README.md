@@ -68,6 +68,13 @@ There is no second box: the prompt plus Follow up *is* the follow-up.
 Kind chips (Dashboard, Settings, Invoices, Empty) are labelled **Start over**
 and swap the seed. Only those chips wipe the screen; Follow up does not.
 
+**Inspect** opens the same EVG inspector as the gallery dashboard
+(`npm run evg:inspect:demo` → `?inspect=1&demo=dashboard`). Pick an
+element on the phone (or a row in the tree) and Follow up is addressed at
+that path: `The user selected 0/2/0 (span "Orders this month") …`. That is
+the address `EVGPatch` already uses. `?inspect=1` on the live-build URL
+opens the panel on load.
+
 `?pace=0` on `/stream` turns the token delay off.
 
 To drive it with **local Cursor** (Agent CLI + your subscription):

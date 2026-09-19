@@ -265,6 +265,8 @@ sfn main:void () {
         out = ((out + ",\"added\":") + (to_string added))
         out = ((out + ",\"nodes\":") + (to_string nodes))
         out = ((out + ",\"list\":") + (dl.toJson()))
+        def tree:string (insp.treeJson("phone" 1 (to_double pageW) (to_double pageH)))
+        out = ((out + ",\"inspect\":") + tree)
         out = (out + "}")
         this.emitLine(out)
     }

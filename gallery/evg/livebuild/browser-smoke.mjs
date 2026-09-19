@@ -80,6 +80,20 @@ try {
   if (seedSvg < 1) throw new Error("seed: no SVG painted");
   console.log(`  seed         cmds=${seedCmds} svg=${seedSvg} Follow up enabled`);
 
+  await page.getByRole("button", { name: "Inspect" }).click();
+  await page.waitForSelector(".evgi-row", { timeout: 8000 });
+  await page.locator(".evgi-row").nth(2).click();
+  await page.waitForFunction(
+    () => {
+      const el = document.getElementById("pointing");
+      return el && !el.hidden && /0\//.test(el.textContent || "");
+    },
+    null,
+    { timeout: 5000 },
+  );
+  console.log("  inspect      " + (await page.locator("#pointingLabel").innerText()));
+  await page.getByRole("button", { name: "Inspect" }).click();
+
   const goLabel = await page.locator("#go").innerText();
   if (!/follow up/i.test(goLabel)) throw new Error(`expected Follow up button, got ${goLabel}`);
 
