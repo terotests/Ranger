@@ -37,7 +37,13 @@ looks tidy and does not parse. A single statement is fine: `{ return a }`.
 
 **Arithmetic on a call result** works when the receiver is dotted:
 `(w - (Foo.bar() + 8))` parses, and so does `def v:int (this.h.value() * 5)`.
-`(obj.method()).field` still does not — bind the object, then read the field.
+`(obj.method()).field` works too, and so does a property read on a
+parenthesised receiver as an operand of an infix operator:
+`((unwrap x).v == 1)`, `(1 + (f()).v)`. The compiler binds the receiver to a
+temporary before the statement. Two shapes still need the binding written by
+hand: a method call on such a receiver inside an infix expression
+(`((unwrap x).m() + 1)`), and any such read in a `while`/`for` condition,
+which the compiler refuses with a message naming the fix.
 
 **Never start a statement with a parenthesised receiver.** Bind first:
 `def recv:T (expr)` then `recv.method()`.
