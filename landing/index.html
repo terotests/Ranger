@@ -248,73 +248,532 @@ Pricing.kt</code></pre>
 <section class="section section--dark" id="targets">
   <div class="wrap">
     <p class="label reveal">Targets</p>
+    <h2 class="display display--md reveal">Quality ranking</h2>
     <p class="lead lead--wide reveal">
-      Target quality varies by language and by feature area. These are the tiers from
+      Same Ranger source, compiled again with this tree. Each of the twelve
+      <code>gallery/friendly</code> studies is scored 0–100 on how close the
+      generated file is to code a native programmer would keep — not on
+      whether the answers printed. The number in the table is the mean of
+      those twelve scores. It is not the capability matrix in
       <a class="u" href="https://github.com/terotests/Ranger/blob/master/TARGET_NOTES.md">TARGET_NOTES.md</a>.
-      CI compares the capability matrix against a checked-in baseline, so any change —
-      a regression or an improvement — fails the build until the record is updated.
     </p>
-    <p class="lead lead--wide reveal">
-      <strong>How the count works.</strong> <code>-l=</code> takes fourteen values, and
-      that is the number of code-generating back ends. Two of them have a flag that
-      changes the output language: <code>-typescript</code> on the JavaScript back end
-      writes TypeScript, and <code>-wat</code> on the LLVM back end writes WebAssembly
-      text. That is the sixteen rows below, and the fifteen columns of the syntax-app
-      matrix, which covers every back end plus TypeScript.
+    <p class="reveal">
+      The index is the order. Jump to a language for the per-study scores
+      and what still reads as generated. TypeScript is the JavaScript writer
+      plus types and <code>export</code>. PHP and Scala are official
+      <code>-l=</code> back ends; they were compiled from the shared studies
+      even though they never had their own folder.
+    </p>
+    <nav class="rank-index reveal" aria-label="Quality ranking">
+      <ol class="rank">
+        <li><a href="#rank-kotlin">Kotlin</a></li>
+        <li><a href="#rank-python">Python</a></li>
+        <li><a href="#rank-dart">Dart</a></li>
+        <li><a href="#rank-csharp">C#</a></li>
+        <li><a href="#rank-php">PHP</a></li>
+        <li><a href="#rank-scala">Scala</a></li>
+        <li><a href="#rank-swift">Swift</a></li>
+        <li><a href="#rank-typescript">TypeScript</a></li>
+        <li><a href="#rank-javascript">JavaScript</a></li>
+        <li><a href="#rank-java">Java</a></li>
+        <li><a href="#rank-go">Go</a></li>
+        <li><a href="#rank-rust">Rust</a></li>
+        <li><a href="#rank-cpp">C++</a></li>
+      </ol>
+    </nav>
+
+    <div class="matrix-wrap reveal">
+      <table class="matrix">
+        <caption class="sr-only">Idiomacy score: mean of twelve study scores for how close the generated file is to code a native programmer would keep</caption>
+        <thead>
+          <tr>
+            <th scope="col">#</th>
+            <th scope="col">Language</th>
+            <th scope="col">Idiomacy score</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th class="matrix__rank" scope="row">#1</th>
+            <th class="matrix__lang"><a href="#rank-kotlin">Kotlin</a></th>
+            <td class="matrix__score">
+              <span class="score">68%</span>
+              <span class="score__bar" aria-hidden="true"><i style="width:68%"></i></span>
+            </td>
+          </tr>
+          <tr>
+            <th class="matrix__rank" scope="row">#2</th>
+            <th class="matrix__lang"><a href="#rank-python">Python</a></th>
+            <td class="matrix__score">
+              <span class="score">66%</span>
+              <span class="score__bar" aria-hidden="true"><i style="width:66%"></i></span>
+            </td>
+          </tr>
+          <tr>
+            <th class="matrix__rank" scope="row">#3</th>
+            <th class="matrix__lang"><a href="#rank-dart">Dart</a></th>
+            <td class="matrix__score">
+              <span class="score">65%</span>
+              <span class="score__bar" aria-hidden="true"><i style="width:65%"></i></span>
+            </td>
+          </tr>
+          <tr>
+            <th class="matrix__rank" scope="row">#4</th>
+            <th class="matrix__lang"><a href="#rank-csharp">C#</a></th>
+            <td class="matrix__score">
+              <span class="score">64%</span>
+              <span class="score__bar" aria-hidden="true"><i style="width:64%"></i></span>
+            </td>
+          </tr>
+          <tr>
+            <th class="matrix__rank" scope="row">#5</th>
+            <th class="matrix__lang"><a href="#rank-php">PHP</a></th>
+            <td class="matrix__score">
+              <span class="score">59%</span>
+              <span class="score__bar" aria-hidden="true"><i style="width:59%"></i></span>
+            </td>
+          </tr>
+          <tr>
+            <th class="matrix__rank" scope="row">#6</th>
+            <th class="matrix__lang"><a href="#rank-scala">Scala</a></th>
+            <td class="matrix__score">
+              <span class="score">57%</span>
+              <span class="score__bar" aria-hidden="true"><i style="width:57%"></i></span>
+            </td>
+          </tr>
+          <tr>
+            <th class="matrix__rank" scope="row">#7</th>
+            <th class="matrix__lang"><a href="#rank-swift">Swift</a></th>
+            <td class="matrix__score">
+              <span class="score">56%</span>
+              <span class="score__bar" aria-hidden="true"><i style="width:56%"></i></span>
+            </td>
+          </tr>
+          <tr>
+            <th class="matrix__rank" scope="row">#8</th>
+            <th class="matrix__lang"><a href="#rank-typescript">TypeScript</a></th>
+            <td class="matrix__score">
+              <span class="score">55%</span>
+              <span class="score__bar" aria-hidden="true"><i style="width:55%"></i></span>
+            </td>
+          </tr>
+          <tr>
+            <th class="matrix__rank" scope="row">#9</th>
+            <th class="matrix__lang"><a href="#rank-javascript">JavaScript</a></th>
+            <td class="matrix__score">
+              <span class="score">55%</span>
+              <span class="score__bar" aria-hidden="true"><i style="width:55%"></i></span>
+            </td>
+          </tr>
+          <tr>
+            <th class="matrix__rank" scope="row">#10</th>
+            <th class="matrix__lang"><a href="#rank-java">Java</a></th>
+            <td class="matrix__score">
+              <span class="score">50%</span>
+              <span class="score__bar" aria-hidden="true"><i style="width:50%"></i></span>
+            </td>
+          </tr>
+          <tr>
+            <th class="matrix__rank" scope="row">#11</th>
+            <th class="matrix__lang"><a href="#rank-go">Go</a></th>
+            <td class="matrix__score">
+              <span class="score">38%</span>
+              <span class="score__bar" aria-hidden="true"><i style="width:38%"></i></span>
+            </td>
+          </tr>
+          <tr>
+            <th class="matrix__rank" scope="row">#12</th>
+            <th class="matrix__lang"><a href="#rank-rust">Rust</a></th>
+            <td class="matrix__score">
+              <span class="score">37%</span>
+              <span class="score__bar" aria-hidden="true"><i style="width:37%"></i></span>
+            </td>
+          </tr>
+          <tr>
+            <th class="matrix__rank" scope="row">#13</th>
+            <th class="matrix__lang"><a href="#rank-cpp">C++</a></th>
+            <td class="matrix__score">
+              <span class="score">29%</span>
+              <span class="score__bar" aria-hidden="true"><i style="width:29%"></i></span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="footnote reveal">
+      Official <code>-l=</code> source back ends are all in the table: JavaScript,
+      TypeScript (<code>-typescript</code> on the JS writer), Python, Dart, Swift&nbsp;6,
+      Kotlin, C#, Java, PHP, Scala, Go, C++ and Rust.
+      <strong>Not in the table:</strong> Swift&nbsp;3 (the older dialect of the Swift
+      column), and the IR back ends <code>-l=llvm</code> / <code>-wat</code> (LLVM and
+      WASM) — those are not source you check in.
+      The twelve studies live on
+      <a class="u" href="https://github.com/terotests/Ranger/tree/claude/great-bardeen-jx7vr9/gallery/friendly">gallery/friendly</a>;
+      this ranking used the shared <code>src/</code> compiled with the compiler
+      in this tree. A study that does not compile still gets a score — a file
+      a native programmer cannot open is not one they would keep.
     </p>
 
-    <div class="tiers">
-      <div class="tier tier--a reveal">
-        <p class="label">Primary</p>
-        <p class="tier__note">Exercised by the test suite and by gallery programs as large as the compiler itself.</p>
-        <ul class="chips">
-          <li>JavaScript / ES2015</li><li>TypeScript</li><li>Kotlin</li><li>Swift 3</li><li>Swift 6</li>
-          <li>C#</li><li>C++14</li><li>Rust</li><li>Go</li><li>Python 3</li><li>Dart</li>
-        </ul>
-      </div>
-      <div class="tier reveal">
-        <p class="label">Thinner</p>
-        <p class="tier__note">Operator templates and syntax-app coverage; fewer end-to-end goldens. Usable, with more gaps.</p>
-        <ul class="chips chips--dim"><li>PHP</li><li>Java 7</li><li>Scala</li></ul>
-      </div>
-      <div class="tier reveal">
-        <p class="label">Experimental</p>
-        <p class="tier__note">One back end: <code>-l=llvm</code> lowers to LLVM IR, and <code>-wat</code> exports the same IR as WebAssembly text for freestanding modules. Native builds work for demos; browser WASM is still rough.</p>
-        <ul class="chips chips--dim"><li>LLVM</li><li>WASM</li></ul>
-      </div>
-    </div>
+    <div class="quality">
+      <article class="quality__card reveal" id="rank-kotlin">
+        <p class="label">01 — Kotlin</p>
+        <h3>Nulls and sealed types a JVM file would keep</h3>
+        <p class="quality__score">Idiomacy <strong>68%</strong> — mean of twelve studies: ownership 80, option 70, shapes 68, traits 76, iterators 62, generics 30, strings 84, builder 86, errors 68, params 86, absent 88, interfaces 22.</p>
+        <p>
+          Optional is <code>T?</code>. A <code>shape</code> is a
+          <code>sealed interface</code> with implementing classes, which is
+          the Kotlin way to close a family. A function type is
+          <code>(Int) -&gt; Int</code>. <code>throw</code> wraps
+          <code>Exception(msg)</code> — kotlinc accepts it and
+          <code>error_msg</code> is the text you threw. Sharing is ordinary
+          JVM object identity. The Android story on this page is this back
+          end: the same Ranger compiled to Kotlin and called from
+          <code>android.graphics</code>.
+        </p>
+        <p>
+          A Ranger <code>Enum</code> is an <code>Int</code>, not
+          <code>enum class</code>. Generics become <code>Stack_int</code>. A
+          <code>trait</code> is a mixin unless it is used as a type, in which
+          case it is an <code>interface</code>; a field-bearing one is refused.
+          There is no <code>Result</code> / <code>runCatching</code> story.
+          Empty <code>companion object</code> noise is mostly gone, but the
+          file still reads as a port. Study 12 names a <code>Named</code>
+          type this writer never emits, so that file would not kotlinc.
+          The mean still leads because <code>T?</code> and
+          <code>sealed interface</code> win the optional and shape studies.
+        </p>
+      </article>
 
-    <div class="cols cols--2 rules">
-      <div class="col reveal">
-        <p class="label">Write for the strictest target</p>
+      <article class="quality__card reveal" id="rank-python">
+        <p class="label">02 — Python</p>
+        <h3>Closest to the language</h3>
+        <p class="quality__score">Idiomacy <strong>66%</strong> — mean of twelve studies: ownership 82, option 48, shapes 32, traits 78, iterators 86, generics 30, strings 88, builder 84, errors 46, params 82, absent 86, interfaces 52.</p>
         <p>
-          Garbage-collected targets — JavaScript, Go, Python, Kotlin, Dart, Java, C# —
-          generally need fewer ownership annotations than C++, Rust and Swift's reference
-          counting do. Wherever the object graph has a cycle or a non-owning edge, the
-          ownership annotations (<code>@(weak)</code>, <code>@(strong)</code>,
-          <code>@(lives)</code>, <code>@(temp)</code>) have to say so. Code that runs
-          happily on ES6 can still leak on C++ until they are added, and the compiler will
-          print the ownership it inferred for every parameter when you ask it to.
+          This is the file I would keep. Classes are classes. An optional is
+          <code>None</code>. <code>??</code> becomes
+          <code>x if x is not None else fallback</code>. A counted loop is
+          <code>for i, v in enumerate(xs)</code>. Two names for one object are
+          ordinary Python identity. <code>try</code> / <code>throw</code> is
+          <code>try</code> / <code>except Exception as e</code> /
+          <code>raise Exception("…")</code> and it actually catches.
+          <code>sfn main</code> is <code>def main()</code> plus the
+          <code>if __name__ == "__main__"</code> guard. A lambda that is more
+          than an expression is hoisted to a real <code>def</code>.
         </p>
-      </div>
-      <div class="col reveal">
-        <p class="label">Extending it is not a rebuild</p>
         <p>
-          <code>compiler/Lang.rgr</code> — the core operator table, 336 definitions under
-          207 names — is read at compile time, not baked into the binary. Add or change an operator template there
-          and the very next compile uses it. The compiler looks in the working directory
-          first, so a copy beside your sources overrides the installed one, which makes an
-          experiment cheap to try and cheap to throw away. That is also how support for an
-          older language version gets added: a custom operator behind a flag.
+          It is still not the Python a 3.12 package would start from. There are
+          no type hints, no <code>@dataclass</code>, no <code>enum.Enum</code>,
+          no <code>match</code> / <code>case</code>. A <code>shape</code> is two
+          classes with a <code>_rg_kind</code> string. A Ranger <code>trait</code>
+          copies methods rather than becoming a <code>Protocol</code>. Generics
+          monomorphize to <code>Stack_int</code>. Constructors assign defaults
+          and then overwrite them. You do not get <code>yield</code>,
+          <code>with</code> or a comprehension — a <code>for</code> that
+          <code>push</code>es is an index loop and <code>append</code>.
         </p>
-      </div>
-    </div>
-  </div>
+      </article>
+
+      <article class="quality__card reveal" id="rank-dart">
+        <p class="label">03 — Dart</p>
+        <h3>Null safety, and a real <code>main</code></h3>
+        <p class="quality__score">Idiomacy <strong>65%</strong> — mean of twelve studies: ownership 86, option 58, shapes 50, traits 78, iterators 56, generics 30, strings 86, builder 86, errors 56, params 86, absent 88, interfaces 22.</p>
+        <p>
+          Dart is the closest statically typed file in the study. Optional is
+          <code>T?</code>, unwrap is <code>!</code>, lists are
+          <code>[1, 2, 3]</code>. <code>sfn main</code> is
+          <code>void main(List&lt;String&gt; args)</code> at file scope — the
+          line a Flutter package already has. A function-typed parameter is
+          <code>int Function(int)</code>, which is the Dart spelling. 
+          <code>try</code> / <code>throw</code> runs: Dart allows
+          <code>throw "negative"</code> and <code>catch (e)</code> reads the
+          string. Sharing is ordinary object identity.
+        </p>
+        <p>
+          It is not Dart 3. A <code>record Point</code> is a mutable
+          <code>class</code> with public fields, not a Dart 3 record and not
+          <code>final</code> fields. A <code>shape</code> is
+          <code>abstract class union_*</code> plus <code>if (x is Case)</code>,
+          not a <code>sealed class</code> / <code>switch</code>. A Ranger
+          <code>Enum</code> is an <code>int</code>. <code>??</code> is the
+          ternary <code>(hit != null) ? hit! : "unknown"</code>, not
+          <code>hit ?? "unknown"</code>. Generics become <code>Stack_int</code>.
+          <code>@(weak)</code> is ignored; the parent pointer is just
+          <code>TreeNode?</code>.
+        </p>
+      </article>
+
+      <article class="quality__card reveal" id="rank-csharp">
+        <p class="label">04 — C#</p>
+        <h3>Legal C#, with an odd exception type</h3>
+        <p class="quality__score">Idiomacy <strong>64%</strong> — mean of twelve studies: ownership 80, option 56, shapes 52, traits 80, iterators 56, generics 30, strings 86, builder 88, errors 56, params 78, absent 82, interfaces 22.</p>
+        <p>
+          The types a C# file wants are here: <code>int?</code>,
+          <code>List&lt;T&gt;</code>, <code>Func&lt;int, int&gt;</code>, an
+          <code>interface</code> for a <code>shape</code> with <code>is</code>
+          tests. Two names share one object. <code>throw</code> runs — the
+          catch sees the message. The TypeScript-engine gate builds this
+          target with Mono <code>mcs</code> and matches Node.
+        </p>
+        <p>
+          The exception type is <code>ConfigurationErrorsException</code>,
+          which is a legal <code>throw</code> and a strange choice for domain
+          errors. A Ranger <code>Enum</code> is an <code>int</code>. Generics
+          are <code>Stack_int</code>. <code>int</code> is 32-bit, so the same
+          arithmetic that is 53-bit on JavaScript can disagree. A
+          <code>trait</code> is a mixin or an <code>interface</code>; it is
+          not a default-interface-method file you would write today. No
+          <code>record</code>, no <code>Result</code>.
+        </p>
+      </article>
+
+      <article class="quality__card reveal" id="rank-php">
+        <p class="label">05 — PHP</p>
+        <h3>Around JavaScript, with <code>$</code> and <code>isset</code></h3>
+        <p class="quality__score">Idiomacy <strong>59%</strong> — mean of twelve studies: ownership 76, option 38, shapes 32, traits 76, iterators 54, generics 30, strings 82, builder 84, errors 38, params 70, absent 74, interfaces 50.</p>
+        <p>
+          PHP sits with the dynamic targets. Objects share. An optional is
+          <code>null</code> tested with <code>isset</code>. 
+          <code>try</code> / <code>throw</code> is
+          <code>throw new Exception</code>, which is the PHP spelling and
+          runs. The main routine is at the top level of the file, which is
+          how PHP scripts already start. A <code>shape</code> is classes
+          distinguished with <code>get_class</code>.
+        </p>
+        <p>
+          There was no PHP study folder; this rank is the twelve shared
+          studies compiled with <code>-l=php</code>. Fields are
+          <code>var $x</code>.
+          There are no types. A Ranger <code>Enum</code> is an int. A
+          <code>trait</code> is a mixin, not a PHP <code>trait</code> or
+          interface. Generics are <code>Stack_int</code>. It is closer to
+          “a script that works” than to modern typed PHP&nbsp;8.
+        </p>
+      </article>
+
+      <article class="quality__card reveal" id="rank-scala">
+        <p class="label">06 — Scala</p>
+        <h3><code>Option[T]</code> is right; the rest is a port</h3>
+        <p class="quality__score">Idiomacy <strong>57%</strong> — mean of twelve studies: ownership 66, option 52, shapes 42, traits 68, iterators 58, generics 25, strings 72, builder 74, errors 44, params 78, absent 80, interfaces 22.</p>
+        <p>
+          Optional is the one Scala wants: <code>Option[String]</code>,
+          <code>Some(n)</code>, <code>Option.empty</code>. A
+          <code>shape</code> dispatch is <code>match</code> / <code>case</code>,
+          which is at least the language’s own keyword. 
+          <code>sfn main</code> becomes
+          <code>object AppMain extends App</code>. Those three things are
+          why it sits above Go.
+        </p>
+        <p>
+          Then the file reminds you it is generated. Control-flow returns
+          ride on a <code>case class ScalaReturnValue(value: Any) extends Exception</code>
+          — a hack, not an error type. The <code>shape</code> cases are
+          ordinary classes, not <code>case class</code> / <code>enum</code>.
+          A Ranger <code>Enum</code> is <code>Int</code>. A
+          <code>trait</code> is a mixin, not a Scala <code>trait</code>.
+          No Scala study folder; this rank is the twelve shared studies
+          compiled with <code>-l=scala</code>.
+        </p>
+      </article>
+
+      <article class="quality__card reveal" id="rank-swift">
+        <p class="label">07 — Swift</p>
+        <h3><code>T?</code>, <code>weak var</code>, and a native <code>enum</code></h3>
+        <p class="quality__score">Idiomacy <strong>56%</strong> — mean of twelve studies: ownership 74, option 54, shapes 56, traits 58, iterators 64, generics 22, strings 52, builder 66, errors 50, params 76, absent 76, interfaces 20.</p>
+        <p>
+          Swift is where the typed, reference-counted languages start to look
+          like themselves. Optional is <code>T?</code> and <code>??</code> is
+          <code>??</code>. A parent pointer marked <code>@(weak)</code> is
+          <code>weak var x: T?</code> — the ARC spelling. A Ranger
+          <code>shape</code> becomes a native <code>enum</code> with associated
+          values, which is the file a Swift programmer expects for a closed
+          family. <code>throw</code> now emits <code>func … throws</code>,
+          <code>try</code> at the call site and a small <code>Error</code> type.
+          Two names share one object through the class / ARC model.
+        </p>
+        <p>
+          A Ranger <code>Enum</code> is still an <code>Int</code>, not a Swift
+          <code>enum</code>. A <code>trait</code> used only as a mixin copies
+          methods; used as a type it can become a <code>protocol</code>, but
+          a field-bearing trait has nowhere to live and is refused. There is
+          no <code>Result</code>. Generics monomorphize. The
+          <code>throws</code> path is writer-checked; this environment has no
+          <code>swiftc</code>, so the study does not claim a compiler-clean
+          binary the way Kotlin does.
+        </p>
+      </article>
+
+      <article class="quality__card reveal" id="rank-typescript">
+        <p class="label">08 — TypeScript</p>
+        <h3>JavaScript, with types you can read</h3>
+        <p class="quality__score">Idiomacy <strong>55%</strong> — mean of twelve studies: ownership 73, option 48, shapes 40, traits 78, iterators 56, generics 28, strings 86, builder 86, errors 48, params 50, absent 50, interfaces 22.</p>
+        <p>
+          Same writer as JavaScript, plus annotations and <code>export</code>.
+          That is enough to move it up a notch for anyone who will open the
+          file in an editor. An optional string is
+          <code>string | undefined</code>. A <code>shape</code> gets a union
+          alias (<code>type union_Message = Message_Ping | Message_Text | …</code>)
+          and each case carries a typed <code>__rg_kind</code> literal. Method
+          signatures are real TypeScript. <code>throw "…"</code> still runs,
+          the same as on the JS tab.
+        </p>
+        <p>
+          The types describe the generated model; they do not make it idiomatic.
+          You still get the <code>typeof</code> / <code>!= null</code> ternary
+          instead of <code>??</code>. You still get <code>Stack_int</code>
+          rather than <code>Stack&lt;T&gt;</code>. There is no
+          <code>Result&lt;T, E&gt;</code>, no discriminated-union
+          <code>switch</code>, no ESM entry. A Ranger <code>Enum</code> is
+          still a number. If you already accept the JavaScript, TypeScript is
+          that file with a type-checker attached — not a second back end.
+        </p>
+      </article>
+
+      <article class="quality__card reveal" id="rank-javascript">
+        <p class="label">09 — JavaScript</p>
+        <h3>The compiler’s own target</h3>
+        <p class="quality__score">Idiomacy <strong>55%</strong> — mean of twelve studies: ownership 70, option 38, shapes 32, traits 76, iterators 56, generics 28, strings 84, builder 84, errors 40, params 48, absent 52, interfaces 50.</p>
+        <p>
+          This is the language the compiler is written against, and it shows.
+          Sharing is object identity. Arrays are arrays. <code>console.log</code>
+          is <code>console.log</code>. <code>try</code> / <code>throw</code>
+          <em>runs</em>: <code>throw "negative"</code> is legal JavaScript and
+          the catch reads the string. A function value is a function. The
+          playground on this site is this back end, compiled to itself.
+        </p>
+        <p>
+          It is not 2024 JavaScript you would type by hand. Optional is
+          <code>undefined</code> tested with
+          <code>typeof(x) === "undefined"</code>, not <code>x ?? fallback</code>
+          or optional chaining. A <code>shape</code> is classes plus
+          <code>__rg_kind</code> tags. A Ranger <code>Enum</code> is a number.
+          A <code>trait</code> is a mixin. Entry is <code>function __js_main()</code>
+          plus a call, not ESM <code>main</code>. There is no <code>Result</code>.
+          <code>@(weak)</code> is ignored — the cycle is a normal reference and
+          GC collects it.
+        </p>
+      </article>
+
+      <article class="quality__card reveal" id="rank-java">
+        <p class="label">10 — Java</p>
+        <h3>It runs. It is Java&nbsp;7.</h3>
+        <p class="quality__score">Idiomacy <strong>50%</strong> — mean of twelve studies: ownership 62, option 36, shapes 36, traits 66, iterators 48, generics 20, strings 68, builder 74, errors 38, params 62, absent 70, interfaces 22.</p>
+        <p>
+          The program compiles, <code>throw</code> wraps
+          <code>IllegalArgumentException</code>, and the catch sees the
+          message. Sharing is ordinary objects. A <code>shape</code> is
+          <code>Object</code> plus <code>instanceof</code>, which is what
+          Java&nbsp;7 had. One class per file is the layout the writer
+          already commits to.
+        </p>
+        <p>
+          Everything else is the older language. Optionals box:
+          <code>Integer</code> and <code>null</code>, not
+          <code>Optional&lt;T&gt;</code>. A Ranger <code>Enum</code> is
+          <code>Integer</code>. A function value is a generated
+          <code>LambdaSignature1</code> class, not a lambda. Generics are
+          <code>Stack_int</code>. There are no records, no sealed types, no
+          <code>var</code>. Usable as a port you can <code>javac</code>; not
+          a file a Java&nbsp;17 shop would keep without rewriting.
+        </p>
+      </article>
+
+      <article class="quality__card reveal" id="rank-go">
+        <p class="label">11 — Go</p>
+        <h3>Pointers share; optionals do not look like Go</h3>
+        <p class="quality__score">Idiomacy <strong>38%</strong> — mean of twelve studies: ownership 44, option 26, shapes 28, traits 60, iterators 46, generics 18, strings 68, builder 70, errors 28, params 22, absent 24, interfaces 20.</p>
+        <p>
+          Two names for one object are <code>*T</code> assignment, and that
+          part is honest Go. A function-typed parameter is
+          <code>func(int64) int64</code>, which landed. Methods take a
+          pointer receiver. The file builds and prints the same answers as
+          the other targets. <code>try</code> / <code>throw</code> does
+          catch — as <code>panic</code> / <code>recover</code>.
+        </p>
+        <p>
+          Optional is <code>*GoNullable</code>, not <code>*T</code> and not
+          <code>(T, bool)</code>. A parent pointer is that wrapper, not
+          <code>*TreeNode</code>. A <code>shape</code> is a tagged struct
+          with a <code>tag</code> int and a pointer per case, not
+          <code>error</code>. A Ranger <code>Enum</code> disappears into
+          <code>int64</code>. A <code>trait</code> copies methods; it is
+          not an <code>interface</code> unless you force that spelling. Loops
+          are C-style index <code>for</code>, not <code>range</code>. Do not
+          use <code>try</code> / <code>throw</code> if someone will review
+          the <code>.go</code> as a library — prefer a <code>shape</code>.
+        </p>
+      </article>
+
+      <article class="quality__card reveal" id="rank-rust">
+        <p class="label">12 — Rust</p>
+        <h3>The most honest about memory, the least Rust-like</h3>
+        <p class="quality__score">Idiomacy <strong>37%</strong> — mean of twelve studies: ownership 58, option 46, shapes 46, traits 40, iterators 30, generics 18, strings 42, builder 36, errors 44, params 38, absent 34, interfaces 16.</p>
+        <p>
+          This is the target the compiler thinks hardest about. A
+          <code>record Point</code> is a <code>struct</code> with
+          <code>i64</code> fields. A method that only reads is
+          <code>&amp;self</code> and <code>&amp;Point</code>. A class the
+          sharing analysis proves is shared becomes
+          <code>Rc&lt;RefCell&lt;T&gt;&gt;</code>; a
+          <code>@(weak optional)</code> parent is
+          <code>Option&lt;Weak&lt;RefCell&lt;T&gt;&gt;&gt;</code>. Optional
+          is <code>Option&lt;T&gt;</code>. A <code>shape</code> is a real
+          Rust <code>enum</code> and the match is a real <code>match</code>
+          where it can be. Names are <code>snake_case</code>. A
+          behaviour-only Ranger <code>trait</code> is a Rust
+          <code>trait</code> is what study 12 asked for; this compiler
+          names <code>Named</code> and never declares it, so <code>rustc</code>
+          refuses that file. Studies 01–09 compile and print the same answers
+          as Python. Studies 10 and 11 fail on a doubled <code>Option</code>.
+        </p>
+        <p>
+          It is still not a file a Rust programmer would keep. There is no
+          <code>Result</code>, no <code>?</code>, no lifetimes, no
+          <code>impl Trait for Type</code>, no iterator adapters.
+          <code>try</code> / <code>throw</code> is a compile error (the catch
+          used to be dropped and the binary died — refusing it is the honest
+          outcome). A field-bearing <code>trait</code> used as a type is
+          also refused. Generics are <code>Stack_int</code>. A Ranger
+          <code>Enum</code> is a real <code>enum</code> only when every use
+          fits; otherwise it is an integer. Map / filter is an index
+          <code>for</code>. The big missing piece is an error type: until
+          Ranger has <code>Result</code>, the Rust will always read as a
+          port of an object language.
+        </p>
+      </article>
+
+      <article class="quality__card reveal" id="rank-cpp">
+        <p class="label">13 — C++</p>
+        <h3>It compiles. Almost everything is <code>shared_ptr</code>.</h3>
+        <p class="quality__score">Idiomacy <strong>29%</strong> — mean of twelve studies: ownership 36, option 30, shapes 32, traits 34, iterators 28, generics 16, strings 40, builder 48, errors 32, params 20, absent 10, interfaces 16.</p>
+        <p>
+          The ownership story is the part that is trying to be C++. A cycle
+          marked <code>@(weak)</code> is <code>weak_ptr</code> /
+          <code>enable_shared_from_this</code>. A Ranger <code>Enum</code>
+          can be <code>enum class</code> when every use fits. A
+          <code>shape</code> is <code>std::variant</code>. A function value
+          is <code>std::function</code> plus a <code>[&amp;]</code> lambda.
+          <code>error_msg</code> after <code>catch</code> now carries the
+          real text on the studies that compile. An optional string is still
+          a plain <code>std::string</code> that treats <code>""</code> as
+          absent — study 11 would print the wrong answer if it built.
+          The int path names <code>r_optional_primitive</code> without
+          defining it, so studies 10 and 11 do not compile. Study 12 names
+          a missing <code>Named</code>.
+        </p>
+        <p>
+          A <code>record Point</code> is still <code>shared_ptr&lt;Point&gt;</code>,
+          not a value struct, and a read-only object parameter is
+          <code>const shared_ptr&lt;Point&gt;&amp;</code>, not
+          <code>const Point&amp;</code>. Optional is the Ranger helper type,
+          not <code>std::optional</code>. There is no
+          <code>std::expected</code>. Variant payloads that are objects stay
+          in cells. <code>int</code> is 32-bit. You can ship the binary;
+          you would not start a C++17 codebase from this spelling.
+        </p>
+      </article>
+    </div>  </div>
 </section>
 
-<!-- ====================================================================== -->
-<!-- Platforms                                                              -->
-<!-- ====================================================================== -->
 <section class="section" id="platforms">
   <div class="wrap">
     <p class="label reveal">Platforms</p>
