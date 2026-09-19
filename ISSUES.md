@@ -33,6 +33,7 @@
 - Issue #82 (fixed): the `es6` keyword table added in #76 renamed METHOD and PROPERTY names as well as bindings, so `EvHandle.null()` -- the constructor three suites and every JavaScript consumer of the engine module call -- became `EvHandle._null()`. JavaScript reserves its keywords only where a name may stand: `const null = 1` is a syntax error, `obj.null` and `static null() {}` are not. `transformWord` now splits into a binding transform and a member transform. Found by CI, not locally: `runtime-conformance.test.ts` rebuilt the engine module only when a `.rgr` under `migrate/src/` was newer, so after a COMPILER change it measured the engine built by the previous compiler and reported green. The compiler is in that dependency list now (September 2026)
 
 ### Still Open
+- Issue #92: `on_keypress` on Go emits a package-level `syscall.NewLazyDLL("msvcrt.dll")`, which exists only on Windows, so ANY Ranger program using the operator produces Go that does not build on Linux or macOS (`undefined: syscall.NewLazyDLL`). The polyfill has the right `runtime.GOOS != "windows"` guard inside its functions and none around the declarations. The compiler reports success; `go build` is where it stops. Found by compiling a terminal program to Go (September 2026)
 - Issue #90: on Scala the `@(main)` function's body is NEVER EMITTED, and the compiler reports success. `object Main { }` comes out empty and the `object App<Name> extends App { ... }` wrapper the writer has code for (`compiler/RangerScalaClassWriter.rgr:831`) does not reach the output. So every Scala build in this repository is a library with no entry point, `targets.sh` counts it as `ok`, and nothing notices because nothing runs the Scala. Reproduced on a four-line program and on RangerStarter's own `src/Main.rgr` (September 2026)
 - Issue #89: the Scala writer refuses a `continue` inside a `for` loop -- `oops, sorry. Currently Scala output can not handle for-loops with continue :/` -- in any function EXCEPT `@(main)`, where it appears to be accepted only because the whole body is dropped (#90). `continue` in a `while` loop is fine, and every other target takes either form (September 2026)
 - Issue #87 (fixed): a property read on a PARENTHESISED receiver used as an operand of an infix operator -- `((unwrap x).v == 1)`, `(1 + (f()).v)`, `((unwrap x).name + "!")` -- did not compile: "WriteVREF -> Undefined variable .v" or "Could not match argument types for ==". The reader's infix rewriter took the `.v` token as an operand on its own and the expression before it was lost. The same read outside an infix expression (`def n:int ((unwrap x).v)`, `((unwrap x).v = 7)`) had always worked through the chain machinery. The reader now attaches the `.name` token to the expression it follows, flagged, and the flow parser binds that expression to a temporary in the statement's register expressions and reads `<tmp>.name` -- the mechanism operator arguments are hoisted through. Only the infix shape is rewritten, so nothing that worked changes its code generation. Two shapes are deliberately not rewritten: a method call on such a receiver inside an infix expression, and any such read in a loop condition, where the once-bound temporary would be wrong -- the compiler refuses it and names the fix. On Rust the hoisted temporary was typed as the bare struct because the shared-locals analysis walked only a statement's children; it walks the register expressions too now. Gated by `tests/compiler-paren-receiver.test.ts` on es6 and Rust (September 2026)
@@ -2933,6 +2934,45 @@ Depth is now bounded by real nesting and no longer grows with the file.
 Fixed. Found while adding `tests/es-conformance-targets.test.ts`, and initially
 misattributed to that suite's 2,138-probe corpus — which in fact parses at depth
 70. The corpus only made an existing marginal condition reproducible.
+
+## Issue #92: `on_keypress` on Go declares a Windows-only symbol at package level
+
+**Status:** open.
+
+Any Ranger program that calls `on_keypress` compiles to Go that will not build on
+anything but Windows:
+
+```
+./kv.go:21:19: undefined: syscall.NewLazyDLL
+```
+
+The polyfill opens with:
+
+```go
+var (
+	msvcrt = syscall.NewLazyDLL("msvcrt.dll")
+	kbhit  = msvcrt.NewProc("_kbhit")
+	getch  = msvcrt.NewProc("_getch")
+)
+```
+
+`syscall.NewLazyDLL` is declared only in Go's Windows build of `syscall`, and a
+package-level `var` is compiled on every platform. The functions BELOW it are
+guarded properly -- `if runtime.GOOS != "windows"` -- so the intent is clearly
+there; the guard is just in the wrong place for a declaration.
+
+Go has the mechanism for this: the Windows half belongs behind a build
+constraint, which for a single generated file means the `kbhit`/`getch` handles
+have to be resolved lazily inside the Windows branch rather than declared at the
+top.
+
+The compiler reports `[OK] Compilation successful!`, because the defect is in code
+it emits and never reads back -- the same shape as #88.
+
+Found while compiling a terminal program to Go. The same program's Python output
+builds and runs.
+
+---
 
 ## Issue #91: `on_keypress` shadowed its key variable, and emitted it as a constant
 
