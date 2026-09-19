@@ -331,7 +331,7 @@ class CodeGraphDiffTest {
         def taxRow:FlowRow (itemAt sec0.rows 2)
         c.eqStr("tax row green" taxRow.tint (CodeGraphPages.diffFill("added")))
         c.eqStr("tax row mark" taxRow.trailing "+")
-        c.eqStr("tax tooltip" taxRow.tooltip "Added in this change")
+        c.ok("tax tooltip" ((indexOf taxRow.tooltip "Added in this change") == 0))
         def sec1:FlowSection (on.sectionAt(1))
         def totalRow:FlowRow (itemAt sec1.rows 0)
         c.ok("total tooltip says the body was edited" ((indexOf totalRow.tooltip "body edited") >= 0))

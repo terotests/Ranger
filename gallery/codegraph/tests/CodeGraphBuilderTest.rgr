@@ -60,6 +60,10 @@ class CodeGraphBuilderTest {
         }
         if (g.hasMethod("Order.total")) {
             def m:CodeMethod (g.methodById("Order.total"))
+            if ((indexOf m.comment "Sum of every line") < 0) {
+                print ("  FAIL Order.total comment: '" + m.comment + "'")
+                failed = (failed + 1)
+            }
             def found:boolean false
             def i:int 0
             while (i < (array_length m.calls)) {

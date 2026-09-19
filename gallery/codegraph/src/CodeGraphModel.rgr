@@ -20,6 +20,9 @@ class CodeField {
     def fieldType:string ""
     def fileName:string ""
     def startLine:int 0
+    ; Leading documentation (JSDoc, `//`, Ranger `;`) copied from the
+    ; declaration. Empty when the analyser saw none.
+    def comment:string ""
 
     Constructor () {
     }
@@ -46,6 +49,9 @@ class CodeMethod {
     def uses:[string]
     def fileName:string ""
     def startLine:int 0
+    ; Leading documentation copied from the declaration, when the analyser
+    ; found one. The UML hover card shows this the way an editor hover does.
+    def comment:string ""
 
     Constructor () {
     }
@@ -127,6 +133,7 @@ class CodeClass {
     def methodIds:[string]
     def fileName:string ""
     def startLine:int 0
+    def comment:string ""
 
     Constructor () {
     }
@@ -139,6 +146,12 @@ class CodeClass {
 
     fn addField:void (name:string fieldType:string) {
         push fields (CodeField.create(name fieldType))
+    }
+
+    fn addFieldDoc:void (name:string fieldType:string comment:string) {
+        def f:CodeField (CodeField.create(name fieldType))
+        f.comment = comment
+        push fields f
     }
 
     fn addMethodId:void (methodId:string) {

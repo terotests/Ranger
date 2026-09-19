@@ -16,6 +16,7 @@
 ; ============================================================================
 
 Import "../src/CodeGraphApp.rgr"
+Import "../../datagrid/src/GridCursor.rgr"
 
 class CodeGraphAppTest {
     sfn main:void () {
@@ -40,6 +41,63 @@ class CodeGraphAppTest {
             print ("  FAIL canvas width " + (to_string app.canvasW))
             failed = (failed + 1)
         }
+        app.openClass("Order")
+        app.editor.setSize(app.viewW app.viewH)
+        app.editor.fitView()
+        ; Hover a UML method row: VS Code-style card, row highlight, pointing cursor.
+        if (app.graph.hasNode("Order")) {
+            def orderNode:FlowNode (app.graph.nodeById("Order"))
+            def probe:double (orderNode.y + orderNode.headerHeight)
+            def foundTotal:boolean false
+            while ((probe < (orderNode.y + orderNode.height)) && (foundTotal == false)) {
+                def rowNo:int (app.editor.rowAtPoint(orderNode probe))
+                def row:FlowRow (FlowUndo.rowOf(orderNode rowNo))
+                if ((indexOf row.text "total") == 0) {
+                    foundTotal = true
+                } {
+                    probe = (probe + 2.0)
+                }
+            }
+            if (foundTotal == false) {
+                print "  FAIL no total() row on Order"
+                failed = (failed + 1)
+            } {
+                def sx:double (app.editor.view.viewport.toScreenX((orderNode.x + 20.0)))
+                def sy:double (app.editor.view.viewport.toScreenY(probe))
+                app.graphMove((app.canvasX + sx) (app.canvasY + sy) false false)
+                def tip:string app.editor.view.tooltipText
+                if ((indexOf tip "(method)") < 0) {
+                    print ("  FAIL hover card missing (method): '" + tip + "'")
+                    failed = (failed + 1)
+                }
+                if ((indexOf tip "Sum of every line") < 0) {
+                    print ("  FAIL hover card missing docs: '" + tip + "'")
+                    failed = (failed + 1)
+                }
+                if ((indexOf tip "Click") < 0) {
+                    print ("  FAIL hover card missing click hint: '" + tip + "'")
+                    failed = (failed + 1)
+                }
+                if (app.editor.view.hoverRow < 0) {
+                    print "  FAIL hoverRow not set on the method row"
+                    failed = (failed + 1)
+                }
+                if ((app.inCanvas((app.canvasX + sx) (app.canvasY + sy))) == false) {
+                    print "  FAIL hover sample is off the canvas"
+                    failed = (failed + 1)
+                } {
+                    def cur:int (app.cursorAt((app.canvasX + sx) (app.canvasY + sy)))
+                    if (cur != (GridCursor.pointing())) {
+                        print ("  FAIL cursor over UML row is " + (GridCursor.label(cur)) + ", want pointing")
+                        failed = (failed + 1)
+                    }
+                }
+            }
+        } {
+            print "  FAIL Order not drawn on start"
+            failed = (failed + 1)
+        }
+        app.goOverview()
         if ((app.splitCount()) != 3) {
             print ("  FAIL split panels " + (to_string (app.splitCount())))
             failed = (failed + 1)

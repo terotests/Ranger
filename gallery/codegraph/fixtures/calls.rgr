@@ -3,22 +3,27 @@
 ; A tiny program whose call graph the builder test can name without walking
 ; Lang.rgr. Order.total calls LineItem.lineTotal and mentions LineItem.
 
+; A line on an order: quantity times a fixture unit price.
 class LineItem {
     def qty:int 1
     def sku:string "x"
 
+    ; Quantity times three, the fixture's unit price.
     fn lineTotal:int () {
         return (qty * 3)
     }
 }
 
+; A customer's basket once it has been placed.
 class Order {
     def items:[LineItem]
 
+    ; Append a line. The same product may appear more than once.
     fn addItem:void (item:LineItem) {
         push items item
     }
 
+    ; Sum of every line on the order.
     fn total:int () {
         def sum:int 0
         def i:int 0
