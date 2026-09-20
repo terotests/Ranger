@@ -82,6 +82,7 @@ export default defineConfig({
           items: [
             { label: "About this documentation", slug: "index" },
             { label: "Install the compiler", slug: "start/install" },
+            { label: "Start a project", slug: "start/init" },
             { label: "The first program", slug: "start/first-program" },
             { label: "Licenses", slug: "start/licenses" },
             { label: "Questions and answers", slug: "faq" },

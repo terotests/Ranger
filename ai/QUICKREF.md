@@ -10,6 +10,8 @@ Repo gotchas: [`../AGENTS.md`](../AGENTS.md).
 ```bash
 # From npm: ranger-compiler / rgrc
 rgrc hello.rgr -l=es6 -d=./bin -o=hello.js
+rgrc init my-cafe                 # Ranger Coffee + EVG PDF receipt
+rgrc init my-app -template=hello  # greeter
 
 # From a checkout (after npm run compile)
 node bin/output.js -l=es6 ./hello.rgr -o=./bin/hello.js

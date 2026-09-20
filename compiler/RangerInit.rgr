@@ -1,0 +1,410 @@
+; SPDX-License-Identifier: MIT
+;
+; `rgrc init [dir]` — turn a directory into a Ranger project.
+;
+; RangerStarter (https://github.com/terotests/RangerStarter) is the full
+; clone-and-go kit: fourteen targets, CI, agent skills, a wizard. This command
+; is the small door next to it: give it a name, get a project that `npm start`
+; runs, with either a greeter or Ranger Coffee (a cart and an EVG PDF receipt).
+
+Import "CLIProgress.rgr"
+Import "CmdParams.rgr"
+
+class RangerInit {
+  def err:string ""
+
+  Constructor () {
+  }
+
+  fn run:boolean (env:InputEnv params:CmdParams cli:CLIProgress) {
+    def kind:string "coffee"
+    def tOpt (params.getParam("template"))
+    if (!null? tOpt) {
+      kind = (unwrap tOpt)
+    }
+    if (kind == "starter") {
+      kind = "hello"
+    }
+    if ((kind != "coffee") && (kind != "hello")) {
+      err = (("unknown -template=" + kind) + " (coffee, hello)")
+      return false
+    }
+    def destName:string ""
+    if ((array_length params.values) > 1) {
+      destName = (itemAt params.values 1)
+    }
+    def dest:string (this.absDir(env destName))
+    def proj:string (this.npmName((this.baseName(dest))))
+    if ((strlen proj) == 0) {
+      proj = "ranger-app"
+    }
+    def force:boolean (has params.flags "force")
+    if ((file_exists env dest "src/Main.rgr") && (force == false)) {
+      err = ((dest + " already has src/Main.rgr — pick another directory, or pass -force"))
+      return false
+    }
+    def srcRoot:string (this.templateRoot(env kind))
+    if ((strlen srcRoot) == 0) {
+      err = (("could not find the " + kind) + " template next to the compiler")
+      return false
+    }
+    def scriptRoot:string (this.scriptRoot(env))
+    if ((strlen scriptRoot) == 0) {
+      err = "could not find scripts/rgr next to the compiler"
+      return false
+    }
+    create_dir dest
+    create_dir (dest + "/src")
+    create_dir (dest + "/scripts")
+    if (this.copyTree(env srcRoot dest kind) == false) {
+      return false
+    }
+    if (this.copyNamed(env scriptRoot dest "scripts/rgr") == false) {
+      return false
+    }
+    this.putText(dest ".gitignore" (RangerInit.gitignoreText()))
+    this.putText(dest "LICENSE" (RangerInit.licenseText()))
+    this.putText(dest "package.json" (this.packageJson(proj kind)))
+    this.putText(dest "ranger.json" (this.rangerJson(proj kind)))
+    this.putText(dest "README.md" (this.readmeText(proj destName kind)))
+    print ""
+    print (cli.bold(("Created Ranger project in " + dest)))
+    print (("  template  " + kind))
+    print ""
+    print ("  cd " + (this.cdName(destName dest)))
+    print "  npm install"
+    if (kind == "coffee") {
+      print "  npx rgrc install        # fetch EVG (lib/evg, MIT)"
+    }
+    print "  npm start"
+    print "  npm test"
+    print ""
+    if (kind == "coffee") {
+      print "  npm start -- latte bun cookie"
+      print "  npm start -- --out=kuitti mocha mocha"
+      print ""
+    }
+    print "For the full kit (fourteen targets, CI, agent skills) clone"
+    print "https://github.com/terotests/RangerStarter"
+    print ""
+    return true
+  }
+
+  fn cdName:string (given:string dest:string) {
+    if ((strlen given) == 0) {
+      return "."
+    }
+    return given
+  }
+
+  fn absDir:string (env:InputEnv name:string) {
+    if ((strlen name) == 0) {
+      return (current_directory env)
+    }
+    if (name == ".") {
+      return (current_directory env)
+    }
+    def first:int (charAt name 0)
+    if (first == 47) {
+      return name
+    }
+    return (((current_directory env) + "/") + name)
+  }
+
+  fn baseName:string (path:string) {
+    def n:int (strlen path)
+    def i:int (n - 1)
+    while (i >= 0) {
+      def ch:int (charAt path i)
+      if ((ch == 47) || (ch == 92)) {
+        return (substring path (i + 1) n)
+      }
+      i = (i - 1)
+    }
+    return path
+  }
+
+  fn npmName:string (raw:string) {
+    def lower:string (to_lowercase raw)
+    def out:string ""
+    def i:int 0
+    def n:int (strlen lower)
+    while (i < n) {
+      def ch:int (charAt lower i)
+      def ok:boolean false
+      if ((ch >= 97) && (ch <= 122)) {
+        ok = true
+      }
+      if ((ch >= 48) && (ch <= 57)) {
+        ok = true
+      }
+      if (ch == 45) {
+        ok = true
+      }
+      if ok {
+        out = (out + (substring lower i (i + 1)))
+      } {
+        if ((strlen out) > 0) {
+          def last:int (charAt out ((strlen out) - 1))
+          if (last != 45) {
+            out = (out + "-")
+          }
+        }
+      }
+      i = (i + 1)
+    }
+    def trimmed:string out
+    def i:int 0
+    while (i < 128) {
+      if ((strlen trimmed) == 0) {
+        i = 128
+      } {
+        def last:int (charAt trimmed ((strlen trimmed) - 1))
+        if (last != 45) {
+          i = 128
+        } {
+          trimmed = (substring trimmed 0 ((strlen trimmed) - 1))
+          i = (i + 1)
+        }
+      }
+    }
+    if ((strlen trimmed) == 0) {
+      return "ranger-app"
+    }
+    def first:int (charAt trimmed 0)
+    if ((first >= 48) && (first <= 57)) {
+      return ("app-" + trimmed)
+    }
+    return trimmed
+  }
+
+  fn templateRoot:string (env:InputEnv kind:string) {
+    def idir:string (install_directory)
+    def cwd:string (current_directory env)
+    def candidates:[string]
+    push candidates ((idir + "/templates/") + kind)
+    if (kind == "coffee") {
+      push candidates (idir + "/../examples/coffee_shop")
+      push candidates (cwd + "/examples/coffee_shop")
+    }
+    if (kind == "hello") {
+      push candidates (idir + "/../compiler/init/hello")
+      push candidates (cwd + "/compiler/init/hello")
+    }
+    return (this.firstWith(env candidates "src/Main.rgr"))
+  }
+
+  fn scriptRoot:string (env:InputEnv) {
+    def idir:string (install_directory)
+    def cwd:string (current_directory env)
+    def candidates:[string]
+    push candidates (idir + "/templates")
+    push candidates (idir + "/../compiler/init")
+    push candidates (cwd + "/compiler/init")
+    return (this.firstWith(env candidates "scripts/rgr"))
+  }
+
+  fn firstWith:string (env:InputEnv dirs:[string] file:string) {
+    def i:int 0
+    while (i < (array_length dirs)) {
+      def dir:string (itemAt dirs i)
+      if (file_exists env dir file) {
+        return dir
+      }
+      i = (i + 1)
+    }
+    return ""
+  }
+
+  fn copyTree:boolean (env:InputEnv srcRoot:string dest:string kind:string) {
+    def files:[string]
+    if (kind == "hello") {
+      push files "src/Main.rgr"
+      push files "src/Greeter.rgr"
+      push files "src/MainTest.rgr"
+    } {
+      push files "src/Main.rgr"
+      push files "src/Menu.rgr"
+      push files "src/Cart.rgr"
+      push files "src/Money.rgr"
+      push files "src/Receipt.rgr"
+      push files "src/ReceiptPdf.rgr"
+      push files "src/MainTest.rgr"
+    }
+    def i:int 0
+    while (i < (array_length files)) {
+      def rel:string (itemAt files i)
+      if (this.copyNamed(env srcRoot dest rel) == false) {
+        return false
+      }
+      i = (i + 1)
+    }
+    return true
+  }
+
+  fn copyNamed:boolean (env:InputEnv srcDir:string destDir:string rel:string) {
+    def data@(optional):string (read_file_sync srcDir rel)
+    if (null? data) {
+      err = (("could not read " + srcDir) + ("/" + rel))
+      return false
+    }
+    this.ensureParent(destDir rel)
+    write_file destDir rel (unwrap data)
+    print ("  wrote " + rel)
+    return true
+  }
+
+  fn ensureParent:void (destDir:string rel:string) {
+    def d:string (this.dirOf(rel))
+    if ((strlen d) > 0) {
+      create_dir ((destDir + "/") + d)
+    }
+  }
+
+  fn dirOf:string (rel:string) {
+    def n:int (strlen rel)
+    def i:int (n - 1)
+    while (i >= 0) {
+      if ((charAt rel i) == 47) {
+        return (substring rel 0 i)
+      }
+      i = (i - 1)
+    }
+    return ""
+  }
+
+  fn putText:void (dest:string name:string data:string) {
+    write_file dest name data
+    print ("  wrote " + name)
+  }
+
+  fn packageJson:string (proj:string kind:string) {
+    def desc:string "A Ranger project."
+    if (kind == "coffee") {
+      desc = "Ranger Coffee: pick from the board, get a PDF receipt laid out by EVG."
+    }
+    def out:string "{\n"
+    out = (out + "  \"name\": \"")
+    out = (out + proj)
+    out = (out + "\",\n")
+    out = (out + "  \"version\": \"0.1.0\",\n")
+    out = (out + "  \"private\": true,\n")
+    out = (out + "  \"description\": \"")
+    out = (out + desc)
+    out = (out + "\",\n")
+    out = (out + "  \"license\": \"MIT\",\n")
+    out = (out + "  \"engines\": { \"node\": \">=18.0.0\" },\n")
+    out = (out + "  \"scripts\": {\n")
+    out = (out + "    \"start\": \"bash scripts/rgr run src/Main.rgr\",\n")
+    out = (out + "    \"build\": \"bash scripts/rgr build src/Main.rgr\",\n")
+    out = (out + "    \"check\": \"bash scripts/rgr check src/Main.rgr\",\n")
+    out = (out + "    \"test\": \"bash scripts/rgr run src/MainTest.rgr\",\n")
+    out = (out + "    \"deps\": \"node_modules/.bin/rgrc install\"\n")
+    out = (out + "  },\n")
+    out = (out + "  \"devDependencies\": {\n")
+    out = (out + "    \"ranger-compiler\": \"^3.5.1\"\n")
+    out = (out + "  }\n")
+    out = (out + "}\n")
+    return out
+  }
+
+  fn rangerJson:string (proj:string kind:string) {
+    def out:string "{\n"
+    out = (out + "  \"name\": \"")
+    out = (out + proj)
+    out = (out + "\",\n")
+    out = (out + "  \"version\": \"0.1.0\",\n")
+    out = (out + "  \"entry\": \"src/Main.rgr\",\n")
+    out = (out + "  \"license\": \"MIT\"")
+    if (kind == "coffee") {
+      out = (out + ",\n")
+      out = (out + "  \"dependencies\": {\n")
+      out = (out + "    \"evg\": {\n")
+      out = (out + "      \"git\": \"https://github.com/terotests/Ranger.git\",\n")
+      out = (out + "      \"rev\": \"HEAD\",\n")
+      out = (out + "      \"subdir\": \"lib/evg\"\n")
+      out = (out + "    }\n")
+      out = (out + "  }\n")
+    } {
+      out = (out + "\n")
+    }
+    out = (out + "}\n")
+    return out
+  }
+
+  fn readmeText:string (proj:string given:string kind:string) {
+    def folder:string given
+    if ((strlen folder) == 0) {
+      folder = proj
+    }
+    def out:string ("# " + proj)
+    out = (out + "\n\nA [Ranger](https://terotests.github.io/Ranger/) project created by `rgrc init`.\n\n")
+    if (kind == "coffee") {
+      out = (out + "This is **Ranger Coffee**: a command-line till. You pick drinks and\n")
+      out = (out + "pastries from the board; it prints the bill and writes a PDF receipt\n")
+      out = (out + "that [EVG](https://github.com/terotests/Ranger/tree/master/lib/evg) laid out\n")
+      out = (out + "(MIT — the CSS layout engine, not the AGPL gallery PDF toolkit).\n\n")
+    } {
+      out = (out + "Two source files so `Import` is on the page, a test that exits non-zero\n")
+      out = (out + "when an expectation fails, and `scripts/rgr` so a failed compile cannot\n")
+      out = (out + "run yesterday's build.\n\n")
+    }
+    out = (out + "## Run\n\n")
+    out = (out + "```bash\n")
+    out = (out + "npm install\n")
+    if (kind == "coffee") {
+      out = (out + "npx rgrc install          # fetch EVG into the package cache\n")
+    }
+    out = (out + "npm start\n")
+    out = (out + "npm test\n")
+    out = (out + "```\n\n")
+    if (kind == "coffee") {
+      out = (out + "```bash\n")
+      out = (out + "npm start -- latte bun cookie\n")
+      out = (out + "npm start -- --out=kuitti mocha mocha\n")
+      out = (out + "```\n\n")
+      out = (out + "Codes on the board: `espresso`, `latte`, `cappuccino`, `mocha`, `bun`, `cookie`.\n")
+      out = (out + "With no codes, you get a sample order. Output is `receipt.pdf` and\n")
+      out = (out + "`receipt.evg.json` (the same page as an EVG document).\n\n")
+    }
+    out = (out + "`scripts/rgr` compiles through the compiler this project installed and\n")
+    out = (out + "**fails when the compile fails**. Compilers through 3.5.1 printed `[FAIL]`\n")
+    out = (out + "and exited 0, so `rgrc … && node build/Main.js` ran the previous build.\n\n")
+    out = (out + "## The fuller starter\n\n")
+    out = (out + "[RangerStarter](https://github.com/terotests/RangerStarter) is the same idea\n")
+    out = (out + "as a repository you clone: fourteen target languages, CI, agent skills,\n")
+    out = (out + "ecosystem packaging, and an opt-in for the AGPL gallery. Use that when you\n")
+    out = (out + "want the whole kit; this directory is the program.\n")
+    return out
+  }
+
+  sfn gitignoreText:string () {
+    def out:string "node_modules/\n"
+    out = (out + "build/\n")
+    out = (out + "ranger.lock\n")
+    out = (out + "*.pdf\n")
+    out = (out + "*.evg.json\n")
+    return out
+  }
+
+  sfn licenseText:string () {
+    def out:string "MIT License\n\n"
+    out = (out + "Copyright (c) the Ranger Coffee / Ranger init project authors\n\n")
+    out = (out + "Permission is hereby granted, free of charge, to any person obtaining a copy\n")
+    out = (out + "of this software and associated documentation files (the Software), to deal\n")
+    out = (out + "in the Software without restriction, including without limitation the rights\n")
+    out = (out + "to use, copy, modify, merge, publish, distribute, sublicense, and/or sell\n")
+    out = (out + "copies of the Software, and to permit persons to whom the Software is\n")
+    out = (out + "furnished to do so, subject to the following conditions:\n\n")
+    out = (out + "The above copyright notice and this permission notice shall be included in all\n")
+    out = (out + "copies or substantial portions of the Software.\n\n")
+    out = (out + "THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n")
+    out = (out + "IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\n")
+    out = (out + "FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\n")
+    out = (out + "AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\n")
+    out = (out + "LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\n")
+    out = (out + "OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\n")
+    out = (out + "SOFTWARE.\n")
+    return out
+  }
+}

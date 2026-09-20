@@ -20,6 +20,10 @@ npx ranger-compiler myfile.rgr -o=output.js
 # Compile to JavaScript (default)
 rgrc myfile.rgr -o=output.js
 
+# Create a project (Ranger Coffee by default)
+rgrc init my-cafe
+rgrc init my-app -template=hello
+
 # Auto-detect target from extension
 rgrc myfile.rgr output.py      # → Python
 rgrc myfile.rgr output.go      # → Go
@@ -54,6 +58,8 @@ rgrc myfile.rgr -l=rust -o=output.rs
 
 ```
 Usage: rgrc <file.rgr> [options]
+       rgrc init [dir] [-template=coffee|hello] [-force]
+       rgrc install [-vendor] [-frozen] [-force]
 
 Options:
   -l=<lang>      Target language (es6, python, go, rust, java7, swift6, cpp, etc.)

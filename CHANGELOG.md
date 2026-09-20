@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`rgrc init [dir]` writes a Ranger project.** `npx ranger-compiler Hello.rgr`
+  still compiles a file; `npx ranger-compiler init my-cafe` now creates a
+  directory you can `npm install && npm start`. The default template is
+  **Ranger Coffee** (`examples/coffee_shop/`): a command-line till — pick
+  drinks and pastries, print the bill, write a PDF receipt that EVG laid out.
+  EVG is fetched as `pkg:evg` (`lib/evg`, MIT). The painter in the template is
+  a small Helvetica PDF writer, also MIT, so the starter does not pull the
+  AGPL gallery PDF toolkit. `-template=hello` is a two-file greeter.
+  `-force` overwrites `src/Main.rgr`. RangerStarter stays the fuller
+  clone-and-go kit (fourteen targets, CI, skills); this is the small door
+  next to it. See [`docs/site/src/content/docs/start/init.md`](docs/site/src/content/docs/start/init.md).
+
 ### Changed
 
 - **The front-page hero columns are gold, not a magic runtime.** The first

@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+#
+# rgr — compile a Ranger program and run it, and FAIL when the compile fails.
+#
+# WHY THIS EXISTS. Ranger compilers through 3.5.1 print `[FAIL]` and
+# `Compilation FAILED` and then exit 0. Written the obvious way,
+#
+#     rgrc Main.rgr -o=Main.js && node build/Main.js
+#
+# the `&&` is satisfied by that zero, the PREVIOUS build is still on disk, and
+# node runs that one. The program prints what it printed before the change —
+# so the edit looks applied, the test looks green, and neither is true.
+#
+# Later compilers exit non-zero, and which one is installed here is whatever
+# `npm install` resolved. So, on either: the output file is deleted first, the
+# compiler's log is read as well as its exit status, and a missing output file
+# is itself an error.
+#
+#   rgr run   <src.rgr> [args…]   compile to JavaScript and run it
+#   rgr build <src.rgr> [-l=]     compile only
+#   rgr check <src.rgr>           compile, report, run nothing
+#
+# Anything after `--` goes to the compiler: rgr build src/Main.rgr -- -deadcode
+#
+# SPDX-License-Identifier: MIT
+set -u
+
+usage() {
+  cat >&2 <<'USAGE'
+usage: rgr run <src.rgr> [args…]     compile to JavaScript and run it
+       rgr build <src.rgr> [-l=]     compile only (default: es6)
+       rgr check <src.rgr>           compile and report, run nothing
+
+  -l=  es6 (default), python, go, cpp, rust, java7, kotlin, swift6,
+       swift3, dart, php, csharp, scala, llvm
+  -d=  output directory (default: build)
+  --   pass the rest to the compiler
+USAGE
+}
+
+cmd=${1-}
+case "$cmd" in
+  run|build|check) shift ;;
+  -h|--help|"") usage; exit 1 ;;
+  *) echo "rgr: unknown command '$cmd'" >&2; usage; exit 1 ;;
+esac
+
+src=${1-}
+if [ -z "$src" ]; then usage; exit 1; fi
+if [ ! -f "$src" ]; then echo "rgr: no such file: $src" >&2; exit 1; fi
+shift
+
+lang=es6
+outdir=build
+passthru=()
+args=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -l=*) lang=${1#-l=} ;;
+    -d=*) outdir=${1#-d=} ;;
+    --) shift; passthru=("$@"); break ;;
+    *) args+=("$1") ;;
+  esac
+  shift
+done
+
+base=$(basename "$src" .rgr)
+case "$lang" in
+  es6) ext=js ;;
+  python) ext=py ;;
+  go) ext=go ;;
+  cpp) ext=cpp ;;
+  rust) ext=rs ;;
+  java7) ext=java ;;
+  kotlin) ext=kt ;;
+  swift6|swift3) ext=swift ;;
+  dart) ext=dart ;;
+  php) ext=php ;;
+  csharp) ext=cs ;;
+  scala) ext=scala ;;
+  llvm) ext=ll ;;
+  *) echo "rgr: unknown target '$lang'" >&2; usage; exit 1 ;;
+esac
+out="$base.$ext"
+
+if [ ! -x node_modules/.bin/rgrc ]; then
+  echo "rgr: node_modules/.bin/rgrc is missing — run 'npm install' first" >&2
+  exit 1
+fi
+compiler=(node_modules/.bin/rgrc)
+
+mkdir -p "$outdir"
+rm -f "$outdir/$out"
+stamp=$(mktemp) && trap 'rm -f "$stamp"' EXIT
+
+log=$("${compiler[@]}" "$src" "-l=$lang" "-d=$outdir" "-o=$out" -nodecli "${passthru[@]+"${passthru[@]}"}" 2>&1)
+status=$?
+
+if [ $status -ne 0 ] || printf '%s' "$log" | grep -q "Compilation FAILED"; then
+  printf '%s\n' "$log" | grep -B2 -A4 "\[FAIL\]" | head -60
+  echo "rgr: $src did not compile" >&2
+  exit 1
+fi
+
+if [ ! -f "$outdir/$out" ]; then
+  produced=$(find "$outdir" -type f -newer "$stamp" 2>/dev/null)
+  if [ -z "$produced" ]; then
+    printf '%s\n' "$log" | tail -20
+    echo "rgr: the compiler wrote no $outdir/$out" >&2
+    exit 1
+  fi
+  if [ "$cmd" = "run" ]; then
+    echo "rgr: the compiler wrote per-class files, not $outdir/$out:" >&2
+    printf '%s\n' "$produced" >&2
+    echo "rgr: 'rgr run' needs the single file — use 'rgr build' for this target" >&2
+    exit 1
+  fi
+  echo "rgr: $src compiles ($lang), written as:"
+  printf ' %s\n' $produced
+  exit 0
+fi
+
+if [ "$cmd" = "check" ]; then
+  echo "rgr: $src compiles ($lang)"
+  exit 0
+fi
+if [ "$cmd" = "build" ]; then
+  echo "rgr: $outdir/$out"
+  exit 0
+fi
+
+case "$lang" in
+  es6) exec node "$outdir/$out" ${args[@]+"${args[@]}"} ;;
+  python) exec python3 "$outdir/$out" ${args[@]+"${args[@]}"} ;;
+  go) exec go run "$outdir/$out" ${args[@]+"${args[@]}"} ;;
+  *)
+    echo "rgr: built $outdir/$out — running $lang is up to its own toolchain" >&2
+    exit 0
+    ;;
+esac

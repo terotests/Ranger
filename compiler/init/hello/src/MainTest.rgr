@@ -1,0 +1,33 @@
+; SPDX-License-Identifier: MIT
+;
+; npm test — three expectations, and a non-zero exit when one fails.
+
+Import "Greeter.rgr"
+
+class MainTest {
+    def failed:int 0
+
+    fn expectStr:void (what:string got:string want:string) {
+        if (got == want) {
+            print ("  PASS  " + what)
+        } {
+            failed = (failed + 1)
+            print (((((("  FAIL  " + what) + " — got ") + got) + " want ") + want))
+        }
+    }
+
+    sfn m@(main):void () {
+        def t (new MainTest)
+        def g (new Greeter("hei"))
+        t.expectStr("a greeting" (g.greet("maailma")) "hei maailma")
+        t.expectStr("a shout" (g.shout("Ranger")) "hei Ranger!")
+        def g2 (new Greeter("hello"))
+        t.expectStr("the word is a field" (g2.greet("world")) "hello world")
+        if (t.failed > 0) {
+            print (("FAILED " + (to_string t.failed)))
+            set_exit_code 1
+        } {
+            print "ALL PASS"
+        }
+    }
+}

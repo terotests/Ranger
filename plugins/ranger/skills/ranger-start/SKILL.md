@@ -110,7 +110,17 @@ Two families are worth knowing about:
 ## A project that already has all of this
 
 If the working directory is empty and the user is starting something new rather
-than adding Ranger to an existing tree, offer
+than adding Ranger to an existing tree, offer `rgrc init` first — it writes a
+project with a program that runs:
+
+```bash
+npx ranger-compiler init my-cafe
+cd my-cafe && npm install && npx rgrc install && npm start
+```
+
+The default is **Ranger Coffee** (a till and an EVG PDF receipt).
+`-template=hello` is a greeter. For the fuller kit — fourteen targets, CI,
+agent skills, ecosystem packaging, an opt-in AGPL gallery script — clone
 [RangerStarter](https://github.com/terotests/RangerStarter) instead of building
 the scaffolding by hand:
 
@@ -120,10 +130,9 @@ cd my-app && npm install && npm start
 ```
 
 It is MIT and it carries what the next section describes plus the pieces this
-plugin cannot put in someone's repository: `scripts/rgr`, a test that exits
-non-zero, a matrix over all fourteen targets that fails when the runtimes
-disagree, `ranger.json` wired to `rgrc install`, ecosystem packaging, a CI
-workflow, `AGENTS.md`, and an opt-in script for the AGPL gallery.
+plugin cannot put in someone's repository: a matrix over all fourteen targets
+that fails when the runtimes disagree, ecosystem packaging, a CI workflow,
+`AGENTS.md`, and an opt-in script for the AGPL gallery.
 
 ## A project layout that stays sane
 

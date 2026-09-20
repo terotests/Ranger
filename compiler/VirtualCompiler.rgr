@@ -6,6 +6,7 @@ Import "LiveCompiler.rgr"
 Import "ColorConsole.rgr"
 Import "CLIProgress.rgr"
 Import "PkgFetch.rgr"
+Import "RangerInit.rgr"
 Import "DictNode.rgr"
 Import "RangerSerializeClass.rgr"
 Import "CmdParams.rgr"
@@ -582,6 +583,17 @@ class tester {
     return false
   }
 
+  ; `rgrc init [dir]` -- write a Ranger project, coffee shop by default.
+  fn runInit:boolean (env:InputEnv params:CmdParams cli:CLIProgress) {
+    def init (new RangerInit)
+    def done:boolean (init.run(env params cli))
+    if done {
+      return true
+    }
+    print (cli.error(init.err))
+    return false
+  }
+
   fn run@(weak):CompilerResults ( env:InputEnv) {
 
     def res (new CompilerResults)
@@ -607,6 +619,13 @@ class tester {
     if ((array_length params.values) > 0) {
       if ((itemAt params.values 0) == "install") {
         if (this.runInstall(env params cli)) {
+          return res
+        }
+        res.hasErrors = true
+        return res
+      }
+      if ((itemAt params.values 0) == "init") {
+        if (this.runInit(env params cli)) {
           return res
         }
         res.hasErrors = true
@@ -681,6 +700,12 @@ class tester {
         cli.printHelpHeader()
 
         cli.printSection("Commands:")
+        print ("  " + (cli.bold("init")) + " [dir]          write a Ranger project into dir (default: the working directory).")
+        print ("                       Default template is Ranger Coffee — a till that prints a")
+        print ("                       bill and an EVG PDF receipt. -template=hello is a greeter.")
+        print (cli.gray("                       -template=coffee  cart + EVG receipt (default)"))
+        print (cli.gray("                       -template=hello   two files, hei maailma"))
+        print (cli.gray("                       -force            overwrite src/Main.rgr if it exists"))
         print ("  " + (cli.bold("install")) + "              fetch the packages the nearest ranger.json names into the")
         print ("                       package cache and write ranger.lock.")
         print (cli.gray("                       -vendor       also write vendor/ranger/<name>"))

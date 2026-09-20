@@ -17,11 +17,12 @@ npm init -y && npm i -D ranger-compiler
 …and ask for a program. The first one compiles and runs in about a second.
 
 Starting something new rather than adding Ranger to an existing tree?
+`npx ranger-compiler init my-cafe` writes a project (Ranger Coffee by default,
+or `-template=hello`). For the fuller kit —
 [RangerStarter](https://github.com/terotests/RangerStarter) is a clone-and-go
 version of the same thing — these skills already in `.claude/skills/`, plus the
-parts a plugin cannot put in your repository: `scripts/rgr`, a test that exits
-non-zero, a matrix over all fourteen targets, `ranger.json`, ecosystem
-packaging, CI, and an opt-in script for the AGPL gallery. MIT.
+parts a plugin cannot put in your repository: a matrix over all fourteen
+targets, ecosystem packaging, CI, and an opt-in script for the AGPL gallery. MIT.
 
 ## What is in it
 
@@ -57,5 +58,6 @@ always the wrong one.
 
 `npm run plugin:check` runs the drift check and both manifest validations.
 
-The language and compiler are MIT; the gallery — EVG, Rave, the document stack
-— is AGPL-3.0-or-later. See [`LICENSING.md`](../../LICENSING.md).
+The language, the compiler and EVG (`lib/evg`) are MIT; the gallery — Rave,
+the document stack, the PDF toolkit — is AGPL-3.0-or-later. See
+[`LICENSING.md`](../../LICENSING.md).

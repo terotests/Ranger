@@ -1,0 +1,81 @@
+; SPDX-License-Identifier: MIT
+;
+; What the customer asked for. Lines merge when the same product is added
+; twice, so `latte latte bun` is two lattes and a bun, not three rows.
+
+Import "Menu.rgr"
+
+class CartLine {
+    def code:string ""
+    def label:string ""
+    def cents:int 0
+    def qty:int 0
+}
+
+class ShopCart {
+    def lines:[CartLine]
+    def unknown:[string]
+
+    fn addItem:void (item:MenuItem) {
+        def i:int 0
+        while (i < (array_length lines)) {
+            def line:CartLine (itemAt lines i)
+            if (line.code == item.code) {
+                line.qty = (line.qty + 1)
+                return
+            }
+            i = (i + 1)
+        }
+        def fresh (new CartLine)
+        fresh.code = item.code
+        fresh.label = item.label
+        fresh.cents = item.cents
+        fresh.qty = 1
+        push lines fresh
+    }
+
+    fn addUnknown:void (code:string) {
+        push unknown code
+    }
+
+    fn lineCount:int () {
+        return (array_length lines)
+    }
+
+    fn lineAt:CartLine (i:int) {
+        return (itemAt lines i)
+    }
+
+    fn unknownCount:int () {
+        return (array_length unknown)
+    }
+
+    fn unknownAt:string (i:int) {
+        return (itemAt unknown i)
+    }
+
+    fn empty:boolean () {
+        return ((array_length lines) == 0)
+    }
+
+    ; Prices on the board include 14 % VAT (Finnish restaurant rate).
+    fn grossCents:int () {
+        def sum:int 0
+        def i:int 0
+        while (i < (array_length lines)) {
+            def line:CartLine (itemAt lines i)
+            sum = (sum + (line.cents * line.qty))
+            i = (i + 1)
+        }
+        return sum
+    }
+
+    fn netCents:int () {
+        def g:int (this.grossCents())
+        return (idiv (g * 100) 114)
+    }
+
+    fn vatCents:int () {
+        return ((this.grossCents()) - (this.netCents()))
+    }
+}

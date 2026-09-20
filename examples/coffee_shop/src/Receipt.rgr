@@ -1,0 +1,106 @@
+; SPDX-License-Identifier: MIT
+;
+; The receipt as an EVG document: a stylesheet, a column of rows, then layout.
+; Painting to PDF is a separate walk of the boxes EVG computed.
+
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGLayout.rgr"
+Import "pkg:evg/EVGTreeJson.rgr"
+Import "Cart.rgr"
+Import "Money.rgr"
+Import "ReceiptPdf.rgr"
+
+class ShopReceipt {
+    def pageW:double 595.0
+    def pageH:double 842.0
+    def root:EVGElement
+
+    sfn sheet:string () {
+        def css:string ".page { display: flex; flex-direction: column; background-color: rgb(250, 246, 240); padding: 40px; width: 595px; }\n"
+        css = (css + ".brand { font-size: 26px; color: rgb(74, 42, 24); }\n")
+        css = (css + ".tag { font-size: 11px; color: rgb(120, 96, 80); }\n")
+        css = (css + ".rule { height: 1px; background-color: rgb(196, 168, 140); margin-top: 10px; margin-bottom: 10px; }\n")
+        css = (css + ".row { display: flex; flex-direction: row; justify-content: space-between; margin-bottom: 6px; }\n")
+        css = (css + ".name { font-size: 13px; color: rgb(40, 32, 28); }\n")
+        css = (css + ".amt { font-size: 13px; color: rgb(40, 32, 28); }\n")
+        css = (css + ".muted { font-size: 12px; color: rgb(120, 96, 80); }\n")
+        css = (css + ".total-name { font-size: 16px; color: rgb(74, 42, 24); }\n")
+        css = (css + ".total-amt { font-size: 16px; color: rgb(74, 42, 24); }\n")
+        css = (css + ".thanks { font-size: 12px; color: rgb(120, 96, 80); margin-top: 16px; }\n")
+        return css
+    }
+
+    sfn span:EVGElement (cls:string text:string) {
+        def el:EVGElement (EVGElement.createSpan())
+        el.className = cls
+        el.textContent = text
+        return el
+    }
+
+    sfn div:EVGElement (cls:string) {
+        def el:EVGElement (EVGElement.createDiv())
+        el.className = cls
+        return el
+    }
+
+    sfn row:EVGElement (leftCls:string left:string rightCls:string right:string) {
+        def r:EVGElement (ShopReceipt.div("row"))
+        r.addChild((ShopReceipt.span(leftCls left)))
+        r.addChild((ShopReceipt.span(rightCls right)))
+        return r
+    }
+
+    fn build:EVGElement (cart:ShopCart) {
+        def page:EVGElement (ShopReceipt.div("page"))
+        page.documentCss = (ShopReceipt.sheet())
+        page.addChild((ShopReceipt.span("brand" "Ranger Coffee")))
+        page.addChild((ShopReceipt.span("tag" "Receipt  -  VAT 14 % included")))
+        page.addChild((ShopReceipt.div("rule")))
+        def i:int 0
+        while (i < (cart.lineCount())) {
+            def line:CartLine (cart.lineAt(i))
+            def left:string (((line.label + "  x") + (to_string line.qty)))
+            def right:string ("EUR  " + (Money.euros((line.cents * line.qty))))
+            page.addChild((ShopReceipt.row("name" left "amt" right)))
+            i = (i + 1)
+        }
+        page.addChild((ShopReceipt.div("rule")))
+        page.addChild((ShopReceipt.row("muted" "Net" "muted" ("EUR  " + (Money.euros((cart.netCents())))))))
+        page.addChild((ShopReceipt.row("muted" "VAT 14 %" "muted" ("EUR  " + (Money.euros((cart.vatCents())))))))
+        page.addChild((ShopReceipt.div("rule")))
+        page.addChild((ShopReceipt.row("total-name" "Total" "total-amt" ("EUR  " + (Money.euros((cart.grossCents())))))))
+        page.addChild((ShopReceipt.span("thanks" "Thank you  -  see you tomorrow")))
+        return page
+    }
+
+    fn layoutPage:void (page:EVGElement) {
+        root = page
+        def lay (new EVGLayout())
+        lay.setPageSize(pageW pageH)
+        lay.layout(page)
+    }
+
+    fn toJson:string () {
+        def page@(optional):EVGElement root
+        if (null? page) {
+            return "{\"evg\":1}"
+        }
+        return (EVGTreeJson.toText((unwrap page)))
+    }
+
+    fn toPdf:string () {
+        def pdf (new ReceiptPdf)
+        pdf.setPageSize(pageW pageH)
+        def page@(optional):EVGElement root
+        if (null? page) {
+            return "%PDF-1.4\n%%EOF\n"
+        }
+        pdf.paintTree((unwrap page))
+        return (pdf.asPdf())
+    }
+
+    fn saveAll:void (dir:string stem:string) {
+        write_file dir (stem + ".evg.json") (this.toJson())
+        write_file dir (stem + ".pdf") (this.toPdf())
+    }
+}

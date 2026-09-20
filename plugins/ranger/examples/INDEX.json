@@ -16,6 +16,20 @@
       ]
     },
     {
+      "id": "coffee",
+      "title": "Ranger Coffee, with a PDF receipt",
+      "does": "A command-line till: pick drinks and pastries, print the bill, write a PDF receipt that EVG laid out.",
+      "needs": "repo",
+      "run": "npm run coffee:run",
+      "where": "examples/coffee_shop",
+      "teaches": [
+        "a cart and money in cents",
+        "EVG layout of a page",
+        "a PDF without the gallery toolkit",
+        "rgrc init"
+      ]
+    },
+    {
       "id": "calc",
       "title": "A parser and evaluator, in four languages",
       "does": "Tokenises and evaluates arithmetic with a recursive-descent parser, then runs the SAME source as JavaScript, Python and Go.",

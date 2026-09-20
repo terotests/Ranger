@@ -1,0 +1,191 @@
+; SPDX-License-Identifier: MIT
+;
+; Ranger Coffee — pick a few things from the board, get a bill, and walk out
+; with a PDF receipt that EVG laid out.
+;
+;   npm start                         sample order (latte, bun, espresso)
+;   npm start -- latte latte cookie
+;   npm start -- --out=kuitti espresso mocha
+;
+; Unknown codes are listed and ignored. `--out=` sets the output stem
+; (writes <stem>.pdf and <stem>.evg.json).
+
+Import "Menu.rgr"
+Import "Cart.rgr"
+Import "Receipt.rgr"
+Import "Money.rgr"
+
+class Main {
+    sfn printMenu:void (menu:ShopMenu) {
+        print "Ranger Coffee"
+        print "-------------"
+        def i:int 0
+        while (i < (menu.count())) {
+            def it:MenuItem (menu.at(i))
+            def price:string ("EUR  " + (Money.euros(it.cents)))
+            print ((((("  " + it.code) + "    ") + it.label) + "    ") + price)
+            i = (i + 1)
+        }
+        print ""
+    }
+
+    sfn parseOut:string (arg:string) {
+        if ((strlen arg) < 6) {
+            return ""
+        }
+        def head:string (substring arg 0 6)
+        if (head == "--out=") {
+            return (substring arg 6 (strlen arg))
+        }
+        if ((strlen arg) < 5) {
+            return ""
+        }
+        def short:string (substring arg 0 5)
+        if (short == "-out=") {
+            return (substring arg 5 (strlen arg))
+        }
+        return ""
+    }
+
+    sfn fillCart:ShopCart (menu:ShopMenu) {
+        def cart (new ShopCart)
+        def n:int (shell_arg_cnt)
+        def added:int 0
+        def sawProduct:boolean false
+        def i:int 0
+        while (i < n) {
+            def arg:string (shell_arg i)
+            def outName:string (Main.parseOut(arg))
+            if ((strlen outName) > 0) {
+                i = (i + 1)
+            } {
+                if ((strlen arg) > 0) {
+                    def ch:int (charAt arg 0)
+                    if (ch == 45) {
+                        i = (i + 1)
+                    } {
+                        sawProduct = true
+                        def hit@(optional):MenuItem (menu.findCode(arg))
+                        if (null? hit) {
+                            cart.addUnknown(arg)
+                        } {
+                            cart.addItem((unwrap hit))
+                            added = (added + 1)
+                        }
+                        i = (i + 1)
+                    }
+                } {
+                    i = (i + 1)
+                }
+            }
+        }
+        if ((added == 0) && (sawProduct == false)) {
+            cart.addItem((unwrap (menu.findCode("latte"))))
+            cart.addItem((unwrap (menu.findCode("bun"))))
+            cart.addItem((unwrap (menu.findCode("espresso"))))
+        }
+        return cart
+    }
+
+    sfn dropExt:string (name:string) {
+        def n:int (strlen name)
+        if (n > 4) {
+            def tail:string (substring name (n - 4) n)
+            if (tail == ".pdf") {
+                return (substring name 0 (n - 4))
+            }
+        }
+        if (n > 9) {
+            def jsonTail:string (substring name (n - 9) n)
+            if (jsonTail == ".evg.json") {
+                return (substring name 0 (n - 9))
+            }
+        }
+        return name
+    }
+
+    sfn outStem:string () {
+        def n:int (shell_arg_cnt)
+        def i:int 0
+        while (i < n) {
+            def arg:string (shell_arg i)
+            def name:string (Main.parseOut(arg))
+            if ((strlen name) > 0) {
+                return (Main.dropExt(name))
+            }
+            i = (i + 1)
+        }
+        return "receipt"
+    }
+
+    sfn printBill:void (cart:ShopCart) {
+        print "Your order"
+        def i:int 0
+        while (i < (cart.lineCount())) {
+            def line:CartLine (cart.lineAt(i))
+            print (((((("  " + line.label) + " x") + (to_string line.qty)) + "    EUR  ") + (Money.euros((line.cents * line.qty)))))
+            i = (i + 1)
+        }
+        print (("  Net          EUR  " + (Money.euros((cart.netCents())))))
+        print (("  VAT 14 %     EUR  " + (Money.euros((cart.vatCents())))))
+        print (("  Total        EUR  " + (Money.euros((cart.grossCents())))))
+        print ""
+    }
+
+    sfn parentDir:string (path:string) {
+        def n:int (strlen path)
+        def slash:int (lastIndexOf path "/")
+        if (slash < 0) {
+            return "."
+        }
+        if (slash == 0) {
+            return "/"
+        }
+        return (substring path 0 slash)
+    }
+
+    sfn fileName:string (path:string) {
+        def slash:int (lastIndexOf path "/")
+        if (slash < 0) {
+            return path
+        }
+        return (substring path (slash + 1) (strlen path))
+    }
+
+    sfn m@(main):void () {
+        def menu (new ShopMenu)
+        Main.printMenu(menu)
+        def cart:ShopCart (Main.fillCart(menu))
+        def u:int (cart.unknownCount())
+        if (u > 0) {
+            def i:int 0
+            while (i < u) {
+                print ("unknown item: " + (cart.unknownAt(i)))
+                i = (i + 1)
+            }
+            print ""
+        }
+        if (cart.empty()) {
+            print "Nothing to ring up. Pass product codes, for example:"
+            print "  npm start -- latte bun cookie"
+            return
+        }
+        Main.printBill(cart)
+        def receipt (new ShopReceipt)
+        def page:EVGElement (receipt.build(cart))
+        receipt.layoutPage(page)
+        def stem:string (Main.outStem())
+        def dir:string (Main.parentDir(stem))
+        def file:string (Main.fileName(stem))
+        if (dir != ".") {
+            create_dir dir
+        }
+        receipt.saveAll(dir file)
+        def written:string stem
+        if (dir != ".") {
+            written = ((dir + "/") + file)
+        }
+        print (("Wrote " + written) + ".pdf")
+        print (("Wrote " + written) + ".evg.json")
+    }
+}
