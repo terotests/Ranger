@@ -2087,7 +2087,193 @@ class RangerRustClassWriter {
   ; their own `&` — `map.contains_key(&x.rgf_name())` becomes `&&String`,
   ; which satisfies no Borrow bound — and every reader of a string field in
   ; the compiler wants a value it can keep anyway.
+  ; --- build-then-fill, written as the value it builds ----------------------
+  ; `def line (new CartLine)` and the field assignments that follow are one
+  ; initialization; StaticAnalyzer.foldObjectInitsAll said so and checked the
+  ; conditions (CodeNode.rg_init_fold). Rust builds the finished value:
+  ;
+  ;   let mut line : CartLine = CartLine { name: …, cents: …, qty: … };
+  ;
+  ; A run that leaves some field alone takes the rest from the constructor --
+  ; `..CartLine::new()` -- which is exact whatever the subset, and is left off
+  ; when the run covers every field (Rust rejects a base it cannot use).
+  ; The statements the run swallowed are disabled here rather than in the
+  ; analysis: the marking is target-neutral, and a writer that does not spell
+  ; this form has to go on emitting them.
+  ; Can THIS writer spell the folded run? The analysis answered the
+  ; target-neutral half -- that the run is one initialization. The half that is
+  ; Rust's is which conversions the statement form was doing on the way into
+  ; the field, because a struct literal does none of them: a `@(weak)` field
+  ; takes `Some(Rc::downgrade(&x))`, an `@(optional)` one `Some(x)`, a
+  ; promoted `&'static str` field refuses the `.to_string()` an owned position
+  ; adds, a cell field is written through `set`, and a shared field wants an
+  ; Rc. Each of those is a case in the `=` handler; none of them is folded.
+  ; When any field needs one, this returns false having written nothing and
+  ; the ordinary path runs, statements and all.
+  fn rustFoldedInitIsWritable:boolean (node:CodeNode ctx:RangerAppWriterContext) {
+    def value:CodeNode (itemAt node.children 2)
+    def clNode:CodeNode (value.getSecond())
+    def cl:RangerAppClassDesc (ctx.findClass(clNode.vref))
+    def cnt:int (array_length node.rg_init_fields)
+    def i:int 0
+    while (i < cnt) {
+      def fName:string (itemAt node.rg_init_fields i)
+      def fVal:CodeNode (itemAt node.rg_init_values i)
+      def found:boolean false
+      for cl.variables fv:RangerAppParamDesc fvi {
+        if (fv.name == fName) {
+          found = true
+          def fNN@(optional):CodeNode fv.nameNode
+          if (null? fNN) {
+            return false
+          }
+          def fN:CodeNode (unwrap fNN)
+          if (fN.hasFlag("weak")) {
+            return false
+          }
+          if (fN.hasFlag("optional")) {
+            return false
+          }
+          ; a collection field converts on the way in (.to_vec(), .clone())
+          if ((strlen fN.array_type) > 0) {
+            return false
+          }
+          if ((strlen fN.key_type) > 0) {
+            return false
+          }
+          if fv.rust_static_str {
+            return false
+          }
+          if fv.rust_interior_cell {
+            return false
+          }
+          if fv.rust_needs_rc_wrap {
+            return false
+          }
+          if ((strlen fN.type_name) > 0) {
+            if (ctx.isDefinedClass(fN.type_name)) {
+              if (this.rustClassIsShared(fN.type_name ctx)) {
+                return false
+              }
+              def fCl:RangerAppClassDesc (ctx.findClass(fN.type_name))
+              if fCl.is_union {
+                return false
+              }
+              ; a shape field: the value is wrapped into its enum variant by
+              ; rustWriteUnionValue, which a plain literal does not do
+              if (this.unionIsSealable(fCl ctx)) {
+                return false
+              }
+            }
+          }
+        }
+      }
+      if (found == false) {
+        return false
+      }
+      ; …and the VALUE: `this` is `__self_rc` in a value position, a borrowed
+      ; &str or slice needs the conversion the assignment writes
+      def fvReal:CodeNode (this.rustUnwrapParens(fVal))
+      if (fvReal.vref == "this") {
+        return false
+      }
+      if (this.rustStrRefRead(fVal)) {
+        return false
+      }
+      if (this.rustSliceRefRead(fVal)) {
+        return false
+      }
+      i = i + 1
+    }
+    return true
+  }
+
+  fn rustWriteFoldedInit:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def nn:CodeNode (itemAt node.children 1)
+    def p:RangerAppParamDesc nn.paramDesc
+    def value:CodeNode (itemAt node.children 2)
+    def clNode:CodeNode (value.getSecond())
+    def clName:string clNode.vref
+    def cl:RangerAppClassDesc (ctx.findClass(clName))
+    wr.out((("let mut " + (this.adjustType(p.compiledName))) + " : " + clName + " = " + clName + " {") true)
+    wr.indent(1)
+    def cnt:int (array_length node.rg_init_fields)
+    def i:int 0
+    while (i < cnt) {
+      def fName:string (itemAt node.rg_init_fields i)
+      def fVal:CodeNode (itemAt node.rg_init_values i)
+      def outName:string fName
+      for cl.variables fv:RangerAppParamDesc fvi {
+        if (fv.name == fName) {
+          outName = fv.compiledName
+        }
+      }
+      def emitted:string (this.adjustType(outName))
+      ; a name read into an owned field moves, and moving something the body
+      ; reads again is E0382 — so it takes the copy the assignment form wrote,
+      ; unless the analysis proved this is its last read (rg_moved_here).
+      def needsCopy:boolean false
+      if (fVal.rg_moved_here == false) {
+        if (this.rustArgIsNameRead(fVal)) {
+          def vCopy:boolean true
+          if fVal.hasParamDesc {
+            def vcP:RangerAppParamDesc (unwrap fVal.paramDesc)
+            vCopy = (this.rustFieldIsCopyScalar(vcP ctx))
+          }
+          if (vCopy == false) {
+            needsCopy = true
+          }
+        }
+      }
+      ; `CartLine { name }` when the value is the name of the field and goes
+      ; in as it is: the long form is clippy's redundant_field_names, and
+      ; nobody writes it by hand
+      def shorthand:boolean false
+      if (needsCopy == false) {
+        if ((fVal.expression) == false) {
+          if ((array_length fVal.ns) <= 1) {
+            if fVal.hasParamDesc {
+              def vp:RangerAppParamDesc fVal.paramDesc
+              if ((this.adjustType(vp.compiledName)) == emitted) {
+                shorthand = true
+              }
+            }
+          }
+        }
+      }
+      if shorthand {
+        wr.out((emitted + ",") true)
+      } {
+        wr.out((emitted + ": ") false)
+        ctx.setInExpr()
+        this.WalkNode(fVal ctx wr)
+        ctx.unsetInExpr()
+        if needsCopy {
+          wr.out(".clone()" false)
+        }
+        wr.out("," true)
+      }
+      i = i + 1
+    }
+    if (node.rg_init_covers_all == false) {
+      wr.out((".." + clName + "::new()") true)
+    }
+    wr.indent(-1)
+    wr.out("};" true)
+    for node.rg_init_stmts fs:CodeNode fsi {
+      fs.disabled_node = true
+    }
+  }
+
   fn writeVarDef (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if node.rg_init_fold {
+      if node.hasParamDesc {
+        if (this.rustFoldedInitIsWritable(node ctx)) {
+          this.rustWriteFoldedInit(node ctx wr)
+          return
+        }
+      }
+    }
     if node.hasParamDesc {
       def nn:CodeNode (itemAt node.children 1)
       def p:RangerAppParamDesc nn.paramDesc

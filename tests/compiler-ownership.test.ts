@@ -119,6 +119,43 @@ describe("Ranger Compiler - ownership escape forms (PLAN_OWNERSHIP_SOUNDNESS 2-6
   });
 });
 
+describe("a local stored for the last time is moved, and built as a value", () => {
+  const out = inferOwnership(`${FIXTURES}/ownership_local_move.rgr`, {
+    outFile: "local_move.js",
+  });
+  const rs = getGeneratedRustCode(`${FIXTURES}/ownership_local_move.rgr`);
+
+  it("compiles the fixture to Rust", () => {
+    expect(rs.success, `Compile failed: ${rs.error}`).toBe(true);
+  });
+
+  it("keeps the pushed class a value when the name does not outlive the push", () => {
+    expect(out).toContain("ownership[rust] class Line -> value");
+    expect(rs.code).toContain("lines : Vec<Line>");
+  });
+
+  it("moves the local into the collection instead of copying it", () => {
+    expect(rs.code).toContain("self.lines.push(line);");
+    expect(rs.code).not.toContain("self.lines.push(line.clone());");
+  });
+
+  it("builds the finished value rather than default-constructing and writing", () => {
+    // the run covers every field, so there is no `..Line::new()` base, and a
+    // value that is the field's own name takes the shorthand form
+    expect(rs.code).toMatch(/let mut line : Line = Line \{\s*\n\s*name,\s*\n\s*cents,\s*\n\s*qty,\s*\n\s*\};/);
+    expect(rs.code).not.toContain("let mut line : Line = Line::new();");
+  });
+
+  it("still shares a class whose stored object is handed back out", () => {
+    // Keeper.first returns the stored Held, so the collection is not its only
+    // owner and `add` keeps its copy
+    expect(out).toContain(
+      "ownership[rust] class Held -> Rc<RefCell> (returns a stored object from first)"
+    );
+    expect(rs.code).toContain("self.held.push(h.clone());");
+  });
+});
+
 describe("Ranger Compiler - borrowed const& call-site copy (PLAN_OWNERSHIP_SOUNDNESS 1)", () => {
   const result = getGeneratedCppCode(`${FIXTURES}/ownership_alias_call.rgr`);
 

@@ -2375,6 +2375,12 @@ extension RangerRustClassWriter {
         arr_type = pp.nameNode.array_type
       }
       
+      ; …and the answer the static analysis already has: when this operand is
+      ; the last use of a local built in this function, the Vec owns it from
+      ; here on and every copy below would be a copy nobody reads.
+      ; StaticAnalyzer.storeIsLocalMove set the flag; see CodeNode.rg_moved_here.
+      def moved_here:boolean right.rg_moved_here
+
       ; Check if the pushed value might be used after this (needs cloning)
       def needs_clone:boolean false
       if (right.value_type == RangerNodeType.VRef) {
@@ -2437,6 +2443,9 @@ extension RangerRustClassWriter {
       if (((arr_type == "int") || (arr_type == "double")) || (arr_type == "boolean")) {
         needs_clone = false
       }
+      if moved_here {
+        needs_clone = false
+      }
       if needs_clone {
         ; a str-reference value (static string / borrowed &str param) makes
         ; the owned element with .to_string()
@@ -2459,7 +2468,7 @@ extension RangerRustClassWriter {
           wr.out(".to_string()" false)
         }
         ; Add .clone() when pushing objects to arrays (the pushed value may be used later)
-        if (right.value_type == RangerNodeType.VRef) {
+        if ((right.value_type == RangerNodeType.VRef) && (moved_here == false)) {
           if (arr_type != "string") {
             if (arr_type != "int") {
               if (arr_type != "double") {

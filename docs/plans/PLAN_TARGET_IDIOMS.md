@@ -1,7 +1,7 @@
 # PLAN_TARGET_IDIOMS — the idioms each target was still missing
 
 > **Status: the native-enum work is done on every target with an enum; the
-> per-target items below are done except the two named at the end.** Gated by
+> per-target items below are done except the three named at the end.** Gated by
 > `gallery/friendly/compile.sh` (twelve studies, eight runnable targets, the
 > cross-target output diff clean), the eight self-host checks, and `npm test`.
 
@@ -133,12 +133,87 @@ self.lines.iter()` — instead of cloning every element. Every other shape
 a collection field out of it) either needs `&mut` or moves out of the borrow,
 so those keep the clone.
 
+## The two facts the analysis hands the writers
+
+Both of the above are answered by `StaticAnalyzer` and read by the Rust writer
+through two fields on `CodeNode`. They are fields rather than `setFlag`
+annotations because several writers read `vref_annotation.getFirst()` for a
+lambda annotation, and a synthetic flag would arrive there as one.
+
+**`rg_moved_here`** — this operand is the last use of a local built in this
+function, so the store it feeds owns the value from here on. It is the same
+`storeIsLocalMove` answer that decides the sharing verdict, recorded rather
+than thrown away. The Rust `push` handler (`RustOperators.rgr`, the one place
+that decides a push's copy) drops its `.clone()` when it is set. Its own
+comment asked exactly this question — *"the pushed value may be used later"* —
+and now something answers it.
+
+**`rg_init_fold`** — this `def` and the run of field assignments after it are
+one initialization. `foldObjectInitsAll` folds the run only when the `def`
+makes the object with a no-argument `new`; the class is a plain class of this
+program with no parent, no children, no union, trait, template or generic
+instance, and is not one the sharing analysis put behind a cell; the name is a
+plain local, not optional and not Rc-wrapped; and the statements that follow
+assign only fields of that name, each field once, with no assigned expression
+reading the name itself. The class must also have no constructor of its own
+and no field default that *does* anything: `new` runs a constructor body where
+a struct literal does not, and a literal evaluates its `..base` after the
+fields it lists where the statement form ran `new` first — a reorder that is
+only observable when a default has an effect to observe. The pass *marks* and
+writes nothing, so a writer that ignores the fields emits exactly what it
+emitted before.
+
+Rust then builds the finished value:
+
+```rust
+fn add(&mut self, name : String, price : i64) {
+    let mut it : Item = Item {
+      name,
+      price,
+      ..Item::new()
+    };
+    self.items.push(it);
+}
+```
+
+`..Item::new()` carries whatever the run left alone, which is exact for any
+subset and is left off when the run covers every field. The statements the run
+swallowed are disabled by the *writer*, not by the analysis, because the
+marking is target-neutral and a writer that does not spell this form has to go
+on emitting them.
+
+The self-host build found the rest of it, in two rounds.
+
+**A struct literal does none of the conversions the assignment was doing.** A
+`@(weak)` field takes `Some(Rc::downgrade(&x))`, an `@(optional)` one
+`Some(x)`, a shape field is wrapped into its enum variant, a promoted
+`&'static str` field refuses the `.to_string()` an owned position adds, a cell
+field is written through `set`, a shared field wants an Rc, a collection field
+converts with `.to_vec()`. Each is a case in the `=`
+handler and none is folded, so `rustFoldedInitIsWritable` asks first and
+returns false — having written nothing — when any field needs one; the
+ordinary path then runs, statements and all. That is the right place for the
+question: the analysis answers the target-neutral half, the writer the half
+that is Rust's.
+
+**A name read into an owned field moves,** and moving something the body reads
+again is E0382. So a field value that names a local keeps the copy the
+assignment wrote, unless the same kind of liveness question says this is its
+last read — the name appears once in the whole body and nothing aliases it. In
+`add` that is true of `name`, which is why it goes in as a move and in the
+shorthand form; it is false of a `gname` that the function returns afterwards,
+which keeps `.clone()`. The shorthand is written only where the value goes in
+as it is, so it never hides a copy.
+
+Folding `add` also removed the `name.clone()` the statement form needed: in an
+owned position, on its last read, the String moves.
+
 ## Not done
 
-- **Clone elision at a store.** `self.lines.push(line.clone())` still clones a
-  local that is dead after the push. The fact is already computed
-  (`storeIsLocalMove`); acting on it means a per-node liveness channel into the
-  Rust operand writer, which decides `.clone()` at twenty-nine separate sites.
+- **The same two facts on C++ and Swift.** The analysis runs for them (it runs
+  for cpp, rust and swift6), and the marks are there; only the Rust writer
+  reads them. C++ would spell the fold as aggregate initialization and the move
+  as `std::move`.
 - **Dart `record` as a named-parameter constructor.** `Point({this.xpos = 0})`
   with `Point(xpos: 3)` at the call site is the idiom, and the two halves have
   to change together or every construction breaks. There is no `dart` on this

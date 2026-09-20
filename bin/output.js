@@ -4654,6 +4654,13 @@ class CodeNode  {
     this.rust_preevaluated_args = [];
     this.rust_use_tmpvar = "";
     this.rust_is_tail_return = false;
+    this.rg_moved_here = false;
+    this.rg_init_fold = false;
+    this.rg_init_fields = [];
+    this.rg_init_values = [];
+    this.rg_init_stmts = [];
+    this.rg_init_covers_all = false;
+    this.rg_init_folded = false;
     this.operator_pred = 0;
     this.to_the_right = false;
     this.right_node = undefined;
@@ -33745,7 +33752,161 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                       }
                                       return false;
                                     };
+                                    rustFoldedInitIsWritable (node, ctx) {
+                                      const value = node.children[2];
+                                      const clNode = value.getSecond();
+                                      const cl = ctx.findClass(clNode.vref);
+                                      const cnt = node.rg_init_fields.length;
+                                      let i = 0;
+                                      while (i < cnt) {
+                                        const fName = node.rg_init_fields[i];
+                                        const fVal = node.rg_init_values[i];
+                                        let found = false;
+                                        for ( const fv of cl.variables) {
+                                          if ( fv.name == fName ) {
+                                            found = true;
+                                            const fNN = fv.nameNode;
+                                            if ( typeof(fNN) === "undefined" ) {
+                                              return false;
+                                            }
+                                            const fN = fNN;
+                                            if ( fN.hasFlag("weak") ) {
+                                              return false;
+                                            }
+                                            if ( fN.hasFlag("optional") ) {
+                                              return false;
+                                            }
+                                            if ( fN.array_type.length > 0 ) {
+                                              return false;
+                                            }
+                                            if ( fN.key_type.length > 0 ) {
+                                              return false;
+                                            }
+                                            if ( fv.rust_static_str ) {
+                                              return false;
+                                            }
+                                            if ( fv.rust_interior_cell ) {
+                                              return false;
+                                            }
+                                            if ( fv.rust_needs_rc_wrap ) {
+                                              return false;
+                                            }
+                                            if ( fN.type_name.length > 0 ) {
+                                              if ( ctx.isDefinedClass(fN.type_name) ) {
+                                                if ( this.rustClassIsShared(fN.type_name, ctx) ) {
+                                                  return false;
+                                                }
+                                                const fCl = ctx.findClass(fN.type_name);
+                                                if ( fCl.is_union ) {
+                                                  return false;
+                                                }
+                                                if ( this.unionIsSealable(fCl, ctx) ) {
+                                                  return false;
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                        if ( found == false ) {
+                                          return false;
+                                        }
+                                        const fvReal = this.rustUnwrapParens(fVal);
+                                        if ( fvReal.vref == "this" ) {
+                                          return false;
+                                        }
+                                        if ( this.rustStrRefRead(fVal) ) {
+                                          return false;
+                                        }
+                                        if ( this.rustSliceRefRead(fVal) ) {
+                                          return false;
+                                        }
+                                        i = i + 1;
+                                      };
+                                      return true;
+                                    };
+                                    rustWriteFoldedInit (node, ctx, wr) {
+                                      const nn = node.children[1];
+                                      const p = nn.paramDesc;
+                                      const value = node.children[2];
+                                      const clNode = value.getSecond();
+                                      const clName = clNode.vref;
+                                      const cl = ctx.findClass(clName);
+                                      wr.out(((((("let mut " + this.adjustType(p.compiledName)) + " : ") + clName) + " = ") + clName) + " {", true);
+                                      wr.indent(1);
+                                      const cnt = node.rg_init_fields.length;
+                                      let i = 0;
+                                      while (i < cnt) {
+                                        const fName = node.rg_init_fields[i];
+                                        const fVal = node.rg_init_values[i];
+                                        let outName = fName;
+                                        for ( const fv of cl.variables) {
+                                          if ( fv.name == fName ) {
+                                            outName = fv.compiledName;
+                                          }
+                                        }
+                                        const emitted = this.adjustType(outName);
+                                        let needsCopy = false;
+                                        if ( fVal.rg_moved_here == false ) {
+                                          if ( this.rustArgIsNameRead(fVal) ) {
+                                            let vCopy = true;
+                                            if ( fVal.hasParamDesc ) {
+                                              const vcP = fVal.paramDesc;
+                                              vCopy = this.rustFieldIsCopyScalar(vcP, ctx);
+                                            }
+                                            if ( vCopy == false ) {
+                                              needsCopy = true;
+                                            }
+                                          }
+                                        }
+                                        let shorthand = false;
+                                        if ( needsCopy == false ) {
+                                          if ( fVal.expression == false ) {
+                                            if ( fVal.ns.length <= 1 ) {
+                                              if ( fVal.hasParamDesc ) {
+                                                const vp = fVal.paramDesc;
+                                                if ( this.adjustType(vp.compiledName) == emitted ) {
+                                                  shorthand = true;
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                        if ( shorthand ) {
+                                          wr.out(emitted + ",", true);
+                                        } else {
+                                          wr.out(emitted + ": ", false);
+                                          ctx.setInExpr();
+                                          this.WalkNode(fVal, ctx, wr);
+                                          ctx.unsetInExpr();
+                                          if ( needsCopy ) {
+                                            wr.out(".clone()", false);
+                                          }
+                                          wr.out(",", true);
+                                        }
+                                        i = i + 1;
+                                      };
+                                      if ( node.rg_init_covers_all == false ) {
+                                        wr.out((".." + clName) + "::new()", true);
+                                      }
+                                      wr.indent(-1);
+                                      wr.out("};", true);
+                                      for ( const fs of node.rg_init_stmts) {
+                                        fs.disabled_node = true;
+                                      }
+                                    };
                                     writeVarDef (node, ctx, wr) {
+                                      if ( node.rg_init_fold ) {
+                                        if ( node.hasParamDesc ) {
+                                          if ( this.rustFoldedInitIsWritable(node, ctx) ) {
+                                            this.rustWriteFoldedInit(
+                                              node,
+                                              ctx,
+                                              wr
+                                            );
+                                            return;
+                                          }
+                                        }
+                                      }
                                       if ( node.hasParamDesc ) {
                                         const nn = node.children[1];
                                         const p = nn.paramDesc;
@@ -40310,6 +40471,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                           const pp_2 = left_1.paramDesc;
                                           arr_type = pp_2.nameNode.array_type;
                                         }
+                                        const moved_here = right_1.rg_moved_here;
                                         let needs_clone = false;
                                         if ( right_1.value_type == 11 ) {
                                           if ( right_1.hasParamDesc ) {
@@ -40371,6 +40533,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                         if ( (arr_type == "int" || arr_type == "double") || arr_type == "boolean" ) {
                                           needs_clone = false;
                                         }
+                                        if ( moved_here ) {
+                                          needs_clone = false;
+                                        }
                                         if ( needs_clone ) {
                                           if ( arr_type == "string" && this.rustStrRefRead(right_1) ) {
                                             wr.out(".to_string()", false);
@@ -40385,7 +40550,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                           if ( arr_type == "string" && this.rustStrRefRead(right_1) ) {
                                             wr.out(".to_string()", false);
                                           }
-                                          if ( right_1.value_type == 11 ) {
+                                          if ( right_1.value_type == 11 && moved_here == false ) {
                                             if ( arr_type != "string" ) {
                                               if ( arr_type != "int" ) {
                                                 if ( arr_type != "double" ) {
@@ -82921,9 +83086,19 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                                     const stored = node.children[storeAt];
                                                                     const storedName = this.escapeValueName(stored);
                                                                     if ( storedName.length > 0 ) {
+                                                                      const isMove = this.storeIsLocalMove(
+                                                                        body,
+                                                                        node,
+                                                                        stored,
+                                                                        storedName,
+                                                                        fnCtx
+                                                                      );
+                                                                      if ( isMove ) {
+                                                                        stored.rg_moved_here = true;
+                                                                      }
                                                                       const storedClass = this.nodeClassNameOf(stored, fnCtx);
                                                                       if ( storedClass.length > 0 ) {
-                                                                        if ( this.storeIsLocalMove(body, node, stored, storedName, fnCtx) == false ) {
+                                                                        if ( isMove == false ) {
                                                                           this.markClassShared(storedClass, "stored in " + fnName);
                                                                         }
                                                                       }
@@ -83132,7 +83307,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                                 }
                                                               } };
                                                             };
-                                                            reportClassSharing () {
+                                                            foldObjectInitsAll () {
                                                               if ( typeof(this.ctx) === "undefined" ) {
                                                                 return;
                                                               }
@@ -83140,148 +83315,280 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                               for( var ci in root.definedClasses) {
                                                                 if(root.definedClasses.hasOwnProperty(ci)) {
                                                                   var cl = root.definedClasses[ci] 
-                                                                  if ( cl.is_system ) {
-                                                                    continue;
+                                                                  for ( const m of cl.methods) {
+                                                                    this.foldObjectInitsFn(m);
                                                                   }
-                                                                  if ( cl.is_union ) {
-                                                                    continue;
+                                                                  for ( const sm of cl.static_methods) {
+                                                                    this.foldObjectInitsFn(sm);
                                                                   }
-                                                                  if ( cl.is_system_union ) {
-                                                                    continue;
-                                                                  }
-                                                                  if ( cl.is_trait ) {
-                                                                    continue;
-                                                                  }
-                                                                  if ( cl.rust_needs_ref_semantics ) {
-                                                                    console.log((("ownership[rust] class " + cl.name) + " -> Rc<RefCell> (") + (cl.rust_ref_reason + ")"));
-                                                                  } else {
-                                                                    console.log(("ownership[rust] class " + cl.name) + " -> value");
+                                                                  if ( (typeof(cl.constructor_fn) !== "undefined" && cl.constructor_fn != null )  ) {
+                                                                    this.foldObjectInitsFn(cl.constructor_fn);
                                                                   }
                                                                 } };
                                                               };
-                                                              sharedClassOfDesc (p) {
-                                                                if ( typeof(p.nameNode) === "undefined" ) {
+                                                              foldObjectInitsFn (fn) {
+                                                                if ( typeof(fn.fnBody) === "undefined" ) {
+                                                                  return;
+                                                                }
+                                                                if ( typeof(fn.fnCtx) === "undefined" ) {
+                                                                  return;
+                                                                }
+                                                                this.foldObjectInitsIn(
+                                                                  fn.fnBody,
+                                                                  fn.fnBody,
+                                                                  fn.fnCtx
+                                                                );
+                                                              };
+                                                              foldObjectInitsIn (body, node, fnCtx) {
+                                                                const cnt = node.children.length;
+                                                                let i = 0;
+                                                                while (i < cnt) {
+                                                                  this.tryFoldObjectInit(
+                                                                    body,
+                                                                    node,
+                                                                    i,
+                                                                    fnCtx
+                                                                  );
+                                                                  i = i + 1;
+                                                                };
+                                                                for ( const ch of node.children) {
+                                                                  this.foldObjectInitsIn(
+                                                                    body,
+                                                                    ch,
+                                                                    fnCtx
+                                                                  );
+                                                                }
+                                                              };
+                                                              countNameUses (node, name) {
+                                                                let cnt = 0;
+                                                                if ( this.nodeNamesLocal(node, name) ) {
+                                                                  cnt = 1;
+                                                                }
+                                                                for ( const ch of node.children) {
+                                                                  cnt = cnt + this.countNameUses(ch, name);
+                                                                }
+                                                                return cnt;
+                                                              };
+                                                              plainNewClassName (value) {
+                                                                if ( value.expression == false ) {
                                                                   return "";
                                                                 }
-                                                                const tn = p.nameNode;
-                                                                if ( tn.array_type.length > 0 ) {
+                                                                const kids = value.children.length;
+                                                                if ( kids != 2 && kids != 3 ) {
                                                                   return "";
                                                                 }
-                                                                if ( tn.key_type.length > 0 ) {
+                                                                const head = value.getFirst();
+                                                                if ( head.vref != "new" ) {
                                                                   return "";
                                                                 }
-                                                                const typeName = tn.type_name;
-                                                                if ( typeName.length == 0 ) {
+                                                                if ( kids == 3 ) {
+                                                                  const args = value.getThird();
+                                                                  if ( args.children.length > 0 ) {
+                                                                    return "";
+                                                                  }
+                                                                }
+                                                                const cn = value.getSecond();
+                                                                if ( cn.ns.length > 1 ) {
                                                                   return "";
                                                                 }
-                                                                if ( this.isPrimitiveTypeName(typeName) ) {
-                                                                  return "";
+                                                                return cn.vref;
+                                                              };
+                                                              classTakesFoldedInit (cl) {
+                                                                if ( cl.is_system ) {
+                                                                  return false;
+                                                                }
+                                                                if ( cl.is_union ) {
+                                                                  return false;
+                                                                }
+                                                                if ( cl.is_system_union ) {
+                                                                  return false;
+                                                                }
+                                                                if ( cl.is_trait ) {
+                                                                  return false;
+                                                                }
+                                                                if ( cl.is_template ) {
+                                                                  return false;
+                                                                }
+                                                                if ( cl.is_operator_class ) {
+                                                                  return false;
+                                                                }
+                                                                if ( cl.is_generic_instance ) {
+                                                                  return false;
+                                                                }
+                                                                if ( cl.extends_classes.length > 0 ) {
+                                                                  return false;
+                                                                }
+                                                                if ( cl.child_classes.length > 0 ) {
+                                                                  return false;
+                                                                }
+                                                                if ( cl.is_extended_by_children ) {
+                                                                  return false;
+                                                                }
+                                                                if ( cl.rust_needs_ref_semantics ) {
+                                                                  return false;
+                                                                }
+                                                                if ( cl.variables.length == 0 ) {
+                                                                  return false;
+                                                                }
+                                                                if ( cl.has_constructor ) {
+                                                                  return false;
+                                                                }
+                                                                for ( const dv of cl.variables) {
+                                                                  const dvNode = dv.node;
+                                                                  if ( (typeof(dvNode) !== "undefined" && dvNode != null )  ) {
+                                                                    const dvN = dvNode;
+                                                                    if ( dvN.children.length > 2 ) {
+                                                                      const dvVal = dvN.children[2];
+                                                                      if ( this.nodeHasEffect(dvVal) ) {
+                                                                        return false;
+                                                                      }
+                                                                    }
+                                                                  }
+                                                                }
+                                                                return true;
+                                                              };
+                                                              nodeHasEffect (node) {
+                                                                if ( node.has_call ) {
+                                                                  return true;
+                                                                }
+                                                                if ( node.hasFnCall ) {
+                                                                  return true;
+                                                                }
+                                                                if ( node.is_direct_method_call ) {
+                                                                  return true;
+                                                                }
+                                                                for ( const ch of node.children) {
+                                                                  if ( this.nodeHasEffect(ch) ) {
+                                                                    return true;
+                                                                  }
+                                                                }
+                                                                return false;
+                                                              };
+                                                              classHasField (cl, name) {
+                                                                for ( const v of cl.variables) {
+                                                                  if ( v.name == name ) {
+                                                                    return true;
+                                                                  }
+                                                                }
+                                                                return false;
+                                                              };
+                                                              tryFoldObjectInit (body, block, idx, fnCtx) {
+                                                                const cnt = block.children.length;
+                                                                const st = block.children[idx];
+                                                                if ( st.expression == false ) {
+                                                                  return;
+                                                                }
+                                                                if ( st.children.length < 3 ) {
+                                                                  return;
+                                                                }
+                                                                const head = st.getFirst();
+                                                                if ( head.vref != "def" ) {
+                                                                  return;
+                                                                }
+                                                                const nameNode = st.getSecond();
+                                                                const localName = nameNode.vref;
+                                                                if ( localName.length == 0 ) {
+                                                                  return;
+                                                                }
+                                                                const value = st.children[2];
+                                                                const clName = this.plainNewClassName(value);
+                                                                if ( clName.length == 0 ) {
+                                                                  return;
                                                                 }
                                                                 if ( typeof(this.ctx) === "undefined" ) {
-                                                                  return "";
+                                                                  return;
                                                                 }
                                                                 const root = this.ctx.getRoot();
-                                                                if ( root.isDefinedClass(typeName) == false ) {
-                                                                  return "";
+                                                                if ( root.isDefinedClass(clName) == false ) {
+                                                                  return;
                                                                 }
-                                                                const cl = root.findClass(typeName);
-                                                                if ( cl.rust_needs_ref_semantics == false ) {
-                                                                  return "";
+                                                                const cl = root.findClass(clName);
+                                                                if ( this.classTakesFoldedInit(cl) == false ) {
+                                                                  return;
                                                                 }
-                                                                return typeName;
-                                                              };
-                                                              markDescRcWrap (p) {
-                                                                if ( this.sharedClassOfDesc(p).length > 0 ) {
-                                                                  p.rust_needs_rc_wrap = true;
-                                                                  if ( p.rust_borrow_type != 1 ) {
-                                                                    p.rust_borrow_type = 0;
-                                                                  }
-                                                                  p.needs_cpp_reference = false;
-                                                                  if ( p.is_optional == false ) {
-                                                                    const onn = p.nameNode;
-                                                                    if ( (typeof(onn) !== "undefined" && onn != null )  ) {
-                                                                      const onNode = onn;
-                                                                      if ( onNode.hasFlag("optional") ) {
-                                                                        if ( onNode.array_type.length == 0 && onNode.key_type.length == 0 ) {
-                                                                          p.is_optional = true;
-                                                                        }
-                                                                      }
-                                                                    }
-                                                                  }
+                                                                const p = fnCtx.getVariableDef(localName);
+                                                                if ( p.name.length == 0 ) {
+                                                                  return;
                                                                 }
-                                                              };
-                                                              walkForSharedLocals (node) {
-                                                                if ( node.expression ) {
-                                                                  if ( node.children.length >= 2 ) {
-                                                                    const first = node.getFirst();
-                                                                    if ( (first.vref == "def" || first.vref == "let") || first.vref == "var" ) {
-                                                                      const nameNode = node.getSecond();
-                                                                      if ( (typeof(nameNode.paramDesc) !== "undefined" && nameNode.paramDesc != null )  ) {
-                                                                        this.markDescRcWrap(nameNode.paramDesc);
-                                                                      }
-                                                                    }
-                                                                    if ( first.vref == "for" && node.children.length >= 3 ) {
-                                                                      const itemNode = node.children[2];
-                                                                      if ( (typeof(itemNode.paramDesc) !== "undefined" && itemNode.paramDesc != null )  ) {
-                                                                        this.markDescRcWrap(itemNode.paramDesc);
-                                                                      }
-                                                                    }
-                                                                    if ( first.vref == "case" && node.children.length >= 4 ) {
-                                                                      const caseBind = node.children[2];
-                                                                      if ( (typeof(caseBind.paramDesc) !== "undefined" && caseBind.paramDesc != null )  ) {
-                                                                        this.markDescRcWrap(caseBind.paramDesc);
-                                                                      }
-                                                                    }
-                                                                  }
+                                                                if ( p.is_class_variable ) {
+                                                                  return;
                                                                 }
-                                                                for ( const child of node.children) {
-                                                                  this.walkForSharedLocals(child);
+                                                                if ( p.is_captured ) {
+                                                                  return;
                                                                 }
-                                                                if ( node.register_expressions.length > 0 ) {
-                                                                  for ( const regChild of node.register_expressions) {
-                                                                    this.walkForSharedLocals(regChild);
-                                                                  }
+                                                                if ( nameNode.hasFlag("optional") ) {
+                                                                  return;
                                                                 }
-                                                              };
-                                                              fnUsesThisValue (fn) {
-                                                                if ( typeof(fn.fnBody) === "undefined" ) {
-                                                                  return false;
+                                                                if ( p.rust_needs_rc_wrap ) {
+                                                                  return;
                                                                 }
-                                                                let found = false;
-                                                                const fb = fn.fnBody;
-                                                                fb.forTree(((item, i) => { 
-                                                                  if ( item.vref == "this" ) {
-                                                                    found = true;
-                                                                  }
-                                                                }));
-                                                                return found;
-                                                              };
-                                                              fnSelfCallsNeedy (fn) {
-                                                                if ( typeof(fn.fnBody) === "undefined" ) {
-                                                                  return false;
-                                                                }
-                                                                let found = false;
-                                                                const fb = fn.fnBody;
-                                                                fb.forTree(((item, i) => { 
-                                                                  if ( item.hasFnCall ) {
-                                                                    if ( item.children.length > 0 ) {
-                                                                      const fc = item.getFirst();
-                                                                      if ( fc.ns.length == 2 ) {
-                                                                        if ( fc.ns[0] == "this" ) {
-                                                                          if ( (typeof(item.fnDesc) !== "undefined" && item.fnDesc != null )  ) {
-                                                                            const cf = item.fnDesc;
-                                                                            if ( cf.rust_needs_self_rc ) {
-                                                                              found = true;
+                                                                let fields = [];
+                                                                let values = [];
+                                                                let folded = [];
+                                                                let seen = {};
+                                                                let j = idx + 1;
+                                                                let stop = false;
+                                                                while (j < cnt && stop == false) {
+                                                                  const nx = block.children[j];
+                                                                  let ok = false;
+                                                                  if ( nx.expression ) {
+                                                                    if ( nx.children.length >= 3 ) {
+                                                                      const nh = nx.getFirst();
+                                                                      if ( nh.vref == "=" ) {
+                                                                        const lhs = nx.getSecond();
+                                                                        if ( lhs.ns.length == 2 ) {
+                                                                          if ( lhs.ns[0] == localName ) {
+                                                                            const fieldName = lhs.ns[1];
+                                                                            if ( this.classHasField(cl, fieldName) && ( typeof(seen[fieldName] ) != "undefined" && Object.prototype.hasOwnProperty.call(seen, fieldName) ) == false ) {
+                                                                              const rhs = nx.children[2];
+                                                                              if ( this.nameUsedAfter(rhs, localName, 0 - 1) == false ) {
+                                                                                seen[fieldName] = true;
+                                                                                fields.push(fieldName);
+                                                                                values.push(rhs);
+                                                                                folded.push(nx);
+                                                                                ok = true;
+                                                                              }
                                                                             }
                                                                           }
                                                                         }
                                                                       }
                                                                     }
                                                                   }
-                                                                }));
-                                                                return found;
+                                                                  if ( ok == false ) {
+                                                                    stop = true;
+                                                                  }
+                                                                  j = j + 1;
+                                                                };
+                                                                if ( fields.length == 0 ) {
+                                                                  return;
+                                                                }
+                                                                for ( const fvn of values) {
+                                                                  if ( fvn.expression == false ) {
+                                                                    if ( fvn.ns.length <= 1 ) {
+                                                                      const vName = fvn.vref;
+                                                                      if ( vName.length > 0 ) {
+                                                                        const vp = fnCtx.getVariableDef(vName);
+                                                                        if ( vp.name.length > 0 ) {
+                                                                          if ( (vp.is_class_variable == false && vp.is_captured == false) && this.countNameUses(body, vName) == 1 ) {
+                                                                            if ( this.nameIsAliased(body, vName) == false ) {
+                                                                              fvn.rg_moved_here = true;
+                                                                            }
+                                                                          }
+                                                                        }
+                                                                      }
+                                                                    }
+                                                                  }
+                                                                }
+                                                                st.rg_init_fold = true;
+                                                                st.rg_init_fields = fields;
+                                                                st.rg_init_values = values;
+                                                                st.rg_init_stmts = folded;
+                                                                st.rg_init_covers_all = fields.length == cl.variables.length;
+                                                                for ( const fn2 of folded) {
+                                                                  fn2.rg_init_folded = true;
+                                                                }
                                                               };
-                                                              computeSelfRcNeeds () {
+                                                              reportClassSharing () {
                                                                 if ( typeof(this.ctx) === "undefined" ) {
                                                                   return;
                                                                 }
@@ -83289,3227 +83596,3377 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                                 for( var ci in root.definedClasses) {
                                                                   if(root.definedClasses.hasOwnProperty(ci)) {
                                                                     var cl = root.definedClasses[ci] 
-                                                                    if ( cl.rust_needs_ref_semantics == false ) {
+                                                                    if ( cl.is_system ) {
                                                                       continue;
                                                                     }
-                                                                    let inTraitFamily = cl.is_extended_by_children;
-                                                                    for ( const clP of cl.extends_classes) {
-                                                                      if ( this.ctx.isDefinedClass(clP) ) {
-                                                                        const clPC = this.ctx.findClass(clP);
-                                                                        if ( clPC.is_extended_by_children ) {
-                                                                          inTraitFamily = true;
-                                                                        }
-                                                                      }
+                                                                    if ( cl.is_union ) {
+                                                                      continue;
                                                                     }
-                                                                    for ( const m of cl.methods) {
-                                                                      if ( m.is_lambda == false ) {
-                                                                        if ( m.is_static == false && inTraitFamily == false ) {
-                                                                          m.rust_needs_self_rc = true;
-                                                                        } else {
-                                                                          if ( this.fnUsesThisValue(m) ) {
-                                                                            m.rust_needs_self_rc = true;
-                                                                          }
-                                                                        }
-                                                                      }
+                                                                    if ( cl.is_system_union ) {
+                                                                      continue;
+                                                                    }
+                                                                    if ( cl.is_trait ) {
+                                                                      continue;
+                                                                    }
+                                                                    if ( cl.rust_needs_ref_semantics ) {
+                                                                      console.log((("ownership[rust] class " + cl.name) + " -> Rc<RefCell> (") + (cl.rust_ref_reason + ")"));
+                                                                    } else {
+                                                                      console.log(("ownership[rust] class " + cl.name) + " -> value");
                                                                     }
                                                                   } };
-                                                                  let changed = true;
-                                                                  let rounds = 0;
-                                                                  while (changed) {
-                                                                    changed = false;
-                                                                    rounds = rounds + 1;
-                                                                    if ( rounds > 30 ) {
-                                                                      return;
+                                                                };
+                                                                sharedClassOfDesc (p) {
+                                                                  if ( typeof(p.nameNode) === "undefined" ) {
+                                                                    return "";
+                                                                  }
+                                                                  const tn = p.nameNode;
+                                                                  if ( tn.array_type.length > 0 ) {
+                                                                    return "";
+                                                                  }
+                                                                  if ( tn.key_type.length > 0 ) {
+                                                                    return "";
+                                                                  }
+                                                                  const typeName = tn.type_name;
+                                                                  if ( typeName.length == 0 ) {
+                                                                    return "";
+                                                                  }
+                                                                  if ( this.isPrimitiveTypeName(typeName) ) {
+                                                                    return "";
+                                                                  }
+                                                                  if ( typeof(this.ctx) === "undefined" ) {
+                                                                    return "";
+                                                                  }
+                                                                  const root = this.ctx.getRoot();
+                                                                  if ( root.isDefinedClass(typeName) == false ) {
+                                                                    return "";
+                                                                  }
+                                                                  const cl = root.findClass(typeName);
+                                                                  if ( cl.rust_needs_ref_semantics == false ) {
+                                                                    return "";
+                                                                  }
+                                                                  return typeName;
+                                                                };
+                                                                markDescRcWrap (p) {
+                                                                  if ( this.sharedClassOfDesc(p).length > 0 ) {
+                                                                    p.rust_needs_rc_wrap = true;
+                                                                    if ( p.rust_borrow_type != 1 ) {
+                                                                      p.rust_borrow_type = 0;
                                                                     }
-                                                                    for( var ci_1 in root.definedClasses) {
-                                                                      if(root.definedClasses.hasOwnProperty(ci_1)) {
-                                                                        var cl_1 = root.definedClasses[ci_1] 
-                                                                        if ( cl_1.rust_needs_ref_semantics == false ) {
-                                                                          continue;
-                                                                        }
-                                                                        for ( const m_1 of cl_1.methods) {
-                                                                          if ( m_1.rust_needs_self_rc == false ) {
-                                                                            if ( this.fnSelfCallsNeedy(m_1) ) {
-                                                                              m_1.rust_needs_self_rc = true;
-                                                                              changed = true;
-                                                                            }
+                                                                    p.needs_cpp_reference = false;
+                                                                    if ( p.is_optional == false ) {
+                                                                      const onn = p.nameNode;
+                                                                      if ( (typeof(onn) !== "undefined" && onn != null )  ) {
+                                                                        const onNode = onn;
+                                                                        if ( onNode.hasFlag("optional") ) {
+                                                                          if ( onNode.array_type.length == 0 && onNode.key_type.length == 0 ) {
+                                                                            p.is_optional = true;
                                                                           }
                                                                         }
-                                                                      } };
-                                                                    };
-                                                                  };
-                                                                  markLambdaParamsRec (fn) {
-                                                                    for ( const lam of fn.myLambdas) {
-                                                                      for ( const lp of lam.params) {
-                                                                        this.markDescRcWrap(lp);
                                                                       }
-                                                                      this.markLambdaParamsRec(lam);
                                                                     }
-                                                                  };
-                                                                  applySharedClassRcWrap () {
-                                                                    if ( typeof(this.ctx) === "undefined" ) {
-                                                                      return;
+                                                                  }
+                                                                };
+                                                                walkForSharedLocals (node) {
+                                                                  if ( node.expression ) {
+                                                                    if ( node.children.length >= 2 ) {
+                                                                      const first = node.getFirst();
+                                                                      if ( (first.vref == "def" || first.vref == "let") || first.vref == "var" ) {
+                                                                        const nameNode = node.getSecond();
+                                                                        if ( (typeof(nameNode.paramDesc) !== "undefined" && nameNode.paramDesc != null )  ) {
+                                                                          this.markDescRcWrap(nameNode.paramDesc);
+                                                                        }
+                                                                      }
+                                                                      if ( first.vref == "for" && node.children.length >= 3 ) {
+                                                                        const itemNode = node.children[2];
+                                                                        if ( (typeof(itemNode.paramDesc) !== "undefined" && itemNode.paramDesc != null )  ) {
+                                                                          this.markDescRcWrap(itemNode.paramDesc);
+                                                                        }
+                                                                      }
+                                                                      if ( first.vref == "case" && node.children.length >= 4 ) {
+                                                                        const caseBind = node.children[2];
+                                                                        if ( (typeof(caseBind.paramDesc) !== "undefined" && caseBind.paramDesc != null )  ) {
+                                                                          this.markDescRcWrap(caseBind.paramDesc);
+                                                                        }
+                                                                      }
                                                                     }
-                                                                    const root = this.ctx.getRoot();
-                                                                    for( var tci in root.definedClasses) {
-                                                                      if(root.definedClasses.hasOwnProperty(tci)) {
-                                                                        var tcl = root.definedClasses[tci] 
-                                                                        if ( tcl.is_extended_by_children ) {
-                                                                          this.markClassShared(tcl.name, "extended by children");
-                                                                        }
-                                                                        for ( let tclPi = 0; tclPi < tcl.extends_classes.length; tclPi++) {
-                                                                          var tclP = tcl.extends_classes[tclPi];
-                                                                          if ( this.ctx.isDefinedClass(tclP) ) {
-                                                                            const tclPC = this.ctx.findClass(tclP);
-                                                                            if ( tclPC.is_extended_by_children ) {
-                                                                              this.markClassShared(tcl.name, "extends a class with children");
+                                                                  }
+                                                                  for ( const child of node.children) {
+                                                                    this.walkForSharedLocals(child);
+                                                                  }
+                                                                  if ( node.register_expressions.length > 0 ) {
+                                                                    for ( const regChild of node.register_expressions) {
+                                                                      this.walkForSharedLocals(regChild);
+                                                                    }
+                                                                  }
+                                                                };
+                                                                fnUsesThisValue (fn) {
+                                                                  if ( typeof(fn.fnBody) === "undefined" ) {
+                                                                    return false;
+                                                                  }
+                                                                  let found = false;
+                                                                  const fb = fn.fnBody;
+                                                                  fb.forTree(((item, i) => { 
+                                                                    if ( item.vref == "this" ) {
+                                                                      found = true;
+                                                                    }
+                                                                  }));
+                                                                  return found;
+                                                                };
+                                                                fnSelfCallsNeedy (fn) {
+                                                                  if ( typeof(fn.fnBody) === "undefined" ) {
+                                                                    return false;
+                                                                  }
+                                                                  let found = false;
+                                                                  const fb = fn.fnBody;
+                                                                  fb.forTree(((item, i) => { 
+                                                                    if ( item.hasFnCall ) {
+                                                                      if ( item.children.length > 0 ) {
+                                                                        const fc = item.getFirst();
+                                                                        if ( fc.ns.length == 2 ) {
+                                                                          if ( fc.ns[0] == "this" ) {
+                                                                            if ( (typeof(item.fnDesc) !== "undefined" && item.fnDesc != null )  ) {
+                                                                              const cf = item.fnDesc;
+                                                                              if ( cf.rust_needs_self_rc ) {
+                                                                                found = true;
+                                                                              }
                                                                             }
                                                                           }
                                                                         }
-                                                                      } };
-                                                                      for( var ci in root.definedClasses) {
-                                                                        if(root.definedClasses.hasOwnProperty(ci)) {
-                                                                          var cl = root.definedClasses[ci] 
-                                                                          for ( const cv of cl.variables) {
-                                                                            this.markDescRcWrap(cv);
+                                                                      }
+                                                                    }
+                                                                  }));
+                                                                  return found;
+                                                                };
+                                                                computeSelfRcNeeds () {
+                                                                  if ( typeof(this.ctx) === "undefined" ) {
+                                                                    return;
+                                                                  }
+                                                                  const root = this.ctx.getRoot();
+                                                                  for( var ci in root.definedClasses) {
+                                                                    if(root.definedClasses.hasOwnProperty(ci)) {
+                                                                      var cl = root.definedClasses[ci] 
+                                                                      if ( cl.rust_needs_ref_semantics == false ) {
+                                                                        continue;
+                                                                      }
+                                                                      let inTraitFamily = cl.is_extended_by_children;
+                                                                      for ( const clP of cl.extends_classes) {
+                                                                        if ( this.ctx.isDefinedClass(clP) ) {
+                                                                          const clPC = this.ctx.findClass(clP);
+                                                                          if ( clPC.is_extended_by_children ) {
+                                                                            inTraitFamily = true;
                                                                           }
-                                                                          for ( const m of cl.methods) {
-                                                                            for ( const param of m.params) {
-                                                                              this.markDescRcWrap(param);
-                                                                            }
-                                                                            this.markLambdaParamsRec(m);
-                                                                            if ( (typeof(m.fnBody) !== "undefined" && m.fnBody != null )  ) {
-                                                                              this.walkForSharedLocals(m.fnBody);
-                                                                            }
-                                                                          }
-                                                                          for ( const sm of cl.static_methods) {
-                                                                            for ( const param_1 of sm.params) {
-                                                                              this.markDescRcWrap(param_1);
-                                                                            }
-                                                                            this.markLambdaParamsRec(sm);
-                                                                            if ( (typeof(sm.fnBody) !== "undefined" && sm.fnBody != null )  ) {
-                                                                              this.walkForSharedLocals(sm.fnBody);
+                                                                        }
+                                                                      }
+                                                                      for ( const m of cl.methods) {
+                                                                        if ( m.is_lambda == false ) {
+                                                                          if ( m.is_static == false && inTraitFamily == false ) {
+                                                                            m.rust_needs_self_rc = true;
+                                                                          } else {
+                                                                            if ( this.fnUsesThisValue(m) ) {
+                                                                              m.rust_needs_self_rc = true;
                                                                             }
                                                                           }
-                                                                          if ( (typeof(cl.constructor_fn) !== "undefined" && cl.constructor_fn != null )  ) {
-                                                                            const constr = cl.constructor_fn;
-                                                                            for ( const param_2 of constr.params) {
-                                                                              this.markDescRcWrap(param_2);
-                                                                            }
-                                                                            if ( (typeof(constr.fnBody) !== "undefined" && constr.fnBody != null )  ) {
-                                                                              this.walkForSharedLocals(constr.fnBody);
+                                                                        }
+                                                                      }
+                                                                    } };
+                                                                    let changed = true;
+                                                                    let rounds = 0;
+                                                                    while (changed) {
+                                                                      changed = false;
+                                                                      rounds = rounds + 1;
+                                                                      if ( rounds > 30 ) {
+                                                                        return;
+                                                                      }
+                                                                      for( var ci_1 in root.definedClasses) {
+                                                                        if(root.definedClasses.hasOwnProperty(ci_1)) {
+                                                                          var cl_1 = root.definedClasses[ci_1] 
+                                                                          if ( cl_1.rust_needs_ref_semantics == false ) {
+                                                                            continue;
+                                                                          }
+                                                                          for ( const m_1 of cl_1.methods) {
+                                                                            if ( m_1.rust_needs_self_rc == false ) {
+                                                                              if ( this.fnSelfCallsNeedy(m_1) ) {
+                                                                                m_1.rust_needs_self_rc = true;
+                                                                                changed = true;
+                                                                              }
                                                                             }
                                                                           }
                                                                         } };
                                                                       };
-                                                                      rustParamHasRefSemantics (param) {
-                                                                        if ( typeof(param.nameNode) === "undefined" ) {
-                                                                          return false;
+                                                                    };
+                                                                    markLambdaParamsRec (fn) {
+                                                                      for ( const lam of fn.myLambdas) {
+                                                                        for ( const lp of lam.params) {
+                                                                          this.markDescRcWrap(lp);
                                                                         }
-                                                                        const tn = param.nameNode;
-                                                                        if ( tn.array_type.length > 0 ) {
-                                                                          return false;
-                                                                        }
-                                                                        if ( tn.key_type.length > 0 ) {
-                                                                          return false;
-                                                                        }
-                                                                        const typeName = tn.type_name;
-                                                                        if ( typeName.length == 0 ) {
-                                                                          return false;
-                                                                        }
-                                                                        if ( typeof(this.ctx) === "undefined" ) {
-                                                                          return false;
-                                                                        }
-                                                                        const rootCtx = this.ctx.getRoot();
-                                                                        if ( rootCtx.isDefinedClass(typeName) == false ) {
-                                                                          return false;
-                                                                        }
-                                                                        const tc = rootCtx.findClass(typeName);
-                                                                        return tc.rust_needs_ref_semantics;
-                                                                      };
-                                                                      rustBorrowedObjectParam (cl, param) {
-                                                                        if ( param.varType != 4 ) {
-                                                                          return false;
-                                                                        }
-                                                                        if ( param.ownership_resolved == false ) {
-                                                                          return false;
-                                                                        }
-                                                                        if ( param.ownership_kind != 2 ) {
-                                                                          if ( (param.ownership_kind == 3 || param.ownership_kind == 4) == false ) {
-                                                                            return false;
+                                                                        this.markLambdaParamsRec(lam);
+                                                                      }
+                                                                    };
+                                                                    applySharedClassRcWrap () {
+                                                                      if ( typeof(this.ctx) === "undefined" ) {
+                                                                        return;
+                                                                      }
+                                                                      const root = this.ctx.getRoot();
+                                                                      for( var tci in root.definedClasses) {
+                                                                        if(root.definedClasses.hasOwnProperty(tci)) {
+                                                                          var tcl = root.definedClasses[tci] 
+                                                                          if ( tcl.is_extended_by_children ) {
+                                                                            this.markClassShared(tcl.name, "extended by children");
                                                                           }
-                                                                          if ( param.escape_return_only == false ) {
-                                                                            return false;
-                                                                          }
-                                                                        }
-                                                                        const refSem = this.rustParamHasRefSemantics(param);
-                                                                        if ( refSem == false ) {
-                                                                          if ( param.rust_borrow_type != 0 ) {
-                                                                            return false;
-                                                                          }
-                                                                          if ( param.needs_cpp_reference ) {
-                                                                            return false;
-                                                                          }
-                                                                          if ( param.is_mutating ) {
-                                                                            return false;
-                                                                          }
-                                                                          if ( param.mutation_count > 0 ) {
-                                                                            return false;
-                                                                          }
-                                                                        } else {
-                                                                          if ( param.rust_borrow_type == 1 ) {
-                                                                            return false;
-                                                                          }
-                                                                        }
-                                                                        if ( param.rust_needs_rc_wrap ) {
-                                                                          return false;
-                                                                        }
-                                                                        if ( param.rust_assigned_to_field ) {
-                                                                          return false;
-                                                                        }
-                                                                        if ( param.set_cnt > 0 ) {
-                                                                          return false;
-                                                                        }
-                                                                        if ( cl.is_inherited ) {
-                                                                          return false;
-                                                                        }
-                                                                        if ( cl.is_trait ) {
-                                                                          return false;
-                                                                        }
-                                                                        if ( cl.extends_classes.length > 0 ) {
-                                                                          return false;
-                                                                        }
-                                                                        if ( typeof(param.nameNode) === "undefined" ) {
-                                                                          return false;
-                                                                        }
-                                                                        const tn = param.nameNode;
-                                                                        if ( tn.hasFlag("optional") ) {
-                                                                          return false;
-                                                                        }
-                                                                        if ( tn.hasFlag("keyword") ) {
-                                                                          return false;
-                                                                        }
-                                                                        if ( tn.array_type.length > 0 ) {
-                                                                          return false;
-                                                                        }
-                                                                        if ( tn.key_type.length > 0 ) {
-                                                                          return false;
-                                                                        }
-                                                                        const typeName = tn.type_name;
-                                                                        if ( typeName.length == 0 ) {
-                                                                          return false;
-                                                                        }
-                                                                        if ( typeName == "string" ) {
-                                                                          return true;
-                                                                        }
-                                                                        if ( this.isPrimitiveTypeName(typeName) ) {
-                                                                          return false;
-                                                                        }
-                                                                        if ( typeof(this.ctx) === "undefined" ) {
-                                                                          return false;
-                                                                        }
-                                                                        const rootCtx = this.ctx.getRoot();
-                                                                        if ( rootCtx.isDefinedClass(typeName) == false ) {
-                                                                          return false;
-                                                                        }
-                                                                        const tc = rootCtx.findClass(typeName);
-                                                                        if ( tc.is_system ) {
-                                                                          return false;
-                                                                        }
-                                                                        if ( tc.is_union ) {
-                                                                          return false;
-                                                                        }
-                                                                        if ( tc.is_system_union ) {
-                                                                          return false;
-                                                                        }
-                                                                        if ( tc.is_trait ) {
-                                                                          return false;
-                                                                        }
-                                                                        if ( tc.is_inherited ) {
-                                                                          return false;
-                                                                        }
-                                                                        if ( tc.extends_classes.length > 0 ) {
-                                                                          return false;
-                                                                        }
-                                                                        return true;
-                                                                      };
-                                                                      rssPlainStringDesc (p) {
-                                                                        if ( p.name.length == 0 ) {
-                                                                          return false;
-                                                                        }
-                                                                        if ( typeof(p.nameNode) === "undefined" ) {
-                                                                          return false;
-                                                                        }
-                                                                        const nn = p.nameNode;
-                                                                        if ( nn.array_type.length > 0 ) {
-                                                                          return false;
-                                                                        }
-                                                                        if ( nn.key_type.length > 0 ) {
-                                                                          return false;
-                                                                        }
-                                                                        if ( nn.type_name != "string" ) {
-                                                                          return false;
-                                                                        }
-                                                                        if ( p.is_optional ) {
-                                                                          return false;
-                                                                        }
-                                                                        if ( nn.hasFlag("optional") ) {
-                                                                          return false;
-                                                                        }
-                                                                        if ( nn.hasFlag("weak") ) {
-                                                                          return false;
-                                                                        }
-                                                                        return true;
-                                                                      };
-                                                                      rssResolveDesc (node) {
-                                                                        if ( node.expression ) {
-                                                                          const tailIdx = node.children.length - 1;
-                                                                          if ( tailIdx > 0 ) {
-                                                                            const tail = node.children[tailIdx];
-                                                                            if ( tail.expression == false && tail.hasParamDesc ) {
-                                                                              if ( tail.vref.length > 1 ) {
-                                                                                if ( tail.vref.charCodeAt(0 ) == 46 ) {
-                                                                                  return tail.paramDesc;
-                                                                                }
+                                                                          for ( let tclPi = 0; tclPi < tcl.extends_classes.length; tclPi++) {
+                                                                            var tclP = tcl.extends_classes[tclPi];
+                                                                            if ( this.ctx.isDefinedClass(tclP) ) {
+                                                                              const tclPC = this.ctx.findClass(tclP);
+                                                                              if ( tclPC.is_extended_by_children ) {
+                                                                                this.markClassShared(tcl.name, "extends a class with children");
                                                                               }
                                                                             }
                                                                           }
-                                                                          return new RangerAppParamDesc();
-                                                                        }
-                                                                        if ( node.nsp.length > 0 ) {
-                                                                          return node.nsp[(node.nsp.length - 1)];
-                                                                        }
-                                                                        if ( node.hasParamDesc ) {
-                                                                          return node.paramDesc;
-                                                                        }
-                                                                        return new RangerAppParamDesc();
-                                                                      };
-                                                                      rssSourceKind (value) {
-                                                                        let v = value;
-                                                                        while (v.expression && v.children.length == 1) {
-                                                                          v = v.getFirst();
+                                                                        } };
+                                                                        for( var ci in root.definedClasses) {
+                                                                          if(root.definedClasses.hasOwnProperty(ci)) {
+                                                                            var cl = root.definedClasses[ci] 
+                                                                            for ( const cv of cl.variables) {
+                                                                              this.markDescRcWrap(cv);
+                                                                            }
+                                                                            for ( const m of cl.methods) {
+                                                                              for ( const param of m.params) {
+                                                                                this.markDescRcWrap(param);
+                                                                              }
+                                                                              this.markLambdaParamsRec(m);
+                                                                              if ( (typeof(m.fnBody) !== "undefined" && m.fnBody != null )  ) {
+                                                                                this.walkForSharedLocals(m.fnBody);
+                                                                              }
+                                                                            }
+                                                                            for ( const sm of cl.static_methods) {
+                                                                              for ( const param_1 of sm.params) {
+                                                                                this.markDescRcWrap(param_1);
+                                                                              }
+                                                                              this.markLambdaParamsRec(sm);
+                                                                              if ( (typeof(sm.fnBody) !== "undefined" && sm.fnBody != null )  ) {
+                                                                                this.walkForSharedLocals(sm.fnBody);
+                                                                              }
+                                                                            }
+                                                                            if ( (typeof(cl.constructor_fn) !== "undefined" && cl.constructor_fn != null )  ) {
+                                                                              const constr = cl.constructor_fn;
+                                                                              for ( const param_2 of constr.params) {
+                                                                                this.markDescRcWrap(param_2);
+                                                                              }
+                                                                              if ( (typeof(constr.fnBody) !== "undefined" && constr.fnBody != null )  ) {
+                                                                                this.walkForSharedLocals(constr.fnBody);
+                                                                              }
+                                                                            }
+                                                                          } };
                                                                         };
-                                                                        if ( v.expression ) {
-                                                                          return 2;
-                                                                        }
-                                                                        if ( v.value_type == 4 ) {
-                                                                          return 0;
-                                                                        }
-                                                                        const src = this.rssResolveDesc(v);
-                                                                        if ( src.name.length > 0 ) {
-                                                                          return 1;
-                                                                        }
-                                                                        return 2;
-                                                                      };
-                                                                      rssRecordAssign (target, value) {
-                                                                        if ( this.rssPlainStringDesc(target) == false ) {
-                                                                          return;
-                                                                        }
-                                                                        const kind = this.rssSourceKind(value);
-                                                                        if ( kind == 0 ) {
-                                                                          return;
-                                                                        }
-                                                                        if ( kind == 1 ) {
+                                                                        rustParamHasRefSemantics (param) {
+                                                                          if ( typeof(param.nameNode) === "undefined" ) {
+                                                                            return false;
+                                                                          }
+                                                                          const tn = param.nameNode;
+                                                                          if ( tn.array_type.length > 0 ) {
+                                                                            return false;
+                                                                          }
+                                                                          if ( tn.key_type.length > 0 ) {
+                                                                            return false;
+                                                                          }
+                                                                          const typeName = tn.type_name;
+                                                                          if ( typeName.length == 0 ) {
+                                                                            return false;
+                                                                          }
+                                                                          if ( typeof(this.ctx) === "undefined" ) {
+                                                                            return false;
+                                                                          }
+                                                                          const rootCtx = this.ctx.getRoot();
+                                                                          if ( rootCtx.isDefinedClass(typeName) == false ) {
+                                                                            return false;
+                                                                          }
+                                                                          const tc = rootCtx.findClass(typeName);
+                                                                          return tc.rust_needs_ref_semantics;
+                                                                        };
+                                                                        rustBorrowedObjectParam (cl, param) {
+                                                                          if ( param.varType != 4 ) {
+                                                                            return false;
+                                                                          }
+                                                                          if ( param.ownership_resolved == false ) {
+                                                                            return false;
+                                                                          }
+                                                                          if ( param.ownership_kind != 2 ) {
+                                                                            if ( (param.ownership_kind == 3 || param.ownership_kind == 4) == false ) {
+                                                                              return false;
+                                                                            }
+                                                                            if ( param.escape_return_only == false ) {
+                                                                              return false;
+                                                                            }
+                                                                          }
+                                                                          const refSem = this.rustParamHasRefSemantics(param);
+                                                                          if ( refSem == false ) {
+                                                                            if ( param.rust_borrow_type != 0 ) {
+                                                                              return false;
+                                                                            }
+                                                                            if ( param.needs_cpp_reference ) {
+                                                                              return false;
+                                                                            }
+                                                                            if ( param.is_mutating ) {
+                                                                              return false;
+                                                                            }
+                                                                            if ( param.mutation_count > 0 ) {
+                                                                              return false;
+                                                                            }
+                                                                          } else {
+                                                                            if ( param.rust_borrow_type == 1 ) {
+                                                                              return false;
+                                                                            }
+                                                                          }
+                                                                          if ( param.rust_needs_rc_wrap ) {
+                                                                            return false;
+                                                                          }
+                                                                          if ( param.rust_assigned_to_field ) {
+                                                                            return false;
+                                                                          }
+                                                                          if ( param.set_cnt > 0 ) {
+                                                                            return false;
+                                                                          }
+                                                                          if ( cl.is_inherited ) {
+                                                                            return false;
+                                                                          }
+                                                                          if ( cl.is_trait ) {
+                                                                            return false;
+                                                                          }
+                                                                          if ( cl.extends_classes.length > 0 ) {
+                                                                            return false;
+                                                                          }
+                                                                          if ( typeof(param.nameNode) === "undefined" ) {
+                                                                            return false;
+                                                                          }
+                                                                          const tn = param.nameNode;
+                                                                          if ( tn.hasFlag("optional") ) {
+                                                                            return false;
+                                                                          }
+                                                                          if ( tn.hasFlag("keyword") ) {
+                                                                            return false;
+                                                                          }
+                                                                          if ( tn.array_type.length > 0 ) {
+                                                                            return false;
+                                                                          }
+                                                                          if ( tn.key_type.length > 0 ) {
+                                                                            return false;
+                                                                          }
+                                                                          const typeName = tn.type_name;
+                                                                          if ( typeName.length == 0 ) {
+                                                                            return false;
+                                                                          }
+                                                                          if ( typeName == "string" ) {
+                                                                            return true;
+                                                                          }
+                                                                          if ( this.isPrimitiveTypeName(typeName) ) {
+                                                                            return false;
+                                                                          }
+                                                                          if ( typeof(this.ctx) === "undefined" ) {
+                                                                            return false;
+                                                                          }
+                                                                          const rootCtx = this.ctx.getRoot();
+                                                                          if ( rootCtx.isDefinedClass(typeName) == false ) {
+                                                                            return false;
+                                                                          }
+                                                                          const tc = rootCtx.findClass(typeName);
+                                                                          if ( tc.is_system ) {
+                                                                            return false;
+                                                                          }
+                                                                          if ( tc.is_union ) {
+                                                                            return false;
+                                                                          }
+                                                                          if ( tc.is_system_union ) {
+                                                                            return false;
+                                                                          }
+                                                                          if ( tc.is_trait ) {
+                                                                            return false;
+                                                                          }
+                                                                          if ( tc.is_inherited ) {
+                                                                            return false;
+                                                                          }
+                                                                          if ( tc.extends_classes.length > 0 ) {
+                                                                            return false;
+                                                                          }
+                                                                          return true;
+                                                                        };
+                                                                        rssPlainStringDesc (p) {
+                                                                          if ( p.name.length == 0 ) {
+                                                                            return false;
+                                                                          }
+                                                                          if ( typeof(p.nameNode) === "undefined" ) {
+                                                                            return false;
+                                                                          }
+                                                                          const nn = p.nameNode;
+                                                                          if ( nn.array_type.length > 0 ) {
+                                                                            return false;
+                                                                          }
+                                                                          if ( nn.key_type.length > 0 ) {
+                                                                            return false;
+                                                                          }
+                                                                          if ( nn.type_name != "string" ) {
+                                                                            return false;
+                                                                          }
+                                                                          if ( p.is_optional ) {
+                                                                            return false;
+                                                                          }
+                                                                          if ( nn.hasFlag("optional") ) {
+                                                                            return false;
+                                                                          }
+                                                                          if ( nn.hasFlag("weak") ) {
+                                                                            return false;
+                                                                          }
+                                                                          return true;
+                                                                        };
+                                                                        rssResolveDesc (node) {
+                                                                          if ( node.expression ) {
+                                                                            const tailIdx = node.children.length - 1;
+                                                                            if ( tailIdx > 0 ) {
+                                                                              const tail = node.children[tailIdx];
+                                                                              if ( tail.expression == false && tail.hasParamDesc ) {
+                                                                                if ( tail.vref.length > 1 ) {
+                                                                                  if ( tail.vref.charCodeAt(0 ) == 46 ) {
+                                                                                    return tail.paramDesc;
+                                                                                  }
+                                                                                }
+                                                                              }
+                                                                            }
+                                                                            return new RangerAppParamDesc();
+                                                                          }
+                                                                          if ( node.nsp.length > 0 ) {
+                                                                            return node.nsp[(node.nsp.length - 1)];
+                                                                          }
+                                                                          if ( node.hasParamDesc ) {
+                                                                            return node.paramDesc;
+                                                                          }
+                                                                          return new RangerAppParamDesc();
+                                                                        };
+                                                                        rssSourceKind (value) {
                                                                           let v = value;
                                                                           while (v.expression && v.children.length == 1) {
                                                                             v = v.getFirst();
                                                                           };
+                                                                          if ( v.expression ) {
+                                                                            return 2;
+                                                                          }
+                                                                          if ( v.value_type == 4 ) {
+                                                                            return 0;
+                                                                          }
                                                                           const src = this.rssResolveDesc(v);
-                                                                          this.rss_edge_src.push(src);
-                                                                          this.rss_edge_dst.push(target);
-                                                                          return;
-                                                                        }
-                                                                        target.rust_static_str = false;
-                                                                      };
-                                                                      rssLocalCandidate (p) {
-                                                                        if ( p.varType == 4 ) {
-                                                                          return false;
-                                                                        }
-                                                                        if ( p.is_class_variable ) {
-                                                                          return false;
-                                                                        }
-                                                                        if ( p.is_captured ) {
-                                                                          return false;
-                                                                        }
-                                                                        if ( p.is_static ) {
-                                                                          return false;
-                                                                        }
-                                                                        return this.rssPlainStringDesc(p);
-                                                                      };
-                                                                      rssWalkBody (node) {
-                                                                        if ( node.expression ) {
-                                                                          if ( node.children.length > 0 ) {
-                                                                            const first = node.getFirst();
-                                                                            if ( first.vref == "def" && node.children.length >= 2 ) {
-                                                                              const defName = node.getSecond();
-                                                                              if ( defName.hasParamDesc ) {
-                                                                                const dp = defName.paramDesc;
-                                                                                if ( this.rssLocalCandidate(dp) ) {
-                                                                                  dp.rust_static_str = true;
-                                                                                }
-                                                                                if ( node.children.length > 2 ) {
-                                                                                  this.rssRecordAssign(dp, node.children[2]);
+                                                                          if ( src.name.length > 0 ) {
+                                                                            return 1;
+                                                                          }
+                                                                          return 2;
+                                                                        };
+                                                                        rssRecordAssign (target, value) {
+                                                                          if ( this.rssPlainStringDesc(target) == false ) {
+                                                                            return;
+                                                                          }
+                                                                          const kind = this.rssSourceKind(value);
+                                                                          if ( kind == 0 ) {
+                                                                            return;
+                                                                          }
+                                                                          if ( kind == 1 ) {
+                                                                            let v = value;
+                                                                            while (v.expression && v.children.length == 1) {
+                                                                              v = v.getFirst();
+                                                                            };
+                                                                            const src = this.rssResolveDesc(v);
+                                                                            this.rss_edge_src.push(src);
+                                                                            this.rss_edge_dst.push(target);
+                                                                            return;
+                                                                          }
+                                                                          target.rust_static_str = false;
+                                                                        };
+                                                                        rssLocalCandidate (p) {
+                                                                          if ( p.varType == 4 ) {
+                                                                            return false;
+                                                                          }
+                                                                          if ( p.is_class_variable ) {
+                                                                            return false;
+                                                                          }
+                                                                          if ( p.is_captured ) {
+                                                                            return false;
+                                                                          }
+                                                                          if ( p.is_static ) {
+                                                                            return false;
+                                                                          }
+                                                                          return this.rssPlainStringDesc(p);
+                                                                        };
+                                                                        rssWalkBody (node) {
+                                                                          if ( node.expression ) {
+                                                                            if ( node.children.length > 0 ) {
+                                                                              const first = node.getFirst();
+                                                                              if ( first.vref == "def" && node.children.length >= 2 ) {
+                                                                                const defName = node.getSecond();
+                                                                                if ( defName.hasParamDesc ) {
+                                                                                  const dp = defName.paramDesc;
+                                                                                  if ( this.rssLocalCandidate(dp) ) {
+                                                                                    dp.rust_static_str = true;
+                                                                                  }
+                                                                                  if ( node.children.length > 2 ) {
+                                                                                    this.rssRecordAssign(dp, node.children[2]);
+                                                                                  }
                                                                                 }
                                                                               }
-                                                                            }
-                                                                            if ( first.vref == "=" && node.children.length >= 3 ) {
-                                                                              const lhs = node.getSecond();
-                                                                              const target = this.rssResolveDesc(lhs);
-                                                                              if ( target.name.length > 0 ) {
-                                                                                this.rssRecordAssign(target, node.children[2]);
+                                                                              if ( first.vref == "=" && node.children.length >= 3 ) {
+                                                                                const lhs = node.getSecond();
+                                                                                const target = this.rssResolveDesc(lhs);
+                                                                                if ( target.name.length > 0 ) {
+                                                                                  this.rssRecordAssign(target, node.children[2]);
+                                                                                }
                                                                               }
-                                                                            }
-                                                                            if ( first.vref == "str_append" && node.children.length >= 2 ) {
-                                                                              const mtarget = this.rssResolveDesc(node.getSecond());
-                                                                              if ( mtarget.name.length > 0 ) {
-                                                                                mtarget.rust_static_str = false;
-                                                                                this.rss_in_place.push(mtarget);
+                                                                              if ( first.vref == "str_append" && node.children.length >= 2 ) {
+                                                                                const mtarget = this.rssResolveDesc(node.getSecond());
+                                                                                if ( mtarget.name.length > 0 ) {
+                                                                                  mtarget.rust_static_str = false;
+                                                                                  this.rss_in_place.push(mtarget);
+                                                                                }
                                                                               }
                                                                             }
                                                                           }
-                                                                        }
-                                                                        for ( const child of node.children) {
-                                                                          this.rssWalkBody(child);
-                                                                        }
-                                                                      };
-                                                                      rssWalkFn (fn) {
-                                                                        if ( (typeof(fn.fnBody) !== "undefined" && fn.fnBody != null )  ) {
-                                                                          this.rssWalkBody(fn.fnBody);
-                                                                        }
-                                                                      };
-                                                                      analyzeRustStaticStrings () {
-                                                                        if ( typeof(this.ctx) === "undefined" ) {
-                                                                          return;
-                                                                        }
-                                                                        const root = this.ctx.getRoot();
-                                                                        for( var ci in root.definedClasses) {
-                                                                          if(root.definedClasses.hasOwnProperty(ci)) {
-                                                                            var cl = root.definedClasses[ci] 
-                                                                            let clExcluded = (((((cl.is_system || cl.is_union) || cl.is_system_union) || cl.is_trait) || cl.is_template) || cl.is_operator_class) || cl.is_generic_instance;
-                                                                            if ( clExcluded == false ) {
-                                                                              if ( cl.is_extended_by_children || cl.extends_classes.length > 0 ) {
-                                                                                clExcluded = true;
+                                                                          for ( const child of node.children) {
+                                                                            this.rssWalkBody(child);
+                                                                          }
+                                                                        };
+                                                                        rssWalkFn (fn) {
+                                                                          if ( (typeof(fn.fnBody) !== "undefined" && fn.fnBody != null )  ) {
+                                                                            this.rssWalkBody(fn.fnBody);
+                                                                          }
+                                                                        };
+                                                                        analyzeRustStaticStrings () {
+                                                                          if ( typeof(this.ctx) === "undefined" ) {
+                                                                            return;
+                                                                          }
+                                                                          const root = this.ctx.getRoot();
+                                                                          for( var ci in root.definedClasses) {
+                                                                            if(root.definedClasses.hasOwnProperty(ci)) {
+                                                                              var cl = root.definedClasses[ci] 
+                                                                              let clExcluded = (((((cl.is_system || cl.is_union) || cl.is_system_union) || cl.is_trait) || cl.is_template) || cl.is_operator_class) || cl.is_generic_instance;
+                                                                              if ( clExcluded == false ) {
+                                                                                if ( cl.is_extended_by_children || cl.extends_classes.length > 0 ) {
+                                                                                  clExcluded = true;
+                                                                                }
                                                                               }
-                                                                            }
-                                                                            if ( clExcluded == false ) {
-                                                                              for ( const v of cl.variables) {
-                                                                                if ( v.is_static == false && v.is_captured == false ) {
-                                                                                  if ( this.rssPlainStringDesc(v) ) {
-                                                                                    v.rust_static_str = true;
-                                                                                    const vn = v.node;
-                                                                                    if ( (typeof(vn) !== "undefined" && vn != null )  ) {
-                                                                                      const vnn = vn;
-                                                                                      if ( vnn.children.length > 2 ) {
-                                                                                        this.rssRecordAssign(v, vnn.children[2]);
+                                                                              if ( clExcluded == false ) {
+                                                                                for ( const v of cl.variables) {
+                                                                                  if ( v.is_static == false && v.is_captured == false ) {
+                                                                                    if ( this.rssPlainStringDesc(v) ) {
+                                                                                      v.rust_static_str = true;
+                                                                                      const vn = v.node;
+                                                                                      if ( (typeof(vn) !== "undefined" && vn != null )  ) {
+                                                                                        const vnn = vn;
+                                                                                        if ( vnn.children.length > 2 ) {
+                                                                                          this.rssRecordAssign(v, vnn.children[2]);
+                                                                                        }
                                                                                       }
                                                                                     }
                                                                                   }
                                                                                 }
                                                                               }
-                                                                            }
-                                                                          } };
-                                                                          for( var ci_1 in root.definedClasses) {
-                                                                            if(root.definedClasses.hasOwnProperty(ci_1)) {
-                                                                              var cl_1 = root.definedClasses[ci_1] 
-                                                                              for ( const m of cl_1.methods) {
-                                                                                this.rssWalkFn(m);
-                                                                              }
-                                                                              for ( const sm of cl_1.static_methods) {
-                                                                                this.rssWalkFn(sm);
-                                                                              }
-                                                                              if ( (typeof(cl_1.constructor_fn) !== "undefined" && cl_1.constructor_fn != null )  ) {
-                                                                                this.rssWalkFn(cl_1.constructor_fn);
-                                                                              }
                                                                             } };
-                                                                            let changed = true;
-                                                                            while (changed) {
-                                                                              changed = false;
-                                                                              for ( let ei = 0; ei < this.rss_edge_dst.length; ei++) {
-                                                                                var dst = this.rss_edge_dst[ei];
-                                                                                if ( dst.rust_static_str ) {
-                                                                                  const src = this.rss_edge_src[ei];
-                                                                                  if ( src.rust_static_str == false ) {
-                                                                                    dst.rust_static_str = false;
-                                                                                    changed = true;
-                                                                                  }
+                                                                            for( var ci_1 in root.definedClasses) {
+                                                                              if(root.definedClasses.hasOwnProperty(ci_1)) {
+                                                                                var cl_1 = root.definedClasses[ci_1] 
+                                                                                for ( const m of cl_1.methods) {
+                                                                                  this.rssWalkFn(m);
                                                                                 }
-                                                                              }
-                                                                            };
-                                                                            for ( const ip of this.rss_in_place) {
-                                                                              ip.rust_static_str = false;
-                                                                            }
-                                                                          };
-                                                                          applyOwnershipToRustBorrowsFn (cl, fn) {
-                                                                            if ( fn.is_lambda ) {
-                                                                              return;
-                                                                            }
-                                                                            for ( const param of fn.params) {
-                                                                              if ( this.rustBorrowedObjectParam(cl, param) ) {
-                                                                                param.rust_borrow_type = 1;
-                                                                              }
-                                                                            }
-                                                                          };
-                                                                          applyOwnershipToRustBorrows () {
-                                                                            if ( typeof(this.ctx) === "undefined" ) {
-                                                                              return;
-                                                                            }
-                                                                            const root = this.ctx.getRoot();
-                                                                            for( var ci in root.definedClasses) {
-                                                                              if(root.definedClasses.hasOwnProperty(ci)) {
-                                                                                var cl = root.definedClasses[ci] 
-                                                                                for ( let i = 0; i < cl.methods.length; i++) {
-                                                                                  var m = cl.methods[i];
-                                                                                  this.applyOwnershipToRustBorrowsFn(cl, m);
+                                                                                for ( const sm of cl_1.static_methods) {
+                                                                                  this.rssWalkFn(sm);
                                                                                 }
-                                                                                for ( let i_1 = 0; i_1 < cl.static_methods.length; i_1++) {
-                                                                                  var sm = cl.static_methods[i_1];
-                                                                                  this.applyOwnershipToRustBorrowsFn(cl, sm);
+                                                                                if ( (typeof(cl_1.constructor_fn) !== "undefined" && cl_1.constructor_fn != null )  ) {
+                                                                                  this.rssWalkFn(cl_1.constructor_fn);
                                                                                 }
                                                                               } };
+                                                                              let changed = true;
+                                                                              while (changed) {
+                                                                                changed = false;
+                                                                                for ( let ei = 0; ei < this.rss_edge_dst.length; ei++) {
+                                                                                  var dst = this.rss_edge_dst[ei];
+                                                                                  if ( dst.rust_static_str ) {
+                                                                                    const src = this.rss_edge_src[ei];
+                                                                                    if ( src.rust_static_str == false ) {
+                                                                                      dst.rust_static_str = false;
+                                                                                      changed = true;
+                                                                                    }
+                                                                                  }
+                                                                                }
+                                                                              };
+                                                                              for ( const ip of this.rss_in_place) {
+                                                                                ip.rust_static_str = false;
+                                                                              }
                                                                             };
-                                                                            analyzeOwnershipAll (strict) {
+                                                                            applyOwnershipToRustBorrowsFn (cl, fn) {
+                                                                              if ( fn.is_lambda ) {
+                                                                                return;
+                                                                              }
+                                                                              for ( const param of fn.params) {
+                                                                                if ( this.rustBorrowedObjectParam(cl, param) ) {
+                                                                                  param.rust_borrow_type = 1;
+                                                                                }
+                                                                              }
+                                                                            };
+                                                                            applyOwnershipToRustBorrows () {
                                                                               if ( typeof(this.ctx) === "undefined" ) {
                                                                                 return;
                                                                               }
-                                                                              this.initMutatingOps();
                                                                               const root = this.ctx.getRoot();
-                                                                              for( var i in root.definedClasses) {
-                                                                                if(root.definedClasses.hasOwnProperty(i)) {
-                                                                                  var cl = root.definedClasses[i] 
-                                                                                  this.analyzeOwnershipClass(cl);
+                                                                              for( var ci in root.definedClasses) {
+                                                                                if(root.definedClasses.hasOwnProperty(ci)) {
+                                                                                  var cl = root.definedClasses[ci] 
+                                                                                  for ( let i = 0; i < cl.methods.length; i++) {
+                                                                                    var m = cl.methods[i];
+                                                                                    this.applyOwnershipToRustBorrowsFn(cl, m);
+                                                                                  }
+                                                                                  for ( let i_1 = 0; i_1 < cl.static_methods.length; i_1++) {
+                                                                                    var sm = cl.static_methods[i_1];
+                                                                                    this.applyOwnershipToRustBorrowsFn(cl, sm);
+                                                                                  }
                                                                                 } };
-                                                                                this.resolveCallEscapes();
-                                                                                this.analyzeClassSharing();
-                                                                                if ( strict ) {
-                                                                                  for( var i_1 in root.definedClasses) {
-                                                                                    if(root.definedClasses.hasOwnProperty(i_1)) {
-                                                                                      var cl_1 = root.definedClasses[i_1] 
-                                                                                      this.reportOwnershipClass(cl_1);
-                                                                                    } };
-                                                                                    this.reportClassSharing();
-                                                                                  }
-                                                                                };
-                                                                                analyzeAll () {
-                                                                                  if ( typeof(this.ctx) === "undefined" ) {
-                                                                                    return;
-                                                                                  }
-                                                                                  this.initMutatingOps();
-                                                                                  const root = this.ctx.getRoot();
-                                                                                  for( var i in root.definedClasses) {
-                                                                                    if(root.definedClasses.hasOwnProperty(i)) {
-                                                                                      var cl = root.definedClasses[i] 
-                                                                                      this.analyzeClass(cl);
-                                                                                    } };
+                                                                              };
+                                                                              analyzeOwnershipAll (strict) {
+                                                                                if ( typeof(this.ctx) === "undefined" ) {
+                                                                                  return;
+                                                                                }
+                                                                                this.initMutatingOps();
+                                                                                const root = this.ctx.getRoot();
+                                                                                for( var i in root.definedClasses) {
+                                                                                  if(root.definedClasses.hasOwnProperty(i)) {
+                                                                                    var cl = root.definedClasses[i] 
+                                                                                    this.analyzeOwnershipClass(cl);
+                                                                                  } };
+                                                                                  this.resolveCallEscapes();
+                                                                                  this.analyzeClassSharing();
+                                                                                  this.foldObjectInitsAll();
+                                                                                  if ( strict ) {
                                                                                     for( var i_1 in root.definedClasses) {
                                                                                       if(root.definedClasses.hasOwnProperty(i_1)) {
                                                                                         var cl_1 = root.definedClasses[i_1] 
-                                                                                        this.analyzeClassTransitiveWeak(cl_1);
+                                                                                        this.reportOwnershipClass(cl_1);
                                                                                       } };
-                                                                                      for( var i_2 in root.definedClasses) {
-                                                                                        if(root.definedClasses.hasOwnProperty(i_2)) {
-                                                                                          var cl_2 = root.definedClasses[i_2] 
-                                                                                          this.analyzeClassMutation(cl_2);
+                                                                                      this.reportClassSharing();
+                                                                                    }
+                                                                                  };
+                                                                                  analyzeAll () {
+                                                                                    if ( typeof(this.ctx) === "undefined" ) {
+                                                                                      return;
+                                                                                    }
+                                                                                    this.initMutatingOps();
+                                                                                    const root = this.ctx.getRoot();
+                                                                                    for( var i in root.definedClasses) {
+                                                                                      if(root.definedClasses.hasOwnProperty(i)) {
+                                                                                        var cl = root.definedClasses[i] 
+                                                                                        this.analyzeClass(cl);
+                                                                                      } };
+                                                                                      for( var i_1 in root.definedClasses) {
+                                                                                        if(root.definedClasses.hasOwnProperty(i_1)) {
+                                                                                          var cl_1 = root.definedClasses[i_1] 
+                                                                                          this.analyzeClassTransitiveWeak(cl_1);
                                                                                         } };
-                                                                                        for( var i_3 in root.definedClasses) {
-                                                                                          if(root.definedClasses.hasOwnProperty(i_3)) {
-                                                                                            var cl_3 = root.definedClasses[i_3] 
-                                                                                            this.analyzeClassParamMutations(cl_3);
+                                                                                        for( var i_2 in root.definedClasses) {
+                                                                                          if(root.definedClasses.hasOwnProperty(i_2)) {
+                                                                                            var cl_2 = root.definedClasses[i_2] 
+                                                                                            this.analyzeClassMutation(cl_2);
                                                                                           } };
-                                                                                          const maxIterations = 10;
-                                                                                          let iteration = 0;
-                                                                                          let changed = true;
-                                                                                          while (changed == true && iteration < maxIterations) {
-                                                                                            changed = false;
-                                                                                            let changedParams = [];
-                                                                                            for( var i_4 in root.definedClasses) {
-                                                                                              if(root.definedClasses.hasOwnProperty(i_4)) {
-                                                                                                var cl_4 = root.definedClasses[i_4] 
-                                                                                                this.analyzeClassTransitiveMutBorrow(cl_4, changedParams);
-                                                                                              } };
-                                                                                              if ( changedParams.length > 0 ) {
-                                                                                                changed = true;
-                                                                                                if ( this.debug ) {
-                                                                                                  console.log(((("StaticAnalysis: transitive &mut pass " + (iteration.toString())) + " - upgraded ") + (changedParams.length.toString())) + " params");
+                                                                                          for( var i_3 in root.definedClasses) {
+                                                                                            if(root.definedClasses.hasOwnProperty(i_3)) {
+                                                                                              var cl_3 = root.definedClasses[i_3] 
+                                                                                              this.analyzeClassParamMutations(cl_3);
+                                                                                            } };
+                                                                                            const maxIterations = 10;
+                                                                                            let iteration = 0;
+                                                                                            let changed = true;
+                                                                                            while (changed == true && iteration < maxIterations) {
+                                                                                              changed = false;
+                                                                                              let changedParams = [];
+                                                                                              for( var i_4 in root.definedClasses) {
+                                                                                                if(root.definedClasses.hasOwnProperty(i_4)) {
+                                                                                                  var cl_4 = root.definedClasses[i_4] 
+                                                                                                  this.analyzeClassTransitiveMutBorrow(cl_4, changedParams);
+                                                                                                } };
+                                                                                                if ( changedParams.length > 0 ) {
+                                                                                                  changed = true;
+                                                                                                  if ( this.debug ) {
+                                                                                                    console.log(((("StaticAnalysis: transitive &mut pass " + (iteration.toString())) + " - upgraded ") + (changedParams.length.toString())) + " params");
+                                                                                                  }
                                                                                                 }
-                                                                                              }
-                                                                                              iteration = iteration + 1;
+                                                                                                iteration = iteration + 1;
+                                                                                              };
                                                                                             };
-                                                                                          };
-                                                                                        }
-                                                                                        class viewbuilder_Android  {
-                                                                                          constructor() {
                                                                                           }
-                                                                                          _attr (wr, name, value) {
-                                                                                            wr.out((((("android:" + name) + "=") + "\"") + value) + "\" ", true);
-                                                                                          };
-                                                                                          elWithText (name, node, wr) {
-                                                                                            wr.out(("<" + name) + " ", true);
-                                                                                            wr.indent(1);
-                                                                                            let width = "match_parent";
-                                                                                            const height = "wrap_content";
-                                                                                            let weight = "";
-                                                                                            operatorsOf.forEach_15(node.children, ((item, index) => { 
-                                                                                              switch (item.value_type ) { 
-                                                                                                case 23 : 
+                                                                                          class viewbuilder_Android  {
+                                                                                            constructor() {
+                                                                                            }
+                                                                                            _attr (wr, name, value) {
+                                                                                              wr.out((((("android:" + name) + "=") + "\"") + value) + "\" ", true);
+                                                                                            };
+                                                                                            elWithText (name, node, wr) {
+                                                                                              wr.out(("<" + name) + " ", true);
+                                                                                              wr.indent(1);
+                                                                                              let width = "match_parent";
+                                                                                              const height = "wrap_content";
+                                                                                              let weight = "";
+                                                                                              operatorsOf.forEach_15(node.children, ((item, index) => { 
+                                                                                                switch (item.value_type ) { 
+                                                                                                  case 23 : 
+                                                                                                    this._attr(
+                                                                                                      wr,
+                                                                                                      "text",
+                                                                                                      item.string_value
+                                                                                                    );
+                                                                                                    break;
+                                                                                                };
+                                                                                              }));
+                                                                                              operatorsOf.forEach_15(node.attrs, ((item, index) => { 
+                                                                                                if ( item.vref == "font-size" ) {
                                                                                                   this._attr(
                                                                                                     wr,
-                                                                                                    "text",
-                                                                                                    item.string_value
+                                                                                                    "textSize",
+                                                                                                    item.string_value + "dp"
                                                                                                   );
-                                                                                                  break;
-                                                                                              };
-                                                                                            }));
-                                                                                            operatorsOf.forEach_15(node.attrs, ((item, index) => { 
-                                                                                              if ( item.vref == "font-size" ) {
-                                                                                                this._attr(
-                                                                                                  wr,
-                                                                                                  "textSize",
-                                                                                                  item.string_value + "dp"
-                                                                                                );
-                                                                                              }
-                                                                                              if ( item.vref == "id" ) {
-                                                                                                this._attr(
-                                                                                                  wr,
-                                                                                                  "id",
-                                                                                                  "@+id/" + item.string_value
-                                                                                                );
-                                                                                              }
-                                                                                              if ( item.vref == "width-pros" ) {
-                                                                                                weight = item.string_value;
-                                                                                              }
-                                                                                              if ( item.vref == "width" ) {
-                                                                                                width = item.string_value + "dp";
-                                                                                              }
-                                                                                            }));
-                                                                                            this._attr(
-                                                                                              wr,
-                                                                                              "layout_width",
-                                                                                              width
-                                                                                            );
-                                                                                            this._attr(
-                                                                                              wr,
-                                                                                              "layout_height",
-                                                                                              height
-                                                                                            );
-                                                                                            if ( weight.length > 0 ) {
+                                                                                                }
+                                                                                                if ( item.vref == "id" ) {
+                                                                                                  this._attr(
+                                                                                                    wr,
+                                                                                                    "id",
+                                                                                                    "@+id/" + item.string_value
+                                                                                                  );
+                                                                                                }
+                                                                                                if ( item.vref == "width-pros" ) {
+                                                                                                  weight = item.string_value;
+                                                                                                }
+                                                                                                if ( item.vref == "width" ) {
+                                                                                                  width = item.string_value + "dp";
+                                                                                                }
+                                                                                              }));
                                                                                               this._attr(
                                                                                                 wr,
-                                                                                                "layout_weight",
-                                                                                                weight
+                                                                                                "layout_width",
+                                                                                                width
                                                                                               );
-                                                                                            }
-                                                                                            wr.out("/>", true);
-                                                                                            wr.indent(-1);
-                                                                                          };
-                                                                                          WalkNode (node, ctx, wr) {
-                                                                                            switch (node.vref ) { 
-                                                                                              case "ScrollView" : 
-                                                                                                wr.out("<ScrollView ", true);
-                                                                                                wr.indent(1);
+                                                                                              this._attr(
+                                                                                                wr,
+                                                                                                "layout_height",
+                                                                                                height
+                                                                                              );
+                                                                                              if ( weight.length > 0 ) {
                                                                                                 this._attr(
                                                                                                   wr,
-                                                                                                  "layout_width",
-                                                                                                  "match_parent"
+                                                                                                  "layout_weight",
+                                                                                                  weight
                                                                                                 );
-                                                                                                this._attr(
-                                                                                                  wr,
-                                                                                                  "layout_height",
-                                                                                                  "wrap_content"
-                                                                                                );
-                                                                                                operatorsOf.forEach_15(node.attrs, ((item, index) => { 
-                                                                                                  if ( item.vref == "id" ) {
-                                                                                                    this._attr(
-                                                                                                      wr,
-                                                                                                      "id",
-                                                                                                      "@+id/" + item.string_value
+                                                                                              }
+                                                                                              wr.out("/>", true);
+                                                                                              wr.indent(-1);
+                                                                                            };
+                                                                                            WalkNode (node, ctx, wr) {
+                                                                                              switch (node.vref ) { 
+                                                                                                case "ScrollView" : 
+                                                                                                  wr.out("<ScrollView ", true);
+                                                                                                  wr.indent(1);
+                                                                                                  this._attr(
+                                                                                                    wr,
+                                                                                                    "layout_width",
+                                                                                                    "match_parent"
+                                                                                                  );
+                                                                                                  this._attr(
+                                                                                                    wr,
+                                                                                                    "layout_height",
+                                                                                                    "wrap_content"
+                                                                                                  );
+                                                                                                  operatorsOf.forEach_15(node.attrs, ((item, index) => { 
+                                                                                                    if ( item.vref == "id" ) {
+                                                                                                      this._attr(
+                                                                                                        wr,
+                                                                                                        "id",
+                                                                                                        "@+id/" + item.string_value
+                                                                                                      );
+                                                                                                    }
+                                                                                                  }));
+                                                                                                  wr.out(">", true);
+                                                                                                  wr.indent(1);
+                                                                                                  operatorsOf.forEach_15(node.children, ((item, index) => { 
+                                                                                                    this.WalkNode(
+                                                                                                      item,
+                                                                                                      ctx,
+                                                                                                      wr
                                                                                                     );
-                                                                                                  }
-                                                                                                }));
-                                                                                                wr.out(">", true);
-                                                                                                wr.indent(1);
-                                                                                                operatorsOf.forEach_15(node.children, ((item, index) => { 
-                                                                                                  this.WalkNode(
-                                                                                                    item,
-                                                                                                    ctx,
+                                                                                                  }));
+                                                                                                  wr.indent(-1);
+                                                                                                  wr.out("</ScrollView>", true);
+                                                                                                  wr.indent(-1);
+                                                                                                  break;
+                                                                                                case "LinearLayout" : 
+                                                                                                  wr.out("<LinearLayout ", true);
+                                                                                                  wr.indent(1);
+                                                                                                  this._attr(
+                                                                                                    wr,
+                                                                                                    "layout_width",
+                                                                                                    "match_parent"
+                                                                                                  );
+                                                                                                  this._attr(
+                                                                                                    wr,
+                                                                                                    "layout_height",
+                                                                                                    "wrap_content"
+                                                                                                  );
+                                                                                                  let orientation = "vertical";
+                                                                                                  operatorsOf.forEach_15(node.attrs, ((item, index) => { 
+                                                                                                    if ( item.vref == "id" ) {
+                                                                                                      this._attr(
+                                                                                                        wr,
+                                                                                                        "id",
+                                                                                                        "@+id/" + item.string_value
+                                                                                                      );
+                                                                                                    }
+                                                                                                    if ( item.vref == "direction" ) {
+                                                                                                      orientation = item.string_value;
+                                                                                                    }
+                                                                                                  }));
+                                                                                                  this._attr(
+                                                                                                    wr,
+                                                                                                    "orientation",
+                                                                                                    orientation
+                                                                                                  );
+                                                                                                  this._attr(
+                                                                                                    wr,
+                                                                                                    "weightSum",
+                                                                                                    "100"
+                                                                                                  );
+                                                                                                  wr.out(">", true);
+                                                                                                  wr.indent(1);
+                                                                                                  operatorsOf.forEach_15(node.children, ((item, index) => { 
+                                                                                                    this.WalkNode(
+                                                                                                      item,
+                                                                                                      ctx,
+                                                                                                      wr
+                                                                                                    );
+                                                                                                  }));
+                                                                                                  wr.indent(-1);
+                                                                                                  wr.out("</LinearLayout>", true);
+                                                                                                  wr.indent(-1);
+                                                                                                  break;
+                                                                                                case "Button" : 
+                                                                                                  this.elWithText(
+                                                                                                    "Button",
+                                                                                                    node,
                                                                                                     wr
                                                                                                   );
-                                                                                                }));
-                                                                                                wr.indent(-1);
-                                                                                                wr.out("</ScrollView>", true);
-                                                                                                wr.indent(-1);
-                                                                                                break;
-                                                                                              case "LinearLayout" : 
-                                                                                                wr.out("<LinearLayout ", true);
-                                                                                                wr.indent(1);
+                                                                                                  break;
+                                                                                                case "Text" : 
+                                                                                                  this.elWithText(
+                                                                                                    "TextView",
+                                                                                                    node,
+                                                                                                    wr
+                                                                                                  );
+                                                                                                  break;
+                                                                                                case "Input" : 
+                                                                                                  wr.out("<EditText ", true);
+                                                                                                  wr.indent(1);
+                                                                                                  this._attr(
+                                                                                                    wr,
+                                                                                                    "layout_width",
+                                                                                                    "match_parent"
+                                                                                                  );
+                                                                                                  this._attr(
+                                                                                                    wr,
+                                                                                                    "layout_height",
+                                                                                                    "wrap_content"
+                                                                                                  );
+                                                                                                  operatorsOf.forEach_15(node.attrs, ((item, index) => { 
+                                                                                                    if ( item.vref == "hint" ) {
+                                                                                                      this._attr(
+                                                                                                        wr,
+                                                                                                        "hint",
+                                                                                                        item.string_value
+                                                                                                      );
+                                                                                                    }
+                                                                                                    if ( item.vref == "id" ) {
+                                                                                                      this._attr(
+                                                                                                        wr,
+                                                                                                        "id",
+                                                                                                        "@+id/" + item.string_value
+                                                                                                      );
+                                                                                                    }
+                                                                                                    if ( item.vref == "type" && item.string_value == "password" ) {
+                                                                                                      this._attr(
+                                                                                                        wr,
+                                                                                                        "inputType",
+                                                                                                        "textPassword"
+                                                                                                      );
+                                                                                                    }
+                                                                                                  }));
+                                                                                                  operatorsOf.forEach_15(node.children, ((item, index) => { 
+                                                                                                    switch (item.value_type ) { 
+                                                                                                      case 23 : 
+                                                                                                        this._attr(
+                                                                                                          wr,
+                                                                                                          "text",
+                                                                                                          item.string_value
+                                                                                                        );
+                                                                                                        break;
+                                                                                                    };
+                                                                                                  }));
+                                                                                                  wr.out("/>", true);
+                                                                                                  wr.indent(-1);
+                                                                                                  break;
+                                                                                              };
+                                                                                            };
+                                                                                            writeClass (node, ctx, orig_wr) {
+                                                                                              let viewName = "";
+                                                                                              let b_scroll = false;
+                                                                                              operatorsOf.forEach_15(node.attrs, ((item, index) => { 
+                                                                                                if ( item.vref == "name" ) {
+                                                                                                  viewName = item.string_value;
+                                                                                                }
+                                                                                                if ( item.vref == "type" ) {
+                                                                                                  if ( item.string_value == "scroll" ) {
+                                                                                                    b_scroll = true;
+                                                                                                  }
+                                                                                                }
+                                                                                              }));
+                                                                                              const wr = orig_wr.getFileWriter("layout", (("activity_" + viewName) + ".xml"));
+                                                                                              wr.out("<?xml version=\"1.0\" encoding=\"utf-8\"?>", true);
+                                                                                              let viewTag = "LinearLayout";
+                                                                                              if ( b_scroll ) {
+                                                                                                viewTag = "ScrollView";
+                                                                                              }
+                                                                                              wr.out(("<" + viewTag) + " xmlns:android=\"http://schemas.android.com/apk/res/android\" ", true);
+                                                                                              wr.indent(1);
+                                                                                              this._attr(
+                                                                                                wr,
+                                                                                                "layout_width",
+                                                                                                "match_parent"
+                                                                                              );
+                                                                                              this._attr(
+                                                                                                wr,
+                                                                                                "layout_height",
+                                                                                                "match_parent"
+                                                                                              );
+                                                                                              if ( b_scroll == false ) {
                                                                                                 this._attr(
                                                                                                   wr,
-                                                                                                  "layout_width",
-                                                                                                  "match_parent"
+                                                                                                  "paddingLeft",
+                                                                                                  "16dp"
                                                                                                 );
                                                                                                 this._attr(
                                                                                                   wr,
-                                                                                                  "layout_height",
-                                                                                                  "wrap_content"
+                                                                                                  "paddingRight",
+                                                                                                  "16dp"
                                                                                                 );
-                                                                                                let orientation = "vertical";
-                                                                                                operatorsOf.forEach_15(node.attrs, ((item, index) => { 
-                                                                                                  if ( item.vref == "id" ) {
-                                                                                                    this._attr(
-                                                                                                      wr,
-                                                                                                      "id",
-                                                                                                      "@+id/" + item.string_value
-                                                                                                    );
-                                                                                                  }
-                                                                                                  if ( item.vref == "direction" ) {
-                                                                                                    orientation = item.string_value;
-                                                                                                  }
-                                                                                                }));
                                                                                                 this._attr(
                                                                                                   wr,
                                                                                                   "orientation",
-                                                                                                  orientation
+                                                                                                  "vertical"
                                                                                                 );
-                                                                                                this._attr(
-                                                                                                  wr,
-                                                                                                  "weightSum",
-                                                                                                  "100"
+                                                                                              }
+                                                                                              this._attr(
+                                                                                                wr,
+                                                                                                "id",
+                                                                                                "@+id/view_id_" + viewName
+                                                                                              );
+                                                                                              wr.out(">", true);
+                                                                                              operatorsOf.forEach_15(node.children, ((item, index) => { 
+                                                                                                this.WalkNode(
+                                                                                                  item,
+                                                                                                  ctx,
+                                                                                                  wr
                                                                                                 );
-                                                                                                wr.out(">", true);
-                                                                                                wr.indent(1);
-                                                                                                operatorsOf.forEach_15(node.children, ((item, index) => { 
-                                                                                                  this.WalkNode(
-                                                                                                    item,
+                                                                                              }));
+                                                                                              wr.indent(-1);
+                                                                                              wr.out(("</" + viewTag) + ">", true);
+                                                                                            };
+                                                                                          }
+                                                                                          class viewbuilder_Web  {
+                                                                                            constructor() {
+                                                                                            }
+                                                                                            _attr (wr, name, value) {
+                                                                                              wr.out(((((" " + name) + "=") + "\"") + value) + "\" ", false);
+                                                                                            };
+                                                                                            tagAttrs (node, ctx, wr) {
+                                                                                              operatorsOf.forEach_15(node.attrs, ((item, index) => { 
+                                                                                                if ( item.vref == "id" ) {
+                                                                                                  this._attr(
+                                                                                                    wr,
+                                                                                                    "x-id",
+                                                                                                    item.string_value
+                                                                                                  );
+                                                                                                }
+                                                                                                if ( item.vref == "hint" ) {
+                                                                                                  this._attr(
+                                                                                                    wr,
+                                                                                                    "tooltip",
+                                                                                                    item.string_value
+                                                                                                  );
+                                                                                                  this._attr(
+                                                                                                    wr,
+                                                                                                    "title",
+                                                                                                    item.string_value
+                                                                                                  );
+                                                                                                  this._attr(
+                                                                                                    wr,
+                                                                                                    "placeholder",
+                                                                                                    item.string_value
+                                                                                                  );
+                                                                                                }
+                                                                                              }));
+                                                                                            };
+                                                                                            tagText (node, ctx, wr) {
+                                                                                              operatorsOf.forEach_15(node.children, ((item, index) => { 
+                                                                                                switch (item.value_type ) { 
+                                                                                                  case 23 : 
+                                                                                                    wr.out(item.string_value, false);
+                                                                                                    break;
+                                                                                                };
+                                                                                              }));
+                                                                                            };
+                                                                                            tag (name, node, ctx, wr) {
+                                                                                              wr.out("<" + name, false);
+                                                                                              this.tagAttrs(
+                                                                                                node,
+                                                                                                ctx,
+                                                                                                wr
+                                                                                              );
+                                                                                              wr.out(">", false);
+                                                                                              this.tagText(
+                                                                                                node,
+                                                                                                ctx,
+                                                                                                wr
+                                                                                              );
+                                                                                              wr.out(("</" + name) + ">", true);
+                                                                                            };
+                                                                                            WalkNode (node, ctx, wr) {
+                                                                                              switch (node.vref ) { 
+                                                                                                case "LinearLayout" : 
+                                                                                                  this.tag(
+                                                                                                    "div",
+                                                                                                    node,
                                                                                                     ctx,
                                                                                                     wr
                                                                                                   );
-                                                                                                }));
-                                                                                                wr.indent(-1);
-                                                                                                wr.out("</LinearLayout>", true);
-                                                                                                wr.indent(-1);
-                                                                                                break;
-                                                                                              case "Button" : 
-                                                                                                this.elWithText(
-                                                                                                  "Button",
-                                                                                                  node,
-                                                                                                  wr
-                                                                                                );
-                                                                                                break;
-                                                                                              case "Text" : 
-                                                                                                this.elWithText(
-                                                                                                  "TextView",
-                                                                                                  node,
-                                                                                                  wr
-                                                                                                );
-                                                                                                break;
-                                                                                              case "Input" : 
-                                                                                                wr.out("<EditText ", true);
-                                                                                                wr.indent(1);
-                                                                                                this._attr(
-                                                                                                  wr,
-                                                                                                  "layout_width",
-                                                                                                  "match_parent"
-                                                                                                );
-                                                                                                this._attr(
-                                                                                                  wr,
-                                                                                                  "layout_height",
-                                                                                                  "wrap_content"
-                                                                                                );
-                                                                                                operatorsOf.forEach_15(node.attrs, ((item, index) => { 
-                                                                                                  if ( item.vref == "hint" ) {
-                                                                                                    this._attr(
-                                                                                                      wr,
-                                                                                                      "hint",
-                                                                                                      item.string_value
-                                                                                                    );
-                                                                                                  }
-                                                                                                  if ( item.vref == "id" ) {
-                                                                                                    this._attr(
-                                                                                                      wr,
-                                                                                                      "id",
-                                                                                                      "@+id/" + item.string_value
-                                                                                                    );
-                                                                                                  }
-                                                                                                  if ( item.vref == "type" && item.string_value == "password" ) {
-                                                                                                    this._attr(
-                                                                                                      wr,
-                                                                                                      "inputType",
-                                                                                                      "textPassword"
-                                                                                                    );
-                                                                                                  }
-                                                                                                }));
-                                                                                                operatorsOf.forEach_15(node.children, ((item, index) => { 
-                                                                                                  switch (item.value_type ) { 
-                                                                                                    case 23 : 
-                                                                                                      this._attr(
-                                                                                                        wr,
-                                                                                                        "text",
-                                                                                                        item.string_value
-                                                                                                      );
-                                                                                                      break;
-                                                                                                  };
-                                                                                                }));
-                                                                                                wr.out("/>", true);
-                                                                                                wr.indent(-1);
-                                                                                                break;
-                                                                                            };
-                                                                                          };
-                                                                                          writeClass (node, ctx, orig_wr) {
-                                                                                            let viewName = "";
-                                                                                            let b_scroll = false;
-                                                                                            operatorsOf.forEach_15(node.attrs, ((item, index) => { 
-                                                                                              if ( item.vref == "name" ) {
-                                                                                                viewName = item.string_value;
-                                                                                              }
-                                                                                              if ( item.vref == "type" ) {
-                                                                                                if ( item.string_value == "scroll" ) {
-                                                                                                  b_scroll = true;
-                                                                                                }
-                                                                                              }
-                                                                                            }));
-                                                                                            const wr = orig_wr.getFileWriter("layout", (("activity_" + viewName) + ".xml"));
-                                                                                            wr.out("<?xml version=\"1.0\" encoding=\"utf-8\"?>", true);
-                                                                                            let viewTag = "LinearLayout";
-                                                                                            if ( b_scroll ) {
-                                                                                              viewTag = "ScrollView";
-                                                                                            }
-                                                                                            wr.out(("<" + viewTag) + " xmlns:android=\"http://schemas.android.com/apk/res/android\" ", true);
-                                                                                            wr.indent(1);
-                                                                                            this._attr(
-                                                                                              wr,
-                                                                                              "layout_width",
-                                                                                              "match_parent"
-                                                                                            );
-                                                                                            this._attr(
-                                                                                              wr,
-                                                                                              "layout_height",
-                                                                                              "match_parent"
-                                                                                            );
-                                                                                            if ( b_scroll == false ) {
-                                                                                              this._attr(
-                                                                                                wr,
-                                                                                                "paddingLeft",
-                                                                                                "16dp"
-                                                                                              );
-                                                                                              this._attr(
-                                                                                                wr,
-                                                                                                "paddingRight",
-                                                                                                "16dp"
-                                                                                              );
-                                                                                              this._attr(
-                                                                                                wr,
-                                                                                                "orientation",
-                                                                                                "vertical"
-                                                                                              );
-                                                                                            }
-                                                                                            this._attr(
-                                                                                              wr,
-                                                                                              "id",
-                                                                                              "@+id/view_id_" + viewName
-                                                                                            );
-                                                                                            wr.out(">", true);
-                                                                                            operatorsOf.forEach_15(node.children, ((item, index) => { 
-                                                                                              this.WalkNode(
-                                                                                                item,
-                                                                                                ctx,
-                                                                                                wr
-                                                                                              );
-                                                                                            }));
-                                                                                            wr.indent(-1);
-                                                                                            wr.out(("</" + viewTag) + ">", true);
-                                                                                          };
-                                                                                        }
-                                                                                        class viewbuilder_Web  {
-                                                                                          constructor() {
-                                                                                          }
-                                                                                          _attr (wr, name, value) {
-                                                                                            wr.out(((((" " + name) + "=") + "\"") + value) + "\" ", false);
-                                                                                          };
-                                                                                          tagAttrs (node, ctx, wr) {
-                                                                                            operatorsOf.forEach_15(node.attrs, ((item, index) => { 
-                                                                                              if ( item.vref == "id" ) {
-                                                                                                this._attr(
-                                                                                                  wr,
-                                                                                                  "x-id",
-                                                                                                  item.string_value
-                                                                                                );
-                                                                                              }
-                                                                                              if ( item.vref == "hint" ) {
-                                                                                                this._attr(
-                                                                                                  wr,
-                                                                                                  "tooltip",
-                                                                                                  item.string_value
-                                                                                                );
-                                                                                                this._attr(
-                                                                                                  wr,
-                                                                                                  "title",
-                                                                                                  item.string_value
-                                                                                                );
-                                                                                                this._attr(
-                                                                                                  wr,
-                                                                                                  "placeholder",
-                                                                                                  item.string_value
-                                                                                                );
-                                                                                              }
-                                                                                            }));
-                                                                                          };
-                                                                                          tagText (node, ctx, wr) {
-                                                                                            operatorsOf.forEach_15(node.children, ((item, index) => { 
-                                                                                              switch (item.value_type ) { 
-                                                                                                case 23 : 
-                                                                                                  wr.out(item.string_value, false);
+                                                                                                  break;
+                                                                                                case "Button" : 
+                                                                                                  wr.out("<div><a class='waves-effect waves-light btn' ", false);
+                                                                                                  this.tagAttrs(
+                                                                                                    node,
+                                                                                                    ctx,
+                                                                                                    wr
+                                                                                                  );
+                                                                                                  wr.out(">", false);
+                                                                                                  this.tagText(
+                                                                                                    node,
+                                                                                                    ctx,
+                                                                                                    wr
+                                                                                                  );
+                                                                                                  wr.out("</a></div>", false);
+                                                                                                  break;
+                                                                                                case "Text" : 
+                                                                                                  this.tag(
+                                                                                                    "div",
+                                                                                                    node,
+                                                                                                    ctx,
+                                                                                                    wr
+                                                                                                  );
+                                                                                                  break;
+                                                                                                case "Input" : 
+                                                                                                  wr.out("<div>", true);
+                                                                                                  this.tag(
+                                                                                                    "input",
+                                                                                                    node,
+                                                                                                    ctx,
+                                                                                                    wr
+                                                                                                  );
+                                                                                                  wr.out("</div>", true);
                                                                                                   break;
                                                                                               };
-                                                                                            }));
-                                                                                          };
-                                                                                          tag (name, node, ctx, wr) {
-                                                                                            wr.out("<" + name, false);
-                                                                                            this.tagAttrs(
-                                                                                              node,
-                                                                                              ctx,
-                                                                                              wr
-                                                                                            );
-                                                                                            wr.out(">", false);
-                                                                                            this.tagText(
-                                                                                              node,
-                                                                                              ctx,
-                                                                                              wr
-                                                                                            );
-                                                                                            wr.out(("</" + name) + ">", true);
-                                                                                          };
-                                                                                          WalkNode (node, ctx, wr) {
-                                                                                            switch (node.vref ) { 
-                                                                                              case "LinearLayout" : 
-                                                                                                this.tag(
-                                                                                                  "div",
-                                                                                                  node,
-                                                                                                  ctx,
-                                                                                                  wr
-                                                                                                );
-                                                                                                break;
-                                                                                              case "Button" : 
-                                                                                                wr.out("<div><a class='waves-effect waves-light btn' ", false);
-                                                                                                this.tagAttrs(
-                                                                                                  node,
-                                                                                                  ctx,
-                                                                                                  wr
-                                                                                                );
-                                                                                                wr.out(">", false);
-                                                                                                this.tagText(
-                                                                                                  node,
-                                                                                                  ctx,
-                                                                                                  wr
-                                                                                                );
-                                                                                                wr.out("</a></div>", false);
-                                                                                                break;
-                                                                                              case "Text" : 
-                                                                                                this.tag(
-                                                                                                  "div",
-                                                                                                  node,
-                                                                                                  ctx,
-                                                                                                  wr
-                                                                                                );
-                                                                                                break;
-                                                                                              case "Input" : 
-                                                                                                wr.out("<div>", true);
-                                                                                                this.tag(
-                                                                                                  "input",
-                                                                                                  node,
-                                                                                                  ctx,
-                                                                                                  wr
-                                                                                                );
-                                                                                                wr.out("</div>", true);
-                                                                                                break;
                                                                                             };
-                                                                                          };
-                                                                                          CreateViews (ctx, wr) {
-                                                                                            wr.out("<!DOCTYPE html>", true);
-                                                                                            wr.out("<html>", true);
-                                                                                            wr.indent(1);
-                                                                                            wr.out("<head>", true);
-                                                                                            wr.indent(1);
-                                                                                            wr.out("\n  <link rel=\"stylesheet\" href=\"https://cdnjs.cloudflare.com/ajax/libs/materialize/0.100.2/css/materialize.min.css\">\n  <script src=\"https://cdnjs.cloudflare.com/ajax/libs/materialize/0.100.2/js/materialize.min.js\"></script>    \n    ", true);
-                                                                                            wr.indent(-1);
-                                                                                            wr.out("</head>", true);
-                                                                                            wr.out("<body>", true);
-                                                                                            operatorsOf_13.forEach_25(ctx.viewClassBody, ((item, index) => { 
-                                                                                              this.writeClass(
-                                                                                                item,
-                                                                                                ctx,
-                                                                                                wr
-                                                                                              );
-                                                                                            }));
-                                                                                            wr.out("</body>", true);
-                                                                                            wr.out("</html>", true);
-                                                                                          };
-                                                                                          writeClass (node, ctx, wr) {
-                                                                                            let viewName = "";
-                                                                                            operatorsOf.forEach_15(node.attrs, ((item, index) => { 
-                                                                                              if ( item.vref == "name" ) {
-                                                                                                viewName = item.string_value;
-                                                                                              }
-                                                                                            }));
-                                                                                            wr.out("", true);
-                                                                                            wr.out(("<div id=\"" + viewName) + "\">", true);
-                                                                                            wr.indent(1);
-                                                                                            operatorsOf.forEach_15(node.children, ((item, index) => { 
-                                                                                              this.WalkNode(
-                                                                                                item,
-                                                                                                ctx,
-                                                                                                wr
-                                                                                              );
-                                                                                            }));
-                                                                                            wr.indent(-1);
-                                                                                            wr.out("</div>", true);
-                                                                                          };
-                                                                                        }
-                                                                                        class CompilerResults  {
-                                                                                          constructor() {
-                                                                                            this.ctx = undefined;
-                                                                                            this.fileSystem = undefined;
-                                                                                            this.target_dir = "";
-                                                                                            this.hasErrors = false;
-                                                                                            this.errorMessage = "";
-                                                                                          }
-                                                                                        }
-                                                                                        class VirtualCompiler  {
-                                                                                          constructor() {
-                                                                                            this.envObj = undefined;
-                                                                                          }
-                                                                                          getEnvVar (name) {
-                                                                                            return operatorsOf_8.envc95var_54(this.envObj, name);
-                                                                                          };
-                                                                                          possiblePaths (envVarName) {
-                                                                                            let res = [];
-                                                                                            const parts = envVarName.split(";");
-                                                                                            res.push("./");
-                                                                                            for ( const str of parts) {
-                                                                                              const s = str.trim();
-                                                                                              if ( s.length > 0 ) {
-                                                                                                let dirNames = s.split("/");
-                                                                                                dirNames.pop();
-                                                                                                const theDir = dirNames.join("/");
-                                                                                                res.push(theDir);
-                                                                                              }
-                                                                                            }
-                                                                                            res.push(operatorsOf_8.installc95directory_51(this.envObj));
-                                                                                            return res;
-                                                                                          };
-                                                                                          searchLib (paths, libname) {
-                                                                                            for ( const path of paths) {
-                                                                                              if ( operatorsOf_8.filec95exists_9(this.envObj, path, libname) ) {
-                                                                                                return path;
-                                                                                              }
-                                                                                            }
-                                                                                            return "";
-                                                                                          };
-                                                                                          fillStr (cnt) {
-                                                                                            let s = "";
-                                                                                            let i = cnt;
-                                                                                            while (i > 0) {
-                                                                                              s = s + " ";
-                                                                                              i = i - 1;
+                                                                                            CreateViews (ctx, wr) {
+                                                                                              wr.out("<!DOCTYPE html>", true);
+                                                                                              wr.out("<html>", true);
+                                                                                              wr.indent(1);
+                                                                                              wr.out("<head>", true);
+                                                                                              wr.indent(1);
+                                                                                              wr.out("\n  <link rel=\"stylesheet\" href=\"https://cdnjs.cloudflare.com/ajax/libs/materialize/0.100.2/css/materialize.min.css\">\n  <script src=\"https://cdnjs.cloudflare.com/ajax/libs/materialize/0.100.2/js/materialize.min.js\"></script>    \n    ", true);
+                                                                                              wr.indent(-1);
+                                                                                              wr.out("</head>", true);
+                                                                                              wr.out("<body>", true);
+                                                                                              operatorsOf_13.forEach_25(ctx.viewClassBody, ((item, index) => { 
+                                                                                                this.writeClass(
+                                                                                                  item,
+                                                                                                  ctx,
+                                                                                                  wr
+                                                                                                );
+                                                                                              }));
+                                                                                              wr.out("</body>", true);
+                                                                                              wr.out("</html>", true);
                                                                                             };
-                                                                                            return s;
-                                                                                          };
-                                                                                          detectLanguageFromExtension (filename) {
-                                                                                            const lastDot = filename.lastIndexOf(".");
-                                                                                            if ( lastDot < 0 ) {
-                                                                                              return "";
-                                                                                            }
-                                                                                            const ext = filename.substring((lastDot + 1), filename.length );
-                                                                                            switch (ext ) { 
-                                                                                              case "js" : 
-                                                                                                return "es6";
-                                                                                              case "ts" : 
-                                                                                                return "es6";
-                                                                                              case "go" : 
-                                                                                                return "go";
-                                                                                              case "py" : 
-                                                                                                return "python";
-                                                                                              case "rs" : 
-                                                                                                return "rust";
-                                                                                              case "swift" : 
-                                                                                                return "swift6";
-                                                                                              case "java" : 
-                                                                                                return "java7";
-                                                                                              case "kt" : 
-                                                                                                return "kotlin";
-                                                                                              case "dart" : 
-                                                                                                return "dart";
-                                                                                              case "cs" : 
-                                                                                                return "csharp";
-                                                                                              case "cpp" : 
-                                                                                                return "cpp";
-                                                                                              case "hpp" : 
-                                                                                                return "cpp";
-                                                                                              case "php" : 
-                                                                                                return "php";
-                                                                                              case "scala" : 
-                                                                                                return "scala";
-                                                                                              case "ll" : 
-                                                                                                return "llvm";
-                                                                                            };
-                                                                                            return "";
-                                                                                          };
-                                                                                          isTypeScriptExtension (filename) {
-                                                                                            const lastDot = filename.lastIndexOf(".");
-                                                                                            if ( lastDot < 0 ) {
-                                                                                              return false;
-                                                                                            }
-                                                                                            const ext = filename.substring((lastDot + 1), filename.length );
-                                                                                            return ext == "ts";
-                                                                                          };
-                                                                                          runInstall (env, params, cli) {
-                                                                                            const start = operatorsOf_8.currentc95directory_51(env);
-                                                                                            const manDir = PkgImport.walkUp(env, start);
-                                                                                            if ( manDir.length == 0 ) {
-                                                                                              console.log(cli.error((("no ranger.json in " + start) + " or above it")));
-                                                                                              return false;
-                                                                                            }
-                                                                                            const fetch = new PkgFetch();
-                                                                                            fetch.vendor = ( typeof(params.flags["vendor"] ) != "undefined" && Object.prototype.hasOwnProperty.call(params.flags, "vendor") );
-                                                                                            fetch.frozen = ( typeof(params.flags["frozen"] ) != "undefined" && Object.prototype.hasOwnProperty.call(params.flags, "frozen") ) || ( typeof(params.flags["frozen-lockfile"] ) != "undefined" && Object.prototype.hasOwnProperty.call(params.flags, "frozen-lockfile") );
-                                                                                            fetch.force = ( typeof(params.flags["force"] ) != "undefined" && Object.prototype.hasOwnProperty.call(params.flags, "force") );
-                                                                                            const cacheOpt = params.getParam("cache");
-                                                                                            if ( (typeof(cacheOpt) !== "undefined" && cacheOpt != null )  ) {
-                                                                                              fetch.cacheOverride = cacheOpt;
-                                                                                            }
-                                                                                            const done = fetch.install(env, manDir);
-                                                                                            if ( done ) {
-                                                                                              return true;
-                                                                                            }
-                                                                                            console.log(cli.error(fetch.err));
-                                                                                            return false;
-                                                                                          };
-                                                                                          run (env) {
-                                                                                            const res = new CompilerResults();
-                                                                                            this.envObj = env;
-                                                                                            const allowed_languages = ["es6", "go", "scala", "java7", "swift3", "swift6", "kotlin", "dart", "cpp", "php", "csharp", "python", "rust", "llvm"];
-                                                                                            const params = env.commandLine;
-                                                                                            const cli = new CLIProgress();
-                                                                                            if ( ( typeof(params.flags["no-color"] ) != "undefined" && Object.prototype.hasOwnProperty.call(params.flags, "no-color") ) ) {
-                                                                                              cli.setUseColors(false);
-                                                                                            }
-                                                                                            if ( params.values.length > 0 ) {
-                                                                                              if ( params.values[0] == "install" ) {
-                                                                                                if ( this.runInstall(env, params, cli) ) {
-                                                                                                  return res;
-                                                                                                }
-                                                                                                res.hasErrors = true;
-                                                                                                return res;
-                                                                                              }
-                                                                                            }
-                                                                                            let the_file = "";
-                                                                                            let plugins_only = false;
-                                                                                            const valid_options = ["l", "Selected language, one of " + allowed_languages.join(", "), "d", "output directory, default directory is \"bin/\"", "o", "output file, default is \"output.<language>\"", "classdoc", "write class documentation .md file", "operatordoc", "write operator documention into .md file", "apidoc", "write the API documentation artifacts into this subdirectory", "apiformat", "which API artifacts to write: json, markdown, report (default json,markdown)", "format", "Output formatting: \"ranger\" (the default) drops parentheses a target does not need and breaks a long method chain onto one line per call; \"none\" emits exactly what the writers emit", "width", "Line width the formatter aims at, when -format is not none. Defaults to the target ecosystems own: 80 on JavaScript, Dart and C++, 100 elsewhere", "csnamespace", "C# namespace for the generated types", "ktpackage", "Kotlin package for the generated types"];
-                                                                                            const valid_flags = ["no-color", "Disable colored output", "deadcode", "Eliminate functions which are not called by any other functions", "dead4main", "Eliminate functions and classes which are unreachable from the main function", "forever", "Leave the main program into eternal loop (Go, Swift)", "allowti", "Allow type inference at target lang (creates slightly smaller code)", "plugins-only", "ignore built-in language output and use only plugins", "plugins", "(node compiler only) run specified npm plugins -plugins=\"plugin1,plugin2\"", "strict", "Strict mode. Do not allow automatic unwrapping of optionals outside of try blocks.", "apistrict", "An undocumented public declaration or parameter is an error, not a warning", "apipackage", "Write the packaging the target ecosystem expects: package.json for npm, .csproj and docfx.json for NuGet", "keep-examples", "Emit the functions named by `example` into the output. They are type checked either way; by default they are left out", "docstyle-none", "Do not write documentation comments into the generated code", "strict-ownership", "Print the inferred ownership of each function parameter (borrowed, moved, shared, owned, unknown)", "rust-shared-classes", "Emit Rc<RefCell<T>> for classes the sharing analysis marks as shared (Rust target; the default since the conformance gate closed — kept for compatibility)", "rust-value-classes", "Every class is a plain value struct on Rust (the pre-ownership object model); disables the shared-class Rc<RefCell<T>> emission", "inline-statics", "Expand trivial static forwarders (a single return of an expression over the parameters) at their call sites instead of emitting a call", "native-fast-alloc", "Rust/C++ targets: emit a thread-local size-class freelist allocator (never returns memory to the OS; single-process benchmark/tool builds)", "cpp-shared-classes", "C++ target: hold every class behind a std::shared_ptr, including records the sharing analysis proves are never aliased (the pre-value-class object model)", "cpp-single-thread", "C++ target: reference-count objects WITHOUT atomics (rg_ptr). Same aliasing as std::shared_ptr and no lock-prefixed increment per copy; a pointer copied across threads corrupts the count, so single-threaded builds only", "typescript", "Writes JavaScript code with TypeScript annotations", "esm", "Writes JavaScript code with ESM module syntax", "npm", "Write the package.json to the output directory", "pubspec", "Write pubspec.yaml for a Dart / Flutter package (requires -name= -version= -description=)", "flutter", "When used with -pubspec, emit a Flutter-oriented pubspec.yaml", "nodecli", "Insert node.js command line header #!/usr/bin/env node to the beginning of the JavaScript file", "nodemodule", "Export the classes as Node.js CommonJS modules", "client", "the code is ment to be run in the client environment", "scalafiddle", "scalafiddle.io compatible output", "compiler", "recompile the compiler", "copysrc", "copy all the source codes into the target directory"];
-                                                                                            const parser_pragmas = ["@noinfix(true)", "disable operator infix parsing and automatic type definition checking "];
-                                                                                            if ( ( typeof(params.flags["compiler"] ) != "undefined" && Object.prototype.hasOwnProperty.call(params.flags, "compiler") ) ) {
-                                                                                              cli.printHeader();
-                                                                                              console.log(cli.info("Re-compiling the compiler itself"));
-                                                                                              console.log("");
-                                                                                              the_file = "Compiler.rgr";
-                                                                                            } else {
-                                                                                              if ( params.values.length < 1 ) {
-                                                                                                cli.printHelpHeader();
-                                                                                                cli.printSection("Commands:");
-                                                                                                console.log(("  " + cli.bold("install")) + "              fetch the packages the nearest ranger.json names into the");
-                                                                                                console.log("                       package cache and write ranger.lock.");
-                                                                                                console.log(cli.gray("                       -vendor       also write vendor/ranger/<name>"));
-                                                                                                console.log(cli.gray("                       -frozen       fail rather than fetch what the lock does not cover"));
-                                                                                                console.log(cli.gray("                       -force        refetch even when the locked checkout is cached"));
-                                                                                                console.log(cli.gray("                       -cache=<dir>  instead of RANGER_PKG_CACHE"));
-                                                                                                cli.printSection("Options:");
-                                                                                                let optCnt = 0;
-                                                                                                while (optCnt < valid_options.length) {
-                                                                                                  const option = valid_options[optCnt];
-                                                                                                  const optionDesc = valid_options[(optCnt + 1)];
-                                                                                                  cli.printOption(option, optionDesc);
-                                                                                                  optCnt = optCnt + 2;
-                                                                                                };
-                                                                                                cli.printSection("Flags:");
-                                                                                                let optCnt_1 = 0;
-                                                                                                while (optCnt_1 < valid_flags.length) {
-                                                                                                  const option_1 = valid_flags[optCnt_1];
-                                                                                                  const optionDesc_1 = valid_flags[(optCnt_1 + 1)];
-                                                                                                  cli.printFlag(option_1, optionDesc_1);
-                                                                                                  optCnt_1 = optCnt_1 + 2;
-                                                                                                };
-                                                                                                cli.printSection("Pragmas (inside source files):");
-                                                                                                let optCnt_2 = 0;
-                                                                                                while (optCnt_2 < parser_pragmas.length) {
-                                                                                                  const option_2 = parser_pragmas[optCnt_2];
-                                                                                                  const optionDesc_2 = parser_pragmas[(optCnt_2 + 1)];
-                                                                                                  console.log((("  " + cli.gray(option_2)) + " ") + optionDesc_2);
-                                                                                                  optCnt_2 = optCnt_2 + 2;
-                                                                                                };
-                                                                                                console.log("");
-                                                                                                return res;
-                                                                                              }
-                                                                                              the_file = params.values[0];
-                                                                                            }
-                                                                                            let root_file = the_file;
-                                                                                            const root_dir = require("path").normalize((((operatorsOf_8.currentc95directory_51(env) + "/") + ("./")) + "/"));
-                                                                                            const the_lang_file = "Lang.rgr";
-                                                                                            let the_lang = "es6";
-                                                                                            let the_target_dir = root_dir + "bin";
-                                                                                            let the_target = "output";
-                                                                                            let package_name = "";
-                                                                                            let comp_attrs = {};
-                                                                                            const outDir = params.getParam("o");
-                                                                                            if ( (typeof(outDir) !== "undefined" && outDir != null )  ) {
-                                                                                              the_target = outDir;
-                                                                                            }
-                                                                                            let langLibEnv = operatorsOf_8.envc95var_54(env, "RANGER_LIB");
-                                                                                            const idir = __dirname;
-                                                                                            langLibEnv = (((((((((require("path").normalize(idir) + ";") + require("path").normalize((idir + "/lib/"))) + ";") + root_dir) + ";") + require("path").normalize((idir + "/../compiler/"))) + ";") + require("path").normalize((idir + "/../lib/"))) + ";") + langLibEnv;
-                                                                                            env.setEnv("RANGER_LIB", langLibEnv);
-                                                                                            const theFilePaths = this.possiblePaths(operatorsOf_8.envc95var_54(env, "RANGER_LIB"));
-                                                                                            const theFilePath = this.searchLib(theFilePaths, the_file);
-                                                                                            if ( operatorsOf_8.filec95exists_9(env, theFilePath, the_file) == false ) {
-                                                                                              cli.printHeader();
-                                                                                              console.log(cli.error(("File not found: " + the_file)));
-                                                                                              console.log("");
-                                                                                              res.hasErrors = true;
-                                                                                              res.errorMessage = "File not found: " + the_file;
-                                                                                              return res;
-                                                                                            }
-                                                                                            const langFilePaths = this.possiblePaths(this.getEnvVar("RANGER_LIB"));
-                                                                                            const langFilePath = this.searchLib(langFilePaths, the_lang_file);
-                                                                                            if ( operatorsOf_8.filec95exists_9(env, langFilePath, the_lang_file) == false ) {
-                                                                                              cli.printHeader();
-                                                                                              console.log(cli.error(("Language file not found: " + the_lang_file)));
-                                                                                              console.log("");
-                                                                                              console.log("  " + cli.gray("Check RANGER_LIB environment variable or library directory"));
-                                                                                              console.log("  " + cli.gray("Download from: https://github.com/terotests/Ranger/blob/master/compiler/Lang.rgr"));
-                                                                                              console.log("");
-                                                                                              res.hasErrors = true;
-                                                                                              res.errorMessage = "Language file not found";
-                                                                                              return res;
-                                                                                            }
-                                                                                            let langFileDirs = this.possiblePaths(this.getEnvVar("RANGER_LIB"));
-                                                                                            const sourceFileDir = require("path").dirname(((theFilePath + "/") + the_file));
-                                                                                            langFileDirs.push(sourceFileDir);
-                                                                                            const c = operatorsOf_8.readc95file_9(
-                                                                                              env,
-                                                                                              theFilePath,
-                                                                                              the_file
-                                                                                            );
-                                                                                            const code = new SourceCode(c);
-                                                                                            code.filename = the_file;
-                                                                                            const parser = new RangerLispParser(code);
-                                                                                            if ( ( typeof(params.flags["no-op-transform"] ) != "undefined" && Object.prototype.hasOwnProperty.call(params.flags, "no-op-transform") ) ) {
-                                                                                              parser.disableOperators = true;
-                                                                                            }
-                                                                                            parser.parse(( typeof(params.flags["no-op-transform"] ) != "undefined" && Object.prototype.hasOwnProperty.call(params.flags, "no-op-transform") ));
-                                                                                            if ( parser.had_error ) {
-                                                                                              cli.printHeader();
-                                                                                              console.log(cli.error(("Parse error in " + the_file)));
-                                                                                              console.log("");
-                                                                                              res.hasErrors = true;
-                                                                                              res.errorMessage = "Parse error in " + the_file;
-                                                                                              return res;
-                                                                                            }
-                                                                                            const root = parser.rootNode;
-                                                                                            const flags = Object.keys(params.flags);
-                                                                                            for ( let ci = 0; ci < root.children.length; ci++) {
-                                                                                              var ch = root.children[ci];
-                                                                                              let inserted_nodes = [];
-                                                                                              if ( ch.children.length > 2 ) {
-                                                                                                const fc = ch.getFirst();
-                                                                                                if ( fc.vref == "flag" ) {
-                                                                                                  const fName = ch.getSecond();
-                                                                                                  for ( let i = 0; i < flags.length; i++) {
-                                                                                                    var flag_name = flags[i];
-                                                                                                    if ( flag_name == fName.vref ) {
-                                                                                                      const compInfo = ch.getThird();
-                                                                                                      let i_1 = 0;
-                                                                                                      const cnt = compInfo.children.length;
-                                                                                                      while (i_1 < cnt - 1) {
-                                                                                                        const fc_1 = compInfo.children[i_1];
-                                                                                                        const sc = compInfo.children[(i_1 + 1)];
-                                                                                                        switch (fc_1.vref ) { 
-                                                                                                          case "libpath" : 
-                                                                                                            langFileDirs = this.possiblePaths(sc.string_value);
-                                                                                                            break;
-                                                                                                          case "output" : 
-                                                                                                            the_target = sc.string_value;
-                                                                                                            break;
-                                                                                                          case "root-file" : 
-                                                                                                            root_file = sc.string_value;
-                                                                                                            break;
-                                                                                                          case "language" : 
-                                                                                                            the_lang = sc.string_value;
-                                                                                                            break;
-                                                                                                          case "absolute_output_dir" : 
-                                                                                                            the_target_dir = sc.string_value;
-                                                                                                            break;
-                                                                                                          case "relative_output_dir" : 
-                                                                                                            the_target_dir = (operatorsOf_8.currentc95directory_51(env) + "/") + sc.string_value;
-                                                                                                            break;
-                                                                                                          case "package" : 
-                                                                                                            package_name = sc.string_value;
-                                                                                                            break;
-                                                                                                          case "android_res_dir" : 
-                                                                                                            comp_attrs[fc_1.vref] = sc.string_value;
-                                                                                                            break;
-                                                                                                          case "web_res_dir" : 
-                                                                                                            comp_attrs[fc_1.vref] = sc.string_value;
-                                                                                                            break;
-                                                                                                          case "Import" : 
-                                                                                                            inserted_nodes.push(CodeNode.fromList([CodeNode.vref1("Import"), CodeNode.newStr(sc.string_value)]));
-                                                                                                            break;
-                                                                                                          default: 
-                                                                                                            if ( sc.string_value.length > 0 ) {
-                                                                                                              comp_attrs[fc_1.vref] = sc.string_value;
-                                                                                                            }
-                                                                                                            break;
-                                                                                                        };
-                                                                                                        i_1 = i_1 + 2;
-                                                                                                      };
-                                                                                                    }
-                                                                                                  }
-                                                                                                  ch.children.length = 0;
-                                                                                                  for ( const new_node of inserted_nodes) {
-                                                                                                    console.log(" *** Inserting " + new_node.getCode());
-                                                                                                    root.children.splice(
-                                                                                                      0,
-                                                                                                      0,
-                                                                                                      new_node
-                                                                                                    );
-                                                                                                  }
-                                                                                                }
-                                                                                              }
-                                                                                            }
-                                                                                            root.children.splice(
-                                                                                              0,
-                                                                                              0,
-                                                                                              CodeNode.fromList([CodeNode.vref1("Import"), CodeNode.newStr("stdlib.rgr")])
-                                                                                            );
-                                                                                            const outDir_2 = params.getParam("o");
-                                                                                            if ( (typeof(outDir_2) !== "undefined" && outDir_2 != null )  ) {
-                                                                                              the_target = outDir_2;
-                                                                                            }
-                                                                                            comp_attrs["o"] = the_target;
-                                                                                            const dirParam = params.getParam("d");
-                                                                                            if ( (typeof(dirParam) !== "undefined" && dirParam != null )  ) {
-                                                                                              const dirGiven = dirParam;
-                                                                                              if ( dirGiven.length > 0 && dirGiven.charCodeAt(0 ) == 47 ) {
-                                                                                                the_target_dir = dirGiven;
-                                                                                              } else {
-                                                                                                the_target_dir = (operatorsOf_8.currentc95directory_51(env) + "/") + dirGiven;
-                                                                                              }
-                                                                                            }
-                                                                                            the_target_dir = require("path").normalize(the_target_dir);
-                                                                                            comp_attrs["d"] = the_target_dir;
-                                                                                            const pLang = params.getParam("l");
-                                                                                            let autoDetectedTypeScript = false;
-                                                                                            if ( (typeof(pLang) !== "undefined" && pLang != null )  ) {
-                                                                                              the_lang = pLang;
-                                                                                            } else {
-                                                                                              const detectedLang = this.detectLanguageFromExtension(the_target);
-                                                                                              if ( detectedLang.length > 0 ) {
-                                                                                                the_lang = detectedLang;
-                                                                                                if ( this.isTypeScriptExtension(the_target) ) {
-                                                                                                  autoDetectedTypeScript = true;
-                                                                                                }
-                                                                                              }
-                                                                                            }
-                                                                                            const appCtx = new RangerAppWriterContext();
-                                                                                            appCtx.env = env;
-                                                                                            appCtx.libraryPaths = langFileDirs;
-                                                                                            appCtx.compilerSettings["package"] = package_name;
-                                                                                            if ( appCtx.hasCompilerFlag("verbose") ) {
-                                                                                              for ( const include_path of appCtx.libraryPaths) {
-                                                                                                console.log("include-path : " + include_path);
-                                                                                              }
-                                                                                            }
-                                                                                            operatorsOf_13.forEach_55(params.flags, ((item, index) => { 
-                                                                                              const n = index;
-                                                                                              appCtx.compilerFlags[n] = true;
-                                                                                            }));
-                                                                                            if ( autoDetectedTypeScript ) {
-                                                                                              appCtx.compilerFlags["typescript"] = true;
-                                                                                            }
-                                                                                            operatorsOf_13.forEach_42(params.params, ((item, index) => { 
-                                                                                              const v = item;
-                                                                                              comp_attrs[index] = v;
-                                                                                            }));
-                                                                                            operatorsOf_13.forEach_42(comp_attrs, ((item, index) => { 
-                                                                                              const n_1 = item;
-                                                                                              appCtx.compilerSettings[index] = n_1;
-                                                                                            }));
-                                                                                            if ( allowed_languages.indexOf(the_lang) < 0 ) {
-                                                                                              console.log("Invalid language : " + the_lang);
-                                                                                              const s = "";
-                                                                                              console.log("allowed languages: " + allowed_languages.join(" "));
-                                                                                              return res;
-                                                                                            }
-                                                                                            const fmtOpt = params.getParam("format");
-                                                                                            if ( (typeof(fmtOpt) !== "undefined" && fmtOpt != null )  ) {
-                                                                                              const fmtName = fmtOpt;
-                                                                                              if ( fmtName != "none" && fmtName != "ranger" ) {
-                                                                                                console.log("Invalid -format value : " + fmtName);
-                                                                                                console.log("allowed values: none ranger");
-                                                                                                if ( fmtName == "native" ) {
-                                                                                                  console.log("");
-                                                                                                  console.log("`native` is a separate step rather than a flag. Compile as usual,");
-                                                                                                  console.log("then run the target's own formatter over the output:");
-                                                                                                  console.log("");
-                                                                                                  console.log("    npm run format:native -- <output directory>");
-                                                                                                  console.log("");
-                                                                                                  console.log("It is optional in every direction: a formatter that is not installed");
-                                                                                                  console.log("is reported and skipped, and one that fails leaves the file exactly");
-                                                                                                  console.log("as Ranger wrote it.");
-                                                                                                }
-                                                                                                return res;
-                                                                                              }
-                                                                                            }
-                                                                                            appCtx.compilerSettings["l"] = the_lang;
-                                                                                            if ( the_target == "output" ) {
-                                                                                              const root_parts = root_file.split(".");
-                                                                                              if ( root_parts.length == 2 ) {
-                                                                                                the_target = root_parts[0];
-                                                                                              }
-                                                                                            }
-                                                                                            switch (the_lang ) { 
-                                                                                              case "es6" : 
-                                                                                                let has_js_ext = false;
-                                                                                                if ( the_target.endsWith(".js") ) {
-                                                                                                  has_js_ext = true;
-                                                                                                }
-                                                                                                if ( the_target.endsWith(".ts") ) {
-                                                                                                  has_js_ext = true;
-                                                                                                }
-                                                                                                if ( the_target.endsWith(".mjs") ) {
-                                                                                                  has_js_ext = true;
-                                                                                                }
-                                                                                                if ( the_target.endsWith(".cjs") ) {
-                                                                                                  has_js_ext = true;
-                                                                                                }
-                                                                                                if ( has_js_ext == false ) {
-                                                                                                  the_target = the_target + ".js";
-                                                                                                  if ( appCtx.hasCompilerFlag("typescript") ) {
-                                                                                                    the_target = the_target + ".ts";
-                                                                                                  }
-                                                                                                }
-                                                                                                break;
-                                                                                              case "swift3" : 
-                                                                                                if ( false == the_target.endsWith(".swift") ) {
-                                                                                                  the_target = the_target + ".swift";
-                                                                                                }
-                                                                                                break;
-                                                                                              case "swift6" : 
-                                                                                                if ( false == the_target.endsWith(".swift") ) {
-                                                                                                  the_target = the_target + ".swift";
-                                                                                                }
-                                                                                                break;
-                                                                                              case "php" : 
-                                                                                                if ( false == the_target.endsWith(".php") ) {
-                                                                                                  the_target = the_target + ".php";
-                                                                                                }
-                                                                                                break;
-                                                                                              case "csharp" : 
-                                                                                                if ( false == the_target.endsWith(".cs") ) {
-                                                                                                  the_target = the_target + ".cs";
-                                                                                                }
-                                                                                                break;
-                                                                                              case "java7" : 
-                                                                                                if ( false == the_target.endsWith(".java") ) {
-                                                                                                  the_target = the_target + ".java";
-                                                                                                }
-                                                                                                break;
-                                                                                              case "go" : 
-                                                                                                if ( false == the_target.endsWith(".go") ) {
-                                                                                                  the_target = the_target + ".go";
-                                                                                                }
-                                                                                                break;
-                                                                                              case "scala" : 
-                                                                                                if ( false == the_target.endsWith(".scala") ) {
-                                                                                                  the_target = the_target + ".scala";
-                                                                                                }
-                                                                                                break;
-                                                                                              case "kotlin" : 
-                                                                                                if ( false == the_target.endsWith(".kt") ) {
-                                                                                                  the_target = the_target + ".kt";
-                                                                                                }
-                                                                                                break;
-                                                                                              case "dart" : 
-                                                                                                if ( false == the_target.endsWith(".dart") ) {
-                                                                                                  the_target = the_target + ".dart";
-                                                                                                }
-                                                                                                break;
-                                                                                              case "cpp" : 
-                                                                                                if ( false == the_target.endsWith(".cpp") ) {
-                                                                                                  the_target = the_target + ".cpp";
-                                                                                                }
-                                                                                                break;
-                                                                                              case "python" : 
-                                                                                                if ( false == the_target.endsWith(".py") ) {
-                                                                                                  the_target = the_target + ".py";
-                                                                                                }
-                                                                                                break;
-                                                                                              case "rust" : 
-                                                                                                if ( false == the_target.endsWith(".rs") ) {
-                                                                                                  the_target = the_target + ".rs";
-                                                                                                }
-                                                                                                break;
-                                                                                              case "llvm" : 
-                                                                                                if ( false == the_target.endsWith(".ll") ) {
-                                                                                                  the_target = the_target + ".ll";
-                                                                                                }
-                                                                                                break;
-                                                                                            };
-                                                                                            appCtx.compilerSettings["o"] = the_target;
-                                                                                            const lcc = new LiveCompiler();
-                                                                                            const node = parser.rootNode;
-                                                                                            const flowParser = new RangerFlowParser();
-                                                                                            const fileSystem = new CodeFileSystem();
-                                                                                            if ( appCtx.hasCompilerFlag("sourcemap") ) {
-                                                                                              fileSystem.enableSourceMaps();
-                                                                                            }
-                                                                                            const fmtSetting = appCtx.getCompilerSetting("format");
-                                                                                            if ( fmtSetting != "none" ) {
-                                                                                              fileSystem.formatWidth = 0 - 1;
-                                                                                              const widthOpt = params.getParam("width");
-                                                                                              if ( (typeof(widthOpt) !== "undefined" && widthOpt != null )  ) {
-                                                                                                const widthStr = widthOpt;
-                                                                                                const widthOpt2 = isNaN( parseInt(widthStr) ) ? undefined : parseInt(widthStr);
-                                                                                                if ( (typeof(widthOpt2) !== "undefined" && widthOpt2 != null )  ) {
-                                                                                                  const widthNum = widthOpt2;
-                                                                                                  if ( widthNum > 0 ) {
-                                                                                                    fileSystem.formatWidth = widthNum;
-                                                                                                  }
-                                                                                                }
-                                                                                              }
-                                                                                            }
-                                                                                            const file = fileSystem.getFile(".", the_target);
-                                                                                            let wr = file.getWriter();
-                                                                                            if ( appCtx.hasCompilerFlag("copysrc") ) {
-                                                                                              const fileWr = wr.getFileWriter(".", code.filename);
-                                                                                              fileWr.raw(code.code, false);
-                                                                                            }
-                                                                                            appCtx.parser = flowParser;
-                                                                                            appCtx.compiler = lcc;
-                                                                                            lcc.parser = flowParser;
-                                                                                            if ( appCtx.hasCompilerSetting("plugins") ) {
-                                                                                              const val = appCtx.getCompilerSetting("plugins");
-                                                                                              const list = val.split(",");
-                                                                                              operatorsOf.forEach_12(list, ((item, index) => { 
-                                                                                                try {
-                                                                                                  const plugin = require( item );
-                                                                                                  const features = (new plugin.Plugin () ).features();
-                                                                                                  if ( appCtx.hasCompilerFlag("verbose") ) {
-                                                                                                    console.log(("Plugin " + item) + " registered with features ");
-                                                                                                    operatorsOf.forEach_12(features, ((item, index) => { 
-                                                                                                      console.log(" [x] " + item);
-                                                                                                    }));
-                                                                                                  }
-                                                                                                  const regPlug = new RangerRegisteredPlugin();
-                                                                                                  regPlug.name = item;
-                                                                                                  regPlug.features = operatorsOf.clone_56(features);
-                                                                                                  appCtx.addPlugin(regPlug);
-                                                                                                } catch(e) {
-                                                                                                  console.log("Failed to register plugin " + item);
+                                                                                            writeClass (node, ctx, wr) {
+                                                                                              let viewName = "";
+                                                                                              operatorsOf.forEach_15(node.attrs, ((item, index) => { 
+                                                                                                if ( item.vref == "name" ) {
+                                                                                                  viewName = item.string_value;
                                                                                                 }
                                                                                               }));
+                                                                                              wr.out("", true);
+                                                                                              wr.out(("<div id=\"" + viewName) + "\">", true);
+                                                                                              wr.indent(1);
+                                                                                              operatorsOf.forEach_15(node.children, ((item, index) => { 
+                                                                                                this.WalkNode(
+                                                                                                  item,
+                                                                                                  ctx,
+                                                                                                  wr
+                                                                                                );
+                                                                                              }));
+                                                                                              wr.indent(-1);
+                                                                                              wr.out("</div>", true);
+                                                                                            };
+                                                                                          }
+                                                                                          class CompilerResults  {
+                                                                                            constructor() {
+                                                                                              this.ctx = undefined;
+                                                                                              this.fileSystem = undefined;
+                                                                                              this.target_dir = "";
+                                                                                              this.hasErrors = false;
+                                                                                              this.errorMessage = "";
                                                                                             }
-                                                                                            plugins_only = appCtx.hasCompilerFlag("plugins-only");
-                                                                                            cli.printHeader();
-                                                                                            cli.setCompilationInfo(
-                                                                                              the_file,
-                                                                                              the_target,
-                                                                                              the_lang
-                                                                                            );
-                                                                                            cli.printCompilationInfo();
-                                                                                            console.log(cli.divider());
-                                                                                            console.log("");
-                                                                                            try {
-                                                                                              flowParser.mergeImports(
-                                                                                                node,
-                                                                                                appCtx,
-                                                                                                wr
-                                                                                              );
-                                                                                              const lang_str = operatorsOf_8.readc95file_9(
-                                                                                                env,
-                                                                                                langFilePath,
-                                                                                                the_lang_file
-                                                                                              );
-                                                                                              const lang_code = new SourceCode(lang_str);
-                                                                                              lang_code.filename = the_lang_file;
-                                                                                              const lang_parser = new RangerLispParser(lang_code);
-                                                                                              lang_parser.parse(false);
-                                                                                              appCtx.langOperators = lang_parser.rootNode;
-                                                                                              flowParser.registerLangSystemClasses(
-                                                                                                lang_parser.rootNode,
-                                                                                                appCtx,
-                                                                                                wr
-                                                                                              );
-                                                                                              appCtx.setRootFile(root_file);
-                                                                                              const ops = new RangerActiveOperators();
-                                                                                              ops.initFrom(lang_parser.rootNode);
-                                                                                              appCtx.operators = ops;
-                                                                                              appCtx.targetLangName = the_lang;
-                                                                                              lcc.initWriter(appCtx);
-                                                                                              cli.step(1, "Collecting methods");
-                                                                                              flowParser.CollectMethods(
-                                                                                                node,
-                                                                                                appCtx,
-                                                                                                wr
-                                                                                              );
-                                                                                              if ( appCtx.compilerErrors.length > 0 ) {
-                                                                                                VirtualCompiler.displayCompilerErrorsWithCLI(appCtx, cli);
-                                                                                                cli.printFailure(appCtx.compilerErrors.length);
+                                                                                          }
+                                                                                          class VirtualCompiler  {
+                                                                                            constructor() {
+                                                                                              this.envObj = undefined;
+                                                                                            }
+                                                                                            getEnvVar (name) {
+                                                                                              return operatorsOf_8.envc95var_54(this.envObj, name);
+                                                                                            };
+                                                                                            possiblePaths (envVarName) {
+                                                                                              let res = [];
+                                                                                              const parts = envVarName.split(";");
+                                                                                              res.push("./");
+                                                                                              for ( const str of parts) {
+                                                                                                const s = str.trim();
+                                                                                                if ( s.length > 0 ) {
+                                                                                                  let dirNames = s.split("/");
+                                                                                                  dirNames.pop();
+                                                                                                  const theDir = dirNames.join("/");
+                                                                                                  res.push(theDir);
+                                                                                                }
+                                                                                              }
+                                                                                              res.push(operatorsOf_8.installc95directory_51(this.envObj));
+                                                                                              return res;
+                                                                                            };
+                                                                                            searchLib (paths, libname) {
+                                                                                              for ( const path of paths) {
+                                                                                                if ( operatorsOf_8.filec95exists_9(this.envObj, path, libname) ) {
+                                                                                                  return path;
+                                                                                                }
+                                                                                              }
+                                                                                              return "";
+                                                                                            };
+                                                                                            fillStr (cnt) {
+                                                                                              let s = "";
+                                                                                              let i = cnt;
+                                                                                              while (i > 0) {
+                                                                                                s = s + " ";
+                                                                                                i = i - 1;
+                                                                                              };
+                                                                                              return s;
+                                                                                            };
+                                                                                            detectLanguageFromExtension (filename) {
+                                                                                              const lastDot = filename.lastIndexOf(".");
+                                                                                              if ( lastDot < 0 ) {
+                                                                                                return "";
+                                                                                              }
+                                                                                              const ext = filename.substring((lastDot + 1), filename.length );
+                                                                                              switch (ext ) { 
+                                                                                                case "js" : 
+                                                                                                  return "es6";
+                                                                                                case "ts" : 
+                                                                                                  return "es6";
+                                                                                                case "go" : 
+                                                                                                  return "go";
+                                                                                                case "py" : 
+                                                                                                  return "python";
+                                                                                                case "rs" : 
+                                                                                                  return "rust";
+                                                                                                case "swift" : 
+                                                                                                  return "swift6";
+                                                                                                case "java" : 
+                                                                                                  return "java7";
+                                                                                                case "kt" : 
+                                                                                                  return "kotlin";
+                                                                                                case "dart" : 
+                                                                                                  return "dart";
+                                                                                                case "cs" : 
+                                                                                                  return "csharp";
+                                                                                                case "cpp" : 
+                                                                                                  return "cpp";
+                                                                                                case "hpp" : 
+                                                                                                  return "cpp";
+                                                                                                case "php" : 
+                                                                                                  return "php";
+                                                                                                case "scala" : 
+                                                                                                  return "scala";
+                                                                                                case "ll" : 
+                                                                                                  return "llvm";
+                                                                                              };
+                                                                                              return "";
+                                                                                            };
+                                                                                            isTypeScriptExtension (filename) {
+                                                                                              const lastDot = filename.lastIndexOf(".");
+                                                                                              if ( lastDot < 0 ) {
+                                                                                                return false;
+                                                                                              }
+                                                                                              const ext = filename.substring((lastDot + 1), filename.length );
+                                                                                              return ext == "ts";
+                                                                                            };
+                                                                                            runInstall (env, params, cli) {
+                                                                                              const start = operatorsOf_8.currentc95directory_51(env);
+                                                                                              const manDir = PkgImport.walkUp(env, start);
+                                                                                              if ( manDir.length == 0 ) {
+                                                                                                console.log(cli.error((("no ranger.json in " + start) + " or above it")));
+                                                                                                return false;
+                                                                                              }
+                                                                                              const fetch = new PkgFetch();
+                                                                                              fetch.vendor = ( typeof(params.flags["vendor"] ) != "undefined" && Object.prototype.hasOwnProperty.call(params.flags, "vendor") );
+                                                                                              fetch.frozen = ( typeof(params.flags["frozen"] ) != "undefined" && Object.prototype.hasOwnProperty.call(params.flags, "frozen") ) || ( typeof(params.flags["frozen-lockfile"] ) != "undefined" && Object.prototype.hasOwnProperty.call(params.flags, "frozen-lockfile") );
+                                                                                              fetch.force = ( typeof(params.flags["force"] ) != "undefined" && Object.prototype.hasOwnProperty.call(params.flags, "force") );
+                                                                                              const cacheOpt = params.getParam("cache");
+                                                                                              if ( (typeof(cacheOpt) !== "undefined" && cacheOpt != null )  ) {
+                                                                                                fetch.cacheOverride = cacheOpt;
+                                                                                              }
+                                                                                              const done = fetch.install(env, manDir);
+                                                                                              if ( done ) {
+                                                                                                return true;
+                                                                                              }
+                                                                                              console.log(cli.error(fetch.err));
+                                                                                              return false;
+                                                                                            };
+                                                                                            run (env) {
+                                                                                              const res = new CompilerResults();
+                                                                                              this.envObj = env;
+                                                                                              const allowed_languages = ["es6", "go", "scala", "java7", "swift3", "swift6", "kotlin", "dart", "cpp", "php", "csharp", "python", "rust", "llvm"];
+                                                                                              const params = env.commandLine;
+                                                                                              const cli = new CLIProgress();
+                                                                                              if ( ( typeof(params.flags["no-color"] ) != "undefined" && Object.prototype.hasOwnProperty.call(params.flags, "no-color") ) ) {
+                                                                                                cli.setUseColors(false);
+                                                                                              }
+                                                                                              if ( params.values.length > 0 ) {
+                                                                                                if ( params.values[0] == "install" ) {
+                                                                                                  if ( this.runInstall(env, params, cli) ) {
+                                                                                                    return res;
+                                                                                                  }
+                                                                                                  res.hasErrors = true;
+                                                                                                  return res;
+                                                                                                }
+                                                                                              }
+                                                                                              let the_file = "";
+                                                                                              let plugins_only = false;
+                                                                                              const valid_options = ["l", "Selected language, one of " + allowed_languages.join(", "), "d", "output directory, default directory is \"bin/\"", "o", "output file, default is \"output.<language>\"", "classdoc", "write class documentation .md file", "operatordoc", "write operator documention into .md file", "apidoc", "write the API documentation artifacts into this subdirectory", "apiformat", "which API artifacts to write: json, markdown, report (default json,markdown)", "format", "Output formatting: \"ranger\" (the default) drops parentheses a target does not need and breaks a long method chain onto one line per call; \"none\" emits exactly what the writers emit", "width", "Line width the formatter aims at, when -format is not none. Defaults to the target ecosystems own: 80 on JavaScript, Dart and C++, 100 elsewhere", "csnamespace", "C# namespace for the generated types", "ktpackage", "Kotlin package for the generated types"];
+                                                                                              const valid_flags = ["no-color", "Disable colored output", "deadcode", "Eliminate functions which are not called by any other functions", "dead4main", "Eliminate functions and classes which are unreachable from the main function", "forever", "Leave the main program into eternal loop (Go, Swift)", "allowti", "Allow type inference at target lang (creates slightly smaller code)", "plugins-only", "ignore built-in language output and use only plugins", "plugins", "(node compiler only) run specified npm plugins -plugins=\"plugin1,plugin2\"", "strict", "Strict mode. Do not allow automatic unwrapping of optionals outside of try blocks.", "apistrict", "An undocumented public declaration or parameter is an error, not a warning", "apipackage", "Write the packaging the target ecosystem expects: package.json for npm, .csproj and docfx.json for NuGet", "keep-examples", "Emit the functions named by `example` into the output. They are type checked either way; by default they are left out", "docstyle-none", "Do not write documentation comments into the generated code", "strict-ownership", "Print the inferred ownership of each function parameter (borrowed, moved, shared, owned, unknown)", "rust-shared-classes", "Emit Rc<RefCell<T>> for classes the sharing analysis marks as shared (Rust target; the default since the conformance gate closed — kept for compatibility)", "rust-value-classes", "Every class is a plain value struct on Rust (the pre-ownership object model); disables the shared-class Rc<RefCell<T>> emission", "inline-statics", "Expand trivial static forwarders (a single return of an expression over the parameters) at their call sites instead of emitting a call", "native-fast-alloc", "Rust/C++ targets: emit a thread-local size-class freelist allocator (never returns memory to the OS; single-process benchmark/tool builds)", "cpp-shared-classes", "C++ target: hold every class behind a std::shared_ptr, including records the sharing analysis proves are never aliased (the pre-value-class object model)", "cpp-single-thread", "C++ target: reference-count objects WITHOUT atomics (rg_ptr). Same aliasing as std::shared_ptr and no lock-prefixed increment per copy; a pointer copied across threads corrupts the count, so single-threaded builds only", "typescript", "Writes JavaScript code with TypeScript annotations", "esm", "Writes JavaScript code with ESM module syntax", "npm", "Write the package.json to the output directory", "pubspec", "Write pubspec.yaml for a Dart / Flutter package (requires -name= -version= -description=)", "flutter", "When used with -pubspec, emit a Flutter-oriented pubspec.yaml", "nodecli", "Insert node.js command line header #!/usr/bin/env node to the beginning of the JavaScript file", "nodemodule", "Export the classes as Node.js CommonJS modules", "client", "the code is ment to be run in the client environment", "scalafiddle", "scalafiddle.io compatible output", "compiler", "recompile the compiler", "copysrc", "copy all the source codes into the target directory"];
+                                                                                              const parser_pragmas = ["@noinfix(true)", "disable operator infix parsing and automatic type definition checking "];
+                                                                                              if ( ( typeof(params.flags["compiler"] ) != "undefined" && Object.prototype.hasOwnProperty.call(params.flags, "compiler") ) ) {
+                                                                                                cli.printHeader();
+                                                                                                console.log(cli.info("Re-compiling the compiler itself"));
+                                                                                                console.log("");
+                                                                                                the_file = "Compiler.rgr";
+                                                                                              } else {
+                                                                                                if ( params.values.length < 1 ) {
+                                                                                                  cli.printHelpHeader();
+                                                                                                  cli.printSection("Commands:");
+                                                                                                  console.log(("  " + cli.bold("install")) + "              fetch the packages the nearest ranger.json names into the");
+                                                                                                  console.log("                       package cache and write ranger.lock.");
+                                                                                                  console.log(cli.gray("                       -vendor       also write vendor/ranger/<name>"));
+                                                                                                  console.log(cli.gray("                       -frozen       fail rather than fetch what the lock does not cover"));
+                                                                                                  console.log(cli.gray("                       -force        refetch even when the locked checkout is cached"));
+                                                                                                  console.log(cli.gray("                       -cache=<dir>  instead of RANGER_PKG_CACHE"));
+                                                                                                  cli.printSection("Options:");
+                                                                                                  let optCnt = 0;
+                                                                                                  while (optCnt < valid_options.length) {
+                                                                                                    const option = valid_options[optCnt];
+                                                                                                    const optionDesc = valid_options[(optCnt + 1)];
+                                                                                                    cli.printOption(option, optionDesc);
+                                                                                                    optCnt = optCnt + 2;
+                                                                                                  };
+                                                                                                  cli.printSection("Flags:");
+                                                                                                  let optCnt_1 = 0;
+                                                                                                  while (optCnt_1 < valid_flags.length) {
+                                                                                                    const option_1 = valid_flags[optCnt_1];
+                                                                                                    const optionDesc_1 = valid_flags[(optCnt_1 + 1)];
+                                                                                                    cli.printFlag(option_1, optionDesc_1);
+                                                                                                    optCnt_1 = optCnt_1 + 2;
+                                                                                                  };
+                                                                                                  cli.printSection("Pragmas (inside source files):");
+                                                                                                  let optCnt_2 = 0;
+                                                                                                  while (optCnt_2 < parser_pragmas.length) {
+                                                                                                    const option_2 = parser_pragmas[optCnt_2];
+                                                                                                    const optionDesc_2 = parser_pragmas[(optCnt_2 + 1)];
+                                                                                                    console.log((("  " + cli.gray(option_2)) + " ") + optionDesc_2);
+                                                                                                    optCnt_2 = optCnt_2 + 2;
+                                                                                                  };
+                                                                                                  console.log("");
+                                                                                                  return res;
+                                                                                                }
+                                                                                                the_file = params.values[0];
+                                                                                              }
+                                                                                              let root_file = the_file;
+                                                                                              const root_dir = require("path").normalize((((operatorsOf_8.currentc95directory_51(env) + "/") + ("./")) + "/"));
+                                                                                              const the_lang_file = "Lang.rgr";
+                                                                                              let the_lang = "es6";
+                                                                                              let the_target_dir = root_dir + "bin";
+                                                                                              let the_target = "output";
+                                                                                              let package_name = "";
+                                                                                              let comp_attrs = {};
+                                                                                              const outDir = params.getParam("o");
+                                                                                              if ( (typeof(outDir) !== "undefined" && outDir != null )  ) {
+                                                                                                the_target = outDir;
+                                                                                              }
+                                                                                              let langLibEnv = operatorsOf_8.envc95var_54(env, "RANGER_LIB");
+                                                                                              const idir = __dirname;
+                                                                                              langLibEnv = (((((((((require("path").normalize(idir) + ";") + require("path").normalize((idir + "/lib/"))) + ";") + root_dir) + ";") + require("path").normalize((idir + "/../compiler/"))) + ";") + require("path").normalize((idir + "/../lib/"))) + ";") + langLibEnv;
+                                                                                              env.setEnv("RANGER_LIB", langLibEnv);
+                                                                                              const theFilePaths = this.possiblePaths(operatorsOf_8.envc95var_54(env, "RANGER_LIB"));
+                                                                                              const theFilePath = this.searchLib(theFilePaths, the_file);
+                                                                                              if ( operatorsOf_8.filec95exists_9(env, theFilePath, the_file) == false ) {
+                                                                                                cli.printHeader();
+                                                                                                console.log(cli.error(("File not found: " + the_file)));
+                                                                                                console.log("");
                                                                                                 res.hasErrors = true;
-                                                                                                res.errorMessage = "Errors during method collection phase";
-                                                                                                res.ctx = appCtx;
+                                                                                                res.errorMessage = "File not found: " + the_file;
                                                                                                 return res;
                                                                                               }
-                                                                                              flowParser.CreateCTTI(
-                                                                                                node,
-                                                                                                appCtx,
-                                                                                                wr
+                                                                                              const langFilePaths = this.possiblePaths(this.getEnvVar("RANGER_LIB"));
+                                                                                              const langFilePath = this.searchLib(langFilePaths, the_lang_file);
+                                                                                              if ( operatorsOf_8.filec95exists_9(env, langFilePath, the_lang_file) == false ) {
+                                                                                                cli.printHeader();
+                                                                                                console.log(cli.error(("Language file not found: " + the_lang_file)));
+                                                                                                console.log("");
+                                                                                                console.log("  " + cli.gray("Check RANGER_LIB environment variable or library directory"));
+                                                                                                console.log("  " + cli.gray("Download from: https://github.com/terotests/Ranger/blob/master/compiler/Lang.rgr"));
+                                                                                                console.log("");
+                                                                                                res.hasErrors = true;
+                                                                                                res.errorMessage = "Language file not found";
+                                                                                                return res;
+                                                                                              }
+                                                                                              let langFileDirs = this.possiblePaths(this.getEnvVar("RANGER_LIB"));
+                                                                                              const sourceFileDir = require("path").dirname(((theFilePath + "/") + the_file));
+                                                                                              langFileDirs.push(sourceFileDir);
+                                                                                              const c = operatorsOf_8.readc95file_9(
+                                                                                                env,
+                                                                                                theFilePath,
+                                                                                                the_file
                                                                                               );
-                                                                                              if ( appCtx.hasCompilerFlag("rtti") ) {
-                                                                                                flowParser.CreateRTTI(
+                                                                                              const code = new SourceCode(c);
+                                                                                              code.filename = the_file;
+                                                                                              const parser = new RangerLispParser(code);
+                                                                                              if ( ( typeof(params.flags["no-op-transform"] ) != "undefined" && Object.prototype.hasOwnProperty.call(params.flags, "no-op-transform") ) ) {
+                                                                                                parser.disableOperators = true;
+                                                                                              }
+                                                                                              parser.parse(( typeof(params.flags["no-op-transform"] ) != "undefined" && Object.prototype.hasOwnProperty.call(params.flags, "no-op-transform") ));
+                                                                                              if ( parser.had_error ) {
+                                                                                                cli.printHeader();
+                                                                                                console.log(cli.error(("Parse error in " + the_file)));
+                                                                                                console.log("");
+                                                                                                res.hasErrors = true;
+                                                                                                res.errorMessage = "Parse error in " + the_file;
+                                                                                                return res;
+                                                                                              }
+                                                                                              const root = parser.rootNode;
+                                                                                              const flags = Object.keys(params.flags);
+                                                                                              for ( let ci = 0; ci < root.children.length; ci++) {
+                                                                                                var ch = root.children[ci];
+                                                                                                let inserted_nodes = [];
+                                                                                                if ( ch.children.length > 2 ) {
+                                                                                                  const fc = ch.getFirst();
+                                                                                                  if ( fc.vref == "flag" ) {
+                                                                                                    const fName = ch.getSecond();
+                                                                                                    for ( let i = 0; i < flags.length; i++) {
+                                                                                                      var flag_name = flags[i];
+                                                                                                      if ( flag_name == fName.vref ) {
+                                                                                                        const compInfo = ch.getThird();
+                                                                                                        let i_1 = 0;
+                                                                                                        const cnt = compInfo.children.length;
+                                                                                                        while (i_1 < cnt - 1) {
+                                                                                                          const fc_1 = compInfo.children[i_1];
+                                                                                                          const sc = compInfo.children[(i_1 + 1)];
+                                                                                                          switch (fc_1.vref ) { 
+                                                                                                            case "libpath" : 
+                                                                                                              langFileDirs = this.possiblePaths(sc.string_value);
+                                                                                                              break;
+                                                                                                            case "output" : 
+                                                                                                              the_target = sc.string_value;
+                                                                                                              break;
+                                                                                                            case "root-file" : 
+                                                                                                              root_file = sc.string_value;
+                                                                                                              break;
+                                                                                                            case "language" : 
+                                                                                                              the_lang = sc.string_value;
+                                                                                                              break;
+                                                                                                            case "absolute_output_dir" : 
+                                                                                                              the_target_dir = sc.string_value;
+                                                                                                              break;
+                                                                                                            case "relative_output_dir" : 
+                                                                                                              the_target_dir = (operatorsOf_8.currentc95directory_51(env) + "/") + sc.string_value;
+                                                                                                              break;
+                                                                                                            case "package" : 
+                                                                                                              package_name = sc.string_value;
+                                                                                                              break;
+                                                                                                            case "android_res_dir" : 
+                                                                                                              comp_attrs[fc_1.vref] = sc.string_value;
+                                                                                                              break;
+                                                                                                            case "web_res_dir" : 
+                                                                                                              comp_attrs[fc_1.vref] = sc.string_value;
+                                                                                                              break;
+                                                                                                            case "Import" : 
+                                                                                                              inserted_nodes.push(CodeNode.fromList([CodeNode.vref1("Import"), CodeNode.newStr(sc.string_value)]));
+                                                                                                              break;
+                                                                                                            default: 
+                                                                                                              if ( sc.string_value.length > 0 ) {
+                                                                                                                comp_attrs[fc_1.vref] = sc.string_value;
+                                                                                                              }
+                                                                                                              break;
+                                                                                                          };
+                                                                                                          i_1 = i_1 + 2;
+                                                                                                        };
+                                                                                                      }
+                                                                                                    }
+                                                                                                    ch.children.length = 0;
+                                                                                                    for ( const new_node of inserted_nodes) {
+                                                                                                      console.log(" *** Inserting " + new_node.getCode());
+                                                                                                      root.children.splice(
+                                                                                                        0,
+                                                                                                        0,
+                                                                                                        new_node
+                                                                                                      );
+                                                                                                    }
+                                                                                                  }
+                                                                                                }
+                                                                                              }
+                                                                                              root.children.splice(
+                                                                                                0,
+                                                                                                0,
+                                                                                                CodeNode.fromList([CodeNode.vref1("Import"), CodeNode.newStr("stdlib.rgr")])
+                                                                                              );
+                                                                                              const outDir_2 = params.getParam("o");
+                                                                                              if ( (typeof(outDir_2) !== "undefined" && outDir_2 != null )  ) {
+                                                                                                the_target = outDir_2;
+                                                                                              }
+                                                                                              comp_attrs["o"] = the_target;
+                                                                                              const dirParam = params.getParam("d");
+                                                                                              if ( (typeof(dirParam) !== "undefined" && dirParam != null )  ) {
+                                                                                                const dirGiven = dirParam;
+                                                                                                if ( dirGiven.length > 0 && dirGiven.charCodeAt(0 ) == 47 ) {
+                                                                                                  the_target_dir = dirGiven;
+                                                                                                } else {
+                                                                                                  the_target_dir = (operatorsOf_8.currentc95directory_51(env) + "/") + dirGiven;
+                                                                                                }
+                                                                                              }
+                                                                                              the_target_dir = require("path").normalize(the_target_dir);
+                                                                                              comp_attrs["d"] = the_target_dir;
+                                                                                              const pLang = params.getParam("l");
+                                                                                              let autoDetectedTypeScript = false;
+                                                                                              if ( (typeof(pLang) !== "undefined" && pLang != null )  ) {
+                                                                                                the_lang = pLang;
+                                                                                              } else {
+                                                                                                const detectedLang = this.detectLanguageFromExtension(the_target);
+                                                                                                if ( detectedLang.length > 0 ) {
+                                                                                                  the_lang = detectedLang;
+                                                                                                  if ( this.isTypeScriptExtension(the_target) ) {
+                                                                                                    autoDetectedTypeScript = true;
+                                                                                                  }
+                                                                                                }
+                                                                                              }
+                                                                                              const appCtx = new RangerAppWriterContext();
+                                                                                              appCtx.env = env;
+                                                                                              appCtx.libraryPaths = langFileDirs;
+                                                                                              appCtx.compilerSettings["package"] = package_name;
+                                                                                              if ( appCtx.hasCompilerFlag("verbose") ) {
+                                                                                                for ( const include_path of appCtx.libraryPaths) {
+                                                                                                  console.log("include-path : " + include_path);
+                                                                                                }
+                                                                                              }
+                                                                                              operatorsOf_13.forEach_55(params.flags, ((item, index) => { 
+                                                                                                const n = index;
+                                                                                                appCtx.compilerFlags[n] = true;
+                                                                                              }));
+                                                                                              if ( autoDetectedTypeScript ) {
+                                                                                                appCtx.compilerFlags["typescript"] = true;
+                                                                                              }
+                                                                                              operatorsOf_13.forEach_42(params.params, ((item, index) => { 
+                                                                                                const v = item;
+                                                                                                comp_attrs[index] = v;
+                                                                                              }));
+                                                                                              operatorsOf_13.forEach_42(comp_attrs, ((item, index) => { 
+                                                                                                const n_1 = item;
+                                                                                                appCtx.compilerSettings[index] = n_1;
+                                                                                              }));
+                                                                                              if ( allowed_languages.indexOf(the_lang) < 0 ) {
+                                                                                                console.log("Invalid language : " + the_lang);
+                                                                                                const s = "";
+                                                                                                console.log("allowed languages: " + allowed_languages.join(" "));
+                                                                                                return res;
+                                                                                              }
+                                                                                              const fmtOpt = params.getParam("format");
+                                                                                              if ( (typeof(fmtOpt) !== "undefined" && fmtOpt != null )  ) {
+                                                                                                const fmtName = fmtOpt;
+                                                                                                if ( fmtName != "none" && fmtName != "ranger" ) {
+                                                                                                  console.log("Invalid -format value : " + fmtName);
+                                                                                                  console.log("allowed values: none ranger");
+                                                                                                  if ( fmtName == "native" ) {
+                                                                                                    console.log("");
+                                                                                                    console.log("`native` is a separate step rather than a flag. Compile as usual,");
+                                                                                                    console.log("then run the target's own formatter over the output:");
+                                                                                                    console.log("");
+                                                                                                    console.log("    npm run format:native -- <output directory>");
+                                                                                                    console.log("");
+                                                                                                    console.log("It is optional in every direction: a formatter that is not installed");
+                                                                                                    console.log("is reported and skipped, and one that fails leaves the file exactly");
+                                                                                                    console.log("as Ranger wrote it.");
+                                                                                                  }
+                                                                                                  return res;
+                                                                                                }
+                                                                                              }
+                                                                                              appCtx.compilerSettings["l"] = the_lang;
+                                                                                              if ( the_target == "output" ) {
+                                                                                                const root_parts = root_file.split(".");
+                                                                                                if ( root_parts.length == 2 ) {
+                                                                                                  the_target = root_parts[0];
+                                                                                                }
+                                                                                              }
+                                                                                              switch (the_lang ) { 
+                                                                                                case "es6" : 
+                                                                                                  let has_js_ext = false;
+                                                                                                  if ( the_target.endsWith(".js") ) {
+                                                                                                    has_js_ext = true;
+                                                                                                  }
+                                                                                                  if ( the_target.endsWith(".ts") ) {
+                                                                                                    has_js_ext = true;
+                                                                                                  }
+                                                                                                  if ( the_target.endsWith(".mjs") ) {
+                                                                                                    has_js_ext = true;
+                                                                                                  }
+                                                                                                  if ( the_target.endsWith(".cjs") ) {
+                                                                                                    has_js_ext = true;
+                                                                                                  }
+                                                                                                  if ( has_js_ext == false ) {
+                                                                                                    the_target = the_target + ".js";
+                                                                                                    if ( appCtx.hasCompilerFlag("typescript") ) {
+                                                                                                      the_target = the_target + ".ts";
+                                                                                                    }
+                                                                                                  }
+                                                                                                  break;
+                                                                                                case "swift3" : 
+                                                                                                  if ( false == the_target.endsWith(".swift") ) {
+                                                                                                    the_target = the_target + ".swift";
+                                                                                                  }
+                                                                                                  break;
+                                                                                                case "swift6" : 
+                                                                                                  if ( false == the_target.endsWith(".swift") ) {
+                                                                                                    the_target = the_target + ".swift";
+                                                                                                  }
+                                                                                                  break;
+                                                                                                case "php" : 
+                                                                                                  if ( false == the_target.endsWith(".php") ) {
+                                                                                                    the_target = the_target + ".php";
+                                                                                                  }
+                                                                                                  break;
+                                                                                                case "csharp" : 
+                                                                                                  if ( false == the_target.endsWith(".cs") ) {
+                                                                                                    the_target = the_target + ".cs";
+                                                                                                  }
+                                                                                                  break;
+                                                                                                case "java7" : 
+                                                                                                  if ( false == the_target.endsWith(".java") ) {
+                                                                                                    the_target = the_target + ".java";
+                                                                                                  }
+                                                                                                  break;
+                                                                                                case "go" : 
+                                                                                                  if ( false == the_target.endsWith(".go") ) {
+                                                                                                    the_target = the_target + ".go";
+                                                                                                  }
+                                                                                                  break;
+                                                                                                case "scala" : 
+                                                                                                  if ( false == the_target.endsWith(".scala") ) {
+                                                                                                    the_target = the_target + ".scala";
+                                                                                                  }
+                                                                                                  break;
+                                                                                                case "kotlin" : 
+                                                                                                  if ( false == the_target.endsWith(".kt") ) {
+                                                                                                    the_target = the_target + ".kt";
+                                                                                                  }
+                                                                                                  break;
+                                                                                                case "dart" : 
+                                                                                                  if ( false == the_target.endsWith(".dart") ) {
+                                                                                                    the_target = the_target + ".dart";
+                                                                                                  }
+                                                                                                  break;
+                                                                                                case "cpp" : 
+                                                                                                  if ( false == the_target.endsWith(".cpp") ) {
+                                                                                                    the_target = the_target + ".cpp";
+                                                                                                  }
+                                                                                                  break;
+                                                                                                case "python" : 
+                                                                                                  if ( false == the_target.endsWith(".py") ) {
+                                                                                                    the_target = the_target + ".py";
+                                                                                                  }
+                                                                                                  break;
+                                                                                                case "rust" : 
+                                                                                                  if ( false == the_target.endsWith(".rs") ) {
+                                                                                                    the_target = the_target + ".rs";
+                                                                                                  }
+                                                                                                  break;
+                                                                                                case "llvm" : 
+                                                                                                  if ( false == the_target.endsWith(".ll") ) {
+                                                                                                    the_target = the_target + ".ll";
+                                                                                                  }
+                                                                                                  break;
+                                                                                              };
+                                                                                              appCtx.compilerSettings["o"] = the_target;
+                                                                                              const lcc = new LiveCompiler();
+                                                                                              const node = parser.rootNode;
+                                                                                              const flowParser = new RangerFlowParser();
+                                                                                              const fileSystem = new CodeFileSystem();
+                                                                                              if ( appCtx.hasCompilerFlag("sourcemap") ) {
+                                                                                                fileSystem.enableSourceMaps();
+                                                                                              }
+                                                                                              const fmtSetting = appCtx.getCompilerSetting("format");
+                                                                                              if ( fmtSetting != "none" ) {
+                                                                                                fileSystem.formatWidth = 0 - 1;
+                                                                                                const widthOpt = params.getParam("width");
+                                                                                                if ( (typeof(widthOpt) !== "undefined" && widthOpt != null )  ) {
+                                                                                                  const widthStr = widthOpt;
+                                                                                                  const widthOpt2 = isNaN( parseInt(widthStr) ) ? undefined : parseInt(widthStr);
+                                                                                                  if ( (typeof(widthOpt2) !== "undefined" && widthOpt2 != null )  ) {
+                                                                                                    const widthNum = widthOpt2;
+                                                                                                    if ( widthNum > 0 ) {
+                                                                                                      fileSystem.formatWidth = widthNum;
+                                                                                                    }
+                                                                                                  }
+                                                                                                }
+                                                                                              }
+                                                                                              const file = fileSystem.getFile(".", the_target);
+                                                                                              let wr = file.getWriter();
+                                                                                              if ( appCtx.hasCompilerFlag("copysrc") ) {
+                                                                                                const fileWr = wr.getFileWriter(".", code.filename);
+                                                                                                fileWr.raw(code.code, false);
+                                                                                              }
+                                                                                              appCtx.parser = flowParser;
+                                                                                              appCtx.compiler = lcc;
+                                                                                              lcc.parser = flowParser;
+                                                                                              if ( appCtx.hasCompilerSetting("plugins") ) {
+                                                                                                const val = appCtx.getCompilerSetting("plugins");
+                                                                                                const list = val.split(",");
+                                                                                                operatorsOf.forEach_12(list, ((item, index) => { 
+                                                                                                  try {
+                                                                                                    const plugin = require( item );
+                                                                                                    const features = (new plugin.Plugin () ).features();
+                                                                                                    if ( appCtx.hasCompilerFlag("verbose") ) {
+                                                                                                      console.log(("Plugin " + item) + " registered with features ");
+                                                                                                      operatorsOf.forEach_12(features, ((item, index) => { 
+                                                                                                        console.log(" [x] " + item);
+                                                                                                      }));
+                                                                                                    }
+                                                                                                    const regPlug = new RangerRegisteredPlugin();
+                                                                                                    regPlug.name = item;
+                                                                                                    regPlug.features = operatorsOf.clone_56(features);
+                                                                                                    appCtx.addPlugin(regPlug);
+                                                                                                  } catch(e) {
+                                                                                                    console.log("Failed to register plugin " + item);
+                                                                                                  }
+                                                                                                }));
+                                                                                              }
+                                                                                              plugins_only = appCtx.hasCompilerFlag("plugins-only");
+                                                                                              cli.printHeader();
+                                                                                              cli.setCompilationInfo(
+                                                                                                the_file,
+                                                                                                the_target,
+                                                                                                the_lang
+                                                                                              );
+                                                                                              cli.printCompilationInfo();
+                                                                                              console.log(cli.divider());
+                                                                                              console.log("");
+                                                                                              try {
+                                                                                                flowParser.mergeImports(
                                                                                                   node,
                                                                                                   appCtx,
                                                                                                   wr
                                                                                                 );
-                                                                                              }
-                                                                                              const ppList = appCtx.findPluginsFor("pre_flow");
-                                                                                              operatorsOf.forEach_12(ppList, ((item, index) => { 
-                                                                                                try {
-                                                                                                  const plugin_1 = require( item );
-                                                                                                  ( (new plugin_1.Plugin () )["pre_flow"] )(
-                                                                                                    root,
+                                                                                                const lang_str = operatorsOf_8.readc95file_9(
+                                                                                                  env,
+                                                                                                  langFilePath,
+                                                                                                  the_lang_file
+                                                                                                );
+                                                                                                const lang_code = new SourceCode(lang_str);
+                                                                                                lang_code.filename = the_lang_file;
+                                                                                                const lang_parser = new RangerLispParser(lang_code);
+                                                                                                lang_parser.parse(false);
+                                                                                                appCtx.langOperators = lang_parser.rootNode;
+                                                                                                flowParser.registerLangSystemClasses(
+                                                                                                  lang_parser.rootNode,
+                                                                                                  appCtx,
+                                                                                                  wr
+                                                                                                );
+                                                                                                appCtx.setRootFile(root_file);
+                                                                                                const ops = new RangerActiveOperators();
+                                                                                                ops.initFrom(lang_parser.rootNode);
+                                                                                                appCtx.operators = ops;
+                                                                                                appCtx.targetLangName = the_lang;
+                                                                                                lcc.initWriter(appCtx);
+                                                                                                cli.step(1, "Collecting methods");
+                                                                                                flowParser.CollectMethods(
+                                                                                                  node,
+                                                                                                  appCtx,
+                                                                                                  wr
+                                                                                                );
+                                                                                                if ( appCtx.compilerErrors.length > 0 ) {
+                                                                                                  VirtualCompiler.displayCompilerErrorsWithCLI(appCtx, cli);
+                                                                                                  cli.printFailure(appCtx.compilerErrors.length);
+                                                                                                  res.hasErrors = true;
+                                                                                                  res.errorMessage = "Errors during method collection phase";
+                                                                                                  res.ctx = appCtx;
+                                                                                                  return res;
+                                                                                                }
+                                                                                                flowParser.CreateCTTI(
+                                                                                                  node,
+                                                                                                  appCtx,
+                                                                                                  wr
+                                                                                                );
+                                                                                                if ( appCtx.hasCompilerFlag("rtti") ) {
+                                                                                                  flowParser.CreateRTTI(
+                                                                                                    node,
                                                                                                     appCtx,
                                                                                                     wr
                                                                                                   );
-                                                                                                } catch(e) {
                                                                                                 }
-                                                                                              }));
-                                                                                              appCtx.initOpList();
-                                                                                              cli.step(2, "Analyzing code");
-                                                                                              flowParser.StartWalk(
-                                                                                                node,
-                                                                                                appCtx,
-                                                                                                wr
-                                                                                              );
-                                                                                              flowParser.SolveAsyncFuncs(
-                                                                                                root,
-                                                                                                appCtx,
-                                                                                                wr
-                                                                                              );
-                                                                                              const apiBuilder = new RangerApiBuilder();
-                                                                                              const apiModel = apiBuilder.build(appCtx);
-                                                                                              if ( appCtx.compilerErrors.length > 0 ) {
-                                                                                                console.log("");
-                                                                                                VirtualCompiler.displayCompilerErrorsWithCLI(appCtx, cli);
-                                                                                                cli.printFailure(appCtx.compilerErrors.length);
-                                                                                                res.hasErrors = true;
-                                                                                                res.errorMessage = "Errors during code analysis phase";
-                                                                                                res.ctx = appCtx;
-                                                                                                return res;
-                                                                                              }
-                                                                                              if ( (appCtx.targetLangName == "cpp" || appCtx.targetLangName == "rust") || appCtx.targetLangName == "swift6" ) {
-                                                                                                cli.stepWithDetail(
-                                                                                                  3,
-                                                                                                  "Static analysis",
-                                                                                                  "for " + appCtx.targetLangName
+                                                                                                const ppList = appCtx.findPluginsFor("pre_flow");
+                                                                                                operatorsOf.forEach_12(ppList, ((item, index) => { 
+                                                                                                  try {
+                                                                                                    const plugin_1 = require( item );
+                                                                                                    ( (new plugin_1.Plugin () )["pre_flow"] )(
+                                                                                                      root,
+                                                                                                      appCtx,
+                                                                                                      wr
+                                                                                                    );
+                                                                                                  } catch(e) {
+                                                                                                  }
+                                                                                                }));
+                                                                                                appCtx.initOpList();
+                                                                                                cli.step(2, "Analyzing code");
+                                                                                                flowParser.StartWalk(
+                                                                                                  node,
+                                                                                                  appCtx,
+                                                                                                  wr
                                                                                                 );
-                                                                                                const staticAnalyzer = new StaticAnalyzer();
-                                                                                                staticAnalyzer.ctx = appCtx;
-                                                                                                staticAnalyzer.analyzeAll();
+                                                                                                flowParser.SolveAsyncFuncs(
+                                                                                                  root,
+                                                                                                  appCtx,
+                                                                                                  wr
+                                                                                                );
+                                                                                                const apiBuilder = new RangerApiBuilder();
+                                                                                                const apiModel = apiBuilder.build(appCtx);
                                                                                                 if ( appCtx.compilerErrors.length > 0 ) {
                                                                                                   console.log("");
                                                                                                   VirtualCompiler.displayCompilerErrorsWithCLI(appCtx, cli);
                                                                                                   cli.printFailure(appCtx.compilerErrors.length);
                                                                                                   res.hasErrors = true;
-                                                                                                  res.errorMessage = "Errors during static analysis phase";
+                                                                                                  res.errorMessage = "Errors during code analysis phase";
                                                                                                   res.ctx = appCtx;
                                                                                                   return res;
                                                                                                 }
-                                                                                              } else {
-                                                                                                cli.step(3, "Type checking");
-                                                                                              }
-                                                                                              const ownStrict = appCtx.hasCompilerFlag("strict-ownership");
-                                                                                              if ( (ownStrict || appCtx.targetLangName == "cpp") || appCtx.targetLangName == "rust" ) {
-                                                                                                const ownAnalyzer = new StaticAnalyzer();
-                                                                                                ownAnalyzer.ctx = appCtx;
-                                                                                                ownAnalyzer.analyzeOwnershipAll(ownStrict);
-                                                                                                if ( appCtx.targetLangName == "rust" ) {
-                                                                                                  ownAnalyzer.applyOwnershipToRustBorrows();
-                                                                                                  ownAnalyzer.analyzeRustStaticStrings();
-                                                                                                  if ( appCtx.hasCompilerFlag("rust-value-classes") == false ) {
-                                                                                                    ownAnalyzer.applySharedClassRcWrap();
-                                                                                                    ownAnalyzer.computeSelfRcNeeds();
+                                                                                                if ( (appCtx.targetLangName == "cpp" || appCtx.targetLangName == "rust") || appCtx.targetLangName == "swift6" ) {
+                                                                                                  cli.stepWithDetail(
+                                                                                                    3,
+                                                                                                    "Static analysis",
+                                                                                                    "for " + appCtx.targetLangName
+                                                                                                  );
+                                                                                                  const staticAnalyzer = new StaticAnalyzer();
+                                                                                                  staticAnalyzer.ctx = appCtx;
+                                                                                                  staticAnalyzer.analyzeAll();
+                                                                                                  if ( appCtx.compilerErrors.length > 0 ) {
+                                                                                                    console.log("");
+                                                                                                    VirtualCompiler.displayCompilerErrorsWithCLI(appCtx, cli);
+                                                                                                    cli.printFailure(appCtx.compilerErrors.length);
+                                                                                                    res.hasErrors = true;
+                                                                                                    res.errorMessage = "Errors during static analysis phase";
+                                                                                                    res.ctx = appCtx;
+                                                                                                    return res;
                                                                                                   }
+                                                                                                } else {
+                                                                                                  cli.step(3, "Type checking");
                                                                                                 }
-                                                                                              }
-                                                                                              cli.step(4, "Generating code");
-                                                                                              if ( appCtx.targetLangName == "llvm" ) {
-                                                                                                const llvmPipeline = new RangerLLVMPipeline();
-                                                                                                llvmPipeline.generateModule(appCtx, wr);
-                                                                                                res.target_dir = the_target_dir;
-                                                                                                res.fileSystem = fileSystem;
-                                                                                                res.ctx = appCtx;
-                                                                                                cli.printSuccess(the_target);
-                                                                                                return res;
-                                                                                              }
-                                                                                              switch (appCtx.targetLangName ) { 
-                                                                                                case "java7" : 
-                                                                                                  if ( ( typeof(comp_attrs["android_res_dir"] ) != "undefined" && Object.prototype.hasOwnProperty.call(comp_attrs, "android_res_dir") ) ) {
-                                                                                                    const resDir = ( Object.prototype.hasOwnProperty.call(comp_attrs, "android_res_dir") ? comp_attrs["android_res_dir"] : undefined );
-                                                                                                    const resFs = new CodeFileSystem();
-                                                                                                    const file_2 = resFs.getFile(".", "README.txt");
-                                                                                                    const wr_2 = file_2.getWriter();
-                                                                                                    const builder = new viewbuilder_Android();
-                                                                                                    operatorsOf_13.forEach_25(appCtx.viewClassBody, ((item, index) => { 
-                                                                                                      builder.writeClass(
-                                                                                                        item,
-                                                                                                        appCtx,
-                                                                                                        wr_2
-                                                                                                      );
-                                                                                                    }));
-                                                                                                    resFs.saveTo(resDir, appCtx.hasCompilerFlag("show-writes"));
-                                                                                                  }
-                                                                                                  break;
-                                                                                                case "es6" : 
-                                                                                                  if ( ( typeof(comp_attrs["web_res_dir"] ) != "undefined" && Object.prototype.hasOwnProperty.call(comp_attrs, "web_res_dir") ) ) {
-                                                                                                    console.log("--> had web res dir");
-                                                                                                    const resDir_1 = ( Object.prototype.hasOwnProperty.call(comp_attrs, "web_res_dir") ? comp_attrs["web_res_dir"] : undefined );
-                                                                                                    const resFs_1 = new CodeFileSystem();
-                                                                                                    const file_3 = resFs_1.getFile(".", "webviews.html");
-                                                                                                    const wr_3 = file_3.getWriter();
-                                                                                                    const builder_1 = new viewbuilder_Web();
-                                                                                                    builder_1.CreateViews(appCtx, wr_3);
-                                                                                                    resFs_1.saveTo(resDir_1, appCtx.hasCompilerFlag("show-writes"));
-                                                                                                  }
-                                                                                                  break;
-                                                                                              };
-                                                                                              let staticMethods;
-                                                                                              const beforeImports = wr.createTag("before_imports");
-                                                                                              const importFork = wr.fork();
-                                                                                              const forwardDecls = wr.createTag("forward_declarations");
-                                                                                              wr.createTag("after_imports");
-                                                                                              const contentFork = wr.fork();
-                                                                                              wr.createTag("utilities");
-                                                                                              const theEnd = wr.createTag("file_end");
-                                                                                              if ( appCtx.hasCompilerFlag("typescript") ) {
-                                                                                                if ( ( typeof(appCtx.compilerSettings["processTsHelpers"] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.compilerSettings, "processTsHelpers") ) ) {
-                                                                                                  const __rgrTs = ( Object.prototype.hasOwnProperty.call(appCtx.compilerSettings, "processTsHelpers") ? appCtx.compilerSettings["processTsHelpers"] : undefined );
-                                                                                                  if ( __rgrTs.length > 0 ) {
-                                                                                                    theEnd.raw(__rgrTs, false);
-                                                                                                    theEnd.newline();
-                                                                                                  }
-                                                                                                }
-                                                                                              }
-                                                                                              wr = contentFork;
-                                                                                              for ( const exFn of apiBuilder.exampleFns) {
-                                                                                                exFn.docExampleText = lcc.langWriter.renderDocExample(
-                                                                                                  exFn,
-                                                                                                  appCtx,
-                                                                                                  wr
-                                                                                                );
-                                                                                              }
-                                                                                              let handledClasses = {};
-                                                                                              for ( let i_4 = 0; i_4 < appCtx.definedClassList.length; i_4++) {
-                                                                                                var cName = appCtx.definedClassList[i_4];
-                                                                                                if ( cName == "RangerStaticMethods" ) {
-                                                                                                  staticMethods = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, cName) ? appCtx.definedClasses[cName] : undefined );
-                                                                                                  continue;
-                                                                                                }
-                                                                                                const cl = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, cName) ? appCtx.definedClasses[cName] : undefined );
-                                                                                                if ( cl.is_operator_class ) {
-                                                                                                  continue;
-                                                                                                }
-                                                                                                if ( cl.is_trait ) {
-                                                                                                  continue;
-                                                                                                }
-                                                                                                if ( cl.is_system ) {
-                                                                                                  continue;
-                                                                                                }
-                                                                                                if ( cl.is_generic_instance ) {
-                                                                                                  continue;
-                                                                                                }
-                                                                                                if ( cl.is_system_union ) {
-                                                                                                  continue;
-                                                                                                }
-                                                                                                if ( cl.is_union ) {
-                                                                                                  continue;
-                                                                                                }
-                                                                                                if ( ( typeof(handledClasses[cName] ) != "undefined" && Object.prototype.hasOwnProperty.call(handledClasses, cName) ) ) {
-                                                                                                  continue;
-                                                                                                }
-                                                                                                handledClasses[cName] = true;
-                                                                                                if ( cl.extends_classes.length > 0 ) {
-                                                                                                  for ( const eClassName of cl.extends_classes) {
-                                                                                                    if ( ( typeof(handledClasses[eClassName] ) != "undefined" && Object.prototype.hasOwnProperty.call(handledClasses, eClassName) ) ) {
-                                                                                                      continue;
+                                                                                                const ownStrict = appCtx.hasCompilerFlag("strict-ownership");
+                                                                                                if ( (ownStrict || appCtx.targetLangName == "cpp") || appCtx.targetLangName == "rust" ) {
+                                                                                                  const ownAnalyzer = new StaticAnalyzer();
+                                                                                                  ownAnalyzer.ctx = appCtx;
+                                                                                                  ownAnalyzer.analyzeOwnershipAll(ownStrict);
+                                                                                                  if ( appCtx.targetLangName == "rust" ) {
+                                                                                                    ownAnalyzer.applyOwnershipToRustBorrows();
+                                                                                                    ownAnalyzer.analyzeRustStaticStrings();
+                                                                                                    if ( appCtx.hasCompilerFlag("rust-value-classes") == false ) {
+                                                                                                      ownAnalyzer.applySharedClassRcWrap();
+                                                                                                      ownAnalyzer.computeSelfRcNeeds();
                                                                                                     }
-                                                                                                    const parentCl = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, eClassName) ? appCtx.definedClasses[eClassName] : undefined );
+                                                                                                  }
+                                                                                                }
+                                                                                                cli.step(4, "Generating code");
+                                                                                                if ( appCtx.targetLangName == "llvm" ) {
+                                                                                                  const llvmPipeline = new RangerLLVMPipeline();
+                                                                                                  llvmPipeline.generateModule(appCtx, wr);
+                                                                                                  res.target_dir = the_target_dir;
+                                                                                                  res.fileSystem = fileSystem;
+                                                                                                  res.ctx = appCtx;
+                                                                                                  cli.printSuccess(the_target);
+                                                                                                  return res;
+                                                                                                }
+                                                                                                switch (appCtx.targetLangName ) { 
+                                                                                                  case "java7" : 
+                                                                                                    if ( ( typeof(comp_attrs["android_res_dir"] ) != "undefined" && Object.prototype.hasOwnProperty.call(comp_attrs, "android_res_dir") ) ) {
+                                                                                                      const resDir = ( Object.prototype.hasOwnProperty.call(comp_attrs, "android_res_dir") ? comp_attrs["android_res_dir"] : undefined );
+                                                                                                      const resFs = new CodeFileSystem();
+                                                                                                      const file_2 = resFs.getFile(".", "README.txt");
+                                                                                                      const wr_2 = file_2.getWriter();
+                                                                                                      const builder = new viewbuilder_Android();
+                                                                                                      operatorsOf_13.forEach_25(appCtx.viewClassBody, ((item, index) => { 
+                                                                                                        builder.writeClass(
+                                                                                                          item,
+                                                                                                          appCtx,
+                                                                                                          wr_2
+                                                                                                        );
+                                                                                                      }));
+                                                                                                      resFs.saveTo(resDir, appCtx.hasCompilerFlag("show-writes"));
+                                                                                                    }
+                                                                                                    break;
+                                                                                                  case "es6" : 
+                                                                                                    if ( ( typeof(comp_attrs["web_res_dir"] ) != "undefined" && Object.prototype.hasOwnProperty.call(comp_attrs, "web_res_dir") ) ) {
+                                                                                                      console.log("--> had web res dir");
+                                                                                                      const resDir_1 = ( Object.prototype.hasOwnProperty.call(comp_attrs, "web_res_dir") ? comp_attrs["web_res_dir"] : undefined );
+                                                                                                      const resFs_1 = new CodeFileSystem();
+                                                                                                      const file_3 = resFs_1.getFile(".", "webviews.html");
+                                                                                                      const wr_3 = file_3.getWriter();
+                                                                                                      const builder_1 = new viewbuilder_Web();
+                                                                                                      builder_1.CreateViews(appCtx, wr_3);
+                                                                                                      resFs_1.saveTo(resDir_1, appCtx.hasCompilerFlag("show-writes"));
+                                                                                                    }
+                                                                                                    break;
+                                                                                                };
+                                                                                                let staticMethods;
+                                                                                                const beforeImports = wr.createTag("before_imports");
+                                                                                                const importFork = wr.fork();
+                                                                                                const forwardDecls = wr.createTag("forward_declarations");
+                                                                                                wr.createTag("after_imports");
+                                                                                                const contentFork = wr.fork();
+                                                                                                wr.createTag("utilities");
+                                                                                                const theEnd = wr.createTag("file_end");
+                                                                                                if ( appCtx.hasCompilerFlag("typescript") ) {
+                                                                                                  if ( ( typeof(appCtx.compilerSettings["processTsHelpers"] ) != "undefined" && Object.prototype.hasOwnProperty.call(appCtx.compilerSettings, "processTsHelpers") ) ) {
+                                                                                                    const __rgrTs = ( Object.prototype.hasOwnProperty.call(appCtx.compilerSettings, "processTsHelpers") ? appCtx.compilerSettings["processTsHelpers"] : undefined );
+                                                                                                    if ( __rgrTs.length > 0 ) {
+                                                                                                      theEnd.raw(__rgrTs, false);
+                                                                                                      theEnd.newline();
+                                                                                                    }
+                                                                                                  }
+                                                                                                }
+                                                                                                wr = contentFork;
+                                                                                                for ( const exFn of apiBuilder.exampleFns) {
+                                                                                                  exFn.docExampleText = lcc.langWriter.renderDocExample(
+                                                                                                    exFn,
+                                                                                                    appCtx,
+                                                                                                    wr
+                                                                                                  );
+                                                                                                }
+                                                                                                let handledClasses = {};
+                                                                                                for ( let i_4 = 0; i_4 < appCtx.definedClassList.length; i_4++) {
+                                                                                                  var cName = appCtx.definedClassList[i_4];
+                                                                                                  if ( cName == "RangerStaticMethods" ) {
+                                                                                                    staticMethods = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, cName) ? appCtx.definedClasses[cName] : undefined );
+                                                                                                    continue;
+                                                                                                  }
+                                                                                                  const cl = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, cName) ? appCtx.definedClasses[cName] : undefined );
+                                                                                                  if ( cl.is_operator_class ) {
+                                                                                                    continue;
+                                                                                                  }
+                                                                                                  if ( cl.is_trait ) {
+                                                                                                    continue;
+                                                                                                  }
+                                                                                                  if ( cl.is_system ) {
+                                                                                                    continue;
+                                                                                                  }
+                                                                                                  if ( cl.is_generic_instance ) {
+                                                                                                    continue;
+                                                                                                  }
+                                                                                                  if ( cl.is_system_union ) {
+                                                                                                    continue;
+                                                                                                  }
+                                                                                                  if ( cl.is_union ) {
+                                                                                                    continue;
+                                                                                                  }
+                                                                                                  if ( ( typeof(handledClasses[cName] ) != "undefined" && Object.prototype.hasOwnProperty.call(handledClasses, cName) ) ) {
+                                                                                                    continue;
+                                                                                                  }
+                                                                                                  handledClasses[cName] = true;
+                                                                                                  if ( cl.extends_classes.length > 0 ) {
+                                                                                                    for ( const eClassName of cl.extends_classes) {
+                                                                                                      if ( ( typeof(handledClasses[eClassName] ) != "undefined" && Object.prototype.hasOwnProperty.call(handledClasses, eClassName) ) ) {
+                                                                                                        continue;
+                                                                                                      }
+                                                                                                      const parentCl = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, eClassName) ? appCtx.definedClasses[eClassName] : undefined );
+                                                                                                      lcc.WalkNode(
+                                                                                                        parentCl.classNode,
+                                                                                                        appCtx,
+                                                                                                        wr
+                                                                                                      );
+                                                                                                      handledClasses[eClassName] = true;
+                                                                                                    }
+                                                                                                  }
+                                                                                                  lcc.WalkNode(
+                                                                                                    cl.classNode,
+                                                                                                    appCtx,
+                                                                                                    wr
+                                                                                                  );
+                                                                                                }
+                                                                                                if ( (typeof(staticMethods) !== "undefined" && staticMethods != null )  ) {
+                                                                                                  lcc.WalkNode(
+                                                                                                    staticMethods.classNode,
+                                                                                                    appCtx,
+                                                                                                    wr
+                                                                                                  );
+                                                                                                }
+                                                                                                for ( const ifDesc of flowParser.collectedIntefaces) {
+                                                                                                  console.log("should define also interface " + ifDesc.name);
+                                                                                                  lcc.langWriter.writeInterface(
+                                                                                                    ifDesc,
+                                                                                                    appCtx,
+                                                                                                    wr
+                                                                                                  );
+                                                                                                }
+                                                                                                for ( let i_7 = 0; i_7 < appCtx.definedClassList.length; i_7++) {
+                                                                                                  var cName_1 = appCtx.definedClassList[i_7];
+                                                                                                  if ( ( typeof(handledClasses[cName_1] ) != "undefined" && Object.prototype.hasOwnProperty.call(handledClasses, cName_1) ) ) {
+                                                                                                    continue;
+                                                                                                  }
+                                                                                                  if ( cName_1 == "RangerStaticMethods" ) {
+                                                                                                    staticMethods = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, cName_1) ? appCtx.definedClasses[cName_1] : undefined );
+                                                                                                    continue;
+                                                                                                  }
+                                                                                                  const cl_1 = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, cName_1) ? appCtx.definedClasses[cName_1] : undefined );
+                                                                                                  if ( cl_1.is_operator_class ) {
+                                                                                                    continue;
+                                                                                                  }
+                                                                                                  if ( cl_1.is_generic_instance ) {
                                                                                                     lcc.WalkNode(
-                                                                                                      parentCl.classNode,
+                                                                                                      cl_1.classNode,
                                                                                                       appCtx,
                                                                                                       wr
                                                                                                     );
-                                                                                                    handledClasses[eClassName] = true;
                                                                                                   }
-                                                                                                }
-                                                                                                lcc.WalkNode(
-                                                                                                  cl.classNode,
-                                                                                                  appCtx,
-                                                                                                  wr
-                                                                                                );
-                                                                                              }
-                                                                                              if ( (typeof(staticMethods) !== "undefined" && staticMethods != null )  ) {
-                                                                                                lcc.WalkNode(
-                                                                                                  staticMethods.classNode,
-                                                                                                  appCtx,
-                                                                                                  wr
-                                                                                                );
-                                                                                              }
-                                                                                              for ( const ifDesc of flowParser.collectedIntefaces) {
-                                                                                                console.log("should define also interface " + ifDesc.name);
-                                                                                                lcc.langWriter.writeInterface(
-                                                                                                  ifDesc,
-                                                                                                  appCtx,
-                                                                                                  wr
-                                                                                                );
-                                                                                              }
-                                                                                              for ( let i_7 = 0; i_7 < appCtx.definedClassList.length; i_7++) {
-                                                                                                var cName_1 = appCtx.definedClassList[i_7];
-                                                                                                if ( ( typeof(handledClasses[cName_1] ) != "undefined" && Object.prototype.hasOwnProperty.call(handledClasses, cName_1) ) ) {
-                                                                                                  continue;
-                                                                                                }
-                                                                                                if ( cName_1 == "RangerStaticMethods" ) {
-                                                                                                  staticMethods = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, cName_1) ? appCtx.definedClasses[cName_1] : undefined );
-                                                                                                  continue;
-                                                                                                }
-                                                                                                const cl_1 = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, cName_1) ? appCtx.definedClasses[cName_1] : undefined );
-                                                                                                if ( cl_1.is_operator_class ) {
-                                                                                                  continue;
-                                                                                                }
-                                                                                                if ( cl_1.is_generic_instance ) {
+                                                                                                  if ( cl_1.is_trait ) {
+                                                                                                    continue;
+                                                                                                  }
+                                                                                                  if ( cl_1.is_system ) {
+                                                                                                    continue;
+                                                                                                  }
+                                                                                                  if ( cl_1.is_operator_class ) {
+                                                                                                    continue;
+                                                                                                  }
+                                                                                                  if ( cl_1.is_generic_instance ) {
+                                                                                                    continue;
+                                                                                                  }
+                                                                                                  if ( cl_1.is_system_union ) {
+                                                                                                    continue;
+                                                                                                  }
+                                                                                                  if ( cl_1.is_union ) {
+                                                                                                    continue;
+                                                                                                  }
                                                                                                   lcc.WalkNode(
                                                                                                     cl_1.classNode,
                                                                                                     appCtx,
                                                                                                     wr
                                                                                                   );
                                                                                                 }
-                                                                                                if ( cl_1.is_trait ) {
-                                                                                                  continue;
+                                                                                                for ( let i_8 = 0; i_8 < appCtx.definedClassList.length; i_8++) {
+                                                                                                  var cName_2 = appCtx.definedClassList[i_8];
+                                                                                                  const cl_2 = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, cName_2) ? appCtx.definedClasses[cName_2] : undefined );
+                                                                                                  if ( cl_2.is_operator_class ) {
+                                                                                                    lcc.WalkNode(
+                                                                                                      cl_2.classNode,
+                                                                                                      appCtx,
+                                                                                                      wr
+                                                                                                    );
+                                                                                                  }
                                                                                                 }
-                                                                                                if ( cl_1.is_system ) {
-                                                                                                  continue;
+                                                                                                const import_list = wr.getImports();
+                                                                                                if ( appCtx.targetLangName == "go" ) {
+                                                                                                  importFork.out("package main", true);
+                                                                                                  importFork.newline();
+                                                                                                  importFork.out("import (", true);
+                                                                                                  importFork.indent(1);
                                                                                                 }
-                                                                                                if ( cl_1.is_operator_class ) {
-                                                                                                  continue;
+                                                                                                let added_import = {};
+                                                                                                for ( const codeStr of import_list) {
+                                                                                                  if ( ( typeof(added_import[codeStr] ) != "undefined" && Object.prototype.hasOwnProperty.call(added_import, codeStr) ) ) {
+                                                                                                    continue;
+                                                                                                  }
+                                                                                                  added_import[codeStr] = true;
+                                                                                                  switch (appCtx.targetLangName ) { 
+                                                                                                    case "es6" : 
+                                                                                                      const parts = codeStr.split(".");
+                                                                                                      const p0 = parts[0];
+                                                                                                      if ( parts.length > 1 ) {
+                                                                                                        const p1 = parts[1];
+                                                                                                        importFork.out(((((("const " + p1) + " = require('") + p0) + "').") + p1) + ";", true);
+                                                                                                      }
+                                                                                                      if ( parts.length == 1 ) {
+                                                                                                        importFork.out(((("const " + p0) + " = require('") + p0) + "');", true);
+                                                                                                      }
+                                                                                                      break;
+                                                                                                    case "go" : 
+                                                                                                      if ( codeStr.charCodeAt(0 ) == ("_".charCodeAt(0)) ) {
+                                                                                                        importFork.out((" _ \"" + codeStr.substring(1, codeStr.length )) + "\"", true);
+                                                                                                      } else {
+                                                                                                        importFork.out(("\"" + codeStr) + "\"", true);
+                                                                                                      }
+                                                                                                      break;
+                                                                                                    case "csharp" : 
+                                                                                                      importFork.out(("using " + codeStr) + ";", true);
+                                                                                                      break;
+                                                                                                    case "rust" : 
+                                                                                                      importFork.out(("use " + codeStr) + ";", true);
+                                                                                                      break;
+                                                                                                    case "java7" : 
+                                                                                                      importFork.out(("import " + codeStr) + ";", true);
+                                                                                                      break;
+                                                                                                    case "dart" : 
+                                                                                                      importFork.out(("import '" + codeStr) + "';", true);
+                                                                                                      break;
+                                                                                                    case "cpp" : 
+                                                                                                      importFork.out("#include  " + codeStr, true);
+                                                                                                      break;
+                                                                                                    default: 
+                                                                                                      importFork.out("import " + codeStr, true);
+                                                                                                      break;
+                                                                                                  };
                                                                                                 }
-                                                                                                if ( cl_1.is_generic_instance ) {
-                                                                                                  continue;
+                                                                                                if ( appCtx.targetLangName == "go" ) {
+                                                                                                  importFork.indent(-1);
+                                                                                                  importFork.out(")", true);
                                                                                                 }
-                                                                                                if ( cl_1.is_system_union ) {
-                                                                                                  continue;
-                                                                                                }
-                                                                                                if ( cl_1.is_union ) {
-                                                                                                  continue;
-                                                                                                }
-                                                                                                lcc.WalkNode(
-                                                                                                  cl_1.classNode,
-                                                                                                  appCtx,
-                                                                                                  wr
-                                                                                                );
-                                                                                              }
-                                                                                              for ( let i_8 = 0; i_8 < appCtx.definedClassList.length; i_8++) {
-                                                                                                var cName_2 = appCtx.definedClassList[i_8];
-                                                                                                const cl_2 = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, cName_2) ? appCtx.definedClasses[cName_2] : undefined );
-                                                                                                if ( cl_2.is_operator_class ) {
-                                                                                                  lcc.WalkNode(
-                                                                                                    cl_2.classNode,
-                                                                                                    appCtx,
-                                                                                                    wr
-                                                                                                  );
-                                                                                                }
-                                                                                              }
-                                                                                              const import_list = wr.getImports();
-                                                                                              if ( appCtx.targetLangName == "go" ) {
-                                                                                                importFork.out("package main", true);
-                                                                                                importFork.newline();
-                                                                                                importFork.out("import (", true);
-                                                                                                importFork.indent(1);
-                                                                                              }
-                                                                                              let added_import = {};
-                                                                                              for ( const codeStr of import_list) {
-                                                                                                if ( ( typeof(added_import[codeStr] ) != "undefined" && Object.prototype.hasOwnProperty.call(added_import, codeStr) ) ) {
-                                                                                                  continue;
-                                                                                                }
-                                                                                                added_import[codeStr] = true;
-                                                                                                switch (appCtx.targetLangName ) { 
-                                                                                                  case "es6" : 
-                                                                                                    const parts = codeStr.split(".");
-                                                                                                    const p0 = parts[0];
-                                                                                                    if ( parts.length > 1 ) {
-                                                                                                      const p1 = parts[1];
-                                                                                                      importFork.out(((((("const " + p1) + " = require('") + p0) + "').") + p1) + ";", true);
-                                                                                                    }
-                                                                                                    if ( parts.length == 1 ) {
-                                                                                                      importFork.out(((("const " + p0) + " = require('") + p0) + "');", true);
-                                                                                                    }
-                                                                                                    break;
-                                                                                                  case "go" : 
-                                                                                                    if ( codeStr.charCodeAt(0 ) == ("_".charCodeAt(0)) ) {
-                                                                                                      importFork.out((" _ \"" + codeStr.substring(1, codeStr.length )) + "\"", true);
-                                                                                                    } else {
-                                                                                                      importFork.out(("\"" + codeStr) + "\"", true);
-                                                                                                    }
-                                                                                                    break;
-                                                                                                  case "csharp" : 
-                                                                                                    importFork.out(("using " + codeStr) + ";", true);
-                                                                                                    break;
-                                                                                                  case "rust" : 
-                                                                                                    importFork.out(("use " + codeStr) + ";", true);
-                                                                                                    break;
-                                                                                                  case "java7" : 
-                                                                                                    importFork.out(("import " + codeStr) + ";", true);
-                                                                                                    break;
-                                                                                                  case "dart" : 
-                                                                                                    importFork.out(("import '" + codeStr) + "';", true);
-                                                                                                    break;
-                                                                                                  case "cpp" : 
-                                                                                                    importFork.out("#include  " + codeStr, true);
-                                                                                                    break;
-                                                                                                  default: 
-                                                                                                    importFork.out("import " + codeStr, true);
-                                                                                                    break;
-                                                                                                };
-                                                                                              }
-                                                                                              if ( appCtx.targetLangName == "go" ) {
-                                                                                                importFork.indent(-1);
-                                                                                                importFork.out(")", true);
-                                                                                              }
-                                                                                              if ( appCtx.hasCompilerSetting("classdoc") ) {
-                                                                                                const gen = new RangerDocGenerator();
-                                                                                                gen.createClassDoc(
-                                                                                                  root,
-                                                                                                  appCtx,
-                                                                                                  wr
-                                                                                                );
-                                                                                              }
-                                                                                              if ( appCtx.hasCompilerSetting("operatordoc") ) {
-                                                                                                const gen_1 = new RangerDocGenerator();
-                                                                                                gen_1.createOperatorDoc(
-                                                                                                  root,
-                                                                                                  appCtx,
-                                                                                                  wr
-                                                                                                );
-                                                                                              }
-                                                                                              if ( appCtx.hasCompilerSetting("apidoc") ) {
-                                                                                                const apiGen = new RangerApiArtifactWriter();
-                                                                                                apiGen.writeAll(
-                                                                                                  apiModel,
-                                                                                                  appCtx,
-                                                                                                  wr
-                                                                                                );
-                                                                                              }
-                                                                                              if ( appCtx.hasCompilerFlag("apipackage") ) {
-                                                                                                const pkgGen = new RangerApiPackageWriter();
-                                                                                                pkgGen.writeAll(
-                                                                                                  apiModel,
-                                                                                                  appCtx,
-                                                                                                  wr,
-                                                                                                  node
-                                                                                                );
-                                                                                              }
-                                                                                              for ( const warnMsg of apiModel.warnings) {
-                                                                                                console.log(cli.warning(("api docs: " + warnMsg)));
-                                                                                              }
-                                                                                              cli.step(5, "Writing output");
-                                                                                              VirtualCompiler.displayCompilerErrorsWithCLI(appCtx, cli);
-                                                                                              if ( appCtx.compilerErrors.length > 0 ) {
-                                                                                                cli.printFailure(appCtx.compilerErrors.length);
-                                                                                                res.hasErrors = true;
-                                                                                                res.errorMessage = "Errors during compilation phase";
-                                                                                              } else {
-                                                                                                const outputPath = (the_target_dir + "/") + the_target;
-                                                                                                cli.printSuccess(outputPath);
-                                                                                              }
-                                                                                              const ppList_1 = appCtx.findPluginsFor("postprocess");
-                                                                                              operatorsOf.forEach_12(ppList_1, ((item, index) => { 
-                                                                                                try {
-                                                                                                  const plugin_2 = require( item );
-                                                                                                  ( (new plugin_2.Plugin () )["postprocess"] )(
+                                                                                                if ( appCtx.hasCompilerSetting("classdoc") ) {
+                                                                                                  const gen = new RangerDocGenerator();
+                                                                                                  gen.createClassDoc(
                                                                                                     root,
                                                                                                     appCtx,
                                                                                                     wr
                                                                                                   );
-                                                                                                } catch(e) {
                                                                                                 }
-                                                                                              }));
-                                                                                              res.target_dir = the_target_dir;
-                                                                                              res.fileSystem = fileSystem;
-                                                                                              res.ctx = appCtx;
-                                                                                            } catch(e) {
-                                                                                              const err_msg = ( e.toString());
-                                                                                              console.log("");
-                                                                                              console.log(cli.error("Unexpected compiler error"));
-                                                                                              console.log("");
-                                                                                              console.log("  " + cli.gray(err_msg));
-                                                                                              res.hasErrors = true;
-                                                                                              res.ctx = appCtx;
-                                                                                              if ( typeof(lcc.lastProcessedNode) != "undefined" ) {
+                                                                                                if ( appCtx.hasCompilerSetting("operatordoc") ) {
+                                                                                                  const gen_1 = new RangerDocGenerator();
+                                                                                                  gen_1.createOperatorDoc(
+                                                                                                    root,
+                                                                                                    appCtx,
+                                                                                                    wr
+                                                                                                  );
+                                                                                                }
+                                                                                                if ( appCtx.hasCompilerSetting("apidoc") ) {
+                                                                                                  const apiGen = new RangerApiArtifactWriter();
+                                                                                                  apiGen.writeAll(
+                                                                                                    apiModel,
+                                                                                                    appCtx,
+                                                                                                    wr
+                                                                                                  );
+                                                                                                }
+                                                                                                if ( appCtx.hasCompilerFlag("apipackage") ) {
+                                                                                                  const pkgGen = new RangerApiPackageWriter();
+                                                                                                  pkgGen.writeAll(
+                                                                                                    apiModel,
+                                                                                                    appCtx,
+                                                                                                    wr,
+                                                                                                    node
+                                                                                                  );
+                                                                                                }
+                                                                                                for ( const warnMsg of apiModel.warnings) {
+                                                                                                  console.log(cli.warning(("api docs: " + warnMsg)));
+                                                                                                }
+                                                                                                cli.step(5, "Writing output");
+                                                                                                VirtualCompiler.displayCompilerErrorsWithCLI(appCtx, cli);
+                                                                                                if ( appCtx.compilerErrors.length > 0 ) {
+                                                                                                  cli.printFailure(appCtx.compilerErrors.length);
+                                                                                                  res.hasErrors = true;
+                                                                                                  res.errorMessage = "Errors during compilation phase";
+                                                                                                } else {
+                                                                                                  const outputPath = (the_target_dir + "/") + the_target;
+                                                                                                  cli.printSuccess(outputPath);
+                                                                                                }
+                                                                                                const ppList_1 = appCtx.findPluginsFor("postprocess");
+                                                                                                operatorsOf.forEach_12(ppList_1, ((item, index) => { 
+                                                                                                  try {
+                                                                                                    const plugin_2 = require( item );
+                                                                                                    ( (new plugin_2.Plugin () )["postprocess"] )(
+                                                                                                      root,
+                                                                                                      appCtx,
+                                                                                                      wr
+                                                                                                    );
+                                                                                                  } catch(e) {
+                                                                                                  }
+                                                                                                }));
+                                                                                                res.target_dir = the_target_dir;
+                                                                                                res.fileSystem = fileSystem;
+                                                                                                res.ctx = appCtx;
+                                                                                              } catch(e) {
+                                                                                                const err_msg = ( e.toString());
                                                                                                 console.log("");
-                                                                                                console.log(cli.gray("Error occurred near:"));
-                                                                                                console.log("  " + lcc.lastProcessedNode.getLineAsString());
-                                                                                              } else {
-                                                                                                if ( typeof(flowParser.lastProcessedNode) != "undefined" ) {
+                                                                                                console.log(cli.error("Unexpected compiler error"));
+                                                                                                console.log("");
+                                                                                                console.log("  " + cli.gray(err_msg));
+                                                                                                res.hasErrors = true;
+                                                                                                res.ctx = appCtx;
+                                                                                                if ( typeof(lcc.lastProcessedNode) != "undefined" ) {
                                                                                                   console.log("");
                                                                                                   console.log(cli.gray("Error occurred near:"));
-                                                                                                  console.log("  " + flowParser.lastProcessedNode.getLineAsString());
+                                                                                                  console.log("  " + lcc.lastProcessedNode.getLineAsString());
+                                                                                                } else {
+                                                                                                  if ( typeof(flowParser.lastProcessedNode) != "undefined" ) {
+                                                                                                    console.log("");
+                                                                                                    console.log(cli.gray("Error occurred near:"));
+                                                                                                    console.log("  " + flowParser.lastProcessedNode.getLineAsString());
+                                                                                                  }
                                                                                                 }
+                                                                                                res.errorMessage = err_msg;
+                                                                                                cli.printFailure(1);
                                                                                               }
-                                                                                              res.errorMessage = err_msg;
-                                                                                              cli.printFailure(1);
+                                                                                              return res;
+                                                                                            };
+                                                                                          }
+                                                                                          VirtualCompiler.create_env = async function() {
+                                                                                            const env = new InputEnv();
+                                                                                            env.filesystem = new InputFSFolder();
+                                                                                            env.commandLine = new CmdParams();
+                                                                                            operatorsOf_3.createc95file_4(
+                                                                                              env.filesystem,
+                                                                                              "Lang.rgr",
+                                                                                              (await (new Promise(resolve => { require('fs').readFile( "." + '/' + "Lang.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } )))
+                                                                                            );
+                                                                                            operatorsOf_3.createc95file_4(
+                                                                                              env.filesystem,
+                                                                                              "stdlib.rgr",
+                                                                                              (await (new Promise(resolve => { require('fs').readFile( "./lib/" + '/' + "stdlib.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } )))
+                                                                                            );
+                                                                                            operatorsOf_3.createc95file_4(
+                                                                                              env.filesystem,
+                                                                                              "stdops.rgr",
+                                                                                              (await (new Promise(resolve => { require('fs').readFile( "./lib/" + '/' + "stdops.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } )))
+                                                                                            );
+                                                                                            operatorsOf_3.createc95file_4(
+                                                                                              env.filesystem,
+                                                                                              "Timers.rgr",
+                                                                                              (await (new Promise(resolve => { require('fs').readFile( "./lib/" + '/' + "Timers.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } )))
+                                                                                            );
+                                                                                            operatorsOf_3.createc95file_4(
+                                                                                              env.filesystem,
+                                                                                              "DOMLib.rgr",
+                                                                                              (await (new Promise(resolve => { require('fs').readFile( "./lib/" + '/' + "DOMLib.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } )))
+                                                                                            );
+                                                                                            operatorsOf_3.createc95file_4(
+                                                                                              env.filesystem,
+                                                                                              "Ajax.rgr",
+                                                                                              (await (new Promise(resolve => { require('fs').readFile( "./lib/" + '/' + "Ajax.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } )))
+                                                                                            );
+                                                                                            operatorsOf_3.createc95file_4(
+                                                                                              env.filesystem,
+                                                                                              "Crypto.rgr",
+                                                                                              (await (new Promise(resolve => { require('fs').readFile( "./lib/" + '/' + "Crypto.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } )))
+                                                                                            );
+                                                                                            operatorsOf_3.createc95file_4(
+                                                                                              env.filesystem,
+                                                                                              "Engine3D.rgr",
+                                                                                              (await (new Promise(resolve => { require('fs').readFile( "./lib/" + '/' + "Engine3D.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } )))
+                                                                                            );
+                                                                                            operatorsOf_3.createc95file_4(
+                                                                                              env.filesystem,
+                                                                                              "Storage.rgr",
+                                                                                              (await (new Promise(resolve => { require('fs').readFile( "./lib/" + '/' + "Storage.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } )))
+                                                                                            );
+                                                                                            operatorsOf_3.createc95file_4(
+                                                                                              env.filesystem,
+                                                                                              "JSON.rgr",
+                                                                                              (await (new Promise(resolve => { require('fs').readFile( "./lib/" + '/' + "JSON.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } )))
+                                                                                            );
+                                                                                            operatorsOf_3.createc95file_4(
+                                                                                              env.filesystem,
+                                                                                              "hello_world.rgr",
+                                                                                              "\n\nclass tester {\n  static fn main () {\n    print \"Hello World!\"\n  }\n}\n\n    "
+                                                                                            );
+                                                                                            require("fs").writeFileSync( "." + "/"  + "compileEnv.js", "window._Ranger_compiler_environment_ = " + JSON.stringify(env.toDictionary()));
+                                                                                          };
+                                                                                          VirtualCompiler.displayCompilerErrorsWithCLI = function(appCtx, cli) {
+                                                                                            for ( const e of appCtx.compilerErrors) {
+                                                                                              const line_index = e.node.getLine();
+                                                                                              const col_index = e.node.code.getColumn(e.node.sp);
+                                                                                              const filename = e.node.getFilename();
+                                                                                              const lineContent = e.node.getLineString(line_index);
+                                                                                              let prevLine = "";
+                                                                                              let nextLine = "";
+                                                                                              if ( line_index > 0 ) {
+                                                                                                prevLine = e.node.getLineString((line_index - 1));
+                                                                                              }
+                                                                                              nextLine = e.node.getLineString((line_index + 1));
+                                                                                              cli.printCompilerError(
+                                                                                                filename,
+                                                                                                line_index + 1,
+                                                                                                col_index,
+                                                                                                e.description,
+                                                                                                lineContent,
+                                                                                                prevLine,
+                                                                                                nextLine
+                                                                                              );
+                                                                                            }
+                                                                                          };
+                                                                                          VirtualCompiler.displayCompilerErrors = function(appCtx) {
+                                                                                            const cons = new ColorConsole();
+                                                                                            for ( const e of appCtx.compilerErrors) {
+                                                                                              const line_index = e.node.getLine();
+                                                                                              cons.out("gray", (e.node.getFilename() + " Line: ") + (1 + line_index));
+                                                                                              cons.out("gray", e.description);
+                                                                                              cons.out("gray", e.node.getLineString(line_index));
+                                                                                              cons.out("", e.node.getColStartString() + "^-------");
+                                                                                            }
+                                                                                          };
+                                                                                          VirtualCompiler.displayParserErrors = function(appCtx) {
+                                                                                            if ( appCtx.parserErrors.length == 0 ) {
+                                                                                              return;
+                                                                                            }
+                                                                                            console.log("LANGUAGE TEST ERRORS:");
+                                                                                            for ( const e of appCtx.parserErrors) {
+                                                                                              const line_index = e.node.getLine();
+                                                                                              console.log((e.node.getFilename() + " Line: ") + (1 + line_index));
+                                                                                              console.log(e.description);
+                                                                                              console.log(e.node.getLineString(line_index));
+                                                                                            }
+                                                                                          };
+                                                                                          class CompilerInterface  {
+                                                                                            constructor() {
+                                                                                            }
+                                                                                          }
+                                                                                          CompilerInterface.create_env = function() {
+                                                                                            const env = new InputEnv();
+                                                                                            env.use_real = true;
+                                                                                            env.commandLine = new CmdParams();
+                                                                                            env.commandLine.collect();
+                                                                                            return env;
+                                                                                          };
+                                                                                          class operatorsOf  {
+                                                                                            constructor() {
+                                                                                            }
+                                                                                          }
+                                                                                          operatorsOf.forEach_2 = function(__self, cb) {
+                                                                                            for ( let i = 0; i < __self.length; i++) {
+                                                                                              var it = __self[i];
+                                                                                              cb(it, i);
+                                                                                            }
+                                                                                          };
+                                                                                          operatorsOf.filter_6 = function(__self, cb) {
+                                                                                            let res_1 = [];
+                                                                                            for ( let i_1 = 0; i_1 < __self.length; i_1++) {
+                                                                                              var it_1 = __self[i_1];
+                                                                                              if ( cb(it_1, i_1) ) {
+                                                                                                res_1.push(it_1);
+                                                                                              }
+                                                                                            }
+                                                                                            return res_1;
+                                                                                          };
+                                                                                          operatorsOf.filter_7 = function(__self, cb) {
+                                                                                            let res_2 = [];
+                                                                                            for ( let i_2 = 0; i_2 < __self.length; i_2++) {
+                                                                                              var it_2 = __self[i_2];
+                                                                                              if ( cb(it_2, i_2) ) {
+                                                                                                res_2.push(it_2);
+                                                                                              }
+                                                                                            }
+                                                                                            return res_2;
+                                                                                          };
+                                                                                          operatorsOf.forEach_10 = function(__self, cb) {
+                                                                                            for ( let i_4 = 0; i_4 < __self.length; i_4++) {
+                                                                                              var it_3 = __self[i_4];
+                                                                                              cb(it_3, i_4);
+                                                                                            }
+                                                                                          };
+                                                                                          operatorsOf.forEach_11 = function(__self, cb) {
+                                                                                            for ( let i_5 = 0; i_5 < __self.length; i_5++) {
+                                                                                              var it_4 = __self[i_5];
+                                                                                              cb(it_4, i_5);
+                                                                                            }
+                                                                                          };
+                                                                                          operatorsOf.forEach_12 = function(__self, cb) {
+                                                                                            for ( let i_6 = 0; i_6 < __self.length; i_6++) {
+                                                                                              var it_5 = __self[i_6];
+                                                                                              cb(it_5, i_6);
+                                                                                            }
+                                                                                          };
+                                                                                          operatorsOf.forEach_15 = function(__self, cb) {
+                                                                                            for ( let i_8 = 0; i_8 < __self.length; i_8++) {
+                                                                                              var it_6 = __self[i_8];
+                                                                                              cb(it_6, i_8);
+                                                                                            }
+                                                                                          };
+                                                                                          operatorsOf.forEach_17 = function(__self, cb) {
+                                                                                            for ( let i_10 = 0; i_10 < __self.length; i_10++) {
+                                                                                              var it_7 = __self[i_10];
+                                                                                              cb(it_7, i_10);
+                                                                                            }
+                                                                                          };
+                                                                                          operatorsOf.clone_18 = function(__self) {
+                                                                                            let res_5 = [];
+                                                                                            for ( const it_8 of __self) {
+                                                                                              res_5.push(it_8);
+                                                                                            }
+                                                                                            return res_5;
+                                                                                          };
+                                                                                          operatorsOf.forEach_29 = function(__self, cb) {
+                                                                                            for ( let i_15 = 0; i_15 < __self.length; i_15++) {
+                                                                                              var it_9 = __self[i_15];
+                                                                                              cb(it_9, i_15);
+                                                                                            }
+                                                                                          };
+                                                                                          operatorsOf.forEach_30 = function(__self, cb) {
+                                                                                            for ( let i_16 = 0; i_16 < __self.length; i_16++) {
+                                                                                              var it_10 = __self[i_16];
+                                                                                              cb(it_10, i_16);
+                                                                                            }
+                                                                                          };
+                                                                                          operatorsOf.filter_32 = function(__self, cb) {
+                                                                                            let res_6 = [];
+                                                                                            for ( let i_18 = 0; i_18 < __self.length; i_18++) {
+                                                                                              var it_11 = __self[i_18];
+                                                                                              if ( cb(it_11, i_18) ) {
+                                                                                                res_6.push(it_11);
+                                                                                              }
+                                                                                            }
+                                                                                            return res_6;
+                                                                                          };
+                                                                                          operatorsOf.filter_36 = function(__self, cb) {
+                                                                                            let res_7 = [];
+                                                                                            for ( let i_19 = 0; i_19 < __self.length; i_19++) {
+                                                                                              var it_12 = __self[i_19];
+                                                                                              if ( cb(it_12, i_19) ) {
+                                                                                                res_7.push(it_12);
+                                                                                              }
+                                                                                            }
+                                                                                            return res_7;
+                                                                                          };
+                                                                                          operatorsOf.forEach_37 = function(__self, cb) {
+                                                                                            for ( let i_20 = 0; i_20 < __self.length; i_20++) {
+                                                                                              var it_13 = __self[i_20];
+                                                                                              cb(it_13, i_20);
+                                                                                            }
+                                                                                          };
+                                                                                          operatorsOf.clone_40 = function(__self) {
+                                                                                            let res_8 = [];
+                                                                                            for ( const it_14 of __self) {
+                                                                                              res_8.push(it_14);
+                                                                                            }
+                                                                                            return res_8;
+                                                                                          };
+                                                                                          operatorsOf.map_41 = function(__self, cb) {
+                                                                                            const __len = __self.length;
+                                                                                            let res_9 = [];
+                                                                                            for ( let i_23 = 0; i_23 < __self.length; i_23++) {
+                                                                                              var it_15 = __self[i_23];
+                                                                                              res_9.push(cb(it_15, i_23));
+                                                                                            }
+                                                                                            return res_9;
+                                                                                          };
+                                                                                          operatorsOf.map_46 = function(__self, cb) {
+                                                                                            const len_1 = __self.length;
+                                                                                            let res_10 = [];
+                                                                                            for ( let i_25 = 0; i_25 < __self.length; i_25++) {
+                                                                                              var it_16 = __self[i_25];
+                                                                                              res_10.push(cb(it_16, i_25));
+                                                                                            }
+                                                                                            return res_10;
+                                                                                          };
+                                                                                          operatorsOf.map_47 = function(__self, cb) {
+                                                                                            const len_2 = __self.length;
+                                                                                            let res_11 = [];
+                                                                                            for ( let i_26 = 0; i_26 < __self.length; i_26++) {
+                                                                                              var it_17 = __self[i_26];
+                                                                                              res_11.push(cb(it_17, i_26));
+                                                                                            }
+                                                                                            return res_11;
+                                                                                          };
+                                                                                          operatorsOf.filter_48 = function(__self, cb) {
+                                                                                            let res_12 = [];
+                                                                                            for ( let i_27 = 0; i_27 < __self.length; i_27++) {
+                                                                                              var it_18 = __self[i_27];
+                                                                                              if ( cb(it_18, i_27) ) {
+                                                                                                res_12.push(it_18);
+                                                                                              }
+                                                                                            }
+                                                                                            return res_12;
+                                                                                          };
+                                                                                          operatorsOf.filter_52 = function(__self, cb) {
+                                                                                            let res_13 = [];
+                                                                                            for ( let i_29 = 0; i_29 < __self.length; i_29++) {
+                                                                                              var it_19 = __self[i_29];
+                                                                                              if ( cb(it_19, i_29) ) {
+                                                                                                res_13.push(it_19);
+                                                                                              }
+                                                                                            }
+                                                                                            return res_13;
+                                                                                          };
+                                                                                          operatorsOf.groupBy_53 = function(__self, cb) {
+                                                                                            let res_14 = [];
+                                                                                            let mapper = {};
+                                                                                            for ( const it_20 of __self) {
+                                                                                              const key = cb(it_20);
+                                                                                              if ( false == ( typeof(mapper[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(mapper, key) ) ) {
+                                                                                                res_14.push(it_20);
+                                                                                                mapper[key] = true;
+                                                                                              }
+                                                                                            }
+                                                                                            return res_14;
+                                                                                          };
+                                                                                          operatorsOf.clone_56 = function(__self) {
+                                                                                            let res_15 = [];
+                                                                                            for ( const it_21 of __self) {
+                                                                                              res_15.push(it_21);
+                                                                                            }
+                                                                                            return res_15;
+                                                                                          };
+                                                                                          class operatorsOfInputFSFolder_3  {
+                                                                                            constructor() {
+                                                                                            }
+                                                                                          }
+                                                                                          operatorsOfInputFSFolder_3.createc95file_4 = function(fs, name, data) {
+                                                                                            const f_1 = operatorsOf_3.createc95file_5(fs, name);
+                                                                                            if ( (typeof(f_1) !== "undefined" && f_1 != null )  ) {
+                                                                                              f_1.data = data;
+                                                                                            }
+                                                                                            return f_1;
+                                                                                          };
+                                                                                          class operatorsOf_3  {
+                                                                                            constructor() {
+                                                                                            }
+                                                                                          }
+                                                                                          operatorsOf_3.createc95file_5 = function(fs, name) {
+                                                                                            let res;
+                                                                                            const files = operatorsOf.filter_6(fs.files, ((item, index) => { 
+                                                                                              return item.name == name;
+                                                                                            }));
+                                                                                            const folders = operatorsOf.filter_7(fs.folders, ((item, index) => { 
+                                                                                              return item.name == name;
+                                                                                            }));
+                                                                                            if ( false == (folders.length > 0) ) {
+                                                                                              if ( files.length > 0 ) {
+                                                                                                res = files[0];
+                                                                                              } else {
+                                                                                                const f = new InputFSFile();
+                                                                                                f.name = name;
+                                                                                                fs.files.push(f);
+                                                                                                res = f;
+                                                                                              }
                                                                                             }
                                                                                             return res;
                                                                                           };
-                                                                                        }
-                                                                                        VirtualCompiler.create_env = async function() {
-                                                                                          const env = new InputEnv();
-                                                                                          env.filesystem = new InputFSFolder();
-                                                                                          env.commandLine = new CmdParams();
-                                                                                          operatorsOf_3.createc95file_4(
-                                                                                            env.filesystem,
-                                                                                            "Lang.rgr",
-                                                                                            (await (new Promise(resolve => { require('fs').readFile( "." + '/' + "Lang.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } )))
-                                                                                          );
-                                                                                          operatorsOf_3.createc95file_4(
-                                                                                            env.filesystem,
-                                                                                            "stdlib.rgr",
-                                                                                            (await (new Promise(resolve => { require('fs').readFile( "./lib/" + '/' + "stdlib.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } )))
-                                                                                          );
-                                                                                          operatorsOf_3.createc95file_4(
-                                                                                            env.filesystem,
-                                                                                            "stdops.rgr",
-                                                                                            (await (new Promise(resolve => { require('fs').readFile( "./lib/" + '/' + "stdops.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } )))
-                                                                                          );
-                                                                                          operatorsOf_3.createc95file_4(
-                                                                                            env.filesystem,
-                                                                                            "Timers.rgr",
-                                                                                            (await (new Promise(resolve => { require('fs').readFile( "./lib/" + '/' + "Timers.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } )))
-                                                                                          );
-                                                                                          operatorsOf_3.createc95file_4(
-                                                                                            env.filesystem,
-                                                                                            "DOMLib.rgr",
-                                                                                            (await (new Promise(resolve => { require('fs').readFile( "./lib/" + '/' + "DOMLib.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } )))
-                                                                                          );
-                                                                                          operatorsOf_3.createc95file_4(
-                                                                                            env.filesystem,
-                                                                                            "Ajax.rgr",
-                                                                                            (await (new Promise(resolve => { require('fs').readFile( "./lib/" + '/' + "Ajax.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } )))
-                                                                                          );
-                                                                                          operatorsOf_3.createc95file_4(
-                                                                                            env.filesystem,
-                                                                                            "Crypto.rgr",
-                                                                                            (await (new Promise(resolve => { require('fs').readFile( "./lib/" + '/' + "Crypto.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } )))
-                                                                                          );
-                                                                                          operatorsOf_3.createc95file_4(
-                                                                                            env.filesystem,
-                                                                                            "Engine3D.rgr",
-                                                                                            (await (new Promise(resolve => { require('fs').readFile( "./lib/" + '/' + "Engine3D.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } )))
-                                                                                          );
-                                                                                          operatorsOf_3.createc95file_4(
-                                                                                            env.filesystem,
-                                                                                            "Storage.rgr",
-                                                                                            (await (new Promise(resolve => { require('fs').readFile( "./lib/" + '/' + "Storage.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } )))
-                                                                                          );
-                                                                                          operatorsOf_3.createc95file_4(
-                                                                                            env.filesystem,
-                                                                                            "JSON.rgr",
-                                                                                            (await (new Promise(resolve => { require('fs').readFile( "./lib/" + '/' + "JSON.rgr" , 'utf8', (err,data)=>{ resolve(data) }) } )))
-                                                                                          );
-                                                                                          operatorsOf_3.createc95file_4(
-                                                                                            env.filesystem,
-                                                                                            "hello_world.rgr",
-                                                                                            "\n\nclass tester {\n  static fn main () {\n    print \"Hello World!\"\n  }\n}\n\n    "
-                                                                                          );
-                                                                                          require("fs").writeFileSync( "." + "/"  + "compileEnv.js", "window._Ranger_compiler_environment_ = " + JSON.stringify(env.toDictionary()));
-                                                                                        };
-                                                                                        VirtualCompiler.displayCompilerErrorsWithCLI = function(appCtx, cli) {
-                                                                                          for ( const e of appCtx.compilerErrors) {
-                                                                                            const line_index = e.node.getLine();
-                                                                                            const col_index = e.node.code.getColumn(e.node.sp);
-                                                                                            const filename = e.node.getFilename();
-                                                                                            const lineContent = e.node.getLineString(line_index);
-                                                                                            let prevLine = "";
-                                                                                            let nextLine = "";
-                                                                                            if ( line_index > 0 ) {
-                                                                                              prevLine = e.node.getLineString((line_index - 1));
+                                                                                          operatorsOf_3.createc95file_4 = function(fs, name, data) {
+                                                                                            const f_2 = operatorsOf_3.createc95file_5(fs, name);
+                                                                                            if ( (typeof(f_2) !== "undefined" && f_2 != null )  ) {
+                                                                                              f_2.data = data;
                                                                                             }
-                                                                                            nextLine = e.node.getLineString((line_index + 1));
-                                                                                            cli.printCompilerError(
-                                                                                              filename,
-                                                                                              line_index + 1,
-                                                                                              col_index,
-                                                                                              e.description,
-                                                                                              lineContent,
-                                                                                              prevLine,
-                                                                                              nextLine
-                                                                                            );
-                                                                                          }
-                                                                                        };
-                                                                                        VirtualCompiler.displayCompilerErrors = function(appCtx) {
-                                                                                          const cons = new ColorConsole();
-                                                                                          for ( const e of appCtx.compilerErrors) {
-                                                                                            const line_index = e.node.getLine();
-                                                                                            cons.out("gray", (e.node.getFilename() + " Line: ") + (1 + line_index));
-                                                                                            cons.out("gray", e.description);
-                                                                                            cons.out("gray", e.node.getLineString(line_index));
-                                                                                            cons.out("", e.node.getColStartString() + "^-------");
-                                                                                          }
-                                                                                        };
-                                                                                        VirtualCompiler.displayParserErrors = function(appCtx) {
-                                                                                          if ( appCtx.parserErrors.length == 0 ) {
-                                                                                            return;
-                                                                                          }
-                                                                                          console.log("LANGUAGE TEST ERRORS:");
-                                                                                          for ( const e of appCtx.parserErrors) {
-                                                                                            const line_index = e.node.getLine();
-                                                                                            console.log((e.node.getFilename() + " Line: ") + (1 + line_index));
-                                                                                            console.log(e.description);
-                                                                                            console.log(e.node.getLineString(line_index));
-                                                                                          }
-                                                                                        };
-                                                                                        class CompilerInterface  {
-                                                                                          constructor() {
-                                                                                          }
-                                                                                        }
-                                                                                        CompilerInterface.create_env = function() {
-                                                                                          const env = new InputEnv();
-                                                                                          env.use_real = true;
-                                                                                          env.commandLine = new CmdParams();
-                                                                                          env.commandLine.collect();
-                                                                                          return env;
-                                                                                        };
-                                                                                        class operatorsOf  {
-                                                                                          constructor() {
-                                                                                          }
-                                                                                        }
-                                                                                        operatorsOf.forEach_2 = function(__self, cb) {
-                                                                                          for ( let i = 0; i < __self.length; i++) {
-                                                                                            var it = __self[i];
-                                                                                            cb(it, i);
-                                                                                          }
-                                                                                        };
-                                                                                        operatorsOf.filter_6 = function(__self, cb) {
-                                                                                          let res_1 = [];
-                                                                                          for ( let i_1 = 0; i_1 < __self.length; i_1++) {
-                                                                                            var it_1 = __self[i_1];
-                                                                                            if ( cb(it_1, i_1) ) {
-                                                                                              res_1.push(it_1);
-                                                                                            }
-                                                                                          }
-                                                                                          return res_1;
-                                                                                        };
-                                                                                        operatorsOf.filter_7 = function(__self, cb) {
-                                                                                          let res_2 = [];
-                                                                                          for ( let i_2 = 0; i_2 < __self.length; i_2++) {
-                                                                                            var it_2 = __self[i_2];
-                                                                                            if ( cb(it_2, i_2) ) {
-                                                                                              res_2.push(it_2);
-                                                                                            }
-                                                                                          }
-                                                                                          return res_2;
-                                                                                        };
-                                                                                        operatorsOf.forEach_10 = function(__self, cb) {
-                                                                                          for ( let i_4 = 0; i_4 < __self.length; i_4++) {
-                                                                                            var it_3 = __self[i_4];
-                                                                                            cb(it_3, i_4);
-                                                                                          }
-                                                                                        };
-                                                                                        operatorsOf.forEach_11 = function(__self, cb) {
-                                                                                          for ( let i_5 = 0; i_5 < __self.length; i_5++) {
-                                                                                            var it_4 = __self[i_5];
-                                                                                            cb(it_4, i_5);
-                                                                                          }
-                                                                                        };
-                                                                                        operatorsOf.forEach_12 = function(__self, cb) {
-                                                                                          for ( let i_6 = 0; i_6 < __self.length; i_6++) {
-                                                                                            var it_5 = __self[i_6];
-                                                                                            cb(it_5, i_6);
-                                                                                          }
-                                                                                        };
-                                                                                        operatorsOf.forEach_15 = function(__self, cb) {
-                                                                                          for ( let i_8 = 0; i_8 < __self.length; i_8++) {
-                                                                                            var it_6 = __self[i_8];
-                                                                                            cb(it_6, i_8);
-                                                                                          }
-                                                                                        };
-                                                                                        operatorsOf.forEach_17 = function(__self, cb) {
-                                                                                          for ( let i_10 = 0; i_10 < __self.length; i_10++) {
-                                                                                            var it_7 = __self[i_10];
-                                                                                            cb(it_7, i_10);
-                                                                                          }
-                                                                                        };
-                                                                                        operatorsOf.clone_18 = function(__self) {
-                                                                                          let res_5 = [];
-                                                                                          for ( const it_8 of __self) {
-                                                                                            res_5.push(it_8);
-                                                                                          }
-                                                                                          return res_5;
-                                                                                        };
-                                                                                        operatorsOf.forEach_29 = function(__self, cb) {
-                                                                                          for ( let i_15 = 0; i_15 < __self.length; i_15++) {
-                                                                                            var it_9 = __self[i_15];
-                                                                                            cb(it_9, i_15);
-                                                                                          }
-                                                                                        };
-                                                                                        operatorsOf.forEach_30 = function(__self, cb) {
-                                                                                          for ( let i_16 = 0; i_16 < __self.length; i_16++) {
-                                                                                            var it_10 = __self[i_16];
-                                                                                            cb(it_10, i_16);
-                                                                                          }
-                                                                                        };
-                                                                                        operatorsOf.filter_32 = function(__self, cb) {
-                                                                                          let res_6 = [];
-                                                                                          for ( let i_18 = 0; i_18 < __self.length; i_18++) {
-                                                                                            var it_11 = __self[i_18];
-                                                                                            if ( cb(it_11, i_18) ) {
-                                                                                              res_6.push(it_11);
-                                                                                            }
-                                                                                          }
-                                                                                          return res_6;
-                                                                                        };
-                                                                                        operatorsOf.filter_36 = function(__self, cb) {
-                                                                                          let res_7 = [];
-                                                                                          for ( let i_19 = 0; i_19 < __self.length; i_19++) {
-                                                                                            var it_12 = __self[i_19];
-                                                                                            if ( cb(it_12, i_19) ) {
-                                                                                              res_7.push(it_12);
-                                                                                            }
-                                                                                          }
-                                                                                          return res_7;
-                                                                                        };
-                                                                                        operatorsOf.forEach_37 = function(__self, cb) {
-                                                                                          for ( let i_20 = 0; i_20 < __self.length; i_20++) {
-                                                                                            var it_13 = __self[i_20];
-                                                                                            cb(it_13, i_20);
-                                                                                          }
-                                                                                        };
-                                                                                        operatorsOf.clone_40 = function(__self) {
-                                                                                          let res_8 = [];
-                                                                                          for ( const it_14 of __self) {
-                                                                                            res_8.push(it_14);
-                                                                                          }
-                                                                                          return res_8;
-                                                                                        };
-                                                                                        operatorsOf.map_41 = function(__self, cb) {
-                                                                                          const __len = __self.length;
-                                                                                          let res_9 = [];
-                                                                                          for ( let i_23 = 0; i_23 < __self.length; i_23++) {
-                                                                                            var it_15 = __self[i_23];
-                                                                                            res_9.push(cb(it_15, i_23));
-                                                                                          }
-                                                                                          return res_9;
-                                                                                        };
-                                                                                        operatorsOf.map_46 = function(__self, cb) {
-                                                                                          const len_1 = __self.length;
-                                                                                          let res_10 = [];
-                                                                                          for ( let i_25 = 0; i_25 < __self.length; i_25++) {
-                                                                                            var it_16 = __self[i_25];
-                                                                                            res_10.push(cb(it_16, i_25));
-                                                                                          }
-                                                                                          return res_10;
-                                                                                        };
-                                                                                        operatorsOf.map_47 = function(__self, cb) {
-                                                                                          const len_2 = __self.length;
-                                                                                          let res_11 = [];
-                                                                                          for ( let i_26 = 0; i_26 < __self.length; i_26++) {
-                                                                                            var it_17 = __self[i_26];
-                                                                                            res_11.push(cb(it_17, i_26));
-                                                                                          }
-                                                                                          return res_11;
-                                                                                        };
-                                                                                        operatorsOf.filter_48 = function(__self, cb) {
-                                                                                          let res_12 = [];
-                                                                                          for ( let i_27 = 0; i_27 < __self.length; i_27++) {
-                                                                                            var it_18 = __self[i_27];
-                                                                                            if ( cb(it_18, i_27) ) {
-                                                                                              res_12.push(it_18);
-                                                                                            }
-                                                                                          }
-                                                                                          return res_12;
-                                                                                        };
-                                                                                        operatorsOf.filter_52 = function(__self, cb) {
-                                                                                          let res_13 = [];
-                                                                                          for ( let i_29 = 0; i_29 < __self.length; i_29++) {
-                                                                                            var it_19 = __self[i_29];
-                                                                                            if ( cb(it_19, i_29) ) {
-                                                                                              res_13.push(it_19);
-                                                                                            }
-                                                                                          }
-                                                                                          return res_13;
-                                                                                        };
-                                                                                        operatorsOf.groupBy_53 = function(__self, cb) {
-                                                                                          let res_14 = [];
-                                                                                          let mapper = {};
-                                                                                          for ( const it_20 of __self) {
-                                                                                            const key = cb(it_20);
-                                                                                            if ( false == ( typeof(mapper[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(mapper, key) ) ) {
-                                                                                              res_14.push(it_20);
-                                                                                              mapper[key] = true;
-                                                                                            }
-                                                                                          }
-                                                                                          return res_14;
-                                                                                        };
-                                                                                        operatorsOf.clone_56 = function(__self) {
-                                                                                          let res_15 = [];
-                                                                                          for ( const it_21 of __self) {
-                                                                                            res_15.push(it_21);
-                                                                                          }
-                                                                                          return res_15;
-                                                                                        };
-                                                                                        class operatorsOfInputFSFolder_3  {
-                                                                                          constructor() {
-                                                                                          }
-                                                                                        }
-                                                                                        operatorsOfInputFSFolder_3.createc95file_4 = function(fs, name, data) {
-                                                                                          const f_1 = operatorsOf_3.createc95file_5(fs, name);
-                                                                                          if ( (typeof(f_1) !== "undefined" && f_1 != null )  ) {
-                                                                                            f_1.data = data;
-                                                                                          }
-                                                                                          return f_1;
-                                                                                        };
-                                                                                        class operatorsOf_3  {
-                                                                                          constructor() {
-                                                                                          }
-                                                                                        }
-                                                                                        operatorsOf_3.createc95file_5 = function(fs, name) {
-                                                                                          let res;
-                                                                                          const files = operatorsOf.filter_6(fs.files, ((item, index) => { 
-                                                                                            return item.name == name;
-                                                                                          }));
-                                                                                          const folders = operatorsOf.filter_7(fs.folders, ((item, index) => { 
-                                                                                            return item.name == name;
-                                                                                          }));
-                                                                                          if ( false == (folders.length > 0) ) {
-                                                                                            if ( files.length > 0 ) {
-                                                                                              res = files[0];
-                                                                                            } else {
-                                                                                              const f = new InputFSFile();
-                                                                                              f.name = name;
-                                                                                              fs.files.push(f);
-                                                                                              res = f;
-                                                                                            }
-                                                                                          }
-                                                                                          return res;
-                                                                                        };
-                                                                                        operatorsOf_3.createc95file_4 = function(fs, name, data) {
-                                                                                          const f_2 = operatorsOf_3.createc95file_5(fs, name);
-                                                                                          if ( (typeof(f_2) !== "undefined" && f_2 != null )  ) {
-                                                                                            f_2.data = data;
-                                                                                          }
-                                                                                          return f_2;
-                                                                                        };
-                                                                                        operatorsOf_3.createc95folder_5 = function(fs, name) {
-                                                                                          let res_3;
-                                                                                          const files_1 = operatorsOf.filter_6(fs.files, ((item, index) => { 
-                                                                                            return item.name == name;
-                                                                                          }));
-                                                                                          const folders_1 = operatorsOf.filter_7(fs.folders, ((item, index) => { 
-                                                                                            return item.name == name;
-                                                                                          }));
-                                                                                          if ( false == (files_1.length > 0) ) {
-                                                                                            if ( folders_1.length > 0 ) {
-                                                                                              res_3 = folders_1[0];
-                                                                                            } else {
-                                                                                              const f_3 = new InputFSFolder();
-                                                                                              f_3.name = name;
-                                                                                              fs.folders.push(f_3);
-                                                                                              res_3 = f_3;
-                                                                                            }
-                                                                                          }
-                                                                                          return res_3;
-                                                                                        };
-                                                                                        class operatorsOfInputEnv_8  {
-                                                                                          constructor() {
-                                                                                          }
-                                                                                        }
-                                                                                        operatorsOfInputEnv_8.readc95file_9 = function(env, path, name) {
-                                                                                          if ( env.use_real ) {
-                                                                                            return (() => { try { return require('fs').readFileSync( path + '/' + name , 'utf8'); } catch (e) { return undefined; } })();
-                                                                                          }
-                                                                                          let resStr;
-                                                                                          const f_4 = operatorsOf_8.findc95file_9(
-                                                                                            env,
-                                                                                            path,
-                                                                                            name
-                                                                                          );
-                                                                                          if ( (typeof(f_4) !== "undefined" && f_4 != null )  ) {
-                                                                                            resStr = f_4.data;
-                                                                                            return resStr;
-                                                                                          }
-                                                                                          if ( typeof(env.resolver) === "undefined" ) {
-                                                                                            return resStr;
-                                                                                          }
-                                                                                          const r = env.resolver;
-                                                                                          return r.tryRead(path, name);
-                                                                                        };
-                                                                                        class operatorsOf_8  {
-                                                                                          constructor() {
-                                                                                          }
-                                                                                        }
-                                                                                        operatorsOf_8.findc95file_9 = function(env, path, name) {
-                                                                                          let res_4;
-                                                                                          if ( path == "/" ) {
-                                                                                            const files_2 = operatorsOf.filter_6(env.filesystem.files, ((item, index) => { 
+                                                                                            return f_2;
+                                                                                          };
+                                                                                          operatorsOf_3.createc95folder_5 = function(fs, name) {
+                                                                                            let res_3;
+                                                                                            const files_1 = operatorsOf.filter_6(fs.files, ((item, index) => { 
                                                                                               return item.name == name;
                                                                                             }));
-                                                                                            if ( files_2.length > 0 ) {
-                                                                                              res_4 = files_2[0];
+                                                                                            const folders_1 = operatorsOf.filter_7(fs.folders, ((item, index) => { 
+                                                                                              return item.name == name;
+                                                                                            }));
+                                                                                            if ( false == (files_1.length > 0) ) {
+                                                                                              if ( folders_1.length > 0 ) {
+                                                                                                res_3 = folders_1[0];
+                                                                                              } else {
+                                                                                                const f_3 = new InputFSFolder();
+                                                                                                f_3.name = name;
+                                                                                                fs.folders.push(f_3);
+                                                                                                res_3 = f_3;
+                                                                                              }
+                                                                                            }
+                                                                                            return res_3;
+                                                                                          };
+                                                                                          class operatorsOfInputEnv_8  {
+                                                                                            constructor() {
+                                                                                            }
+                                                                                          }
+                                                                                          operatorsOfInputEnv_8.readc95file_9 = function(env, path, name) {
+                                                                                            if ( env.use_real ) {
+                                                                                              return (() => { try { return require('fs').readFileSync( path + '/' + name , 'utf8'); } catch (e) { return undefined; } })();
+                                                                                            }
+                                                                                            let resStr;
+                                                                                            const f_4 = operatorsOf_8.findc95file_9(
+                                                                                              env,
+                                                                                              path,
+                                                                                              name
+                                                                                            );
+                                                                                            if ( (typeof(f_4) !== "undefined" && f_4 != null )  ) {
+                                                                                              resStr = f_4.data;
+                                                                                              return resStr;
+                                                                                            }
+                                                                                            if ( typeof(env.resolver) === "undefined" ) {
+                                                                                              return resStr;
+                                                                                            }
+                                                                                            const r = env.resolver;
+                                                                                            return r.tryRead(path, name);
+                                                                                          };
+                                                                                          class operatorsOf_8  {
+                                                                                            constructor() {
+                                                                                            }
+                                                                                          }
+                                                                                          operatorsOf_8.findc95file_9 = function(env, path, name) {
+                                                                                            let res_4;
+                                                                                            if ( path == "/" ) {
+                                                                                              const files_2 = operatorsOf.filter_6(env.filesystem.files, ((item, index) => { 
+                                                                                                return item.name == name;
+                                                                                              }));
+                                                                                              if ( files_2.length > 0 ) {
+                                                                                                res_4 = files_2[0];
+                                                                                              }
+                                                                                              return res_4;
+                                                                                            }
+                                                                                            const parts = path.split("/");
+                                                                                            let fold = env.filesystem;
+                                                                                            let i_3 = 0;
+                                                                                            while (parts.length > i_3 && ((typeof(fold) !== "undefined" && fold != null ) )) {
+                                                                                              const pathName = parts[i_3];
+                                                                                              if ( pathName.length > 0 ) {
+                                                                                                const folder = operatorsOf.filter_7(fold.folders, ((item, index) => { 
+                                                                                                  return item.name == pathName;
+                                                                                                }));
+                                                                                                if ( folder.length > 0 ) {
+                                                                                                  fold = folder[0];
+                                                                                                } else {
+                                                                                                  return res_4;
+                                                                                                }
+                                                                                              }
+                                                                                              i_3 = i_3 + 1;
+                                                                                            };
+                                                                                            if ( (typeof(fold) !== "undefined" && fold != null )  ) {
+                                                                                              const files_3 = operatorsOf.filter_6(fold.files, ((item, index) => { 
+                                                                                                return item.name == name;
+                                                                                              }));
+                                                                                              if ( files_3.length > 0 ) {
+                                                                                                res_4 = files_3[0];
+                                                                                              }
                                                                                             }
                                                                                             return res_4;
-                                                                                          }
-                                                                                          const parts = path.split("/");
-                                                                                          let fold = env.filesystem;
-                                                                                          let i_3 = 0;
-                                                                                          while (parts.length > i_3 && ((typeof(fold) !== "undefined" && fold != null ) )) {
-                                                                                            const pathName = parts[i_3];
-                                                                                            if ( pathName.length > 0 ) {
-                                                                                              const folder = operatorsOf.filter_7(fold.folders, ((item, index) => { 
-                                                                                                return item.name == pathName;
-                                                                                              }));
-                                                                                              if ( folder.length > 0 ) {
-                                                                                                fold = folder[0];
-                                                                                              } else {
-                                                                                                return res_4;
-                                                                                              }
-                                                                                            }
-                                                                                            i_3 = i_3 + 1;
                                                                                           };
-                                                                                          if ( (typeof(fold) !== "undefined" && fold != null )  ) {
-                                                                                            const files_3 = operatorsOf.filter_6(fold.files, ((item, index) => { 
-                                                                                              return item.name == name;
-                                                                                            }));
-                                                                                            if ( files_3.length > 0 ) {
-                                                                                              res_4 = files_3[0];
+                                                                                          operatorsOf_8.readc95file_9 = function(env, path, name) {
+                                                                                            if ( env.use_real ) {
+                                                                                              return (() => { try { return require('fs').readFileSync( path + '/' + name , 'utf8'); } catch (e) { return undefined; } })();
                                                                                             }
-                                                                                          }
-                                                                                          return res_4;
-                                                                                        };
-                                                                                        operatorsOf_8.readc95file_9 = function(env, path, name) {
-                                                                                          if ( env.use_real ) {
-                                                                                            return (() => { try { return require('fs').readFileSync( path + '/' + name , 'utf8'); } catch (e) { return undefined; } })();
-                                                                                          }
-                                                                                          let resStr_1;
-                                                                                          const f_5 = operatorsOf_8.findc95file_9(
-                                                                                            env,
-                                                                                            path,
-                                                                                            name
-                                                                                          );
-                                                                                          if ( (typeof(f_5) !== "undefined" && f_5 != null )  ) {
-                                                                                            resStr_1 = f_5.data;
-                                                                                            return resStr_1;
-                                                                                          }
-                                                                                          if ( typeof(env.resolver) === "undefined" ) {
-                                                                                            return resStr_1;
-                                                                                          }
-                                                                                          const r_1 = env.resolver;
-                                                                                          return r_1.tryRead(path, name);
-                                                                                        };
-                                                                                        operatorsOf_8.filec95exists_9 = function(env, path, name) {
-                                                                                          if ( env.use_real ) {
-                                                                                            return require("fs").existsSync(path + "/" + name );
-                                                                                          }
-                                                                                          const fo = operatorsOf_8.findc95file_9(
-                                                                                            env,
-                                                                                            path,
-                                                                                            name
-                                                                                          );
-                                                                                          if ( (typeof(fo) !== "undefined" && fo != null )  ) {
-                                                                                            return true;
-                                                                                          }
-                                                                                          if ( typeof(env.resolver) === "undefined" ) {
-                                                                                            return false;
-                                                                                          }
-                                                                                          const r_2 = env.resolver;
-                                                                                          return r_2.exists(path, name);
-                                                                                        };
-                                                                                        operatorsOf_8.installc95directory_51 = function(env) {
-                                                                                          if ( env.use_real ) {
-                                                                                            return __dirname;
-                                                                                          }
-                                                                                          return "/";
-                                                                                        };
-                                                                                        operatorsOf_8.envc95var_54 = function(env, name) {
-                                                                                          if ( env.use_real ) {
-                                                                                            if ( ( typeof(env.envVars[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(env.envVars, name) ) ) {
-                                                                                              return ( Object.prototype.hasOwnProperty.call(env.envVars, name) ? env.envVars[name] : undefined );
-                                                                                            }
-                                                                                            const ev = process.env[name];
-                                                                                            if ( (typeof(ev) !== "undefined" && ev != null )  ) {
-                                                                                              return ev;
-                                                                                            }
-                                                                                            return "";
-                                                                                          }
-                                                                                          return (( Object.prototype.hasOwnProperty.call(env.envVars, name) ? env.envVars[name] : undefined ) ?? "");
-                                                                                        };
-                                                                                        operatorsOf_8.currentc95directory_51 = function(env) {
-                                                                                          if ( env.use_real ) {
-                                                                                            return process.cwd();
-                                                                                          }
-                                                                                          return "/";
-                                                                                        };
-                                                                                        class operatorsOf_13  {
-                                                                                          constructor() {
-                                                                                          }
-                                                                                        }
-                                                                                        operatorsOf_13.forEach_14 = function(__self, cb) {
-                                                                                          const list = Object.keys(__self);
-                                                                                          for ( const kk of list) {
-                                                                                            const value = ( Object.prototype.hasOwnProperty.call(__self, kk) ? __self[kk] : undefined );
-                                                                                            cb(value, kk);
-                                                                                          }
-                                                                                        };
-                                                                                        operatorsOf_13.forEach_16 = function(__self, cb) {
-                                                                                          const list_1 = Object.keys(__self);
-                                                                                          for ( const kk_1 of list_1) {
-                                                                                            const value_1 = ( Object.prototype.hasOwnProperty.call(__self, kk_1) ? __self[kk_1] : undefined );
-                                                                                            cb(value_1, kk_1);
-                                                                                          }
-                                                                                        };
-                                                                                        operatorsOf_13.forEach_19 = function(__self, cb) {
-                                                                                          const list_2 = Object.keys(__self);
-                                                                                          for ( const kk_2 of list_2) {
-                                                                                            const value_2 = ( Object.prototype.hasOwnProperty.call(__self, kk_2) ? __self[kk_2] : undefined );
-                                                                                            cb(value_2, kk_2);
-                                                                                          }
-                                                                                        };
-                                                                                        operatorsOf_13.forEach_20 = function(__self, cb) {
-                                                                                          const list_3 = Object.keys(__self);
-                                                                                          for ( const kk_3 of list_3) {
-                                                                                            const value_3 = ( Object.prototype.hasOwnProperty.call(__self, kk_3) ? __self[kk_3] : undefined );
-                                                                                            cb(value_3, kk_3);
-                                                                                          }
-                                                                                        };
-                                                                                        operatorsOf_13.forEach_25 = function(__self, cb) {
-                                                                                          const list_4 = Object.keys(__self);
-                                                                                          for ( const kk_4 of list_4) {
-                                                                                            const value_4 = ( Object.prototype.hasOwnProperty.call(__self, kk_4) ? __self[kk_4] : undefined );
-                                                                                            cb(value_4, kk_4);
-                                                                                          }
-                                                                                        };
-                                                                                        operatorsOf_13.forEach_31 = function(__self, cb) {
-                                                                                          const list_5 = Object.keys(__self);
-                                                                                          for ( const kk_5 of list_5) {
-                                                                                            const value_5 = ( Object.prototype.hasOwnProperty.call(__self, kk_5) ? __self[kk_5] : undefined );
-                                                                                            cb(value_5, kk_5);
-                                                                                          }
-                                                                                        };
-                                                                                        operatorsOf_13.forEach_42 = function(__self, cb) {
-                                                                                          const list_6 = Object.keys(__self);
-                                                                                          for ( const kk_6 of list_6) {
-                                                                                            const value_6 = ( Object.prototype.hasOwnProperty.call(__self, kk_6) ? __self[kk_6] : undefined );
-                                                                                            cb(value_6, kk_6);
-                                                                                          }
-                                                                                        };
-                                                                                        operatorsOf_13.forEach_55 = function(__self, cb) {
-                                                                                          const list_7 = Object.keys(__self);
-                                                                                          for ( const kk_7 of list_7) {
-                                                                                            const value_7 = ( Object.prototype.hasOwnProperty.call(__self, kk_7) ? __self[kk_7] : undefined );
-                                                                                            cb(value_7, kk_7);
-                                                                                          }
-                                                                                        };
-                                                                                        class operatorsOfchar_21  {
-                                                                                          constructor() {
-                                                                                          }
-                                                                                        }
-                                                                                        operatorsOfchar_21.isc95notc95limiter_22 = function(c) {
-                                                                                          return ((((c > 32 && c != (59)) && c != (41)) && c != (40)) && c != (125)) && c != (44);
-                                                                                        };
-                                                                                        class operatorsOfRangerAppWriterContext_23  {
-                                                                                          constructor() {
-                                                                                          }
-                                                                                        }
-                                                                                        operatorsOfRangerAppWriterContext_23.getTargetLang_24 = function(__self) {
-                                                                                          if ( __self.targetLangName.length > 0 ) {
-                                                                                            return __self.targetLangName;
-                                                                                          }
-                                                                                          if ( typeof(__self.parent) != "undefined" ) {
-                                                                                            return operatorsOf_23.getTargetLang_24(__self.parent);
-                                                                                          }
-                                                                                          return "ranger";
-                                                                                        };
-                                                                                        class operatorsOf_23  {
-                                                                                          constructor() {
-                                                                                          }
-                                                                                        }
-                                                                                        operatorsOf_23.getTargetLang_24 = function(__self) {
-                                                                                          if ( __self.targetLangName.length > 0 ) {
-                                                                                            return __self.targetLangName;
-                                                                                          }
-                                                                                          if ( typeof(__self.parent) != "undefined" ) {
-                                                                                            return operatorsOf_23.getTargetLang_24(__self.parent);
-                                                                                          }
-                                                                                          return "ranger";
-                                                                                        };
-                                                                                        operatorsOf_23.addUsage_28 = function(__self, cn) {
-                                                                                          const ctx = __self;
-                                                                                          const currM = ctx.getCurrentMethod();
-                                                                                          if ( ctx.isDefinedClass(cn.type_name) ) {
-                                                                                            const cl = ctx.findClass(cn.type_name);
-                                                                                            currM.addClassUsage(cl, ctx);
-                                                                                          }
-                                                                                          if ( ctx.isDefinedClass(cn.eval_type_name) ) {
-                                                                                            const cl_1 = ctx.findClass(cn.eval_type_name);
-                                                                                            currM.addClassUsage(cl_1, ctx);
-                                                                                          }
-                                                                                          if ( ctx.isDefinedClass(cn.eval_array_type) ) {
-                                                                                            const cl_2 = ctx.findClass(cn.eval_array_type);
-                                                                                            currM.addClassUsage(cl_2, ctx);
-                                                                                          }
-                                                                                        };
-                                                                                        operatorsOf_23.getActiveTransaction_24 = function(c) {
-                                                                                          let rValue;
-                                                                                          if ( c.activeTransaction.length > 0 ) {
-                                                                                            rValue = c.activeTransaction[(c.activeTransaction.length - 1)];
-                                                                                          } else {
-                                                                                            if ( (typeof(c.parent) !== "undefined" && c.parent != null )  ) {
-                                                                                              return operatorsOf_23.getActiveTransaction_24(c.parent);
-                                                                                            }
-                                                                                          }
-                                                                                          return rValue;
-                                                                                        };
-                                                                                        operatorsOf_23.createc95var_49 = function(__self, name, type_name) {
-                                                                                          const fieldNode = CodeNode.vref2(name, type_name);
-                                                                                          fieldNode.value_type = fieldNode.typeNameAsType(__self);
-                                                                                          const p_2 = new RangerAppParamDesc();
-                                                                                          p_2.name = name;
-                                                                                          p_2.value_type = fieldNode.value_type;
-                                                                                          p_2.node = fieldNode;
-                                                                                          p_2.nameNode = fieldNode;
-                                                                                          p_2.is_optional = false;
-                                                                                          __self.defineVariable(p_2.name, p_2);
-                                                                                          return p_2;
-                                                                                        };
-                                                                                        operatorsOf_23.createc95var_50 = function(__self, name, usingNode) {
-                                                                                          const fieldNode_1 = CodeNode.vref1(name);
-                                                                                          const p_3 = new RangerAppParamDesc();
-                                                                                          p_3.name = name;
-                                                                                          p_3.value_type = usingNode.value_type;
-                                                                                          p_3.node = usingNode;
-                                                                                          p_3.nameNode = usingNode;
-                                                                                          p_3.is_optional = false;
-                                                                                          __self.defineVariable(p_3.name, p_3);
-                                                                                          return p_3;
-                                                                                        };
-                                                                                        class operatorsOfRangerFlowParser_26  {
-                                                                                          constructor() {
-                                                                                          }
-                                                                                        }
-                                                                                        operatorsOfRangerFlowParser_26.EnterVarDef_27 = function(__self, node, ctx, wr) {
-                                                                                          if ( ctx.isInMethod() ) {
-                                                                                            if ( node.children.length < 2 ) {
-                                                                                              ctx.addError(node, "invalid variable definition");
-                                                                                              return;
-                                                                                            }
-                                                                                            const tName = node.getSecond();
-                                                                                            __self.CheckTypeAnnotationOf(
-                                                                                              tName,
-                                                                                              ctx,
-                                                                                              wr
+                                                                                            let resStr_1;
+                                                                                            const f_5 = operatorsOf_8.findc95file_9(
+                                                                                              env,
+                                                                                              path,
+                                                                                              name
                                                                                             );
-                                                                                            if ( tName.expression && tName.vref.length == 0 ) {
-                                                                                              node.children.splice(1, 1);
-                                                                                              operatorsOf.forEach_15(tName.children, ((item, index) => { 
-                                                                                                if ( index == 1 ) {
-                                                                                                  if ( item.expression ) {
-                                                                                                    node.children.push(item.children[0].copy());
-                                                                                                  } else {
-                                                                                                    node.children.push(item.copy());
-                                                                                                  }
-                                                                                                }
-                                                                                                if ( index > 1 ) {
-                                                                                                  node.children.push(item.copy());
-                                                                                                }
-                                                                                              }));
+                                                                                            if ( (typeof(f_5) !== "undefined" && f_5 != null )  ) {
+                                                                                              resStr_1 = f_5.data;
+                                                                                              return resStr_1;
                                                                                             }
-                                                                                            if ( node.children.length > 3 ) {
-                                                                                              ctx.addError(node, "invalid variable definition");
-                                                                                              return;
+                                                                                            if ( typeof(env.resolver) === "undefined" ) {
+                                                                                              return resStr_1;
                                                                                             }
-                                                                                            const cn = node.children[1];
-                                                                                            const p = new RangerAppParamDesc();
-                                                                                            let defaultArg;
-                                                                                            let is_immutable = false;
-                                                                                            cn.definedTypeClass = TFactory.new_def_signature(
-                                                                                              cn,
-                                                                                              ctx,
-                                                                                              wr
+                                                                                            const r_1 = env.resolver;
+                                                                                            return r_1.tryRead(path, name);
+                                                                                          };
+                                                                                          operatorsOf_8.filec95exists_9 = function(env, path, name) {
+                                                                                            if ( env.use_real ) {
+                                                                                              return require("fs").existsSync(path + "/" + name );
+                                                                                            }
+                                                                                            const fo = operatorsOf_8.findc95file_9(
+                                                                                              env,
+                                                                                              path,
+                                                                                              name
                                                                                             );
-                                                                                            if ( node.children.length == 2 ) {
-                                                                                              if ( cn.value_type != 6 && cn.value_type != 7 ) {
-                                                                                                if ( false == cn.hasFlag("unwrap") ) {
-                                                                                                  cn.setFlag("optional");
-                                                                                                }
+                                                                                            if ( (typeof(fo) !== "undefined" && fo != null )  ) {
+                                                                                              return true;
+                                                                                            }
+                                                                                            if ( typeof(env.resolver) === "undefined" ) {
+                                                                                              return false;
+                                                                                            }
+                                                                                            const r_2 = env.resolver;
+                                                                                            return r_2.exists(path, name);
+                                                                                          };
+                                                                                          operatorsOf_8.installc95directory_51 = function(env) {
+                                                                                            if ( env.use_real ) {
+                                                                                              return __dirname;
+                                                                                            }
+                                                                                            return "/";
+                                                                                          };
+                                                                                          operatorsOf_8.envc95var_54 = function(env, name) {
+                                                                                            if ( env.use_real ) {
+                                                                                              if ( ( typeof(env.envVars[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(env.envVars, name) ) ) {
+                                                                                                return ( Object.prototype.hasOwnProperty.call(env.envVars, name) ? env.envVars[name] : undefined );
+                                                                                              }
+                                                                                              const ev = process.env[name];
+                                                                                              if ( (typeof(ev) !== "undefined" && ev != null )  ) {
+                                                                                                return ev;
+                                                                                              }
+                                                                                              return "";
+                                                                                            }
+                                                                                            return (( Object.prototype.hasOwnProperty.call(env.envVars, name) ? env.envVars[name] : undefined ) ?? "");
+                                                                                          };
+                                                                                          operatorsOf_8.currentc95directory_51 = function(env) {
+                                                                                            if ( env.use_real ) {
+                                                                                              return process.cwd();
+                                                                                            }
+                                                                                            return "/";
+                                                                                          };
+                                                                                          class operatorsOf_13  {
+                                                                                            constructor() {
+                                                                                            }
+                                                                                          }
+                                                                                          operatorsOf_13.forEach_14 = function(__self, cb) {
+                                                                                            const list = Object.keys(__self);
+                                                                                            for ( const kk of list) {
+                                                                                              const value = ( Object.prototype.hasOwnProperty.call(__self, kk) ? __self[kk] : undefined );
+                                                                                              cb(value, kk);
+                                                                                            }
+                                                                                          };
+                                                                                          operatorsOf_13.forEach_16 = function(__self, cb) {
+                                                                                            const list_1 = Object.keys(__self);
+                                                                                            for ( const kk_1 of list_1) {
+                                                                                              const value_1 = ( Object.prototype.hasOwnProperty.call(__self, kk_1) ? __self[kk_1] : undefined );
+                                                                                              cb(value_1, kk_1);
+                                                                                            }
+                                                                                          };
+                                                                                          operatorsOf_13.forEach_19 = function(__self, cb) {
+                                                                                            const list_2 = Object.keys(__self);
+                                                                                            for ( const kk_2 of list_2) {
+                                                                                              const value_2 = ( Object.prototype.hasOwnProperty.call(__self, kk_2) ? __self[kk_2] : undefined );
+                                                                                              cb(value_2, kk_2);
+                                                                                            }
+                                                                                          };
+                                                                                          operatorsOf_13.forEach_20 = function(__self, cb) {
+                                                                                            const list_3 = Object.keys(__self);
+                                                                                            for ( const kk_3 of list_3) {
+                                                                                              const value_3 = ( Object.prototype.hasOwnProperty.call(__self, kk_3) ? __self[kk_3] : undefined );
+                                                                                              cb(value_3, kk_3);
+                                                                                            }
+                                                                                          };
+                                                                                          operatorsOf_13.forEach_25 = function(__self, cb) {
+                                                                                            const list_4 = Object.keys(__self);
+                                                                                            for ( const kk_4 of list_4) {
+                                                                                              const value_4 = ( Object.prototype.hasOwnProperty.call(__self, kk_4) ? __self[kk_4] : undefined );
+                                                                                              cb(value_4, kk_4);
+                                                                                            }
+                                                                                          };
+                                                                                          operatorsOf_13.forEach_31 = function(__self, cb) {
+                                                                                            const list_5 = Object.keys(__self);
+                                                                                            for ( const kk_5 of list_5) {
+                                                                                              const value_5 = ( Object.prototype.hasOwnProperty.call(__self, kk_5) ? __self[kk_5] : undefined );
+                                                                                              cb(value_5, kk_5);
+                                                                                            }
+                                                                                          };
+                                                                                          operatorsOf_13.forEach_42 = function(__self, cb) {
+                                                                                            const list_6 = Object.keys(__self);
+                                                                                            for ( const kk_6 of list_6) {
+                                                                                              const value_6 = ( Object.prototype.hasOwnProperty.call(__self, kk_6) ? __self[kk_6] : undefined );
+                                                                                              cb(value_6, kk_6);
+                                                                                            }
+                                                                                          };
+                                                                                          operatorsOf_13.forEach_55 = function(__self, cb) {
+                                                                                            const list_7 = Object.keys(__self);
+                                                                                            for ( const kk_7 of list_7) {
+                                                                                              const value_7 = ( Object.prototype.hasOwnProperty.call(__self, kk_7) ? __self[kk_7] : undefined );
+                                                                                              cb(value_7, kk_7);
+                                                                                            }
+                                                                                          };
+                                                                                          class operatorsOfchar_21  {
+                                                                                            constructor() {
+                                                                                            }
+                                                                                          }
+                                                                                          operatorsOfchar_21.isc95notc95limiter_22 = function(c) {
+                                                                                            return ((((c > 32 && c != (59)) && c != (41)) && c != (40)) && c != (125)) && c != (44);
+                                                                                          };
+                                                                                          class operatorsOfRangerAppWriterContext_23  {
+                                                                                            constructor() {
+                                                                                            }
+                                                                                          }
+                                                                                          operatorsOfRangerAppWriterContext_23.getTargetLang_24 = function(__self) {
+                                                                                            if ( __self.targetLangName.length > 0 ) {
+                                                                                              return __self.targetLangName;
+                                                                                            }
+                                                                                            if ( typeof(__self.parent) != "undefined" ) {
+                                                                                              return operatorsOf_23.getTargetLang_24(__self.parent);
+                                                                                            }
+                                                                                            return "ranger";
+                                                                                          };
+                                                                                          class operatorsOf_23  {
+                                                                                            constructor() {
+                                                                                            }
+                                                                                          }
+                                                                                          operatorsOf_23.getTargetLang_24 = function(__self) {
+                                                                                            if ( __self.targetLangName.length > 0 ) {
+                                                                                              return __self.targetLangName;
+                                                                                            }
+                                                                                            if ( typeof(__self.parent) != "undefined" ) {
+                                                                                              return operatorsOf_23.getTargetLang_24(__self.parent);
+                                                                                            }
+                                                                                            return "ranger";
+                                                                                          };
+                                                                                          operatorsOf_23.addUsage_28 = function(__self, cn) {
+                                                                                            const ctx = __self;
+                                                                                            const currM = ctx.getCurrentMethod();
+                                                                                            if ( ctx.isDefinedClass(cn.type_name) ) {
+                                                                                              const cl = ctx.findClass(cn.type_name);
+                                                                                              currM.addClassUsage(cl, ctx);
+                                                                                            }
+                                                                                            if ( ctx.isDefinedClass(cn.eval_type_name) ) {
+                                                                                              const cl_1 = ctx.findClass(cn.eval_type_name);
+                                                                                              currM.addClassUsage(cl_1, ctx);
+                                                                                            }
+                                                                                            if ( ctx.isDefinedClass(cn.eval_array_type) ) {
+                                                                                              const cl_2 = ctx.findClass(cn.eval_array_type);
+                                                                                              currM.addClassUsage(cl_2, ctx);
+                                                                                            }
+                                                                                          };
+                                                                                          operatorsOf_23.getActiveTransaction_24 = function(c) {
+                                                                                            let rValue;
+                                                                                            if ( c.activeTransaction.length > 0 ) {
+                                                                                              rValue = c.activeTransaction[(c.activeTransaction.length - 1)];
+                                                                                            } else {
+                                                                                              if ( (typeof(c.parent) !== "undefined" && c.parent != null )  ) {
+                                                                                                return operatorsOf_23.getActiveTransaction_24(c.parent);
                                                                                               }
                                                                                             }
-                                                                                            if ( cn.vref.length == 0 ) {
-                                                                                              ctx.addError(node, "invalid variable definition");
+                                                                                            return rValue;
+                                                                                          };
+                                                                                          operatorsOf_23.createc95var_49 = function(__self, name, type_name) {
+                                                                                            const fieldNode = CodeNode.vref2(name, type_name);
+                                                                                            fieldNode.value_type = fieldNode.typeNameAsType(__self);
+                                                                                            const p_2 = new RangerAppParamDesc();
+                                                                                            p_2.name = name;
+                                                                                            p_2.value_type = fieldNode.value_type;
+                                                                                            p_2.node = fieldNode;
+                                                                                            p_2.nameNode = fieldNode;
+                                                                                            p_2.is_optional = false;
+                                                                                            __self.defineVariable(p_2.name, p_2);
+                                                                                            return p_2;
+                                                                                          };
+                                                                                          operatorsOf_23.createc95var_50 = function(__self, name, usingNode) {
+                                                                                            const fieldNode_1 = CodeNode.vref1(name);
+                                                                                            const p_3 = new RangerAppParamDesc();
+                                                                                            p_3.name = name;
+                                                                                            p_3.value_type = usingNode.value_type;
+                                                                                            p_3.node = usingNode;
+                                                                                            p_3.nameNode = usingNode;
+                                                                                            p_3.is_optional = false;
+                                                                                            __self.defineVariable(p_3.name, p_3);
+                                                                                            return p_3;
+                                                                                          };
+                                                                                          class operatorsOfRangerFlowParser_26  {
+                                                                                            constructor() {
                                                                                             }
-                                                                                            if ( cn.hasFlag("weak") ) {
-                                                                                              p.changeStrength(
-                                                                                                0,
-                                                                                                1,
-                                                                                                node
-                                                                                              );
-                                                                                            } else {
-                                                                                              p.changeStrength(
-                                                                                                1,
-                                                                                                1,
-                                                                                                node
-                                                                                              );
-                                                                                            }
-                                                                                            node.hasVarDef = true;
-                                                                                            if ( node.children.length > 2 ) {
-                                                                                              p.init_cnt = 1;
-                                                                                              p.def_value = node.children[2];
-                                                                                              p.is_optional = false;
-                                                                                              defaultArg = node.children[2];
-                                                                                              ctx.setInExpr();
-                                                                                              __self.WalkNode(
-                                                                                                defaultArg,
+                                                                                          }
+                                                                                          operatorsOfRangerFlowParser_26.EnterVarDef_27 = function(__self, node, ctx, wr) {
+                                                                                            if ( ctx.isInMethod() ) {
+                                                                                              if ( node.children.length < 2 ) {
+                                                                                                ctx.addError(node, "invalid variable definition");
+                                                                                                return;
+                                                                                              }
+                                                                                              const tName = node.getSecond();
+                                                                                              __self.CheckTypeAnnotationOf(
+                                                                                                tName,
                                                                                                 ctx,
                                                                                                 wr
                                                                                               );
-                                                                                              ctx.unsetInExpr();
-                                                                                              if ( defaultArg.hasFlag("optional") ) {
-                                                                                                cn.setFlag("optional");
-                                                                                              }
-                                                                                              if ( defaultArg.hasFlag("immutable") ) {
-                                                                                                cn.setFlag("immutable");
-                                                                                              }
-                                                                                              if ( defaultArg.hasParamDesc ) {
-                                                                                                const paramDesc = defaultArg.paramDesc;
-                                                                                                if ( (typeof(paramDesc.propertyClass) !== "undefined" && paramDesc.propertyClass != null )  ) {
-                                                                                                  if ( paramDesc.propertyClass.nameNode.hasFlag("immutable") ) {
-                                                                                                    if ( defaultArg.eval_type == 6 || defaultArg.eval_type == 7 ) {
-                                                                                                      is_immutable = true;
+                                                                                              if ( tName.expression && tName.vref.length == 0 ) {
+                                                                                                node.children.splice(1, 1);
+                                                                                                operatorsOf.forEach_15(tName.children, ((item, index) => { 
+                                                                                                  if ( index == 1 ) {
+                                                                                                    if ( item.expression ) {
+                                                                                                      node.children.push(item.children[0].copy());
+                                                                                                    } else {
+                                                                                                      node.children.push(item.copy());
                                                                                                     }
                                                                                                   }
-                                                                                                }
-                                                                                                if ( paramDesc.is_immutable ) {
-                                                                                                  is_immutable = true;
-                                                                                                }
+                                                                                                  if ( index > 1 ) {
+                                                                                                    node.children.push(item.copy());
+                                                                                                  }
+                                                                                                }));
                                                                                               }
-                                                                                              if ( defaultArg.eval_type == 6 ) {
-                                                                                                node.op_index = 1;
+                                                                                              if ( node.children.length > 3 ) {
+                                                                                                ctx.addError(node, "invalid variable definition");
+                                                                                                return;
                                                                                               }
-                                                                                              if ( cn.value_type == 13 ) {
-                                                                                                cn.eval_type_name = defaultArg.ns[0];
-                                                                                              }
-                                                                                              if ( cn.value_type == 14 ) {
-                                                                                                if ( defaultArg.eval_type != 3 && defaultArg.eval_type != 14 ) {
-                                                                                                  ctx.addError(defaultArg, "Char should be assigned char or integer value --> " + defaultArg.getCode());
-                                                                                                } else {
-                                                                                                  defaultArg.eval_type = 14;
-                                                                                                }
-                                                                                              }
-                                                                                            } else {
-                                                                                              if ( (cn.value_type != 7 && cn.value_type != 6) && false == cn.hasFlag("optional") ) {
-                                                                                                if ( cn.hasFlag("unwrap") ) {
-                                                                                                } else {
-                                                                                                  cn.setFlag("optional");
-                                                                                                }
-                                                                                              }
-                                                                                            }
-                                                                                            if ( node.children.length > 2 ) {
-                                                                                              if ( cn.type_name.length == 0 && cn.array_type.length == 0 ) {
-                                                                                                cn.inferDefTypeFromValue(node);
-                                                                                                if ( cn.value_type == 20 ) {
-                                                                                                  cn.eval_type = 20;
-                                                                                                }
-                                                                                              }
-                                                                                            }
-                                                                                            ctx.hadValidType(cn);
-                                                                                            cn.defineNodeTypeToSelf(ctx);
-                                                                                            p.name = cn.vref;
-                                                                                            if ( p.value_type == 0 ) {
-                                                                                              if ( 0 == cn.type_name.length && ((typeof(defaultArg) !== "undefined" && defaultArg != null ) ) ) {
-                                                                                                p.value_type = defaultArg.eval_type;
-                                                                                                cn.type_name = defaultArg.eval_type_name;
-                                                                                                cn.eval_type_name = defaultArg.eval_type_name;
-                                                                                                cn.value_type = defaultArg.eval_type;
-                                                                                              }
-                                                                                            } else {
-                                                                                              p.value_type = cn.value_type;
-                                                                                            }
-                                                                                            p.node = node;
-                                                                                            p.nameNode = cn;
-                                                                                            p.varType = 5;
-                                                                                            if ( is_immutable ) {
-                                                                                              p.is_immutable = is_immutable;
-                                                                                            }
-                                                                                            if ( cn.has_vref_annotation ) {
-                                                                                              ctx.log(
-                                                                                                node,
-                                                                                                "ann",
-                                                                                                "At a variable -> Found has_vref_annotation annotated reference "
+                                                                                              const cn = node.children[1];
+                                                                                              const p = new RangerAppParamDesc();
+                                                                                              let defaultArg;
+                                                                                              let is_immutable = false;
+                                                                                              cn.definedTypeClass = TFactory.new_def_signature(
+                                                                                                cn,
+                                                                                                ctx,
+                                                                                                wr
                                                                                               );
-                                                                                              const ann = cn.vref_annotation;
-                                                                                              if ( ann.children.length > 0 ) {
-                                                                                                const fc = ann.children[0];
-                                                                                                ctx.log(
-                                                                                                  node,
-                                                                                                  "ann",
-                                                                                                  (("value of first annotation " + fc.vref) + " and variable name ") + cn.vref
-                                                                                                );
-                                                                                              }
-                                                                                            }
-                                                                                            if ( cn.has_type_annotation ) {
-                                                                                              ctx.log(
-                                                                                                node,
-                                                                                                "ann",
-                                                                                                "At a variable -> Found annotated reference "
-                                                                                              );
-                                                                                              const ann_1 = cn.type_annotation;
-                                                                                              if ( ann_1.children.length > 0 ) {
-                                                                                                const fc_1 = ann_1.children[0];
-                                                                                                ctx.log(
-                                                                                                  node,
-                                                                                                  "ann",
-                                                                                                  (("value of first annotation " + fc_1.vref) + " and variable name ") + cn.vref
-                                                                                                );
-                                                                                              }
-                                                                                            }
-                                                                                            cn.hasParamDesc = true;
-                                                                                            cn.ownParamDesc = p;
-                                                                                            cn.paramDesc = p;
-                                                                                            node.hasParamDesc = true;
-                                                                                            node.paramDesc = p;
-                                                                                            cn.eval_type = cn.typeNameAsType(ctx);
-                                                                                            cn.eval_type_name = cn.type_name;
-                                                                                            if ( node.children.length > 2 ) {
-                                                                                              if ( defaultArg.register_name.length > 0 ) {
-                                                                                                const rr = ctx.getVariableDef(defaultArg.register_name);
-                                                                                                if ( (typeof(rr.nameNode) !== "undefined" && rr.nameNode != null )  ) {
-                                                                                                  if ( (typeof(rr.nameNode.expression_value) !== "undefined" && rr.nameNode.expression_value != null )  ) {
-                                                                                                    cn.expression_value = rr.nameNode.expression_value.copy();
+                                                                                              if ( node.children.length == 2 ) {
+                                                                                                if ( cn.value_type != 6 && cn.value_type != 7 ) {
+                                                                                                  if ( false == cn.hasFlag("unwrap") ) {
+                                                                                                    cn.setFlag("optional");
                                                                                                   }
                                                                                                 }
                                                                                               }
-                                                                                              if ( defaultArg.eval_type == 20 ) {
-                                                                                                if ( (typeof(defaultArg.expression_value) !== "undefined" && defaultArg.expression_value != null )  ) {
-                                                                                                  cn.expression_value = defaultArg.expression_value.copy();
-                                                                                                } else {
-                                                                                                  if ( defaultArg.hasParamDesc ) {
-                                                                                                    if ( ((typeof(defaultArg.paramDesc.nameNode) !== "undefined" && defaultArg.paramDesc.nameNode != null ) ) && ((typeof(defaultArg.paramDesc.nameNode.expression_value) !== "undefined" && defaultArg.paramDesc.nameNode.expression_value != null ) ) ) {
-                                                                                                      cn.eval_type = 20;
-                                                                                                      cn.expression_value = defaultArg.paramDesc.nameNode.expression_value.copy();
-                                                                                                    }
-                                                                                                  }
-                                                                                                }
+                                                                                              if ( cn.vref.length == 0 ) {
+                                                                                                ctx.addError(node, "invalid variable definition");
                                                                                               }
-                                                                                              if ( (typeof(defaultArg) !== "undefined" && defaultArg != null )  ) {
-                                                                                                __self.convertToUnion(
-                                                                                                  cn.eval_type_name,
+                                                                                              if ( cn.hasFlag("weak") ) {
+                                                                                                p.changeStrength(
+                                                                                                  0,
+                                                                                                  1,
+                                                                                                  node
+                                                                                                );
+                                                                                              } else {
+                                                                                                p.changeStrength(
+                                                                                                  1,
+                                                                                                  1,
+                                                                                                  node
+                                                                                                );
+                                                                                              }
+                                                                                              node.hasVarDef = true;
+                                                                                              if ( node.children.length > 2 ) {
+                                                                                                p.init_cnt = 1;
+                                                                                                p.def_value = node.children[2];
+                                                                                                p.is_optional = false;
+                                                                                                defaultArg = node.children[2];
+                                                                                                ctx.setInExpr();
+                                                                                                __self.WalkNode(
                                                                                                   defaultArg,
                                                                                                   ctx,
                                                                                                   wr
                                                                                                 );
-                                                                                                if ( (typeof(defaultArg.evalTypeClass) !== "undefined" && defaultArg.evalTypeClass != null )  ) {
-                                                                                                  cn.evalTypeClass = defaultArg.evalTypeClass;
+                                                                                                ctx.unsetInExpr();
+                                                                                                if ( defaultArg.hasFlag("optional") ) {
+                                                                                                  cn.setFlag("optional");
                                                                                                 }
-                                                                                              }
-                                                                                              if ( cn.eval_type != defaultArg.eval_type ) {
-                                                                                                const b1 = cn.eval_type == 14 && defaultArg.eval_type == 3;
-                                                                                                const b2 = cn.eval_type == 3 && defaultArg.eval_type == 14;
-                                                                                                if ( false == (b1 || b2) ) {
-                                                                                                  let cnTypeName = TTypes.valueAsString(cn.eval_type);
-                                                                                                  if ( cn.eval_type_name.length > 0 ) {
-                                                                                                    cnTypeName = cn.eval_type_name;
-                                                                                                  }
-                                                                                                  let defTypeName = TTypes.valueAsString(defaultArg.eval_type);
-                                                                                                  if ( defaultArg.eval_type_name.length > 0 ) {
-                                                                                                    defTypeName = defaultArg.eval_type_name;
-                                                                                                  }
-                                                                                                  ctx.addError(node, (("Variable was assigned an incompatible type. Types were " + cnTypeName) + " vs ") + defTypeName);
+                                                                                                if ( defaultArg.hasFlag("immutable") ) {
+                                                                                                  cn.setFlag("immutable");
                                                                                                 }
-                                                                                              }
-                                                                                            } else {
-                                                                                              p.is_optional = true;
-                                                                                            }
-                                                                                            ctx.defineVariable(p.name, p);
-                                                                                            if ( node.children.length > 2 ) {
-                                                                                              __self.shouldBeEqualTypes(
-                                                                                                cn,
-                                                                                                p.def_value,
-                                                                                                ctx,
-                                                                                                "Variable was assigned an incompatible type."
-                                                                                              );
-                                                                                            }
-                                                                                            operatorsOf_23.addUsage_28(ctx, cn);
-                                                                                          } else {
-                                                                                            const cn_1 = node.children[1];
-                                                                                            cn_1.eval_type = cn_1.typeNameAsType(ctx);
-                                                                                            cn_1.eval_type_name = cn_1.type_name;
-                                                                                            if ( node.children.length > 2 ) {
-                                                                                              __self.shouldBeEqualTypes(
-                                                                                                node.children[1],
-                                                                                                node.children[2],
-                                                                                                ctx,
-                                                                                                "Variable was assigned an incompatible type."
-                                                                                              );
-                                                                                            }
-                                                                                          }
-                                                                                        };
-                                                                                        class operatorsOf_26  {
-                                                                                          constructor() {
-                                                                                          }
-                                                                                        }
-                                                                                        operatorsOf_26.EnterVarDef_27 = function(__self, node, ctx, wr) {
-                                                                                          if ( ctx.isInMethod() ) {
-                                                                                            if ( node.children.length < 2 ) {
-                                                                                              ctx.addError(node, "invalid variable definition");
-                                                                                              return;
-                                                                                            }
-                                                                                            const tName_1 = node.getSecond();
-                                                                                            __self.CheckTypeAnnotationOf(
-                                                                                              tName_1,
-                                                                                              ctx,
-                                                                                              wr
-                                                                                            );
-                                                                                            if ( tName_1.expression && tName_1.vref.length == 0 ) {
-                                                                                              node.children.splice(1, 1);
-                                                                                              operatorsOf.forEach_15(tName_1.children, ((item, index) => { 
-                                                                                                if ( index == 1 ) {
-                                                                                                  if ( item.expression ) {
-                                                                                                    node.children.push(item.children[0].copy());
+                                                                                                if ( defaultArg.hasParamDesc ) {
+                                                                                                  const paramDesc = defaultArg.paramDesc;
+                                                                                                  if ( (typeof(paramDesc.propertyClass) !== "undefined" && paramDesc.propertyClass != null )  ) {
+                                                                                                    if ( paramDesc.propertyClass.nameNode.hasFlag("immutable") ) {
+                                                                                                      if ( defaultArg.eval_type == 6 || defaultArg.eval_type == 7 ) {
+                                                                                                        is_immutable = true;
+                                                                                                      }
+                                                                                                    }
+                                                                                                  }
+                                                                                                  if ( paramDesc.is_immutable ) {
+                                                                                                    is_immutable = true;
+                                                                                                  }
+                                                                                                }
+                                                                                                if ( defaultArg.eval_type == 6 ) {
+                                                                                                  node.op_index = 1;
+                                                                                                }
+                                                                                                if ( cn.value_type == 13 ) {
+                                                                                                  cn.eval_type_name = defaultArg.ns[0];
+                                                                                                }
+                                                                                                if ( cn.value_type == 14 ) {
+                                                                                                  if ( defaultArg.eval_type != 3 && defaultArg.eval_type != 14 ) {
+                                                                                                    ctx.addError(defaultArg, "Char should be assigned char or integer value --> " + defaultArg.getCode());
                                                                                                   } else {
-                                                                                                    node.children.push(item.copy());
+                                                                                                    defaultArg.eval_type = 14;
                                                                                                   }
                                                                                                 }
-                                                                                                if ( index > 1 ) {
-                                                                                                  node.children.push(item.copy());
-                                                                                                }
-                                                                                              }));
-                                                                                            }
-                                                                                            if ( node.children.length > 3 ) {
-                                                                                              ctx.addError(node, "invalid variable definition");
-                                                                                              return;
-                                                                                            }
-                                                                                            const cn_2 = node.children[1];
-                                                                                            const p_1 = new RangerAppParamDesc();
-                                                                                            let defaultArg_1;
-                                                                                            let is_immutable_1 = false;
-                                                                                            cn_2.definedTypeClass = TFactory.new_def_signature(
-                                                                                              cn_2,
-                                                                                              ctx,
-                                                                                              wr
-                                                                                            );
-                                                                                            if ( node.children.length == 2 ) {
-                                                                                              if ( cn_2.value_type != 6 && cn_2.value_type != 7 ) {
-                                                                                                if ( false == cn_2.hasFlag("unwrap") ) {
-                                                                                                  cn_2.setFlag("optional");
+                                                                                              } else {
+                                                                                                if ( (cn.value_type != 7 && cn.value_type != 6) && false == cn.hasFlag("optional") ) {
+                                                                                                  if ( cn.hasFlag("unwrap") ) {
+                                                                                                  } else {
+                                                                                                    cn.setFlag("optional");
+                                                                                                  }
                                                                                                 }
                                                                                               }
-                                                                                            }
-                                                                                            if ( cn_2.vref.length == 0 ) {
-                                                                                              ctx.addError(node, "invalid variable definition");
-                                                                                            }
-                                                                                            if ( cn_2.hasFlag("weak") ) {
-                                                                                              p_1.changeStrength(
-                                                                                                0,
-                                                                                                1,
-                                                                                                node
-                                                                                              );
+                                                                                              if ( node.children.length > 2 ) {
+                                                                                                if ( cn.type_name.length == 0 && cn.array_type.length == 0 ) {
+                                                                                                  cn.inferDefTypeFromValue(node);
+                                                                                                  if ( cn.value_type == 20 ) {
+                                                                                                    cn.eval_type = 20;
+                                                                                                  }
+                                                                                                }
+                                                                                              }
+                                                                                              ctx.hadValidType(cn);
+                                                                                              cn.defineNodeTypeToSelf(ctx);
+                                                                                              p.name = cn.vref;
+                                                                                              if ( p.value_type == 0 ) {
+                                                                                                if ( 0 == cn.type_name.length && ((typeof(defaultArg) !== "undefined" && defaultArg != null ) ) ) {
+                                                                                                  p.value_type = defaultArg.eval_type;
+                                                                                                  cn.type_name = defaultArg.eval_type_name;
+                                                                                                  cn.eval_type_name = defaultArg.eval_type_name;
+                                                                                                  cn.value_type = defaultArg.eval_type;
+                                                                                                }
+                                                                                              } else {
+                                                                                                p.value_type = cn.value_type;
+                                                                                              }
+                                                                                              p.node = node;
+                                                                                              p.nameNode = cn;
+                                                                                              p.varType = 5;
+                                                                                              if ( is_immutable ) {
+                                                                                                p.is_immutable = is_immutable;
+                                                                                              }
+                                                                                              if ( cn.has_vref_annotation ) {
+                                                                                                ctx.log(
+                                                                                                  node,
+                                                                                                  "ann",
+                                                                                                  "At a variable -> Found has_vref_annotation annotated reference "
+                                                                                                );
+                                                                                                const ann = cn.vref_annotation;
+                                                                                                if ( ann.children.length > 0 ) {
+                                                                                                  const fc = ann.children[0];
+                                                                                                  ctx.log(
+                                                                                                    node,
+                                                                                                    "ann",
+                                                                                                    (("value of first annotation " + fc.vref) + " and variable name ") + cn.vref
+                                                                                                  );
+                                                                                                }
+                                                                                              }
+                                                                                              if ( cn.has_type_annotation ) {
+                                                                                                ctx.log(
+                                                                                                  node,
+                                                                                                  "ann",
+                                                                                                  "At a variable -> Found annotated reference "
+                                                                                                );
+                                                                                                const ann_1 = cn.type_annotation;
+                                                                                                if ( ann_1.children.length > 0 ) {
+                                                                                                  const fc_1 = ann_1.children[0];
+                                                                                                  ctx.log(
+                                                                                                    node,
+                                                                                                    "ann",
+                                                                                                    (("value of first annotation " + fc_1.vref) + " and variable name ") + cn.vref
+                                                                                                  );
+                                                                                                }
+                                                                                              }
+                                                                                              cn.hasParamDesc = true;
+                                                                                              cn.ownParamDesc = p;
+                                                                                              cn.paramDesc = p;
+                                                                                              node.hasParamDesc = true;
+                                                                                              node.paramDesc = p;
+                                                                                              cn.eval_type = cn.typeNameAsType(ctx);
+                                                                                              cn.eval_type_name = cn.type_name;
+                                                                                              if ( node.children.length > 2 ) {
+                                                                                                if ( defaultArg.register_name.length > 0 ) {
+                                                                                                  const rr = ctx.getVariableDef(defaultArg.register_name);
+                                                                                                  if ( (typeof(rr.nameNode) !== "undefined" && rr.nameNode != null )  ) {
+                                                                                                    if ( (typeof(rr.nameNode.expression_value) !== "undefined" && rr.nameNode.expression_value != null )  ) {
+                                                                                                      cn.expression_value = rr.nameNode.expression_value.copy();
+                                                                                                    }
+                                                                                                  }
+                                                                                                }
+                                                                                                if ( defaultArg.eval_type == 20 ) {
+                                                                                                  if ( (typeof(defaultArg.expression_value) !== "undefined" && defaultArg.expression_value != null )  ) {
+                                                                                                    cn.expression_value = defaultArg.expression_value.copy();
+                                                                                                  } else {
+                                                                                                    if ( defaultArg.hasParamDesc ) {
+                                                                                                      if ( ((typeof(defaultArg.paramDesc.nameNode) !== "undefined" && defaultArg.paramDesc.nameNode != null ) ) && ((typeof(defaultArg.paramDesc.nameNode.expression_value) !== "undefined" && defaultArg.paramDesc.nameNode.expression_value != null ) ) ) {
+                                                                                                        cn.eval_type = 20;
+                                                                                                        cn.expression_value = defaultArg.paramDesc.nameNode.expression_value.copy();
+                                                                                                      }
+                                                                                                    }
+                                                                                                  }
+                                                                                                }
+                                                                                                if ( (typeof(defaultArg) !== "undefined" && defaultArg != null )  ) {
+                                                                                                  __self.convertToUnion(
+                                                                                                    cn.eval_type_name,
+                                                                                                    defaultArg,
+                                                                                                    ctx,
+                                                                                                    wr
+                                                                                                  );
+                                                                                                  if ( (typeof(defaultArg.evalTypeClass) !== "undefined" && defaultArg.evalTypeClass != null )  ) {
+                                                                                                    cn.evalTypeClass = defaultArg.evalTypeClass;
+                                                                                                  }
+                                                                                                }
+                                                                                                if ( cn.eval_type != defaultArg.eval_type ) {
+                                                                                                  const b1 = cn.eval_type == 14 && defaultArg.eval_type == 3;
+                                                                                                  const b2 = cn.eval_type == 3 && defaultArg.eval_type == 14;
+                                                                                                  if ( false == (b1 || b2) ) {
+                                                                                                    let cnTypeName = TTypes.valueAsString(cn.eval_type);
+                                                                                                    if ( cn.eval_type_name.length > 0 ) {
+                                                                                                      cnTypeName = cn.eval_type_name;
+                                                                                                    }
+                                                                                                    let defTypeName = TTypes.valueAsString(defaultArg.eval_type);
+                                                                                                    if ( defaultArg.eval_type_name.length > 0 ) {
+                                                                                                      defTypeName = defaultArg.eval_type_name;
+                                                                                                    }
+                                                                                                    ctx.addError(node, (("Variable was assigned an incompatible type. Types were " + cnTypeName) + " vs ") + defTypeName);
+                                                                                                  }
+                                                                                                }
+                                                                                              } else {
+                                                                                                p.is_optional = true;
+                                                                                              }
+                                                                                              ctx.defineVariable(p.name, p);
+                                                                                              if ( node.children.length > 2 ) {
+                                                                                                __self.shouldBeEqualTypes(
+                                                                                                  cn,
+                                                                                                  p.def_value,
+                                                                                                  ctx,
+                                                                                                  "Variable was assigned an incompatible type."
+                                                                                                );
+                                                                                              }
+                                                                                              operatorsOf_23.addUsage_28(ctx, cn);
                                                                                             } else {
-                                                                                              p_1.changeStrength(
-                                                                                                1,
-                                                                                                1,
-                                                                                                node
-                                                                                              );
+                                                                                              const cn_1 = node.children[1];
+                                                                                              cn_1.eval_type = cn_1.typeNameAsType(ctx);
+                                                                                              cn_1.eval_type_name = cn_1.type_name;
+                                                                                              if ( node.children.length > 2 ) {
+                                                                                                __self.shouldBeEqualTypes(
+                                                                                                  node.children[1],
+                                                                                                  node.children[2],
+                                                                                                  ctx,
+                                                                                                  "Variable was assigned an incompatible type."
+                                                                                                );
+                                                                                              }
                                                                                             }
-                                                                                            node.hasVarDef = true;
-                                                                                            if ( node.children.length > 2 ) {
-                                                                                              p_1.init_cnt = 1;
-                                                                                              p_1.def_value = node.children[2];
-                                                                                              p_1.is_optional = false;
-                                                                                              defaultArg_1 = node.children[2];
-                                                                                              ctx.setInExpr();
-                                                                                              __self.WalkNode(
-                                                                                                defaultArg_1,
+                                                                                          };
+                                                                                          class operatorsOf_26  {
+                                                                                            constructor() {
+                                                                                            }
+                                                                                          }
+                                                                                          operatorsOf_26.EnterVarDef_27 = function(__self, node, ctx, wr) {
+                                                                                            if ( ctx.isInMethod() ) {
+                                                                                              if ( node.children.length < 2 ) {
+                                                                                                ctx.addError(node, "invalid variable definition");
+                                                                                                return;
+                                                                                              }
+                                                                                              const tName_1 = node.getSecond();
+                                                                                              __self.CheckTypeAnnotationOf(
+                                                                                                tName_1,
                                                                                                 ctx,
                                                                                                 wr
                                                                                               );
-                                                                                              ctx.unsetInExpr();
-                                                                                              if ( defaultArg_1.hasFlag("optional") ) {
-                                                                                                cn_2.setFlag("optional");
-                                                                                              }
-                                                                                              if ( defaultArg_1.hasFlag("immutable") ) {
-                                                                                                cn_2.setFlag("immutable");
-                                                                                              }
-                                                                                              if ( defaultArg_1.hasParamDesc ) {
-                                                                                                const paramDesc_1 = defaultArg_1.paramDesc;
-                                                                                                if ( (typeof(paramDesc_1.propertyClass) !== "undefined" && paramDesc_1.propertyClass != null )  ) {
-                                                                                                  if ( paramDesc_1.propertyClass.nameNode.hasFlag("immutable") ) {
-                                                                                                    if ( defaultArg_1.eval_type == 6 || defaultArg_1.eval_type == 7 ) {
-                                                                                                      is_immutable_1 = true;
+                                                                                              if ( tName_1.expression && tName_1.vref.length == 0 ) {
+                                                                                                node.children.splice(1, 1);
+                                                                                                operatorsOf.forEach_15(tName_1.children, ((item, index) => { 
+                                                                                                  if ( index == 1 ) {
+                                                                                                    if ( item.expression ) {
+                                                                                                      node.children.push(item.children[0].copy());
+                                                                                                    } else {
+                                                                                                      node.children.push(item.copy());
                                                                                                     }
                                                                                                   }
-                                                                                                }
-                                                                                                if ( paramDesc_1.is_immutable ) {
-                                                                                                  is_immutable_1 = true;
-                                                                                                }
+                                                                                                  if ( index > 1 ) {
+                                                                                                    node.children.push(item.copy());
+                                                                                                  }
+                                                                                                }));
                                                                                               }
-                                                                                              if ( defaultArg_1.eval_type == 6 ) {
-                                                                                                node.op_index = 1;
+                                                                                              if ( node.children.length > 3 ) {
+                                                                                                ctx.addError(node, "invalid variable definition");
+                                                                                                return;
                                                                                               }
-                                                                                              if ( cn_2.value_type == 13 ) {
-                                                                                                cn_2.eval_type_name = defaultArg_1.ns[0];
-                                                                                              }
-                                                                                              if ( cn_2.value_type == 14 ) {
-                                                                                                if ( defaultArg_1.eval_type != 3 && defaultArg_1.eval_type != 14 ) {
-                                                                                                  ctx.addError(defaultArg_1, "Char should be assigned char or integer value --> " + defaultArg_1.getCode());
-                                                                                                } else {
-                                                                                                  defaultArg_1.eval_type = 14;
-                                                                                                }
-                                                                                              }
-                                                                                            } else {
-                                                                                              if ( (cn_2.value_type != 7 && cn_2.value_type != 6) && false == cn_2.hasFlag("optional") ) {
-                                                                                                if ( cn_2.hasFlag("unwrap") ) {
-                                                                                                } else {
-                                                                                                  cn_2.setFlag("optional");
-                                                                                                }
-                                                                                              }
-                                                                                            }
-                                                                                            if ( node.children.length > 2 ) {
-                                                                                              if ( cn_2.type_name.length == 0 && cn_2.array_type.length == 0 ) {
-                                                                                                cn_2.inferDefTypeFromValue(node);
-                                                                                                if ( cn_2.value_type == 20 ) {
-                                                                                                  cn_2.eval_type = 20;
-                                                                                                }
-                                                                                              }
-                                                                                            }
-                                                                                            ctx.hadValidType(cn_2);
-                                                                                            cn_2.defineNodeTypeToSelf(ctx);
-                                                                                            p_1.name = cn_2.vref;
-                                                                                            if ( p_1.value_type == 0 ) {
-                                                                                              if ( 0 == cn_2.type_name.length && ((typeof(defaultArg_1) !== "undefined" && defaultArg_1 != null ) ) ) {
-                                                                                                p_1.value_type = defaultArg_1.eval_type;
-                                                                                                cn_2.type_name = defaultArg_1.eval_type_name;
-                                                                                                cn_2.eval_type_name = defaultArg_1.eval_type_name;
-                                                                                                cn_2.value_type = defaultArg_1.eval_type;
-                                                                                              }
-                                                                                            } else {
-                                                                                              p_1.value_type = cn_2.value_type;
-                                                                                            }
-                                                                                            p_1.node = node;
-                                                                                            p_1.nameNode = cn_2;
-                                                                                            p_1.varType = 5;
-                                                                                            if ( is_immutable_1 ) {
-                                                                                              p_1.is_immutable = is_immutable_1;
-                                                                                            }
-                                                                                            if ( cn_2.has_vref_annotation ) {
-                                                                                              ctx.log(
-                                                                                                node,
-                                                                                                "ann",
-                                                                                                "At a variable -> Found has_vref_annotation annotated reference "
+                                                                                              const cn_2 = node.children[1];
+                                                                                              const p_1 = new RangerAppParamDesc();
+                                                                                              let defaultArg_1;
+                                                                                              let is_immutable_1 = false;
+                                                                                              cn_2.definedTypeClass = TFactory.new_def_signature(
+                                                                                                cn_2,
+                                                                                                ctx,
+                                                                                                wr
                                                                                               );
-                                                                                              const ann_2 = cn_2.vref_annotation;
-                                                                                              if ( ann_2.children.length > 0 ) {
-                                                                                                const fc_2 = ann_2.children[0];
-                                                                                                ctx.log(
-                                                                                                  node,
-                                                                                                  "ann",
-                                                                                                  (("value of first annotation " + fc_2.vref) + " and variable name ") + cn_2.vref
-                                                                                                );
-                                                                                              }
-                                                                                            }
-                                                                                            if ( cn_2.has_type_annotation ) {
-                                                                                              ctx.log(
-                                                                                                node,
-                                                                                                "ann",
-                                                                                                "At a variable -> Found annotated reference "
-                                                                                              );
-                                                                                              const ann_3 = cn_2.type_annotation;
-                                                                                              if ( ann_3.children.length > 0 ) {
-                                                                                                const fc_3 = ann_3.children[0];
-                                                                                                ctx.log(
-                                                                                                  node,
-                                                                                                  "ann",
-                                                                                                  (("value of first annotation " + fc_3.vref) + " and variable name ") + cn_2.vref
-                                                                                                );
-                                                                                              }
-                                                                                            }
-                                                                                            cn_2.hasParamDesc = true;
-                                                                                            cn_2.ownParamDesc = p_1;
-                                                                                            cn_2.paramDesc = p_1;
-                                                                                            node.hasParamDesc = true;
-                                                                                            node.paramDesc = p_1;
-                                                                                            cn_2.eval_type = cn_2.typeNameAsType(ctx);
-                                                                                            cn_2.eval_type_name = cn_2.type_name;
-                                                                                            if ( node.children.length > 2 ) {
-                                                                                              if ( defaultArg_1.register_name.length > 0 ) {
-                                                                                                const rr_1 = ctx.getVariableDef(defaultArg_1.register_name);
-                                                                                                if ( (typeof(rr_1.nameNode) !== "undefined" && rr_1.nameNode != null )  ) {
-                                                                                                  if ( (typeof(rr_1.nameNode.expression_value) !== "undefined" && rr_1.nameNode.expression_value != null )  ) {
-                                                                                                    cn_2.expression_value = rr_1.nameNode.expression_value.copy();
+                                                                                              if ( node.children.length == 2 ) {
+                                                                                                if ( cn_2.value_type != 6 && cn_2.value_type != 7 ) {
+                                                                                                  if ( false == cn_2.hasFlag("unwrap") ) {
+                                                                                                    cn_2.setFlag("optional");
                                                                                                   }
                                                                                                 }
                                                                                               }
-                                                                                              if ( defaultArg_1.eval_type == 20 ) {
-                                                                                                if ( (typeof(defaultArg_1.expression_value) !== "undefined" && defaultArg_1.expression_value != null )  ) {
-                                                                                                  cn_2.expression_value = defaultArg_1.expression_value.copy();
-                                                                                                } else {
-                                                                                                  if ( defaultArg_1.hasParamDesc ) {
-                                                                                                    if ( ((typeof(defaultArg_1.paramDesc.nameNode) !== "undefined" && defaultArg_1.paramDesc.nameNode != null ) ) && ((typeof(defaultArg_1.paramDesc.nameNode.expression_value) !== "undefined" && defaultArg_1.paramDesc.nameNode.expression_value != null ) ) ) {
-                                                                                                      cn_2.eval_type = 20;
-                                                                                                      cn_2.expression_value = defaultArg_1.paramDesc.nameNode.expression_value.copy();
-                                                                                                    }
-                                                                                                  }
-                                                                                                }
+                                                                                              if ( cn_2.vref.length == 0 ) {
+                                                                                                ctx.addError(node, "invalid variable definition");
                                                                                               }
-                                                                                              if ( (typeof(defaultArg_1) !== "undefined" && defaultArg_1 != null )  ) {
-                                                                                                __self.convertToUnion(
-                                                                                                  cn_2.eval_type_name,
+                                                                                              if ( cn_2.hasFlag("weak") ) {
+                                                                                                p_1.changeStrength(
+                                                                                                  0,
+                                                                                                  1,
+                                                                                                  node
+                                                                                                );
+                                                                                              } else {
+                                                                                                p_1.changeStrength(
+                                                                                                  1,
+                                                                                                  1,
+                                                                                                  node
+                                                                                                );
+                                                                                              }
+                                                                                              node.hasVarDef = true;
+                                                                                              if ( node.children.length > 2 ) {
+                                                                                                p_1.init_cnt = 1;
+                                                                                                p_1.def_value = node.children[2];
+                                                                                                p_1.is_optional = false;
+                                                                                                defaultArg_1 = node.children[2];
+                                                                                                ctx.setInExpr();
+                                                                                                __self.WalkNode(
                                                                                                   defaultArg_1,
                                                                                                   ctx,
                                                                                                   wr
                                                                                                 );
-                                                                                                if ( (typeof(defaultArg_1.evalTypeClass) !== "undefined" && defaultArg_1.evalTypeClass != null )  ) {
-                                                                                                  cn_2.evalTypeClass = defaultArg_1.evalTypeClass;
+                                                                                                ctx.unsetInExpr();
+                                                                                                if ( defaultArg_1.hasFlag("optional") ) {
+                                                                                                  cn_2.setFlag("optional");
+                                                                                                }
+                                                                                                if ( defaultArg_1.hasFlag("immutable") ) {
+                                                                                                  cn_2.setFlag("immutable");
+                                                                                                }
+                                                                                                if ( defaultArg_1.hasParamDesc ) {
+                                                                                                  const paramDesc_1 = defaultArg_1.paramDesc;
+                                                                                                  if ( (typeof(paramDesc_1.propertyClass) !== "undefined" && paramDesc_1.propertyClass != null )  ) {
+                                                                                                    if ( paramDesc_1.propertyClass.nameNode.hasFlag("immutable") ) {
+                                                                                                      if ( defaultArg_1.eval_type == 6 || defaultArg_1.eval_type == 7 ) {
+                                                                                                        is_immutable_1 = true;
+                                                                                                      }
+                                                                                                    }
+                                                                                                  }
+                                                                                                  if ( paramDesc_1.is_immutable ) {
+                                                                                                    is_immutable_1 = true;
+                                                                                                  }
+                                                                                                }
+                                                                                                if ( defaultArg_1.eval_type == 6 ) {
+                                                                                                  node.op_index = 1;
+                                                                                                }
+                                                                                                if ( cn_2.value_type == 13 ) {
+                                                                                                  cn_2.eval_type_name = defaultArg_1.ns[0];
+                                                                                                }
+                                                                                                if ( cn_2.value_type == 14 ) {
+                                                                                                  if ( defaultArg_1.eval_type != 3 && defaultArg_1.eval_type != 14 ) {
+                                                                                                    ctx.addError(defaultArg_1, "Char should be assigned char or integer value --> " + defaultArg_1.getCode());
+                                                                                                  } else {
+                                                                                                    defaultArg_1.eval_type = 14;
+                                                                                                  }
+                                                                                                }
+                                                                                              } else {
+                                                                                                if ( (cn_2.value_type != 7 && cn_2.value_type != 6) && false == cn_2.hasFlag("optional") ) {
+                                                                                                  if ( cn_2.hasFlag("unwrap") ) {
+                                                                                                  } else {
+                                                                                                    cn_2.setFlag("optional");
+                                                                                                  }
                                                                                                 }
                                                                                               }
-                                                                                              if ( cn_2.eval_type != defaultArg_1.eval_type ) {
-                                                                                                const b1_1 = cn_2.eval_type == 14 && defaultArg_1.eval_type == 3;
-                                                                                                const b2_1 = cn_2.eval_type == 3 && defaultArg_1.eval_type == 14;
-                                                                                                if ( false == (b1_1 || b2_1) ) {
-                                                                                                  let cnTypeName_1 = TTypes.valueAsString(cn_2.eval_type);
-                                                                                                  if ( cn_2.eval_type_name.length > 0 ) {
-                                                                                                    cnTypeName_1 = cn_2.eval_type_name;
+                                                                                              if ( node.children.length > 2 ) {
+                                                                                                if ( cn_2.type_name.length == 0 && cn_2.array_type.length == 0 ) {
+                                                                                                  cn_2.inferDefTypeFromValue(node);
+                                                                                                  if ( cn_2.value_type == 20 ) {
+                                                                                                    cn_2.eval_type = 20;
                                                                                                   }
-                                                                                                  let defTypeName_1 = TTypes.valueAsString(defaultArg_1.eval_type);
-                                                                                                  if ( defaultArg_1.eval_type_name.length > 0 ) {
-                                                                                                    defTypeName_1 = defaultArg_1.eval_type_name;
-                                                                                                  }
-                                                                                                  ctx.addError(node, (("Variable was assigned an incompatible type. Types were " + cnTypeName_1) + " vs ") + defTypeName_1);
                                                                                                 }
                                                                                               }
+                                                                                              ctx.hadValidType(cn_2);
+                                                                                              cn_2.defineNodeTypeToSelf(ctx);
+                                                                                              p_1.name = cn_2.vref;
+                                                                                              if ( p_1.value_type == 0 ) {
+                                                                                                if ( 0 == cn_2.type_name.length && ((typeof(defaultArg_1) !== "undefined" && defaultArg_1 != null ) ) ) {
+                                                                                                  p_1.value_type = defaultArg_1.eval_type;
+                                                                                                  cn_2.type_name = defaultArg_1.eval_type_name;
+                                                                                                  cn_2.eval_type_name = defaultArg_1.eval_type_name;
+                                                                                                  cn_2.value_type = defaultArg_1.eval_type;
+                                                                                                }
+                                                                                              } else {
+                                                                                                p_1.value_type = cn_2.value_type;
+                                                                                              }
+                                                                                              p_1.node = node;
+                                                                                              p_1.nameNode = cn_2;
+                                                                                              p_1.varType = 5;
+                                                                                              if ( is_immutable_1 ) {
+                                                                                                p_1.is_immutable = is_immutable_1;
+                                                                                              }
+                                                                                              if ( cn_2.has_vref_annotation ) {
+                                                                                                ctx.log(
+                                                                                                  node,
+                                                                                                  "ann",
+                                                                                                  "At a variable -> Found has_vref_annotation annotated reference "
+                                                                                                );
+                                                                                                const ann_2 = cn_2.vref_annotation;
+                                                                                                if ( ann_2.children.length > 0 ) {
+                                                                                                  const fc_2 = ann_2.children[0];
+                                                                                                  ctx.log(
+                                                                                                    node,
+                                                                                                    "ann",
+                                                                                                    (("value of first annotation " + fc_2.vref) + " and variable name ") + cn_2.vref
+                                                                                                  );
+                                                                                                }
+                                                                                              }
+                                                                                              if ( cn_2.has_type_annotation ) {
+                                                                                                ctx.log(
+                                                                                                  node,
+                                                                                                  "ann",
+                                                                                                  "At a variable -> Found annotated reference "
+                                                                                                );
+                                                                                                const ann_3 = cn_2.type_annotation;
+                                                                                                if ( ann_3.children.length > 0 ) {
+                                                                                                  const fc_3 = ann_3.children[0];
+                                                                                                  ctx.log(
+                                                                                                    node,
+                                                                                                    "ann",
+                                                                                                    (("value of first annotation " + fc_3.vref) + " and variable name ") + cn_2.vref
+                                                                                                  );
+                                                                                                }
+                                                                                              }
+                                                                                              cn_2.hasParamDesc = true;
+                                                                                              cn_2.ownParamDesc = p_1;
+                                                                                              cn_2.paramDesc = p_1;
+                                                                                              node.hasParamDesc = true;
+                                                                                              node.paramDesc = p_1;
+                                                                                              cn_2.eval_type = cn_2.typeNameAsType(ctx);
+                                                                                              cn_2.eval_type_name = cn_2.type_name;
+                                                                                              if ( node.children.length > 2 ) {
+                                                                                                if ( defaultArg_1.register_name.length > 0 ) {
+                                                                                                  const rr_1 = ctx.getVariableDef(defaultArg_1.register_name);
+                                                                                                  if ( (typeof(rr_1.nameNode) !== "undefined" && rr_1.nameNode != null )  ) {
+                                                                                                    if ( (typeof(rr_1.nameNode.expression_value) !== "undefined" && rr_1.nameNode.expression_value != null )  ) {
+                                                                                                      cn_2.expression_value = rr_1.nameNode.expression_value.copy();
+                                                                                                    }
+                                                                                                  }
+                                                                                                }
+                                                                                                if ( defaultArg_1.eval_type == 20 ) {
+                                                                                                  if ( (typeof(defaultArg_1.expression_value) !== "undefined" && defaultArg_1.expression_value != null )  ) {
+                                                                                                    cn_2.expression_value = defaultArg_1.expression_value.copy();
+                                                                                                  } else {
+                                                                                                    if ( defaultArg_1.hasParamDesc ) {
+                                                                                                      if ( ((typeof(defaultArg_1.paramDesc.nameNode) !== "undefined" && defaultArg_1.paramDesc.nameNode != null ) ) && ((typeof(defaultArg_1.paramDesc.nameNode.expression_value) !== "undefined" && defaultArg_1.paramDesc.nameNode.expression_value != null ) ) ) {
+                                                                                                        cn_2.eval_type = 20;
+                                                                                                        cn_2.expression_value = defaultArg_1.paramDesc.nameNode.expression_value.copy();
+                                                                                                      }
+                                                                                                    }
+                                                                                                  }
+                                                                                                }
+                                                                                                if ( (typeof(defaultArg_1) !== "undefined" && defaultArg_1 != null )  ) {
+                                                                                                  __self.convertToUnion(
+                                                                                                    cn_2.eval_type_name,
+                                                                                                    defaultArg_1,
+                                                                                                    ctx,
+                                                                                                    wr
+                                                                                                  );
+                                                                                                  if ( (typeof(defaultArg_1.evalTypeClass) !== "undefined" && defaultArg_1.evalTypeClass != null )  ) {
+                                                                                                    cn_2.evalTypeClass = defaultArg_1.evalTypeClass;
+                                                                                                  }
+                                                                                                }
+                                                                                                if ( cn_2.eval_type != defaultArg_1.eval_type ) {
+                                                                                                  const b1_1 = cn_2.eval_type == 14 && defaultArg_1.eval_type == 3;
+                                                                                                  const b2_1 = cn_2.eval_type == 3 && defaultArg_1.eval_type == 14;
+                                                                                                  if ( false == (b1_1 || b2_1) ) {
+                                                                                                    let cnTypeName_1 = TTypes.valueAsString(cn_2.eval_type);
+                                                                                                    if ( cn_2.eval_type_name.length > 0 ) {
+                                                                                                      cnTypeName_1 = cn_2.eval_type_name;
+                                                                                                    }
+                                                                                                    let defTypeName_1 = TTypes.valueAsString(defaultArg_1.eval_type);
+                                                                                                    if ( defaultArg_1.eval_type_name.length > 0 ) {
+                                                                                                      defTypeName_1 = defaultArg_1.eval_type_name;
+                                                                                                    }
+                                                                                                    ctx.addError(node, (("Variable was assigned an incompatible type. Types were " + cnTypeName_1) + " vs ") + defTypeName_1);
+                                                                                                  }
+                                                                                                }
+                                                                                              } else {
+                                                                                                p_1.is_optional = true;
+                                                                                              }
+                                                                                              ctx.defineVariable(p_1.name, p_1);
+                                                                                              if ( node.children.length > 2 ) {
+                                                                                                __self.shouldBeEqualTypes(
+                                                                                                  cn_2,
+                                                                                                  p_1.def_value,
+                                                                                                  ctx,
+                                                                                                  "Variable was assigned an incompatible type."
+                                                                                                );
+                                                                                              }
+                                                                                              operatorsOf_23.addUsage_28(ctx, cn_2);
                                                                                             } else {
-                                                                                              p_1.is_optional = true;
+                                                                                              const cn_3 = node.children[1];
+                                                                                              cn_3.eval_type = cn_3.typeNameAsType(ctx);
+                                                                                              cn_3.eval_type_name = cn_3.type_name;
+                                                                                              if ( node.children.length > 2 ) {
+                                                                                                __self.shouldBeEqualTypes(
+                                                                                                  node.children[1],
+                                                                                                  node.children[2],
+                                                                                                  ctx,
+                                                                                                  "Variable was assigned an incompatible type."
+                                                                                                );
+                                                                                              }
                                                                                             }
-                                                                                            ctx.defineVariable(p_1.name, p_1);
-                                                                                            if ( node.children.length > 2 ) {
-                                                                                              __self.shouldBeEqualTypes(
-                                                                                                cn_2,
-                                                                                                p_1.def_value,
-                                                                                                ctx,
-                                                                                                "Variable was assigned an incompatible type."
-                                                                                              );
-                                                                                            }
-                                                                                            operatorsOf_23.addUsage_28(ctx, cn_2);
-                                                                                          } else {
-                                                                                            const cn_3 = node.children[1];
-                                                                                            cn_3.eval_type = cn_3.typeNameAsType(ctx);
-                                                                                            cn_3.eval_type_name = cn_3.type_name;
-                                                                                            if ( node.children.length > 2 ) {
-                                                                                              __self.shouldBeEqualTypes(
-                                                                                                node.children[1],
-                                                                                                node.children[2],
-                                                                                                ctx,
-                                                                                                "Variable was assigned an incompatible type."
-                                                                                              );
-                                                                                            }
-                                                                                          }
-                                                                                        };
-                                                                                        class operatorsOfstring_33  {
-                                                                                          constructor() {
-                                                                                          }
-                                                                                        }
-                                                                                        operatorsOfstring_33.transactionc95depth_34 = function(name, c) {
-                                                                                          let t = operatorsOf_23.getActiveTransaction_24(c);
-                                                                                          let d = 0;
-                                                                                          while ((typeof(t) !== "undefined" && t != null ) ) {
-                                                                                            if ( t.name == name ) {
-                                                                                              d = d + 1;
-                                                                                            }
-                                                                                            t = t.parent;
                                                                                           };
-                                                                                          return d;
-                                                                                        };
-                                                                                        class operatorsOf_33  {
-                                                                                          constructor() {
-                                                                                          }
-                                                                                        }
-                                                                                        operatorsOf_33.startc95transaction_35 = function(name, desc, c) {
-                                                                                          const t_1 = new ContextTransaction();
-                                                                                          t_1.name = name;
-                                                                                          t_1.desc = desc;
-                                                                                          t_1.ctx = c;
-                                                                                          const currC = operatorsOf_23.getActiveTransaction_24(c);
-                                                                                          c.activeTransaction.push(t_1);
-                                                                                          c.transactions.push(t_1);
-                                                                                          if ( (typeof(currC) !== "undefined" && currC != null )  ) {
-                                                                                            currC.children.push(t_1);
-                                                                                            t_1.parent = currC;
-                                                                                          }
-                                                                                          return t_1;
-                                                                                        };
-                                                                                        operatorsOf_33.transactionc95depth_34 = function(name, c) {
-                                                                                          let t_2 = operatorsOf_23.getActiveTransaction_24(c);
-                                                                                          let d_1 = 0;
-                                                                                          while ((typeof(t_2) !== "undefined" && t_2 != null ) ) {
-                                                                                            if ( t_2.name == name ) {
-                                                                                              d_1 = d_1 + 1;
+                                                                                          class operatorsOfstring_33  {
+                                                                                            constructor() {
                                                                                             }
-                                                                                            t_2 = t_2.parent;
+                                                                                          }
+                                                                                          operatorsOfstring_33.transactionc95depth_34 = function(name, c) {
+                                                                                            let t = operatorsOf_23.getActiveTransaction_24(c);
+                                                                                            let d = 0;
+                                                                                            while ((typeof(t) !== "undefined" && t != null ) ) {
+                                                                                              if ( t.name == name ) {
+                                                                                                d = d + 1;
+                                                                                              }
+                                                                                              t = t.parent;
+                                                                                            };
+                                                                                            return d;
                                                                                           };
-                                                                                          return d_1;
-                                                                                        };
-                                                                                        class operatorsOfContextTransaction_38  {
-                                                                                          constructor() {
+                                                                                          class operatorsOf_33  {
+                                                                                            constructor() {
+                                                                                            }
                                                                                           }
-                                                                                        }
-                                                                                        operatorsOfContextTransaction_38.endc95transaction_39 = function(t) {
-                                                                                          const c = t.ctx;
-                                                                                          const i_21 = c.activeTransaction.indexOf(t);
-                                                                                          if ( i_21 >= 0 ) {
-                                                                                            c.activeTransaction.splice(i_21, 1);
+                                                                                          operatorsOf_33.startc95transaction_35 = function(name, desc, c) {
+                                                                                            const t_1 = new ContextTransaction();
+                                                                                            t_1.name = name;
+                                                                                            t_1.desc = desc;
+                                                                                            t_1.ctx = c;
+                                                                                            const currC = operatorsOf_23.getActiveTransaction_24(c);
+                                                                                            c.activeTransaction.push(t_1);
+                                                                                            c.transactions.push(t_1);
+                                                                                            if ( (typeof(currC) !== "undefined" && currC != null )  ) {
+                                                                                              currC.children.push(t_1);
+                                                                                              t_1.parent = currC;
+                                                                                            }
+                                                                                            return t_1;
+                                                                                          };
+                                                                                          operatorsOf_33.transactionc95depth_34 = function(name, c) {
+                                                                                            let t_2 = operatorsOf_23.getActiveTransaction_24(c);
+                                                                                            let d_1 = 0;
+                                                                                            while ((typeof(t_2) !== "undefined" && t_2 != null ) ) {
+                                                                                              if ( t_2.name == name ) {
+                                                                                                d_1 = d_1 + 1;
+                                                                                              }
+                                                                                              t_2 = t_2.parent;
+                                                                                            };
+                                                                                            return d_1;
+                                                                                          };
+                                                                                          class operatorsOfContextTransaction_38  {
+                                                                                            constructor() {
+                                                                                            }
                                                                                           }
-                                                                                          t.ended = true;
-                                                                                        };
-                                                                                        class operatorsOfCodeNode_43  {
-                                                                                          constructor() {
+                                                                                          operatorsOfContextTransaction_38.endc95transaction_39 = function(t) {
+                                                                                            const c = t.ctx;
+                                                                                            const i_21 = c.activeTransaction.indexOf(t);
+                                                                                            if ( i_21 >= 0 ) {
+                                                                                              c.activeTransaction.splice(i_21, 1);
+                                                                                            }
+                                                                                            t.ended = true;
+                                                                                          };
+                                                                                          class operatorsOfCodeNode_43  {
+                                                                                            constructor() {
+                                                                                            }
                                                                                           }
-                                                                                        }
-                                                                                        operatorsOfCodeNode_43.rc46funcdesc_44 = function(node, ctx) {
-                                                                                          const m = new RangerAppFunctionDesc();
-                                                                                          const cn_4 = node.getSecond();
-                                                                                          m.name = cn_4.vref;
-                                                                                          m.compiledName = ctx.transformMemberWord(cn_4.vref);
-                                                                                          m.node = node;
-                                                                                          m.nameNode = node.children[1];
-                                                                                          if ( node.hasBooleanProperty("strong") ) {
-                                                                                            m.refType = 2;
-                                                                                          } else {
-                                                                                            m.refType = 1;
+                                                                                          operatorsOfCodeNode_43.rc46funcdesc_44 = function(node, ctx) {
+                                                                                            const m = new RangerAppFunctionDesc();
+                                                                                            const cn_4 = node.getSecond();
+                                                                                            m.name = cn_4.vref;
+                                                                                            m.compiledName = ctx.transformMemberWord(cn_4.vref);
+                                                                                            m.node = node;
+                                                                                            m.nameNode = node.children[1];
+                                                                                            if ( node.hasBooleanProperty("strong") ) {
+                                                                                              m.refType = 2;
+                                                                                            } else {
+                                                                                              m.refType = 1;
+                                                                                            }
+                                                                                            return m;
+                                                                                          };
+                                                                                          class operatorsOf_43  {
+                                                                                            constructor() {
+                                                                                            }
                                                                                           }
-                                                                                          return m;
-                                                                                        };
-                                                                                        class operatorsOf_43  {
-                                                                                          constructor() {
-                                                                                          }
-                                                                                        }
-                                                                                        operatorsOf_43.rc46func_45 = function(node, ctx, wr) {
-                                                                                          const parser = new RangerFlowParser();
-                                                                                          return parser.CreateFunctionObject(
-                                                                                            node,
-                                                                                            ctx,
-                                                                                            wr
-                                                                                          );
-                                                                                        };
+                                                                                          operatorsOf_43.rc46func_45 = function(node, ctx, wr) {
+                                                                                            const parser = new RangerFlowParser();
+                                                                                            return parser.CreateFunctionObject(
+                                                                                              node,
+                                                                                              ctx,
+                                                                                              wr
+                                                                                            );
+                                                                                          };
 
 // Running another command line program.  spawnSync resolves a bare name on
 // PATH and passes the arguments as a vector, so nothing inside an argument is
