@@ -991,6 +991,8 @@ sfn main:void () {
             if (argc >= 3) {
                 ask = (shell_arg 2)
             }
+            viewW = (EvgLiveBuild.viewFlag("--width"))
+            viewH = (EvgLiveBuild.viewFlag("--height"))
             this.runEditFile((shell_arg 1) ask)
             return
         }

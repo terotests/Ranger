@@ -1613,7 +1613,28 @@ function watchDoc(workspace, onChange) {
   return () => clearInterval(iv);
 }
 
-export async function runWorkspaceAgent({ id, kind, prompt, seed, session = false, onLine, signal }) {
+// WHAT THE SCREEN IS BEING DESIGNED FOR.
+//
+// The device chips were a viewer setting and nothing else, so asking for "a
+// sidebar" while looking at a desktop got a 390-wide phone with a sidebar
+// squeezed into it. The agent could not know: nothing in the task said which
+// screen this is for.
+//
+// A tablet is not a phone with more pixels. Saying the size is the difference
+// between a design for that screen and the same design stretched.
+const DEVICE_NAMES = { 390: "phone", 820: "tablet", 1440: "desktop" };
+
+export function deviceLine(view) {
+  if (!view || !(view.width > 0) || !(view.height > 0)) return "";
+  const { width, height } = view;
+  const name = DEVICE_NAMES[width] || DEVICE_NAMES[height] || "screen";
+  const turned = height < width ? "landscape" : "portrait";
+  return `This screen is being designed for a ${name}, ${width} x ${height} (${turned}). `
+    + `The document root must be ${width}px wide and ${height}px tall, and the layout has to suit that shape `
+    + `— a wide screen is not a narrow one stretched.`;
+}
+
+export async function runWorkspaceAgent({ id, kind, prompt, seed, session = false, onLine, signal, view = null }) {
   const agents = listAgents();
   const info = agents.find((a) => a.id === id);
   if (!info) {
@@ -1637,16 +1658,19 @@ export async function runWorkspaceAgent({ id, kind, prompt, seed, session = fals
           ? "Edit this invoices list: add a search field and mark the overdue bills."
           : "Edit this phone dashboard. Add a four-tab bottom nav: Home, Search, Alerts, You.");
 
+  const forDevice = deviceLine(view);
+  const asked = forDevice ? `${task}\n\n${forDevice}` : task;
+
   onLine(
     ndjson({
       t: "session",
       kind: kind || "dashboard",
-      prompt: task,
+      prompt: asked,
       agent: id,
       where: info.where,
       followUp: Boolean(session && looksLikeEvg(seed || readSessionDoc())),
-      width: 390,
-      height: 844,
+      width: (view && view.width) || 390,
+      height: (view && view.height) || 844,
     }),
   );
 
@@ -1666,8 +1690,8 @@ export async function runWorkspaceAgent({ id, kind, prompt, seed, session = fals
   const marker = path.join(sessionDir(), ".cursor-follow");
   const followUp = Boolean(session && id === "cursor" && fs.existsSync(marker));
   const ws = session
-    ? prepareSession(task, { git: id === "cursor", kind })
-    : makeWorkspace(task, { git: id === "cursor", doc: seed, kind });
+    ? prepareSession(asked, { git: id === "cursor", kind })
+    : makeWorkspace(asked, { git: id === "cursor", doc: seed, kind });
   const keep = session || process.env.EVG_LIVEBUILD_KEEP === "1";
   let frames = 0;
   const stopOps = watchOps(ws, (ops) => {
@@ -1684,7 +1708,7 @@ export async function runWorkspaceAgent({ id, kind, prompt, seed, session = fals
       if (/"t":"frame"/.test(line)) frames += 1;
       noteLayout(ws, line);
       onLine(line);
-    }, { quiet: true });
+    }, { quiet: true, view });
     const app = path.join(ws, "App.rgr");
     if (fs.existsSync(app)) {
       onLine(ndjson({ t: "code", path: "App.rgr", text: fs.readFileSync(app, "utf8") }));
@@ -1694,7 +1718,7 @@ export async function runWorkspaceAgent({ id, kind, prompt, seed, session = fals
   await new Promise((resolve, reject) => {
     let child;
     try {
-      child = spawnAgentProcess(id, info.bin, ws, task, followUp);
+      child = spawnAgentProcess(id, info.bin, ws, asked, followUp);
       if (session && id === "cursor") {
         fs.writeFileSync(marker, "1\n");
       }
@@ -1758,7 +1782,7 @@ export async function runWorkspaceAgent({ id, kind, prompt, seed, session = fals
         /* gone */
       }
       // Final frame, in case the last write landed with the process.
-      frameFile(path.join(ws, "doc.evg.json"), onLine);
+      frameFile(path.join(ws, "doc.evg.json"), onLine, { view });
       onLine(
         ndjson({
           t: "done",
@@ -1860,7 +1884,7 @@ function extractOps(text) {
   }
 }
 
-export function runRecipeEdit(docPath, onLine, signal, prompt, kind) {
+export function runRecipeEdit(docPath, onLine, signal, prompt, kind, view = null) {
   return new Promise((resolve, reject) => {
     const parsed = parseRestyle(prompt || "");
     const tagged = (line) => {
@@ -1876,7 +1900,10 @@ export function runRecipeEdit(docPath, onLine, signal, prompt, kind) {
       }
       onLine(line);
     };
-    const child = spawn("node", [liveBin, "edit", docPath], {
+    const size = [];
+    if (view && view.width > 0) size.push(`--width=${Math.round(view.width)}`);
+    if (view && view.height > 0) size.push(`--height=${Math.round(view.height)}`);
+    const child = spawn("node", [liveBin, "edit", docPath, ...size], {
       cwd: root,
       env: {
         ...process.env,
@@ -1902,16 +1929,16 @@ export function runRecipeEdit(docPath, onLine, signal, prompt, kind) {
   });
 }
 
-export async function runTask({ agent, kind, prompt, seed, session = false, onLine, signal }) {
+export async function runTask({ agent, kind, prompt, seed, session = false, onLine, signal, view = null }) {
   const id = agent || "recipe";
   if (id === "recipe") {
     if (session) {
       const dir = prepareSession(prompt || "", { kind: kind || "dashboard" });
-      await runRecipeEdit(path.join(dir, "doc.evg.json"), onLine, signal, prompt, kind);
+      await runRecipeEdit(path.join(dir, "doc.evg.json"), onLine, signal, prompt, kind, view);
       return;
     }
     await runRecipe(kind || "dashboard", onLine, signal, prompt);
     return;
   }
-  await runWorkspaceAgent({ id, kind, prompt, seed, session, onLine, signal });
+  await runWorkspaceAgent({ id, kind, prompt, seed, session, onLine, signal, view });
 }

@@ -243,7 +243,7 @@ function send(res, status, type, body) {
   res.end(body);
 }
 
-function streamBuild(res, { kind, agent, prompt, paceMs, seed, session }) {
+function streamBuild(res, { kind, agent, prompt, paceMs, seed, session, view }) {
   res.writeHead(200, {
     "content-type": "text/event-stream; charset=utf-8",
     "cache-control": "no-store",
@@ -310,6 +310,7 @@ function streamBuild(res, { kind, agent, prompt, paceMs, seed, session }) {
     prompt,
     seed,
     session,
+    view,
     onLine: pace,
     signal: ac.signal,
   })
@@ -971,6 +972,9 @@ function main() {
         prompt,
         seed: readSessionDoc() || lastDoc,
         session: true,
+        // The device the person is looking at: the frames come back laid out
+        // at it, and the agent is told what it is designing for.
+        view: viewportOf(url),
         paceMs: Number.isFinite(pace) ? pace : 28,
       });
       return;

@@ -380,6 +380,18 @@ beside the size; clicks are divided back, so the picker still lands on the
 element under the pointer. Run mode renders at the app's own page size, so the
 device chips are off there rather than lit and ignored.
 
+**The device goes with the ask.** A prompt sent with Tablet chosen streams its
+frames at 820×1180 — the stage does not snap back to a phone mid-build — and
+the agent is told what it is designing for:
+
+> This screen is being designed for a tablet, 820 x 1180 (portrait). The
+> document root must be 820px wide and 1180px tall, and the layout has to suit
+> that shape — a wide screen is not a narrow one stretched.
+
+That sentence is the difference between a design for that screen and the same
+design stretched. It is appended to the ask, so it reaches `TASK.md` and the
+agent's own prompt.
+
 `usage` comes from the agent CLI's own accounting, not from counting what
 arrived here — the `tokens` figure beside the phone is words streamed onto the
 page, which is a different and much smaller number. Both Cursor and Claude end
