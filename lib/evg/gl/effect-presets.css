@@ -2,11 +2,10 @@
  *
  * Presets: effects that are already a look.
  *
- * Each block below is one element's worth of CSS — paste it into the editor
- * under the canvas on the gallery's effects demo (`?demo=effects`, the
- * textarea holds `effects.css`) in place of what `.fx-sky` says, or copy one
- * into a stylesheet of your own. Every effect here is a name and some numbers;
- * there is no code to copy with them.
+ * Each block below is one element's worth of CSS. The gallery's effects demo
+ * (`?demo=effects`) has them in its rail and types the one you pick into the
+ * stylesheet under its canvas; or copy one into a sheet of your own. Every
+ * effect here is a name and some numbers; there is no code to copy with them.
  *
  * WHAT EACH BLOCK MUST CARRY is `evg-surface-effect` (which effect),
  * `evg-effect-on: always` where it moves on its own clock, its own
@@ -220,4 +219,67 @@
   evg-fx-speed: 0.05;
   evg-fx-glow: 0.42;
   evg-fx-seed: 11;
+}
+
+/* ================================================================ smoke === */
+
+/* STAGE. A floor full of it: dense along the bottom, billows to the middle,
+ * single tendrils past that, and black above. The reference is a smoke machine
+ * lit from one side. */
+.fx-stage {
+  background-color: rgb(6, 6, 8);
+  evg-surface-effect: smoke;
+  evg-effect-on: always;
+  evg-fx-density: 1.25;
+  evg-fx-rise: 0.05;
+  evg-fx-swirl: 2.6;
+  evg-fx-scale: 190;
+  evg-fx-height: 0.9;
+  evg-fx-softness: 0.55;
+  evg-fx-shade: 0.6;
+  evg-fx-angle: -60;
+  evg-fx-hue: 205;
+  evg-fx-tint: 0.1;
+  evg-fx-seed: 3;
+}
+
+/* CLOUD. The same smoke with nowhere to settle: it fills the box, drifts
+ * sideways as well as up, and is lit from higher. A wall of weather rather
+ * than a floor of it. */
+.fx-cloud {
+  background-color: rgb(7, 8, 12);
+  evg-surface-effect: smoke;
+  evg-effect-on: always;
+  evg-fx-density: 1;
+  evg-fx-rise: 0.03;
+  evg-fx-wind: 0.6;
+  evg-fx-swirl: 2.4;
+  evg-fx-scale: 240;
+  evg-fx-height: 2.5;
+  evg-fx-softness: 0.6;
+  evg-fx-shade: 0.5;
+  evg-fx-angle: -70;
+  evg-fx-hue: 212;
+  evg-fx-tint: 0.15;
+  evg-fx-seed: 4;
+}
+
+/* HAZE. Thin, high and blowing sideways, at four octaves — the cheap one: a
+ * fog to put a page on top of rather than the subject of one. */
+.fx-haze {
+  background-color: rgb(8, 9, 14);
+  evg-surface-effect: smoke;
+  evg-effect-on: always;
+  evg-fx-density: 0.7;
+  evg-fx-rise: 0.02;
+  evg-fx-wind: 1.2;
+  evg-fx-swirl: 1.8;
+  evg-fx-scale: 200;
+  evg-fx-detail: 4;
+  evg-fx-height: 1.6;
+  evg-fx-softness: 0.4;
+  evg-fx-shade: 0.45;
+  evg-fx-hue: 218;
+  evg-fx-tint: 0.25;
+  evg-fx-seed: 8;
 }

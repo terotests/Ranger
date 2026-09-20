@@ -109,6 +109,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A smoke effect**, `evg-surface-effect: smoke`, and three presets for it.
+  What makes smoke read as smoke is that it curls, and curls at every size at
+  once, so the field is DOMAIN WARPED — fbm evaluated at a point two other fbms
+  have already moved. One warp gives the billows, the second the tendrils that
+  come off their edges. The bar the field has to clear rises with height, which
+  is what leaves a full floor, wisps above it and black over those rather than
+  a fog that fades out evenly; `evg-fx-height` moves that line, and at 3 or
+  more the same effect is a cloud filling the box. It is lit by comparing the
+  field with itself one step toward `evg-fx-angle` — a gradient, and what gives
+  a cloud its volume. `.fx-stage`, `.fx-cloud` and `.fx-haze` are in
+  `effect-presets.css`, so they are in the gallery demo's background picker and
+  on its contact sheet; the pixel gate holds the effect to banking up along its
+  own floor, thinning toward the top, filling the box when told to, and moving.
+
+- **A background picker on the published effects demo**
+  ([`/ui/demo/?demo=effects`](https://terotests.github.io/Ranger/ui/demo/?demo=effects)).
+  The eleven blocks of `lib/evg/gl/effect-presets.css` are in the rail, and
+  picking one TYPES it into the live stylesheet under the canvas — the box's
+  own declarations kept, the effect's replaced — after which the cascade reads
+  it like any other edit. So the picker has no privileged path into the
+  painter, and what it wrote is left in the editor to be read and changed.
+  Which element a preset lands on is decided by the plugin's LAYER, asked of
+  the painter rather than listed in the page: a source effect becomes the sky's
+  own background, a backdrop effect goes on the pane over it, because it draws
+  what is BEHIND an element and the opaque sky would paint over it a moment
+  later — so rain arrives as rain on the glass, with the stars bending through
+  it. The preset file reaches the bundle as the FILE, so a preset edited there
+  is the one the picker offers, the contact sheet paints and the pixel gate
+  checks; `page-check` reads it too and holds the round trip to it — every
+  preset offered, the file's own numbers in the display list, and the
+  stylesheet in the page saying what is on screen.
+
 - **Three quieter surface effects, and a file of presets.** `plasma-wave`
   (ribbons of light over a noise field), `raindrop` (drops on the pane, each a
   sphere's lens over what is behind it — strongest at the rim, nothing in the

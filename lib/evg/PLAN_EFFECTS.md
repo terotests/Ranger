@@ -72,7 +72,7 @@ A plugin declares which it is, and the difference decides when it is drawn:
 
 | | drawn | reads | example |
 | --- | --- | --- | --- |
-| `source` | in paint order, at the element's own background | nothing | `starfield`, `plasma-wave`, `ambient-light` |
+| `source` | in paint order, at the element's own background | nothing | `starfield`, `plasma-wave`, `ambient-light`, `smoke` |
 | `backdrop` | in paint order, at the same point | the surface so far | `liquid-glass`, `raindrop` |
 | `filter` | after the frame, over the box's region | the finished surface | `ripple` |
 
@@ -115,7 +115,8 @@ It needs nothing of its own to know the shape: the bend follows
 plugin, and its gradient is the surface normal. So the pane is a lens at
 whatever size the flex row gave it and whatever `border-radius` the sheet
 asked for, and `thickness`, `strength`, `power`, `disperse`, `shine`, `angle`
-and `tint` are the seven numbers that shape it.
+and `tint` are the seven numbers that shape it — every parameter of every
+effect is listed below.
 
 **The sweep** is the second half of it: a bar of light crossing the pane,
 `evg-fx-sweep` and its five siblings. Two of those decide whether it reads as
@@ -132,35 +133,171 @@ Both are checked against pixels: a rim-weighted bar leaves the flat middle
 byte-for-byte unchanged, and between passes nothing on the pane is brighter
 than the pane without a sweep at all.
 
-### The quiet three
+### The quieter four
 
 A starfield and a pane of glass are both loud: they are the effect, and the
-page is arranged around them. Three more are the other kind — a background you
+page is arranged around them. Four more are the other kind — a background you
 can put text on and still read it.
 
 * **`plasma-wave`** (source). Ribbons of light drifting across the box: a few
   sine paths through a value-noise field, each one drawn as a thin core with a
   wide glow, plus a `sheet` of colour behind them and sub-cell `grain` motes in
-  it. `hue`, `hue2`, `lines`, `speed`, `amp`, `glow`, `thickness`.
+  it.
 * **`raindrop`** (backdrop). One drop per cell of a hash grid, mostly small and
   a few large, each a sphere's lens over what is behind: strongest bend at the
   rim and none in the middle, so the page stays legible through the centre and
   smears at the edge, with a transmitted crescent, a small specular dot and a
-  darkened rim. `density`, `size`, `refract`, `shine`, `angle`, `rim`, `speed`.
-  It is the ripple's opposite number: a ripple is a lens that travels and dies,
+  darkened rim. It is the ripple's opposite number: a ripple is a lens that travels and dies,
   a drop is a lens that stays.
 * **`ambient-light`** (source). A slow wash — two-tone fbm, desaturated by
   `sat` — with a handful of bokeh discs floating through it. Nothing in it is
   sharp, which is the point: it is the background under a dashboard, not the
-  subject. `hue`, `hue2`, `sat`, `level`, `speed`, `orbs`, `blur`.
+  subject.
 
-All three take their box from the layout like the others, and all three are in
-`effect-presets.css` twice, with different numbers.
+* **`smoke`** (source). A bank of smoke rising through the box: fbm evaluated
+  at a point two other fbms have already moved — a DOMAIN WARP, which is the
+  cheapest way to get a turbulent flow out of a function that has none. One
+  warp gives the billows, the second gives the tendrils that come off their
+  edges. What it has to clear rises with height, so the floor is full and the
+  top is single wisps in the black; `height` is how far up that goes, and at 3
+  or more it is a cloud filling the box instead. The light is the field
+  compared with itself one step toward `angle`: where the smoke is thinning
+  that way the step is lower and the pixel is a lit face, where it is
+  thickening the pixel is in shadow — a gradient, which is what gives a cloud
+  its volume.
+
+They take their box from the layout like the others, and each is in
+`effect-presets.css` two or three times, with different numbers.
+
+### Every parameter
+
+`evg-fx-<name>: <number>` — and nothing else takes one. A name left out takes
+the default below; a name the plugin does not know reaches the shader and is
+ignored. This list IS the registry in `evg-webgl.js` — `surfaceEffect(name).params`
+is the same object, and `fx-check` holds this table to it: a parameter added to
+a plugin and not written down here fails a check, and so does a default changed
+in one place and not the other.
+
+Values are clamped where a shader needs them to be, so one outside the range is
+not an error, it just stops changing anything: `sweep-duty` is held to 0.02…1
+and `sweep-rim` to 0…1, which is why `sweep-duty: 1.1` behaves as 1 (the bar
+never leaves the pane) and `sweep-rim: 0.004` as 0 (the bar is as bright across
+the flat middle as it is at the bevel).
+
+**`ripple`** (filter) — rings from a press or a drag.
+
+| | default | |
+| --- | --- | --- |
+| `speed` | 220 | how fast a ring travels, px/s |
+| `width` | 28 | the ring's thickness, px |
+| `strength` | 7 | how far the surface is displaced |
+| `decay` | 1.8 | how quickly a drop dies |
+| `highlight` | 0.08 | brightening along the crest |
+| `rings` | 3 | rings per drop |
+| `stagger` | 0.09 | the delay between them |
+| `falloff` | 0.62 | how much dimmer each following ring is |
+| `shine` / `gloss` / `bump` | 0.45 / 120 / 70 | the specular lift on the wave |
+| `lightX` / `lightY` / `lightZ` | -0.45 / -0.65 / 0.62 | where that light is |
+
+**`starfield`** (source) — stars and dust.
+
+| | default | |
+| --- | --- | --- |
+| `density` | 1 | stars per cell; the grid follows it |
+| `speed` | 6 | drift, px/s |
+| `angle` | 200 | the direction of that drift, degrees |
+| `twinkle` | 1 | how much a star's brightness wanders |
+| `glow` | 1 | the halo around one |
+| `nebula` | 0.6 | how much dust there is |
+| `hue` / `hue2` | 225 / 300 | the two ends of the cloud's colour |
+| `seed` | 1 | a different sky at the same settings |
+
+**`liquid-glass`** (backdrop) — refraction at the rim, and a light crossing it.
+
+| | default | |
+| --- | --- | --- |
+| `thickness` | 24 | how far in from the edge the pane is curved, px |
+| `strength` | 32 | how far the bend drags what is behind it |
+| `power` | 2.2 | how sharply that falls off toward the middle |
+| `disperse` | 0.07 | how far the colour channels are split |
+| `shine` | 0.6 | the specular arc inset from the edge |
+| `angle` | -60 | where its light comes from, degrees |
+| `tint` | 0.05 | a flat lift over the pane |
+| `sweep` | 0 | the bar's brightness — 0 is no sweep at all |
+| `sweep-angle` | -62 | the direction it crosses in, degrees |
+| `sweep-width` | 0.06 | the bar's width, as a fraction of the pane |
+| `sweep-speed` | 0 | passes per second; 0 parks it at `sweep-at` |
+| `sweep-at` | 0.5 | where it is parked, 0…1 across the pane |
+| `sweep-edge` | 2.2 | extra brightness where it meets the bevel |
+| `sweep-rim` | 0.55 | how much it keeps to the bevel; 1 leaves the flat middle alone |
+| `sweep-duty` | 0.35 | the fraction of each cycle the pass takes; the rest of it the bar is off the pane |
+
+**`plasma-wave`** (source) — ribbons of light.
+
+| | default | |
+| --- | --- | --- |
+| `ribbons` | 5 | how many, 1…8 |
+| `speed` | 0.35 | how fast they travel |
+| `amp` | 0.22 | how far they swing, as a fraction of the height |
+| `freq` | 1.7 | how many waves across the box |
+| `width` | 2.2 | the bright core's thickness, px |
+| `glow` | 26 | the halo around a ribbon, px |
+| `sheet` | 0.16 | the wide colour behind them; 0 is ribbons on black |
+| `hue` / `hue2` | 225 / 285 | the two ends of their colour |
+| `grain` | 0.35 | the motes in the sheet |
+| `seed` | 1 | a different set of paths |
+
+**`raindrop`** (backdrop) — drops on the pane.
+
+| | default | |
+| --- | --- | --- |
+| `density` | 1 | how close the drops are; cells are `46 / density` px apart |
+| `size` | 0.5 | how big a drop is within its cell |
+| `refract` | 14 | how far it bends what is behind it, px |
+| `shine` | 0.85 | the transmitted crescent and the specular dot |
+| `angle` | -55 | where the light is, degrees |
+| `rim` | 0.55 | how dark the drop's edge is |
+| `speed` | 0 | how fast the field drifts down; 0 is still |
+| `seed` | 1 | a different scatter |
+
+**`smoke`** (source) — a bank of it rising through the box.
+
+| | default | |
+| --- | --- | --- |
+| `density` | 1.2 | how much of the field shows as smoke |
+| `rise` | 0.05 | how fast it climbs |
+| `wind` | 0 | sideways drift |
+| `swirl` | 2.6 | how hard the warp curls it; 0 is clouds of plain noise |
+| `scale` | 190 | the size of a billow, px |
+| `detail` | 5 | octaves, 1…6 — the last two are the tendrils and most of the cost |
+| `height` | 0.9 | how far up the box it reaches; 3 or more fills it |
+| `softness` | 0.55 | how gradually an edge gives out |
+| `shade` | 0.6 | how much the light sculpts it; 0 is flat grey |
+| `angle` | -60 | where that light is, degrees |
+| `hue` | 205 | the colour it is lit by |
+| `tint` | 0.1 | how much of that colour it takes |
+| `seed` | 1 | a different roll of it |
+
+**`ambient-light`** (source) — a slow wash.
+
+| | default | |
+| --- | --- | --- |
+| `hue` / `hue2` | 190 / 268 | the two ends of the wash |
+| `sat` | 0.5 | how far from grey those are |
+| `tilt` | 25 | the direction the wash runs, degrees |
+| `depth` | 0.5 | how bright it is overall |
+| `orbs` | 7 | the bokeh discs in it, 0…10 |
+| `size` | 0.55 | how big one is, against the shorter side |
+| `softness` | 1.6 | how far its edge is blurred |
+| `speed` | 0.06 | how fast they drift |
+| `glow` | 0.45 | how bright they are |
+| `seed` | 1 | a different arrangement |
 
 ### Presets
 
-`lib/evg/gl/effect-presets.css` is eleven blocks of ordinary CSS, one element's
-worth each: five skies, two plasma fields, two rains, two washes. They exist to
+`lib/evg/gl/effect-presets.css` is fourteen blocks of ordinary CSS, one
+element's worth each: five skies, two plasma fields, two rains, two washes and
+three of smoke. They exist to
 be pasted — into the live editor under the gallery's effects demo, or into a
 stylesheet — and nothing but numbers comes with them.
 
@@ -168,6 +305,12 @@ stylesheet — and nothing but numbers comes with them.
 npm run evg:fx:shots                       every preset, one picture
 npm run evg:fx:shots -- out.png --only raindrop --tile 520x300
 ```
+
+The gallery's effects demo has them in its rail: picking one types the block
+into the live stylesheet under the canvas, and which element it lands on is the
+plugin's layer — a source effect is the sky, a backdrop effect is the pane over
+it, because a backdrop draws what is behind an element and an opaque sky would
+paint over it.
 
 The file is read twice and written once: `effect-shots.mjs` paints it, and
 `fx-check.mjs` parses it with the ENGINE's own `EVGStyleSheet` and compares

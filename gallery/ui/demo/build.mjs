@@ -101,7 +101,15 @@ fs.writeFileSync(
     `export const CONTROLS_CSS = ${css("controls.css")};\n` +
     `export const OTP_CSS = ${css("otp.css")};\n` +
     `export const METADATA_CSS = ${css("metadata.css")};\n` +
-    `export const EFFECTS_CSS = ${css("effects.css")};\n`,
+    `export const EFFECTS_CSS = ${css("effects.css")};\n` +
+    // NOT ONE OF THIS DIRECTORY'S STYLESHEETS: the presets live with the
+    // effects they configure, in `lib/evg/gl`, and are read from there by the
+    // contact sheet and by the pixel gate as well. The page carries the FILE,
+    // not a copy of the numbers in it, so a preset edited there is the one the
+    // picker offers.
+    `export const EFFECT_PRESETS_CSS = ${JSON.stringify(
+      fs.readFileSync(path.join(HERE, "..", "..", "..", "lib", "evg", "gl", "effect-presets.css"), "utf8"),
+    )};\n`,
 );
 
 const esbuild = requireDom("esbuild");
