@@ -38,6 +38,8 @@ move between Joukkue, Pelaajat and Stadion.
 ```bash
 npm run rave -- check gallery/rave/examples/huuhkajat.rave
 npm run rave -- shot gallery/rave/examples/huuhkajat.rave --route /pelaajat --width 1440
+npm run rave -- shot gallery/rave/examples/huuhkajat.rave --wire     # …as a wireframe
+npm run rave -- chrome gallery/rave/examples/huuhkajat.rave --pane components   # the EDITOR
 npm run rave -- serve
 ```
 
@@ -57,12 +59,13 @@ npm run rave -- serve
 | `src/RaveImport.rgr` | A Figma file read as an application: auto-layout taken as it stands, everything else cut into flex, names and shapes read for meaning, agreeing frames lifted into a layout — and a report of every guess |
 | `src/rave_import_cli.rgr` | `npm run rave:import <file.fig> [out.rave.json]` — the reading, then the result built at two widths with its rejections and lint |
 | `src/RaveKit.rgr` | The Components pane: thirty-six entries in six groups (Layout, Text, Form, Data, Navigation, Overlay), each a node tree in the document's own vocabulary |
+| `src/RaveWire.rgr` | The palette, drawn: a wireframe icon per kit entry, and the layout menu's icons, which are live flex boxes rather than pictures of flexbox |
 | `src/RaveFields.rgr` | Which kind of input each inspector field is — choice, length (number + unit) or text — and the number/unit parsing behind it |
 | `src/RaveA11y.rgr` | Contrast (a real gamma curve, no `pow`), problems by node, tab order |
 | `src/RavePatterns.rgr` | The six patterns as code — `Dashboard Shell`, `Auth Flow`, `Settings Layout`, `Master / Detail`, `CRUD`, `Marketing + App` — plus the palette every one of them shares and `fromChoices`, which is what the wizard's four answers turn into |
 | `src/RaveEditor.rgr` | The editor: Rafi's chrome over the runtime's scene. `press(id)`, `keyWith`, `typeChar` are the three doors everything goes through |
 | `web/` | `index.html`, `main.js` (WebGL, pointer, keyboard, file dialog, download), `rave.css` (the chrome as an EVG sheet), `build.mjs`, `smoke.mjs` |
-| `tests/RaveTest.rgr` | 464 checks: the patterns, the runtime, the guard, the keyboard, three widths, the editor stage by stage, every kit entry at every width, and the ten-minute test end to end |
+| `tests/RaveTest.rgr` | 701 checks: the patterns, the runtime, the guard, the keyboard, every width, the wireframe stage, the editor stage by stage, every kit entry at every width, and the ten-minute test end to end |
 
 ## The document
 
@@ -84,32 +87,56 @@ when `authenticated` or `unauthenticated`, and `login` / `logout` are actions.
 ┌──────────────────────────────────────────────────────────────────────────┐
 │ ● Rave  Huuhkajat     Design | Run        logged out  Light  Undo Redo … │
 ├──────────────────────────────────────────────────────────────────────────┤
-│ SCREENS  Joukkue  Pelaajat  Pelaaja  Stadion  Katsomo                    │
+│ SCREENS  Joukkue  Pelaajat  Stadion      WIDTH  desktop 1440  phone  All │
 ├───────────┬──────────────────────────────────────────────┬───────────────┤
-│ Routes    │  desktop · 1440     tablet · 768   phone·390 │ Design CSS A11y│
-│ Components│  ┌──────────────┐   ┌────────┐    ┌────┐    │ div  Cards     │
-│ Layers    │  │ Header       │   │ Header │    │Head│    │ NODE  name …   │
-│  /        │  │ Side │ Main  │   │ Side│Mn│    │Main│    │ BREAKPOINT     │
-│  /pelaajat│  │      │ ▣ ▣ ▣ │   │     │▣▣│    │ ▣  │    │  base <768 …   │
-│  /stadion │  └──────────────┘   └────────┘    └────┘    │ LAYOUT Grid    │
-│ ▾ Shell   │                                             │  Columns …     │
-│   Header  │            [ − 50% + Fit | Tab order ]      │ RESPONSIVE     │
-│   Main    │                                             │ ACTIONS        │
+│ Routes    │  desktop · 1440                              │ Design CSS A11y│
+│ Components│  ┌──────────────────────────────────┐        │ div  Cards    │
+│ ┌───┐┌───┐│  │ Header                          ⇲│        │ NODE  name …  │
+│ │▭▭ ││▭  ││  ├──────┬───────────────────────────┤        │ BREAKPOINT    │
+│ └───┘└───┘│  │ Side │ ▣  ▣  ▣                   │        │  base <768 …  │
+│ Card  List│  └──────┴───────────────────────────┘        │ LAYOUT Grid   │
+│ Layers    │  ┌ DIRECTION ─ ALIGN ─ DISTRIBUTE ─┐         │  Columns …    │
+│ ▾ Shell   │  │ ▥ ▤  │ ▮▮▮ ▬▬▬ │ ▪▪ ▪ ▪ ▪▪      │         │ RESPONSIVE    │
+│   Header  │  └ GAP  −  16px  + ─────────────────┘        │ ACTIONS       │
 ├───────────┴──────────────────────────────────────────────┴───────────────┤
-│ Huuhkajat · design · /stadion · views 3 · a11y 0 · rejected 0 · undo 0    │
+│ Huuhkajat · design · /stadion · view desktop · a11y 0 · rejected 0 · undo│
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
-- **The stage is the app.** The three viewports are the runtime's own
-  laid-out trees in one scene, drawn through a camera (`RaveRuntime.sceneListJson`);
+- **The stage is the app.** The viewport on the stage is the runtime's own
+  laid-out tree in a scene, drawn through a camera (`RaveRuntime.sceneListJson`);
   the chrome is painted over them with the clear switched off, exactly as
   Rafi paints its board. The **screens bar** above the board is one chip per
-  route — press one to jump. Drag to pan, scroll to zoom, `Fit` to see all three.
+  route — press one to jump — and the width chips on its right pick which
+  viewport is on the stage. Drag empty stage to pan, scroll to zoom, `Fit`.
+- **One width at a time.** The stage shows one viewport; the width chips in
+  the screens bar switch it and `All` puts them side by side again. The
+  widths that are NOT on the stage are still built, laid out and linted, so
+  the answers are the same as when every frame was on screen.
+- **Wire** draws the document as structure: `RaveCss.emitWire` keeps every
+  rule's layout declarations and drops its paint, and a wire sheet draws what
+  each node IS — `wf-button`, `wf-input`, `wfr-checkbox`, put on in wire mode
+  by `RaveBuild`. Nothing in the document changes; turning Wire off gives its
+  own paint straight back. Contrast is a fact about paint, so the A11y walk
+  runs with Wire off and the pane says so.
 - **Selection is structural.** A node is picked on the stage or in Layers and
-  boxed in every viewport. There are no resize handles: the gestures are
+  boxed in the viewport. There are no resize handles: the gestures are
   `↑ ↓` (reorder), `← →` (out of / into a container), `Wrap`, `Dup`, `Del`,
-  and pick-and-drop (`⋮` on a row, then click where it goes — a row, or a
-  node on the stage). All of it is one undo stack.
+  dragging a node on the stage (a press that lands on a node carries it; the
+  target is outlined and labelled `into` or `before`), and pick-and-drop
+  (`⋮` on a row, then click where it goes). All of it is one undo stack.
+- **More than one node.** `Ctrl`-click adds and removes; `Shift`-drag sweeps a
+  rectangle and takes every box that fits inside it. `Comp` names what is
+  selected as a **component** — several nodes are grouped into one first, and
+  nodes with different parents are refused, because a component is a subtree.
+  A component is a named node tree: the node carrying the name is the
+  definition and its first use, so the markup writes `define="Card"` on that
+  node and the registry cannot go stale. `component="Card"` is an instance,
+  built from the definition with the instance's id in its element ids.
+- **The layout menu** hangs off the selected container's corner (`Ctrl+L`):
+  direction, align, distribute, wrap and a gap that steps in nudges. Each
+  icon is a little flex box with that option set on it, laid out by the
+  engine that lays out the page, so `space-around` looks like what it does.
 - **Design fields write rules, and they are real inputs.** A field is a
   property of the node's rule at the chosen breakpoint chip, and it is one of
   three kinds (`RaveFields`):
@@ -180,6 +207,26 @@ three widths, all three modals landed on top of each other at the stage's
 corner. `EVGElement.viewportRoot` (with `viewportX/Y/W/H`) says a box is a
 viewport of its own; a fixed box resolves against the nearest one. Off — every
 host with a single page — nothing changes.
+
+## Components, as the document has them
+
+A component is a **named node tree**. The node that carries the name is the
+definition and the first place it is used, the way a main component is in
+Figma, so there is nothing to keep in step: `doc.components` is a name and a
+node id, the markup writes `define="Card"` on that node, and the reader puts
+the pair back. A stale registry is not a state this document can be in.
+
+`component="Card"` on a node makes it an **instance**: `RaveBuild` builds the
+definition's children into it, with the instance's id appended to every
+element id under it — `n13-c40` is node 13 inside instance 40 — so two uses
+of a component are two things on the page and a press lands on the one that
+was pressed. The instance also carries the definition's classes, so it looks
+like what it is a copy of without a line being copied into the stylesheet. A
+component used inside itself stops rather than building for ever.
+
+What is missing, and is the next thing worth doing: variants (the field
+exists and nothing reads it), renaming a component, and editing an instance's
+own text — today an instance is the definition, exactly.
 
 ## Importing a Figma file
 

@@ -14,10 +14,12 @@ other source file.
 npm run rave -- new app.rave --name "Acme" --start crud --nav sidebar
 npm run rave -- check app.rave        # the loop: exit 0 or the reasons why not
 npm run rave -- shot app.rave --width 390   # paint a route and look at it
+npm run rave -- shot app.rave --wire        # …as a wireframe: layout, no paint
 npm run rave -- measure app.rave --width 390  # overflow, overlap, off the page
 npm run rave -- outline app.rave --width 390  # the laid-out tree, one line per node
 npm run rave -- serve app.rave        # the editor at :8012, bound to the file
 npm run rave -- serve                 # the same editor, on the Huuhkajat example
+npm run rave -- chrome app.rave       # a picture of the EDITOR itself, headless
 npm run rave -- spec                  # the format in full — read this before writing one
 ```
 
