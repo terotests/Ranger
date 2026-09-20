@@ -1,0 +1,67 @@
+; SPDX-License-Identifier: MIT
+;
+; The cart, without EVG — so `npm test` is a second, not a layout compile.
+
+Import "Menu.rgr"
+Import "Cart.rgr"
+Import "Money.rgr"
+
+class MainTest {
+    def failed:int 0
+
+    fn expect:void (what:string cond:boolean) {
+        if cond {
+            print ("  PASS  " + what)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL  " + what)
+        }
+    }
+
+    fn expectInt:void (what:string got:int want:int) {
+        if (got == want) {
+            print ("  PASS  " + what)
+        } {
+            failed = (failed + 1)
+            print (((((("  FAIL  " + what) + " — got ") + (to_string got)) + " want ") + (to_string want)))
+        }
+    }
+
+    fn expectStr:void (what:string got:string want:string) {
+        if (got == want) {
+            print ("  PASS  " + what)
+        } {
+            failed = (failed + 1)
+            print (((((("  FAIL  " + what) + " — got ") + got) + " want ") + want))
+        }
+    }
+
+    sfn m@(main):void () {
+        def t (new MainTest)
+        def menu (new ShopMenu)
+        t.expect("the board has six things" ((menu.count()) == 6))
+        t.expect("latte is on the board" ((null? (menu.findCode("latte"))) == false))
+        t.expect("a typo is not" (null? (menu.findCode("llatte"))))
+        def latte:MenuItem (unwrap (menu.findCode("latte")))
+        t.expectInt("a latte is 3.80" latte.cents 380)
+        def cart (new ShopCart)
+        cart.addItem(latte)
+        cart.addItem(latte)
+        cart.addItem((unwrap (menu.findCode("bun"))))
+        t.expectInt("two lattes merge" (cart.lineCount()) 2)
+        t.expectInt("qty of the latte line" ((cart.lineAt(0)).qty) 2)
+        t.expectInt("gross 2x380 + 290" (cart.grossCents()) 1050)
+        t.expectStr("10.50 euros" (Money.euros(1050)) "10.50")
+        t.expectStr("two cents pad" (Money.euros(8)) "0.08")
+        def net:int (cart.netCents())
+        def vat:int (cart.vatCents())
+        t.expectInt("net + vat is gross" (net + vat) 1050)
+        t.expect("vat is not zero" (vat > 0))
+        if (t.failed > 0) {
+            print (("FAILED " + (to_string t.failed)))
+            set_exit_code 1
+        } {
+            print "ALL PASS"
+        }
+    }
+}

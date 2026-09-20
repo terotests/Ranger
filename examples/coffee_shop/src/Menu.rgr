@@ -1,0 +1,54 @@
+; SPDX-License-Identifier: MIT
+;
+; The board behind the counter. Each drink or pastry has a short code you can
+; type on the command line, a name that goes on the receipt, and a price in
+; euro cents.
+
+class MenuItem {
+    def code:string ""
+    def label:string ""
+    def cents:int 0
+}
+
+class ShopMenu {
+    def items:[MenuItem]
+
+    Constructor () {
+        this.addItem("espresso" "Espresso" 250)
+        this.addItem("latte" "Latte" 380)
+        this.addItem("cappuccino" "Cappuccino" 360)
+        this.addItem("mocha" "Mocha" 420)
+        this.addItem("bun" "Cinnamon bun" 290)
+        this.addItem("cookie" "Cookie" 180)
+    }
+
+    fn addItem:void (code:string label:string cents:int) {
+        def it (new MenuItem)
+        it.code = code
+        it.label = label
+        it.cents = cents
+        push items it
+    }
+
+    fn count:int () {
+        return (array_length items)
+    }
+
+    fn at:MenuItem (i:int) {
+        return (itemAt items i)
+    }
+
+    fn findCode@(optional):MenuItem (code:string) {
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:MenuItem (itemAt items i)
+            if (it.code == code) {
+                def hit@(optional):MenuItem it
+                return hit
+            }
+            i = (i + 1)
+        }
+        def miss@(optional):MenuItem
+        return miss
+    }
+}

@@ -1,0 +1,20 @@
+; SPDX-License-Identifier: MIT
+;
+; A class another file imports — so a new project shows Import on the first
+; morning, not after someone has already invented a second file.
+
+class Greeter {
+    def hello:string "hei"
+
+    Constructor (hello:string) {
+        this.hello = hello
+    }
+
+    fn greet:string (name:string) {
+        return ((this.hello + " ") + name)
+    }
+
+    fn shout:string (name:string) {
+        return ((this.greet(name)) + "!")
+    }
+}

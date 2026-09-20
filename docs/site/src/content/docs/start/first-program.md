@@ -42,6 +42,8 @@ generated code of each operator for each target language.
 
 ## The next step
 
+- [Start a project](/Ranger/docs/start/init/) writes a directory you can
+  `npm start` — Ranger Coffee by default, or a greeter.
 - [Program structure](/Ranger/docs/language/structure/) describes classes and functions.
 - [Types](/Ranger/docs/language/types/) describes the type system.
 - [Ownership and lifetime](/Ranger/docs/language/ownership/) describes who keeps

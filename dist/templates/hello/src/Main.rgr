@@ -1,0 +1,22 @@
+; SPDX-License-Identifier: MIT
+;
+; The entry point ranger.json names. `npm start` compiles this and runs it.
+
+Import "Greeter.rgr"
+
+class Main {
+    sfn m@(main):void () {
+        def g (new Greeter("hei"))
+        print (g.greet("maailma"))
+        print (g.shout("Ranger"))
+        def targets:[string]
+        push targets "JavaScript"
+        push targets "Python"
+        push targets "Go"
+        def i:int 0
+        while (i < (array_length targets)) {
+            print (("  -> " + (itemAt targets i)) + ", from this same file")
+            i = (i + 1)
+        }
+    }
+}

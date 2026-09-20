@@ -1,0 +1,9 @@
+{
+  "name": "coffee-shop",
+  "version": "0.1.0",
+  "entry": "src/Main.rgr",
+  "license": "MIT",
+  "dependencies": {
+    "evg": { "path": "../../lib/evg" }
+  }
+}

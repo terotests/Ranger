@@ -209,6 +209,19 @@ npm start          # hei maailma
 npm run targets    # the same source as Swift, Kotlin, Rust, Go, C++, …
 ```
 
+Or skip the clone: `rgrc init` writes a project into a directory. The default
+program is **Ranger Coffee** — pick from the board, get a bill, walk out with a
+PDF receipt that EVG laid out:
+
+```bash
+npx ranger-compiler init my-cafe
+cd my-cafe && npm install && npx rgrc install && npm start
+npm start -- latte bun cookie
+```
+
+`-template=hello` is the greeter instead. RangerStarter remains the fuller kit
+(fourteen targets, CI, skills). `rgrc init` is the small door next to it.
+
 Source files use the `.rgr` extension (`.clj` is the legacy extension and still
 works) and the CLI is `rgrc`:
 

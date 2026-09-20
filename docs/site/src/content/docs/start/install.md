@@ -17,6 +17,17 @@ npm install -g ranger-compiler
 
 The command `rgrc` is then available.
 
+Create a project in one step:
+
+```sh
+rgrc init my-cafe
+cd my-cafe && npm install && npx rgrc install && npm start
+```
+
+That writes **Ranger Coffee** — a till that prints a bill and an EVG PDF
+receipt. `-template=hello` is a two-file greeter instead. See
+[Start a project](/Ranger/docs/start/init/).
+
 The compiler uses the MIT license. See [Licenses](/Ranger/docs/start/licenses/).
 
 ## Command line

@@ -1,0 +1,21 @@
+; SPDX-License-Identifier: MIT
+;
+; Euro cents on the page. Integer money, then a string with two decimals —
+; never a floating total, which is how a receipt stays honest across targets.
+
+class Money {
+    sfn euros:string (cents:int) {
+        def n:int cents
+        def sign:string ""
+        if (n < 0) {
+            sign = "-"
+            n = (0 - n)
+        }
+        def e:int (idiv n 100)
+        def c:int (n - (e * 100))
+        if (c < 10) {
+            return (((sign + (to_string e)) + ".0") + (to_string c))
+        }
+        return (((sign + (to_string e)) + ".") + (to_string c))
+    }
+}

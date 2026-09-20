@@ -255,5 +255,7 @@ compiler/bin/api.ts
 /*.rs
 /*.ll
 /*.zip
+/*.pdf
+/*.evg.json
 /bin/test_*
 /rustc_errors.txt

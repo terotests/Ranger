@@ -1,0 +1,232 @@
+; SPDX-License-Identifier: MIT
+;
+; A tiny PDF 1.4 writer for a laid-out EVG tree. Helvetica only, filled
+; rectangles and text — enough for a receipt, and MIT, so a starter project
+; does not have to pull the AGPL gallery PDF toolkit. The layout is EVG's;
+; this file only paints the boxes EVG already computed.
+
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGColor.rgr"
+
+class ReceiptPdf {
+    def pageW:double 595.0
+    def pageH:double 842.0
+    def stream:string ""
+    def objects:[string]
+
+    fn setPageSize:void (w:double h:double) {
+        pageW = w
+        pageH = h
+    }
+
+    fn paintTree:void (root:EVGElement) {
+        stream = ""
+        this.walk(root)
+    }
+
+    fn walk:void (el:EVGElement) {
+        def x:double el.calculatedX
+        def y:double el.calculatedY
+        def w:double el.calculatedWidth
+        def h:double el.calculatedHeight
+        def bg@(optional):EVGColor el.backgroundColor
+        if (!null? bg) {
+            def c:EVGColor (unwrap bg)
+            if ((c.isSet && (w > 0.5)) && (h > 0.5)) {
+                this.fillRect(x y w h c)
+            }
+        }
+        if ((strlen el.textContent) > 0) {
+            def fs:double el.inheritedFontSize
+            if (fs < 8.0) {
+                fs = 8.0
+            }
+            def used:EVGColor (EVGColor.rgb(40 32 28))
+            def ink@(optional):EVGColor el.color
+            if (!null? ink) {
+                def ic:EVGColor (unwrap ink)
+                if ic.isSet {
+                    used = ic
+                }
+            }
+            this.drawText(x ((y + fs) - 2.0) fs used el.textContent)
+        }
+        def n:int (el.getChildCount())
+        def i:int 0
+        while (i < n) {
+            this.walk((el.getChild(i)))
+            i = (i + 1)
+        }
+    }
+
+    fn fillRect:void (x:double y:double w:double h:double c:EVGColor) {
+        def pdfY:double ((pageH - y) - h)
+        def rr:int (c.red())
+        def gg:int (c.green())
+        def bb:int (c.blue())
+        def rs:string (this.colorUnit(rr))
+        def gs:string (this.colorUnit(gg))
+        def bs:string (this.colorUnit(bb))
+        stream = (stream + rs)
+        stream = (stream + " ")
+        stream = (stream + gs)
+        stream = (stream + " ")
+        stream = (stream + bs)
+        stream = (stream + " rg ")
+        def xs:string (this.ptText(x))
+        def ys:string (this.ptText(pdfY))
+        def ws:string (this.ptText(w))
+        def hs:string (this.ptText(h))
+        stream = (stream + xs)
+        stream = (stream + " ")
+        stream = (stream + ys)
+        stream = (stream + " ")
+        stream = (stream + ws)
+        stream = (stream + " ")
+        stream = (stream + hs)
+        stream = (stream + " re f\n")
+    }
+
+    fn drawText:void (x:double y:double fs:double c:EVGColor text:string) {
+        def pdfY:double (pageH - y)
+        def face:string "/F1"
+        if (fs >= 20.0) {
+            face = "/F2"
+        }
+        def rr:int (c.red())
+        def gg:int (c.green())
+        def bb:int (c.blue())
+        stream = (stream + "BT ")
+        stream = (stream + (this.colorUnit(rr)))
+        stream = (stream + " ")
+        stream = (stream + (this.colorUnit(gg)))
+        stream = (stream + " ")
+        stream = (stream + (this.colorUnit(bb)))
+        stream = (stream + " rg ")
+        stream = (stream + face)
+        stream = (stream + " ")
+        stream = (stream + (this.ptText(fs)))
+        stream = (stream + " Tf 1 0 0 1 ")
+        stream = (stream + (this.ptText(x)))
+        stream = (stream + " ")
+        stream = (stream + (this.ptText(pdfY)))
+        stream = (stream + " Tm (")
+        stream = (stream + (this.escText(text)))
+        stream = (stream + ") Tj ET\n")
+    }
+
+    fn asPdf:string () {
+        def content:string stream
+        def len:int (strlen content)
+        def catalog:string "<< /Type /Catalog /Pages 2 0 R >>"
+        def pages:string "<< /Type /Pages /Kids [3 0 R] /Count 1 >>"
+        def mw:string (this.ptText(pageW))
+        def mh:string (this.ptText(pageH))
+        def page:string "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 "
+        page = (page + mw)
+        page = (page + " ")
+        page = (page + mh)
+        page = (page + "] /Contents 4 0 R /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> >>")
+        def streamObj:string "<< /Length "
+        streamObj = (streamObj + (to_string len))
+        streamObj = (streamObj + " >>\nstream\n")
+        streamObj = (streamObj + content)
+        streamObj = (streamObj + "endstream")
+        def f1:string "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"
+        def f2:string "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>"
+        clear objects
+        push objects catalog
+        push objects pages
+        push objects page
+        push objects streamObj
+        push objects f1
+        push objects f2
+        def out:string "%PDF-1.4\n"
+        def offsets:[int]
+        def i:int 0
+        def n:int (array_length objects)
+        while (i < n) {
+            push offsets (strlen out)
+            out = (out + (to_string (i + 1)))
+            out = (out + " 0 obj\n")
+            out = (out + (itemAt objects i))
+            out = (out + "\nendobj\n")
+            i = (i + 1)
+        }
+        def xrefAt:int (strlen out)
+        out = (out + "xref\n0 ")
+        out = (out + (to_string (n + 1)))
+        out = (out + "\n0000000000 65535 f \n")
+        i = 0
+        while (i < n) {
+            out = (out + (this.pad10((itemAt offsets i))))
+            out = (out + " 00000 n \n")
+            i = (i + 1)
+        }
+        out = (out + "trailer\n<< /Size ")
+        out = (out + (to_string (n + 1)))
+        out = (out + " /Root 1 0 R >>\nstartxref\n")
+        out = (out + (to_string xrefAt))
+        out = (out + "\n%%EOF\n")
+        return out
+    }
+
+    fn saveTo:void (dir:string filename:string) {
+        write_file dir filename (this.asPdf())
+    }
+
+    fn ptText:string (v:double) {
+        def n:int (to_int (v + 0.5))
+        return (to_string n)
+    }
+
+    fn colorUnit:string (n:int) {
+        if (n <= 0) {
+            return "0"
+        }
+        if (n >= 255) {
+            return "1"
+        }
+        def c:int (idiv (n * 100) 255)
+        def a:int (idiv c 100)
+        def b:int (c - (a * 100))
+        if (b < 10) {
+            return (((to_string a) + ".0") + (to_string b))
+        }
+        return (((to_string a) + ".") + (to_string b))
+    }
+
+    fn pad10:string (n:int) {
+        def s:string (to_string n)
+        while ((strlen s) < 10) {
+            s = ("0" + s)
+        }
+        return s
+    }
+
+    fn escText:string (s:string) {
+        def out:string ""
+        def i:int 0
+        def n:int (strlen s)
+        while (i < n) {
+            def ch:int (charAt s i)
+            if (ch == 92) {
+                out = (out + "\\\\")
+            } {
+                if (ch == 40) {
+                    out = (out + "\\(")
+                } {
+                    if (ch == 41) {
+                        out = (out + "\\)")
+                    } {
+                        if ((ch >= 32) && (ch < 127)) {
+                            out = (out + (substring s i (i + 1)))
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+}

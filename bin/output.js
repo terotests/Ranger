@@ -79097,6 +79097,413 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                       }
                                                       return GitPackIO.parse(raw);
                                                     };
+                                                    class RangerInit  {
+                                                      constructor() {
+                                                        this.err = "";
+                                                      }
+                                                      run (env, params, cli) {
+                                                        let kind = "coffee";
+                                                        const tOpt = params.getParam("template");
+                                                        if ( (typeof(tOpt) !== "undefined" && tOpt != null )  ) {
+                                                          kind = tOpt;
+                                                        }
+                                                        if ( kind == "starter" ) {
+                                                          kind = "hello";
+                                                        }
+                                                        if ( kind != "coffee" && kind != "hello" ) {
+                                                          this.err = ("unknown -template=" + kind) + " (coffee, hello)";
+                                                          return false;
+                                                        }
+                                                        let destName = "";
+                                                        if ( params.values.length > 1 ) {
+                                                          destName = params.values[1];
+                                                        }
+                                                        const dest = this.absDir(env, destName);
+                                                        let proj = this.npmName(this.baseName(dest));
+                                                        if ( proj.length == 0 ) {
+                                                          proj = "ranger-app";
+                                                        }
+                                                        const force = ( typeof(params.flags["force"] ) != "undefined" && Object.prototype.hasOwnProperty.call(params.flags, "force") );
+                                                        if ( operatorsOf_8.filec95exists_9(env, dest, "src/Main.rgr") && force == false ) {
+                                                          this.err = dest + " already has src/Main.rgr — pick another directory, or pass -force";
+                                                          return false;
+                                                        }
+                                                        const srcRoot = this.templateRoot(env, kind);
+                                                        if ( srcRoot.length == 0 ) {
+                                                          this.err = ("could not find the " + kind) + " template next to the compiler";
+                                                          return false;
+                                                        }
+                                                        const scriptRoot = this.scriptRoot(env);
+                                                        if ( scriptRoot.length == 0 ) {
+                                                          this.err = "could not find scripts/rgr next to the compiler";
+                                                          return false;
+                                                        }
+                                                        require("fs").mkdirSync( dest, { recursive: true });
+                                                        require("fs").mkdirSync( dest + "/src", { recursive: true });
+                                                        require("fs").mkdirSync( dest + "/scripts", { recursive: true });
+                                                        if ( this.copyTree(env, srcRoot, dest, kind) == false ) {
+                                                          return false;
+                                                        }
+                                                        if ( this.copyNamed(env, scriptRoot, dest, "scripts/rgr") == false ) {
+                                                          return false;
+                                                        }
+                                                        this.putText(
+                                                          dest,
+                                                          ".gitignore",
+                                                          RangerInit.gitignoreText()
+                                                        );
+                                                        this.putText(
+                                                          dest,
+                                                          "LICENSE",
+                                                          RangerInit.licenseText()
+                                                        );
+                                                        this.putText(
+                                                          dest,
+                                                          "package.json",
+                                                          this.packageJson(proj, kind)
+                                                        );
+                                                        this.putText(
+                                                          dest,
+                                                          "ranger.json",
+                                                          this.rangerJson(proj, kind)
+                                                        );
+                                                        this.putText(
+                                                          dest,
+                                                          "README.md",
+                                                          this.readmeText(proj, destName, kind)
+                                                        );
+                                                        console.log("");
+                                                        console.log(cli.bold(("Created Ranger project in " + dest)));
+                                                        console.log("  template  " + kind);
+                                                        console.log("");
+                                                        console.log("  cd " + this.cdName(destName, dest));
+                                                        console.log("  npm install");
+                                                        if ( kind == "coffee" ) {
+                                                          console.log("  npx rgrc install        # fetch EVG (lib/evg, MIT)");
+                                                        }
+                                                        console.log("  npm start");
+                                                        console.log("  npm test");
+                                                        console.log("");
+                                                        if ( kind == "coffee" ) {
+                                                          console.log("  npm start -- latte bun cookie");
+                                                          console.log("  npm start -- --out=kuitti mocha mocha");
+                                                          console.log("");
+                                                        }
+                                                        console.log("For the full kit (fourteen targets, CI, agent skills) clone");
+                                                        console.log("https://github.com/terotests/RangerStarter");
+                                                        console.log("");
+                                                        return true;
+                                                      };
+                                                      cdName (given, dest) {
+                                                        if ( given.length == 0 ) {
+                                                          return ".";
+                                                        }
+                                                        return given;
+                                                      };
+                                                      absDir (env, name) {
+                                                        if ( name.length == 0 ) {
+                                                          return operatorsOf_8.currentc95directory_51(env);
+                                                        }
+                                                        if ( name == "." ) {
+                                                          return operatorsOf_8.currentc95directory_51(env);
+                                                        }
+                                                        const first = name.charCodeAt(0 );
+                                                        if ( first == 47 ) {
+                                                          return name;
+                                                        }
+                                                        return (operatorsOf_8.currentc95directory_51(env) + "/") + name;
+                                                      };
+                                                      baseName (path) {
+                                                        const n = path.length;
+                                                        let i = n - 1;
+                                                        while (i >= 0) {
+                                                          const ch = path.charCodeAt(i );
+                                                          if ( ch == 47 || ch == 92 ) {
+                                                            return path.substring((i + 1), n );
+                                                          }
+                                                          i = i - 1;
+                                                        };
+                                                        return path;
+                                                      };
+                                                      npmName (raw) {
+                                                        const lower = raw.toLowerCase();
+                                                        let out = "";
+                                                        let i = 0;
+                                                        const n = lower.length;
+                                                        while (i < n) {
+                                                          const ch = lower.charCodeAt(i );
+                                                          let ok = false;
+                                                          if ( ch >= 97 && ch <= 122 ) {
+                                                            ok = true;
+                                                          }
+                                                          if ( ch >= 48 && ch <= 57 ) {
+                                                            ok = true;
+                                                          }
+                                                          if ( ch == 45 ) {
+                                                            ok = true;
+                                                          }
+                                                          if ( ok ) {
+                                                            out = out + lower.substring(i, (i + 1) );
+                                                          } else {
+                                                            if ( out.length > 0 ) {
+                                                              const last = out.charCodeAt((out.length - 1) );
+                                                              if ( last != 45 ) {
+                                                                out = out + "-";
+                                                              }
+                                                            }
+                                                          }
+                                                          i = i + 1;
+                                                        };
+                                                        let trimmed = out;
+                                                        let i_2 = 0;
+                                                        while (i_2 < 128) {
+                                                          if ( trimmed.length == 0 ) {
+                                                            i_2 = 128;
+                                                          } else {
+                                                            const last_1 = trimmed.charCodeAt((trimmed.length - 1) );
+                                                            if ( last_1 != 45 ) {
+                                                              i_2 = 128;
+                                                            } else {
+                                                              trimmed = trimmed.substring(0, (trimmed.length - 1) );
+                                                              i_2 = i_2 + 1;
+                                                            }
+                                                          }
+                                                        };
+                                                        if ( trimmed.length == 0 ) {
+                                                          return "ranger-app";
+                                                        }
+                                                        const first = trimmed.charCodeAt(0 );
+                                                        if ( first >= 48 && first <= 57 ) {
+                                                          return "app-" + trimmed;
+                                                        }
+                                                        return trimmed;
+                                                      };
+                                                      templateRoot (env, kind) {
+                                                        const idir = __dirname;
+                                                        const cwd = operatorsOf_8.currentc95directory_51(env);
+                                                        let candidates = [];
+                                                        candidates.push((idir + "/templates/") + kind);
+                                                        if ( kind == "coffee" ) {
+                                                          candidates.push(idir + "/../examples/coffee_shop");
+                                                          candidates.push(cwd + "/examples/coffee_shop");
+                                                        }
+                                                        if ( kind == "hello" ) {
+                                                          candidates.push(idir + "/../compiler/init/hello");
+                                                          candidates.push(cwd + "/compiler/init/hello");
+                                                        }
+                                                        return this.firstWith(
+                                                          env,
+                                                          candidates,
+                                                          "src/Main.rgr"
+                                                        );
+                                                      };
+                                                      scriptRoot (env) {
+                                                        const idir = __dirname;
+                                                        const cwd = operatorsOf_8.currentc95directory_51(env);
+                                                        let candidates = [];
+                                                        candidates.push(idir + "/templates");
+                                                        candidates.push(idir + "/../compiler/init");
+                                                        candidates.push(cwd + "/compiler/init");
+                                                        return this.firstWith(
+                                                          env,
+                                                          candidates,
+                                                          "scripts/rgr"
+                                                        );
+                                                      };
+                                                      firstWith (env, dirs, file) {
+                                                        let i = 0;
+                                                        while (i < dirs.length) {
+                                                          const dir = dirs[i];
+                                                          if ( operatorsOf_8.filec95exists_9(env, dir, file) ) {
+                                                            return dir;
+                                                          }
+                                                          i = i + 1;
+                                                        };
+                                                        return "";
+                                                      };
+                                                      copyTree (env, srcRoot, dest, kind) {
+                                                        let files = [];
+                                                        if ( kind == "hello" ) {
+                                                          files.push("src/Main.rgr");
+                                                          files.push("src/Greeter.rgr");
+                                                          files.push("src/MainTest.rgr");
+                                                        } else {
+                                                          files.push("src/Main.rgr");
+                                                          files.push("src/Menu.rgr");
+                                                          files.push("src/Cart.rgr");
+                                                          files.push("src/Money.rgr");
+                                                          files.push("src/Receipt.rgr");
+                                                          files.push("src/ReceiptPdf.rgr");
+                                                          files.push("src/MainTest.rgr");
+                                                        }
+                                                        let i = 0;
+                                                        while (i < files.length) {
+                                                          const rel = files[i];
+                                                          if ( this.copyNamed(env, srcRoot, dest, rel) == false ) {
+                                                            return false;
+                                                          }
+                                                          i = i + 1;
+                                                        };
+                                                        return true;
+                                                      };
+                                                      copyNamed (env, srcDir, destDir, rel) {
+                                                        const data = (() => { try { return require('fs').readFileSync( srcDir + '/' + rel , 'utf8'); } catch (e) { return undefined; } })();
+                                                        if ( typeof(data) === "undefined" ) {
+                                                          this.err = ("could not read " + srcDir) + ("/" + rel);
+                                                          return false;
+                                                        }
+                                                        this.ensureParent(destDir, rel);
+                                                        require("fs").writeFileSync( destDir + "/"  + rel, data);
+                                                        console.log("  wrote " + rel);
+                                                        return true;
+                                                      };
+                                                      ensureParent (destDir, rel) {
+                                                        const d = this.dirOf(rel);
+                                                        if ( d.length > 0 ) {
+                                                          require("fs").mkdirSync( (destDir + "/") + d, { recursive: true });
+                                                        }
+                                                      };
+                                                      dirOf (rel) {
+                                                        const n = rel.length;
+                                                        let i = n - 1;
+                                                        while (i >= 0) {
+                                                          if ( rel.charCodeAt(i ) == 47 ) {
+                                                            return rel.substring(0, i );
+                                                          }
+                                                          i = i - 1;
+                                                        };
+                                                        return "";
+                                                      };
+                                                      putText (dest, name, data) {
+                                                        require("fs").writeFileSync( dest + "/"  + name, data);
+                                                        console.log("  wrote " + name);
+                                                      };
+                                                      packageJson (proj, kind) {
+                                                        let desc = "A Ranger project.";
+                                                        if ( kind == "coffee" ) {
+                                                          desc = "Ranger Coffee: pick from the board, get a PDF receipt laid out by EVG.";
+                                                        }
+                                                        let out = "{\n";
+                                                        out = out + "  \"name\": \"";
+                                                        out = out + proj;
+                                                        out = out + "\",\n";
+                                                        out = out + "  \"version\": \"0.1.0\",\n";
+                                                        out = out + "  \"private\": true,\n";
+                                                        out = out + "  \"description\": \"";
+                                                        out = out + desc;
+                                                        out = out + "\",\n";
+                                                        out = out + "  \"license\": \"MIT\",\n";
+                                                        out = out + "  \"engines\": { \"node\": \">=18.0.0\" },\n";
+                                                        out = out + "  \"scripts\": {\n";
+                                                        out = out + "    \"start\": \"bash scripts/rgr run src/Main.rgr\",\n";
+                                                        out = out + "    \"build\": \"bash scripts/rgr build src/Main.rgr\",\n";
+                                                        out = out + "    \"check\": \"bash scripts/rgr check src/Main.rgr\",\n";
+                                                        out = out + "    \"test\": \"bash scripts/rgr run src/MainTest.rgr\",\n";
+                                                        out = out + "    \"deps\": \"node_modules/.bin/rgrc install\"\n";
+                                                        out = out + "  },\n";
+                                                        out = out + "  \"devDependencies\": {\n";
+                                                        out = out + "    \"ranger-compiler\": \"^3.5.1\"\n";
+                                                        out = out + "  }\n";
+                                                        out = out + "}\n";
+                                                        return out;
+                                                      };
+                                                      rangerJson (proj, kind) {
+                                                        let out = "{\n";
+                                                        out = out + "  \"name\": \"";
+                                                        out = out + proj;
+                                                        out = out + "\",\n";
+                                                        out = out + "  \"version\": \"0.1.0\",\n";
+                                                        out = out + "  \"entry\": \"src/Main.rgr\",\n";
+                                                        out = out + "  \"license\": \"MIT\"";
+                                                        if ( kind == "coffee" ) {
+                                                          out = out + ",\n";
+                                                          out = out + "  \"dependencies\": {\n";
+                                                          out = out + "    \"evg\": {\n";
+                                                          out = out + "      \"git\": \"https://github.com/terotests/Ranger.git\",\n";
+                                                          out = out + "      \"rev\": \"HEAD\",\n";
+                                                          out = out + "      \"subdir\": \"lib/evg\"\n";
+                                                          out = out + "    }\n";
+                                                          out = out + "  }\n";
+                                                        } else {
+                                                          out = out + "\n";
+                                                        }
+                                                        out = out + "}\n";
+                                                        return out;
+                                                      };
+                                                      readmeText (proj, given, kind) {
+                                                        let folder = given;
+                                                        if ( folder.length == 0 ) {
+                                                          folder = proj;
+                                                        }
+                                                        let out = "# " + proj;
+                                                        out = out + "\n\nA [Ranger](https://terotests.github.io/Ranger/) project created by `rgrc init`.\n\n";
+                                                        if ( kind == "coffee" ) {
+                                                          out = out + "This is **Ranger Coffee**: a command-line till. You pick drinks and\n";
+                                                          out = out + "pastries from the board; it prints the bill and writes a PDF receipt\n";
+                                                          out = out + "that [EVG](https://github.com/terotests/Ranger/tree/master/lib/evg) laid out\n";
+                                                          out = out + "(MIT — the CSS layout engine, not the AGPL gallery PDF toolkit).\n\n";
+                                                        } else {
+                                                          out = out + "Two source files so `Import` is on the page, a test that exits non-zero\n";
+                                                          out = out + "when an expectation fails, and `scripts/rgr` so a failed compile cannot\n";
+                                                          out = out + "run yesterday's build.\n\n";
+                                                        }
+                                                        out = out + "## Run\n\n";
+                                                        out = out + "```bash\n";
+                                                        out = out + "npm install\n";
+                                                        if ( kind == "coffee" ) {
+                                                          out = out + "npx rgrc install          # fetch EVG into the package cache\n";
+                                                        }
+                                                        out = out + "npm start\n";
+                                                        out = out + "npm test\n";
+                                                        out = out + "```\n\n";
+                                                        if ( kind == "coffee" ) {
+                                                          out = out + "```bash\n";
+                                                          out = out + "npm start -- latte bun cookie\n";
+                                                          out = out + "npm start -- --out=kuitti mocha mocha\n";
+                                                          out = out + "```\n\n";
+                                                          out = out + "Codes on the board: `espresso`, `latte`, `cappuccino`, `mocha`, `bun`, `cookie`.\n";
+                                                          out = out + "With no codes, you get a sample order. Output is `receipt.pdf` and\n";
+                                                          out = out + "`receipt.evg.json` (the same page as an EVG document).\n\n";
+                                                        }
+                                                        out = out + "`scripts/rgr` compiles through the compiler this project installed and\n";
+                                                        out = out + "**fails when the compile fails**. Compilers through 3.5.1 printed `[FAIL]`\n";
+                                                        out = out + "and exited 0, so `rgrc … && node build/Main.js` ran the previous build.\n\n";
+                                                        out = out + "## The fuller starter\n\n";
+                                                        out = out + "[RangerStarter](https://github.com/terotests/RangerStarter) is the same idea\n";
+                                                        out = out + "as a repository you clone: fourteen target languages, CI, agent skills,\n";
+                                                        out = out + "ecosystem packaging, and an opt-in for the AGPL gallery. Use that when you\n";
+                                                        out = out + "want the whole kit; this directory is the program.\n";
+                                                        return out;
+                                                      };
+                                                    }
+                                                    RangerInit.gitignoreText = function() {
+                                                      let out = "node_modules/\n";
+                                                      out = out + "build/\n";
+                                                      out = out + "ranger.lock\n";
+                                                      out = out + "*.pdf\n";
+                                                      out = out + "*.evg.json\n";
+                                                      return out;
+                                                    };
+                                                    RangerInit.licenseText = function() {
+                                                      let out = "MIT License\n\n";
+                                                      out = out + "Copyright (c) the Ranger Coffee / Ranger init project authors\n\n";
+                                                      out = out + "Permission is hereby granted, free of charge, to any person obtaining a copy\n";
+                                                      out = out + "of this software and associated documentation files (the Software), to deal\n";
+                                                      out = out + "in the Software without restriction, including without limitation the rights\n";
+                                                      out = out + "to use, copy, modify, merge, publish, distribute, sublicense, and/or sell\n";
+                                                      out = out + "copies of the Software, and to permit persons to whom the Software is\n";
+                                                      out = out + "furnished to do so, subject to the following conditions:\n\n";
+                                                      out = out + "The above copyright notice and this permission notice shall be included in all\n";
+                                                      out = out + "copies or substantial portions of the Software.\n\n";
+                                                      out = out + "THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n";
+                                                      out = out + "IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\n";
+                                                      out = out + "FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\n";
+                                                      out = out + "AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\n";
+                                                      out = out + "LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\n";
+                                                      out = out + "OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\n";
+                                                      out = out + "SOFTWARE.\n";
+                                                      return out;
+                                                    };
                                                     class RangerDocGenerator  {
                                                       constructor() {
                                                       }
@@ -82951,6 +83358,19 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                                                             console.log(cli.error(fetch.err));
                                                                                             return false;
                                                                                           };
+                                                                                          runInit (env, params, cli) {
+                                                                                            const init = new RangerInit();
+                                                                                            const done = init.run(
+                                                                                              env,
+                                                                                              params,
+                                                                                              cli
+                                                                                            );
+                                                                                            if ( done ) {
+                                                                                              return true;
+                                                                                            }
+                                                                                            console.log(cli.error(init.err));
+                                                                                            return false;
+                                                                                          };
                                                                                           run (env) {
                                                                                             const res = new CompilerResults();
                                                                                             this.envObj = env;
@@ -82963,6 +83383,13 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                                                             if ( params.values.length > 0 ) {
                                                                                               if ( params.values[0] == "install" ) {
                                                                                                 if ( this.runInstall(env, params, cli) ) {
+                                                                                                  return res;
+                                                                                                }
+                                                                                                res.hasErrors = true;
+                                                                                                return res;
+                                                                                              }
+                                                                                              if ( params.values[0] == "init" ) {
+                                                                                                if ( this.runInit(env, params, cli) ) {
                                                                                                   return res;
                                                                                                 }
                                                                                                 res.hasErrors = true;
@@ -82983,6 +83410,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                                                               if ( params.values.length < 1 ) {
                                                                                                 cli.printHelpHeader();
                                                                                                 cli.printSection("Commands:");
+                                                                                                console.log(("  " + cli.bold("init")) + " [dir]          write a Ranger project into dir (default: the working directory).");
+                                                                                                console.log("                       Default template is Ranger Coffee — a till that prints a");
+                                                                                                console.log("                       bill and an EVG PDF receipt. -template=hello is a greeter.");
+                                                                                                console.log(cli.gray("                       -template=coffee  cart + EVG receipt (default)"));
+                                                                                                console.log(cli.gray("                       -template=hello   two files, hei maailma"));
+                                                                                                console.log(cli.gray("                       -force            overwrite src/Main.rgr if it exists"));
                                                                                                 console.log(("  " + cli.bold("install")) + "              fetch the packages the nearest ranger.json names into the");
                                                                                                 console.log("                       package cache and write ranger.lock.");
                                                                                                 console.log(cli.gray("                       -vendor       also write vendor/ranger/<name>"));
@@ -84312,6 +84745,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                                                           }
                                                                                           return "/";
                                                                                         };
+                                                                                        operatorsOf_8.currentc95directory_51 = function(env) {
+                                                                                          if ( env.use_real ) {
+                                                                                            return process.cwd();
+                                                                                          }
+                                                                                          return "/";
+                                                                                        };
                                                                                         operatorsOf_8.envc95var_54 = function(env, name) {
                                                                                           if ( env.use_real ) {
                                                                                             if ( ( typeof(env.envVars[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(env.envVars, name) ) ) {
@@ -84324,12 +84763,6 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                                                             return "";
                                                                                           }
                                                                                           return ((typeof(( Object.prototype.hasOwnProperty.call(env.envVars, name) ? env.envVars[name] : undefined )) !== "undefined" && ( Object.prototype.hasOwnProperty.call(env.envVars, name) ? env.envVars[name] : undefined ) != null ) ) ? ( Object.prototype.hasOwnProperty.call(env.envVars, name) ? env.envVars[name] : undefined ) : "";
-                                                                                        };
-                                                                                        operatorsOf_8.currentc95directory_51 = function(env) {
-                                                                                          if ( env.use_real ) {
-                                                                                            return process.cwd();
-                                                                                          }
-                                                                                          return "/";
                                                                                         };
                                                                                         class operatorsOf_13  {
                                                                                           constructor() {
