@@ -89,9 +89,9 @@ function act(fn) {
 }
 
 // --- the pointer ---------------------------------------------------------------
-// On the stage: a press selects (or, in Run, presses the app), a drag pans —
-// unless it started on the selected node in Design, in which case letting go
-// over another node drops it there.
+// On the stage: a press selects (or, in Run, presses the app). A drag that
+// started ON a node in Design carries that node, and letting go over another
+// one drops it there; a drag that started on nothing pans.
 let dragging = null;
 
 function at(ev) {
@@ -109,7 +109,11 @@ canvas.addEventListener("pointerdown", (ev) => {
   canvas.setPointerCapture(ev.pointerId);
   canvas.focus();
   if (app.insideBoard(x, y)) {
-    dragging = { x, y, moved: false, carry: false };
+    // A press that lands ON a node picks that node up; one that lands on
+    // nothing pans the stage, as it always did.
+    const onNode = app.beginBoardDrag(x, y);
+    if (onNode) schedule();
+    dragging = { x, y, moved: false, carry: !!onNode };
     return;
   }
   chromeDrag = true;
@@ -126,7 +130,11 @@ canvas.addEventListener("pointermove", (ev) => {
     const dx = x - dragging.x;
     const dy = y - dragging.y;
     if (Math.abs(dx) > 3 || Math.abs(dy) > 3) dragging.moved = true;
-    if (dragging.moved && !dragging.carry) {
+    if (dragging.moved && dragging.carry) {
+      act(() => app.dragTo(x, y));
+      return;
+    }
+    if (dragging.moved) {
       app.panBy(dx, dy);
       dragging.x = x;
       dragging.y = y;
@@ -144,7 +152,12 @@ function endDrag(ev) {
     act(() => app.pointerUp());
     return;
   }
-  if (dragging && !dragging.moved) act(() => app.pointerDown(x, y));
+  if (dragging && dragging.carry) {
+    if (dragging.moved) act(() => app.dropAt(x, y));
+    else act(() => app.press("dropcancel"));
+  } else if (dragging && !dragging.moved) {
+    act(() => app.pointerDown(x, y));
+  }
   dragging = null;
 }
 canvas.addEventListener("pointerup", endDrag);

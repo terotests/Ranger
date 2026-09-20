@@ -120,6 +120,8 @@ class RaveEditor {
     def scrub:string ""
     ; a node picked up for a drop
     def dragging:int 0
+    ; While a node is being dragged on the stage: where it would land.
+    def dropTarget:int 0
     def showTabOrder:boolean false
     ; --- File → New, as a sheet rather than a blank canvas ---------------------
     ; Four questions, and the answer is an application from RavePatterns. The
@@ -916,6 +918,66 @@ class RaveEditor {
         return true
     }
 
+    ; --- dragging a node on the stage -----------------------------------------
+    ; Carrying a node from the Layers pane and clicking where it goes works,
+    ; and is nobody's first instinct. On the stage the instinct is to pick
+    ; the thing up and put it down somewhere, so a press that lands on a node
+    ; and then moves is that node being moved, and a press that lands on
+    ; nothing still pans.
+
+    fn boardNodeAt:int (px:double py:double) {
+        def r:RaveRuntime (unwrap rt)
+        def id:string (r.sceneHit((this.sceneX(px)) (this.sceneY(py))))
+        return (RaveApp.idOfElement(id))
+    }
+
+    ; Whether a press here is a node being picked up. The host asks before it
+    ; starts panning.
+    fn beginBoardDrag:boolean (px:double py:double) {
+        if (mode != "design") {
+            return false
+        }
+        def nid:int (this.boardNodeAt(px py))
+        if (nid == 0) {
+            return false
+        }
+        if ((doc.hasNode(nid)) == false) {
+            return false
+        }
+        ; A page or a layout root is where everything else lives; it does not
+        ; itself go anywhere.
+        if ((doc.parentOf(nid)) == 0) {
+            this.select(nid)
+            return false
+        }
+        this.select(nid)
+        dragging = nid
+        dropTarget = 0
+        status = "moving — let go where it should land"
+        dirty = true
+        return true
+    }
+
+    ; Where it would land if it were let go here.
+    fn dragTo:boolean (px:double py:double) {
+        if (dragging == 0) {
+            return false
+        }
+        def nid:int (this.boardNodeAt(px py))
+        if (nid == dragging) {
+            nid = 0
+        }
+        if ((nid > 0) && (doc.isInside(nid dragging))) {
+            nid = 0
+        }
+        if (nid == dropTarget) {
+            return false
+        }
+        dropTarget = nid
+        dirty = true
+        return true
+    }
+
     ; The host's drop after a pointer drag on the stage.
     fn dropAt:boolean (px:double py:double) {
         if (dragging == 0) {
@@ -1205,6 +1267,7 @@ class RaveEditor {
         }
         if (id == "dropcancel") {
             dragging = 0
+            dropTarget = 0
             status = doc.name
             dirty = true
             return true
@@ -1855,6 +1918,7 @@ class RaveEditor {
         def moved:boolean (e.moveBefore(dragging nid))
         selected = dragging
         dragging = 0
+        dropTarget = 0
         status = doc.name
         this.changed()
         return moved
@@ -1868,6 +1932,7 @@ class RaveEditor {
         def moved:boolean (e.moveInto(dragging nid))
         selected = dragging
         dragging = 0
+        dropTarget = 0
         status = doc.name
         this.changed()
         return moved
@@ -3026,6 +3091,7 @@ class RaveEditor {
             if showTabOrder {
                 this.tabOrderBadges(board)
             }
+            this.dropBadge(board)
             this.flexBadge(board)
         }
         def bar:EVGElement (this.toolbar())
@@ -3041,6 +3107,43 @@ class RaveEditor {
     ; each change breaks the thought. So the selected container carries a
     ; button at its corner, and it opens the flex options as a strip of live
     ; icons: pick the shape you want, without naming a property.
+
+    ; Where the node being dragged would land: the target outlined, and said
+    ; in words, because "into" and "before" are different answers and the
+    ; outline alone cannot tell them apart.
+    fn dropBadge:void (board:EVGElement) {
+        if (dragging == 0) {
+            return
+        }
+        if (dropTarget == 0) {
+            return
+        }
+        def r:RaveRuntime (unwrap rt)
+        def tid:string ("n" + (to_string dropTarget))
+        if ((r.hasEl(activeView tid)) == false) {
+            return
+        }
+        def left:double (((r.leftOf(activeView tid)) * zoom) + viewX)
+        def top:double (((r.topOf(activeView tid)) * zoom) + viewY)
+        def box:EVGElement (RaveEditor.box("ra-dropbox" "" "" ""))
+        box.a11yHidden = true
+        box.setAttribute("left" ((to_string left) + "px"))
+        box.setAttribute("top" ((to_string top) + "px"))
+        box.setAttribute("width" ((to_string ((r.widthOf(activeView tid)) * zoom)) + "px"))
+        box.setAttribute("height" ((to_string ((r.heightOf(activeView tid)) * zoom)) + "px"))
+        board.addChild(box)
+        def target:RaveNode (doc.node(dropTarget))
+        def word:string "before "
+        if ((RaveKit.isContainer(target)) && (target.kind != "slot")) {
+            word = "into "
+        }
+        def tag:EVGElement (RaveEditor.box("ra-droptag" "" "" ""))
+        tag.a11yHidden = true
+        tag.setAttribute("left" ((to_string left) + "px"))
+        tag.setAttribute("top" ((to_string (top - 20.0)) + "px"))
+        tag.addChild((RaveEditor.quiet("ra-droptag-t" (word + (RaveEditor.cut(target.name 18))))))
+        board.addChild(tag)
+    }
 
     fn flexBadge:void (board:EVGElement) {
         if (mode != "design") {

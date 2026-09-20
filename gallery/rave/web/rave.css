@@ -398,6 +398,15 @@
 }
 .ra-wf-name { font-size: 10.5px; height: 14px; color: #6b7280; }
 
+/* Where a dragged node would land: the target outlined, and whether it goes
+   INTO that box or BEFORE it said in words above it. */
+.ra-dropbox { position: absolute; border: 2px solid #16a34a; border-radius: 3px; }
+.ra-droptag {
+  position: absolute; display: flex; flex-direction: row; align-items: center;
+  height: 17px; padding: 0 6px; border-radius: 4px; background-color: #16a34a;
+}
+.ra-droptag-t { font-size: 10.5px; height: 14px; color: #ffffff; }
+
 /* The layout menu: a button at the corner of the selected container, and a
    strip of live flex icons under it. The icons are laid out by the engine
    (RaveWire.flexIcon), so what they show is what the option does. */

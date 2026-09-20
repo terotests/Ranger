@@ -1213,10 +1213,39 @@ class RaveTest {
         c.ok("…with the document changed" ((array_length ed.doc.styles) >= before))
         ed.press("undo")
 
-        ; the layout menu: flex, without naming a property
         ed.press("tab:layers")
         def route0:RaveRoute (itemAt doc2.routes 0)
         def page:RaveNode (doc2.node(route0.pageId))
+        ed.press(("tree:" + (to_string page.id)))
+
+        ; DRAGGING A NODE ON THE STAGE. Carrying one from the Layers pane and
+        ; clicking where it goes works and is nobody's first instinct.
+        def kidsBefore:int (array_length page.children)
+        ed.press(("tree:" + (to_string page.id)))
+        ed.press("add:Button")
+        def b1:int ed.selected
+        ed.press(("tree:" + (to_string page.id)))
+        ed.press("add:Button")
+        def b2:int ed.selected
+        c.ok("two buttons went onto the page" ((b1 > 0) && (b2 > 0) && (b1 != b2)))
+        ed.boardJson()
+        def x2:double (ed.stageCentreX(0 (RaveTest.elId(b2))))
+        def y2:double (ed.stageCentreY(0 (RaveTest.elId(b2))))
+        def x1:double (ed.stageCentreX(0 (RaveTest.elId(b1))))
+        def y1:double (ed.stageCentreY(0 (RaveTest.elId(b1))))
+        c.ok("a press on a node picks it up" (ed.beginBoardDrag(x2 y2)))
+        c.eqInt("…that node" ed.dragging b2)
+        c.ok("moving over another shows where it would land" (ed.dragTo(x1 y1)))
+        c.eqInt("…that one" ed.dropTarget b1)
+        c.ok("letting go moves it" (ed.dropAt(x1 y1)))
+        c.ok("…in front of what it was dropped on" ((doc2.indexIn(page.id b2)) < (doc2.indexIn(page.id b1))))
+        c.eqInt("…and nothing is being carried any more" ed.dragging 0)
+        ed.press("undo")
+        ed.press("undo")
+        ed.press("undo")
+        c.eqInt("the page is as it was" (array_length page.children) kidsBefore)
+
+        ; the layout menu: flex, without naming a property
         ed.press(("tree:" + (to_string page.id)))
         ed.boardJson()
         c.ok("a selected container carries a layout button" ((ed.chromeBoxJson("flex:open")) != "[]"))
