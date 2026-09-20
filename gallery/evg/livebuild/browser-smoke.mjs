@@ -10,6 +10,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
@@ -125,11 +126,81 @@ try {
     throw new Error(`Empty chip did not start over: cmds ${emptyCmds}`);
   }
 
+  // Run mode: the machine owns the page and a press is a point that becomes an
+  // event. PLAN_LIVE_APP.md S2 — a tab that does something is the whole
+  // difference between an app and a picture of one.
+  await page.click("#run");
+  await page.waitForFunction(
+    () => (document.getElementById("kindLabel")?.textContent || "").startsWith("app ·"),
+    null,
+    { timeout: 60000 },
+  );
+  const stateNow = async () => (await page.locator("#kindLabel").innerText()).toLowerCase();
+  const first = await stateNow();
+  const box = await page.locator("#screen").boundingBox();
+  const press = async (x, y) => {
+    await page.mouse.click(box.x + x, box.y + y);
+    await page.waitForTimeout(600);
+  };
+  await press(195, 790);
+  const second = await stateNow();
+  if (first === second) throw new Error(`a press on the nav changed nothing: ${first}`);
+  if (!/routes/.test(second)) throw new Error(`the nav went somewhere unexpected: ${second}`);
+  await press(195, 400);
+  const trail = await page.locator("#findings").innerText();
+  if (!/not an event|nav\./.test(trail)) throw new Error(`run mode said nothing about the press: ${trail}`);
+  // Leaving Run must show the document AS IT STANDS. It used to go through
+  // `/seed`, which rewrites the session's phone from a fixture — so turning
+  // Run off threw away every edit the agent had made, on disk, silently.
+  const docBefore = fs.readFileSync(path.join(os.tmpdir(), "evg-live-session/doc.evg.json"), "utf8");
+  await page.click("#run");
+  await page.waitForFunction(
+    () => document.getElementById("added")?.textContent === "seed",
+    null,
+    { timeout: 20000 },
+  );
+  await page.waitForTimeout(500);
+  const docAfter = fs.readFileSync(path.join(os.tmpdir(), "evg-live-session/doc.evg.json"), "utf8");
+  if (docAfter !== docBefore) throw new Error("leaving Run rewrote the document");
+  console.log("  leave run    the document is the one that was there, byte for byte");
+  if (!/in the tab/.test(second)) {
+    throw new Error(`the app ran on the server, not in the browser: ${second}`);
+  }
+  console.log(`  run          ${first} → ${second}, and back to design mode`);
+
+  // The runtime in the tab, timed. A press that has to reach a process is
+  // ~300ms and needs a tool on the machine; this one is a function call. The
+  // number is not the point — "no process, no tool, no shell" is — but a
+  // press that quietly went back to the server would still pass everything
+  // above, and this is what notices.
+  await page.click("#run");
+  await page.waitForFunction(
+    () => (document.getElementById("kindLabel")?.textContent || "").includes("in the tab"),
+    null,
+    { timeout: 60000 },
+  );
+  const loop = await page.evaluate(() => {
+    const t0 = performance.now();
+    for (let i = 0; i < 40; i += 1) {
+      window.webApp.press(195, 790);
+      window.webApp.frame();
+    }
+    return Math.round(performance.now() - t0);
+  });
+  if (loop > 1500) throw new Error(`40 presses took ${loop}ms — something is leaving the tab`);
+  console.log(`  in the tab   40 presses and frames in ${loop}ms, no fetch in sight`);
+  await page.click("#run");
+  await page.waitForFunction(
+    () => document.getElementById("added")?.textContent === "seed",
+    null,
+    { timeout: 20000 },
+  );
+
   if (problems.length) {
     console.error(problems.join("\n"));
     throw new Error(`${problems.length} console/page errors`);
   }
-  console.log("ALL PASS — seed painted, Follow up kept the phone, Empty started over");
+  console.log("ALL PASS — seed painted, Follow up kept the phone, Empty started over, the app ran");
 } finally {
   await browser.close();
 }

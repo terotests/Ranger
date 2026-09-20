@@ -1875,6 +1875,10 @@ class EVGStyleSheet {
                 def v:string (this.resolveVars(d.value theme d.name))
                 if ((strlen v) > 0) {
                     el.setAttribute(d.name v)
+                    ; So a serializer can tell a cascaded value from an
+                    ; authored one. Without it, writing the tree after layout
+                    ; copies the whole sheet into every node it matched.
+                    el.markCss(d.name)
                 }
             }
             i = (i + 1)

@@ -9,6 +9,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Generated-code quality is three questions now, not one ranking.** The
+  single ordering read as a verdict, and it was one reading of the generated
+  files. It is split into correctness, speed and idiom, because a target can
+  do well on one and badly on another.
+
+  *Correctness* is what `gallery/friendly/compile.sh` already measured: eight
+  targets agree on all twelve studies. The one place they do not is integer
+  width — `100000 * 100000` answers `10000000000` on JavaScript, Python, PHP,
+  Go and Rust and `1410065408` on C++, C#, Java and Kotlin, and on C++ the
+  overflow is undefined behaviour rather than a wrap.
+  `gallery/friendly/bench/intwidth.rgr` is the probe.
+
+  *Speed* is new: `gallery/friendly/bench/` is the same Ranger program, five
+  kernels, each timing itself with `wall_clock_ms`. Kernels only: C++ 260 ms,
+  Kotlin 466, C# 663, Java 760, PHP 801, JavaScript 1076, Rust 2556,
+  Python 2566, Go 143882. Two of those are the compiler's doing and are
+  written down — `charAt` is O(n) on Go and Rust, and a Ranger map is a plain
+  object on JavaScript.
+
+  *Idiom* is the score that stays on the front page, and it is measured
+  against a published twelve-check table in `gallery/friendly/README.md` so
+  each cell can be disputed against the file it came from. On this compiler,
+  after native enums on twelve targets, Python annotations, PHP typed
+  properties and the ownership work: Swift 92, Kotlin 88, TypeScript 83,
+  Dart 83, C++ 83, C# 79, Scala 79, Python 75, Rust 75, JavaScript 71,
+  PHP 71, Java 67, Go 67. This supersedes the #1024 rescoring below. Swift is
+  top and has never been compiled on the build machine, which is exactly why
+  the three axes are kept apart.
+
+- **`wall_clock_ms` works on PHP, Dart, Scala and Swift.** They fell through
+  to the `*` template, which is `0.0`, so every duration a program measured
+  on those targets was zero.
+
+- **The front-page hero columns are gold, not a magic runtime.** The first
+  column is still “There is no Silver Bullet.” Ranger is more like gold:
+  heavier to start with, and a golden-file test when you target more than
+  one language. The second column is “Stay Dry. Stay Foolish.” — sharing
+  code across platforms is half the problem; AI does not provide the
+  consistent validation, and Ranger does.
+
 - **C++: a `record` nothing aliases is a value, not a `shared_ptr`.**
   `StaticAnalyzer.analyzeClassSharing` already walks the whole program and
   decides which classes are aliased and held; the pass already ran for C++
@@ -101,6 +141,79 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   [`docs/plans/PLAN_CPP_IDIOMS.md`](docs/plans/PLAN_CPP_IDIOMS.md).
 
 ### Added
+
+- **A smoke effect**, `evg-surface-effect: smoke`, and three presets for it.
+  What makes smoke read as smoke is that it curls, and curls at every size at
+  once, so the field is DOMAIN WARPED — fbm evaluated at a point two other fbms
+  have already moved. One warp gives the billows, the second the tendrils that
+  come off their edges. The bar the field has to clear rises with height, which
+  is what leaves a full floor, wisps above it and black over those rather than
+  a fog that fades out evenly; `evg-fx-height` moves that line, and at 3 or
+  more the same effect is a cloud filling the box. It is lit by comparing the
+  field with itself one step toward `evg-fx-angle` — a gradient, and what gives
+  a cloud its volume. `.fx-stage`, `.fx-cloud` and `.fx-haze` are in
+  `effect-presets.css`, so they are in the gallery demo's background picker and
+  on its contact sheet; the pixel gate holds the effect to banking up along its
+  own floor, thinning toward the top, filling the box when told to, and moving.
+
+- **A background picker on the published effects demo**
+  ([`/ui/demo/?demo=effects`](https://terotests.github.io/Ranger/ui/demo/?demo=effects)).
+  The eleven blocks of `lib/evg/gl/effect-presets.css` are in the rail, and
+  picking one TYPES it into the live stylesheet under the canvas — the box's
+  own declarations kept, the effect's replaced — after which the cascade reads
+  it like any other edit. So the picker has no privileged path into the
+  painter, and what it wrote is left in the editor to be read and changed.
+  Which element a preset lands on is decided by the plugin's LAYER, asked of
+  the painter rather than listed in the page: a source effect becomes the sky's
+  own background, a backdrop effect goes on the pane over it, because it draws
+  what is BEHIND an element and the opaque sky would paint over it a moment
+  later — so rain arrives as rain on the glass, with the stars bending through
+  it. The preset file reaches the bundle as the FILE, so a preset edited there
+  is the one the picker offers, the contact sheet paints and the pixel gate
+  checks; `page-check` reads it too and holds the round trip to it — every
+  preset offered, the file's own numbers in the display list, and the
+  stylesheet in the page saying what is on screen.
+
+- **Three quieter surface effects, and a file of presets.** `plasma-wave`
+  (ribbons of light over a noise field), `raindrop` (drops on the pane, each a
+  sphere's lens over what is behind it — strongest at the rim, nothing in the
+  middle, so the page stays legible through the centre) and `ambient-light` (a
+  slow desaturated wash with bokeh discs in it). All three are plugins in the
+  same registry the starfield and the glass use: a name, a parameter list and
+  one GLSL function, with the box coming from the layout. Two of them are
+  BACKDROP effects, which is what makes a drop a lens rather than a sticker.
+  `lib/evg/gl/effect-presets.css` holds eleven ready blocks — five skies, two
+  plasma fields, two rains, two washes — paste-able into the editor under the
+  gallery's effects demo. `npm run evg:fx:shots` paints all of them into one
+  sheet, and `evg:fx:check` reads the same file through the engine's own
+  cascade and then against pixels, so a preset the cascade refuses fails a
+  check instead of quietly drawing the plugin's defaults.
+
+- **The effects demo's stylesheet is editable in the page.** A textarea under
+  the canvas on `?demo=effects`, holding `effects.css`, applied as you type —
+  and what is typed goes through the WHOLE engine: `EffectsDemo.init` hands the
+  text to `EVGStyleSheet`, the cascade applies it, the layout lays the tree out
+  again, the display list carries whatever effect instances the sheet declared,
+  and the painter looks their names up. Nothing patches a parameter behind the
+  scenes, so `evg-fx-density: 6` on `.fx-sky` reaches the shader the same way
+  it does on a page nobody is editing. What the cascade refuses is reported in
+  the cascade's own words — type `#fx-sky` and it says the selector is
+  unsupported, because `EVGStyleSheet` keeps every declaration it rejected.
+  It is on this page and not on the standalone `lib/evg/gl/fx-demo.html`
+  because the bundle here carries the compiled engine and that page carries
+  only a display list built for it.
+
+- **A switch per effect in the gallery rail**, beside the demo it belongs to.
+  The list is built from the DISPLAY LIST rather than from names written into
+  the page: it knows that the stylesheet declared four effects and what each is
+  called, and nothing more. Turning one off sets the flag the painter reads —
+  the pass is skipped, the shader never runs, a press on a sleeping card goes
+  nowhere, and nothing is rebuilt to stop drawing one shader. The ordinary CSS
+  stays: switch the glass off and the card is still a rounded, tinted,
+  `backdrop-filter`-blurred box, which is the clearest way to see where the
+  effect ends and the stylesheet begins. `page-check` drives the switch in a
+  real page and holds the painter to it — one pass fewer with the sky off, and
+  back again.
 
 - **The surface effects are on the published gallery page** —
   [`/ui/demo/?demo=effects`](https://terotests.github.io/Ranger/ui/demo/?demo=effects).
@@ -305,6 +418,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (Dashboard / Empty) are the only wipe. `npm run livebuild:test`.
 
 ### Changed
+
+- **Generated-code quality scores are recomputed on this compiler.**
+  The twelve `gallery/friendly` studies were compiled again after native
+  loops (#1024), C++ value records, behaviour-only traits as interfaces,
+  and the C++/Rust optional fixes. Rank is now Kotlin 76, Dart 73, C# 72,
+  Python 67, Swift 64, Rust 61, PHP 59, TypeScript 59, JavaScript 58,
+  Java 58, Scala 57, C++ 54, Go 48. PHP and Scala still emit index loops.
 
 - **The front-page Targets section is generated-code quality status.**
   The heading is "Generated code quality": an index of the thirteen

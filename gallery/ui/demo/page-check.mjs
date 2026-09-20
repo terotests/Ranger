@@ -27,6 +27,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "node:http";
 import { requireHostTool, findChromium } from "../conformance/dom-adapter.mjs";
+import { parsePresets } from "../../../lib/evg/gl/effect-presets.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..", "..", "..");
@@ -930,6 +931,201 @@ console.log("--- the title bar is rounded only at the top ---");
     rc && rc[0] > 0 && rc[1] > 0 && rc[2] === 0 && rc[3] === 0, JSON.stringify(rc));
 }
 
+console.log("--- the effects demo has a switch per effect ---");
+{
+  // The rail is built from the DISPLAY LIST — the page does not know what
+  // effects exist — and a switch sets a flag the painter reads. What a node
+  // check cannot say is that any of that is wired up in a real page.
+  await page.click('#demos input[value="effects"]');
+  await page.waitForTimeout(300);
+  const switches = await page.evaluate(() =>
+    [...document.querySelectorAll("#fxswitches input")].map((i) => i.value));
+  ok("one switch per effect the stylesheet declared",
+    switches.length === 4 && switches.every((v) => /^fx-(sky|glass|pool-a|pool-b) · /.test(v)),
+    switches.join(" | "));
+
+  const drawn = () => page.evaluate(() =>
+    (window.__lastEffects || []).map((e) => `${e.id}:${e.off ? "off" : "on"}`).join(","));
+  // And what the PAINTER did with them, which is the claim that matters: a
+  // switched-off effect is not a dim one, it is a pass that did not run.
+  const passes = () => page.evaluate(() => (window.__lastStats || {}).fxDrawn);
+  ok("all of them on to begin with",
+    (await drawn()) === "fx-sky:on,fx-glass:on,fx-pool-a:on,fx-pool-b:on", await drawn());
+  const before = await passes();
+  ok("and the painter runs a pass for the two that are always on", before === 2, String(before));
+
+  problems.length = 0;
+  await page.evaluate(() => {
+    const i = [...document.querySelectorAll("#fxswitches input")].find((n) => n.value.startsWith("fx-sky"));
+    i.click();
+  });
+  await page.waitForTimeout(300);
+  ok("switching one off marks that instance and no other",
+    (await drawn()) === "fx-sky:off,fx-glass:on,fx-pool-a:on,fx-pool-b:on", await drawn());
+  ok("and the painter draws one pass fewer", (await passes()) === before - 1,
+    `${before} passes with the sky on, ${await passes()} with it off`);
+  ok("and draws without an error", problems.length === 0, [...new Set(problems)].join("; "));
+
+  await page.evaluate(() => {
+    const i = [...document.querySelectorAll("#fxswitches input")].find((n) => n.value.startsWith("fx-sky"));
+    i.click();
+  });
+  await page.waitForTimeout(300);
+  ok("and back on again",
+    (await drawn()) === "fx-sky:on,fx-glass:on,fx-pool-a:on,fx-pool-b:on", await drawn());
+  ok("with its pass back too", (await passes()) === before, String(await passes()));
+}
+
+console.log("--- the effects demo's stylesheet is live ---");
+{
+  // The claim is not that a textarea exists: it is that what is typed goes
+  // through the WHOLE engine. So the check edits a number and reads it back
+  // out of the display list the painter was handed, which is downstream of the
+  // cascade, the layout and the effect pass.
+  await page.click('#demos input[value="effects"]');
+  await page.waitForTimeout(300);
+  const skyParams = () => page.evaluate(() => {
+    const l = JSON.parse(window.__lastList || "{}");
+    const sky = (l.effects || []).find((e) => e.id === "fx-sky");
+    return sky ? sky.p : null;
+  });
+  const before = await skyParams();
+  ok("the sheet as written reaches the display list", before && before.density === 1.5,
+    JSON.stringify(before));
+
+  problems.length = 0;
+  await page.evaluate(() => {
+    const t = document.getElementById("fxcss");
+    t.value = t.value.replace("evg-fx-density: 1.5", "evg-fx-density: 6");
+    t.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  // WAITED FOR, not slept through. The editor debounces by 250ms and then lays
+  // the page out again, and on the software renderer CI uses a frame of this
+  // page costs most of a second — a fixed sleep here passes on a developer's
+  // machine and is a coin toss on the runner.
+  const settled = await page.waitForFunction(() => {
+    const l = JSON.parse(window.__lastList || "{}");
+    const sky = (l.effects || []).find((e) => e.id === "fx-sky");
+    return sky && sky.p.density === 6;
+  }, { timeout: 15000 }).then(() => true, () => false);
+  ok("the edit reaches the page", settled, "the display list never carried the new density");
+  const after = await skyParams();
+  ok("and a number typed into it reaches the same place", after && after.density === 6,
+    JSON.stringify(after));
+  ok("with everything else left alone",
+    after && after.hue === before.hue && after.seed === before.seed, JSON.stringify(after));
+  ok("and no error on the way", problems.length === 0, [...new Set(problems)].join("; "));
+
+  // AND THE ENGINE'S OWN COMPLAINTS, in the engine's words. A page that
+  // guessed at what the cascade would refuse would drift from it.
+  await page.evaluate(() => {
+    const t = document.getElementById("fxcss");
+    t.value = t.value.replace(".fx-sky {", "#fx-sky {");
+    t.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  // Waited for the message to CHANGE, not merely to exist: the line already
+  // says something — "the cascade accepted every declaration" — from the edit
+  // above, and a wait for any text at all would read that and pass on it.
+  const said = await page.waitForFunction(
+    () => {
+      const t = document.getElementById("fxcsserr").textContent || "";
+      return /accepted/.test(t) || t.length === 0 ? false : t;
+    }, { timeout: 15000 },
+  ).then((h) => h.jsonValue(), () => "(the message never changed)");
+  ok("a selector the cascade cannot take is reported by the cascade",
+    /Unsupported selector/.test(said) && said.includes("#fx-sky"), said);
+
+  // And back, so the demos that follow see the page as it ships.
+  //
+  // `evaluate` and not `page.click`: the editor sits BELOW the canvas, and a
+  // real click scrolls it into view — after which every block that follows
+  // measures the canvas from a scrolled page and puts its pointer somewhere
+  // else. That is what happened the first time this block existed, and it
+  // showed up three checks later as "a click becomes the ripple's origin"
+  // failing on a page whose ripple was perfectly well.
+  await page.evaluate(() => document.getElementById("fxcssreset").click());
+  await page.waitForFunction(() => {
+    const l = JSON.parse(window.__lastList || "{}");
+    const sky = (l.effects || []).find((e) => e.id === "fx-sky");
+    return sky && sky.p.density === 1.5;
+  }, { timeout: 15000 }).catch(() => {});
+  const back = await skyParams();
+  ok("reset puts the shipped sheet back", back && back.density === 1.5, JSON.stringify(back));
+  // And the scroll position too, for the same reason.
+  await page.evaluate(() => window.scrollTo(0, 0));
+}
+
+console.log("--- and the background can be swapped for a preset ---");
+{
+  // THE PICKER WRITES CSS AND NOTHING ELSE. So what is checked is the round
+  // trip: a preset chosen in the rail, the numbers out of `effect-presets.css`
+  // arriving in the display list, and the stylesheet in the page saying what
+  // is on screen. The file is read HERE as well, so a preset somebody edits
+  // changes both sides of the comparison and neither is a copy.
+  const presets = parsePresets(
+    fs.readFileSync(path.join(ROOT, "lib", "evg", "gl", "effect-presets.css"), "utf8"));
+  const offered = await page.evaluate(() =>
+    [...document.querySelectorAll("#fxpreset option")].map((o) => o.value).filter(Boolean));
+  ok("the rail offers every preset in the file",
+    offered.length === presets.length && presets.every((p) => offered.includes(p.name)),
+    offered.join(" "));
+
+  const instOf = (id) => page.evaluate((want) => {
+    const l = JSON.parse(window.__lastList || "{}");
+    return (l.effects || []).find((e) => e.id === want) || null;
+  }, id);
+  const pick = async (name) => {
+    // `evaluate` rather than `selectOption`, for the reason the reset above
+    // is: reaching a control scrolls the page, and the blocks after this one
+    // measure the canvas.
+    await page.evaluate((v) => {
+      const sel = document.getElementById("fxpreset");
+      sel.value = v;
+      sel.dispatchEvent(new Event("change", { bubbles: true }));
+    }, name);
+  };
+  const waitKind = (id, kind) => page.waitForFunction(([want, k]) => {
+    const l = JSON.parse(window.__lastList || "{}");
+    const e = (l.effects || []).find((x) => x.id === want);
+    return !!e && e.kind === k;
+  }, [id, kind], { timeout: 15000 }).then(() => true, () => false);
+
+  // A SOURCE preset lands on the sky, which is the element whose own
+  // background it draws.
+  const tide = presets.find((p) => p.name === "fx-tide");
+  await pick("fx-tide");
+  ok("a source preset becomes the sky's effect", await waitKind("fx-sky", "plasma-wave"));
+  const sky = await instOf("fx-sky");
+  ok("with the file's own numbers in the list",
+    sky && Object.keys(tide.params).every((k) => sky.p[k] === tide.params[k]),
+    JSON.stringify(sky && sky.p));
+
+  // A BACKDROP preset lands on the PANE instead: it draws what is behind an
+  // element, and the sky's own background would paint over it a moment later.
+  // The sky is left exactly as the picker before it left it.
+  await pick("fx-rain");
+  ok("a backdrop preset becomes the pane's effect", await waitKind("fx-glass", "raindrop"));
+  const stillTide = await instOf("fx-sky");
+  ok("and the sky it was not meant for is untouched",
+    stillTide && stillTide.kind === "plasma-wave", JSON.stringify(stillTide && stillTide.kind));
+  const pane = await instOf("fx-glass");
+  ok("the pane keeps its own box", pane && pane.box[2] === 360 && pane.r === 30,
+    JSON.stringify(pane && { box: pane.box, r: pane.r }));
+
+  // AND THE STYLESHEET IN THE PAGE SAYS SO — the picker types, it does not
+  // reach past the editor into the painter.
+  const typed = await page.evaluate(() => document.getElementById("fxcss").value);
+  const glassBlock = typed.slice(typed.indexOf(".fx-glass {"), typed.indexOf("}", typed.indexOf(".fx-glass {")));
+  ok("what it typed is in the editor, under the pane",
+    /evg-surface-effect:\s*raindrop/.test(glassBlock) && /evg-fx-refract/.test(glassBlock),
+    glassBlock.replace(/\s+/g, " ").slice(0, 120));
+
+  await page.evaluate(() => document.getElementById("fxcssreset").click());
+  const backToSky = await waitKind("fx-sky", "starfield");
+  ok("and reset puts both back", backToSky && await waitKind("fx-glass", "liquid-glass"));
+  await page.evaluate(() => window.scrollTo(0, 0));
+}
+
 console.log("--- the dashboard has three palettes ---");
 {
   // The theme radio, in a real page. What the node-level check cannot say is
@@ -997,14 +1193,23 @@ console.log("--- the surface ripples where it was touched ---");
   const sc = await page.evaluate(() => window.__stageScale || 1);
   const put = (x, y) => page.mouse.click(box.x + x * sc, box.y + y * sc);
   await put(700, 430);
-  await page.waitForTimeout(150);
+  // WAITED FOR RATHER THAN SLEPT THROUGH. The list is published at the start
+  // of a paint, but a paint already in flight has to finish first, and on the
+  // software renderer this container uses that is most of a second — so a
+  // fixed sleep here is a coin toss that depends on what the page was doing
+  // when the click landed. It became one the day a demo that animates on its
+  // own arrived on this page.
+  await page.waitForFunction(() => {
+    const l = JSON.parse(window.__lastList || "{}");
+    return l.effect && l.effect.drops && l.effect.drops.length >= 1;
+  }, { timeout: 15000 }).catch(() => {});
   const live = await effect();
   ok("a click becomes the ripple's origin",
     live && live.drops.length >= 1 &&
       Math.abs(live.drops[0][0] - 700) < 3 && Math.abs(live.drops[0][1] - 430) < 3,
     JSON.stringify(live && live.drops[0]));
-  ok("and its clock starts", live && live.drops[0][2] >= 0,
-    String(live && live.drops[0][2]));
+  ok("and its clock starts", live && live.drops.length >= 1 && live.drops[0][2] >= 0,
+    JSON.stringify(live && live.drops));
 
   // MANY AT ONCE, which is the difference between an effect and a surface:
   // a tap somewhere else ADDS a source, it does not move the one that is
@@ -1023,7 +1228,15 @@ console.log("--- the surface ripples where it was touched ---");
   const newest = (fx) => fx && fx.drops.length ? fx.drops[fx.drops.length - 1] : null;
   for (const [cx, cy] of [[420, 330], [900, 520]]) {
     await put(cx, cy);
-    await page.waitForTimeout(90);
+    // The same wait, for the same reason: what is asserted is WHERE the newest
+    // drop landed, and the newest drop only exists once the page has painted
+    // since the click.
+    await page.waitForFunction(([x, y]) => {
+      const l = JSON.parse(window.__lastList || "{}");
+      const ds = (l.effect && l.effect.drops) || [];
+      const last = ds[ds.length - 1];
+      return !!last && Math.abs(last[0] - x) < 3 && Math.abs(last[1] - y) < 3;
+    }, [cx, cy], { timeout: 15000 }).catch(() => {});
     const d = newest(await effect());
     ok(`a touch at ${cx},${cy} lands there`,
       d && Math.abs(d[0] - cx) < 3 && Math.abs(d[1] - cy) < 3, JSON.stringify(d));

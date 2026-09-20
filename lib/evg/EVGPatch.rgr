@@ -85,6 +85,30 @@ class EVGPatchOp {
         return o
     }
 
+    ; A node's `id` is not a property — nothing paints it, and the patchable
+    ; set is about what the engine can read back. It is the node's NAME: the
+    ; hit test answers with it, and an app turns a press on it into an event.
+    ; Without an op for it an agent can only name a node by rewriting the file
+    ; by hand, which is how a screen ends up with buttons nothing can press.
+    sfn setId:EVGPatchOp (at:string value:string) {
+        def o (new EVGPatchOp())
+        o.op = "set-id"
+        o.at = at
+        o.value = value
+        return o
+    }
+
+    ; The document's stylesheet, whole. It is not a property of a node — it
+    ; belongs to the document — so it has an op of its own rather than a place
+    ; in the patchable set. `at` is ignored; there is one sheet.
+    sfn setCss:EVGPatchOp (value:string) {
+        def o (new EVGPatchOp())
+        o.op = "set-css"
+        o.at = "0"
+        o.value = value
+        return o
+    }
+
     sfn setText:EVGPatchOp (at:string value:string) {
         def o (new EVGPatchOp())
         o.op = "set-text"
@@ -239,6 +263,12 @@ class EVGPatch {
         if (op.op == "set-text") {
             return (this.doSetText(op))
         }
+        if (op.op == "set-id") {
+            return (this.doSetId(op))
+        }
+        if (op.op == "set-css") {
+            return (this.doSetCss(root op))
+        }
         if (op.op == "insert") {
             return (this.doInsert(op))
         }
@@ -304,6 +334,69 @@ class EVGPatch {
         }
         def inv:EVGPatchOp (EVGPatchOp.setProp(op.at name before))
         this.record(inv)
+        return ""
+    }
+
+    ; --- set-css --------------------------------------------------------------
+
+    fn doSetCss:string (root:EVGElement op:EVGPatchOp) {
+        def want:string op.value
+        if (EVGReject.isAbsent(want)) {
+            want = ""
+        }
+        def before:string root.documentCss
+        root.documentCss = want
+        def inv:EVGPatchOp (EVGPatchOp.setCss(before))
+        this.record(inv)
+        return ""
+    }
+
+    ; --- set-id ---------------------------------------------------------------
+
+    fn doSetId:string (op:EVGPatchOp) {
+        def hit@(optional):EVGElement (insp.elementAt(op.at))
+        if (null? hit) {
+            return (this.noSuchNode(op.at))
+        }
+        def el:EVGElement (unwrap hit)
+        def want:string op.value
+        if (EVGReject.isAbsent(want)) {
+            want = ""
+        }
+        ; Two nodes with one id is a screen where the same press means two
+        ; things, and the hit test can only answer with one of them. Say which
+        ; node already has it rather than let the second one look live.
+        if ((strlen want) > 0) {
+            def other:string (this.pathOfId(want op.at))
+            if ((strlen other) > 0) {
+                return ((("id \"" + want) + ("\" is already on " + (other + " — an id names one node, and a press can only reach one of them"))))
+            }
+        }
+        def before:string el.id
+        el.id = want
+        def inv:EVGPatchOp (EVGPatchOp.setId(op.at before))
+        this.record(inv)
+        return ""
+    }
+
+    ; The path of the node carrying `id`, ignoring `skip` (the node being named,
+    ; which may already carry it). "" when nothing else has it.
+    fn pathOfId:string (id:string skip:string) {
+        def n:int (insp.count())
+        def i:int 0
+        while (i < n) {
+            def p:string (insp.pathAt(i))
+            if (p != skip) {
+                def hit@(optional):EVGElement (insp.elementAt(p))
+                if (null? hit) {
+                } {
+                    if ((unwrap hit).id == id) {
+                        return p
+                    }
+                }
+            }
+            i = (i + 1)
+        }
         return ""
     }
 
@@ -560,6 +653,29 @@ class EVGPatch {
 
     ; `class` is what an author writes and `class-name` is what `setAttribute`
     ; answers to, so the alias is resolved once, here, rather than at each use.
+    ; `evg-fx-<something>`. A family rather than a list, because the names
+    ; belong to whichever plugin reads them and this file will never know
+    ; them all.
+    sfn isFx:boolean (name:string) {
+        if ((strlen name) <= 7) {
+            return false
+        }
+        return ((substring name 0 7) == "evg-fx-")
+    }
+
+    ; The `evg-fx-*` properties THIS element carries, full names. `patchableNames`
+    ; cannot list them — they are per element, not per format — so anything that
+    ; walks the static list and wants the whole truth walks this too.
+    sfn fxNamesOf:[string] (el:EVGElement) {
+        def out:[string]
+        def i:int 0
+        while (i < (array_length el.fxNames)) {
+            push out ("evg-fx-" + (itemAt el.fxNames i))
+            i = (i + 1)
+        }
+        return out
+    }
+
     sfn canonical:string (name:string) {
         def n:string (EVGElement.toKebab(name))
         if (n == "class") {
@@ -629,6 +745,14 @@ class EVGPatch {
         ; `gradient-to`, and the editable format — which is this set — dropped
         ; both, so a gradient fill arrived in the document as nothing at all.
         if (name == "gradient-dir") { return 4 }
+        ; Surface effects. The engine reads none of this: `starfield` is a
+        ; name, `evg-fx-density` is a number under a name, and the plugin that
+        ; draws it is the first thing that attaches meaning to either. Left
+        ; out of this set they could not be patched and could not be written
+        ; down — so a document could hold a page with a starfield behind it
+        ; and lose the starfield the next time anything rewrote the file.
+        if ((name == "evg-surface-effect") || (name == "evg-effect-on")) { return 1 }
+        if (EVGPatch.isFx(name)) { return 4 }
 
         if (((name == "width") || (name == "height")) || (name == "min-width")) { return 2 }
         if (((name == "min-height") || (name == "max-width")) || (name == "max-height")) { return 2 }
@@ -750,6 +874,8 @@ class EVGPatch {
         push a "color"
         push a "background-color"
         push a "border-color"
+        push a "evg-surface-effect"
+        push a "evg-effect-on"
         push a "opacity"
         push a "line-height"
         push a "flex-grow"
@@ -947,6 +1073,19 @@ class EVGPatch {
         if (n == "gradient-from")    { return (EVGPatch.gradientText(el.gradientFrom el.gradientSet)) }
         if (n == "gradient-to")      { return (EVGPatch.gradientText(el.gradientTo el.gradientSet)) }
 
+        if (n == "evg-surface-effect") { return el.surfaceEffect }
+        if (n == "evg-effect-on")      { return el.effectTrigger }
+        if (EVGPatch.isFx(n)) {
+            def key:string (substring n 7 (strlen n))
+            def i:int 0
+            while (i < (array_length el.fxNames)) {
+                if ((itemAt el.fxNames i) == key) {
+                    return (EVGDisplayList.num((itemAt el.fxValues i)))
+                }
+                i = (i + 1)
+            }
+            return ""
+        }
         if (n == "opacity")     { return (EVGDisplayList.num(el.opacity)) }
         if (n == "line-height") { return (EVGDisplayList.num(el.lineHeight)) }
         if (n == "flex-grow")   { return (EVGDisplayList.num(el.flex)) }
@@ -1333,6 +1472,34 @@ class EVGPatch {
             return true
         }
 
+        if (n == "evg-surface-effect") {
+            el.surfaceEffect = ""
+            return true
+        }
+        if (n == "evg-effect-on") {
+            el.effectTrigger = ""
+            return true
+        }
+        ; Clearing an fx parameter takes it OUT rather than zeroing it: zero is
+        ; a value a plugin reads, and `readProp` answering "0" for a property
+        ; that was never set would make every undo write one.
+        if (EVGPatch.isFx(n)) {
+            def key:string (substring n 7 (strlen n))
+            def names:[string]
+            def values:[double]
+            def i:int 0
+            while (i < (array_length el.fxNames)) {
+                if ((itemAt el.fxNames i) == key) {
+                } {
+                    push names (itemAt el.fxNames i)
+                    push values (itemAt el.fxValues i)
+                }
+                i = (i + 1)
+            }
+            el.fxNames = names
+            el.fxValues = values
+            return true
+        }
         if (n == "opacity") {
             el.opacity = 1.0
             return true

@@ -51,6 +51,27 @@
       code { background: #1b2440; padding: 1px 5px; border-radius: 4px; }
       #err { color: #f87171; white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 12px; }
 
+      /* The live stylesheet. It is the demo's OWN sheet: what is typed here is
+         parsed by the same cascade the page is drawn with, so a rejected
+         declaration is reported by the engine rather than by this page. */
+      .fxedit { margin: 18px 0 0; max-width: 980px; }
+      .fxedit h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); margin: 0 0 6px; font-weight: 500; }
+      .fxedit textarea {
+        width: 100%; height: 240px; resize: vertical;
+        background: #0d1424; color: #cdd6f4; border: 1px solid var(--line); border-radius: 8px;
+        padding: 10px 12px; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+        tab-size: 2;
+      }
+      .fxedit textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+      .fxedit .row { display: flex; gap: 10px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+      .fxedit button {
+        font: inherit; color: var(--ink); background: #1b2440; border: 1px solid var(--line);
+        border-radius: 6px; padding: 4px 12px; cursor: pointer;
+      }
+      .fxedit button:hover { border-color: var(--accent); }
+      #fxcsserr { margin: 0; font-family: ui-monospace, monospace; font-size: 11.5px; color: #fca5a5; }
+      #fxcsserr.ok { color: var(--dim); }
+
       /* --- a narrow screen ---------------------------------------------------
          The rail becomes a band above the stage rather than a column beside it:
          230px of a 390px phone is most of the page, and the demo it is there to
@@ -259,6 +280,26 @@
             Segmented editing &mdash; where ArrowUp on the month changes the
             month and not the caret &mdash; is its own contract, and it is not
             built here rather than half-built.
+          </p>
+        </section>
+        <section data-for="effects">
+          <h2>effects</h2>
+          <div id="fxpresets"></div>
+          <p class="hint">
+            The background, from
+            <code>lib/evg/gl/effect-presets.css</code> &mdash; eleven blocks
+            that are already a look. Picking one <strong>types it</strong> into
+            the stylesheet below and the cascade reads it from there; a
+            <em>raindrop</em> lands on the pane rather than on the sky, because
+            it draws what is <em>behind</em> an element and the sky would paint
+            over it.
+          </p>
+          <div id="fxswitches"></div>
+          <p class="hint">
+            Each one is an element that declared an effect. Turning one off
+            sets a flag the painter reads: the pass is skipped, the shader
+            never runs, and a press on a sleeping card goes nowhere. Nothing
+            is rebuilt to stop drawing one shader.
           </p>
         </section>
         <section data-for="effects">
@@ -546,6 +587,15 @@
       <div class="stage">
         <div id="fit"><div id="stage"><canvas id="c"></canvas></div></div>
         <div id="err"></div>
+        <section class="fxedit" data-for="effects">
+          <h2>effects.css — live</h2>
+          <textarea id="fxcss" spellcheck="false" aria-label="The effects demo's stylesheet"></textarea>
+          <div class="row">
+            <button type="button" id="fxcssreset">reset</button>
+            <span class="hint" id="fxcsshint">Try <code>evg-fx-density</code>, <code>-hue</code>, <code>-speed</code> on <code>.fx-sky</code>, or <code>-sweep-speed</code> on <code>.fx-glass</code>. Change <code>evg-surface-effect</code> to <code>plasma-wave</code>, <code>raindrop</code> or <code>ambient-light</code> and paste a block from <code>lib/evg/gl/effect-presets.css</code> to see another one.</span>
+          </div>
+          <p id="fxcsserr" class="ok"></p>
+        </section>
         <p class="note" data-for="sortable">
           <strong>Drag a row onto another</strong> and the list reorders — and it is
           <em>rebuilt</em>, not moved: the page holds an order and hands it over, and the
