@@ -7578,6 +7578,15 @@ fn rg_substring(s: &str, from: i64, to: i64) -> String {
     if a > n { a = n; }
     let mut e = if to > n { n } else { to };
     if e < a { e = a; }
+    // A Rust String cannot hold half a character, so a slice that cuts one
+    // has to be rounded to a boundary rather than returned as bytes -- which
+    // is what C++, PHP and Go can do and Rust cannot. The rule is Swift's,
+    // for the same reason (see r_substring): the unit that STARTS a character
+    // carries the whole of it and the units inside it carry nothing, so a
+    // walk that copies one unit at a time still reproduces the text.
+    while a < n && (b[a as usize] & 0xC0) == 0x80 { a += 1; }
+    if e < a { e = a; }
+    while e < n && (b[e as usize] & 0xC0) == 0x80 { e += 1; }
     String::from_utf8_lossy(&b[a as usize..e as usize]).to_string()
 }
 ")
@@ -7818,6 +7827,15 @@ fn rg_substring(s: &str, from: i64, to: i64) -> String {
     if a > n { a = n; }
     let mut e = if to > n { n } else { to };
     if e < a { e = a; }
+    // A Rust String cannot hold half a character, so a slice that cuts one
+    // has to be rounded to a boundary rather than returned as bytes -- which
+    // is what C++, PHP and Go can do and Rust cannot. The rule is Swift's,
+    // for the same reason (see r_substring): the unit that STARTS a character
+    // carries the whole of it and the units inside it carry nothing, so a
+    // walk that copies one unit at a time still reproduces the text.
+    while a < n && (b[a as usize] & 0xC0) == 0x80 { a += 1; }
+    if e < a { e = a; }
+    while e < n && (b[e as usize] & 0xC0) == 0x80 { e += 1; }
     String::from_utf8_lossy(&b[a as usize..e as usize]).to_string()
 }
 ")

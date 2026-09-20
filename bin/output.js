@@ -40844,13 +40844,24 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                             needsMut = true;
                                           }
                                         }
+                                        const hoistColl = coll.ns.length > 1;
+                                        const itName = "__it_" + itemName;
+                                        if ( hoistColl ) {
+                                          wr.out(("let " + itName) + " = ", false);
+                                          this.rustWriteOperand(coll, ctx, wr);
+                                          wr.out(".clone();", true);
+                                        }
                                         wr.out("for ", false);
                                         if ( needsMut ) {
                                           wr.out("mut ", false);
                                         }
                                         this.rustWriteOperand(item, ctx, wr);
                                         wr.out(" in ", false);
-                                        this.rustWriteOperand(coll, ctx, wr);
+                                        if ( hoistColl ) {
+                                          wr.out(itName, false);
+                                        } else {
+                                          this.rustWriteOperand(coll, ctx, wr);
+                                        }
                                         if ( itemIsCopy ) {
                                           wr.out(".iter().copied() {", true);
                                         } else {

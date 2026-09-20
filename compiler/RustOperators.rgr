@@ -2828,6 +2828,34 @@ extension RangerRustClassWriter {
           needsMut = true
         }
       }
+      ; A `for` head's temporaries live for the WHOLE loop. That is the one
+      ; place Rust does this: the condition of an `if` or a `while` is its own
+      ; temporary scope and its `Ref` is dropped before the block runs, but
+      ; `for x in EXPR` desugars to a `match` over `into_iter(EXPR)` and every
+      ; temporary in EXPR lives until the match ends -- which is after the
+      ; last iteration.
+      ;
+      ; So a collection reached through a FIELD keeps that object borrowed
+      ; while the body runs, and the first `borrow_mut` of the same cell
+      ; inside the body panics with "RefCell already borrowed". rustc accepts
+      ; the program; it fails at run time. That is how the Rust self-host came
+      ; to compile with zero errors and panic on the first file it was given:
+      ; `for stdCommands.children lch i { ... set opHash fc.vref newOpList }`
+      ; in RangerActiveOperators borrows `this` for the head and mutably
+      ; borrows it in the body. The body never mentions `stdCommands`, so the
+      ; name-matching check above does not see it.
+      ;
+      ; Reading the collection into a local first ends the borrow at that
+      ; statement's semicolon, which is what the index form below already does
+      ; for its bound and what the `forEach` path does for its receiver. A
+      ; bare local name borrows nothing, so it is left alone.
+      def hoistColl:boolean ((array_length coll.ns) > 1)
+      def itName:string ("__it_" + itemName)
+      if hoistColl {
+        wr.out(("let " + itName + " = ") false)
+        this.rustWriteOperand(coll ctx wr)
+        wr.out(".clone();" true)
+      }
       wr.out("for " false)
       if needsMut {
         wr.out("mut " false)
@@ -2837,7 +2865,11 @@ extension RangerRustClassWriter {
       ; renaming lives in the walker. `let mut fn = …` does not parse.
       this.rustWriteOperand(item ctx wr)
       wr.out(" in " false)
-      this.rustWriteOperand(coll ctx wr)
+      if hoistColl {
+        wr.out(itName false)
+      } {
+        this.rustWriteOperand(coll ctx wr)
+      }
       if itemIsCopy {
         wr.out(".iter().copied() {" true)
       } {
