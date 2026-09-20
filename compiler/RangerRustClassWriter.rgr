@@ -52,6 +52,12 @@ class RangerRustClassWriter {
   ; what lets `def root (this.getRoot())` followed by a write through `root`
   ; run when the root IS this object.
   def rust_receiverless_method:boolean false
+  ; Set while the trait declaration and the trait impls of a RE-ENTRANT trait
+  ; family are being written. There `Self` is `Rc<RefCell<C>>`, so `&self` IS
+  ; the handle the inherent method wants as `__self_rc`: the signature must
+  ; not also declare one, and the forwarding body passes `self` for it.
+  ; docs/plans/PLAN_RUST_REENTRANCY.md.
+  def rust_trait_self_is_handle:boolean false
   ; set while a call receiver is written and the callee is known to mutate
   def rust_receiver_mut_known:boolean false
   ; the class whose method body is being written. ctx.getCurrentClass() can
@@ -115,6 +121,9 @@ class RangerRustClassWriter {
   ; argument that follows it: reading the field a second time to build that
   ; argument puts the borrow back that the hoist just took away
   def rust_last_recv_tmp:string ""
+  ; Set while the hidden receiver's PATH is being written into a `let`, so
+  ; the leading `&` is left off. See writeSelfRcReceiverHoist.
+  def rust_selfrc_path_only:boolean false
   ; computing the family's mutation answer. The inherited-graph walk otherwise
   ; marks every trait method as mutating on principle — which is the blanket
   ; this analysis exists to replace, and feeding it back in makes the answer
@@ -1396,6 +1405,17 @@ class RangerRustClassWriter {
           def tvF:RangerAppFunctionDesc (this.rustEnclosingMethod((unwrap tvM)))
           if (this.rustClassIsShared(tvC.name ctx)) {
             if tvF.rust_needs_self_rc {
+              ; In a re-entrant family the handle a HOLDER stores is the trait
+              ; object `Rc<RefCell<dyn XTrait>>`, and the trait is implemented
+              ; for `Rc<RefCell<C>>` -- so `this` as a value is that handle
+              ; wrapped once more. The cell it adds is a fresh outer shell
+              ; around the SAME object: every field still lives in the inner
+              ; cell, which is what makes the sharing real.
+              ; docs/plans/PLAN_RUST_REENTRANCY.md.
+              if tvC.rust_trait_reentrant {
+                wr.out("Rc::new(RefCell::new(__self_rc.clone()))" false)
+                return
+              }
               wr.out("__self_rc" false)
               return
             }
@@ -2836,7 +2856,10 @@ class RangerRustClassWriter {
     def lead_comma:boolean rust_receiver_written
     rust_receiver_written = false
     def wrote_selfrc:boolean false
-    if (this.rustNeedsSelfRc(fnDesc ctx)) {
+    ; In a re-entrant trait family the `&self` receiver IS the handle, so the
+    ; signature must not declare a second one.
+    ; docs/plans/PLAN_RUST_REENTRANCY.md.
+    if ((this.rustNeedsSelfRc(fnDesc ctx)) && (rust_trait_self_is_handle == false)) {
       if lead_comma {
         wr.out(", " false)
       }

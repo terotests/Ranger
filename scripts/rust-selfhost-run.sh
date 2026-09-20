@@ -1,40 +1,50 @@
 #!/usr/bin/env bash
-# Rebuild the Rust rendering of the compiler as a DEBUG binary and run it over a
-# small program. Debug keeps the panic locations, which is what the RefCell
-# re-entrancy work needs; scripts/rust-selfhost-check.sh is the -O path.
+# Build the Rust rendering of the compiler and make it compile the compiler.
 #
-# Usage: bash scripts/rust-selfhost-run.sh [file.rgr]
-set -u
+#   bash scripts/rust-selfhost-run.sh
+#
+# This is the bar the C++ and Go self-hosts are already held to, and the one
+# `rust-selfhost-check.sh` does not reach: that script type-checks and stops.
+# For years the Rust rendering type-checked with zero errors and aborted on
+# the first file it was given -- a `RefCell` double borrow, which rustc cannot
+# see because it is a run-time check. docs/plans/PLAN_RUST_REENTRANCY.md.
+#
+# The test is not "it ran": it is that the output is BYTE-IDENTICAL to what
+# the node-hosted compiler writes for the same input. Two compilers that agree
+# to the byte are the same compiler.
+set -uo pipefail
 cd "$(dirname "$0")/.."
-SRC="${1:-tests/rust_run/hello.rgr}"
-mkdir -p tmp/selfhost-rust tmp/selfhost-rust/out
+OUT=tmp/selfhost-rust
+mkdir -p "$OUT" tmp/rust-selfhost-out
 
-# -rust-allow-dropped-catch: twelve `try` blocks in the compiler's own sources
-# have a catch the Rust target cannot express, so the Rust rendering of the
-# compiler has been reporting those twelve failures as a panic rather than as an
-# error list. The flag keeps that behaviour and prints each site; removing it is
-# item B of docs/plans/PLAN_RUST_SEMANTIC_IDIOMS.md.
-RANGER_LIB=./compiler/Lang.rgr node bin/output.js -l=rust -rust-allow-dropped-catch ./compiler/Compiler.rgr \
-  -d=./tmp/selfhost-rust -o=ranger_compiler.rs -nodecli > tmp/selfhost-rust/gen.log 2>&1
-if [ ! -f tmp/selfhost-rust/ranger_compiler.rs ]; then
-  echo "GENERATION FAILED"; tail -30 tmp/selfhost-rust/gen.log; exit 1
+echo "==> generating"
+bash scripts/rust-selfhost-check.sh > "$OUT/errcount.txt" 2>&1
+errs="$(tail -1 "$OUT/errcount.txt" | tr -d '[:space:]')"
+if [ "$errs" != "0" ]; then
+  echo "FAIL: $errs rustc errors"; grep -E "^error" "$OUT/rustc.log" | head -20; exit 1
 fi
 
-rustc --edition 2021 -C debuginfo=2 tmp/selfhost-rust/ranger_compiler.rs \
-  -o tmp/selfhost-rust/ranger_dbg > tmp/selfhost-rust/rustc.log 2>&1
-if [ ! -x tmp/selfhost-rust/ranger_dbg ]; then
-  echo "BUILD FAILED"
-  grep -E "^error" tmp/selfhost-rust/rustc.log | grep -v "^error: aborting due to" | head -20
+echo "==> building (rustc -O, a few minutes)"
+if ! rustc -O --edition 2021 "$OUT/ranger_compiler.rs" -o "$OUT/ranger_rust" 2> "$OUT/build.log"; then
+  echo "FAIL: build"; grep -E "^error" "$OUT/build.log" | head -20; exit 1
+fi
+cp ./compiler/Lang.rgr "$OUT/Lang.rgr"
+cp ./lib/stdops.rgr "$OUT/stdops.rgr"
+mkdir -p "$OUT/lib" && cp ./lib/*.rgr "$OUT/lib/" 2>/dev/null || true
+
+echo "==> the Rust compiler compiles the compiler"
+if ! "./$OUT/ranger_rust" -l=es6 ./compiler/Compiler.rgr -nodecli \
+     -d=./tmp/rust-selfhost-out -o=output.js > "$OUT/run.log" 2>&1; then
+  echo "FAIL: run"; tail -20 "$OUT/run.log"; exit 1
+fi
+if grep -q "panicked" "$OUT/run.log"; then
+  echo "FAIL: panicked"; grep -m1 -A3 "panicked" "$OUT/run.log"; exit 1
+fi
+
+echo "==> and answers what the node host answers"
+if ! diff -q ./tmp/rust-selfhost-out/output.js ./bin/output.js > /dev/null; then
+  echo "FAIL: output differs from bin/output.js"
+  diff ./tmp/rust-selfhost-out/output.js ./bin/output.js | head -20
   exit 1
 fi
-
-# the binary resolves library imports relative to its own directory, so the
-# libraries have to sit next to it -- same copy that npm run selfhost:copylibs does
-cp ./compiler/Lang.rgr ./tmp/selfhost-rust/Lang.rgr
-cp ./lib/stdops.rgr ./tmp/selfhost-rust/stdops.rgr
-mkdir -p ./tmp/selfhost-rust/lib
-cp ./lib/*.rgr ./tmp/selfhost-rust/lib/
-
-RUST_BACKTRACE=1 RANGER_LIB="./compiler/Lang.rgr:./lib/stdops.rgr" \
-  ./tmp/selfhost-rust/ranger_dbg -l=es6 "$SRC" \
-    -d=./tmp/selfhost-rust/out -o=out.js -nodecli 2>&1 | tail -40
+echo "OK: byte-identical to the node-hosted compiler's own output"

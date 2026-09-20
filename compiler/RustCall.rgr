@@ -873,6 +873,9 @@ extension RangerRustClassWriter {
   }
 
   fn writeFnCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    ; true while a `{ let recv = …;` block is open around the call being
+    ; written -- see writeSelfRcReceiverHoist
+    def rgHoisted:boolean false
     ; a statement-level call is the one place a `let` can still be written
     ; before it, so the arguments that alias each other come out here
     if ((ctx.expressionLevel()) == 0) {
@@ -1087,11 +1090,15 @@ extension RangerRustClassWriter {
               def uses_this:boolean (this.rustMethodNeedsReceiver((unwrap node.fnDesc) (unwrap fnB) useCtx ctx))
               if (uses_this == false) {
                 call_as_static_preeval = true
+                if (this.rustStaticCallBlockedByHandle(fc ctx)) {
+                  call_as_static_preeval = false
+                }
               }
             }
           }
         }
         
+        rgHoisted = (this.writeSelfRcReceiverHoist(node fc ctx wr))
         if call_as_static_preeval {
           ; Use ClassName::method() syntax for static call
           def fnD:RangerAppFunctionDesc node.fnDesc
@@ -1099,7 +1106,7 @@ extension RangerRustClassWriter {
           if (!null? fnContainerClass) {
             def containerClass:RangerAppClassDesc (unwrap fnContainerClass)
             def methodName:string (itemAt fc.ns ((array_length fc.ns) - 1))
-            wr.out(((containerClass.name + "::") + (this.adjustType(methodName))) false)
+            wr.out((((this.rustStaticCallClassName(containerClass fc ctx)) + "::") + (this.adjustType(methodName))) false)
           } {
             ; Fallback to WriteVRef
             rust_call_receiver_mut = (this.rustReceiverMutFor(node fc ctx))
@@ -1287,6 +1294,8 @@ extension RangerRustClassWriter {
           }
         }
         wr.out(")" false)
+        this.closeSelfRcReceiverHoist(rgHoisted wr)
+        rgHoisted = false
         if ((ctx.expressionLevel()) == 0) {
           wr.out(";" true)
         }
@@ -1479,6 +1488,8 @@ extension RangerRustClassWriter {
           }
         }
         wr.out(")" false)
+        this.closeSelfRcReceiverHoist(rgHoisted wr)
+        rgHoisted = false
         if ((ctx.expressionLevel()) == 0) {
           wr.out(";" true)
         }
@@ -1510,6 +1521,7 @@ extension RangerRustClassWriter {
       
       ; If calling as static, use ClassName::method() syntax
       ; Use the method's container class (where it's defined), not the current class
+      rgHoisted = (this.writeSelfRcReceiverHoist(node fc ctx wr))
       if call_as_static {
         def fnD:RangerAppFunctionDesc node.fnDesc
         def fnContainerClass@(optional):RangerAppClassDesc fnD.container_class
@@ -1517,7 +1529,7 @@ extension RangerRustClassWriter {
           def containerClass:RangerAppClassDesc (unwrap fnContainerClass)
           ; Get method name from fc.ns (e.g., ["this", "buildHuffmanCodes"])
           def methodName:string (itemAt fc.ns ((array_length fc.ns) - 1))
-          wr.out(((containerClass.name + "::") + (this.adjustType(methodName))) false)
+          wr.out((((this.rustStaticCallClassName(containerClass fc ctx)) + "::") + (this.adjustType(methodName))) false)
           wr.out("(" false)
           ; a receiverless method still takes the hidden receiver handle
           def selfCallSelfRc:boolean (this.writeSelfRcReceiverArg(node fc ctx wr))
@@ -1646,6 +1658,8 @@ extension RangerRustClassWriter {
             }
           }
           wr.out(")" false)
+          this.closeSelfRcReceiverHoist(rgHoisted wr)
+          rgHoisted = false
           if ((ctx.expressionLevel()) == 0) {
             wr.out(";" true)
           }
@@ -1670,12 +1684,16 @@ extension RangerRustClassWriter {
             def uses_this2:boolean (this.rustMethodNeedsReceiver((unwrap node.fnDesc) (unwrap fnB2) useCtx2 ctx))
             if (uses_this2 == false) {
               call_other_as_static = true
+              if (this.rustStaticCallBlockedByHandle(fc ctx)) {
+                call_other_as_static = false
+              }
             }
           }
         }
       }
       
       ; If calling static method on another object, use ClassName::method() syntax
+      rgHoisted = (this.writeSelfRcReceiverHoist(node fc ctx wr))
       if call_other_as_static {
         def fnD2:RangerAppFunctionDesc node.fnDesc
         def fnContainerClass2@(optional):RangerAppClassDesc fnD2.container_class
@@ -1683,7 +1701,7 @@ extension RangerRustClassWriter {
           def containerClass2:RangerAppClassDesc (unwrap fnContainerClass2)
           ; Get method name from fc.ns (last element is method name)
           def methodName2:string (itemAt fc.ns ((array_length fc.ns) - 1))
-          wr.out(((containerClass2.name + "::") + (this.adjustType(methodName2))) false)
+          wr.out((((this.rustStaticCallClassName(containerClass2 fc ctx)) + "::") + (this.adjustType(methodName2))) false)
           wr.out("(" false)
           ; a method that stores `this` takes the hidden receiver handle even
           ; when it is emitted without a `self` — the static SPELLING of the
@@ -1808,6 +1826,8 @@ extension RangerRustClassWriter {
             }
           }
           wr.out(")" false)
+          this.closeSelfRcReceiverHoist(rgHoisted wr)
+          rgHoisted = false
           if ((ctx.expressionLevel()) == 0) {
             wr.out(";" true)
           }
@@ -2059,6 +2079,20 @@ extension RangerRustClassWriter {
                 if ((strlen thisDownTrait) > 0) {
                   if (this.rustClassIsShared(argNameN.type_name ctx)) {
                     if (argNameN.type_name != thisDownTrait) {
+                      ; …unless the family is RE-ENTRANT, where the hidden
+                      ; receiver is ALREADY the concrete class and there is
+                      ; nothing to downcast from.
+                      ; docs/plans/PLAN_RUST_REENTRANCY.md.
+                      def tdClsO@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+                      def tdReentrant:boolean false
+                      if (!null? tdClsO) {
+                        def tdCls:RangerAppClassDesc (unwrap tdClsO)
+                        tdReentrant = tdCls.rust_trait_reentrant
+                      }
+                      if tdReentrant {
+                        wr.out("__self_rc.clone()" false)
+                        continue _
+                      }
                       wr.out((((("rg_downcast::<" + argNameN.type_name) + ", dyn ") + thisDownTrait) + "Trait>(__self_rc)") false)
                       continue _
                     }
@@ -2201,6 +2235,8 @@ extension RangerRustClassWriter {
         }
       }
       wr.out(")" false)
+      this.closeSelfRcReceiverHoist(rgHoisted wr)
+      rgHoisted = false
       if ((ctx.expressionLevel()) == 0) {
         wr.out(";" true)
       }

@@ -1264,9 +1264,12 @@ it from its code. That carries whatever the unit is across unchanged on every
 host. Afterwards the C++ and Go self-hosts each produce output BYTE-IDENTICAL
 to the node-hosted compiler's for the same input.
 
-One limitation worth recording: the Rust self-host compiles to 0 rustc errors
-but panics at startup on any input, and did so before this work too. It is a
-compile gate, not a run gate.
+One limitation that WAS worth recording, and no longer is: the Rust self-host
+compiled to 0 rustc errors and panicked at startup on any input. Two
+`RefCell` borrows that outlived the statements that took them --
+docs/plans/PLAN_RUST_REENTRANCY.md. It compiles the compiler now, to output
+byte-identical to the node host's, and `npm run selfhost:run:rust` checks
+exactly that.
 
 ### A `charbuffer` is UTF-8 bytes, on every target
 

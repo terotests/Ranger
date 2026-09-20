@@ -3529,10 +3529,142 @@ class StaticAnalyzer {
   ; Which methods of the shared classes need __self_rc: the direct users of
   ; `this` as a value, plus — to a fixpoint — every method that self-calls
   ; one, because the callee's hidden argument has to come from somewhere.
+  ; Which trait families can be called back into through their own handle?
+  ;
+  ; A trait method dispatched on a `&self` or `&mut self` receiver holds a
+  ; borrow of the cell for the whole call. Where the callee can reach back
+  ; through the same handle that is "RefCell already borrowed" at run time --
+  ; rustc cannot see it, which is how the Rust self-host compiled clean and
+  ; died on its first input. Those families are implemented for
+  ; `Rc<RefCell<C>>` instead, so the receiver IS the handle and nothing is
+  ; borrowed to dispatch.
+  ;
+  ; The question is answered from the field graph: the trait root holds a
+  ; field of some class X, and X holds a field of the family's own type. That
+  ; two-cycle is what lets a call go out and come back. For the writers it is
+  ; `RangerGenericClassWriter.compiler : LiveCompiler` against
+  ; `LiveCompiler.langWriter : RangerGenericClassWriter`.
+  ; docs/plans/PLAN_RUST_REENTRANCY.md.
+  fn computeTraitReentrancy:void () {
+    if (null? ctx) {
+      return
+    }
+    def trRoot:RangerAppWriterContext ((unwrap ctx).getRoot())
+    for trRoot.definedClasses trCl:RangerAppClassDesc trCi {
+      if (trCl.is_extended_by_children == false) {
+        continue
+      }
+      if (this.classHasBackReference(trCl)) {
+        trCl.rust_trait_reentrant = true
+        for trCl.child_classes trCh:string trChi {
+          if ((unwrap ctx).isDefinedClass(trCh)) {
+            def trChC:RangerAppClassDesc ((unwrap ctx).findClass(trCh))
+            trChC.rust_trait_reentrant = true
+          }
+        }
+      }
+    }
+  }
+
+  ; Does any method body of `cl` CALL something through the field `fieldName`?
+  ; A field that is only read or written cannot carry a call back into the
+  ; family, and a data structure that merely points at its container is not
+  ; re-entrant.
+  fn treeCallsThroughField:boolean (node:CodeNode fieldName:string) {
+    if node.hasFnCall {
+      ; the call node holds the receiver path on its FIRST CHILD, the way
+      ; every other reader of a call does it
+      if ((array_length node.children) > 0) {
+        def tcFc:CodeNode (node.getFirst())
+        def tcLen:int (array_length tcFc.ns)
+        if (tcLen >= 2) {
+          def tcSeg:string (itemAt tcFc.ns 0)
+          if (tcSeg == fieldName) {
+            return true
+          }
+          if (tcSeg == "this") {
+            if ((itemAt tcFc.ns 1) == fieldName) {
+              return true
+            }
+          }
+        }
+      }
+    }
+    for node.children tcCh:CodeNode tcChi {
+      if (this.treeCallsThroughField(tcCh fieldName)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn classCallsThroughField:boolean (cl:RangerAppClassDesc fieldName:string) {
+    for cl.methods ccM:RangerAppFunctionDesc ccMi {
+      def ccBodyO@(optional):CodeNode ccM.fnBody
+      if (null? ccBodyO) {
+        continue
+      }
+      if (this.treeCallsThroughField((unwrap ccBodyO) fieldName)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn classHasBackReference:boolean (cl:RangerAppClassDesc) {
+    for cl.variables brV:RangerAppParamDesc brVi {
+      def brNNO@(optional):CodeNode brV.nameNode
+      if (null? brNNO) {
+        continue
+      }
+      def brTn:string ((unwrap brNNO).type_name)
+      if ((strlen brTn) == 0) {
+        continue
+      }
+      if (((unwrap ctx).isDefinedClass(brTn)) == false) {
+        continue
+      }
+      ; …and the family has to CALL through it, or the cycle is only two data
+      ; structures pointing at each other
+      if ((this.classCallsThroughField(cl brV.name)) == false) {
+        continue
+      }
+      def brOther:RangerAppClassDesc ((unwrap ctx).findClass(brTn))
+      for brOther.variables brB:RangerAppParamDesc brBi {
+        def brBNNO@(optional):CodeNode brB.nameNode
+        if (null? brBNNO) {
+          continue
+        }
+        def brBTn:string ((unwrap brBNNO).type_name)
+        def brBHits:boolean false
+        if (brBTn == cl.name) {
+          brBHits = true
+        }
+        if ((strlen brBTn) > 0) {
+          if ((unwrap ctx).isDefinedClass(brBTn)) {
+            def brBC:RangerAppClassDesc ((unwrap ctx).findClass(brBTn))
+            for brBC.extends_classes brBE:string brBEi {
+              if (brBE == cl.name) {
+                brBHits = true
+              }
+            }
+          }
+        }
+        if brBHits {
+          if (this.classCallsThroughField(brOther brB.name)) {
+            return true
+          }
+        }
+      }
+    }
+    return false
+  }
+
   fn computeSelfRcNeeds:void () {
     if (null? ctx) {
       return
     }
+    this.computeTraitReentrancy()
     def root:RangerAppWriterContext ((unwrap ctx).getRoot())
     for root.definedClasses cl:RangerAppClassDesc ci {
       if (cl.rust_needs_ref_semantics == false) {
@@ -3550,6 +3682,12 @@ class StaticAnalyzer {
             inTraitFamily = true
           }
         }
+      }
+      ; …except a RE-ENTRANT family, where the hidden argument is the
+      ; concrete class for every method, trait-declared or not, so the two
+      ; spellings the exclusion is about never arise.
+      if cl.rust_trait_reentrant {
+        inTraitFamily = false
       }
       for cl.methods m:RangerAppFunctionDesc i {
         if (m.is_lambda == false) {

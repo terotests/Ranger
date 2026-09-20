@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The Rust rendering of the compiler compiles the compiler.** It had type-
+  checked with zero rustc errors for years and aborted on the first file it
+  was ever given, because `RefCell` checks at run time and the self-host gate
+  only type-checked. Two causes, both the same shape — a borrow that outlives
+  the statement that took it:
+
+  A `for` head is the one place Rust keeps a temporary alive across a block,
+  so a collection reached through a field kept that object borrowed while the
+  body ran and the first `borrow_mut` panicked. And a trait method with a
+  `&mut self` receiver means the call site holds a `RefMut` for the whole
+  call — while the compiler and its writers are mutually recursive by design.
+
+  A trait family that can be re-entered through its own handle is now
+  implemented for `Rc<RefCell<C>>` rather than for `C`, so `&self` IS the
+  handle and dispatching borrows nothing. Which families those are is
+  answered from the field graph rather than declared: the trait root holds a
+  field of some class X, X holds a field of the family's type, and both call
+  through it.
+
+  `npm run selfhost:run:rust` is the new gate and holds Rust to what C++ and
+  Go already meet: build it, make it compile `compiler/Compiler.rgr`, and
+  diff the result against `bin/output.js`. It is identical, all 5 596 785
+  bytes, in 7.3 s against the node host's 7.8 s.
+  `docs/plans/PLAN_RUST_REENTRANCY.md` is the write-up.
+
 - **Rust and Go index the byte their string is made of.** `strlen`, `charAt`
   and `substring` on both counted characters, which cost them the quadratic
   scan — `charAt` walked from the start on every read, and on Go `[]rune(s)`

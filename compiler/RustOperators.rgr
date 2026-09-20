@@ -1674,10 +1674,26 @@ extension RangerRustClassWriter {
                   wr.out(((".clone() as Rc<RefCell<dyn " + traitCoerceOpt) + "Trait>>);") true)
                 } {
                   ; Assignment to trait type field: needs Some(Rc::new(RefCell::new(value)))
+                  ; …and one cell more where the family is RE-ENTRANT: there
+                  ; the trait is implemented for `Rc<RefCell<C>>`, so the
+                  ; trait object holds a HANDLE and not a struct.
+                  ; docs/plans/PLAN_RUST_REENTRANCY.md.
+                  def ftReentrant:boolean false
+                  def ftClsO@(optional):RangerAppClassDesc (ctx.findClass(field_type_name))
+                  if (!null? ftClsO) {
+                    def ftCls:RangerAppClassDesc (unwrap ftClsO)
+                    ftReentrant = ftCls.rust_trait_reentrant
+                  }
                   wr.out(" = Some(Rc::new(RefCell::new(" false)
+                  if ftReentrant {
+                    wr.out("Rc::new(RefCell::new(" false)
+                  }
                   this.WalkNode(right ctx wr)
                   if should_clone_rhs {
                     wr.out(".clone()" false)
+                  }
+                  if ftReentrant {
+                    wr.out("))" false)
                   }
                   wr.out(")));" true)
                 }
@@ -2850,6 +2866,16 @@ extension RangerRustClassWriter {
       ; for its bound and what the `forEach` path does for its receiver. A
       ; bare local name borrows nothing, so it is left alone.
       def hoistColl:boolean ((array_length coll.ns) > 1)
+      ; …and a bare FIELD name is a field too: `for walkAlso ch i` reads
+      ; `__self_rc.borrow().walk_also`, which borrows this object for the
+      ; whole loop exactly as `this.walkAlso` would.
+      if (hoistColl == false) {
+        if ((array_length coll.ns) == 1) {
+          if (ctx.isMemberVariable((itemAt coll.ns 0))) {
+            hoistColl = true
+          }
+        }
+      }
       def itName:string ("__it_" + itemName)
       if hoistColl {
         wr.out(("let " + itName + " = ") false)

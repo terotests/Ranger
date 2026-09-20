@@ -149,6 +149,7 @@
     "friendly:test": "bash gallery/friendly/compile.sh",
     "friendly:test:rust": "bash gallery/friendly/compile.sh rust",
     "selfhost:check:rust": "bash scripts/rust-selfhost-check.sh",
+    "selfhost:run:rust": "bash scripts/rust-selfhost-run.sh",
     "selfhost:build:rust": "npm run selfhost:check:rust && rustc -O --edition 2021 tmp/selfhost-rust/ranger_compiler.rs -o tmp/selfhost-rust/ranger_rust && npm run selfhost:copylibs:rust",
     "selfhost:copylibs:rust": "cp ./compiler/Lang.rgr ./tmp/selfhost-rust/Lang.rgr && cp ./lib/stdops.rgr ./tmp/selfhost-rust/stdops.rgr && mkdir -p ./tmp/selfhost-rust/lib && cp ./lib/*.rgr ./tmp/selfhost-rust/lib/",
     "selfhost:run:rust": "bash scripts/rust-selfhost-run.sh",

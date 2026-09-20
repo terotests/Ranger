@@ -200,6 +200,20 @@ extension RangerRustClassWriter {
   fn writeTraitFieldAccessorDecls:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext wr:CodeWriter) {
     for cl.variables pvar:RangerAppParamDesc i {
       def acc:string (this.rustFieldAccessorName(pvar))
+      ; In a re-entrant family `Self` is the HANDLE, so there is no struct to
+      ; hand out a reference into: the reader gets a value and the writer gets
+      ; a setter. For a field that is an Rc that is a refcount bump; for a
+      ; String it is the clone the `&self` form already did.
+      ; docs/plans/PLAN_RUST_REENTRANCY.md.
+      if rust_trait_self_is_handle {
+        wr.out((("fn " + acc) + "(&self) -> ") false)
+        this.writeStructFieldType(pvar ctx wr)
+        wr.out(";" true)
+        wr.out((("fn " + acc) + "_mut(&self) -> std::cell::RefMut<'_, ") false)
+        this.writeStructFieldType(pvar ctx wr)
+        wr.out(">;" true)
+        continue
+      }
       if ((this.rustFieldIsCopyScalar(pvar ctx)) || (this.rustFieldIsPlainString(pvar ctx))) {
         wr.out((("fn " + acc) + "(&self) -> ") false)
       } {
@@ -217,6 +231,18 @@ extension RangerRustClassWriter {
     for cl.variables pvar:RangerAppParamDesc i {
       def acc:string (this.rustFieldAccessorName(pvar))
       def fld:string (this.adjustType(pvar.compiledName))
+      if rust_trait_self_is_handle {
+        wr.out((("fn " + acc) + "(&self) -> ") false)
+        this.writeStructFieldType(pvar ctx wr)
+        wr.out(((" { self.borrow()." + fld) + ".clone() }") true)
+        ; the write side keeps the `_mut()` shape every call site already
+        ; writes, but hands back a RefMut projected onto the field rather
+        ; than a `&mut` into a struct the handle does not own
+        wr.out((("fn " + acc) + "_mut(&self) -> std::cell::RefMut<'_, ") false)
+        this.writeStructFieldType(pvar ctx wr)
+        wr.out(((("> { std::cell::RefMut::map(self.borrow_mut(), |rg_c| &mut rg_c." + fld) + ") }")) true)
+        continue
+      }
       if (this.rustFieldIsPlainString(pvar ctx)) {
         wr.out((("fn " + acc) + "(&self) -> ") false)
         this.writeStructFieldType(pvar ctx wr)
@@ -430,12 +456,37 @@ extension RangerRustClassWriter {
     return 0
   }
 
+  ; Answered by StaticAnalyzer.computeTraitReentrancy from the field graph:
+  ; the trait root holds a field of some class X and X holds a field of the
+  ; family's own type, so a call made through the handle can come back through
+  ; it. Such a family is implemented for `Rc<RefCell<C>>`, where `&self` IS
+  ; the handle and dispatching borrows nothing.
+  ; docs/plans/PLAN_RUST_REENTRANCY.md.
+  fn rustTraitFamilyIsReentrant:boolean (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    return cl.rust_trait_reentrant
+  }
+
+  fn rustClassInReentrantTrait:boolean (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    return cl.rust_trait_reentrant
+  }
+
   fn rustSelfRcParamType:string (fnDesc:RangerAppFunctionDesc ctx:RangerAppWriterContext) {
     if (null? fnDesc.container_class) {
       return ""
     }
     def scc:RangerAppClassDesc (unwrap fnDesc.container_class)
     def sccName:string scc.name
+    ; A re-entrant family's handle is the CONCRETE class: the trait is
+    ; implemented for `Rc<RefCell<C>>`, so that is what the inherent method
+    ; receives and what every field read goes through. It is the class being
+    ; EMITTED, not the one that declared the method: an inherited method is
+    ; written into each subclass's own impl, over that subclass's own fields.
+    if (this.rustClassInReentrantTrait(scc ctx)) {
+      if ((strlen rust_emit_class_name) > 0) {
+        return rust_emit_class_name
+      }
+      return sccName
+    }
     if scc.is_extended_by_children {
       return (("dyn " + scc.name) + "Trait")
     }
@@ -453,6 +504,13 @@ extension RangerRustClassWriter {
   }
 
   fn rustSelfRcCoerceTo:string (fc:CodeNode fnDesc:RangerAppFunctionDesc ctx:RangerAppWriterContext) {
+    ; a re-entrant family passes the concrete handle, so there is nothing to
+    ; coerce to a trait object
+    if (!null? fnDesc.container_class) {
+      if ((unwrap fnDesc.container_class).rust_trait_reentrant) {
+        return ""
+      }
+    }
     def want:string (this.rustSelfRcParamType(fnDesc ctx))
     if ((strlen want) < 5) {
       return ""
@@ -509,6 +567,12 @@ extension RangerRustClassWriter {
       return false
     }
     if ((this.rustNeedsSelfRc((unwrap node.fnDesc) ctx)) == false) {
+      rust_last_recv_tmp = ""
+      return false
+    }
+    ; a call that DISPATCHES through a trait handle passes no handle: the
+    ; trait method's `&self` is the handle
+    if (this.rustStaticCallBlockedByHandle(fc ctx)) {
       rust_last_recv_tmp = ""
       return false
     }
@@ -677,11 +741,86 @@ extension RangerRustClassWriter {
     }
     def pathCoerce:string (this.rustSelfRcCoerceTo(fc (unwrap node.fnDesc) ctx))
     if ((strlen pathCoerce) > 0) {
-      wr.out((((("&(" + path) + ".clone() as Rc<RefCell<") + pathCoerce) + ">>)") false)
+      if rust_selfrc_path_only {
+        wr.out(((("(" + path) + ".clone() as Rc<RefCell<") + pathCoerce) false)
+        wr.out(">>)" false)
+      } {
+        wr.out((((("&(" + path) + ".clone() as Rc<RefCell<") + pathCoerce) + ">>)") false)
+      }
     } {
-      wr.out(("&" + path) false)
+      if rust_selfrc_path_only {
+        wr.out(path false)
+      } {
+        wr.out(("&" + path) false)
+      }
     }
     return true
+  }
+
+  ; Does the hidden receiver argument read through a `.borrow()`?
+  ;
+  ; A borrow in an argument list lives until the end of the STATEMENT, which
+  ; is after the call returns -- so a callee that reaches back through the
+  ; same cell panics. Anything reached through a field does that; a plain
+  ; `__self_rc` or a local name does not.
+  ; docs/plans/PLAN_RUST_REENTRANCY.md.
+  fn rustSelfRcArgBorrows:boolean (node:CodeNode fc:CodeNode ctx:RangerAppWriterContext) {
+    if (null? node.fnDesc) {
+      return false
+    }
+    if ((this.rustNeedsSelfRc((unwrap node.fnDesc) ctx)) == false) {
+      return false
+    }
+    if (this.rustStaticCallBlockedByHandle(fc ctx)) {
+      return false
+    }
+    if ((strlen rust_last_recv_tmp) > 0) {
+      return false
+    }
+    def sabLen:int (array_length fc.ns)
+    if (sabLen < 2) {
+      return false
+    }
+    def sabRoot:string (itemAt fc.ns 0)
+    if (sabRoot == "this") {
+      ; `this.m(...)` hands over `__self_rc` itself and borrows nothing
+      return (sabLen > 2)
+    }
+    if (ctx.isMemberVariable(sabRoot)) {
+      return true
+    }
+    return (sabLen > 2)
+  }
+
+  ; Bind the hidden receiver to a local before the call, so the borrow that
+  ; reads it ends at that binding's semicolon instead of living until the
+  ; call returns.
+  ;
+  ; Only at STATEMENT level, which is the one place a `let` can be written
+  ; before the call. A call nested in an expression keeps the old shape; the
+  ; walkers that hand control back to the compiler are statements.
+  ; docs/plans/PLAN_RUST_REENTRANCY.md.
+  fn writeSelfRcReceiverHoist:boolean (node:CodeNode fc:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if ((this.rustSelfRcArgBorrows(node fc ctx)) == false) {
+      return false
+    }
+    if ((ctx.expressionLevel()) != 0) {
+      return false
+    }
+    def hoistName:string (ctx.rustGetTempVar())
+    wr.out((("let " + hoistName) + " = ") false)
+    rust_selfrc_path_only = true
+    def wrote:boolean (this.writeSelfRcReceiverArg(node fc ctx wr))
+    rust_selfrc_path_only = false
+    if (wrote == false) {
+      wr.out("()" false)
+    }
+    wr.out(".clone();" true)
+    rust_last_recv_tmp = hoistName
+    return true
+  }
+
+  fn closeSelfRcReceiverHoist:void (opened:boolean wr:CodeWriter) {
   }
 
   fn writeRustReceiver:void (mutSelf:boolean wr:CodeWriter) {
@@ -695,7 +834,9 @@ extension RangerRustClassWriter {
 
   fn writeTraitForwardArgs:void (variant:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter lead:boolean) {
     def wroteAny:boolean lead
-    if (this.rustNeedsSelfRc(variant ctx)) {
+    ; in a re-entrant family the handle is `self`, and the caller has already
+    ; written it as the first argument
+    if ((this.rustNeedsSelfRc(variant ctx)) && (rust_trait_self_is_handle == false)) {
       if wroteAny {
         wr.out(", " false)
       }
@@ -2095,12 +2236,22 @@ extension RangerRustClassWriter {
     }
     if rgAnyNeeded {
       wr.out("" true)
-      wr.out((("impl RgAnyRef for " + cl.name) + " { fn rg_as_any(&self) -> &dyn std::any::Any { self } }") true)
+      ; …for the HANDLE where the family is re-entrant, because that is what
+      ; the trait is implemented for and what a trait object holds
+      if (this.rustClassInReentrantTrait(cl ctx)) {
+        wr.out((("impl RgAnyRef for Rc<RefCell<" + cl.name) + ">> { fn rg_as_any(&self) -> &dyn std::any::Any { self } }") true)
+      } {
+        wr.out((("impl RgAnyRef for " + cl.name) + " { fn rg_as_any(&self) -> &dyn std::any::Any { self } }") true)
+      }
     }
 
     ; Generate trait if this class is extended by other classes (for Rust polymorphism)
     if cl.is_extended_by_children {
       wr.out("" true)
+      ; In a re-entrant family `Self` is `Rc<RefCell<C>>`, so `&self` is the
+      ; handle and no borrow is taken to dispatch.
+      ; docs/plans/PLAN_RUST_REENTRANCY.md.
+      rust_trait_self_is_handle = (this.rustTraitFamilyIsReentrant(cl ctx))
       wr.out(("pub trait " + cl.name + "Trait: RgAnyRef {") true)
       wr.indent(1)
       this.writeTraitFieldAccessorDecls(cl ctx wr)
@@ -2121,7 +2272,7 @@ extension RangerRustClassWriter {
           ; `Rc<RefCell<CodeNode>>`, and every forwarding body was an E0308.
           wr.out(("fn " + (this.adjustType(variant.name)) + "(") false)
           this.rustFillTraitMutations(cl ctx)
-          this.writeRustReceiver((has cl.rust_trait_mut variant.name) wr)
+          this.writeRustReceiver(((has cl.rust_trait_mut variant.name) && (rust_trait_self_is_handle == false)) wr)
           rust_in_trait_decl = true
           this.writeArgsDef(variant ctx wr)
           rust_in_trait_decl = false
@@ -2133,7 +2284,11 @@ extension RangerRustClassWriter {
       wr.out("}" true)
       
       ; Implement the trait for this class itself
-      wr.out(("impl " + cl.name + "Trait for " + cl.name + " {") true)
+      if rust_trait_self_is_handle {
+        wr.out(("impl " + cl.name + "Trait for Rc<RefCell<" + cl.name + ">> {") true)
+      } {
+        wr.out(("impl " + cl.name + "Trait for " + cl.name + " {") true)
+      }
       wr.indent(1)
       this.writeTraitFieldAccessorImpls(cl ctx wr)
       for cl.defined_variants fnVar:string i {
@@ -2141,13 +2296,15 @@ extension RangerRustClassWriter {
         for mVs.variants variant:RangerAppFunctionDesc i {
           ; …and the impl matches the declaration
           wr.out(("fn " + (this.adjustType(variant.name)) + "(") false)
-          this.writeRustReceiver((has cl.rust_trait_mut variant.name) wr)
+          this.writeRustReceiver(((has cl.rust_trait_mut variant.name) && (rust_trait_self_is_handle == false)) wr)
           this.writeArgsDef(variant ctx wr)
           this.writeRustFnClose(variant ctx wr)
           wr.out(" {" true)
           wr.indent(1)
           ; Check if method is static - if so, don't pass self
-          if variant.rust_can_be_static {
+          ; …but in a re-entrant family every method takes the handle, and the
+          ; handle is `self`
+          if (variant.rust_can_be_static && (rust_trait_self_is_handle == false)) {
             wr.out(((cl.name + "::" + (this.adjustType(variant.name))) + "(") false)
             this.writeTraitForwardArgs(variant ctx wr false)
           } {
@@ -2161,6 +2318,7 @@ extension RangerRustClassWriter {
       }
       wr.indent(-1)
       wr.out("}" true)
+      rust_trait_self_is_handle = false
     }
     
     ; If this class extends a parent class, implement the parent's trait. A
@@ -2181,7 +2339,12 @@ extension RangerRustClassWriter {
         if (!null? parentClass) {
           def pc:RangerAppClassDesc (unwrap parentClass)
           if pc.is_extended_by_children {
-            wr.out(("impl " + parentName + "Trait for " + cl.name + " {") true)
+            rust_trait_self_is_handle = (this.rustTraitFamilyIsReentrant(pc ctx))
+            if rust_trait_self_is_handle {
+              wr.out(("impl " + parentName + "Trait for Rc<RefCell<" + cl.name + ">> {") true)
+            } {
+              wr.out(("impl " + parentName + "Trait for " + cl.name + " {") true)
+            }
             wr.indent(1)
             ; the parent's fields, served out of this subclass's own layout
             this.writeTraitFieldAccessorImpls(pc ctx wr)
@@ -2192,7 +2355,7 @@ extension RangerRustClassWriter {
                 ; …and so does a subclass implementing the parent's trait
                 wr.out(("fn " + (this.adjustType(variant.name)) + "(") false)
                 this.rustFillTraitMutations(pc ctx)
-                this.writeRustReceiver((has pc.rust_trait_mut variant.name) wr)
+                this.writeRustReceiver(((has pc.rust_trait_mut variant.name) && (rust_trait_self_is_handle == false)) wr)
                 this.writeArgsDef(variant ctx wr)
                 this.writeRustFnClose(variant ctx wr)
                 wr.out(" {" true)
@@ -2218,7 +2381,7 @@ extension RangerRustClassWriter {
                   }
                 }
                 ; Generate the call
-                if isStatic {
+                if (isStatic && (rust_trait_self_is_handle == false)) {
                   wr.out(((cl.name + "::" + (this.adjustType(variant.name))) + "(") false)
                   this.writeTraitForwardArgs(variant ctx wr false)
                 } {
@@ -2232,6 +2395,7 @@ extension RangerRustClassWriter {
             }
             wr.indent(-1)
             wr.out("}" true)
+            rust_trait_self_is_handle = false
           }
         }
       }

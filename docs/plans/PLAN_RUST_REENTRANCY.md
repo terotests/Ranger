@@ -1,8 +1,9 @@
 # PLAN_RUST_REENTRANCY — why the Rust self-host compiles and does not run
 
-> **Status: one of the two causes is fixed. The second is diagnosed, sized and
-> not started.** Measured on this tree, Linux x86-64, rustc from the toolchain
-> in the container.
+> **Status: fixed. The Rust rendering of the compiler now compiles the
+> compiler, and its output is byte-identical to the node-hosted compiler's.**
+> Measured on this tree, Linux x86-64, rustc from the toolchain in the
+> container. `npm run selfhost:run:rust` is the gate.
 
 The Rust rendering of the compiler has reported **0 rustc errors** for a long
 time, and it has never run: given any input at all it aborts before writing a
@@ -52,7 +53,7 @@ whenever it is reached through a field, which ends the borrow at that
 statement's semicolon. A bare local name borrows nothing and is left alone.
 761 loops in the generated compiler carried a `.borrow()` in the head.
 
-## 2. A trait method with a `&mut self` receiver — **not fixed**
+## 2. A trait method with a `&mut self` receiver — **fixed**
 
 With §1 fixed the compiler gets from the first operator lookup all the way
 into writing its output, and then:
@@ -145,6 +146,41 @@ Concretely:
 6. Call sites keep their shape; `borrow_mut()` becomes `borrow()` because the
    methods are `&self` now.
 
+### What it took, in the end
+
+Eleven edits, in the order they were found:
+
+1. `StaticAnalyzer.computeTraitReentrancy` answers the question below and
+   records it on the class descriptor.
+2. `rustMethodNeedsReceiver` returns *false* for a trait method of such a
+   family — the inherent method is emitted receiverless.
+3. `computeSelfRcNeeds` stops excluding those families, so every method
+   carries `__self_rc`.
+4. `rustSelfRcParamType` types it with the class being EMITTED, because each
+   subclass carries its own copy of an inherited method over its own fields.
+5. The trait declares every method `&self`; the impls target
+   `Rc<RefCell<C>>` and forward `C::m(self, …)`; `RgAnyRef` likewise.
+6. The field accessors return by value, and the `_mut` pair hands back a
+   `RefMut` projected onto the field with `RefMut::map` — the call sites keep
+   the shape they already write.
+7. A call whose receiver is a trait handle dispatches instead of naming the
+   class, and passes no hidden handle.
+8. An associated-function call names the class being emitted, not the one
+   that declared the method.
+9. `this` as a value, and an assignment into a trait-typed field, wrap one
+   cell further: the trait object holds a handle now, not a struct.
+10. The `this`-to-concrete downcast is skipped, because the hidden receiver
+    is already concrete.
+11. …and two more instances of §1's shape, found only by running it: a
+    **hidden receiver read through a field** (`&__self_rc.borrow().compiler…`
+    as an argument — the borrow lives to the semicolon, which is after the
+    call returns) is bound to a local first, and the `for`-head hoist also
+    covers a **bare field name** (`for walkAlso ch i`), which the first fix
+    missed because it only looked at dotted paths.
+
+The last two are not trait-specific and were latent everywhere;
+`RangerFlowParser::startWalk` is the one that surfaced.
+
 ### Why it has to be scoped, and to what
 
 It cannot be done to every trait family. The trait's FIELD ACCESSORS are the
@@ -179,9 +215,18 @@ field mutation appears in a walk method, and it puts `Cell` into the generated
 structs. Removing the memo in `formatterEnabled` alone moves 97 methods off
 `&mut self` (1 560 → 1 463), which is the shape of the effect.
 
-## 3. What the gate should be
+## 3. The gate
 
-`scripts/rust-selfhost-check.sh` type-checks and stops. The C++ and Go
-self-hosts are built, run over a real input and diffed against the node host's
-output; Rust should be held to the same bar once it runs at all. Until then
-the check is honest only if it says what it does not cover.
+`scripts/rust-selfhost-check.sh` type-checks and stops, which is how a dead
+program kept a green light for years. `scripts/rust-selfhost-run.sh`
+(`npm run selfhost:run:rust`) is the real bar, the same one C++ and Go are
+held to:
+
+1. generate and type-check — 0 rustc errors;
+2. build with `rustc -O`;
+3. make that binary compile `compiler/Compiler.rgr` to ES6;
+4. **diff the result against `bin/output.js`**.
+
+Step 4 is the test. Two compilers that agree to the byte are the same
+compiler. It passes: 5 596 785 bytes, identical, in 7.3 s against the node
+host's 7.8 s.
