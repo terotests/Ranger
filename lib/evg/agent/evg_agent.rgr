@@ -584,11 +584,26 @@ class EvgAgent {
                                     if (key == "tag") {
                                         o.tag = (c.readString())
                                     } {
+                                      if (key == "node") {
+                                        ; A whole subtree, in the same shape a
+                                        ; document is written in, read by the
+                                        ; same reader. `insert` then puts in a
+                                        ; control rather than an empty box.
+                                        def sub@(optional):EVGElement (c.readNode())
+                                        if sub {
+                                            def kid:EVGElement (unwrap sub)
+                                            o.node = sub
+                                            if ((strlen o.tag) == 0) {
+                                                o.tag = kid.tagName
+                                            }
+                                        }
+                                      } {
                                         if (key == "index") {
                                             o.index = (c.readNumber())
                                         } {
                                             c.skipValue()
                                         }
+                                      }
                                     }
                                 }
                             }

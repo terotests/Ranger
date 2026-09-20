@@ -1,0 +1,336 @@
+{
+  "$comment": [
+    "THE KIT, AS DATA. One entry per control an agent may ask for by name.",
+    "",
+    "What is declared here is what cannot be read off the code: a sentence",
+    "saying what the control is, and the props it takes. Everything else is",
+    "computed by ui_kit.mjs and checked by `npm run ui:kit:check` — the",
+    "classes come from the built tree, the behaviours from",
+    "conformance/behaviours.json, and 'proven' means a conformance spec",
+    "exercises it against the real Radix component.",
+    "",
+    "A control is listed here only when it BUILDS and DRAWS: the check paints",
+    "every entry and fails on one that lays out to nothing. That is the",
+    "difference between this list and a list of class names — an agent that",
+    "asks for something on it gets a component, not a box to fill in.",
+    "",
+    "`type` is the same word the conformance fixtures use, so the catalogue,",
+    "the headless adapter and the browser playground name a control the same",
+    "way and cannot drift apart."
+  ],
+  "components": [
+    {
+      "type": "switch",
+      "summary": "An on/off control drawn as a track with a thumb that slides.",
+      "role": "switch",
+      "props": {
+        "name": {
+          "type": "string",
+          "note": "the words beside it, and its accessible name"
+        },
+        "checked": {
+          "type": "boolean",
+          "default": false
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    {
+      "type": "checkbox",
+      "summary": "A box with a tick in it, beside its words. Can also be indeterminate.",
+      "role": "checkbox",
+      "props": {
+        "name": {
+          "type": "string"
+        },
+        "checked": {
+          "type": "boolean | \"indeterminate\"",
+          "default": false
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    {
+      "type": "toggle",
+      "summary": "A button that stays pressed — bold, italic, mute.",
+      "role": "button",
+      "props": {
+        "name": {
+          "type": "string"
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    {
+      "type": "radiogroup",
+      "summary": "One of several. Arrow keys move the choice, not just the focus.",
+      "role": "radiogroup",
+      "props": {
+        "name": {
+          "type": "string"
+        },
+        "items": {
+          "type": "[{value, name, disabled?}]"
+        },
+        "value": {
+          "type": "string",
+          "note": "which item is chosen"
+        }
+      }
+    },
+    {
+      "type": "tabs",
+      "summary": "A row of tabs over one panel.",
+      "role": "tablist",
+      "props": {
+        "name": {
+          "type": "string"
+        },
+        "items": {
+          "type": "[{value, name, body?, disabled?}]"
+        },
+        "value": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "type": "accordion",
+      "summary": "Stacked sections, one open at a time.",
+      "role": "region",
+      "props": {
+        "name": {
+          "type": "string"
+        },
+        "items": {
+          "type": "[{value, name, body?, disabled?}]"
+        }
+      }
+    },
+    {
+      "type": "collapsible",
+      "summary": "One trigger and the panel it opens.",
+      "role": "button",
+      "props": {
+        "name": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string"
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    {
+      "type": "slider",
+      "summary": "A value on a track, draggable and steppable from the keyboard.",
+      "role": "slider",
+      "props": {
+        "name": {
+          "type": "string"
+        },
+        "value": {
+          "type": "number",
+          "default": 50
+        },
+        "min": {
+          "type": "number",
+          "default": 0
+        },
+        "max": {
+          "type": "number",
+          "default": 100
+        },
+        "step": {
+          "type": "number",
+          "default": 1
+        }
+      }
+    },
+    {
+      "type": "input",
+      "summary": "A text field with a real caret, selection and word motion.",
+      "role": "textbox",
+      "props": {
+        "name": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        },
+        "placeholder": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "\"text\" | \"password\" | \"email\" | \"number\"",
+          "default": "text"
+        },
+        "readonly": {
+          "type": "boolean",
+          "default": false
+        },
+        "required": {
+          "type": "boolean",
+          "default": false
+        },
+        "invalid": {
+          "type": "boolean",
+          "default": false
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    {
+      "type": "progress",
+      "summary": "How far along something is.",
+      "role": "progressbar",
+      "props": {
+        "name": {
+          "type": "string"
+        },
+        "value": {
+          "type": "number",
+          "note": "leave it out for indeterminate"
+        },
+        "max": {
+          "type": "number",
+          "default": 100
+        }
+      }
+    },
+    {
+      "type": "label",
+      "summary": "Words that name the control beside them.",
+      "role": "text",
+      "props": {
+        "name": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "type": "separator",
+      "summary": "A rule between things.",
+      "role": "separator",
+      "props": {
+        "orientation": {
+          "type": "\"horizontal\" | \"vertical\"",
+          "default": "horizontal"
+        },
+        "decorative": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    {
+      "type": "avatar",
+      "summary": "A round picture of somebody, with initials when there is none.",
+      "role": "img",
+      "props": {
+        "name": {
+          "type": "string"
+        },
+        "fallback": {
+          "type": "string",
+          "note": "the initials"
+        }
+      }
+    },
+    {
+      "type": "select",
+      "summary": "A closed list that opens under its trigger.",
+      "role": "combobox",
+      "props": {
+        "name": {
+          "type": "string"
+        },
+        "items": {
+          "type": "[{value, name, disabled?}]"
+        },
+        "value": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "type": "dropdownmenu",
+      "summary": "A menu under a button, with submenus if it needs them.",
+      "role": "button",
+      "props": {
+        "name": {
+          "type": "string"
+        },
+        "items": {
+          "type": "[{value, name, disabled?, items?}]"
+        }
+      }
+    },
+    {
+      "type": "dialog",
+      "summary": "A modal that takes the keyboard and gives it back on Escape.",
+      "role": "button",
+      "props": {
+        "name": {
+          "type": "string",
+          "note": "the trigger's words"
+        },
+        "title": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "type": "tooltip",
+      "summary": "A word or two on hover.",
+      "role": "button",
+      "props": {
+        "name": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "type": "toast",
+      "summary": "A message that arrives, with an action beside it.",
+      "role": "status",
+      "props": {
+        "name": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string"
+        },
+        "actionName": {
+          "type": "string",
+          "default": "Undo"
+        }
+      },
+      "show": [
+        "{tid}-trigger"
+      ],
+      "measure": "{tid}-viewport"
+    }
+  ]
+}

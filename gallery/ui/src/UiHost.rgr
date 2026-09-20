@@ -63,6 +63,7 @@ Import "pkg:evg/EVGStyleSheet.rgr"
 Import "pkg:evg/EVGA11yTree.rgr"
 Import "pkg:evg/EVGHitTest.rgr"
 Import "pkg:evg/EVGTransition.rgr"
+Import "pkg:evg/EVGTreeJson.rgr"
 
 class UiHost {
     def root:EVGElement
@@ -902,6 +903,16 @@ class UiHost {
         lay.layout(page)
         lastPage = page
         return page
+    }
+
+    ; The laid-out kit as an EVG tree. A control is only ever LOOKED at in a
+    ; browser today, which is why a switch could be a pill with a word in it
+    ; for as long as it was: nothing headless drew one. This is the same tree
+    ; the page paints, in the format every EVG tool reads, so a component can
+    ; be painted, measured and put into a document without one.
+    fn treeJson:string () {
+        def page:EVGElement (this.layout())
+        return (EVGTreeJson.toText(page))
     }
 
     ; --- pointer -------------------------------------------------------------

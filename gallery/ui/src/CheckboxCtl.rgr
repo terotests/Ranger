@@ -56,6 +56,53 @@ class CheckboxCtl extends UiCtl {
         return (EVGA11yTri.no())
     }
 
+    ; --- the parts ------------------------------------------------------------
+    ; A control that says `role: checkbox` and draws a pill with a word in it
+    ; is a label wearing a name. What makes it a checkbox a designer can use
+    ; is that it has the PARTS of one, each with a class of its own:
+    ;
+    ;   div.ui-checkbox                 the control, and what a press lands on
+    ;     div.ui-checkbox-box           the box, coloured by the state
+    ;       span.ui-checkbox-mark       the tick, shown by the state
+    ;     span.ui-checkbox-label        the words, when there are any
+    ;
+    ; A switch is the same machine with a track and a thumb. Every part
+    ; carries its own state class — `ui-checkbox-box-state-checked` — rather
+    ; than leaning on a descendant selector, because this engine's selectors
+    ; are one class deep except for a theme. THAT is what makes these
+    ; restyleable: another size, another colour and another travel are rules
+    ; in a sheet, with nothing recompiled and no coordinate computed here.
+    ;
+    ; The parts are hidden from the accessibility tree: what a reader is told
+    ; is the row this controller reports, and the parts are how it is drawn.
+
+    fn wellPart:string () {
+        return "box"
+    }
+
+    fn markPart:string () {
+        return "mark"
+    }
+
+    ; What the mark says, if it says anything. A thumb says nothing.
+    fn markText:string () {
+        return ""
+    }
+
+    ; …and what it DRAWS. A tick is a path rather than a glyph on purpose: a
+    ; font that lacks ✓ paints a box, and the mark is the one part of a
+    ; checkbox that has to be right. Two line segments, in a 16×16 box, with
+    ; the colour and the weight left to the sheet.
+    fn markPath:string () {
+        if (checkState == 1) {
+            return "M3.5 8.4 L6.6 11.5 L12.5 4.8"
+        }
+        if (checkState == 2) {
+            return "M4 8 L12 8"
+        }
+        return ""
+    }
+
     fn build:void () {
         def base:string (this.baseClass())
         def word:string (this.stateWord())
@@ -66,7 +113,43 @@ class CheckboxCtl extends UiCtl {
             UiTree.addClass(el (base + "-disabled"))
         }
         UiTree.setState(el base word)
-        UiTree.leafText(el name)
+        UiTree.clearChildren(el)
+        el.elementType = 0
+        el.textContent = ""
+
+        def wellClass:string (base + "-" + (this.wellPart()))
+        def well:EVGElement (EVGElement.createDiv())
+        well.className = wellClass
+        UiTree.setState(well wellClass word)
+        well.a11yHidden = true
+
+        def markClass:string (base + "-" + (this.markPart()))
+        def drawn:string (this.markPath())
+        def mark:EVGElement (EVGElement.createDiv())
+        if ((strlen drawn) > 0) {
+            mark = (EVGElement.createPath())
+            mark.svgPath = drawn
+            mark.viewBox = "0 0 16 16"
+        }
+        mark.className = markClass
+        UiTree.setState(mark markClass word)
+        mark.a11yHidden = true
+        def glyph:string (this.markText())
+        if ((strlen glyph) > 0) {
+            mark.textContent = glyph
+            mark.elementType = 1
+        }
+        well.addChild(mark)
+        el.addChild(well)
+
+        if ((strlen name) > 0) {
+            def words:EVGElement (EVGElement.createSpan())
+            words.className = (base + "-label")
+            words.textContent = name
+            words.elementType = 1
+            words.a11yHidden = true
+            el.addChild(words)
+        }
     }
 
     fn activate:string (target:string) {
@@ -114,7 +197,25 @@ class CheckboxCtl extends UiCtl {
 }
 
 ; A switch is a checkbox that cannot be mixed. Radix gives it its own role, and
-; that role is the entire observable difference.
+; that role is the entire observable difference — but not the entire VISIBLE
+; one. A switch is a track with a thumb in it, and a control that says
+; `role: switch` while drawing a pill with a word in it is a checkbox wearing
+; a name. So this one builds the parts:
+;
+;   div.ui-switch                      the control, and what a press lands on
+;     div.ui-switch-track              the groove, coloured by the state
+;       div.ui-switch-thumb            the knob, moved by the state
+;     span.ui-switch-label             the words, when there are any
+;
+; The parts carry their own state classes — `ui-switch-track-state-checked`,
+; `ui-switch-thumb-state-checked` — rather than leaning on a descendant
+; selector, because this engine's selectors are one class deep except for a
+; theme. That is what makes the switch RESTYLEABLE: a track of another size,
+; a thumb of another colour and a travel of another distance are three rules
+; in a sheet, with nothing recompiled.
+;
+; The parts are hidden from the accessibility tree: what a reader is told is
+; the row this controller reports, and the parts are how it is drawn.
 class SwitchCtl extends CheckboxCtl {
 
     ; Empty, but present: the C++ backend looks up a constructor's params on
@@ -131,5 +232,21 @@ class SwitchCtl extends CheckboxCtl {
 
     fn roleId:int () {
         return (EVGA11yRole.switchControl())
+    }
+
+    ; The same machine, drawn as a track with a thumb in it. A grandchild
+    ; class cannot reach `rootEl` or `tid` in this compiler, so the parts are
+    ; built by `CheckboxCtl.build` and named here.
+    fn wellPart:string () {
+        return "track"
+    }
+
+    fn markPart:string () {
+        return "thumb"
+    }
+
+    ; A thumb is a box, not a drawing.
+    fn markPath:string () {
+        return ""
     }
 }

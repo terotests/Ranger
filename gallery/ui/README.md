@@ -55,7 +55,54 @@ hidden, tabstop, focused, visible — and the harness diffs the traces.
 npm run ui:test          # controllers + cascade, no browser, runs in CI
 npm run ui:report        # the scorecard, against real Radix in Chromium
 npm run ui:conformance   # the same run, printed as divergences
+npm run ui:kit:check     # every catalogued control builds, draws and is styled
 ```
+
+## The kit, for something that cannot click
+
+An agent asked to "add a switch" used to have to draw one: a rounded box, a
+circle, a colour, and a guess about what happens when it is pressed. What
+comes out looks like a switch in the screenshot that prompted it and is not a
+control — nothing presses, nothing reports a state, and a reader is told
+about a `div`.
+
+`gallery/ui/kit` is the door to the real ones for a program with no browser:
+
+```bash
+npm run ui:kit list                          what exists, one line each
+npm run ui:kit spec switch                   props, classes, what it is measured against
+npm run ui:kit add switch --name "Wi-Fi" --checked --into doc.evg.json
+npm run ui:kit shot checkbox --out cb.png    a picture, headless
+```
+
+`add` answers `{tree, css, classes, ops}`. The tree is what the controller
+BUILT — not a drawing of it — the CSS is sliced out of this kit's own sheet,
+and the ops are a batch `evg_agent patch` applies as it stands: a `set-css`
+with the rules the document is missing, and an `insert` carrying the control
+as a subtree. (`EVGPatch`'s `insert` learned to carry one for this: a control
+is a tree, and an agent that can only insert one empty node at a time builds
+a drawing instead.)
+
+`catalog.json` declares the sentence and the props; everything else is
+computed — the classes off the built tree, the behaviours from
+`conformance/behaviours.json`, and "proven" from whether a conformance spec
+exercises it against the real Radix component. `ui:kit:check` fails when a
+control lays out to nothing, when a PART of it has no rule (that is how a
+component stops being usable without anybody noticing: it still works, it
+just looks like nothing), or when the sheet does not parse.
+
+The EVG live-build workspace carries it as `./evg-ui`, and its guide says to
+ask for a control rather than draw one — and to say so plainly when the kit
+has nothing for what was asked, because a drawing of a calendar is worse than
+an honest "there is no calendar here yet".
+
+**A switch is a track with a thumb.** It used to be a pill with a word in it:
+at Radix parity on every behaviour, and unusable in a real interface. Both it
+and the checkbox now build their parts — `ui-switch-track` / `ui-switch-thumb`,
+`ui-checkbox-box` / `ui-checkbox-mark` — each with its own state class, so
+another size, another colour and another travel are rules in a sheet. The
+checkbox's tick is a path, not a glyph: a font without ✓ in it paints a box,
+and the mark is the one part that has to be right.
 
 The browser side needs the reference host installed once — `ui:web` and
 `ui:report` both say so by name if it is missing:

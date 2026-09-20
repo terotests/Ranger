@@ -715,6 +715,40 @@ An inline property still outranks the sheet, which is what lets the two
 mix: the rule says what a \`.card\` is, the node says what THIS card does
 differently, and \`set-prop\` keeps meaning what it meant.
 
+## Controls: ask for one, do not draw one
+
+A switch is not a rounded box with a circle in it. A checkbox is not a blue
+square with a tick drawn in it. Those look right in a screenshot and are not
+controls: nothing presses them, nothing reports what state they are in, and
+a screen reader is told about a \`div\`. **This workspace has the real ones.**
+
+\`\`\`
+./evg-ui list                     what exists, one line each
+./evg-ui spec switch              its props, its classes, what it is measured against
+./evg-ui add switch --name "Wi-Fi" --checked --into doc.evg.json > add.json
+\`\`\`
+
+\`add\` answers \`{tree, css, classes, ops}\`. The \`ops\` are a batch you can
+apply as it stands — a \`set-css\` carrying the rules the control needs on
+top of the sheet the document already has, and an \`insert\` carrying the
+control itself as a subtree:
+
+\`\`\`sh
+node -e 'const a=require("./add.json");require("fs").writeFileSync("ops.json",JSON.stringify({ops:a.ops}))'
+./evg-agent patch doc.evg.json ops.json
+\`\`\`
+
+Use \`--at PATH --index N\` to say where it goes; the default is the end of
+the root. Then restyle it like anything else: the control's parts have
+classes of their own — \`ui-switch-track\`, \`ui-switch-thumb\`,
+\`ui-checkbox-box\`, \`ui-checkbox-mark\` — so another size, another colour
+and another travel are rules in the sheet, and the control keeps working.
+
+**A component that is not on the list is not in this kit.** Say so rather
+than drawing a picture of one. A calendar or a data grid is weeks of work,
+and a drawing of one is worse than an honest "there is no calendar here yet":
+it looks finished and does nothing.
+
 ## Effects: things CSS cannot draw
 
 \`evg-surface-effect\` names a shader that runs over the element's own
@@ -985,6 +1019,26 @@ function installEvgApp(dir) {
   return true;
 }
 
+// The control kit. `gallery/ui` has controls measured against Radix — a
+// switch that is a track with a thumb, a checkbox that is a box with a tick,
+// a slider that can be dragged — and until now an agent had no way to ask for
+// one. It drew them instead: a rounded box, a circle and a guess, which looks
+// right in a screenshot and is not a control. This is the door.
+//
+// The shim runs the tool out of the REPOSITORY rather than the workspace: it
+// needs the compiled host and the kit's own stylesheet, and copying those
+// into every workspace would be copying the kit.
+function installEvgUi(dir) {
+  const tool = path.join(root, "gallery", "ui", "kit", "ui_kit.mjs");
+  if (!fs.existsSync(tool)) return false;
+  fs.writeFileSync(
+    path.join(dir, "evg-ui"),
+    `#!/bin/sh\nexec node ${JSON.stringify(tool)} "$@"\n`,
+    { mode: 0o755 },
+  );
+  return true;
+}
+
 function installEvgAgent(dir) {
   const src = path.join(root, "lib/evg/bin/evg_agent.js");
   if (!ensureTool(src, ["./lib/evg/agent/evg_agent.rgr", "./lib/evg/bin", "evg_agent.js"], "evg-agent")) {
@@ -992,6 +1046,7 @@ function installEvgAgent(dir) {
   }
   installEvgImage(dir);
   installEvgApp(dir);
+  installEvgUi(dir);
   fs.copyFileSync(src, path.join(dir, "evg_agent.js"));
   // The shim also leaves the ops behind. A workspace agent patches through
   // this script, and the host has no other way to learn WHAT it changed: it

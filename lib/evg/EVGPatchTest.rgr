@@ -270,6 +270,32 @@ class EVGPatchTest {
         this.same("leaving the original" back.textContent "Orders")
     }
 
+    ; A CONTROL, not an empty box. A switch is a track with a thumb in it, so
+    ; an insert that can only carry one tag makes an agent build one out of a
+    ; dozen ops — and a dozen ops is how a screen ends up with a drawing of a
+    ; switch rather than a switch.
+    fn testInsertSubtree:void () {
+        print ""
+        print "-- insert a whole subtree"
+        def root:EVGElement (this.build())
+        def card:EVGElement (itemAt root.children 0)
+        def track:EVGElement (EVGElement.createDiv())
+        track.className = "ui-switch-track"
+        def thumb:EVGElement (EVGElement.createDiv())
+        thumb.className = "ui-switch-thumb"
+        track.addChild(thumb)
+        def p (new EVGPatch())
+        def list:[EVGPatchOp] (this.ops())
+        push list (EVGPatchOp.insertTree("0/0" 0 track))
+        def r:EVGPatchResult (p.apply(root list))
+        this.ok("it applied" r.ok)
+        def first:EVGElement (itemAt card.children 0)
+        this.same("the subtree went in whole" first.className "ui-switch-track")
+        this.ok("with what was inside it" ((array_length first.children) == 1))
+        p.rollback(root)
+        this.ok("rollback takes the whole thing out again" ((array_length card.children) == 1))
+    }
+
     fn testInsertUnknownTag:void () {
         print ""
         print "-- insert of something that is not an element"
@@ -606,6 +632,7 @@ class EVGPatchTest {
         this.testSetText()
         this.testSetTextOnAParent()
         this.testInsert()
+        this.testInsertSubtree()
         this.testInsertUnknownTag()
         this.testRemoveAndRestore()
         this.testRemoveRoot()

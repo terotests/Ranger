@@ -384,6 +384,8 @@
     "rangerforms:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/rangerforms/tests/FormsTest.rgr -d=./gallery/rangerforms/bin -o=FormsTest.js -nodecli && node ./gallery/rangerforms/bin/FormsTest.js",
     "ui:calendar:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/ui/tests/CalendarTest.rgr -d=./gallery/ui/bin -o=CalendarTest.js -nodecli && node ./gallery/ui/bin/CalendarTest.js",
     "ui:test": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 ./gallery/ui/tests/UiTest.rgr -d=./gallery/ui/bin -o=UiTest.js -nodecli && node ./gallery/ui/bin/UiTest.js",
+    "ui:kit": "node gallery/ui/kit/ui_kit.mjs",
+    "ui:kit:check": "npm run ui:build --silent && node gallery/ui/kit/ui_kit.mjs check",
     "ui:build": "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule ./gallery/ui/src/UiHost.rgr -d=./gallery/ui/bin -o=ui_host.cjs",
     "ui:trace": "npm run ui:build && node gallery/ui/conformance/ranger-adapter.cjs gallery/ui/conformance/specs/toggle_collapsible.json",
     "ui:conformance:install": "npm --prefix gallery/ui/conformance/dom install",

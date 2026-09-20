@@ -169,6 +169,37 @@ npm run livebuild:app:web    # build the browser runtime by hand; the server
                              # builds it on demand
 ```
 
+## Controls the agent does not have to draw
+
+A switch drawn out of a rounded box and a circle looks right in the
+screenshot that prompted it and is not a control: nothing presses it, nothing
+reports its state, and a reader is told about a `div`. `gallery/ui` has the
+real ones — measured against Radix, behaviour by behaviour — and the
+workspace now carries the door to them as `./evg-ui`:
+
+```sh
+./evg-ui list                     what exists, one line each
+./evg-ui spec switch              props, classes, what it is measured against
+./evg-ui add switch --name "Wi-Fi" --checked --into doc.evg.json > add.json
+```
+
+`add` answers a batch `./evg-agent patch` applies as it stands: a `set-css`
+carrying the rules the document does not have yet, and an `insert` carrying
+the control as a **subtree** — `EVGPatch`'s `insert` learned to take one for
+this, because a control is a tree and an agent that can only insert one empty
+node at a time builds a drawing instead.
+
+The parts keep their own classes (`ui-switch-track`, `ui-switch-thumb`,
+`ui-checkbox-box`, `ui-checkbox-mark`), so restyling one is editing rules, not
+redrawing boxes. What the kit does not have, the guide tells the agent to say
+rather than fake: a drawing of a calendar is worse than an honest "there is
+no calendar here yet" — it looks finished and does nothing.
+
+```sh
+npm run ui:kit:check    # every catalogued control builds, draws and is styled
+npm run livebuild:agents  # …and the workspace really carries the door
+```
+
 ## CSS, and things CSS cannot draw
 
 A document carries a stylesheet — a `css` block beside the tree — and a node

@@ -98,25 +98,62 @@
 .ui-input-placeholder { color: #64748b; }
 .ui-input-caret { width: 2px; height: 18px; background-color: #2563eb; }
 
+/* A checkbox is a box with a tick in it, beside its words — not a pill that
+   changes colour. The box, the mark and the label are three classes a
+   document can restyle on its own: a rounder box, a bigger tick, another
+   accent. Nothing below is a coordinate a controller worked out. */
 .ui-checkbox {
-  border: 1px solid #cbd5e1;
-  padding: 8px 14px;
-  border-radius: 6px;
-  background-color: #e2e8f0;
+  display: flex; flex-direction: row; align-items: center; gap: 10px;
   color: #0f172a;
 }
-.ui-checkbox-state-checked { background-color: #2563eb; color: #ffffff; border-color: #2563eb; }
-.ui-checkbox-state-indeterminate { background-color: #fbbf24; color: #422006; }
+.ui-checkbox-box {
+  display: flex; flex-direction: row; align-items: center; justify-content: center;
+  width: 22px; min-width: 22px; height: 22px; min-height: 22px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background-color: #ffffff;
+}
+.ui-checkbox-box-state-checked { background-color: #2563eb; border-color: #2563eb; }
+.ui-checkbox-box-state-indeterminate { background-color: #fbbf24; border-color: #fbbf24; }
+/* The tick is drawn, not typed: a font without ✓ in it paints a box, and the
+   mark is the one part of a checkbox that has to be right. */
+.ui-checkbox-mark {
+  width: 16px; min-width: 16px; height: 16px; min-height: 16px;
+  fill: none; stroke: #ffffff; stroke-width: 2.2;
+}
+.ui-checkbox-mark-state-indeterminate { stroke: #422006; }
+.ui-checkbox-label { color: #0f172a; }
 .ui-checkbox-disabled { opacity: 0.45; }
 
+/* A switch is a track with a thumb in it, not a pill with a word in it. The
+   four rules below are the whole appearance, and every one of them is a rule
+   a document can override: another size is `width`/`height` on the track and
+   the thumb, another travel is the `translate` on the checked thumb, another
+   colour is `background-color`. Nothing here is a coordinate a controller
+   computed. */
 .ui-switch {
-  border: 1px solid #cbd5e1;
-  padding: 8px 14px;
-  border-radius: 999px;
-  background-color: #e2e8f0;
+  display: flex; flex-direction: row; align-items: center; gap: 10px;
   color: #0f172a;
 }
-.ui-switch-state-checked { background-color: #16a34a; color: #ffffff; border-color: #16a34a; }
+.ui-switch-track {
+  display: flex; flex-direction: row; align-items: center;
+  width: 44px; min-width: 44px; height: 26px; min-height: 26px;
+  padding: 3px;
+  border-radius: 999px;
+  border: 1px solid #cbd5e1;
+  background-color: #e2e8f0;
+}
+.ui-switch-track-state-checked { background-color: #16a34a; border-color: #16a34a; }
+.ui-switch-thumb {
+  width: 20px; min-width: 20px; height: 20px; min-height: 20px;
+  border-radius: 999px;
+  background-color: #ffffff;
+  transform: translate(0px, 0);
+}
+/* 44 − 2×3 padding − 20 thumb = 18: the travel is the geometry above, so a
+   track of another width needs this one number changed with it. */
+.ui-switch-thumb-state-checked { transform: translate(18px, 0); }
+.ui-switch-label { color: #0f172a; }
 .ui-switch-disabled { opacity: 0.45; }
 
 /* --- radio group ---------------------------------------------------------- */
@@ -188,10 +225,15 @@
 .theme-dark .ui-toggle-state-on { background-color: #3b82f6; color: #0f172a; }
 .theme-dark .ui-collapsible-trigger { background-color: #1e293b; color: #e2e8f0; }
 .theme-dark .ui-collapsible-content { background-color: #0b1222; color: #cbd5e1; }
-.theme-dark .ui-checkbox { background-color: #1e293b; color: #e2e8f0; }
-.theme-dark .ui-checkbox-state-checked { background-color: #3b82f6; color: #0f172a; }
-.theme-dark .ui-switch { background-color: #1e293b; color: #e2e8f0; }
-.theme-dark .ui-switch-state-checked { background-color: #22c55e; color: #052e16; }
+.theme-dark .ui-checkbox { color: #e2e8f0; }
+.theme-dark .ui-checkbox-label { color: #e2e8f0; }
+.theme-dark .ui-checkbox-box { background-color: #1e293b; border-color: #334155; }
+.theme-dark .ui-checkbox-box-state-checked { background-color: #3b82f6; border-color: #3b82f6; }
+.theme-dark .ui-switch { color: #e2e8f0; }
+.theme-dark .ui-switch-label { color: #e2e8f0; }
+.theme-dark .ui-switch-track { background-color: #1e293b; border-color: #334155; }
+.theme-dark .ui-switch-track-state-checked { background-color: #22c55e; border-color: #22c55e; }
+.theme-dark .ui-switch-thumb { background-color: #f8fafc; }
 .theme-dark .ui-radio { background-color: #1e293b; color: #e2e8f0; }
 .theme-dark .ui-radio-state-checked { background-color: #3b82f6; color: #0f172a; }
 .theme-dark .ui-tab { background-color: #1e293b; color: #cbd5e1; }
@@ -704,9 +746,9 @@
 
 /* The two-state controls. Colour AND border move together — a checkbox whose
    fill arrives before its border reads as two things happening. */
-.ui-checkbox,
+.ui-checkbox-box,
 .ui-radio,
-.ui-switch,
+.ui-switch-track,
 .ui-tab,
 .ui-togglegroup-item,
 .ui-accordion-trigger,
@@ -732,16 +774,16 @@
 .ui-accordion-trigger:hover,
 .ui-collapsible-trigger:hover { background-color: #e2e8f0; }
 
-.ui-checkbox:hover,
-.ui-switch:hover { background-color: #cbd5e1; }
+.ui-checkbox-box:hover,
+.ui-switch-track:hover { background-color: #cbd5e1; }
 
 /* A press is a small squeeze, and it is on the transform rather than the
    colour so it works on the controls whose colour is already carrying their
    state. `scale` and not `translate`: a button that moves down under the
    finger looks like it was nudged, one that shrinks looks pushed. */
-.ui-checkbox:active,
+.ui-checkbox-box:active,
 .ui-radio:active,
-.ui-switch:active,
+.ui-switch-track:active,
 .ui-tab:active,
 .ui-togglegroup-item:active,
 .ui-accordion-trigger:active,
@@ -752,9 +794,8 @@
 /* Checking something is the one moment worth a flourish, so the indicator
    overshoots very slightly and settles. The control's own centre is the pivot,
    which is what keeps a row of checkboxes on their baseline. */
-.ui-checkbox-state-checked,
-.ui-radio-state-checked,
-.ui-switch-state-checked {
+.ui-checkbox-box-state-checked,
+.ui-radio-state-checked {
   transition: background-color 180ms cubic-bezier(0.34, 1.4, 0.64, 1),
               border-color 180ms ease-out,
               transform 180ms cubic-bezier(0.34, 1.4, 0.64, 1);
@@ -787,9 +828,9 @@
    refusing to do anything is worse than one that sits still — it promises
    something and then declines. Repeating the resting values under the state
    pseudo-classes is how that is said with the selectors this engine has. */
-.ui-checkbox:disabled,
+.ui-checkbox-box:disabled,
 .ui-radio:disabled,
-.ui-switch:disabled,
+.ui-switch-track:disabled,
 .ui-tab:disabled,
 .ui-togglegroup-item:disabled,
 .ui-accordion-trigger:disabled,
