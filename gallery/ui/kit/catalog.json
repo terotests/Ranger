@@ -331,6 +331,82 @@
         "{tid}-trigger"
       ],
       "measure": "{tid}-viewport"
+    },
+    {
+      "type": "calendar",
+      "summary": "A month, with the keyboard and the week it starts on right. A screen of its own, not a drawing of one.",
+      "role": "grid",
+      "props": {
+        "name": {
+          "type": "string"
+        },
+        "month": {
+          "type": "string",
+          "default": "2026-05",
+          "note": "YYYY-MM"
+        },
+        "selected": {
+          "type": "string",
+          "note": "YYYY-MM-DD"
+        },
+        "today": {
+          "type": "string",
+          "note": "YYYY-MM-DD"
+        },
+        "minDate": {
+          "type": "string",
+          "note": "YYYY-MM-DD"
+        },
+        "showOutsideDays": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    {
+      "type": "table",
+      "summary": "Rows and columns that sort and page.",
+      "role": "table",
+      "props": {
+        "name": {
+          "type": "string"
+        },
+        "columns": {
+          "type": "[{key, label?, numeric?, sortable?}]"
+        },
+        "rows": {
+          "type": "[{key, cells}]"
+        },
+        "pageSize": {
+          "type": "number"
+        }
+      }
+    },
+    {
+      "type": "popover",
+      "summary": "A panel anchored to what opened it.",
+      "role": "button",
+      "props": {
+        "name": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "type": "breadcrumb",
+      "summary": "Where you are, as a trail.",
+      "role": "navigation",
+      "props": {
+        "name": {
+          "type": "string"
+        },
+        "items": {
+          "type": "[{value, name}]"
+        }
+      }
     }
   ]
 }

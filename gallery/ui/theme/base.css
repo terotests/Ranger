@@ -218,6 +218,103 @@
 }
 .ui-accordion-body { color: #334155; }
 
+/* --- calendar -------------------------------------------------------------- */
+
+/* A month, and the first control here that had NO rules at all: behaviour
+   complete, keyboard complete, and painting as bare text, because the only
+   sheet that ever styled one belonged to a demo. `ui:kit:check` is what said
+   so — a part with no rule is how a component stops being usable without
+   anybody noticing.
+
+   The grid is flex rows of equal cells rather than `display: grid`, so a week
+   is a row and a day is a cell, and restyling one day does not move the rest. */
+.ui-calendar {
+  display: flex; flex-direction: column; gap: 8px;
+  width: 274px; min-width: 274px;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background-color: #ffffff;
+  color: #0f172a;
+}
+.ui-calendar-nav { display: flex; flex-direction: row; align-items: center; justify-content: space-between; height: 28px; }
+.ui-calendar-prev,
+.ui-calendar-next {
+  display: flex; flex-direction: row; align-items: center; justify-content: center;
+  width: 26px; min-width: 26px; height: 26px; min-height: 26px;
+  border: 1px solid #e2e8f0; border-radius: 6px;
+  background-color: #f8fafc; color: #334155; font-size: 13px;
+}
+.ui-calendar-prev:hover,
+.ui-calendar-next:hover { background-color: #e2e8f0; }
+.ui-calendar-caption { display: flex; flex-direction: row; align-items: center; gap: 6px; }
+/* The month and the year sit on one baseline, so they need the same box: a
+   caption where the year rides higher than the month is the first thing the
+   eye finds. */
+.ui-calendar-month {
+  display: flex; flex-direction: row; align-items: center;
+  padding: 2px 0;
+  color: #0f172a; font-size: 14px; font-weight: bold; height: 22px;
+}
+.ui-calendar-year {
+  display: flex; flex-direction: row; align-items: center;
+  padding: 2px 6px; border-radius: 6px;
+  color: #0f172a; font-size: 14px; font-weight: bold; height: 22px;
+}
+.ui-calendar-year:hover { background-color: #f1f5f9; }
+.ui-calendar-year-open { background-color: #e2e8f0; }
+.ui-calendar-yearpanel {
+  display: flex; flex-direction: row; flex-wrap: wrap; gap: 4px;
+  padding: 6px; border: 1px solid #e2e8f0; border-radius: 8px;
+  background-color: #f8fafc;
+}
+.ui-calendar-yearopt {
+  display: flex; flex-direction: row; align-items: center; justify-content: center;
+  width: 52px; min-width: 52px; height: 26px; min-height: 26px;
+  border-radius: 6px; color: #334155; font-size: 12px;
+}
+.ui-calendar-yearopt:hover { background-color: #e2e8f0; }
+.ui-calendar-yearopt-on { background-color: #2563eb; color: #ffffff; }
+.ui-calendar-grid { display: flex; flex-direction: column; gap: 2px; }
+/* `nowrap` is not a default here: EVG initialises `flex-wrap` to WRAP, so a
+   week one pixel wider than its parent silently becomes two rows — which is
+   what the first month looked like. */
+.ui-calendar-weekdays,
+.ui-calendar-week { display: flex; flex-direction: row; flex-wrap: nowrap; gap: 2px; }
+.ui-calendar-weekday {
+  display: flex; flex-direction: row; align-items: center; justify-content: center;
+  width: 34px; min-width: 34px; height: 22px; min-height: 22px;
+  color: #64748b; font-size: 11px;
+}
+.ui-calendar-day {
+  display: flex; flex-direction: row; align-items: center; justify-content: center;
+  width: 34px; min-width: 34px; height: 30px; min-height: 30px;
+  border-radius: 8px;
+  color: #0f172a; font-size: 13px;
+}
+.ui-calendar-day:hover { background-color: #f1f5f9; }
+/* The states, each a class of its own so a document can say what "today"
+   looks like without touching what "selected" looks like. */
+.ui-calendar-day-outside { color: #cbd5e1; }
+.ui-calendar-day-disabled { color: #cbd5e1; }
+.ui-calendar-day-today { border: 1px solid #2563eb; color: #2563eb; }
+.ui-calendar-day-selected { background-color: #2563eb; color: #ffffff; }
+.ui-calendar-day-focused { border: 1px solid #93c5fd; }
+
+.theme-dark .ui-calendar { background-color: #0f172a; border-color: #1e293b; color: #e2e8f0; }
+.theme-dark .ui-calendar-month { color: #e2e8f0; }
+.theme-dark .ui-calendar-year { color: #e2e8f0; }
+.theme-dark .ui-calendar-prev,
+.theme-dark .ui-calendar-next { background-color: #1e293b; border-color: #334155; color: #cbd5e1; }
+.theme-dark .ui-calendar-weekday { color: #94a3b8; }
+.theme-dark .ui-calendar-day { color: #e2e8f0; }
+.theme-dark .ui-calendar-day-outside,
+.theme-dark .ui-calendar-day-disabled { color: #475569; }
+.theme-dark .ui-calendar-day-today { border-color: #60a5fa; color: #60a5fa; }
+.theme-dark .ui-calendar-day-selected { background-color: #3b82f6; color: #0f172a; }
+.theme-dark .ui-calendar-yearpanel { background-color: #1e293b; border-color: #334155; }
+.theme-dark .ui-calendar-yearopt { color: #cbd5e1; }
+
 /* --- dark theme, in the only descendant form the engine supports ----------- */
 
 .theme-dark .ui-root { background-color: #0f172a; }

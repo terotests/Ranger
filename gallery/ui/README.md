@@ -96,6 +96,14 @@ ask for a control rather than draw one — and to say so plainly when the kit
 has nothing for what was asked, because a drawing of a calendar is worse than
 an honest "there is no calendar here yet".
 
+**The calendar had no rules at all.** Behaviour complete, keyboard complete,
+125 checks of its own — and painting as bare text, because the only sheet
+that ever styled one belonged to a demo. `ui:kit:check` is what said so, and
+the rules are now in `theme/base.css` where the rest of the kit's are. Its
+weeks also needed `flex-wrap: nowrap` written down: EVG initialises
+`flex-wrap` to WRAP, so a week one pixel wider than its parent silently
+becomes two rows.
+
 **A switch is a track with a thumb.** It used to be a pill with a word in it:
 at Radix parity on every behaviour, and unusable in a real interface. Both it
 and the checkbox now build their parts — `ui-switch-track` / `ui-switch-thumb`,

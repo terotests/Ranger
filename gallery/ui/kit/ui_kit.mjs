@@ -81,7 +81,25 @@ const SAMPLES = {
     { value: "new", name: "New file" },
     { value: "open", name: "Open…" },
   ],
+  combobox: [
+    { value: "fi", name: "Finland" },
+    { value: "se", name: "Sweden" },
+    { value: "no", name: "Norway" },
+  ],
+  breadcrumb: [
+    { value: "home", name: "Home" },
+    { value: "settings", name: "Settings" },
+  ],
 };
+
+const SAMPLE_COLUMNS = [
+  { key: "name", label: "Name" },
+  { key: "qty", label: "Qty", numeric: true },
+];
+const SAMPLE_ROWS = [
+  { key: "1", cells: ["Bolts", "24"] },
+  { key: "2", cells: ["Nuts", "12"] },
+];
 
 function fixtureFor(entry, props) {
   const c = { type: entry.type, tid: props.tid || entry.type, ...props };
@@ -95,6 +113,11 @@ function fixtureFor(entry, props) {
   if (entry.type === "toast" && !c.title) c.title = c.name;
   if (entry.type === "tooltip" && !c.body) c.body = c.name;
   if (entry.type === "collapsible" && !c.body) c.body = "What is under it.";
+  if (entry.type === "popover" && !c.body) c.body = "What it says.";
+  if (entry.type === "table") {
+    if (!c.columns) c.columns = SAMPLE_COLUMNS;
+    if (!c.rows) c.rows = SAMPLE_ROWS;
+  }
   return { controls: [c] };
 }
 
