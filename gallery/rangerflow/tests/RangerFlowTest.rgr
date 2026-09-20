@@ -6454,6 +6454,41 @@ class RangerFlowTest {
         def ww:FlowNode (ng.nodeById("w"))
         c.ok("what feeds the group stands above it" ((zz.y + zz.height) < fo.y))
         c.ok("what it feeds stands below it" (ww.y > (fo.y + fo.height)))
+
+        ; A ring inside a group, with one of its members also pointing out of
+        ; it. The group is laid out twice — the second time with the member
+        ; that has the outside line put first, so it stands nearest that line
+        ; — and a ring has no first node of its own, so breaking it by the
+        ; order the layout happened to be handed reversed a different edge
+        ; each pass and stood the group on its head: `three` at the top,
+        ; `one` at the bottom, every arrow in it pointing up the page.
+        def ring:string "flowchart TB\n"
+        ring = (ring + "    subgraph g [Ring]\n")
+        ring = (ring + "        one --> two\n")
+        ring = (ring + "        two --> three\n")
+        ring = (ring + "        three --> one\n")
+        ring = (ring + "    end\n")
+        ring = (ring + "    two --> outside\n")
+        def rg:FlowGraph (MermaidFlow.render(ring))
+        def r1:FlowNode (rg.nodeById("one"))
+        def r2:FlowNode (rg.nodeById("two"))
+        def r3:FlowNode (rg.nodeById("three"))
+        c.ok("a ring in a group reads the way it was written" (r2.y > (r1.y + r1.height)))
+        c.ok("…all the way down" (r3.y > (r2.y + r2.height)))
+        def rout:FlowNode (rg.nodeById("outside"))
+        c.ok("and what the ring feeds stands below the group" (rout.y > r3.y))
+        ; The same ring with no line out of the group: the pass that reorders
+        ; the members never runs, and the answer has to be the same one.
+        def plain:string "flowchart TB\n"
+        plain = (plain + "    subgraph g [Ring]\n")
+        plain = (plain + "        one --> two\n")
+        plain = (plain + "        two --> three\n")
+        plain = (plain + "        three --> one\n")
+        plain = (plain + "    end\n")
+        def pg:FlowGraph (MermaidFlow.render(plain))
+        def p1:FlowNode (pg.nodeById("one"))
+        def p3:FlowNode (pg.nodeById("three"))
+        c.ok("with or without that line, the ring breaks in the same place" (p3.y > p1.y))
     }
 
     sfn testMermaidSubgraphEnds:void (c:Checker) {

@@ -622,6 +622,44 @@ class CompoundLayout {
         def horiz:boolean (CompoundLayout.isHorizontal(dir))
         def lay:LayeredLayout (LayeredLayout.of(t))
         this.configure(lay dir)
+        ; Where a cycle among these children gets broken. A cycle has no
+        ; first node of its own: which of its edges gets reversed — and so
+        ; which of its nodes ends up at the top — is decided by where the
+        ; search starts, which is the order the stand-in graph was built in.
+        ; That order is not stable here: the second pass puts the children
+        ; with lines to the outside FIRST, so `a --> b --> c --> a` is broken
+        ; at `c --> a` on the first pass and at `a --> b` on the second as
+        ; soon as one of the three also points out of the group — and the
+        ; group comes out upside down. The order the children would have been
+        ; added in WITHOUT that preference is handed over instead, so both
+        ; passes break the cycle in the same place and the preference only
+        ; does what it is for, which is the order within a layer.
+        def roots:[int]
+        def rn:int 0
+        while (rn < (graph.nodeCount())) {
+            def rnode:FlowNode (graph.nodeAt(rn))
+            if ((this.ownerOf(rnode.id)) == gid) {
+                if (t.hasNode(rnode.id)) {
+                    push roots (t.indexOfNode(rnode.id))
+                }
+            }
+            rn = (rn + 1)
+        }
+        def rg:int 0
+        while (rg < (array_length groupIds)) {
+            if ((itemAt groupParent rg) == gid) {
+                def rkey:string (CompoundLayout.keyOf((itemAt groupIds rg)))
+                if (t.hasNode(rkey)) {
+                    push roots (t.indexOfNode(rkey))
+                }
+            }
+            rg = (rg + 1)
+        }
+        def rk:int 0
+        while (rk < (array_length roots)) {
+            push lay.cycleRoots (itemAt roots rk)
+            rk = (rk + 1)
+        }
         ; The groups in the order they were written, never one above the
         ; one before it.
         def g2:int 0
