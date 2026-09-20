@@ -49,9 +49,16 @@ the forms (`rustForBodyTouchesCollection`) compares NAMES, and this body never
 mentions `stdCommands`, so it took the iterator form.
 
 **Fix:** the iterator form now reads the collection into a local first
-whenever it is reached through a field, which ends the borrow at that
-statement's semicolon. A bare local name borrows nothing and is left alone.
-761 loops in the generated compiler carried a `.borrow()` in the head.
+whenever reading it takes a borrow — a field in a receiverless method, or a
+path through a shared class — which ends the borrow at that statement's
+semicolon. 761 loops in the generated compiler carried a `.borrow()` in the
+head.
+
+The condition is "does this read borrow", not "is this a field", and the
+difference matters: a field of a plain struct reached through a `&self`
+receiver is `self.lines`, no cell and nothing held, and hoisting that would
+clone the collection once per loop for nothing. The front page's Rust sample
+is exactly that shape, which is how the over-wide version was caught.
 
 ## 2. A trait method with a `&mut self` receiver — **fixed**
 

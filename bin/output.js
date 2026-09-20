@@ -40932,6 +40932,58 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                       }
                                       return false;
                                     };
+                                    rustForCollBorrows (coll, ctx) {
+                                      const fcbN = coll.ns.length;
+                                      if ( fcbN == 0 ) {
+                                        return false;
+                                      }
+                                      const fcbRoot = coll.ns[0];
+                                      if ( this.rust_receiverless_method ) {
+                                        if ( fcbRoot == "this" ) {
+                                          return true;
+                                        }
+                                        if ( ctx.isMemberVariable(fcbRoot) ) {
+                                          return true;
+                                        }
+                                      }
+                                      const fcbCls = ctx.getCurrentClass();
+                                      let fcbI = 0;
+                                      while (fcbI < fcbN - 1) {
+                                        const fcbSeg = coll.ns[fcbI];
+                                        if ( fcbSeg != "this" ) {
+                                          let fcbTn = "";
+                                          if ( coll.nsp.length > fcbI ) {
+                                            const fcbP = coll.nsp[fcbI];
+                                            const fcbNNO = fcbP.nameNode;
+                                            if ( (typeof(fcbNNO) !== "undefined" && fcbNNO != null )  ) {
+                                              const fcbNN = fcbNNO;
+                                              fcbTn = fcbNN.type_name;
+                                            }
+                                          }
+                                          if ( fcbTn.length == 0 ) {
+                                            if ( (typeof(fcbCls) !== "undefined" && fcbCls != null )  ) {
+                                              const fcbC = fcbCls;
+                                              const fcbVO = fcbC.findVariable(fcbSeg);
+                                              if ( (typeof(fcbVO) !== "undefined" && fcbVO != null )  ) {
+                                                const fcbV = fcbVO;
+                                                const fcbVNNO = fcbV.nameNode;
+                                                if ( (typeof(fcbVNNO) !== "undefined" && fcbVNNO != null )  ) {
+                                                  const fcbVNN = fcbVNNO;
+                                                  fcbTn = fcbVNN.type_name;
+                                                }
+                                              }
+                                            }
+                                          }
+                                          if ( fcbTn.length > 0 ) {
+                                            if ( this.rustClassIsShared(fcbTn, ctx) ) {
+                                              return true;
+                                            }
+                                          }
+                                        }
+                                        fcbI = fcbI + 1;
+                                      };
+                                      return false;
+                                    };
                                     rustWriteForLoop (node, ctx, wr) {
                                       if ( node.children.length < 5 ) {
                                         return;
@@ -40963,14 +41015,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                             needsMut = true;
                                           }
                                         }
-                                        let hoistColl = coll.ns.length > 1;
-                                        if ( hoistColl == false ) {
-                                          if ( coll.ns.length == 1 ) {
-                                            if ( ctx.isMemberVariable(coll.ns[0]) ) {
-                                              hoistColl = true;
-                                            }
-                                          }
-                                        }
+                                        const hoistColl = this.rustForCollBorrows(coll, ctx);
                                         const itName = "__it_" + itemName;
                                         if ( hoistColl ) {
                                           wr.out(("let " + itName) + " = ", false);

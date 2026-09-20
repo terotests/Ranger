@@ -2805,6 +2805,68 @@ extension RangerRustClassWriter {
     return false
   }
 
+  ; Does reading this collection take a `.borrow()`?
+  ;
+  ; Only then does the head need hoisting. A field of a plain struct reached
+  ; through a `&self` receiver is `self.lines` -- no cell, nothing held -- and
+  ; hoisting THAT would clone the collection once per loop for nothing.
+  ; docs/plans/PLAN_RUST_REENTRANCY.md 1.
+  fn rustForCollBorrows:boolean (coll:CodeNode ctx:RangerAppWriterContext) {
+    def fcbN:int (array_length coll.ns)
+    if (fcbN == 0) {
+      return false
+    }
+    def fcbRoot:string (itemAt coll.ns 0)
+    ; a receiverless method reaches every field through __self_rc.borrow()
+    if rust_receiverless_method {
+      if (fcbRoot == "this") {
+        return true
+      }
+      if (ctx.isMemberVariable(fcbRoot)) {
+        return true
+      }
+    }
+    ; …and any segment BEFORE the last that is a shared class is read through
+    ; its own cell, whatever the receiver is
+    def fcbCls@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+    def fcbI:int 0
+    while (fcbI < (fcbN - 1)) {
+      def fcbSeg:string (itemAt coll.ns fcbI)
+      if (fcbSeg != "this") {
+        def fcbTn:string ""
+        if ((array_length coll.nsp) > fcbI) {
+          def fcbP:RangerAppParamDesc (itemAt coll.nsp fcbI)
+          def fcbNNO@(optional):CodeNode fcbP.nameNode
+          if (!null? fcbNNO) {
+            def fcbNN:CodeNode (unwrap fcbNNO)
+            fcbTn = fcbNN.type_name
+          }
+        }
+        if ((strlen fcbTn) == 0) {
+          if (!null? fcbCls) {
+            def fcbC:RangerAppClassDesc (unwrap fcbCls)
+            def fcbVO@(optional):RangerAppParamDesc (fcbC.findVariable(fcbSeg))
+            if (!null? fcbVO) {
+              def fcbV:RangerAppParamDesc (unwrap fcbVO)
+              def fcbVNNO@(optional):CodeNode fcbV.nameNode
+              if (!null? fcbVNNO) {
+                def fcbVNN:CodeNode (unwrap fcbVNNO)
+                fcbTn = fcbVNN.type_name
+              }
+            }
+          }
+        }
+        if ((strlen fcbTn) > 0) {
+          if (this.rustClassIsShared(fcbTn ctx)) {
+            return true
+          }
+        }
+      }
+      fcbI = (fcbI + 1)
+    }
+    return false
+  }
+
   fn rustWriteForLoop:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if ((array_length node.children) < 5) {
       return
@@ -2865,17 +2927,7 @@ extension RangerRustClassWriter {
       ; statement's semicolon, which is what the index form below already does
       ; for its bound and what the `forEach` path does for its receiver. A
       ; bare local name borrows nothing, so it is left alone.
-      def hoistColl:boolean ((array_length coll.ns) > 1)
-      ; …and a bare FIELD name is a field too: `for walkAlso ch i` reads
-      ; `__self_rc.borrow().walk_also`, which borrows this object for the
-      ; whole loop exactly as `this.walkAlso` would.
-      if (hoistColl == false) {
-        if ((array_length coll.ns) == 1) {
-          if (ctx.isMemberVariable((itemAt coll.ns 0))) {
-            hoistColl = true
-          }
-        }
-      }
+      def hoistColl:boolean (this.rustForCollBorrows(coll ctx))
       def itName:string ("__it_" + itemName)
       if hoistColl {
         wr.out(("let " + itName + " = ") false)
