@@ -189,6 +189,27 @@ try {
   });
   if (loop > 1500) throw new Error(`40 presses took ${loop}ms — something is leaving the tab`);
   console.log(`  in the tab   40 presses and frames in ${loop}ms, no fetch in sight`);
+
+  // THE CONTEXT REACHES THE PAGE. A press the machine takes and that changes
+  // nothing on the screen is indistinguishable from a press that went
+  // nowhere — both are a dead button from the outside — so the page shows the
+  // keys and what the last press moved. If the runtime stops carrying them
+  // the page goes quiet again and every other check here still passes.
+  const ctx = await page.evaluate(() => {
+    const frame = JSON.parse(window.webApp.frame());
+    const hit = JSON.parse(window.webApp.press(195, 790));
+    return { inFrame: frame.context, inPress: hit.context, shown: document.getElementById("findings")?.textContent || "" };
+  });
+  if (!ctx.inFrame || typeof ctx.inFrame !== "object") {
+    throw new Error("a frame carries no context: " + JSON.stringify(ctx.inFrame));
+  }
+  if (!ctx.inPress || typeof ctx.inPress !== "object") {
+    throw new Error("a press carries no context: " + JSON.stringify(ctx.inPress));
+  }
+  if (!/context/.test(ctx.shown)) {
+    throw new Error("the page never shows the context: " + ctx.shown.slice(0, 200));
+  }
+  console.log(`  context      ${Object.keys(ctx.inFrame).join(", ") || "(no keys)"} — on every frame, and on the page`);
   await page.click("#run");
   await page.waitForFunction(
     () => document.getElementById("added")?.textContent === "seed",

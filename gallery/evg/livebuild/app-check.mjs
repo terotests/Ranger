@@ -316,4 +316,59 @@ fs.rmSync(broken, { recursive: true, force: true });
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+// THE SAME BINDING IN THE TAB. The tool renders a page and so does the
+// browser runtime, and for a while they were two copies of the rule: the CLI
+// filled `{key}` in a class and the tab did not, so a switch bound to the
+// machine moved on the command line and was dead in the browser — which is
+// the only place anybody looks. One copy now lives in `EvgAppRules`; this is
+// what says so, without a browser.
+{
+  const webBin = path.join(root, "gallery/evg/bin/evg_app_web.js");
+  if (fs.existsSync(webBin)) {
+    const src = fs.readFileSync(webBin, "utf8");
+    const mod = await import("data:text/javascript," + encodeURIComponent(src + "\nexport { EvgAppWeb };\n"));
+    const w = new mod.EvgAppWeb();
+    const machine = JSON.stringify({
+      id: "tab",
+      initial: "settings",
+      context: { wifi: "checked" },
+      states: {
+        settings: {
+          on: {
+            "toggle.wifi": [
+              { guard: { is: { context: "wifi" }, equals: "checked" }, actions: [{ assign: { wifi: { value: "unchecked" } } }] },
+              { actions: [{ assign: { wifi: { value: "checked" } } }] },
+            ],
+          },
+        },
+      },
+    });
+    if (!w.boot(machine)) throw new Error("the runtime in the tab did not boot");
+    w.put(
+      "settings",
+      JSON.stringify({
+        evg: 1,
+        css: "",
+        root: {
+          tag: "div",
+          props: { display: "flex", width: "390px", height: "200px" },
+          children: [{ tag: "div", id: "toggle.wifi", props: { width: "44px", height: "26px", "class-name": "ui-switch-track ui-switch-track-state-{wifi}" } }],
+        },
+      }),
+    );
+    w.size(390, 200);
+    if (!JSON.parse(w.frame()).context) throw new Error("a frame from the tab carries no context");
+    const hit = JSON.parse(w.press(20, 10));
+    if (!hit.takes) throw new Error("the press did not reach the machine in the tab");
+    if (!hit.context || hit.context.wifi !== "unchecked") {
+      throw new Error("the press answered no context: " + JSON.stringify(hit));
+    }
+    const cls = JSON.parse(w.doc()).root.children[0].props["class-name"];
+    if (!cls.includes("ui-switch-track-state-unchecked")) {
+      throw new Error("the tab did not fill the state into the class: " + cls);
+    }
+    console.log("  in the tab  the same binding and the same context the CLI has");
+  }
+}
+
 console.log("ALL PASS — a machine, a page per state, a model that agrees with itself, a memory that does not rot");

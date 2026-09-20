@@ -125,6 +125,8 @@
     color: var(--muted); font-size: 11.5px; line-height: 1.5;
   }
   .findings .bad { color: var(--warn); }
+  /* The machine's context: the debug line that says what a press moved. */
+  .findings .ctx { color: var(--ink2, #7dd3a0); }
   .side {
     display: grid; grid-template-rows: 1.1fr 1fr 1.1fr; min-height: 0;
   }
@@ -697,6 +699,8 @@ window.addEventListener("paste", (ev) => {
 // comes back is the page for wherever that left it. The painter is the same
 // one; what changes is who decides what it paints.
 let runMode = false;
+// The context as the last frame had it, so a press can say what it moved.
+let lastContext = null;
 
 async function runFetch(url, body) {
   const res = await fetch(url, body
@@ -730,6 +734,27 @@ function paintApp(d) {
   }
   if (d.pressed && d.took === false) {
     lines.push(["bad", `#${d.pressed || "nothing"} is not an event of ${d.state}`]);
+  }
+  // THE CONTEXT, and what the last press moved in it. A press the machine
+  // takes and that changes nothing on the screen looks exactly like a press
+  // that went nowhere — both are a dead button from the outside. These two
+  // lines are the difference: the keys as they are, and the ones that just
+  // changed. A switch whose key moved and whose screen did not is a control
+  // that was never bound (`./evg-ui add … --bind <key>`); a press that moved
+  // no key at all is a transition the machine does not have.
+  if (d.context) {
+    const now = d.context;
+    const moved = Object.keys(now).filter((k) => lastContext && JSON.stringify(lastContext[k]) !== JSON.stringify(now[k]));
+    const shown = Object.entries(now).map(([k, v]) => `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`);
+    if (shown.length) lines.push(["ctx", "context  " + shown.join("  ·  ")]);
+    if (d.pressed && d.took) {
+      if (moved.length) {
+        lines.push(["", `${d.pressed} moved ${moved.map((k) => `${k}: ${lastContext[k]} → ${now[k]}`).join(", ")}`]);
+      } else {
+        lines.push(["bad", `${d.pressed} was taken and changed no key — the transition assigns nothing`]);
+      }
+    }
+    lastContext = now;
   }
   lines.push(["", (d.events || []).slice(-4).join(" → ") || "no presses yet"]);
   $("findings").replaceChildren(...lines.map(([cls, text]) => {
@@ -826,6 +851,7 @@ async function enterRun() {
   $("ops").innerHTML = '<span class="empty">Design mode streams ops. Run mode sends events.</span>';
   webApp = null;
   webEvents = [];
+  lastContext = null;
   try {
     const data = await runFetch("/app/data");
     if (data.code) {
@@ -900,7 +926,7 @@ $("screen").addEventListener("click", async (ev) => {
     if (webApp) {
       const hit = JSON.parse(webApp.press(x, y));
       if (hit.id && hit.takes) webEvents = [...webEvents, hit.id];
-      paintApp(webFrame(webData, { pressed: hit.id, took: hit.takes }));
+      paintApp(webFrame(webData, { pressed: hit.id, took: hit.takes, context: hit.context }));
       return;
     }
     paintApp(await runFetch("/app/press", { x, y }));

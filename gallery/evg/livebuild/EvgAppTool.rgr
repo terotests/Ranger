@@ -641,52 +641,8 @@ class EvgAppTool {
         }
     }
 
-    ; The `{key}` names in a page's text AND in its class names, whatever is
-    ; written around them.
     fn bindingsOf:void (el:EVGElement out:[string]) {
-        if ((strlen el.textContent) > 0) {
-            EvgAppTool.scanBindings(el.textContent out)
-        }
-        if ((strlen el.className) > 0) {
-            EvgAppTool.scanBindings(el.className out)
-        }
-        def i:int 0
-        while (i < (array_length el.children)) {
-            this.bindingsOf((itemAt el.children i) out)
-            i = (i + 1)
-        }
-    }
-
-    sfn scanBindings:void (text:string out:[string]) {
-        def n:int (strlen text)
-        def i@(mutable):int 0
-        while (i < n) {
-            if ((charAt text i) == 123) {
-                def j@(mutable):int (i + 1)
-                def close@(mutable):int (0 - 1)
-                while (j < n) {
-                    if ((charAt text j) == 125) {
-                        if (close < 0) {
-                            close = j
-                        }
-                    }
-                    j = (j + 1)
-                }
-                if (close < 0) {
-                    i = n
-                } {
-                    def key:string (substring text (i + 1) close)
-                    if ((strlen key) > 0) {
-                        if ((EvgAppTool.mentions(out key)) == false) {
-                            push out key
-                        }
-                    }
-                    i = (close + 1)
-                }
-            } {
-                i = (i + 1)
-            }
-        }
+        EvgAppRules.keysOf(el out)
     }
 
     ; --- the memory -----------------------------------------------------------
@@ -1060,62 +1016,7 @@ class EvgAppTool {
     ; context does not have is left as it was written: a missing binding should
     ; look wrong on the screen, not look empty.
     fn bind:void (el:EVGElement runner:ScRunner) {
-        if ((strlen el.textContent) > 0) {
-            el.textContent = (this.fill(el.textContent runner))
-        }
-        ; …AND IN A CLASS NAME. A control's STATE is a class — a switch is on
-        ; because it carries `ui-switch-state-checked` — so a document that
-        ; can only bind text can show a number from the context and not a
-        ; control's state. Then a switch on a screen is a picture: its press
-        ; is a real event, the machine takes it, and nothing on the screen
-        ; can move. `class-name="ui-switch ui-switch-state-{wifi}"` is what
-        ; closes that.
-        if ((strlen el.className) > 0) {
-            el.className = (this.fill(el.className runner))
-        }
-        def i:int 0
-        while (i < (array_length el.children)) {
-            this.bind((itemAt el.children i) runner)
-            i = (i + 1)
-        }
-    }
-
-    fn fill:string (text:string runner:ScRunner) {
-        def out@(mutable):string ""
-        def i@(mutable):int 0
-        def n:int (strlen text)
-        while (i < n) {
-            def c:int (charAt text i)
-            if (c == 123) {
-                def close@(mutable):int (0 - 1)
-                def j@(mutable):int (i + 1)
-                while (j < n) {
-                    if ((charAt text j) == 125) {
-                        if (close < 0) {
-                            close = j
-                        }
-                    }
-                    j = (j + 1)
-                }
-                if (close < 0) {
-                    out = (out + (substring text i (i + 1)))
-                    i = (i + 1)
-                } {
-                    def key:string (substring text (i + 1) close)
-                    def val:string (EvgAppTool.plain((runner.json(key))))
-                    if ((strlen val) == 0) {
-                        out = (out + (substring text i (close + 1)))
-                    } {
-                        out = (out + val)
-                    }
-                    i = (close + 1)
-                }
-            } {
-                out = (out + (substring text i (i + 1)))
-                i = (i + 1)
-            }
-        }
-        return out
+        EvgAppRules.bindTree(el runner)
     }
 
     fn idsOf:void (el:EVGElement out:[string]) {

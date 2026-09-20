@@ -218,6 +218,26 @@ npm run ui:kit:check    # every catalogued control builds, draws and is styled
 npm run livebuild:agents  # …and the workspace really carries the door
 ```
 
+## What the machine is holding
+
+Run mode shows the **context** under the phone, and what the last press moved
+in it:
+
+```
+context  wifi=unchecked  ·  cellular=checked
+toggle.wifi moved wifi: checked → unchecked
+```
+
+That line is the difference between the two ways a button looks dead. A press
+the machine does not take says so already — `#toggle.wifi is not an event of
+settings`. A press it DOES take and that changes nothing on the screen used
+to look identical: now it either names the key that moved (so the control is
+not bound — `./evg-ui add … --bind wifi`) or says the transition assigns
+nothing.
+
+The context rides on every frame and every press, from the runtime in the
+tab, so none of it costs a request.
+
 ## CSS, and things CSS cannot draw
 
 A document carries a stylesheet — a `css` block beside the tree — and a node

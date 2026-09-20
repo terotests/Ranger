@@ -170,6 +170,13 @@ class EvgAppWeb {
         return (kit.sendEvent(event))
     }
 
+    ; The machine's context, so the page can show what a press actually
+    ; changed — the one thing that tells a dead button from a working one
+    ; whose screen does not happen to show the key it moved.
+    fn contextJson:string () {
+        return (kit.contextJson())
+    }
+
     ; The document for the current state, bound — what the inspector shows.
     fn doc:string () {
         return (kit.pageDoc(app))
