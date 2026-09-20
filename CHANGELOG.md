@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The front-page hero columns are gold, not a magic runtime.** The first
+  column is still “There is no Silver Bullet.” Ranger is more like gold:
+  heavier to start with, and a golden-file test when you target more than
+  one language. The second column is “Stay Dry. Stay Foolish.” — sharing
+  code across platforms is half the problem; AI does not provide the
+  consistent validation, and Ranger does.
+
 - **C++: a `record` nothing aliases is a value, not a `shared_ptr`.**
   `StaticAnalyzer.analyzeClassSharing` already walks the whole program and
   decides which classes are aliased and held; the pass already ran for C++
