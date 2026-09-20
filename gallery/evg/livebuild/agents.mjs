@@ -887,6 +887,13 @@ wrong.
 only the properties it sets. Unkeyed paths shift when a sibling is
 inserted above them, so re-run it after any insert, remove or move.
 
+\`./evg-agent pick doc.evg.json X Y --width=390 --height=844\` goes the
+other way: a point on the picture, and back comes the chain from the page
+down to what is under it, each level with its address and its box. Use it
+when somebody says "the thing at the top right" — it turns a place on the
+screen into the \`--at=\` every other verb takes. Clicking the phone in
+design mode on the live page runs exactly this.
+
 \`patch\` takes a JSON file of ops and writes \`doc.evg.json\`:
 
 \`\`\`json

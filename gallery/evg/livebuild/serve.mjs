@@ -799,6 +799,44 @@ function main() {
       );
       return;
     }
+    // THE ELEMENT PICKER. In design mode a click used to be answered with
+    // "this phone is a document" and nothing else, which is true and useless:
+    // the picture is the only view of the document anybody has, and there was
+    // no way to ask it what a thing on it was. `evg_agent pick` answers with
+    // the chain from the page down to what is under the point, so the page can
+    // show the levels and let a person choose one — the node under a pointer
+    // is almost never the one they mean.
+    if (url.pathname === "/pick" && req.method === "POST") {
+      readBody(req, 4096)
+        .then((body) => {
+          const ask = JSON.parse(body || "{}");
+          const file = path.join(sessionDir(), "doc.evg.json");
+          if (!fs.existsSync(file)) {
+            send(res, 404, "application/json; charset=utf-8", JSON.stringify({ error: "no document in this session" }));
+            return;
+          }
+          const agent = path.join(root, "lib/evg/bin/evg_agent.js");
+          if (!fs.existsSync(agent)) {
+            send(res, 200, "application/json; charset=utf-8", JSON.stringify({ error: "the picker needs lib/evg/bin/evg_agent.js — run `npm run agent`" }));
+            return;
+          }
+          const r = spawnSync(
+            "node",
+            [agent, "pick", file, String(Math.round(Number(ask.x) || 0)), String(Math.round(Number(ask.y) || 0)),
+             `--width=${Math.round(Number(ask.width) || 390)}`, `--height=${Math.round(Number(ask.height) || 844)}`],
+            { cwd: root, encoding: "utf8", maxBuffer: 8 * 1024 * 1024 },
+          );
+          let picked = { chain: [], count: 0 };
+          try {
+            picked = JSON.parse(`${r.stdout || ""}`.trim());
+          } catch {
+            picked = { error: `the picker said: ${String(r.stderr || r.stdout || "nothing").slice(0, 200)}` };
+          }
+          send(res, 200, "application/json; charset=utf-8", JSON.stringify(picked));
+        })
+        .catch((e) => send(res, 400, "application/json; charset=utf-8", JSON.stringify({ error: String(e.message || e) })));
+      return;
+    }
     // The document as it stands, framed — WITHOUT touching it. `/seed` is
     // "start over" and rewrites the session's phone from a fixture; leaving Run
     // mode used to go through it, which threw away every edit the agent had

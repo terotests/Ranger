@@ -110,8 +110,25 @@
   .screen {
     width: 390px; height: 844px; border-radius: 28px; overflow: hidden;
     background: #0b1220; transform-origin: top left;
+    position: relative;
   }
   .screen svg { display: block; }
+  /* The picked element, outlined over the picture rather than beside it.
+     `pointer-events: none` so the outline never eats the next click. */
+  .pickbox {
+    position: absolute; pointer-events: none;
+    outline: 1px solid var(--accent, #7dd3a0);
+    background: rgba(125, 211, 160, 0.12);
+  }
+  /* The chain, page first. Each level is a button because choosing the level
+     IS the picker — the node under a pointer is rarely the one meant. */
+  .chain { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+  .chain button {
+    font: inherit; font-size: 11px; cursor: pointer;
+    border: 1px solid #2b3648; background: #131c2b; color: var(--muted, #8b9bb4);
+    border-radius: 999px; padding: 2px 8px;
+  }
+  .chain button.on { border-color: var(--accent, #7dd3a0); color: var(--accent, #7dd3a0); }
   .meta {
     margin-top: 16px; color: var(--muted); font-size: 12px; display: flex; gap: 14px;
     font-variant-numeric: tabular-nums;
@@ -486,6 +503,12 @@ async function paintGl(d) {
 function paintFrame(d) {
   $("ncmds").textContent = String(d.ncmds || 0);
   $("nodes").textContent = String(d.nodes || 0);
+  // The page size the picker has to hit test against, and a selection that is
+  // now about a document that has changed under it.
+  lastWidth = d.width || lastWidth;
+  lastHeight = d.height || lastHeight;
+  lastChain = [];
+  clearPick();
   if (!d.list) return;
   const effects = d.list.effects || [];
   window.__painter = effects.length ? "webgl" : "svg";
@@ -911,12 +934,15 @@ $("run").addEventListener("click", () => {
 // tests is the point inside the element. No scaling, no second coordinate
 // system to keep in step.
 $("screen").addEventListener("click", async (ev) => {
-  // A press on a document is not a press on anything. Saying so is the
-  // difference between a feature that is off and a feature that is broken.
+  // In design mode a click is not a press — it is a QUESTION about the
+  // picture. The picture is the only view of the document anybody has here,
+  // so "this phone is a document, press Run" was true and useless. Now it
+  // picks: the chain from the page down to whatever is under the point, with
+  // each level selectable, because the node under a pointer is almost never
+  // the one somebody means — a click on a switch lands on its track.
   if (!runMode) {
-    const line = document.createElement("div");
-    line.textContent = "design mode — this phone is a document. Press Run to drive it.";
-    $("findings").replaceChildren(line);
+    const b = $("screen").getBoundingClientRect();
+    pickAt(Math.round(ev.clientX - b.left), Math.round(ev.clientY - b.top));
     return;
   }
   const box = $("screen").getBoundingClientRect();
@@ -934,6 +960,83 @@ $("screen").addEventListener("click", async (ev) => {
     $("think").append("\n\napp: " + (e.message || e));
   }
 });
+
+// --- THE ELEMENT PICKER -------------------------------------------------------
+//
+// Design mode's answer to a click. The server lays the document out and hands
+// back the chain from the page down to whatever is under the point; this shows
+// the levels, outlines the chosen one, and prints its address — which is what
+// every `evg-agent` verb takes, so a person can point at a thing on the screen
+// and get the `--at=` for it without counting children in an outline.
+let lastChain = [];
+let lastWidth = 390;
+let lastHeight = 844;
+
+function clearPick() {
+  for (const el of [...$("screen").querySelectorAll(".pickbox")]) el.remove();
+}
+
+async function pickAt(x, y) {
+  try {
+    const r = await fetch("/pick", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ x, y, width: lastWidth, height: lastHeight }),
+    });
+    const d = await r.json();
+    if (d.error) {
+      $("findings").replaceChildren(Object.assign(document.createElement("div"), { className: "bad", textContent: d.error }));
+      return;
+    }
+    lastChain = d.chain || [];
+    if (!lastChain.length) {
+      clearPick();
+      $("findings").replaceChildren(Object.assign(document.createElement("div"), { textContent: "nothing under that point" }));
+      return;
+    }
+    showPick(lastChain.length - 1);
+  } catch (e) {
+    $("findings").replaceChildren(Object.assign(document.createElement("div"), { className: "bad", textContent: "pick: " + (e.message || e) }));
+  }
+}
+
+function showPick(level) {
+  const node = lastChain[level];
+  if (!node) return;
+  clearPick();
+  const box = document.createElement("div");
+  box.className = "pickbox";
+  box.style.left = `${node.x}px`;
+  box.style.top = `${node.y}px`;
+  box.style.width = `${Math.max(node.w, 1)}px`;
+  box.style.height = `${Math.max(node.h, 1)}px`;
+  $("screen").appendChild(box);
+
+  const chain = document.createElement("div");
+  chain.className = "chain";
+  lastChain.forEach((n, i) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = n.id ? `#${n.id}` : n.role ? `${n.tag}:${n.role}` : n.tag;
+    b.title = n.class || n.tag;
+    if (i === level) b.classList.add("on");
+    b.addEventListener("click", () => showPick(i));
+    chain.appendChild(b);
+  });
+
+  const lines = [`${node.at} — ${node.tag}${node.id ? " #" + node.id : ""}${node.role ? " role=" + node.role : ""}`];
+  if (node.class) lines.push(node.class);
+  if (node.text) lines.push(`"${node.text}"`);
+  lines.push(`${Math.round(node.x)},${Math.round(node.y)} ${Math.round(node.w)}×${Math.round(node.h)} · ${node.children} child${node.children === 1 ? "" : "ren"}`);
+  lines.push(`./evg-agent measure doc.evg.json --boxes --at=${node.at}`);
+
+  $("findings").replaceChildren(chain, ...lines.map((t, i) => {
+    const el = document.createElement("div");
+    el.textContent = t;
+    if (i === lines.length - 1) el.className = "ctx";
+    return el;
+  }));
+}
 
 function spin(on) {
   $("spin").classList.toggle("on", on);
