@@ -46,6 +46,12 @@ class EVGMeasure {
     ; They are the one thing about a screen that a layout check can see and a
     ; person cannot: it looks right, and nothing about it works.
     def drawn:[string]
+    ; Controls that ARE the real thing and still cannot move: a switch whose
+    ; state is a fixed class word, or whose colours are written on the node.
+    ; The opposite mistake to `drawn` and a harder one to see, because the
+    ; picture is right — it is the only one of the two that survives "use the
+    ; host's control" and still does nothing when pressed.
+    def frozen:[string]
     def boxes:[string]
     def width:int 0
     def height:int 0
@@ -71,6 +77,8 @@ class EVGMeasure {
         align = fresh2b
         def fresh2c:[string]
         drawn = fresh2c
+        def fresh2d:[string]
+        frozen = fresh2d
         def fresh3:[string]
         boxes = fresh3
         width = w
@@ -100,6 +108,7 @@ class EVGMeasure {
                 this.checkAlignment(path el)
                 this.checkAbsolutes(path el)
                 this.checkDrawnControl(path el)
+                this.checkFrozenControl(path el)
                 ; The free space is the room left under the CONTENT, so a top
                 ; level node is not counted: a root that is the page itself
                 ; would answer 0 for every document and mean nothing by it.
@@ -149,6 +158,9 @@ class EVGMeasure {
         if ((array_length drawn) > 0) {
             out = ((out + ",\"drawn\":") + (EVGMeasure.strArray(drawn pretty)))
         }
+        if ((array_length frozen) > 0) {
+            out = ((out + ",\"frozen\":") + (EVGMeasure.strArray(frozen pretty)))
+        }
         if ((array_length boxes) > 0) {
             out = (out + ",\"boxes\":[")
             def i:int 0
@@ -182,6 +194,13 @@ class EVGMeasure {
         }
         if ((array_length drawn) > 0) {
             out = ((out + ",\"drawn\":") + (to_string (array_length drawn)))
+        }
+        ; A count would say "something is wrong" and nothing else, and the
+        ; whole value of this check is the sentence. One line costs little and
+        ; is the one an agent can act on.
+        if ((array_length frozen) > 0) {
+            out = ((out + ",\"frozen\":") + (to_string (array_length frozen)))
+            out = ((out + ",\"frozenFirst\":") + (EVGTreeJson.str((itemAt frozen 0))))
         }
         def n:int (array_length findings)
         if (n > 0) {
@@ -325,6 +344,138 @@ class EVGMeasure {
                 push drawn (path + ": a box with a tick in it is a drawn checkbox — use the host's checkbox control, not boxes")
             }
         }
+    }
+
+    ; --- a control that cannot move --------------------------------------------
+    ; `drawn` catches the screen that never asked for a control. This catches
+    ; the one that did and got a photograph of it.
+    ;
+    ; A control works in an app when two things are true of the document:
+    ;
+    ;   the state is a HOLE      class-name="ui-switch ui-switch-state-{wifi}"
+    ;   the paint is in the SHEET  .ui-switch-track-state-checked { … }
+    ;
+    ; The hole is what `evg_app init` reads to give the control a context key
+    ; and an event — with a fixed word there instead, the machine is written
+    ; without it and a press on it is not an event of any state. The sheet is
+    ; what the hole then switches; a colour written on the node is inline and
+    ; outranks every rule, so even a bound control repainted that way never
+    ; changes. Either one alone is enough to freeze it, and both together is
+    ; what an agent that wrote the document in one pass usually produces.
+    ;
+    ; Like `drawn` these are not defects — a picture of a settings screen is
+    ; allowed to be a picture — so they stay out of `findings` and out of
+    ; `count`, and say what to do instead.
+    fn checkFrozenControl:void (path:string el:EVGElement) {
+        def role:string el.role
+        def isCtl:boolean false
+        if (role == "switch") {
+            isCtl = true
+        }
+        if (role == "checkbox") {
+            isCtl = true
+        }
+        if (role == "radio") {
+            isCtl = true
+        }
+        if (isCtl == false) {
+            return
+        }
+        def cn:string el.className
+        def stateClass:string (EVGMeasure.stateClassIn(cn))
+        def bound:boolean ((indexOf cn "{") >= 0)
+        def paint:string (EVGMeasure.inlinePaintIn(el 0))
+        def named:boolean ((strlen el.id) > 0)
+        ; A control with no state class at all is not claiming to have two
+        ; looks, so there is nothing here to call frozen.
+        if ((strlen stateClass) == 0) {
+            return
+        }
+        if (bound && ((strlen paint) == 0)) {
+            return
+        }
+        def why:string ""
+        if (bound == false) {
+            why = ((("its state is the fixed class " + stateClass) + " rather than ") + (EVGMeasure.holeFor(stateClass)))
+        }
+        if ((strlen paint) > 0) {
+            if ((strlen why) > 0) {
+                why = (why + ", and ")
+            }
+            why = (((why + "its ") + paint) + " is written on the node, which outranks every rule")
+        }
+        def who:string ((role + " \"") + el.id)
+        if (named == false) {
+            who = (role + " \"(no id)")
+        }
+        def fix:string " — put the state in a {key} and the colours in the sheet"
+        if (named == false) {
+            fix = " — and it has no id, so a press cannot reach it either"
+        }
+        push frozen ((((path + ": ") + who) + "\" cannot change: ") + (why + fix))
+    }
+
+    ; `ui-switch-state-checked` said the way a bound one would be.
+    sfn holeFor:string (stateClass:string) {
+        def cut:int (indexOf stateClass "-state-")
+        if (cut < 0) {
+            return stateClass
+        }
+        return ((substring stateClass 0 (cut + 7)) + "{key}")
+    }
+
+    ; The first class token carrying a state word, quoted back to whoever
+    ; wrote it. "" when there is none.
+    sfn stateClassIn:string (className:string) {
+        def n:int (strlen className)
+        def at:int 0
+        while (at < n) {
+            def rest:string (substring className at n)
+            def sp:int (indexOf rest " ")
+            def end:int n
+            if (sp >= 0) {
+                end = (at + sp)
+            }
+            def tok:string (substring className at end)
+            if ((indexOf tok "-state-") > 0) {
+                return tok
+            }
+            at = (end + 1)
+        }
+        return ""
+    }
+
+    ; The first paint property written on this element or on a part of it.
+    ; Only the ones a state switches are asked for: a width on a track is a
+    ; size the sheet is welcome to keep, a colour on it is the state.
+    sfn inlinePaintIn:string (el:EVGElement depth:int) {
+        if (el.hasInline("background-color")) {
+            return "background-color"
+        }
+        if (el.hasInline("stroke")) {
+            return "stroke"
+        }
+        if (el.hasInline("fill")) {
+            return "fill"
+        }
+        if (el.hasInline("transform")) {
+            return "transform"
+        }
+        if (el.hasInline("border-color")) {
+            return "border-color"
+        }
+        if (depth > 3) {
+            return ""
+        }
+        def i:int 0
+        while (i < (array_length el.children)) {
+            def sub:string (EVGMeasure.inlinePaintIn((itemAt el.children i) (depth + 1)))
+            if ((strlen sub) > 0) {
+                return sub
+            }
+            i = (i + 1)
+        }
+        return ""
     }
 
     fn checkOffPage:void (path:string el:EVGElement w:double h:double) {
