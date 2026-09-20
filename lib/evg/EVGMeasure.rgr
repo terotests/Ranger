@@ -114,6 +114,7 @@ class EVGMeasure {
                 this.checkAlignment(path el)
                 this.checkAbsolutes(path el)
                 this.checkDrawnControl(path el)
+                this.checkDrawnSlider(path el)
                 this.checkFrozenControl(path el)
                 ; The free space is the room left under the CONTENT, so a top
                 ; level node is not counted: a root that is the page itself
@@ -485,6 +486,59 @@ class EVGMeasure {
             i = (i + 1)
         }
         return ""
+    }
+
+    ; A SLIDER: a long thin groove with one round knob standing proud of it.
+    ;
+    ; This is a separate check rather than a third case inside
+    ; `checkDrawnControl` because that one's shape guard — a box 12 to 44
+    ; pixels tall — is what a switch and a checkbox have and a slider does
+    ; not. A volume groove is four to eight pixels tall with a knob three
+    ; times that sitting on it, so every drawn slider ever made fell out of
+    ; the guard on the first line and nothing was ever said about it.
+    ;
+    ; What separates a knob from a progress bar's fill is that a knob is
+    ; ROUND, about as wide as it is tall, and TALLER than the groove. A fill
+    ; is as tall as the groove and as wide as the value, so it fails all
+    ; three, and a progress bar drawn by hand is not reported here.
+    fn checkDrawnSlider:void (path:string el:EVGElement) {
+        if ((array_length el.children) != 1) {
+            return
+        }
+        if (this.claimedByControl(path el)) {
+            return
+        }
+        def w:double el.calculatedWidth
+        def h:double el.calculatedHeight
+        if ((h < 2.0) || (h > 16.0)) {
+            return
+        }
+        if (w < 60.0) {
+            return
+        }
+        if ((w / h) < 4.0) {
+            return
+        }
+        def kid:EVGElement (itemAt el.children 0)
+        def kw:double kid.calculatedWidth
+        def kh:double kid.calculatedHeight
+        if ((kw < 10.0) || (kh < 10.0)) {
+            return
+        }
+        if (kh <= h) {
+            return
+        }
+        def square:double (kw / kh)
+        if ((square < 0.75) || (square > 1.35)) {
+            return
+        }
+        if ((EVGMeasure.isRound(kid)) == false) {
+            return
+        }
+        if (EVGMeasure.hasWords(kid)) {
+            return
+        }
+        push drawn (path + ": a groove with a knob standing proud of it is a drawn slider — use the host's slider control, not boxes")
     }
 
     fn checkOffPage:void (path:string el:EVGElement w:double h:double) {

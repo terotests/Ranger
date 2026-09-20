@@ -44,6 +44,7 @@ drawn=$(npm run --silent agent -- measure lib/evg/agent/fixtures/drawn.evg.json 
 echo "$drawn" | grep -q '"drawn"' || fail "measure did not notice a drawn switch: $drawn"
 echo "$drawn" | grep -q '0/0/1: a pill with a knob' || fail "the drawn switch was not named by its path: $drawn"
 echo "$drawn" | grep -q '0/1/0: a pill' && fail "a control that declares its role was reported as drawn: $drawn"
+echo "$drawn" | grep -q '0/2: a groove with a knob' || fail "measure did not notice a drawn slider: $drawn"
 echo "$drawn" | grep -q '"count":0' || fail "a drawn control is not a layout defect and must not move count: $drawn"
 
 # alignment: the defect every other check passes. A stack that shares no edge,

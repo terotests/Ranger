@@ -335,7 +335,58 @@ named for `t`.
 | `code` | `App.rgr` so far |
 | `frame` | `{width,height,ncmds,added,nodes,list}` — `list` is `EVGDisplayList.toJson()` |
 | `measure` | the layout in numbers after the last frame — findings with amounts, `bottomFree`, `tight` |
+| `usage` | what the run cost: `input`, `cacheRead`, `cacheWrite`, `output`, `readTotal`, and `costUsd`, `turns`, `models` when the CLI says |
 | `done` | `ok`, step count, command count |
+
+### What is live right now
+
+The page has three states and one function that owns them:
+
+| | edits | start over · reset | Run |
+| --- | --- | --- | --- |
+| **idle** | yes | yes | enter |
+| **working** — an agent is building | no | no | no |
+| **running** — the machine owns the page | no | no | leave |
+
+Editing during Run would rewrite the document the app was built from, and a
+start-over during Run deletes `app/` out from under the app that is running.
+Entering Run mid-build would drive a screen that is still changing. Leaving Run
+stays possible in every state, which is why `Run` is disabled on *working* and
+not simply on "not idle".
+
+**Reset** empties the project: a blank canvas, and the app built from the old
+screen thrown away. It is the `empty` seed with its own button, because among
+the start-over chips it reads as one more sample screen when it is the only one
+that means throw this away.
+
+### What size of screen
+
+The stage has Phone (390×844), Tablet (820×1180) and Desktop (1440×900), and a
+turn button that swaps the sides. **Panes ›** folds the thinking and ops panes
+away, which on a desktop viewport is the difference between seeing the screen
+and seeing two thirds of it.
+
+The viewport is a **view**. It is applied to a copy of the document on its way
+to the layout, next to `EVGDress` and for the same reason: looking at a phone
+screen on a desktop must not rewrite the phone screen. On the wire it is
+`GET /doc?w=&h=`, and on the command line:
+
+```sh
+node gallery/evg/bin/evg_livebuild.js frame doc.evg.json --width=1440 --height=900
+```
+
+A viewport larger than the stage is shrunk to fit and the percentage is shown
+beside the size; clicks are divided back, so the picker still lands on the
+element under the pointer. Run mode renders at the app's own page size, so the
+device chips are off there rather than lit and ignored.
+
+`usage` comes from the agent CLI's own accounting, not from counting what
+arrived here — the `tokens` figure beside the phone is words streamed onto the
+page, which is a different and much smaller number. Both Cursor and Claude end
+a `stream-json` run with a `result` event carrying it; one parser reads both.
+`readTotal` is the whole input side including cache reads, because in an agent
+loop the conversation is re-read on every tool call and an "input" without them
+reads as almost free.
 
 The page shows `measure` under the phone: **layout ok** or the number of
 findings, then what they are. The same answer is written into a workspace

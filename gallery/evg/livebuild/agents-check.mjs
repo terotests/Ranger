@@ -454,6 +454,111 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   console.log("  cursor feed " + words.length + " words, 1 thought, no repeat");
 }
 
+// WHAT THE RUN COST. Both CLIs end a `stream-json` run with a `result` event
+// carrying the usage for the whole run, and it used to be dropped on the
+// floor — so after watching an agent build a screen the tool could not say
+// what building it took. The event below is the real shape `claude -p
+// --output-format stream-json --verbose` emits, trimmed to the fields read.
+{
+  const out = [];
+  const feed = makeCursorFeed((line) => out.push(JSON.parse(line)));
+  feed.feed(JSON.stringify({ type: "assistant", message: { content: [{ text: "ok" }] } }));
+  feed.feed(
+    JSON.stringify({
+      type: "result",
+      subtype: "success",
+      total_cost_usd: 0.008233,
+      num_turns: 1,
+      duration_ms: 2508,
+      usage: {
+        input_tokens: 2,
+        output_tokens: 4,
+        cache_read_input_tokens: 40945,
+        cache_creation_input_tokens: 0,
+      },
+      modelUsage: { "claude-sonnet-5": { costUSD: 0.008233 } },
+    }),
+  );
+  const spend = out.find((e) => e.t === "usage");
+  if (!spend) throw new Error("a finished run reported no usage: " + JSON.stringify(out));
+  if (spend.output !== 4 || spend.cacheRead !== 40945) {
+    throw new Error("usage did not carry the run's numbers: " + JSON.stringify(spend));
+  }
+  // The whole input side, because cache reads are nearly all of it in any
+  // agent loop and an "input" that left them out would read as almost free.
+  if (spend.readTotal !== 40947) {
+    throw new Error("readTotal must be input + cache read + cache write: " + JSON.stringify(spend));
+  }
+  if (spend.costUsd !== 0.008233 || spend.turns !== 1) {
+    throw new Error("usage lost the cost or the turn count: " + JSON.stringify(spend));
+  }
+  if (!Array.isArray(spend.models) || spend.models[0] !== "claude-sonnet-5") {
+    throw new Error("usage did not name the model: " + JSON.stringify(spend));
+  }
+  // A result with no usage at all must not invent one.
+  const bare = [];
+  const feed2 = makeCursorFeed((line) => bare.push(JSON.parse(line)));
+  feed2.feed(JSON.stringify({ type: "result", subtype: "success" }));
+  if (bare.some((e) => e.t === "usage")) {
+    throw new Error("a result with no usage reported one anyway: " + JSON.stringify(bare));
+  }
+  console.log("  spend       a finished run says what it cost: tokens, turns, model, dollars");
+}
+
+// WHAT IS LIVE RIGHT NOW. The page has three states and they used to be eight
+// scattered `disabled =` lines, which is how the gaps got there: Run left the
+// prompt live, an agent mid-build left Run pressable, and a start-over chip
+// during Run deleted the app out from under the app that was running.
+//
+// Asserted against the source rather than a browser, because the point is that
+// ONE function owns it — a second owner is exactly the regression.
+{
+  const page = fs.readFileSync(path.join(here, "web/index.html"), "utf8");
+  const start = page.indexOf("function setPhase(phase)");
+  if (start < 0) throw new Error("the page has no setPhase — the phase table is gone");
+  const fn = page.slice(start, page.indexOf("// One line under the phone", start));
+  const must = [
+    ["edits are blocked unless idle", /const canEdit = idle;/],
+    ["the prompt field is disabled, not just its button", /\$\("prompt"\)\.disabled = !canEdit;/],
+    ["start-over chips follow canEdit", /for \(const b of \$\("chips"\)/],
+    ["reset follows canEdit", /\$\("reset"\)\.disabled = !canEdit;/],
+    // Not `!idle`: leaving Run has to stay possible while in Run.
+    ["Run is blocked while working and not while running", /\$\("run"\)\.disabled = working;/],
+    ["the spinner is the working phase", /spin\(working\);/],
+  ];
+  for (const [what, re] of must) {
+    if (!re.test(fn)) throw new Error("the phase table no longer says: " + what);
+  }
+  // A disabled submit button does not stop Enter in the field, so the handler
+  // has to check the phase itself.
+  if (!/if \(uiPhase !== "idle"\) return;\s*\n\s*start\(true\);/.test(page)) {
+    throw new Error("the submit handler does not guard on the phase");
+  }
+  // Reset leaves Run first: `resetSession` deletes app/, and an app running
+  // against a machine that is gone is the worst state this page can reach.
+  if (!/if \(runMode\) await leaveRun\(\);/.test(page)) {
+    throw new Error("reset does not leave Run mode before emptying the project");
+  }
+  console.log("  phases      idle / working / running, owned in one place");
+}
+
+// Reset empties the PROJECT, not just the picture: the app built from the old
+// screen goes too, or Run would drive states named after tabs that are gone.
+{
+  const dir = resetSession("settings");
+  fs.mkdirSync(path.join(dir, "app/pages"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "app/machine.json"), '{"id":"app"}\n');
+  resetSession("empty");
+  if (fs.existsSync(path.join(dir, "app"))) {
+    throw new Error("reset left the old app behind");
+  }
+  const doc = JSON.parse(fs.readFileSync(path.join(dir, "doc.evg.json"), "utf8"));
+  if ((doc.root.children || []).length !== 0) {
+    throw new Error("an emptied project is not empty: " + JSON.stringify(doc.root).slice(0, 120));
+  }
+  console.log("  reset       an empty project: blank canvas, and the old app thrown away");
+}
+
 const missing = agents.filter((a) => !a.available).map((a) => a.id);
 if (missing.length) {
   console.log("  skipped     " + missing.join(", ") + " (not on this machine)");

@@ -7,6 +7,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { frameDocument } from "./agents.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "../../..");
@@ -133,4 +134,49 @@ if (restyle.filter((e) => e.t === "frame").length < 3) {
   throw new Error("restyle: expected a frame per restyle step");
 }
 console.log("  restyle    gold + title + radius follow-up");
+
+// THE VIEWPORT IS A VIEW. A design has to be looked at as a phone, a tablet
+// on its side and a desktop, and none of those is an edit — the file keeps
+// the width it was drawn at. This pins both halves, because the cheap way to
+// implement a device picker is to rewrite the document and it would pass a
+// screenshot test while quietly destroying the design.
+{
+  const fixture = path.join(here, "fixtures/step1.evg.json");
+  const before = fs.readFileSync(fixture, "utf8");
+  const at = (view) => {
+    const events = frameDocument(fixture, view);
+    const frame = events.find((e) => e && e.t === "frame");
+    if (!frame) throw new Error("no frame at " + JSON.stringify(view));
+    return frame;
+  };
+  const own = at(null);
+  const tall = at({ width: 820, height: 1180 });
+  const wide = at({ width: 1440, height: 900 });
+  const sideways = at({ width: own.height, height: own.width });
+
+  if (tall.width !== 820 || tall.height !== 1180) {
+    throw new Error("a tablet viewport was not honoured: " + tall.width + "x" + tall.height);
+  }
+  if (wide.width !== 1440 || wide.height !== 900) {
+    throw new Error("a desktop viewport was not honoured: " + wide.width + "x" + wide.height);
+  }
+  if (sideways.width !== own.height || sideways.height !== own.width) {
+    throw new Error("landscape did not swap the sides: " + sideways.width + "x" + sideways.height);
+  }
+  // Half of one: asking for a width only leaves the height as drawn.
+  const halfway = at({ width: 1024, height: 0 });
+  if (halfway.width !== 1024 || halfway.height !== own.height) {
+    throw new Error("a width-only viewport changed the height: " + halfway.width + "x" + halfway.height);
+  }
+  // And the other half, which is the one that matters.
+  if (fs.readFileSync(fixture, "utf8") !== before) {
+    throw new Error("looking at a document at another size rewrote it");
+  }
+  const measured = frameDocument(fixture, { width: 1440, height: 900 }).find((e) => e && e.t === "measure");
+  if (!measured || measured.width !== 1440) {
+    throw new Error("measure described a different page than the frame: " + JSON.stringify(measured));
+  }
+  console.log("  viewport   phone, tablet, desktop and sideways — and the file unchanged");
+}
+
 console.log("ALL PASS — NDJSON stream, growing display lists, thinking tokens");

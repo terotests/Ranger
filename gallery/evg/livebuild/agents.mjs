@@ -253,8 +253,15 @@ function looksLikeEvg(text) {
   }
 }
 
-function frameFile(docPath, onLine, { quiet = false } = {}) {
-  const r = spawnSync("node", [liveBin, "frame", docPath], {
+// `view` is the viewport to lay the document out at — a phone, a tablet
+// turned sideways, a desktop. It is a VIEW: the size is applied to a copy on
+// its way to the layout, so a document drawn at 390 is still a document drawn
+// at 390 after you have looked at it on a desktop.
+function frameFile(docPath, onLine, { quiet = false, view = null } = {}) {
+  const size = [];
+  if (view && view.width > 0) size.push(`--width=${Math.round(view.width)}`);
+  if (view && view.height > 0) size.push(`--height=${Math.round(view.height)}`);
+  const r = spawnSync("node", [liveBin, "frame", docPath, ...size], {
     cwd: root,
     encoding: "utf8",
     maxBuffer: 20 * 1024 * 1024,
@@ -1057,7 +1064,7 @@ export function seedDoc(kind = "empty") {
 // One document, laid out and framed, for a caller that has a file rather than
 // a seed kind. The app door uses it: the page it renders is a document like
 // any other, and the painter in the browser is the one already there.
-export function frameDocument(file) {
+export function frameDocument(file, view = null) {
   const events = [];
   frameFile(file, (line) => {
     try {
@@ -1065,7 +1072,7 @@ export function frameDocument(file) {
     } catch {
       /* chatter */
     }
-  });
+  }, { view });
   return events;
 }
 
@@ -1436,9 +1443,14 @@ function spawnAgentProcess(id, bin, workspace, task, followUp = false) {
     );
   }
   if (id === "claude") {
+    // `text` gave a stream to watch and nothing else: no tool calls, and no
+    // usage, so a finished run could not say what it cost. `stream-json` is
+    // the same events Cursor already emits — the feed below parses one shape
+    // for both — and it ends with the run's usage. `--verbose` is what makes
+    // the CLI emit the events rather than only the final answer.
     return spawn(
       bin,
-      ["-p", task, "--output-format", "text", "--dangerously-skip-permissions"],
+      ["-p", task, "--output-format", "stream-json", "--verbose", "--dangerously-skip-permissions"],
       { cwd: workspace, env: process.env, stdio: ["ignore", "pipe", "pipe"] },
     );
   }
@@ -1467,6 +1479,11 @@ function spawnAgentProcess(id, bin, workspace, task, followUp = false) {
 // said and dropped. `think` — the thought, whole — is emitted when the thought
 // ends, which is the next tool call, the end of the turn, or the end of the
 // stream.
+// The agent CLIs whose stdout is the `stream-json` event stream rather than
+// plain text. They share the shape, so one parser reads both — and both end a
+// run with the usage that `t:"usage"` carries to the page.
+const STREAM_JSON = new Set(["cursor", "claude"]);
+
 function makeCursorFeed(onLine) {
   let said = ""; // the thought so far, including the tail not yet emitted
   let tail = ""; // the last piece, which may still be half a word
@@ -1535,7 +1552,39 @@ function makeCursorFeed(onLine) {
       if (path) tokenize(String(path), onLine);
       return true;
     }
-    if (obj.type === "result") flush();
+    // WHAT THE RUN COST.
+    //
+    // Both CLIs end a `stream-json` run with a `result` event carrying the
+    // usage for the whole run. It was being dropped, so the one number a
+    // person actually wants after watching an agent build a screen — what it
+    // took to build it — was the one thing the tool could not say.
+    //
+    // Read defensively: the two CLIs agree on the event and not on every
+    // field, and a CLI that grows a field should not break a run.
+    if (obj.type === "result") {
+      flush();
+      const u = obj.usage || {};
+      const num = (v) => (typeof v === "number" && isFinite(v) ? v : 0);
+      const spend = {
+        input: num(u.input_tokens),
+        output: num(u.output_tokens),
+        cacheRead: num(u.cache_read_input_tokens),
+        cacheWrite: num(u.cache_creation_input_tokens),
+      };
+      const any = spend.input + spend.output + spend.cacheRead + spend.cacheWrite;
+      if (any > 0 || typeof obj.total_cost_usd === "number") {
+        const line = { t: "usage", ...spend };
+        line.readTotal = spend.input + spend.cacheRead + spend.cacheWrite;
+        if (typeof obj.total_cost_usd === "number") line.costUsd = obj.total_cost_usd;
+        if (typeof obj.num_turns === "number") line.turns = obj.num_turns;
+        if (typeof obj.duration_ms === "number") line.ms = obj.duration_ms;
+        // Which model, when the CLI says. `modelUsage` is keyed by model id.
+        const mu = obj.modelUsage && typeof obj.modelUsage === "object" ? Object.keys(obj.modelUsage) : [];
+        if (mu.length) line.models = mu;
+        onLine(ndjson(line));
+      }
+      return true;
+    }
     return true;
   };
 
@@ -1677,7 +1726,7 @@ export async function runWorkspaceAgent({ id, kind, prompt, seed, session = fals
         const line = buf.slice(0, nl);
         buf = buf.slice(nl + 1);
         if (!line.trim()) continue;
-        if (id === "cursor" && cursorFeed.feed(line)) continue;
+        if (STREAM_JSON.has(id) && cursorFeed.feed(line)) continue;
         tokenize(line, onLine);
       }
     });
@@ -1697,7 +1746,7 @@ export async function runWorkspaceAgent({ id, kind, prompt, seed, session = fals
     });
     child.on("close", (code) => {
       if (buf.trim()) {
-        if (!(id === "cursor" && cursorFeed.feed(buf))) tokenize(buf, onLine);
+        if (!(STREAM_JSON.has(id) && cursorFeed.feed(buf))) tokenize(buf, onLine);
       }
       cursorFeed.flush();
       stopWatch();
