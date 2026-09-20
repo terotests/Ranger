@@ -494,6 +494,36 @@ class EVGPatchTest {
         this.same("as did the key" readSide.key "side")
     }
 
+    ; WHAT A NODE IS survives the file. A document that cannot say "this is a
+    ; switch" leaves everything downstream guessing from the shape, and a
+    ; control drawn out of boxes is exactly the same shape as a real one.
+    fn testMeaningRoundTrip:void () {
+        print ""
+        print "-- what a node IS, written and read"
+        def root:EVGElement (this.build())
+        def card:EVGElement (itemAt root.children 0)
+        card.role = "switch"
+        card.a11yLabel = "Wi-Fi"
+        card.a11yChecked = 2
+        def kid:EVGElement (itemAt card.children 0)
+        kid.a11yHidden = true
+        def once:string (EVGTreeJson.toText(root))
+        this.ok("the role is in the file" ((indexOf once "\"role\":\"switch\"") >= 0))
+        def back@(optional):EVGElement (EVGTreeJson.fromText(once))
+        this.ok("it read back" ((null? back) == false))
+        if (null? back) {
+            return
+        }
+        def again:EVGElement (unwrap back)
+        def readCard:EVGElement (itemAt again.children 0)
+        this.same("the role survived" readCard.role "switch")
+        this.same("the name survived" readCard.a11yLabel "Wi-Fi")
+        this.ok("the state survived" (readCard.a11yChecked == 2))
+        def readKid:EVGElement (itemAt readCard.children 0)
+        this.ok("a part stays hidden from a reader" readKid.a11yHidden)
+        this.same("the two texts agree" (EVGTreeJson.toText(again)) once)
+    }
+
     fn testDefaultsAreNotWritten:void () {
         print ""
         print "-- a fresh tree says almost nothing"
@@ -633,6 +663,7 @@ class EVGPatchTest {
         this.testSetTextOnAParent()
         this.testInsert()
         this.testInsertSubtree()
+        this.testMeaningRoundTrip()
         this.testInsertUnknownTag()
         this.testRemoveAndRestore()
         this.testRemoveRoot()

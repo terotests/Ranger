@@ -749,6 +749,30 @@ than drawing a picture of one. A calendar or a data grid is weeks of work,
 and a drawing of one is worse than an honest "there is no calendar here yet":
 it looks finished and does nothing.
 
+### \`drawn\` in the measure is this, and it is not a style note
+
+\`measure\` names controls you drew out of boxes:
+
+\`\`\`json
+{"drawn":["0/3/4/1: a pill with a knob in it is a drawn switch — use the host's switch control, not boxes"]}
+\`\`\`
+
+It is the one defect these numbers can see and you cannot: the screen looks
+right and that part of it does nothing. Replace it where it stands — the
+path in the message is the node to take out, and the kit puts the real one
+back in the same place:
+
+\`\`\`sh
+./evg-ui add switch --name "Share network" --checked --at 0/3/4 --index 1 --into doc.evg.json > add.json
+node -e 'const a=require("./add.json");require("fs").writeFileSync("ops.json",JSON.stringify({ops:[{op:"remove",at:"0/3/4/1"}].concat(a.ops)}))'
+./evg-agent patch doc.evg.json ops.json
+\`\`\`
+
+Then restyle it into the screen's own palette with the sheet: the parts have
+classes, so \`.ui-switch-track { background-color: … }\` is the whole job and
+the control keeps working. \`drawn\` empty is the goal, the same way
+\`count: 0\` is.
+
 ## Effects: things CSS cannot draw
 
 \`evg-surface-effect\` names a shader that runs over the element's own

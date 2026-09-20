@@ -304,7 +304,10 @@ function add(type, props) {
   const control = controlOf(tree);
   const classes = [...classesIn(control)].filter((c) => c.startsWith("ui-"));
   const css = cssFor(classes);
-  const ops = [{ op: "insert", at: props.at || "0", index: props.index ?? 9999, node: control }];
+  // `--at` is the PARENT the control goes into and `--index` the slot in it;
+  // the default is the end of the root. Replacing a drawn control is a
+  // `remove` at its path followed by this insert at its parent and index.
+  const ops = [{ op: "insert", at: String(props.at ?? "0"), index: props.index ?? 9999, node: control }];
 
   // `--into` makes it a batch that can just be applied: the sheet the
   // document already has, plus the rules this control needs and does not

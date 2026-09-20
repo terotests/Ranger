@@ -911,6 +911,19 @@ class UiHost {
     ; the page paints, in the format every EVG tool reads, so a component can
     ; be painted, measured and put into a document without one.
     fn treeJson:string () {
+        ; WHAT each control is, written onto its elements before the document
+        ; is. A tree is otherwise a pile of boxes: a switch is a pill with a
+        ; knob in it, and nothing downstream — the accessibility tree, the
+        ; layout check that names controls somebody drew — can tell it from
+        ; one that was drawn. `dress` is what says so, and it is what every
+        ; page composing controllers into its own tree already calls.
+        def i:int 0
+        while (i < (array_length ctls)) {
+            def c:UiCtl (itemAt ctls i)
+            def el:EVGElement (unwrap c.rootEl)
+            UiTree.adoptRows(el (c.rows()))
+            i = (i + 1)
+        }
         def page:EVGElement (this.layout())
         return (EVGTreeJson.toText(page))
     }

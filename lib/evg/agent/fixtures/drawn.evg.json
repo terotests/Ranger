@@ -1,0 +1,14 @@
+{"evg":1,"root":{"tag":"div","props":{"display":"flex","width":"390px","height":"200px","padding-left":"16px","padding-top":"16px","gap":"12px"},"children":[
+  {"tag":"div","props":{"display":"flex","flex-direction":"row","align-items":"center","gap":"12px"},"children":[
+    {"tag":"span","text":"Share network","props":{"font-size":"15px"}},
+    {"tag":"div","props":{"display":"flex","align-items":"center","width":"48px","height":"28px","background-color":"rgb(120,140,210)","border-radius":"14px"},"children":[
+      {"tag":"div","props":{"width":"22px","height":"22px","background-color":"rgb(255,255,255)","margin-left":"22px","border-radius":"11px"}}
+    ]}
+  ]},
+  {"tag":"div","props":{"display":"flex","flex-direction":"row","align-items":"center","gap":"12px"},"children":[
+    {"tag":"div","role":"switch","label":"Wi-Fi","checked":2,"props":{"display":"flex","align-items":"center","width":"48px","height":"28px","background-color":"rgb(22,163,74)","border-radius":"14px"},"children":[
+      {"tag":"div","hidden":true,"props":{"width":"22px","height":"22px","background-color":"rgb(255,255,255)","margin-left":"22px","border-radius":"11px"}}
+    ]},
+    {"tag":"span","text":"Wi-Fi","props":{"font-size":"15px"}}
+  ]}
+]}}

@@ -40,6 +40,12 @@ class EVGMeasure {
     def findings:[string]
     def tight:[string]
     def align:[string]
+    ; Controls somebody DREW: a pill with a circle in it is a switch, a small
+    ; square with a tick in it is a checkbox. They are not defects — a picture
+    ; may want one — so they are not in `findings` and do not move `count`.
+    ; They are the one thing about a screen that a layout check can see and a
+    ; person cannot: it looks right, and nothing about it works.
+    def drawn:[string]
     def boxes:[string]
     def width:int 0
     def height:int 0
@@ -63,6 +69,8 @@ class EVGMeasure {
         tight = fresh2
         def fresh2b:[string]
         align = fresh2b
+        def fresh2c:[string]
+        drawn = fresh2c
         def fresh3:[string]
         boxes = fresh3
         width = w
@@ -91,6 +99,7 @@ class EVGMeasure {
                 this.checkSiblings(path el)
                 this.checkAlignment(path el)
                 this.checkAbsolutes(path el)
+                this.checkDrawnControl(path el)
                 ; The free space is the room left under the CONTENT, so a top
                 ; level node is not counted: a root that is the page itself
                 ; would answer 0 for every document and mean nothing by it.
@@ -137,6 +146,9 @@ class EVGMeasure {
         if ((array_length align) > 0) {
             out = ((out + ",\"align\":") + (EVGMeasure.strArray(align pretty)))
         }
+        if ((array_length drawn) > 0) {
+            out = ((out + ",\"drawn\":") + (EVGMeasure.strArray(drawn pretty)))
+        }
         if ((array_length boxes) > 0) {
             out = (out + ",\"boxes\":[")
             def i:int 0
@@ -168,6 +180,9 @@ class EVGMeasure {
         if hasFlow {
             out = ((out + ",\"bottomFree\":") + (EVGMeasure.num(bottomFree)))
         }
+        if ((array_length drawn) > 0) {
+            out = ((out + ",\"drawn\":") + (to_string (array_length drawn)))
+        }
         def n:int (array_length findings)
         if (n > 0) {
             def shown:int n
@@ -192,6 +207,125 @@ class EVGMeasure {
     }
 
     ; --- the checks -----------------------------------------------------------
+
+    ; --- a control somebody drew ----------------------------------------------
+    ; The one defect a layout check can see and a person cannot. A switch made
+    ; of a 48×28 pill with a 22px circle in it looks right in the picture and
+    ; is not a control: nothing presses it, it has no state to report, and a
+    ; reader is told about a box. Naming it is the whole job here — what to
+    ; use instead is the host's business, because this engine does not know
+    ; which kit is on the other side of it.
+
+    sfn radiusPx:double (el:EVGElement) {
+        def r:EVGUnit el.box.borderRadius
+        if r {
+            if r.isSet {
+                return r.pixels
+            }
+        }
+        return 0.0
+    }
+
+    ; Round enough that somebody meant a circle or a pill.
+    sfn isRound:boolean (el:EVGElement) {
+        def h:double el.calculatedHeight
+        if (h < 6.0) {
+            return false
+        }
+        return ((EVGMeasure.radiusPx(el)) >= ((h * 0.5) - 1.5))
+    }
+
+    sfn hasWords:boolean (el:EVGElement) {
+        if ((strlen (trim el.textContent)) > 0) {
+            return true
+        }
+        def i:int 0
+        while (i < (array_length el.children)) {
+            def c:EVGElement (itemAt el.children i)
+            if (EVGMeasure.hasWords(c)) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; Whether something in this node's ancestry already SAYS it is a control.
+    ; A real one declares a role and hides its parts from the reader, and its
+    ; track is a pill with a knob in it like any drawn switch — the difference
+    ; is exactly that it said so.
+    fn claimedByControl:boolean (path:string el:EVGElement) {
+        if (el.a11yHidden) {
+            return true
+        }
+        def at:string path
+        def guard:int 0
+        while ((guard < 32) && ((strlen at) > 0)) {
+            def hit@(optional):EVGElement (insp.elementAt(at))
+            if (null? hit) {
+                return false
+            }
+            def node:EVGElement (unwrap hit)
+            if ((strlen node.role) > 0) {
+                return true
+            }
+            if (node.a11yFocusable) {
+                return true
+            }
+            at = (insp.parentOf(at))
+            guard = (guard + 1)
+        }
+        return false
+    }
+
+    fn checkDrawnControl:void (path:string el:EVGElement) {
+        if ((array_length el.children) != 1) {
+            return
+        }
+        if (this.claimedByControl(path el)) {
+            return
+        }
+        def kid:EVGElement (itemAt el.children 0)
+        def w:double el.calculatedWidth
+        def h:double el.calculatedHeight
+        def kw:double kid.calculatedWidth
+        def kh:double kid.calculatedHeight
+        if ((h < 12.0) || (h > 44.0)) {
+            return
+        }
+        if ((kh < 6.0) || (kw < 6.0)) {
+            return
+        }
+        ; A SWITCH: a pill about twice as wide as it is tall, with one round
+        ; knob inside it that nearly fills its height and says nothing.
+        if (EVGMeasure.isRound(el)) {
+            if (EVGMeasure.isRound(kid)) {
+                def ratio:double (w / h)
+                def fill:double (kh / h)
+                if ((ratio > 1.35) && (ratio < 2.6) && (fill > 0.55) && (fill < 0.95)) {
+                    if ((EVGMeasure.hasWords(kid)) == false) {
+                        push drawn (path + ": a pill with a knob in it is a drawn switch — use the host's switch control, not boxes")
+                        return
+                    }
+                }
+            }
+        }
+        ; A CHECKBOX: a small square-ish box with a tick drawn or typed in it.
+        def square:double (w / h)
+        if ((square > 0.75) && (square < 1.35) && (h >= 14.0) && (h <= 34.0)) {
+            def mark:boolean false
+            if ((strlen kid.svgPath) > 0) {
+                mark = true
+            }
+            def t:string (trim kid.textContent)
+            if ((t == "✓") || (t == "✔") || (t == "×") || (t == "x") || (t == "-") || (t == "–")) {
+                mark = true
+            }
+            if mark {
+                push drawn (path + ": a box with a tick in it is a drawn checkbox — use the host's checkbox control, not boxes")
+            }
+        }
+    }
 
     fn checkOffPage:void (path:string el:EVGElement w:double h:double) {
         ; A `path` carries its geometry in `d` and its box is 0x0, so every
