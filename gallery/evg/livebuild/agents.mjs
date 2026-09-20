@@ -746,6 +746,37 @@ the gap. A whole settings card is one command:
 \`row\`, \`card\`, \`appbar\`, \`chips\` and \`field\` are the pieces;
 \`./evg-ui list\` has them at the top and \`spec\` says what each takes.
 
+### A control on a SCREEN is a picture. In an APP it can work.
+
+A switch dropped into \`doc.evg.json\` looks right, says what it is to a
+reader, and does nothing when pressed: one screen has nothing to remember
+with. What makes it work is the machine — and two things you have to give it:
+
+1. **An id**, which is the event its press sends: \`--id toggle.wifi\`.
+2. **A binding**, which is where its state lives: \`--bind wifi\` writes
+   \`ui-switch-state-{wifi}\` instead of a fixed state word, and the app
+   fills \`{wifi}\` from the context on every render — in a class, not just
+   in text.
+
+Then the machine flips the key, and the switch moves:
+
+\`\`\`json
+"toggle.wifi": [
+  {"guard": {"is": {"context": "wifi"}, "equals": "checked"},
+   "actions": [{"assign": {"wifi": {"value": "unchecked"}}}]},
+  {"actions": [{"assign": {"wifi": {"value": "checked"}}}]}
+]
+\`\`\`
+
+The first alternative whose guard passes wins, so those two lines ARE a
+toggle. \`"is"\` asks whether a value equals a word; \`present\` and
+\`nonBlank\` only ask whether there is anything there, which a switch that
+is off still has.
+
+Without \`--bind\` the control is frozen in the state it was added in. With
+it, \`./evg-app press app toggle.wifi\` and \`./evg-app render app\` are how
+you check it moved, without a browser.
+
 \`add\` answers \`{tree, css, classes, ops}\`. The \`ops\` are a batch you can
 apply as it stands — a \`set-css\` carrying the rules the control needs on
 top of the sheet the document already has, and an \`insert\` carrying the

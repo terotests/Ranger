@@ -153,7 +153,11 @@ function buildTree(entry, props, css) {
     host.layout();
     host.click(String(step).replace("{tid}", fixtureFor(entry, props).controls[0].tid));
   }
-  const tree = JSON.parse(host.treeJson());
+  // The document gets the tree WITHOUT the sheet resolved into it: an inline
+  // property outranks every rule, so a control saved with its colours baked
+  // in is frozen in the state it was built in — it cannot be restyled and it
+  // cannot be bound to a machine. The classes and the rules do the work.
+  const tree = JSON.parse(host.plainTreeJson());
   const rows = JSON.parse(host.a11yJson());
   // The box the layout gave it, asked of the host rather than read off the
   // document: a document has no coordinates in it, which is the point of one.
@@ -173,6 +177,24 @@ function classesIn(node, out = new Set()) {
   for (const c of String(cls).split(/\s+/)) if (c) out.add(c);
   for (const kid of node.children || []) classesIn(kid, out);
   return out;
+}
+
+/**
+ * BIND THE STATE TO THE MACHINE. A control's state is a class — a switch is
+ * on because it carries `ui-switch-state-checked` — so a control put into a
+ * document is frozen in whatever state it was built in. `--bind wifi` writes
+ * `{wifi}` where that word is, and an app fills it from its context on every
+ * render: press the switch, the machine flips the key, the switch moves.
+ *
+ * Without this the control is a picture with a real name: its press IS an
+ * event and the machine takes it, and nothing on the screen can change.
+ */
+function bindState(node, key) {
+  const cls = (node.props && node.props["class-name"]) || "";
+  if (cls) {
+    node.props["class-name"] = cls.replace(/-state-[a-z]+/g, `-state-{${key}}`).replace(/\bstate-[a-z]+\b/g, `state-{${key}}`);
+  }
+  for (const kid of node.children || []) bindState(kid, key);
 }
 
 /** The control itself, out of the page-and-root wrapper this tool builds. */
@@ -219,6 +241,15 @@ function rulesOf(css) {
 function cssFor(classes) {
   const sheet = fs.readFileSync(THEME, "utf8");
   const wanted = new Set(classes);
+  // A BOUND control carries `ui-switch-state-{wifi}` rather than one state
+  // word, so slicing by the classes it happens to have would take the rules
+  // for none of its states and the control could never look on. Every state
+  // of a bound part comes along.
+  const prefixes = [];
+  for (const c of classes) {
+    const at = c.indexOf("-state-{");
+    if (at > 0) prefixes.push(c.slice(0, at + "-state-".length));
+  }
   const out = [];
   // A rule is `selectors { body }`; comments are dropped. Good enough for a
   // sheet this one writes and this one reads.
@@ -231,9 +262,11 @@ function cssFor(classes) {
       .split(",")
       .map((s) => s.trim())
       .filter((s) => {
-        const names = [...s.matchAll(/\.([A-Za-z0-9_-]+)/g)].map((x) => x[1]);
+        const names = [...s.matchAll(/\.([A-Za-z0-9_{}-]+)/g)].map((x) => x[1]);
+        if (!names.length) return false;
+        const last = names[names.length - 1];
         // A `.theme-x .a` rule is kept when `.a` is ours; a plain `.a` the same.
-        return names.length > 0 && wanted.has(names[names.length - 1]);
+        return wanted.has(last) || prefixes.some((p) => last.startsWith(p));
       });
     if (kept.length) out.push(`${kept.join(",\n")} {${m[2]}}`);
   }
@@ -276,6 +309,7 @@ function rowEnd(props) {
     tid: props.id ? `${props.id}.control` : undefined,
     checked: props.checked ?? false,
     disabled: props.disabled,
+    bind: props.bind,
   });
   return built.tree;
 }
@@ -291,6 +325,7 @@ const PATTERNS = {
       checked: { type: "boolean", note: "for switch and checkbox; naming it implies control=switch" },
       value: { type: "string", note: "for control=value — \"5 GHz\"" },
       id: { type: "string", note: "the row's id, and the control's is <id>.control" },
+      bind: { type: "string", note: "a context key — the control's state comes from the machine, and a press can change it" },
     },
     build(props) {
       const row = n(
@@ -594,6 +629,7 @@ function add(type, props) {
   const { tree, rows } = buildTree(entry, props);
   // The page wrapper is this tool's; what the caller wants is the control.
   const control = controlOf(tree);
+  if (props.bind) bindState(control, props.bind);
   const classes = [...classesIn(control)].filter((c) => c.startsWith("ui-"));
   const css = cssFor(classes);
   // `--at` is the PARENT the control goes into and `--index` the slot in it;

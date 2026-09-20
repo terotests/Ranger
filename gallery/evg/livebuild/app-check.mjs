@@ -235,4 +235,85 @@ fs.rmSync(broken, { recursive: true, force: true });
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+// A CONTROL THAT WORKS. A switch put on a screen used to be a picture with a
+// real name: its press was an event and the machine took it, and nothing on
+// the screen could move, because a control's state is a CLASS and only text
+// was bound to the context. This is the whole chain in one check — the kit
+// writes the control, the machine flips the key, the render shows the other
+// state — and it is the difference between a screen of controls and a
+// drawing of one.
+{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "evg-app-bound-"));
+  fs.mkdirSync(path.join(dir, "pages"), { recursive: true });
+  const page = path.join(dir, "pages/settings.evg.json");
+  fs.writeFileSync(
+    page,
+    JSON.stringify({
+      evg: 1,
+      css: "",
+      root: { tag: "div", props: { display: "flex", width: "390px", height: "160px" }, children: [] },
+    }),
+  );
+  const kit = path.join(root, "gallery/ui/kit/ui_kit.mjs");
+  const added = spawnSync(
+    process.execPath,
+    [kit, "add", "row", "--title", "Wi-Fi", "--control", "switch", "--checked", "--id", "toggle.wifi", "--bind", "wifi", "--into", page],
+    { cwd: root, encoding: "utf8", timeout: 180000 },
+  );
+  const batch = JSON.parse(added.stdout || "{}");
+  if (!batch.ops) throw new Error("the kit did not answer a batch: " + (added.stderr || added.stdout));
+  const ops = path.join(dir, "ops.json");
+  fs.writeFileSync(ops, JSON.stringify({ ops: batch.ops }));
+  const agent = path.join(root, "lib/evg/bin/evg_agent.js");
+  if (fs.existsSync(agent)) {
+    spawnSync(process.execPath, [agent, "patch", page, ops], { cwd: root, encoding: "utf8", timeout: 180000 });
+    const doc = fs.readFileSync(page, "utf8");
+    if (!doc.includes("ui-switch-track-state-{wifi}")) {
+      throw new Error("the control's state is not bound to the machine: " + doc.slice(0, 400));
+    }
+    // The paint has to come from the RULES, not from properties baked into
+    // the node — an inline colour outranks every rule, and a control saved
+    // that way is frozen in the state it was built in.
+    if (/"background-color":"rgb\(22,163,74\)"/.test(doc)) {
+      throw new Error("the control was saved with its colours resolved into it");
+    }
+    fs.writeFileSync(
+      path.join(dir, "machine.json"),
+      JSON.stringify({
+        id: "bound",
+        initial: "settings",
+        context: { wifi: "checked" },
+        states: {
+          settings: {
+            on: {
+              "toggle.wifi": [
+                { guard: { is: { context: "wifi" }, equals: "checked" }, actions: [{ assign: { wifi: { value: "unchecked" } } }] },
+                { actions: [{ assign: { wifi: { value: "checked" } } }] },
+              ],
+              "toggle.wifi.control": [
+                { guard: { is: { context: "wifi" }, equals: "checked" }, actions: [{ assign: { wifi: { value: "unchecked" } } }] },
+                { actions: [{ assign: { wifi: { value: "checked" } } }] },
+              ],
+            },
+          },
+        },
+      }),
+    );
+    const pressed = app("press", dir, "toggle.wifi");
+    if ((pressed.context || {}).wifi !== "unchecked") {
+      throw new Error("a press did not flip the control: " + JSON.stringify(pressed.context));
+    }
+    const twice = app("press", dir, "toggle.wifi", "toggle.wifi");
+    if ((twice.context || {}).wifi !== "checked") {
+      throw new Error("two presses did not come back: " + JSON.stringify(twice.context));
+    }
+    const shown = spawnSync(process.execPath, [bin, "render", dir], { cwd: root, encoding: "utf8" }).stdout || "";
+    if (!shown.includes("ui-switch-track-state-checked")) {
+      throw new Error("the render did not fill the state in from the context");
+    }
+    console.log("  bound       a switch the machine owns: press it and the screen moves");
+  }
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
 console.log("ALL PASS — a machine, a page per state, a model that agrees with itself, a memory that does not rot");

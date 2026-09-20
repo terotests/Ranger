@@ -910,13 +910,27 @@ class UiHost {
     ; for as long as it was: nothing headless drew one. This is the same tree
     ; the page paints, in the format every EVG tool reads, so a component can
     ; be painted, measured and put into a document without one.
-    fn treeJson:string () {
-        ; WHAT each control is, written onto its elements before the document
-        ; is. A tree is otherwise a pile of boxes: a switch is a pill with a
-        ; knob in it, and nothing downstream — the accessibility tree, the
-        ; layout check that names controls somebody drew — can tell it from
-        ; one that was drawn. `dress` is what says so, and it is what every
-        ; page composing controllers into its own tree already calls.
+    ; The same tree, WITHOUT the stylesheet run over it. `treeJson` writes
+    ; what the sheet resolved — every colour and every offset inline — which
+    ; is right for a picture and wrong for a document: an inline property
+    ; outranks every rule, so a control saved that way is frozen in the state
+    ; it was built in. A document gets the classes and its own copy of the
+    ; rules instead, which is what makes a control both restyleable and
+    ; bindable to a machine's context.
+    fn plainTreeJson:string () {
+        this.dressAll()
+        def r:EVGElement (unwrap root)
+        def page (EVGElement.createDiv())
+        page.id = "page"
+        page.width = (EVGUnit.px(pageWidth))
+        page.height = (EVGUnit.px(pageHeight))
+        page.addChild(r)
+        return (EVGTreeJson.toText(page))
+    }
+
+    ; WHAT each control is, written onto its elements: the row it reports,
+    ; adopted onto the element that carries its id.
+    fn dressAll:void () {
         def i:int 0
         while (i < (array_length ctls)) {
             def c:UiCtl (itemAt ctls i)
@@ -924,6 +938,16 @@ class UiHost {
             UiTree.adoptRows(el (c.rows()))
             i = (i + 1)
         }
+    }
+
+    fn treeJson:string () {
+        ; WHAT each control is, written onto its elements before the document
+        ; is. A tree is otherwise a pile of boxes: a switch is a pill with a
+        ; knob in it, and nothing downstream — the accessibility tree, the
+        ; layout check that names controls somebody drew — can tell it from
+        ; one that was drawn. `dress` is what says so, and it is what every
+        ; page composing controllers into its own tree already calls.
+        this.dressAll()
         def page:EVGElement (this.layout())
         return (EVGTreeJson.toText(page))
     }

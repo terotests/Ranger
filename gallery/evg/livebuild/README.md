@@ -199,6 +199,14 @@ the control as a **subtree** — `EVGPatch`'s `insert` learned to take one for
 this, because a control is a tree and an agent that can only insert one empty
 node at a time builds a drawing instead.
 
+**A control on one screen is a picture; in an app it works.** Give it an id
+(`--id toggle.wifi`, the event its press sends) and a binding (`--bind wifi`,
+which writes `ui-switch-state-{wifi}` and lets the app fill it from the
+context on every render), and the machine can flip it with two guarded
+alternatives — `{"is": {"context":"wifi"}, "equals":"checked"}` is the
+predicate a toggle needs, and it is new. Without the binding the control is
+frozen in the state it was added in.
+
 The parts keep their own classes (`ui-switch-track`, `ui-switch-thumb`,
 `ui-checkbox-box`, `ui-checkbox-mark`), so restyling one is editing rules, not
 redrawing boxes. What the kit does not have, the guide tells the agent to say

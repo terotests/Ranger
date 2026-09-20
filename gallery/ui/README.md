@@ -75,6 +75,35 @@ npm run ui:kit add switch --name "Wi-Fi" --checked --into doc.evg.json
 npm run ui:kit shot checkbox --out cb.png    a picture, headless
 ```
 
+### Does a control put into a document actually work?
+
+On ONE SCREEN, no: it looks right, it reports the right role, name and state
+to a reader, and pressing it does nothing, because a screen has nothing to
+remember with. In an APP it does, and it needs two things to:
+
+```bash
+npm run ui:kit add row --title "Wi-Fi" --control switch --checked \
+  --id toggle.wifi --bind wifi --into pages/settings.evg.json
+```
+
+- `--id` is the event a press sends to the machine.
+- `--bind` is where the state lives: the control is written with
+  `ui-switch-state-{wifi}` instead of a state word, and the app fills
+  `{wifi}` from its context on every render.
+
+The machine flips the key with two guarded alternatives — the first whose
+guard passes wins, so those two lines are a toggle — and the switch moves.
+`livebuild:app` checks that whole chain: the kit writes it, a press flips it,
+the render shows the other state.
+
+Two things had to change for that to be true. `EvgAppTool` bound `{key}` in
+TEXT only, so a document could show a number from the context and not a
+control's state. And the kit wrote its controls with the stylesheet already
+resolved into them, which is right for a picture and wrong for a document:
+an inline property outranks every rule, so a control saved that way is frozen
+in the state it was built in. `UiHost.plainTreeJson` is the tree with the
+classes and none of the paint.
+
 ### The pieces, not the parts
 
 A control is not what anybody builds. They build a ROW — an icon, a title
