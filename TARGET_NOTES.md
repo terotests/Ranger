@@ -1209,6 +1209,45 @@ PHP, a surrogate-aware walk on C#, and `Array.from` elsewhere.
 
 `tests/string-index-semantics.test.ts` pins both halves across seven targets.
 
+### A `charbuffer` is UTF-8 bytes, on every target
+
+`to_charbuffer` is the explicit conversion -- the program asks for the
+indexable view by name and pays for it once -- so it is the one place where a
+single portable unit can be promised, and it was not keeping the promise.
+Measured with `tests/fixtures/charbuffer_units.rgr`, `"a-dash-b"` (U+2014)
+came back as 3 units on JavaScript, Kotlin and Dart (UTF-16), 3 on Python
+(code points) and 5 on Go, C++, PHP, C#, Rust and Swift 3 (bytes), and on
+Scala a `toByte` cast truncated everything above U+00FF. Running the fixture
+found three more holes the table of models did not predict:
+
+- `to_string` on a charbuffer did not COMPILE on Rust, Java or Kotlin. The
+  `*` fallback passed the buffer through where a string was wanted, so
+  `Vec<u8>` reached `println!("{}")` and `byte[]` reached an `Integer`.
+- `charAt` on a charbuffer returned a SIGNED byte on the JVM targets: every
+  byte above U+007F answered negative where the operator is declared to
+  return 0..255.
+- Swift 6 had no `to_charbuffer` template at all and inherited the
+  passthrough.
+
+All of it is UTF-8 bytes now: `Uint8Array` on JavaScript and TypeScript,
+`bytes` on Python, `ByteArray` on Kotlin, and the byte array the other ten
+already had. `to_charbuffer` encodes UTF-8 explicitly -- Java used the
+platform default charset, which is whatever `file.encoding` happens to be --
+and `to_string`, `substring` and `charAt` decode it rather than reading the
+bytes as code units.
+
+This matters beyond the operator: `RangerLispParser` holds the source it is
+parsing in a charbuffer, so the JavaScript self-host now scans the same bytes
+the C++ one does. It costs nothing measurable -- the JavaScript compile of the
+compiler is 9.2 s against 9.7 s before -- because one `TextDecoder` for the
+process is cheaper than the string slicing it replaced.
+
+`tests/charbuffer-units.test.ts` asserts the agreement on every target with a
+toolchain, and unlike `tests/string-units.test.ts` -- which characterises a
+disagreement that is still there on `string` -- this one demands they match.
+`docs/plans/PLAN_STRING_INDEXING.md` is the plan the rest of that work
+follows.
+
 ### How long the compiler takes to compile itself
 
 Same input (`./compiler/Compiler.rgr` to ES6), same machine, a 4-core Xeon at

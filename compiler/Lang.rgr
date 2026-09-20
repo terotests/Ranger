@@ -6290,20 +6290,36 @@ static bool r_regex_test_i(string pattern, string s) {
             templates {
                 ranger ( "(substring " (e 1) " " (e 2) " " (e 3) ")") 
                 csharp ( "System.Text.Encoding.UTF8.GetString(" (e 1) ", " (e 2) ", " (e 3) " - " (e 2) ")" )
-                scala ( "new String(" (e 1) ".slice(" (e 2) ", " (e 3) ").map(_.toChar) )")
-                java7 ( "new String(" (e 1) "," (e 2) ", " (e 3) " - " (e 2) " )")
+                ; the bytes are UTF-8, so they are decoded as UTF-8 -- a
+                ; byte-to-char cast reads them as Latin-1 and mangles
+                ; everything above U+007F
+                scala ( "new String(" (e 1) ".slice(" (e 2) ", " (e 3) "), \"UTF-8\")")
+                java7 ( "new String(" (e 1) "," (e 2) ", " (e 3) " - " (e 2) ", java.nio.charset.StandardCharsets.UTF_8)")
                 swift3 ( "String(data: Data(bytes:" (e 1) "[" (e 2) " ..< " (e 3) "]), encoding: .utf8)!"  (imp "Foundation"))
                 swift6 ( "String(data: Data(" (e 1) "[" (e 2) " ..< " (e 3) "]), encoding: .utf8)!"  (imp "Foundation"))
-                kotlin ( "String(" (e 1) "," (e 2) ", " (e 3) " - " (e 2) " )")           
+                kotlin ( "String(" (e 1) "," (e 2) ", " (e 3) " - " (e 2) ", Charsets.UTF_8)")           
                 go ( "fmt.Sprintf(\"%s\", " (e 1) "[" (e 2) ":" (e 3) "])"               
                  (imp "fmt")
                 )
                 cpp ( "std::string( " (e 1) " + " (e 2) ", " (e 3) " - " (e 2) " )")
-                ; a charbuffer is List<int> on Dart, so the `*` fallback (the
-                ; JavaScript String.substring) does not apply to it
-                dart ( "String.fromCharCodes(" (e 1) ".sublist(" (e 2) ", " (e 3) "))" )
-                ; ...and a str on Python, where the slice is the substring
-                python ( (e 1) "[" (e 2) ":" (e 3) "]" )
+                ; a charbuffer is a List<int> of BYTES on Dart, so the `*`
+                ; fallback (the JavaScript String.substring) does not apply to
+                ; it, and the bytes have to be decoded rather than read as
+                ; code units
+                dart ( (imp "dart:convert") "utf8.decode(" (e 1) ".sublist(" (e 2) ", " (e 3) "))" )
+                ; ...and `bytes` on Python, where slicing gives bytes back
+                python ( (e 1) "[" (e 2) ":" (e 3) "].decode(\"utf-8\")" )
+                ; ...and a Uint8Array on JavaScript, where it is neither a
+                ; string nor sliceable with String.substring
+                es6 ( "r_cb_dec.decode(" (e 1) ".subarray(" (e 2) ", " (e 3) "))"
+(create_polyfill "
+// A charbuffer is UTF-8 bytes on every target, so it is a Uint8Array here
+// rather than the string it used to be. One encoder and one decoder for the
+// process: constructing them per call is most of the cost of a short slice.
+const r_cb_enc = new TextEncoder();
+const r_cb_dec = new TextDecoder();
+")
+                )
                 php ( "substr(" (e 1) ", " (e 2) ", " (e 3) " - " (e 2) ")") 
                 ; a charbuffer is Vec<u8> on Rust: slice the bytes and read
                 ; them back as UTF-8. The `*` fallback is JavaScript's String
@@ -6317,8 +6333,26 @@ static bool r_regex_test_i(string pattern, string s) {
             templates {      
                 ranger ( "(to_string " (e 1) ")")
                 go ( "string(" (e 1) ")" )
-                dart ( "String.fromCharCodes(" (e 1) ")" )
+                dart ( (imp "dart:convert") "utf8.decode(" (e 1) ")" )
                 csharp ( "System.Text.Encoding.UTF8.GetString(" (e 1) ")" )
+                python ( (e 1) ".decode(\"utf-8\")" )
+                es6 ( "r_cb_dec.decode(" (e 1) ")"
+(create_polyfill "
+// A charbuffer is UTF-8 bytes on every target, so it is a Uint8Array here
+// rather than the string it used to be. One encoder and one decoder for the
+// process: constructing them per call is most of the cost of a short slice.
+const r_cb_enc = new TextEncoder();
+const r_cb_dec = new TextDecoder();
+")
+                )
+                rust ( "String::from_utf8_lossy(&" (e 1) ").to_string()" )
+                java7 ( "new String(" (e 1) ", java.nio.charset.StandardCharsets.UTF_8)" )
+                kotlin ( "String(" (e 1) ", Charsets.UTF_8)" )
+                scala ( "new String(" (e 1) ", \"UTF-8\")" )
+                swift3 ( "String(decoding: " (e 1) ", as: UTF8.self)" )
+                swift6 ( "String(decoding: " (e 1) ", as: UTF8.self)" )
+                ; cpp (const char*) and php (a byte string) already ARE the
+                ; text; everything else has to decode it
                 * ( (e 1) )
             }
         }     
@@ -6326,27 +6360,68 @@ static bool r_regex_test_i(string pattern, string s) {
         toString   bufferToString:string       ( text:charbuffer ) { 
             templates {      
                 go ( "string(" (e 1) ")" )
-                dart ( "String.fromCharCodes(" (e 1) ")" )
+                dart ( (imp "dart:convert") "utf8.decode(" (e 1) ")" )
                 csharp ( "System.Text.Encoding.UTF8.GetString(" (e 1) ")" )
+                python ( (e 1) ".decode(\"utf-8\")" )
+                es6 ( "r_cb_dec.decode(" (e 1) ")"
+(create_polyfill "
+// A charbuffer is UTF-8 bytes on every target, so it is a Uint8Array here
+// rather than the string it used to be. One encoder and one decoder for the
+// process: constructing them per call is most of the cost of a short slice.
+const r_cb_enc = new TextEncoder();
+const r_cb_dec = new TextDecoder();
+")
+                )
+                rust ( "String::from_utf8_lossy(&" (e 1) ").to_string()" )
+                java7 ( "new String(" (e 1) ", java.nio.charset.StandardCharsets.UTF_8)" )
+                kotlin ( "String(" (e 1) ", Charsets.UTF_8)" )
+                scala ( "new String(" (e 1) ", \"UTF-8\")" )
+                swift3 ( "String(decoding: " (e 1) ", as: UTF8.self)" )
+                swift6 ( "String(decoding: " (e 1) ", as: UTF8.self)" )
+                ; cpp (const char*) and php (a byte string) already ARE the
+                ; text; everything else has to decode it
                 * ( (e 1) )
             }
         }        
 
+        ; A charbuffer is the text's UTF-8 BYTES, on every target. That is the
+        ; one unit every host can represent exactly: a UTF-16 target cannot
+        ; hold a lone code point above the BMP in one unit, and a code point
+        ; target cannot hold a surrogate half, but every one of them can hold
+        ; a byte. It is also the unit the round trip is defined in -- bytes
+        ; sliced apart and concatenated back give the text again -- which is
+        ; what `RangerLispParser` scans source code with.
+        ; It used to be whatever each host's string happened to be made of:
+        ; UTF-16 units on JavaScript, Kotlin and Dart, code points on Python,
+        ; bytes everywhere else, and on Scala `toCharArray.map(_.toByte)`,
+        ; which silently truncates anything above U+00FF.
+        ; docs/plans/PLAN_STRING_INDEXING.md 2.3.
         to_charbuffer      cmdToCharBuffer:charbuffer       ( text:string ) { 
             templates {
                 ranger ( "(to_charbuffer " (e 1) ")") 
                 swift3 ( "Array(" (e 1) ".utf8)" )
-                scala ( (e 1) ".toCharArray.map(_.toByte)")
-                java7 ( (e 1) ".getBytes()" )
+                swift6 ( "Array(" (e 1) ".utf8)" )
+                scala ( (e 1) ".getBytes(\"UTF-8\")")
+                java7 ( (e 1) ".getBytes(java.nio.charset.StandardCharsets.UTF_8)" )
                 csharp ( "System.Text.Encoding.UTF8.GetBytes(" (e 1) ")" )
-                kotlin ( (e 1 ) ".toCharArray()" )
+                kotlin ( (e 1 ) ".toByteArray(Charsets.UTF_8)" )
                 ; as_bytes/to_vec, not into_bytes: the source may be a
                 ; borrowed &str, and into_bytes consumes an owned String
                 rust ( (e 1) ".as_bytes().to_vec()")
                 cpp ( (e 1) ".c_str()")
-                dart ( (e 1) ".codeUnits" )
+                dart ( (imp "dart:convert") "utf8.encode(" (e 1) ")" )
                 php ( (e 1) )
                 go("[]byte(" (e 1) ")")
+                python ( (e 1) ".encode(\"utf-8\")" )
+                es6 ( "r_cb_enc.encode(" (e 1) ")"
+(create_polyfill "
+// A charbuffer is UTF-8 bytes on every target, so it is a Uint8Array here
+// rather than the string it used to be. One encoder and one decoder for the
+// process: constructing them per call is most of the cost of a short slice.
+const r_cb_enc = new TextEncoder();
+const r_cb_dec = new TextDecoder();
+")
+                )
                 * ( (e 1) )
             }
         }
@@ -7365,14 +7440,18 @@ std::vector<std::string> r_get_keys_of_map( const M & orig_map )  {
                 ; a charbuffer is List<int> on Dart: index it, do not call
                 ; codeUnitAt (which is the String overload's entry)
                 dart ( (e 1) "[" (e 2) "]" )
-                python ( "ord(" (e 1) "[" (e 2) "])" )
+                ; `bytes` on Python: indexing one already gives the int
+                python ( (e 1) "[" (e 2) "]" )
+                ; a Uint8Array on JavaScript, so index it rather than falling
+                ; through to the String.charCodeAt below
+                es6 ( (e 1) "[" (e 2) "]" )
                 csharp ( (e 1) "[" (e 2) "]")
                 php ( "ord(" (e 1) "[" (e 2) "])")               
-                java7 ( (e 1) "[" (e 2) "]")  
-                ; .code: a charbuffer is a CharArray on Kotlin, and `char` is an
-                ; integer code unit there as it is on every other target
-                kotlin ( (e 1) "[" (e 2) "].code")    
-                scala ( (e 1) "(" (e 2) ")")    
+                ; a byte is SIGNED on the JVM, so & 0xFF is what makes the
+                ; answer the 0..255 the operator is declared to return
+                java7 ( "((" (e 1) "[(int)" (e 2) "]) & 0xFF)")  
+                kotlin ( "(" (e 1) "[(" (e 2) ").toInt()].toInt() and 0xFF)")    
+                scala ( "(" (e 1) "(" (e 2) ".toInt()) & 0xFF)")    
                 go ( (e 1) "[" (e 2) "]")  
                 swift3 ( (e 1) "[" (e 2) "]")    
                 ; Vec<u8> on Rust, so index the byte; `char` is an integer

@@ -175,9 +175,11 @@ Its unit is not uniform:
 
 | Target | Produces |
 | --- | --- |
-| Rust, Go, C++, Java, C#, Swift, PHP | UTF-8 bytes |
-| Kotlin, Dart | UTF-16 code units |
+| Rust, Go, C++, C#, Swift 3, PHP | UTF-8 bytes |
+| Java | UTF-8 bytes, but via the **platform default charset** |
+| JavaScript, Kotlin, Dart | UTF-16 code units |
 | Python | the string itself (code points) |
+| Swift 6 | the string itself — the template was never written |
 | Scala | `toCharArray.map(_.toByte)` — **lossy above U+00FF** |
 
 It should be UTF-8 bytes everywhere. Only 9 `charbuffer` declarations and 21
@@ -235,12 +237,44 @@ rather than by reading.
 
 *Gate: the new tests run and fail for the reasons stated.*
 
-### Stage 1 — `to_charbuffer` becomes UTF-8 bytes everywhere
+### Stage 1 — `to_charbuffer` becomes UTF-8 bytes everywhere — **done**
 
-Fix Kotlin, Dart and Scala. 21 call sites, 9 declarations; Scala's is a
-correctness fix regardless of the rest of this plan.
+Measured rather than read this time: `tests/fixtures/charbuffer_units.rgr`
+runs the same `"a—b"` through `to_charbuffer`, `length`, `charAt`,
+`substring` and `to_string` on every target with a toolchain here, and
+`tests/charbuffer-units.test.ts` asserts they agree. That found more than the
+table above: **JavaScript** was UTF-16 as well (a charbuffer was the string
+itself), `to_string` on a charbuffer did not compile at all on Rust, Java and
+Kotlin because the fallback passed the buffer through where a string was
+wanted, and `charAt` on one returned a *signed* byte on Java, Kotlin and
+Scala.
 
-*Gate: the full suite, the eight self-host checks, `gallery/friendly`.*
+What changed:
+
+- `charbuffer` is UTF-8 bytes on all thirteen targets. Its type is now
+  `Uint8Array` on JavaScript and TypeScript, `bytes` on Python and
+  `ByteArray` on Kotlin; the others already held bytes.
+- `to_charbuffer` encodes UTF-8 explicitly — including Java, which used the
+  platform default charset, and Scala, whose `toByte` cast truncated anything
+  above U+00FF.
+- `to_string` / `toString` on a charbuffer decodes UTF-8 on every target
+  rather than falling through to a passthrough that did not typecheck.
+- `charAt` on a charbuffer masks with `0xFF` on the JVM targets, so the
+  answer is the 0..255 the operator is declared to return rather than a
+  negative number above U+007F.
+- `substring` on a charbuffer decodes UTF-8 rather than reading the bytes as
+  code units (Dart, Scala, Java, Kotlin) or as a string method that does not
+  exist on a byte array (JavaScript, Python).
+
+Nine targets now print the same five bytes for `"a—b"`. The compiler's own
+parser holds its source in a charbuffer, so this also means the JavaScript
+self-host scans the same bytes the C++ one does; the JavaScript compile is
+unchanged in speed (9.2 s against 9.7 s before), because one `TextDecoder` for
+the process costs less than the slicing it replaces.
+
+*Gate: the full suite, the self-host checks on cpp, go, python, csharp, java,
+kotlin and rust, `gallery/friendly`. Dart, Swift and Scala have no toolchain
+here and are read from the generated source.*
 
 ### Stage 2 — `to_chars` exists
 

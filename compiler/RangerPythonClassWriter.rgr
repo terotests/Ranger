@@ -702,6 +702,12 @@ class RangerPythonClassWriter {
       case "chararray" {
         return "bytearray"
       }
+      case "charbuffer" {
+        ; UTF-8 bytes: `str.encode` gives `bytes`, and indexing one gives the
+        ; byte as an int, which is what charAt on a charbuffer is declared to
+        ; return
+        return "bytes"
+      }
       case "buffer" {
         return "bytearray"
       }

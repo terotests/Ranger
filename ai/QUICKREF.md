@@ -248,6 +248,16 @@ scans with `charAt`, use `lib/evg/EVGCodepoint.rgr` for text that may not be
 ASCII, and see `docs/plans/PLAN_STRING_INDEXING.md` for the migration to one
 unit.
 
+`to_charbuffer` is the explicit byte view and DOES mean the same thing
+everywhere: UTF-8 bytes, indexed in O(1), on all thirteen targets.
+
+```ranger
+def b:charbuffer (to_charbuffer s)   ; UTF-8 bytes
+def n:int (length b)
+def c:int (charAt b 0)               ; 0..255
+def head:string (substring b 0 1)    ; decoded back to text
+```
+
 `charAt` is also **O(n) on Rust and Go** — `s.chars().nth(i)` and
 `[]rune(s)[i]` both walk from the start — so the ordinary
 `while (i < (strlen s)) { charAt s i }` loop is quadratic there.

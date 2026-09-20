@@ -9,6 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **A `charbuffer` is UTF-8 bytes on every target.** It used to be whatever
+  the host's string happened to be made of: UTF-16 units on JavaScript,
+  Kotlin and Dart, code points on Python, bytes on the other eight, and on
+  Scala a `toByte` cast that truncated anything above U+00FF. `to_charbuffer`
+  is the explicit conversion — the program asks for the indexable view by
+  name — so it is the one place a single portable unit can be promised, and
+  now it is: `"a—b"` is five bytes on all of them.
+
+  Measuring it with `tests/fixtures/charbuffer_units.rgr` turned up three
+  holes as well: `to_string` on a charbuffer did not compile on Rust, Java or
+  Kotlin, `charAt` on one returned a *signed* byte on the JVM targets, and
+  Swift 6 had no `to_charbuffer` template at all. Java's conversion used the
+  platform default charset rather than UTF-8.
+
+  A `charbuffer` is `Uint8Array` on JavaScript and TypeScript, `bytes` on
+  Python and `ByteArray` on Kotlin. `RangerLispParser` holds its source in
+  one, so the JavaScript self-host now scans the same bytes the C++ one does,
+  at the same speed. `tests/charbuffer-units.test.ts` asserts the agreement;
+  `docs/plans/PLAN_STRING_INDEXING.md` is the plan this is stage 1 of.
+
+- **What a `string` index means is now measured and written down.**
+  `strlen`, `charAt` and `substring` mean a UTF-16 code unit on six targets, a
+  Unicode code point on three and a UTF-8 byte on two, and nothing said so.
+  `tests/fixtures/string_units.rgr` and `tests/string-units.test.ts` pin each
+  target's answer, `gallery/friendly/bench/strscan.rgr` measures the other
+  half — the ordinary index scan is O(n²) on Rust and Go — and `ai/QUICKREF.md`
+  says both where `string` is documented. No behaviour changed; the defect is
+  visible now.
+
 - **Generated-code quality is three questions now, not one ranking.** The
   single ordering read as a verdict, and it was one reading of the generated
   files. It is split into correctness, speed and idiom, because a target can

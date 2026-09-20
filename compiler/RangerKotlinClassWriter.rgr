@@ -359,7 +359,8 @@ class RangerKotlinClassWriter {
         wr.out("Int" false)
       }
       case RangerNodeType.CharBuffer {
-        wr.out("CharArray" false)
+        ; a charbuffer is UTF-8 BYTES, not the UTF-16 units a CharArray holds
+        wr.out("ByteArray" false)
       }
       case RangerNodeType.Buffer {
         wr.out("ByteArray" false)
