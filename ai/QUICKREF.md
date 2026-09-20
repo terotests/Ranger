@@ -244,9 +244,12 @@ index-based scan over non-ASCII text lands in different places.
 
 `tests/fixtures/string_units.rgr` prints what the target it was compiled for
 actually does, and `tests/string-units.test.ts` pins it. Write ASCII-only
-scans with `charAt`, use `lib/evg/EVGCodepoint.rgr` for text that may not be
-ASCII, and see `docs/plans/PLAN_STRING_INDEXING.md` for the migration to one
-unit.
+scans with `charAt`, use `to_chars` for text that may not be ASCII, and see
+`docs/plans/PLAN_STRING_INDEXING.md` for the rest.
+
+`-strict-strings` lists the index sites in a program whose subject is not an
+ASCII literal, with file, line and a per-file count — the ones worth reading
+once to decide whether they walk structure or text.
 
 Two explicit conversions DO mean the same thing everywhere. `to_chars` is
 the portable indexable view — Unicode code points, built once in O(n) and

@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`-strict-strings` prints the string index sites that could be text.**
+  A `charAt` or `substring` on a `string` is an index in the target's own
+  unit, which is right for a scanner over ASCII structure and wrong for text
+  a human wrote. The flag walks every method body and reports the sites whose
+  subject it cannot prove is an ASCII literal — file, line, operator, subject,
+  then a per-file count. On the compiler's own sources: 322 of 342 sites, in
+  45 files, `CodeWriter.rgr` first with 44. What it proves is narrow on
+  purpose, so the list is an upper bound; the point is that it is a list.
+  It changes no output.
+
 - **The Rust rendering of the compiler compiles the compiler.** It had type-
   checked with zero rustc errors for years and aborted on the first file it
   was ever given, because `RefCell` checks at run time and the self-host gate
@@ -113,7 +123,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   *Speed* is new: `gallery/friendly/bench/` is the same Ranger program, five
   kernels, each timing itself with `wall_clock_ms`. Kernels only: C++ 260 ms,
   Kotlin 466, C# 663, Java 760, PHP 801, JavaScript 1076, Rust 2556,
-  Python 2566, Go 143882. Two of those are the compiler's doing and are
+  Python 2566, Go 143882. (Re-measured after the string-indexing work: C++
+  265, Rust 397, Kotlin 485, C# 684, Go 694, Java 753, PHP 786,
+  JavaScript 1040, Python 2607.) Two of those are the compiler's doing and are
   written down — `charAt` is O(n) on Go and Rust, and a Ranger map is a plain
   object on JavaScript.
 

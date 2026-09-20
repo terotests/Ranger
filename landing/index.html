@@ -268,12 +268,14 @@ Pricing.kt</code></pre>
     <p class="reveal">
       <strong>Fast.</strong> A five-kernel benchmark — arithmetic, arrays,
       strings, maps, objects — times itself on every target that builds here.
-      C++ is quickest at 260&nbsp;ms, then Kotlin 466, C# 663, Java 760,
-      PHP 801, JavaScript 1&nbsp;076, Rust 2&nbsp;556, Python 2&nbsp;566. Two of
-      those numbers are the compiler's fault rather than the language's, and
-      both are written down:
-      <code>charAt</code> is O(n) on Go and Rust, and a Ranger map is a plain
-      object on JavaScript.
+      C++ is quickest at 265&nbsp;ms, then Rust 397, Kotlin 485, C# 684,
+      Go 694, Java 753, PHP 786, JavaScript 1&nbsp;040, Python 2&nbsp;607.
+      A number that is the compiler's fault rather than the language's gets
+      written down and then fixed: <code>charAt</code> was O(n) on Go and
+      Rust, which made a string scan quadratic — the string kernel read
+      2&nbsp;178&nbsp;ms on Rust and 143&nbsp;182 on Go. Both index the UTF-8
+      byte their string is made of now, and read 6 and 4. What is still
+      there: a Ranger map is a plain object on JavaScript.
     </p>
     <p class="reveal">
       <strong>Idiomatic.</strong> The score below is the third question only,
@@ -632,7 +634,7 @@ Pricing.kt</code></pre>
             <li>A <code>shape</code> is a <code>_rg_kind</code> tag rather than a match over a closed family.</li>
             <li>A multi-statement lambda is hoisted into a generated <code>__rg_lambda_1</code> def.</li>
             <li>Method names keep Ranger's camelCase where PEP&nbsp;8 wants snake_case.</li>
-            <li>Generic classes are monomorphized, and it is the slowest target measured apart from one Go kernel.</li>
+            <li>Generic classes are monomorphized, and it is the slowest target measured.</li>
             </ul>
           </div>
         </div>
@@ -648,13 +650,12 @@ Pricing.kt</code></pre>
             <li>A Ranger <code>Enum</code> is an <code>enum</code>, and a <code>shape</code> is an <code>enum</code> matched with <code>if let</code>.</li>
             <li>A behaviour-only <code>trait</code> used as a type becomes a <code>trait</code>; optionals are <code>Option&lt;T&gt;</code>.</li>
             <li>Identifiers are snake_case, and <code>def</code> plus the field writes after it become one struct literal.</li>
-            <li>Second fastest on every kernel except the string scan.</li>
+            <li>Second fastest overall, behind C++ and ahead of every managed target.</li>
             </ul>
           </div>
           <div>
             <p class="label">Current limitations</p>
             <ul class="quality__list">
-            <li><code>charAt</code> walks the string from the start, so scanning one character by character is quadratic.</li>
             <li>There is no <code>Result</code> or <code>?</code>; <code>try</code>/<code>catch</code> is refused outright, with the <code>shape</code> alternative named.</li>
             <li>A function parameter is <code>&amp;mut dyn FnMut</code> where a native API would be generic.</li>
             <li>Type names such as <code>Stack_int</code> and <code>union_Payload</code> draw rustc warnings.</li>
@@ -747,13 +748,12 @@ Pricing.kt</code></pre>
             <li>A behaviour-only <code>trait</code> used as a type becomes an <code>interface</code>.</li>
             <li>A loop whose body ignores its index is <code>for _, v := range xs</code>.</li>
             <li>Sharing is <code>*T</code>, which is what Go would use.</li>
-            <li>Fast on arithmetic, objects and maps.</li>
+            <li>Fast on arithmetic and strings; a string index is the byte a Go string is made of, so a scan is linear.</li>
             </ul>
           </div>
           <div>
             <p class="label">Current limitations</p>
             <ul class="quality__list">
-            <li><code>charAt</code> rebuilds the whole rune slice per read, so scanning a string is quadratic — the one number in the benchmark that is off the scale.</li>
             <li>An optional is <code>*GoNullable</code> holding an <code>interface{}</code>, not a pointer and not a second return value.</li>
             <li><code>try</code>/<code>throw</code> is <code>panic</code>/<code>recover</code> rather than <code>(T, error)</code>.</li>
             <li>The ownership analysis does not run for this target at all.</li>

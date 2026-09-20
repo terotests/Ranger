@@ -384,13 +384,42 @@ this stage could use.*
 renderings of the compiler producing byte-identical output to the node build,
 and the §1.3 benchmark linear.*
 
-### Stage 5 — migrate the text walkers
+### Stage 5 — the pass that turns the migration into a list — **the pass is done**
 
 Not all 2 648 sites: the ones that can see non-ASCII. Found by tooling, not by
 reading — §3.3.
 
-*Gate: `gallery/friendly`'s cross-target diff, extended with a study whose
-input is not ASCII.*
+`-strict-strings` exists and prints them. It walks every method body, finds
+each `charAt`, `substring` and `charcode` whose subject is a `string`, and
+reports the ones it cannot prove are an ASCII literal, with file, line,
+operator and subject, followed by a per-file count. What it proves is
+deliberately narrow — an ASCII string literal, and nothing else — so the list
+is an upper bound, and saying so is the point: it is countable, reviewable and
+it shrinks as sites move to `to_chars`.
+
+On the compiler's own sources:
+
+```
+$ node bin/output.js -es6 -strict-strings ./compiler/Compiler.rgr …
+strict-strings compiler/CodeWriter.rgr:214 charAt(line) in RangerSourceFormat.codeEndOf
+…
+strict-strings: 322 of 342 string index sites are not an ASCII literal, in 45 files
+  44  CodeWriter.rgr
+  26  PkgImport.rgr
+  22  ../pkg/src/GitPkt.rgr
+  21  ../pkg/src/GitStore.rgr
+  16  RangerGenericClassWriter.rgr
+  …
+```
+
+That is the migration, in the order to do it. Most of those 322 are scanners
+over ASCII structure and are correct as they stand; the flag does not claim
+otherwise, it names them so the judgement can be made once per site instead of
+never.
+
+*Gate for the pass: it changes no output — it is a report. Gate for the
+migration itself: `gallery/friendly`'s cross-target diff, extended with a
+study whose input is not ASCII.*
 
 ### 3.3 Finding the call sites that matter
 

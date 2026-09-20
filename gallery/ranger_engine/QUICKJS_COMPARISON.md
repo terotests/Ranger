@@ -58,6 +58,37 @@ column is the noisiest; it is not part of the ratios that matter).
 > 6.5x excluding `strcat`**. The table above is the original two-run reading and
 > is kept because §3's profiles were taken against it.
 
+> **Re-measured again after `docs/plans/PLAN_STRING_INDEXING.md`**, this time
+> as a controlled A/B: the same machine, the same session, `reps=60`, with the
+> engine built twice — once from the commit before the string work and once
+> from after — so the two readings differ only by the compiler that produced
+> them. Ratios against the same `qjs` 2021-03-27.
+>
+> | | before | after |
+> | --- | ---: | ---: |
+> | ES6 | 5.3x (8.5x ex-`strcat`) | 5.3x (8.6x) |
+> | C++ | 3.6x (6.1x) | 3.6x (6.2x) |
+> | **Rust** | **7.3x (8.7x)** | **4.9x (7.9x)** |
+>
+> Per kernel, ms per run, Rust only — the other two columns move by less than
+> the run-to-run noise:
+>
+> | case | before | after |
+> | --- | ---: | ---: |
+> | `strcat` | 29.5 | **2.51** |
+> | `method` | 145.3 | **87.4** |
+> | `loop` / `fib` / `array` / `object` / `regex` | 3.4 / 8.6 / 8.4 / 25.3 / 83.6 | 3.5 / 8.4 / 8.3 / 25.0 / 80.8 |
+> | **geomean** | **21.7** | **14.1** |
+>
+> A string index on Rust is the UTF-8 byte now rather than a `chars().nth(i)`
+> walk, so `strcat` — which is the interpreter building strings — dropped
+> 11.8x and the whole engine got 1.54x faster. C++ and JavaScript did not
+> change, which is the control: their string unit did not change either.
+>
+> The absolute ratios here are higher than the 3.1x / 3.2x / 4.1x recorded
+> above because this is a different machine, not a regression; the before
+> column is what that machine reads for the older compiler.
+
 **The headline is 2.6–2.9x — but the honest headline is worse than that**,
 because `strcat` is carrying the geomean. QuickJS 2021-03-27 has no string
 ropes; `JS_STRING_ROPE_SHORT_LEN` appears only in the later tree. Its `s += "ab"`

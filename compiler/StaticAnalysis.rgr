@@ -16,6 +16,11 @@ class StaticAnalyzer {
   def currentFunction@(weak optional):RangerAppFunctionDesc
   def currentClass@(weak optional):RangerAppClassDesc
   def debug:boolean false
+  ; -strict-strings counters; see analyzeStringIndexing
+  def strictStringsTotal:int 0
+  def strictStringsRisky:int 0
+  def strictStringsFiles:[string:int]
+  def strictStringsFileOrder:[string]
   
   ; Registry of operators that mutate their first argument
   def mutatingOps:[string:boolean]
@@ -3529,6 +3534,135 @@ class StaticAnalyzer {
   ; Which methods of the shared classes need __self_rc: the direct users of
   ; `this` as a value, plus — to a fixpoint — every method that self-calls
   ; one, because the callee's hidden argument has to come from somewhere.
+  ; ---- -strict-strings ------------------------------------------------------
+  ;
+  ; Every `charAt` and `substring` on a `string` is an index in the TARGET'S
+  ; OWN unit -- a UTF-16 code unit, a Unicode code point or a UTF-8 byte,
+  ; depending on where the program runs. That is right for a scanner whose
+  ; structure is ASCII, which is most of them, and wrong for text a human
+  ; wrote. `-strict-strings` prints the sites so the difference can be read
+  ; off a list rather than out of 2 648 call sites by hand.
+  ;
+  ; What it can prove is deliberately narrow: a subject that is an ASCII
+  ; STRING LITERAL is safe, and nothing else is claimed. A name is never
+  ; proved, so the list is an upper bound -- the point is that it is a list,
+  ; countable and reviewable, and that it shrinks as sites move to `to_chars`.
+  ; docs/plans/PLAN_STRING_INDEXING.md 3.3.
+  fn stringIsAsciiOnly:boolean (s:string) {
+    def n:int (strlen s)
+    def i:int 0
+    while (i < n) {
+      if ((charAt s i) > 127) {
+        return false
+      }
+      i = (i + 1)
+    }
+    return true
+  }
+
+  fn strictStringsOpKind:string (name:string) {
+    if (name == "charAt") {
+      return "charAt"
+    }
+    if (name == "substring") {
+      return "substring"
+    }
+    if (name == "charcode") {
+      return "charcode"
+    }
+    return ""
+  }
+
+  fn strictStringsWalk:void (node:CodeNode fnName:string) {
+    if ((array_length node.children) >= 2) {
+      def ssFc:CodeNode (node.getFirst())
+      def ssKind:string (this.strictStringsOpKind(ssFc.vref))
+      if ((strlen ssKind) > 0) {
+        def ssSub:CodeNode (node.getSecond())
+        ; a charbuffer overload is the explicit byte view and is not the
+        ; question this flag asks
+        def ssIsString:boolean false
+        if (ssSub.eval_type == RangerNodeType.String) {
+          ssIsString = true
+        }
+        if (ssSub.value_type == RangerNodeType.String) {
+          ssIsString = true
+        }
+        if (ssSub.eval_type == RangerNodeType.CharBuffer) {
+          ssIsString = false
+        }
+        if ssIsString {
+          strictStringsTotal = (strictStringsTotal + 1)
+          def ssProved:boolean false
+          if (ssSub.value_type == RangerNodeType.String) {
+            if ((array_length ssSub.children) == 0) {
+              if (this.stringIsAsciiOnly(ssSub.string_value)) {
+                ssProved = true
+              }
+            }
+          }
+          if (ssProved == false) {
+            strictStringsRisky = (strictStringsRisky + 1)
+            def ssFile:string (ssFc.getFilename())
+            def ssLine:int ((ssFc.getLine()) + 1)
+            def ssSubj:string ssSub.vref
+            if ((strlen ssSubj) == 0) {
+              ssSubj = "<expr>"
+            }
+            print ((((((((("strict-strings " + ssFile) + ":") + (to_string ssLine)) + " ") + ssKind) + "(") + ssSubj) + ") in ") + fnName)
+            if (has strictStringsFiles ssFile) {
+              def ssPrev:int (unwrap (get strictStringsFiles ssFile))
+              set strictStringsFiles ssFile (ssPrev + 1)
+            } {
+              set strictStringsFiles ssFile 1
+              push strictStringsFileOrder ssFile
+            }
+          }
+        }
+      }
+    }
+    for node.children ssCh:CodeNode ssChi {
+      this.strictStringsWalk(ssCh fnName)
+    }
+  }
+
+  fn strictStringsScanFns:void (fns:[RangerAppFunctionDesc] clName:string) {
+    for fns ssM:RangerAppFunctionDesc ssMi {
+      if ssM.is_lambda {
+        continue
+      }
+      def ssBodyO@(optional):CodeNode ssM.fnBody
+      if (null? ssBodyO) {
+        continue
+      }
+      this.strictStringsWalk((unwrap ssBodyO) ((clName + ".") + ssM.name))
+    }
+  }
+
+  fn analyzeStringIndexing:void () {
+    if (null? ctx) {
+      return
+    }
+    def ssRoot:RangerAppWriterContext ((unwrap ctx).getRoot())
+    for ssRoot.definedClasses ssCl:RangerAppClassDesc ssCi {
+      if ((((ssCl.is_system || ssCl.is_template) || ssCl.is_operator_class) || ssCl.is_generic_instance)) {
+        continue
+      }
+      this.strictStringsScanFns(ssCl.methods ssCl.name)
+      this.strictStringsScanFns(ssCl.static_methods ssCl.name)
+    }
+    print ""
+    print ((((("strict-strings: " + (to_string strictStringsRisky)) + " of ") + (to_string strictStringsTotal)) + " string index sites are not an ASCII literal, in ") + (to_string (array_length strictStringsFileOrder)) + " files")
+    for strictStringsFileOrder ssF:string ssFi {
+      def ssCnt:int (unwrap (get strictStringsFiles ssF))
+      print (((("  " + (to_string ssCnt)) + "  ") + ssF))
+    }
+    print ""
+    print "  A site is only proved safe when its subject is an ASCII string"
+    print "  literal, so this is an upper bound. `to_chars` is the portable"
+    print "  view; docs/plans/PLAN_STRING_INDEXING.md has the rest."
+  }
+
   ; Which trait families can be called back into through their own handle?
   ;
   ; A trait method dispatched on a `&self` or `&mut self` receiver holds a
