@@ -777,6 +777,18 @@ Without \`--bind\` the control is frozen in the state it was added in. With
 it, \`./evg-app press app toggle.wifi\` and \`./evg-app render app\` are how
 you check it moved, without a browser.
 
+**You do not write those transitions yourself.** Bind the control while you
+are drawing the screen — \`--id\` and \`--bind\` on every switch and checkbox
+— and when the screen becomes an app (Run, or \`./evg-app init app\`) the
+machine is written with a context key per bound control, its state taken
+from how you drew it, and the flip wired to both the control and the row
+around it. A switch you did not bind gets no key and no event, and is a
+picture in the app too.
+
+On ONE SCREEN a bound control shows its resting state until there is a
+machine to fill \`{key}\` from. That is not a mistake to fix by taking the
+binding out; it is what a control with nothing behind it looks like.
+
 \`add\` answers \`{tree, css, classes, ops}\`. The \`ops\` are a batch you can
 apply as it stands — a \`set-css\` carrying the rules the control needs on
 top of the sheet the document already has, and an \`insert\` carrying the

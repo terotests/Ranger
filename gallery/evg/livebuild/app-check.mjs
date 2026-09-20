@@ -316,6 +316,59 @@ fs.rmSync(broken, { recursive: true, force: true });
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+// MAKE APP WIRES THE CONTROLS. A screen with a bound switch on it is telling
+// the machine what it needs — a key called `wifi`, and an event that flips
+// it — and writing that by hand was the last step between "the kit drew me a
+// control" and "the control works". `init` reads them off the screen the way
+// it reads `nav.*` for the states, so a designed screen becomes an app whose
+// switches move without anybody opening machine.json.
+{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "evg-app-wire-"));
+  const screen = path.join(dir, "doc.evg.json");
+  fs.writeFileSync(
+    screen,
+    JSON.stringify({
+      evg: 1,
+      css: "",
+      root: { tag: "div", props: { display: "flex", width: "390px", height: "200px" }, children: [] },
+    }),
+  );
+  const kit = path.join(root, "gallery/ui/kit/ui_kit.mjs");
+  const agent = path.join(root, "lib/evg/bin/evg_agent.js");
+  if (fs.existsSync(agent)) {
+    for (const [id, key, on] of [["toggle.cellular", "cellular", true], ["toggle.wifi", "wifi", false]]) {
+      const args = [kit, "add", "row", "--title", key, "--control", "switch", "--id", id, "--bind", key, "--into", screen];
+      if (on) args.push("--checked");
+      const made = JSON.parse(spawnSync(process.execPath, args, { cwd: root, encoding: "utf8", timeout: 180000 }).stdout || "{}");
+      const opsFile = path.join(dir, "ops.json");
+      fs.writeFileSync(opsFile, JSON.stringify({ ops: made.ops }));
+      spawnSync(process.execPath, [agent, "patch", screen, opsFile], { cwd: root, encoding: "utf8", timeout: 180000 });
+    }
+    const appDir = path.join(dir, "app");
+    // `--from=` is the flag form this tool reads.
+    app("init", appDir, `--from=${screen}`);
+    const machine = JSON.parse(fs.readFileSync(path.join(appDir, "machine.json"), "utf8"));
+    // The context comes off the SCREEN: the app opens as it was drawn.
+    if (machine.context.cellular !== "checked" || machine.context.wifi !== "unchecked") {
+      throw new Error("init did not read the controls' states: " + JSON.stringify(machine.context));
+    }
+    const on = machine.states.main.on;
+    for (const want of ["toggle.wifi", "toggle.wifi.control", "toggle.cellular"]) {
+      if (!on[want]) throw new Error(`init wired no event for ${want}`);
+    }
+    const flipped = app("press", appDir, "toggle.wifi");
+    if (flipped.context.wifi !== "checked") {
+      throw new Error("the wired toggle did not flip: " + JSON.stringify(flipped.context));
+    }
+    const rendered = spawnSync(process.execPath, [bin, "render", appDir], { cwd: root, encoding: "utf8" }).stdout || "";
+    if (!rendered.includes("ui-switch-track-state-checked") || !rendered.includes("ui-switch-track-state-unchecked")) {
+      throw new Error("the two switches render in the same state");
+    }
+    console.log("  make app    a screen's bound controls become context keys and events");
+  }
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
 // THE SAME BINDING IN THE TAB. The tool renders a page and so does the
 // browser runtime, and for a while they were two copies of the rule: the CLI
 // filled `{key}` in a class and the tab did not, so a switch bound to the

@@ -193,7 +193,11 @@ class EvgAppTool {
             EvgAppTool.spit((this.pageOf((itemAt names i))) text)
             i = (i + 1)
         }
-        EvgAppTool.spit((appDir + "/machine.json") (EvgAppTool.machineFor(names)))
+        def cIds:[string]
+        def cKeys:[string]
+        def cInits:[string]
+        this.boundControls((unwrap root) cIds cKeys cInits)
+        EvgAppTool.spit((appDir + "/machine.json") (EvgAppTool.machineWith(names cIds cKeys cInits)))
 
         ; What is left, rather than only what was written.
         def missing:[string]
@@ -223,11 +227,88 @@ class EvgAppTool {
     ; One state per name, each taking its own nav event and ignoring it, and
     ; every other state's as a move. That is the smallest machine that makes a
     ; tab bar work, and it is what a tab bar means.
+    ; --- controls the machine has to own --------------------------------------
+    ; A screen with a bound control on it — `class-name="… ui-switch-state-
+    ; {wifi}"` — is telling the machine what it needs: a context key called
+    ; `wifi`, and an event that flips it. Writing that by hand is three lines
+    ; of JSON per switch and the one thing between "the kit drew me a control"
+    ; and "the control works", so `init` reads them off the screen the same
+    ; way it reads `nav.*` for the states.
+    ;
+    ; A press can land on the control or on the row around it, so both ids
+    ; take the event: the kit names a piece's control `<row-id>.control`, and
+    ; the row is the bigger target.
+    fn boundControls:void (el:EVGElement ids:[string] keys:[string] inits:[string]) {
+        if ((strlen el.id) > 0) {
+            def key:string (EvgAppTool.bindingIn(el.className))
+            if ((strlen key) > 0) {
+                if ((EvgAppTool.mentions(ids el.id)) == false) {
+                    push ids el.id
+                    push keys key
+                    ; What it is showing now, so the app opens as the screen
+                    ; was drawn rather than all off.
+                    if (el.a11yChecked == 2) {
+                        push inits "checked"
+                    } {
+                        push inits "unchecked"
+                    }
+                }
+            }
+        }
+        def i:int 0
+        while (i < (array_length el.children)) {
+            this.boundControls((itemAt el.children i) ids keys inits)
+            i = (i + 1)
+        }
+    }
+
+    ; The FIRST `{key}` in a class name, which is the state this control is
+    ; bound to. A class carries at most one.
+    sfn bindingIn:string (className:string) {
+        def found:[string]
+        EvgAppRules.scanKeys(className found)
+        if ((array_length found) > 0) {
+            return (itemAt found 0)
+        }
+        return ""
+    }
+
+    ; The two guarded alternatives that are a toggle: the first whose guard
+    ; passes wins, so "if it is checked make it unchecked, otherwise make it
+    ; checked" is the whole of it — no new action kind and no host function.
+    sfn toggleFor:string (event:string key:string) {
+        def out:string ("    " + (EVGTreeJson.str(event)) + ": [\n")
+        out = (out + "     { \"guard\": { \"is\": { \"context\": " + (EVGTreeJson.str(key)) + " }, \"equals\": \"checked\" },\n")
+        out = (out + "       \"actions\": [ { \"assign\": { " + (EVGTreeJson.str(key)) + ": { \"value\": \"unchecked\" } } } ] },\n")
+        out = (out + "     { \"actions\": [ { \"assign\": { " + (EVGTreeJson.str(key)) + ": { \"value\": \"checked\" } } } ] }\n")
+        return (out + "    ]")
+    }
+
     sfn machineFor:string (names:[string]) {
+        def none:[string]
+        def none2:[string]
+        def none3:[string]
+        return (EvgAppTool.machineWith(names none none2 none3))
+    }
+
+    sfn machineWith:string (names:[string] ids:[string] keys:[string] inits:[string]) {
         def n:int (array_length names)
         def out:string "{\n \"id\": \"app\",\n \"initial\": "
         out = (out + (EVGTreeJson.str((itemAt names 0))))
-        out = (out + ",\n \"context\": {},\n \"states\": {\n")
+        def ctx:string "{}"
+        if ((array_length keys) > 0) {
+            ctx = "{ "
+            def c:int 0
+            while (c < (array_length keys)) {
+                if (c > 0) {
+                    ctx = (ctx + ", ")
+                }
+                ctx = (ctx + (EVGTreeJson.str((itemAt keys c))) + ": " + (EVGTreeJson.str((itemAt inits c))))
+                c = (c + 1)
+            }
+            ctx = (ctx + " }")
+        }
+        out = (out + ",\n \"context\": " + ctx + ",\n \"states\": {\n")
         def i:int 0
         while (i < n) {
             def here:string (itemAt names i)
@@ -252,6 +333,25 @@ class EvgAppTool {
                 }
                 wrote = (wrote + 1)
                 j = (j + 1)
+            }
+            ; …and every bound control on the screen, in every state, because
+            ; the screen is the same one until somebody makes them differ.
+            def t:int 0
+            while (t < (array_length ids)) {
+                def cid:string (itemAt ids t)
+                def key:string (itemAt keys t)
+                out = (out + ",\n")
+                out = (out + (EvgAppTool.toggleFor(cid key)))
+                ; A press lands on the control or on the row around it.
+                def dot:int (indexOf cid ".control")
+                if (dot > 0) {
+                    def rowId:string (substring cid 0 dot)
+                    if ((EvgAppTool.mentions(ids rowId)) == false) {
+                        out = (out + ",\n")
+                        out = (out + (EvgAppTool.toggleFor(rowId key)))
+                    }
+                }
+                t = (t + 1)
             }
             out = (out + "\n  } }")
             i = (i + 1)

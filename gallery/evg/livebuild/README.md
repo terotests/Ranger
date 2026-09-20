@@ -207,6 +207,12 @@ alternatives — `{"is": {"context":"wifi"}, "equals":"checked"}` is the
 predicate a toggle needs, and it is new. Without the binding the control is
 frozen in the state it was added in.
 
+**Make app wires them.** Bind while you draw — `--id toggle.wifi --bind wifi`
+— and `init` (which is what **Make app** runs) reads the bound controls off
+the screen: a context key each, its value taken from how the control was
+drawn, and the flip wired to the control and the row around it. Nobody opens
+`machine.json`.
+
 The parts keep their own classes (`ui-switch-track`, `ui-switch-thumb`,
 `ui-checkbox-box`, `ui-checkbox-mark`), so restyling one is editing rules, not
 redrawing boxes. What the kit does not have, the guide tells the agent to say
