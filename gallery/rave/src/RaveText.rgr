@@ -191,6 +191,10 @@ class RaveText {
         out = (out + (RaveText.attr("source" n.source)))
         out = (out + (RaveText.attr("sourceKey" n.sourceKey)))
         out = (out + (RaveText.attr("overlay" n.overlay)))
+        ; The node a component is named after carries the name. A component
+        ; is a named node tree, so this is the whole registry: nothing else
+        ; has to be written down, and nothing can go stale.
+        out = (out + (RaveText.attr("define" (app.componentNameOf(n.id)))))
         out = (out + (RaveText.attr("component" n.component)))
         out = (out + (RaveText.attr("variant" n.variant)))
         if (n.kind == "conditional") {
@@ -574,7 +578,11 @@ class RaveText {
         s = (s + "                      route's :id names — use with <route path=\"/items/:id\">\n")
         s = (s + "  bind=\"title\"        an input writes that field when `create` runs\n")
         s = (s + "  overlay=\"create\"    a dialog: on the page only while it is open, and a\n")
-        s = (s + "                      modal while it is. Open it with <on click=\"open\" arg=\"create\"/>\n\n")
+        s = (s + "                      modal while it is. Open it with <on click=\"open\" arg=\"create\"/>\n")
+        s = (s + "  define=\"Card\"       names this subtree as a component; the node that\n")
+        s = (s + "                      carries the name is the definition and the first use\n")
+        s = (s + "  component=\"Card\"    an instance: the named subtree, built again here\n")
+        s = (s + "  variant=\"compact\"   which variant of the component this instance is\n\n")
 
         s = (s + "TWO CHILDREN THAT ARE NOT ELEMENTS ON THE PAGE\n")
         s = (s + "  <media below=\"md\" style=\"…\"/>     this element's rule below a breakpoint\n")
@@ -1203,6 +1211,10 @@ class RaveTextReader {
         if (key == "component") {
             n.component = value
             n.kind = "instance"
+            return
+        }
+        if (key == "define") {
+            app.addComponent(value n)
             return
         }
         if (key == "variant") {

@@ -106,6 +106,15 @@ class RaveEdit {
             }
             return
         }
+        if (op.kind == "component") {
+            if forward {
+                def root:RaveNode (app.node(op.nodeId))
+                app.addComponent(op.newValue root)
+            } {
+                app.dropComponent(op.newValue)
+            }
+            return
+        }
         def n:RaveNode (app.node(op.nodeId))
         def v:string op.newValue
         if (forward == false) {
@@ -330,6 +339,93 @@ class RaveEdit {
     }
 
     ; A new container where the node was, with the node inside it.
+    ; Several siblings into one container, in the order they already sit in.
+    ; Nodes that do not share a parent are not a group — the editor says so
+    ; rather than inventing one.
+    fn wrapMany:int (ids:[int]) {
+        if ((array_length ids) < 2) {
+            return 0
+        }
+        def parent:int (app.parentOf((itemAt ids 0)))
+        if (parent == 0) {
+            return 0
+        }
+        def i:int 1
+        while (i < (array_length ids)) {
+            if ((app.parentOf((itemAt ids i))) != parent) {
+                return 0
+            }
+            i = (i + 1)
+        }
+        def order:[int] (RaveEdit.inDocOrder(app parent ids))
+        def at:int (app.indexIn(parent (itemAt order 0)))
+        def box:RaveNode (app.newNode("div" "Group"))
+        app.style(box "gap" "16px")
+        this.begin()
+        this.insert(box parent at)
+        def m:int 0
+        while (m < (array_length order)) {
+            this.move((itemAt order m) box.id m)
+            m = (m + 1)
+        }
+        this.end()
+        return box.id
+    }
+
+    ; The same ids, in the order the parent holds them.
+    sfn inDocOrder:[int] (app:RaveApp parent:int ids:[int]) {
+        def out:[int]
+        def n:int (array_length ids)
+        def taken:[boolean]
+        def t:int 0
+        while (t < n) {
+            push taken false
+            t = (t + 1)
+        }
+        def done:int 0
+        while (done < n) {
+            def bestAt:int (0 - 1)
+            def best:int 0
+            def i:int 0
+            while (i < n) {
+                if ((itemAt taken i) == false) {
+                    def idx:int (app.indexIn(parent (itemAt ids i)))
+                    if ((bestAt < 0) || (idx < best)) {
+                        bestAt = i
+                        best = idx
+                    }
+                }
+                i = (i + 1)
+            }
+            if (bestAt < 0) {
+                return out
+            }
+            set taken bestAt true
+            push out (itemAt ids bestAt)
+            done = (done + 1)
+        }
+        return out
+    }
+
+    ; Give a node tree a name, which is what makes it a component. Undoable,
+    ; because the registry is part of the document like everything else.
+    fn nameComponent:boolean (rootId:int name:string) {
+        if ((strlen name) == 0) {
+            return false
+        }
+        if (app.hasComponent(name)) {
+            return false
+        }
+        if ((app.hasNode(rootId)) == false) {
+            return false
+        }
+        def op (new RaveOp("component"))
+        op.nodeId = rootId
+        op.newValue = name
+        this.commit(op)
+        return true
+    }
+
     fn wrap:int (id:int) {
         def parent:int (app.parentOf(id))
         if (parent == 0) {

@@ -38,6 +38,9 @@ class RaveBuild {
     def hasRow:boolean false
     def rowColl:string ""
     def rowSuffix:string ""
+    ; How deep the instance expansion is, so a component used inside itself
+    ; stops rather than building for ever.
+    def depth:int 0
     def rowOwner:[string:string]
     ; The overlay that is open, the words the toast is showing, and what has
     ; been typed into each input — all three are the session's, not the
@@ -145,6 +148,23 @@ class RaveBuild {
             s = (s + " cmp-" + n.component)
             if ((strlen n.variant) > 0) {
                 s = (s + " cmp-" + n.component + "-" + n.variant)
+            }
+            ; …and the definition's own classes, so an instance looks like
+            ; the thing it is a copy of without anything being duplicated
+            ; into the stylesheet.
+            if (app.hasComponent(n.component)) {
+                def c:RaveComponent (app.component(n.component))
+                if (app.hasNode(c.rootId)) {
+                    def d:RaveNode (app.node(c.rootId))
+                    if (d.id != n.id) {
+                        s = (s + " " + (d.cls()))
+                        def k:int 0
+                        while (k < (array_length d.classes)) {
+                            s = (s + " " + (itemAt d.classes k))
+                            k = (k + 1)
+                        }
+                    }
+                }
             }
         }
         return (s + (this.wireClasses(n)))
@@ -403,6 +423,10 @@ class RaveBuild {
             this.repeatInto(e n)
             return e
         }
+        if (n.kind == "instance") {
+            this.instanceInto(e n)
+            return e
+        }
         def i:int 0
         while (i < (array_length n.children)) {
             def c:RaveNode (itemAt n.children i)
@@ -412,6 +436,41 @@ class RaveBuild {
             i = (i + 1)
         }
         return e
+    }
+
+    ; An instance is the component's own tree, built again here. The copies'
+    ; element ids carry the instance — `n13-c40` is node 13 inside instance
+    ; 40 — so two uses of a component are two things on the page, and a press
+    ; lands on the one that was pressed.
+    fn instanceInto:void (e:EVGElement n:RaveNode) {
+        if ((app.hasComponent(n.component)) == false) {
+            return
+        }
+        def c:RaveComponent (app.component(n.component))
+        if ((app.hasNode(c.rootId)) == false) {
+            return
+        }
+        if (c.rootId == n.id) {
+            return
+        }
+        ; A component used inside itself would build for ever.
+        if (depth > 6) {
+            return
+        }
+        def def0:RaveNode (app.node(c.rootId))
+        def keptSuffix:string rowSuffix
+        rowSuffix = (keptSuffix + "-c" + (to_string n.id))
+        depth = (depth + 1)
+        def i:int 0
+        while (i < (array_length def0.children)) {
+            def kid:RaveNode (itemAt def0.children i)
+            if (this.shown(kid)) {
+                e.addChild((this.element(kid)))
+            }
+            i = (i + 1)
+        }
+        depth = (depth - 1)
+        rowSuffix = keptSuffix
     }
 
     ; One copy of the children per row of the named collection. Each copy's

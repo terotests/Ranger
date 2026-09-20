@@ -122,6 +122,15 @@ class RaveEditor {
     def dragging:int 0
     ; While a node is being dragged on the stage: where it would land.
     def dropTarget:int 0
+    ; More than one node at a time: `selected` is the one the inspector is
+    ; about, `marked` the others. A plain click replaces the selection, Ctrl
+    ; adds to it, and a Shift-drag on the stage sweeps one out.
+    def marked:[int]
+    def marqOn:boolean false
+    def marqX0:double 0.0
+    def marqY0:double 0.0
+    def marqX1:double 0.0
+    def marqY1:double 0.0
     def showTabOrder:boolean false
     ; --- File → New, as a sheet rather than a blank canvas ---------------------
     ; Four questions, and the answer is an application from RavePatterns. The
@@ -1001,8 +1010,248 @@ class RaveEditor {
             ; another question.
             flexOpen = false
         }
+        ; A plain pick REPLACES the selection. Ctrl adds to it.
+        clear marked
         selected = nid
         dirty = true
+    }
+
+    ; --- more than one node ---------------------------------------------------
+
+    fn isMarked:boolean (nid:int) {
+        def i:int 0
+        while (i < (array_length marked)) {
+            if ((itemAt marked i) == nid) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn clearMarks:void () {
+        clear marked
+    }
+
+    ; Everything selected, the primary first.
+    fn selectionIds:[int] () {
+        def out:[int]
+        if (selected > 0) {
+            push out selected
+        }
+        def i:int 0
+        while (i < (array_length marked)) {
+            def nid:int (itemAt marked i)
+            if (nid != selected) {
+                push out nid
+            }
+            i = (i + 1)
+        }
+        return out
+    }
+
+    fn selectionCount:int () {
+        return (array_length (this.selectionIds()))
+    }
+
+    ; Ctrl-click: this node joins the selection, or leaves it. The first one
+    ; picked stays the one the inspector is about until it is the one let go.
+    fn toggleMark:boolean (nid:int) {
+        if (nid == 0) {
+            return false
+        }
+        if ((doc.hasNode(nid)) == false) {
+            return false
+        }
+        if (selected == 0) {
+            this.select(nid)
+            return true
+        }
+        if (nid == selected) {
+            if ((array_length marked) == 0) {
+                return false
+            }
+            def first:int (itemAt marked 0)
+            def rest:[int]
+            def k:int 1
+            while (k < (array_length marked)) {
+                push rest (itemAt marked k)
+                k = (k + 1)
+            }
+            marked = rest
+            selected = first
+            dirty = true
+            return true
+        }
+        if (this.isMarked(nid)) {
+            def keep:[int]
+            def i:int 0
+            while (i < (array_length marked)) {
+                def m:int (itemAt marked i)
+                if (m != nid) {
+                    push keep m
+                }
+                i = (i + 1)
+            }
+            marked = keep
+            dirty = true
+            return true
+        }
+        push marked nid
+        dirty = true
+        return true
+    }
+
+    ; The host's Ctrl-press on the stage.
+    fn toggleAt:boolean (px:double py:double) {
+        if (mode != "design") {
+            return false
+        }
+        return (this.toggleMark((this.boardNodeAt(px py))))
+    }
+
+    ; A rectangle swept over the stage takes everything inside it.
+    fn beginMarquee:boolean (px:double py:double) {
+        if (mode != "design") {
+            return false
+        }
+        marqOn = true
+        marqX0 = px
+        marqY0 = py
+        marqX1 = px
+        marqY1 = py
+        dirty = true
+        return true
+    }
+
+    fn marqueeTo:boolean (px:double py:double) {
+        if (marqOn == false) {
+            return false
+        }
+        marqX1 = px
+        marqY1 = py
+        dirty = true
+        return true
+    }
+
+    fn endMarquee:boolean () {
+        if (marqOn == false) {
+            return false
+        }
+        marqOn = false
+        def x0:double (RaveEditor.lower(marqX0 marqX1))
+        def x1:double (RaveEditor.upper(marqX0 marqX1))
+        def y0:double (RaveEditor.lower(marqY0 marqY1))
+        def y1:double (RaveEditor.upper(marqY0 marqY1))
+        dirty = true
+        ; A sweep of a few pixels is a click that shook, not a selection.
+        if (((x1 - x0) < 4.0) && ((y1 - y0) < 4.0)) {
+            return true
+        }
+        def sx0:double (this.sceneX(x0))
+        def sy0:double (this.sceneY(y0))
+        def sx1:double (this.sceneX(x1))
+        def sy1:double (this.sceneY(y1))
+        def ids:[int]
+        def route:RaveRoute (this.currentRoute())
+        if (route.layoutId > 0) {
+            this.nodeIds((doc.node(route.layoutId)) route.pageId ids)
+        } {
+            this.nodeIds((doc.node(route.pageId)) 0 ids)
+        }
+        def r:RaveRuntime (unwrap rt)
+        def taken:[int]
+        def i:int 0
+        while (i < (array_length ids)) {
+            def nid:int (itemAt ids i)
+            def eid:string ("n" + (to_string nid))
+            if (r.hasEl(activeView eid)) {
+                def left:double (r.leftOf(activeView eid))
+                def top:double (r.topOf(activeView eid))
+                def right:double (left + (r.widthOf(activeView eid)))
+                def bottom:double (top + (r.heightOf(activeView eid)))
+                if ((left >= sx0) && (right <= sx1) && (top >= sy0) && (bottom <= sy1)) {
+                    ; The outermost box that fits is the one meant; its
+                    ; children are inside it and come with it.
+                    if ((this.anyOf(taken nid)) == false) {
+                        push taken nid
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        def kept:[int]
+        def j:int 0
+        while (j < (array_length taken)) {
+            def nid2:int (itemAt taken j)
+            if ((this.hasAncestorIn(taken nid2)) == false) {
+                push kept nid2
+            }
+            j = (j + 1)
+        }
+        if ((array_length kept) == 0) {
+            return true
+        }
+        this.select((itemAt kept 0))
+        def m:int 1
+        while (m < (array_length kept)) {
+            push marked (itemAt kept m)
+            m = (m + 1)
+        }
+        status = ((to_string (array_length kept)) + " selected")
+        return true
+    }
+
+    fn anyOf:boolean (list:[int] nid:int) {
+        def i:int 0
+        while (i < (array_length list)) {
+            if ((itemAt list i) == nid) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn hasAncestorIn:boolean (list:[int] nid:int) {
+        def at:int (doc.parentOf(nid))
+        def guard:int 0
+        while ((at > 0) && (guard < 64)) {
+            if (this.anyOf(list at)) {
+                return true
+            }
+            at = (doc.parentOf(at))
+            guard = (guard + 1)
+        }
+        return false
+    }
+
+    ; Every node id under this one, the route's layout and page together, in
+    ; the order the tree holds them.
+    fn nodeIds:void (n:RaveNode pageId:int ids:[int]) {
+        push ids n.id
+        if ((n.kind == "slot") && (pageId > 0)) {
+            this.nodeIds((doc.node(pageId)) 0 ids)
+        }
+        def i:int 0
+        while (i < (array_length n.children)) {
+            this.nodeIds((itemAt n.children i) pageId ids)
+            i = (i + 1)
+        }
+    }
+
+    sfn lower:double (a:double b:double) {
+        if (a < b) {
+            return a
+        }
+        return b
+    }
+
+    sfn upper:double (a:double b:double) {
+        if (a > b) {
+            return a
+        }
+        return b
     }
 
     fn panBy:void (dx:double dy:double) {
@@ -1281,6 +1530,10 @@ class RaveEditor {
         ; editing the tree
         if (RaveEditor.hasPrefix(id "add:")) {
             return (this.addKind((RaveEditor.tail(id 4))))
+        }
+        if (id == "component:make") { return (this.makeComponent()) }
+        if (RaveEditor.hasPrefix(id "use:")) {
+            return (this.useComponent((RaveEditor.tail(id 4))))
         }
         if (id == "del") { return (this.deleteSelected()) }
         if (id == "dup") { return (this.duplicateSelected()) }
@@ -1780,6 +2033,108 @@ class RaveEditor {
         }
         lastKind = kind
         status = (kind + " added")
+        this.changed()
+        return true
+    }
+
+    ; --- components -----------------------------------------------------------
+    ; What is selected, named, and from then on droppable again. One node
+    ; keeps its own box; several are grouped into one first, which is why
+    ; they have to be siblings — a component is a subtree, and nodes with
+    ; different parents are not one.
+
+    fn makeComponent:boolean () {
+        if ((this.hasSelection()) == false) {
+            status = "select what the component is made of"
+            dirty = true
+            return false
+        }
+        def e:RaveEdit (unwrap edit)
+        def ids:[int] (this.selectionIds())
+        def rootId:int selected
+        e.begin()
+        if ((array_length ids) > 1) {
+            rootId = (e.wrapMany(ids))
+            if (rootId == 0) {
+                e.end()
+                status = "a component is one subtree — pick nodes with the same parent"
+                dirty = true
+                return false
+            }
+        }
+        def base:RaveNode (doc.node(rootId))
+        def name:string (this.freeComponentName(base.name))
+        def named:boolean (e.nameComponent(rootId name))
+        e.end()
+        if (named == false) {
+            status = "that is already a component"
+            dirty = true
+            return false
+        }
+        this.clearMarks()
+        selected = rootId
+        status = (name + " is a component — it is in the Components pane")
+        this.changed()
+        return true
+    }
+
+    ; A name nothing else has yet.
+    fn freeComponentName:string (want:string) {
+        def base:string (trim want)
+        if ((strlen base) == 0) {
+            base = "Component"
+        }
+        if ((doc.hasComponent(base)) == false) {
+            return base
+        }
+        def n:int 2
+        while (n < 200) {
+            def try:string (base + " " + (to_string n))
+            if ((doc.hasComponent(try)) == false) {
+                return try
+            }
+            n = (n + 1)
+        }
+        return base
+    }
+
+    ; One more use of a component that already exists.
+    fn useComponent:boolean (name:string) {
+        if ((doc.hasComponent(name)) == false) {
+            return false
+        }
+        def e:RaveEdit (unwrap edit)
+        def made:RaveNode (doc.newNode("div" name))
+        made.kind = "instance"
+        made.component = name
+        def parent:int 0
+        def at:int (0 - 1)
+        if (this.hasSelection()) {
+            def sel:RaveNode (this.selectedNode())
+            if ((RaveKit.isContainer(sel)) && (sel.kind != "slot")) {
+                parent = selected
+            } {
+                parent = (doc.parentOf(selected))
+                if (parent > 0) {
+                    at = ((doc.indexIn(parent selected)) + 1)
+                }
+            }
+        }
+        if (parent == 0) {
+            def route:RaveRoute (this.currentRoute())
+            parent = route.pageId
+        }
+        ; An instance inside its own definition would build for ever.
+        def c:RaveComponent (doc.component(name))
+        if (doc.isInside(parent c.rootId)) {
+            status = ("a " + name + " cannot go inside " + name)
+            dirty = true
+            return false
+        }
+        e.insert(made parent at)
+        this.clearMarks()
+        selected = made.id
+        status = (name + " added")
         this.changed()
         return true
     }
@@ -2858,6 +3213,22 @@ class RaveEditor {
     ; dropped once and looked at. The tiles carry the same `add:` ids the
     ; rows did, so everything downstream of a pick is unchanged.
     fn componentsPane:void (host:EVGElement) {
+        ; This project's own components first: they are the ones a designer
+        ; made, and the kit is always there under them.
+        if ((array_length doc.components) > 0) {
+            host.addChild((this.cap("THIS PROJECT" (to_string (array_length doc.components)))))
+            def mine:EVGElement (RaveEditor.box("ra-pages" "" "list" "This project's components"))
+            def c:int 0
+            while (c < (array_length doc.components)) {
+                def comp:RaveComponent (itemAt doc.components c)
+                def row:EVGElement (RaveEditor.box("ra-pagerow" ("use:" + comp.name) "button" ("Add " + comp.name)))
+                row.addChild((RaveEditor.quiet("ra-page-ic" "◈")))
+                row.addChild((RaveEditor.quiet("ra-page-nm" (RaveEditor.cut(comp.name 22)))))
+                mine.addChild(row)
+                c = (c + 1)
+            }
+            host.addChild(mine)
+        }
         def kinds:[string] (RaveKit.kinds())
         host.addChild((this.cap("COMPONENTS" (to_string (array_length kinds)))))
         def group:string ""
@@ -2894,6 +3265,7 @@ class RaveEditor {
         tools.addChild((RaveEditor.button("out" "←" "ra-tool-s" "ra-tool-t")))
         tools.addChild((RaveEditor.button("in" "→" "ra-tool-s" "ra-tool-t")))
         tools.addChild((RaveEditor.button("wrap" "Wrap" "ra-tool-s" "ra-tool-t")))
+        tools.addChild((RaveEditor.button("component:make" "Comp" "ra-tool-s" "ra-tool-t")))
         tools.addChild((RaveEditor.button("dup" "Dup" "ra-tool-s" "ra-tool-t")))
         tools.addChild((RaveEditor.button("del" "Del" "ra-tool-s" "ra-tool-t")))
         host.addChild(tools)
@@ -3073,16 +3445,25 @@ class RaveEditor {
                     label.setAttribute("top" ((to_string (ly - 22.0)) + "px"))
                     label.addChild((RaveEditor.quiet("ra-vplabel-t" (v.name + " · " + (to_string (to_int v.width))))))
                     board.addChild(label)
-                    if ((mode == "design") && (selected > 0)) {
-                        def sid:string ("n" + (to_string selected))
-                        if (r.hasEl(i sid)) {
-                            def sel:EVGElement (RaveEditor.box("ra-selbox" "" "" ""))
-                            sel.a11yHidden = true
-                            sel.setAttribute("left" ((to_string (((r.leftOf(i sid)) * zoom) + viewX)) + "px"))
-                            sel.setAttribute("top" ((to_string (((r.topOf(i sid)) * zoom) + viewY)) + "px"))
-                            sel.setAttribute("width" ((to_string ((r.widthOf(i sid)) * zoom)) + "px"))
-                            sel.setAttribute("height" ((to_string ((r.heightOf(i sid)) * zoom)) + "px"))
-                            board.addChild(sel)
+                    if (mode == "design") {
+                        def picked:[int] (this.selectionIds())
+                        def s:int 0
+                        while (s < (array_length picked)) {
+                            def sid:string ("n" + (to_string (itemAt picked s)))
+                            if (r.hasEl(i sid)) {
+                                def cls:string "ra-selbox"
+                                if (s > 0) {
+                                    cls = "ra-selbox ra-selbox-also"
+                                }
+                                def sel:EVGElement (RaveEditor.box(cls "" "" ""))
+                                sel.a11yHidden = true
+                                sel.setAttribute("left" ((to_string (((r.leftOf(i sid)) * zoom) + viewX)) + "px"))
+                                sel.setAttribute("top" ((to_string (((r.topOf(i sid)) * zoom) + viewY)) + "px"))
+                                sel.setAttribute("width" ((to_string ((r.widthOf(i sid)) * zoom)) + "px"))
+                                sel.setAttribute("height" ((to_string ((r.heightOf(i sid)) * zoom)) + "px"))
+                                board.addChild(sel)
+                            }
+                            s = (s + 1)
                         }
                     }
                 }
@@ -3093,6 +3474,7 @@ class RaveEditor {
             }
             this.dropBadge(board)
             this.flexBadge(board)
+            this.marqueeBox(board)
         }
         def bar:EVGElement (this.toolbar())
         board.addChild(bar)
@@ -3143,6 +3525,24 @@ class RaveEditor {
         tag.setAttribute("top" ((to_string (top - 20.0)) + "px"))
         tag.addChild((RaveEditor.quiet("ra-droptag-t" (word + (RaveEditor.cut(target.name 18))))))
         board.addChild(tag)
+    }
+
+    ; The rectangle being swept out, in window pixels, drawn where it is.
+    fn marqueeBox:void (board:EVGElement) {
+        if (marqOn == false) {
+            return
+        }
+        def x0:double (RaveEditor.lower(marqX0 marqX1))
+        def y0:double (RaveEditor.lower(marqY0 marqY1))
+        def w:double ((RaveEditor.upper(marqX0 marqX1)) - x0)
+        def h:double ((RaveEditor.upper(marqY0 marqY1)) - y0)
+        def box:EVGElement (RaveEditor.box("ra-marquee" "" "" ""))
+        box.a11yHidden = true
+        box.setAttribute("left" ((to_string (x0 - bx)) + "px"))
+        box.setAttribute("top" ((to_string (y0 - by)) + "px"))
+        box.setAttribute("width" ((to_string w) + "px"))
+        box.setAttribute("height" ((to_string h) + "px"))
+        board.addChild(box)
     }
 
     fn flexBadge:void (board:EVGElement) {

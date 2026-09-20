@@ -863,6 +863,34 @@ class RaveApp {
         return false
     }
 
+    ; The name under which this node is a component, or "". A component is a
+    ; named node tree: the node that carries the name is both the definition
+    ; and the first place it is used, the way a main component is in Figma.
+    fn componentNameOf:string (rootId:int) {
+        def i:int 0
+        while (i < (array_length components)) {
+            def c:RaveComponent (itemAt components i)
+            if (c.rootId == rootId) {
+                return c.name
+            }
+            i = (i + 1)
+        }
+        return ""
+    }
+
+    fn dropComponent:void (name:string) {
+        def keep:[RaveComponent]
+        def i:int 0
+        while (i < (array_length components)) {
+            def c:RaveComponent (itemAt components i)
+            if (c.name != name) {
+                push keep c
+            }
+            i = (i + 1)
+        }
+        components = keep
+    }
+
     fn component:RaveComponent (name:string) {
         def i:int 0
         while (i < (array_length components)) {

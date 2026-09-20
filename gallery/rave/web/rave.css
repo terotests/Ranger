@@ -256,7 +256,7 @@
 
 /* Layer tools: a row of small buttons over the tree. */
 .ra-treetools {
-  display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center;
+  display: flex; flex-direction: row; flex-wrap: wrap; align-items: center;
   gap: 3px; padding: 4px 8px; border: 1px solid #f0f1f4;
 }
 .ra-tool-s { display: flex; flex-direction: row; align-items: center; border-radius: 6px; padding: 4px 7px; height: 24px; min-height: 24px; background-color: #f6f7f9; }
@@ -283,6 +283,11 @@
 .ra-vplabel-t { font-size: 10.5px; height: 13px; color: #7b8190; }
 .ra-vplabel-on .ra-vplabel-t { color: #0d6efd; }
 .ra-selbox { position: absolute; border: 2px solid #0d6efd; }
+/* The rest of a multiple selection: the same blue, thinner, so the one the
+   inspector is about is still the one that stands out. */
+.ra-selbox-also { border: 1px solid #0d6efd; }
+/* The rectangle being swept out over the stage. */
+.ra-marquee { position: absolute; border: 1px solid #0d6efd; background-color: rgba(13, 110, 253, 0.08); }
 .ra-tabbadge {
   position: absolute; display: flex; flex-direction: row; align-items: center; justify-content: center;
   width: 18px; min-width: 18px; height: 18px; min-height: 18px; border-radius: 9px;

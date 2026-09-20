@@ -1245,6 +1245,62 @@ class RaveTest {
         ed.press("undo")
         c.eqInt("the page is as it was" (array_length page.children) kidsBefore)
 
+        ; MORE THAN ONE NODE, AND A COMPONENT MADE OF THEM.
+        ed.press(("tree:" + (to_string page.id)))
+        ed.press("add:Button")
+        def c1:int ed.selected
+        ed.press(("tree:" + (to_string page.id)))
+        ed.press("add:Label")
+        def c2:int ed.selected
+        ed.boardJson()
+        def mx:double (ed.stageCentreX(0 (RaveTest.elId(c1))))
+        def my:double (ed.stageCentreY(0 (RaveTest.elId(c1))))
+        c.ok("Ctrl-clicking a second node adds it" (ed.toggleAt(mx my)))
+        c.eqInt("…so two are selected" (ed.selectionCount()) 2)
+        c.ok("…and Ctrl-clicking it again takes it out" (ed.toggleAt(mx my)))
+        c.eqInt("…leaving one" (ed.selectionCount()) 1)
+        ed.toggleAt(mx my)
+        c.eqInt("two selected again" (ed.selectionCount()) 2)
+        def comps:int (array_length doc2.components)
+        c.ok("they become a component" (ed.press("component:make")))
+        c.eqInt("…one more than there was" (array_length doc2.components) (comps + 1))
+        def made:RaveComponent (itemAt doc2.components comps)
+        def madeRoot:RaveNode (doc2.node(made.rootId))
+        c.eqInt("…whose root is a box holding both" (array_length madeRoot.children) 2)
+        c.eqInt("…and that box is what is selected now" ed.selected made.rootId)
+        c.eqInt("…with nothing else marked" (ed.selectionCount()) 1)
+
+        ed.press("tab:components")
+        c.ok("the pane offers it" ((ed.chromeBoxJson(("use:" + made.name))) != "[]"))
+        ed.press(("tree:" + (to_string page.id)))
+        c.ok("…and it can be used again" (ed.useComponent(made.name)))
+        def inst:int ed.selected
+        def instNode:RaveNode (doc2.node(inst))
+        c.eqStr("…as an instance, not a copy" instNode.kind "instance")
+        ed.boardJson()
+        def rebuilt:string (RaveTest.classesIn((rt.pageOf(0))))
+        c.ok("…which the stage builds from the definition" (RaveTest.includes(rebuilt ("cmp-" + made.name))))
+        c.ok("…with its own element ids" (RaveTest.includes((rt.a11yJson(0)) ("-c" + (to_string inst)))))
+        RaveTest.lintClean(c rt 0 "the page with an instance on it lints clean")
+
+        ; the markup carries the component, because the node that is named
+        ; carries the name
+        def markup:string (ed.saveMarkup())
+        c.ok("the markup names the definition" (RaveTest.includes(markup ("define=\"" + made.name + "\""))))
+        c.ok("…and the instance" (RaveTest.includes(markup ("component=\"" + made.name + "\""))))
+        def ed2 (new RaveEditor())
+        ed2.init((RaveTest.chromeCss()))
+        ed2.setPageSize(1440.0 860.0)
+        c.ok("…and it reads back" (ed2.openMarkup(markup)))
+        c.eqInt("…with the component still there" (array_length ed2.doc.components) (comps + 1))
+
+        ed.press("undo")
+        ed.press("undo")
+        c.eqInt("undo takes the component back out" (array_length doc2.components) comps)
+        ed.press("undo")
+        ed.press("undo")
+        ed.press("undo")
+
         ; the layout menu: flex, without naming a property
         ed.press(("tree:" + (to_string page.id)))
         ed.boardJson()

@@ -109,6 +109,18 @@ canvas.addEventListener("pointerdown", (ev) => {
   canvas.setPointerCapture(ev.pointerId);
   canvas.focus();
   if (app.insideBoard(x, y)) {
+    // Ctrl adds what is under the pointer to the selection; Shift sweeps a
+    // rectangle over the stage and takes everything inside it.
+    if (ev.ctrlKey || ev.metaKey) {
+      act(() => app.toggleAt(x, y));
+      dragging = null;
+      return;
+    }
+    if (ev.shiftKey) {
+      act(() => app.beginMarquee(x, y));
+      dragging = { x, y, moved: false, carry: false, sweep: true };
+      return;
+    }
     // A press that lands ON a node picks that node up; one that lands on
     // nothing pans the stage, as it always did.
     const onNode = app.beginBoardDrag(x, y);
@@ -130,6 +142,10 @@ canvas.addEventListener("pointermove", (ev) => {
     const dx = x - dragging.x;
     const dy = y - dragging.y;
     if (Math.abs(dx) > 3 || Math.abs(dy) > 3) dragging.moved = true;
+    if (dragging.sweep) {
+      act(() => app.marqueeTo(x, y));
+      return;
+    }
     if (dragging.moved && dragging.carry) {
       act(() => app.dragTo(x, y));
       return;
@@ -150,6 +166,11 @@ function endDrag(ev) {
   if (chromeDrag) {
     chromeDrag = false;
     act(() => app.pointerUp());
+    return;
+  }
+  if (dragging && dragging.sweep) {
+    act(() => app.endMarquee());
+    dragging = null;
     return;
   }
   if (dragging && dragging.carry) {
