@@ -253,8 +253,15 @@ function looksLikeEvg(text) {
   }
 }
 
-function frameFile(docPath, onLine, { quiet = false } = {}) {
-  const r = spawnSync("node", [liveBin, "frame", docPath], {
+// `view` is the viewport to lay the document out at — a phone, a tablet
+// turned sideways, a desktop. It is a VIEW: the size is applied to a copy on
+// its way to the layout, so a document drawn at 390 is still a document drawn
+// at 390 after you have looked at it on a desktop.
+function frameFile(docPath, onLine, { quiet = false, view = null } = {}) {
+  const size = [];
+  if (view && view.width > 0) size.push(`--width=${Math.round(view.width)}`);
+  if (view && view.height > 0) size.push(`--height=${Math.round(view.height)}`);
+  const r = spawnSync("node", [liveBin, "frame", docPath, ...size], {
     cwd: root,
     encoding: "utf8",
     maxBuffer: 20 * 1024 * 1024,
@@ -1057,7 +1064,7 @@ export function seedDoc(kind = "empty") {
 // One document, laid out and framed, for a caller that has a file rather than
 // a seed kind. The app door uses it: the page it renders is a document like
 // any other, and the painter in the browser is the one already there.
-export function frameDocument(file) {
+export function frameDocument(file, view = null) {
   const events = [];
   frameFile(file, (line) => {
     try {
@@ -1065,7 +1072,7 @@ export function frameDocument(file) {
     } catch {
       /* chatter */
     }
-  });
+  }, { view });
   return events;
 }
 

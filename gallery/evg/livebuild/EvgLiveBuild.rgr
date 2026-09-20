@@ -42,6 +42,10 @@ class EvgLiveBuild {
     def insp:EVGInspect (new EVGInspect())
     def pageW:int 390
     def pageH:int 844
+    ; The viewport asked for, 0 meaning "whatever the document says". Set from
+    ; `--width=` / `--height=` on `frame`, applied to the view copy only.
+    def viewW:int 0
+    def viewH:int 0
     def kind:string ""
     def prompt:string ""
     def source:string ""
@@ -268,6 +272,21 @@ sfn main:void () {
             return root
         }
         def view:EVGElement (unwrap copy)
+        ; THE VIEWPORT IS A VIEW, NOT AN EDIT.
+        ;
+        ; A screen drawn at 390 is still the same document on a tablet and on
+        ; a desktop; what changes is how much room it is given. So the size
+        ; is put on the COPY, beside the dress and for the same reason — the
+        ; file keeps the width it was drawn at, and looking at a design in
+        ; landscape does not rewrite it.
+        if (viewW > 0) {
+            view.setAttribute("width" ((to_string viewW) + "px"))
+            view.markInline("width")
+        }
+        if (viewH > 0) {
+            view.setAttribute("height" ((to_string viewH) + "px"))
+            view.markInline("height")
+        }
         EVGDress.dress(view)
         return view
     }
@@ -537,6 +556,38 @@ sfn main:void () {
         return at
     }
 
+    ; `--width=1280` off the command line, 0 when it is not there. A digit
+    ; loop rather than `to_int`, which is optional-typed and answers
+    ; differently per target.
+    sfn viewFlag:int (name:string) {
+        def head:string (name + "=")
+        def h:int (strlen head)
+        def argc:int (shell_arg_cnt)
+        def i:int 0
+        while (i < argc) {
+            def a:string (shell_arg i)
+            if ((strlen a) > h) {
+                if ((substring a 0 h) == head) {
+                    def v:string (substring a h (strlen a))
+                    def out@(mutable):int 0
+                    def k@(mutable):int 0
+                    while (k < (strlen v)) {
+                        def d:int (indexOf "0123456789" (substring v k (k + 1)))
+                        if (d < 0) {
+                            k = (strlen v)
+                        } {
+                            out = ((out * 10) + d)
+                            k = (k + 1)
+                        }
+                    }
+                    return out
+                }
+            }
+            i = (i + 1)
+        }
+        return 0
+    }
+
     sfn slurp@(optional):string (path:string) {
         def cut:int (EvgLiveBuild.lastSlash(path))
         def dir:string "."
@@ -563,6 +614,14 @@ sfn main:void () {
         root = (unwrap loaded)
         pageW = (EvgLiveBuild.sizeOf(root true pageW))
         pageH = (EvgLiveBuild.sizeOf(root false pageH))
+        ; An asked-for viewport wins, so the frame, the measure and the
+        ; numbers the page prints all describe the same picture.
+        if (viewW > 0) {
+            pageW = viewW
+        }
+        if (viewH > 0) {
+            pageH = viewH
+        }
         return true
     }
 
@@ -913,6 +972,8 @@ sfn main:void () {
                 print "usage: evg_livebuild frame <doc.evg.json>"
                 return
             }
+            viewW = (EvgLiveBuild.viewFlag("--width"))
+            viewH = (EvgLiveBuild.viewFlag("--height"))
             this.runFrameFile((shell_arg 1))
             return
         }

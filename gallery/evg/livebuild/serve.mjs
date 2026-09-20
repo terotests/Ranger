@@ -36,6 +36,18 @@ import {
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "../../..");
+
+// The viewport a request asks for, if any. Bounded so a stray query cannot
+// ask the layout engine for a page the size of a building.
+function viewportOf(url) {
+  const n = (v) => {
+    const x = Math.round(Number(v));
+    return Number.isFinite(x) && x >= 200 && x <= 4096 ? x : 0;
+  };
+  const width = n(url.searchParams.get("w"));
+  const height = n(url.searchParams.get("h"));
+  return width || height ? { width, height } : null;
+}
 const bin = path.join(root, "gallery/evg/bin/evg_livebuild.js");
 const web = path.join(here, "web");
 const PORT = Number(process.env.EVG_LIVEBUILD_PORT || 8765);
@@ -847,7 +859,10 @@ function main() {
         send(res, 404, "application/json; charset=utf-8", JSON.stringify({ error: "no document in this session" }));
         return;
       }
-      const events = frameDocument(file);
+      // `?w=&h=` is the viewport to lay the document out at, so the same
+      // screen can be looked at as a phone, a tablet on its side or a
+      // desktop. It never reaches the file.
+      const events = frameDocument(file, viewportOf(url));
       const frame = events.find((e) => e && e.t === "frame") || {};
       send(
         res,

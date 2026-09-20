@@ -79,12 +79,20 @@
     border: 0; background: none; color: var(--muted); padding: 0 2px;
     font-size: 14px; line-height: 1; cursor: pointer;
   }
+  /* THE PICTURE GETS THE ROOM.
+     The stage used to be capped at 420px with the debug panes taking `1fr`,
+     which was backwards: the screen being designed is the thing being looked
+     at, and it is the thing that has to grow to a desktop viewport. Now the
+     stage is flexible and the panes are a narrow fixed column that can be
+     folded away entirely. */
   main {
     display: grid;
-    grid-template-columns: minmax(280px, 420px) 1fr;
+    grid-template-columns: 1fr minmax(260px, 340px);
     gap: 0;
     min-height: 0;
   }
+  main.solo { grid-template-columns: 1fr 0; }
+  main.solo .side { display: none; }
   @media (max-width: 900px) {
     main { grid-template-columns: 1fr; }
   }
@@ -96,20 +104,44 @@
       var(--bg);
     overflow: auto;
   }
+  /* The device is two numbers and a bezel. `--vw`/`--vh` are the viewport the
+     document is laid out at; `--fit` is how much of it fits on this monitor.
+     A 1440-wide desktop page has to be shrunk to be looked at, and shrinking
+     the picture is honest in a way that cropping it is not. */
+  .fit {
+    width: calc((var(--vw) + 24px) * var(--fit));
+    height: calc((var(--vh) + 24px) * var(--fit));
+  }
+  .devices {
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    margin-bottom: 14px; width: 100%; justify-content: center;
+  }
+  .devices .chip { padding: 3px 10px; font-size: 11.5px; }
+  .devices .chip.on { border-color: var(--accent); color: var(--accent); }
+  .devices #fold { margin-left: auto; }
+  .devices .lbl { font-variant-numeric: tabular-nums; }
   .phone {
-    width: 390px; height: 844px; background: var(--phone);
+    width: var(--vw); height: var(--vh); background: var(--phone);
     border-radius: 36px; padding: 12px; box-shadow:
       0 0 0 1px rgba(255,255,255,.08),
       0 30px 80px rgba(0,0,0,.55);
     position: relative;
+    transform: scale(var(--fit)); transform-origin: top left;
   }
   .phone .notch {
     position: absolute; top: 18px; left: 50%; width: 110px; height: 18px;
     margin-left: -55px; background: #020617; border-radius: 20px; z-index: 2;
   }
+  /* A tablet has a thinner bezel and no notch; a desktop is a window, so it
+     gets square corners and no rounding on the picture inside. */
+  .phone.tablet { border-radius: 22px; padding: 14px; }
+  .phone.desktop { border-radius: 10px; padding: 10px; }
+  .phone.tablet .notch, .phone.desktop .notch { display: none; }
+  .phone.tablet .screen { border-radius: 12px; }
+  .phone.desktop .screen { border-radius: 4px; }
   .screen {
-    width: 390px; height: 844px; border-radius: 28px; overflow: hidden;
-    background: #0b1220; transform-origin: top left;
+    width: var(--vw); height: var(--vh); border-radius: 28px; overflow: hidden;
+    background: #0b1220;
     position: relative;
   }
   .screen svg { display: block; }
@@ -218,9 +250,23 @@
 </header>
 <main>
   <div class="stage">
-    <div class="phone">
-      <div class="notch"></div>
-      <div class="screen" id="screen"></div>
+    <!-- WHAT SIZE OF SCREEN. A design is not a phone; it is a document that
+         has to survive a phone, a tablet and a desktop, and the only way to
+         know is to look at it at those sizes. The viewport is a view: it goes
+         to the layout, never to the file. -->
+    <div class="devices">
+      <button type="button" class="chip on" data-dev="phone">Phone</button>
+      <button type="button" class="chip" data-dev="tablet">Tablet</button>
+      <button type="button" class="chip" data-dev="desktop">Desktop</button>
+      <button type="button" class="chip" id="turn" title="Turn it on its side">⟲ Landscape</button>
+      <span class="lbl" id="vpLabel">390 × 844</span>
+      <button type="button" class="chip" id="fold" title="Fold the panes away and give the screen the room">Panes ›</button>
+    </div>
+    <div class="fit">
+      <div class="phone" id="phone">
+        <div class="notch"></div>
+        <div class="screen" id="screen"></div>
+      </div>
     </div>
     <div class="meta">
       <span>draw <b id="ncmds">0</b></span>
@@ -512,6 +558,10 @@ function paintFrame(d) {
   // now about a document that has changed under it.
   lastWidth = d.width || lastWidth;
   lastHeight = d.height || lastHeight;
+  // The box follows the picture. A frame that came back at a size nobody
+  // asked for — Run mode's app page, a document read at its own width — is
+  // still shown whole rather than cropped by a stale bezel.
+  sizeStage(lastWidth, lastHeight);
   lastChain = [];
   clearPick();
   if (!d.list) return;
@@ -888,8 +938,20 @@ function webFrame(data, extra = {}) {
   return { ...f, app: data.app, example: data.example, copies: data.copies, events: webEvents, local: true, ...extra };
 }
 
+// The device chips choose the viewport a DOCUMENT is laid out at. An app
+// renders at the page size its own machine was built with, so in Run mode the
+// chips are off rather than lit-and-ignored.
+function devicesEnabled(on) {
+  for (const b of document.querySelectorAll(".devices [data-dev], .devices #turn")) {
+    b.classList.toggle("off", !on);
+    b.disabled = !on;
+    b.title = on ? "" : "Run mode renders at the app's own page size";
+  }
+}
+
 async function enterRun() {
   runMode = true;
+  devicesEnabled(false);
   if (es) { es.close(); es = null; }
   $("run").classList.add("live");
   $("screen").classList.add("live");
@@ -928,6 +990,7 @@ async function enterRun() {
 // the agent had made.
 async function leaveRun() {
   runMode = false;
+  devicesEnabled(true);
   webApp = null;
   webData = null;
   webEvents = [];
@@ -954,9 +1017,47 @@ $("run").addEventListener("click", () => {
   else enterRun();
 });
 
-// The phone is 390×844 and painted at that size, so the point the host hit
-// tests is the point inside the element. No scaling, no second coordinate
-// system to keep in step.
+for (const b of document.querySelectorAll(".devices [data-dev]")) {
+  b.addEventListener("click", () => {
+    device = b.dataset.dev;
+    applyViewport();
+  });
+}
+$("turn").addEventListener("click", () => {
+  landscape = !landscape;
+  applyViewport();
+});
+// Folding the panes away is not only more room: on a desktop viewport it is
+// the difference between seeing the screen and seeing two thirds of it.
+$("fold").addEventListener("click", () => {
+  const m = document.querySelector("main");
+  const solo = m.classList.toggle("solo");
+  $("fold").textContent = solo ? "‹ Panes" : "Panes ›";
+  applyViewport({ refetch: false });
+});
+// The stage changing size changes how much of the viewport fits, and nothing
+// about the document — so rescale without asking the server again.
+addEventListener("resize", () => applyViewport({ refetch: false }));
+
+// The point inside the DOCUMENT, from a point on the monitor.
+//
+// The screen used to be painted at 390×844 and never scaled, so these were
+// the same number. A desktop viewport does not fit on a laptop, so the phone
+// is scaled to fit and the two coordinate systems came apart: a click 600px
+// across a screen shown at 62% is at 968 in the document. `getBoundingClientRect`
+// already reports the SCALED box, so dividing by its own width is exact and
+// needs no knowledge of the scale.
+function pointIn(ev) {
+  const el = $("screen");
+  const box = el.getBoundingClientRect();
+  const sx = box.width ? el.offsetWidth / box.width : 1;
+  const sy = box.height ? el.offsetHeight / box.height : 1;
+  return {
+    x: Math.round((ev.clientX - box.left) * sx),
+    y: Math.round((ev.clientY - box.top) * sy),
+  };
+}
+
 $("screen").addEventListener("click", async (ev) => {
   // In design mode a click is not a press — it is a QUESTION about the
   // picture. The picture is the only view of the document anybody has here,
@@ -965,13 +1066,11 @@ $("screen").addEventListener("click", async (ev) => {
   // each level selectable, because the node under a pointer is almost never
   // the one somebody means — a click on a switch lands on its track.
   if (!runMode) {
-    const b = $("screen").getBoundingClientRect();
-    pickAt(Math.round(ev.clientX - b.left), Math.round(ev.clientY - b.top));
+    const p = pointIn(ev);
+    pickAt(p.x, p.y);
     return;
   }
-  const box = $("screen").getBoundingClientRect();
-  const x = Math.round(ev.clientX - box.left);
-  const y = Math.round(ev.clientY - box.top);
+  const { x, y } = pointIn(ev);
   try {
     if (webApp) {
       const hit = JSON.parse(webApp.press(x, y));
@@ -995,6 +1094,82 @@ $("screen").addEventListener("click", async (ev) => {
 let lastChain = [];
 let lastWidth = 390;
 let lastHeight = 844;
+
+// --- THE VIEWPORT -------------------------------------------------------------
+//
+// Three devices and two orientations. The numbers are the CSS viewports these
+// devices actually report, not their panel sizes, because a design is laid out
+// against the former.
+//
+// This is a VIEW. The size is applied to a copy of the document on its way to
+// the layout, so looking at a phone screen on a desktop does not rewrite the
+// phone screen. `EVGDress` sits in the same place for the same reason.
+const DEVICES = {
+  phone: { w: 390, h: 844 },
+  tablet: { w: 820, h: 1180 },
+  desktop: { w: 1440, h: 900 },
+};
+let device = "phone";
+let landscape = false;
+
+function viewport() {
+  const d = DEVICES[device] || DEVICES.phone;
+  // A desktop is already wide; turning it makes a tall window, which is a
+  // real shape and not a mistake.
+  return landscape ? { w: d.h, h: d.w } : { w: d.w, h: d.h };
+}
+
+// How much of the viewport fits in the stage, as a scale. Never above 1: a
+// 390-wide phone on a big monitor stays 390 wide rather than being blown up.
+function fitScale(v) {
+  const stage = document.querySelector(".stage");
+  if (!stage) return 1;
+  const availW = stage.clientWidth - 48;
+  const availH = stage.clientHeight - 150;
+  if (availW <= 0 || availH <= 0) return 1;
+  return Math.min(1, availW / (v.w + 24), availH / (v.h + 24));
+}
+
+// Size the bezel and the picture to a viewport, and shrink to fit the room.
+// Every painter goes through this, so the box on screen always matches the
+// picture that was actually painted — Run mode renders at the APP's page size,
+// which need not be the device chip that is lit.
+function sizeStage(w, h) {
+  const v = { w, h };
+  const scale = fitScale(v);
+  document.documentElement.style.setProperty("--vw", v.w + "px");
+  document.documentElement.style.setProperty("--vh", v.h + "px");
+  document.documentElement.style.setProperty("--fit", String(scale));
+  $("vpLabel").textContent = `${v.w} × ${v.h}` + (scale < 0.999 ? `  ·  ${Math.round(scale * 100)}%` : "");
+  return scale;
+}
+
+function applyViewport({ refetch = true } = {}) {
+  const v = viewport();
+  const phone = $("phone");
+  phone.className = "phone" + (device === "phone" ? "" : " " + device);
+  sizeStage(v.w, v.h);
+  $("turn").textContent = landscape ? "⟲ Portrait" : "⟲ Landscape";
+  for (const b of document.querySelectorAll(".devices [data-dev]")) {
+    b.classList.toggle("on", b.dataset.dev === device);
+  }
+  if (refetch) reframe();
+}
+
+// Re-lay the session's document at the viewport now chosen. The document is
+// unchanged; only the size it is given changes.
+async function reframe() {
+  if (runMode) return; // Run mode paints from the app, not from /doc.
+  const v = viewport();
+  try {
+    const d = await (await fetch(`/doc?w=${v.w}&h=${v.h}`)).json();
+    if (d.error) return;
+    paintFrame(d);
+    paintMeasure(d.measure);
+  } catch {
+    /* the server will catch up on the next event */
+  }
+}
 
 function clearPick() {
   for (const el of [...$("screen").querySelectorAll(".pickbox")]) el.remove();
@@ -1077,8 +1252,12 @@ function cursor() {
 // A reload is not a start-over either. The session's document is what the
 // page shows when it opens; a fixture only when there is nothing there.
 async function boot() {
+  // Size the stage before the first paint, so the picture never appears at
+  // one size and jump to another.
+  applyViewport({ refetch: false });
+  const v = viewport();
   try {
-    const d = await (await fetch("/doc")).json();
+    const d = await (await fetch(`/doc?w=${v.w}&h=${v.h}`)).json();
     if (d.error) throw new Error(d.error);
     current = d.kind || current;
     paintFrame(d);

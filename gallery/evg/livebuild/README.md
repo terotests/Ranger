@@ -338,6 +338,27 @@ named for `t`.
 | `usage` | what the run cost: `input`, `cacheRead`, `cacheWrite`, `output`, `readTotal`, and `costUsd`, `turns`, `models` when the CLI says |
 | `done` | `ok`, step count, command count |
 
+### What size of screen
+
+The stage has Phone (390×844), Tablet (820×1180) and Desktop (1440×900), and a
+turn button that swaps the sides. **Panes ›** folds the thinking and ops panes
+away, which on a desktop viewport is the difference between seeing the screen
+and seeing two thirds of it.
+
+The viewport is a **view**. It is applied to a copy of the document on its way
+to the layout, next to `EVGDress` and for the same reason: looking at a phone
+screen on a desktop must not rewrite the phone screen. On the wire it is
+`GET /doc?w=&h=`, and on the command line:
+
+```sh
+node gallery/evg/bin/evg_livebuild.js frame doc.evg.json --width=1440 --height=900
+```
+
+A viewport larger than the stage is shrunk to fit and the percentage is shown
+beside the size; clicks are divided back, so the picker still lands on the
+element under the pointer. Run mode renders at the app's own page size, so the
+device chips are off there rather than lit and ignored.
+
 `usage` comes from the agent CLI's own accounting, not from counting what
 arrived here — the `tokens` figure beside the phone is words streamed onto the
 page, which is a different and much smaller number. Both Cursor and Claude end
