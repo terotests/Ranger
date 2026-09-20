@@ -3534,6 +3534,14 @@ fn r_wall_clock_ms() -> f64 {
                 csharp ( "(DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMilliseconds" )
                 kotlin ( "System.currentTimeMillis().toDouble()" )
                 java7 ( "((double)System.currentTimeMillis())" )
+                php ( "(microtime(true) * 1000.0)" )
+                dart ( "(DateTime.now().microsecondsSinceEpoch / 1000.0)" )
+                scala ( "(System.currentTimeMillis().toDouble)" )
+                swift3 ( "(Date().timeIntervalSince1970 * 1000.0)" (imp "Foundation") )
+                swift6 ( "(Date().timeIntervalSince1970 * 1000.0)" (imp "Foundation") )
+                ; `*` is 0.0: a target with no clock reports every duration as
+                ; zero rather than refusing to compile, which is what a program
+                ; that only prints a timing wants.
                 * ( "0.0" )
             }
         }

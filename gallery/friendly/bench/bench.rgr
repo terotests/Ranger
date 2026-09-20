@@ -1,0 +1,144 @@
+; bench.rgr — the same work on every target.
+;
+; Five kernels, each one a thing Ranger programs actually do: integer
+; arithmetic, a growing array, string building, a string-keyed map, and
+; objects with a method on them. Each prints a checksum, so the run is a
+; correctness check as well as a timing one: every target has to print the
+; same six lines.
+;
+; The sizes are chosen so the whole program takes on the order of a second on
+; a fast target, which keeps process and VM startup a small share of the
+; total. `bench.sh` measures startup separately.
+;
+; Every value here stays inside 32 bits on purpose. A Ranger `int` is 64-bit
+; on JavaScript, Python, PHP, Go and Rust and 32-bit on C++, C#, Java and
+; Kotlin, so a benchmark that crossed 2^31 would be measuring four targets
+; computing something else — and on C++ the overflow is undefined behaviour,
+; which at -O2 turned an earlier draft of this file into a program that never
+; finished. `intwidth.rgr` beside this file is the probe for that; this file
+; keeps out of its way so the times are times.
+
+class BPoint {
+    def x:int 0
+    def y:int 0
+    fn dist2:int () {
+        return ((x * x) + (y * y))
+    }
+}
+
+class Bench {
+
+    ; 1. integer arithmetic in a tight loop
+    fn arith:int (n:int) {
+        def acc:int 0
+        def i:int 0
+        while (i < n) {
+            acc = ((acc + ((i * 7) % 100003)) % 1000000007)
+            i = (i + 1)
+        }
+        return acc
+    }
+
+    ; 2. a growing array, then a pass over it
+    fn arrays:int (n:int) {
+        def xs:[int]
+        def i:int 0
+        while (i < n) {
+            push xs ((i * 31) % 9973)
+            i = (i + 1)
+        }
+        def sum:int 0
+        for xs v:int k {
+            sum = ((sum + v) % 1000000007)
+        }
+        return sum
+    }
+
+    ; 3. strings: build parts, join them, then read the result back
+    fn strings:int (n:int) {
+        def parts:[string]
+        def i:int 0
+        while (i < n) {
+            push parts (to_string (i % 997))
+            i = (i + 1)
+        }
+        def joined:string (join parts ",")
+        def total:int (strlen joined)
+        def j:int 0
+        def commas:int 0
+        while (j < total) {
+            if ((charAt joined j) == (ccode ",")) {
+                commas = (commas + 1)
+            }
+            j = (j + 1)
+        }
+        return ((total * 7) + commas)
+    }
+
+    ; 4. a string-keyed map: insert, then look every key up again
+    fn maps:int (n:int) {
+        def m:[string:int]
+        def i:int 0
+        while (i < n) {
+            set m ("k" + (to_string i)) ((i * 13) % 7919)
+            i = (i + 1)
+        }
+        def sum:int 0
+        def j:int 0
+        while (j < n) {
+            def key:string ("k" + (to_string j))
+            if (has m key) {
+                sum = ((sum + (unwrap (get m key))) % 1000000007)
+            }
+            j = (j + 1)
+        }
+        return sum
+    }
+
+    ; 5. objects: allocate, keep, and call a method on each
+    fn objects:int (n:int) {
+        def pts:[BPoint]
+        def i:int 0
+        while (i < n) {
+            def p (new BPoint)
+            p.x = (i % 101)
+            p.y = (i % 67)
+            push pts p
+            i = (i + 1)
+        }
+        def sum:int 0
+        for pts p2:BPoint k {
+            sum = ((sum + (p2.dist2())) % 1000000007)
+        }
+        return sum
+    }
+
+    ; Each kernel prints its own checksum and its own elapsed milliseconds, so
+    ; the numbers exclude process and VM startup and one slow kernel does not
+    ; hide the other four. `wall_clock_ms` is 0.0 on a target with no clock,
+    ; which reads as `0` rather than as a refusal to compile.
+    fn report:void (name:string sum:int t0:double t1:double) {
+        print ((((name + " ") + (to_string sum)) + " ") + (to_string (to_int (t1 - t0))))
+    }
+
+    sfn main:void () {
+        def b:Bench (new Bench())
+        def t0:double (wall_clock_ms)
+        def r1:int (b.arith(4000000))
+        def t1:double (wall_clock_ms)
+        b.report("arith" r1 t0 t1)
+        def r2:int (b.arrays(2000000))
+        def t2:double (wall_clock_ms)
+        b.report("arrays" r2 t1 t2)
+        def r3:int (b.strings(60000))
+        def t3:double (wall_clock_ms)
+        b.report("strings" r3 t2 t3)
+        def r4:int (b.maps(400000))
+        def t4:double (wall_clock_ms)
+        b.report("maps" r4 t3 t4)
+        def r5:int (b.objects(1000000))
+        def t5:double (wall_clock_ms)
+        b.report("objects" r5 t4 t5)
+        print "done"
+    }
+}

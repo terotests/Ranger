@@ -1,0 +1,19 @@
+; intwidth.rgr — how wide is a Ranger `int` on this target?
+;
+; Ranger has one integer type. The writers do not all lower it to the same
+; width, and a program that crosses 2^31 therefore gets different answers on
+; different targets — silently, except where the target refuses the literal.
+;
+; Run it the way bench.sh runs its own programs, or by hand:
+;   node bin/output.js -l=cpp gallery/friendly/bench/intwidth.rgr -d=/tmp -o=iw.cpp
+;
+; 100000 * 100000 is 10 000 000 000, which needs 34 bits.
+
+class IntWidth {
+    sfn main:void () {
+        def a:int 100000
+        def b:int 100000
+        print ("product " + (to_string (a * b)))
+        print ("expected 10000000000")
+    }
+}

@@ -18,8 +18,7 @@ to `""` read back as absent on C++ and as present everywhere else, and both
 outputs sat in this directory looking fine on their own.
 
 A target folder may hold `src/` of its own, for a study the same program cannot
-express on every target. There is one left: `kotlin/src/11_throw_catch.rgr`,
-because Rust refuses `try`/`catch` outright. The behaviour-only trait study was
+express on every target; none does today. The behaviour-only trait study was
 target-local for the same reason and is `src/12_behaviour_traits.rgr` now, since
 every target lowers it to its own interface. It may also hold `attempts/`:
 forms *that* target cannot express.
@@ -41,28 +40,135 @@ today.
 | [Go](go/README.md) | `-l=go` → `go build` | ran |
 | [C++](cpp/README.md) | `-l=cpp` → `g++ -std=c++17` | ran |
 | [Rust](rust/README.md) | `-l=rust` → `rustc` | ran |
+| PHP (no folder yet) | `-l=php` → `php` | ran |
+| Scala, TypeScript (no folder) | `-l=scala`, `-l=es6 -typescript` | writer only |
+
+[`bench/`](bench/README.md) is the other half of this directory: the same
+Ranger program timed on every target that builds here, plus the probe for how
+wide a Ranger `int` is.
 
 License: AGPL-3.0-or-later, with the rest of `gallery/`.
 
-## Ranking
+## Three questions, not one
 
-Same Ranger, same printed answers (`manhattan 7`, `shared 1`, `ok:42`,
-`ping`, …) on every target that has a toolchain here. **The ranking is
-about idiom** — would a native programmer keep the file — not about
-whether Ranger compiled.
+This used to be a single ordering, and a single ordering reads as a verdict.
+It is three separate questions, and a target can do well on one and badly on
+another:
 
-| Rank | Target | Runs | Why it sits here |
-| --- | --- | --- | --- |
-| 1 | [Python](python/README.md) | yes | Closest to the language. `None`, `raise`/`except`, `enumerate`, `__main__`. Looks like Python a human would debug. |
-| 2 | [JavaScript](javascript/README.md) | yes | The compiler’s own target. Objects share, `throw "…"` runs, arrays are arrays. Optional is verbose `typeof` / `undefined`. |
-| 3 | [Dart](dart/README.md) | yes | `T?`, `int Function(int)`, file-scope `main`, `throw "…"` runs. No Dart 3 `record` / `sealed` / `enum`. |
-| 4 | [Swift](swift/README.md) | writer only | `T?`, `??`, `weak var`, native `enum` for a `shape`. `throw` now emits `func … throws`, `try` at the call site and a small `Error` type — writer-checked, not `swiftc`-checked. |
-| 5 | [Kotlin](kotlin/README.md) | yes | `T?`, `sealed interface`, `(Int) -> Int`. `throw` is `Exception(msg)` now, kotlinc-clean and `error_msg`-correct. |
-| 6 | [C#](csharp/README.md) | yes | `int?`, `List<T>`, `Func<int, int>`, `interface` for a `shape`. `throw` wraps `ConfigurationErrorsException` and **runs**. `int` is 32-bit. |
-| 7 | [Java](java/README.md) | yes | Runs, and `throw` wraps `IllegalArgumentException`. Everything else is Java 7: `Integer` boxing, `Object` + `instanceof`, one file per class. |
-| 8 | [Rust](rust/README.md) | yes | Ownership-aware (`Rc`/`RefCell`/`Weak`, borrows) and still the least Rust-like, though less so: a Ranger `Enum` is a real `enum`, a `shape` match is a real `match`, names are `snake_case` and a behaviour-only `trait` is a `trait`. What is left is the big one — no `Result`, no `?`. `try`/`catch` and a `trait` used as a type are compile errors rather than wrong output, and optional params are fixed. |
-| 9 | [C++](cpp/README.md) | yes | No longer `shared_ptr` everywhere: a `record` the sharing analysis proves is never aliased is a value, so `manhattan(const Point& p)` is the signature and the copying builder returns a `Request`. `for ( int v : xs )` where a range-`for` is safe. `enum class` for a Ranger `Enum`, an optional string that can tell `""` from absent, `error_msg` with the real text, and a preamble that goes in only when the program reaches it (study 07: 237 → 67 lines). |
-| 10 | [Go](go/README.md) | yes | Sharing is `*T`. Optional is `*GoNullable`. `try`/`throw` is `panic`/`recover`. Workable, not Go-like. |
+1. **Correctness** — does the same Ranger program give the same answers?
+2. **Speed** — how long does the generated code take to do the same work?
+3. **Idiom** — would a native programmer keep the file?
+
+The first two are measured, by `compile.sh` and by
+[`bench/`](bench/README.md). The third is a judgement, so it is made against a
+published checklist below rather than asserted: every cell can be checked
+against a file in this directory.
+
+### 1. Correctness
+
+`compile.sh` compiles the twelve studies for every target, runs the ones that
+have a toolchain here, and diffs each study's output across all of them.
+**Eight targets agree on all twelve studies** — JavaScript, Python, Go, C++,
+Rust, Kotlin, Java and C#. PHP has no study folder yet but does have a `php`
+here, and it agrees with the JavaScript reference on every study it was run
+against. Dart, Swift and Scala have no `dart`, `swiftc` or `scalac` on this
+machine: their files are written and read, never run, and nothing below should
+be read as a claim that they work.
+
+The one place the targets do *not* agree is integer width.
+`bench/intwidth.rgr` is the probe — `100000 * 100000`, which needs 34 bits:
+
+| `100000 * 100000` | Targets |
+| --- | --- |
+| `10000000000` | JavaScript, Python, PHP, Go, Rust |
+| `1410065408` | C++, C#, Java, Kotlin |
+
+Dart and Swift declare a 64-bit `int` / `Int`, Scala a 32-bit `Int`; none was
+run. Ranger has one integer type, so this is a portability hazard in the
+language rather than a bug in any one writer — and on C++ the overflow is
+undefined behaviour rather than a wrap.
+
+### 2. Speed
+
+[`bench/`](bench/README.md) runs five kernels — arithmetic, arrays, strings,
+maps, objects — each timing itself. Kernels only, milliseconds, one machine,
+one program:
+
+| C++ | Kotlin | C# | Java | PHP | JavaScript | Rust | Python | Go |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 260 | 466 | 663 | 760 | 801 | 1 076 | 2 556 | 2 566 | 143 882 |
+
+Two of those numbers are a writer finding rather than a language fact.
+**`charAt` is O(n) on Go and Rust** — `[]rune(s)[i]` allocates the whole rune
+slice per read, `s.chars().nth(i)` walks from the start — so a string scan is
+quadratic there and constant-time everywhere else. And **a Ranger map is a
+plain object on JavaScript**, with two `hasOwnProperty` probes per lookup,
+which makes it the slowest map in the table where PHP is the fastest. Rust
+without the string kernel is 378 ms, second only to C++.
+
+### 3. Idiom
+
+Twelve checks, each read off the generated studies in this directory, each
+scored 1, ½ or 0. The score is the mean. Generics is 0 for everyone — a
+Ranger `@params` class is monomorphized into `Stack_int` and `Stack_string` on
+every target — so it lowers every column by the same amount rather than
+separating them; it is in the table because a native reader does notice.
+
+| Check | JS | TS | Py | PHP | Dart | Swift | Kotlin | C# | Java | Scala | Go | C++ | Rust |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Declared types | 1 | 1 | 1 | ½ | 1 | 1 | 1 | 1 | ½ | 1 | ½ | 1 | 1 |
+| Optional | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | ½ | 1 | 0 | ½ | 1 |
+| Ranger `Enum` | 0 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 |
+| Closed variants | 0 | 1 | 0 | 0 | ½ | 1 | 1 | ½ | ½ | ½ | ½ | 1 | 1 |
+| `trait` as a type | 1 | 1 | 1 | 0 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 |
+| `for` loop | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 |
+| Higher-order fn | 1 | 1 | ½ | 1 | 1 | 1 | 1 | 1 | ½ | 1 | 1 | 1 | ½ |
+| Collections | 1 | 1 | 1 | 1 | 1 | 1 | ½ | 1 | ½ | ½ | 1 | 1 | 1 |
+| Naming | 1 | ½ | ½ | 1 | 1 | 1 | 1 | ½ | 1 | 1 | ½ | 1 | ½ |
+| Generics | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Errors | ½ | ½ | 1 | 1 | ½ | 1 | 1 | ½ | ½ | ½ | ½ | 1 | ½ |
+| Memory model | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 1 | ½ | ½ |
+| **Score** | **71%** | **83%** | **75%** | **71%** | **83%** | **92%** | **88%** | **79%** | **67%** | **79%** | **67%** | **83%** | **75%** |
+
+Reading the columns:
+
+- **Swift, 92%.** `T?`, `??`, `weak var`, a native `enum` for both a Ranger
+  `Enum` and a `shape`, `protocol` for a behaviour-only `trait`, `throws` /
+  `try` / a real `Error` type. It is also the column with the least evidence:
+  no `swiftc` here, so this is a reading of the file, not of a build.
+- **Kotlin, 88%.** `T?`, `enum class`, `sealed interface`, `(Int) -> Int`,
+  `interface`. `MutableList` in signatures where a native API takes `List`.
+- **TypeScript / Dart / C++, 83%.** TypeScript gets a discriminated union with
+  a literal `__rg_kind`, which is the idiom, and loses it again on
+  `union_ParseOutcome` as a type name. Dart has `T?`, `enum`, `int
+  Function(int)`; its closed variants are `abstract class` + `is` rather than
+  Dart 3 `sealed`. C++ is `enum class`, range-`for`, a value `record` where
+  the sharing analysis proves nothing aliases it, and a preamble that goes in
+  only when the program reaches it — against `shared_ptr` elsewhere and a
+  32-bit `int`.
+- **C# / Scala, 79%.** C#: `int?`, `List<T>`, `Func<int,int>`, `enum`,
+  `interface` — with camelCase methods where .NET writes PascalCase, and
+  `ConfigurationErrorsException` as the thrown type. Scala: `Option[T]`,
+  `for (v <- xs)`, `trait`, a sealed class with case objects for an `Enum` —
+  with `collection.mutable.ArrayBuffer` spelled out everywhere.
+- **Python / Rust, 75%.** Python is annotated end to end now, with `IntEnum`
+  and `Protocol`, and still writes a shape as a `_rg_kind` tag rather than a
+  match, hoists multi-statement lambdas into `__rg_lambda_1` defs, and keeps
+  Ranger's camelCase where PEP 8 wants snake_case. Rust is ownership-aware and
+  reads like Rust — `Option<T>`, `enum` + `if let`, snake_case, `trait` — and
+  still has no `Result` or `?`, takes `&mut dyn FnMut` where a native API is
+  generic, and names types `Stack_int` and `union_Payload`, which rustc warns
+  about.
+- **JavaScript / PHP, 71%.** Both are honest, plain files in their language.
+  JavaScript is the only target where a Ranger `Enum` is still a number, and
+  its shapes are a `__rg_kind` string. PHP has typed properties and a native
+  `enum` now; its parameters and returns are untyped, and a behaviour-only
+  `trait` is not yet an `interface` there.
+- **Java / Go, 67%.** Java is legal and runs: `Integer` boxing, `ArrayList`
+  in signatures, `LambdaSignature1` for a lambda. Go is the one target where
+  an optional is neither a pointer nor a second return value but
+  `*GoNullable` with an `interface{}` inside, and the one where the ownership
+  pass does not run at all.
 
 Every target's `for` is that target's own loop now, when the body neither
 reads the index nor touches the collection: `for (const v of xs)`,
@@ -72,32 +178,18 @@ reads the index nor touches the collection: `for (const v of xs)`,
 ([`compiler/ForLoopAnalysis.rgr`](../../compiler/ForLoopAnalysis.rgr)); only
 the spelling is per target.
 
-Two scores that are not the same thing:
-
-- **Correctness.** Python, JavaScript, Dart, Kotlin, C#, Java, Go, C++,
-  Rust all printed the same lines, and `compile.sh` now proves it by diffing
-  them rather than leaving it to the reader. The one place they disagreed was
-  found by study 10 and is fixed: on C++ an optional `string` was a plain
-  `std::string` at every position — field, local and parameter — so `""` and
-  absent were the same value. Study 11 is the study that asks the question,
-  and it is the same answer on every target now.
-- **Idiom.** Python first, then the GC languages whose optional/`throw`
-  already look like the language (JS, Dart), then the typed languages
-  that get `T?` right but break `throw` (Swift, Kotlin), then C# (legal
-  `int?` / `Func` / `interface`, odd exception type), then Java (ugly,
-  but legal), then Rust / C++ / Go — each more honest about memory, each
-  further from what a native file looks like. Rust and C++ have closed part
-  of that: a class the sharing analysis proves nothing aliases is a plain
-  value on both, a `for` that ignores its index is a native loop on both, and
-  neither file opens with a preamble the program cannot reach. Go is last
-  because the ownership pass does not run for it at all.
+An earlier round of this file found the other disagreement worth recording,
+and it is fixed: on C++ an optional `string` was a plain `std::string` at
+every position — field, local and parameter — so `""` and absent were the same
+value. Study 11 is the study that asks that question, and every target gives
+the same answer now.
 
 What **none** of them get from Ranger today: a `Result` / `(T, error)` /
 `throws` type, or `@params` surviving as `Stack<T>` rather than `Stack_int`.
-A real `enum` is Rust-and-C++ only so far; on the other eight an `Enum` is
-still an integer. A behaviour-only `trait` used as a *type* is now the
-target's own interface on all eight statically typed ones, and a
-field-bearing one is refused there rather than emitted.
+A Ranger `Enum` is the target's own enum everywhere except plain JavaScript,
+which has none to be. A behaviour-only `trait` used as a *type* is the
+target's own interface on every statically typed target except PHP, and a
+field-bearing one is refused rather than emitted.
 
 ### Official targets not given a folder
 
@@ -108,9 +200,9 @@ C# are folders now. Still without a study directory:
 
 | Target | Option | Probed? | Would sit… |
 | --- | --- | --- | --- |
-| TypeScript | `-l=es6 -typescript` | writer | next to JavaScript. Same backend, plus types and `export`. No `tsc` here. |
-| PHP | `-l=php` | writer | around JavaScript. `var $x`, `isset`, `throw new Exception`. No `php` here. |
-| Scala | `-l=scala` | writer | interesting optional (`Option[TreeNode]`), but `ScalaReturnValue` exception hack and not a `case class`. No `scalac` here. |
+| TypeScript | `-l=es6 -typescript` | writer | above JavaScript. Same backend, plus types, `export`, `enum`, and a discriminated union for a `shape`. No `tsc` here. |
+| PHP | `-l=php` | **runs** | with JavaScript. Typed properties, native `enum`, `??`, `foreach`. `php` is on this machine and the twelve studies agree with the JavaScript reference; it has no study folder yet. |
+| Scala | `-l=scala` | writer | with C#. `Option[T]`, `trait`, `for (v <- xs)`, a sealed class with case objects for an `Enum`; still `ScalaReturnValue` and `collection.mutable.ArrayBuffer` spelled out. No `scalac` here. |
 
 `es5`, `swift3`, `nim`, `flow`, `ts` (as its own `-l`) and `llvm` live
 in `Lang.rgr` with thinner templates. They are not in this ranking.
@@ -122,19 +214,30 @@ in `Lang.rgr` with thinner templates. They are not in this ranking.
 | Two names, one object | object | object | object | class / ARC | object | object | object | `*T` | `shared_ptr` | `Rc<RefCell>` when proven |
 | Weak back-edge | ignored | ignored | ignored (`T?`) | `weak var x: T?` | ignored (`T?`) | ignored | ignored | ignored (`*GoNullable`) | `r_weak` / `weak_ptr` | `Weak<RefCell>` |
 | Optional | `undefined` | `None` | `T?` | `T?` | `T?` | `int?` / `String`+null | `null` / `Integer` | `*GoNullable` | `r_optional_*`, string included | `Option<T>` |
-| `try`/`throw` | `throw "…"` (runs) | `raise`/`except` (runs) | `throw "…"` (runs) | no `throws` (would not swiftc) | `throw "…"` **kotlinc rejects** | `ConfigurationErrorsException` (runs) | `IllegalArgumentException` (runs) | `panic`/`recover` (runs) | `throw string` / `catch(...)` (`error_msg` lost) | catch **dropped**, panic |
+| `try`/`throw` | `throw "…"` (runs) | `raise`/`except` (runs) | `throw "…"` (runs) | `throw RgError(…)` / `catch` | `throw Exception(…)` / `catch` | `ConfigurationErrorsException` (runs) | `IllegalArgumentException` (runs) | `panic`/`recover` (runs) | `throw std::runtime_error` / `catch` | **refused**, naming the `shape` alternative |
 | Closed variants | `__rg_kind` | `_rg_kind` | `abstract class` + `is` | native `enum` | `sealed interface` | `interface` + `is` | `Object` + `instanceof` | tagged struct | `std::variant` | `enum` + `if let` |
-| Ranger `Enum` | number | `int` | `int` | `Int` | `Int` | `int` | `Integer` | `int64` | `enum class` when every use fits | `enum` when every use fits |
+| Ranger `Enum` | number | `IntEnum` | `enum` | `enum : Int` | `enum class` | `enum : int` | `enum`, own file | `type C int64` + consts | `enum class` | `enum` |
+| Integer width | 2⁵³ exact | arbitrary | 64-bit (declared) | 64-bit (declared) | **32-bit** | **32-bit** | **32-bit** | 64-bit | **32-bit**, overflow is UB | 64-bit |
 | Ranger `trait` | mixin | mixin | mixin, + abstract class when used as a type | mixin, + `protocol` | mixin, + `interface` | mixin, + `interface` | mixin, + `interface` | mixin, + `interface` | mixin, + abstract base | mixin, + `trait` |
 | Generics | `Stack_int` | `Stack_int` | `Stack_int` | `Stack_int` | `Stack_int` | `Stack_int` | `Stack_int` | `Stack_int` | `Stack_int` | `Stack_int` |
 | Higher-order fn | function | callable / hoisted def | `int Function(int)` | closure | `(Int) -> Int` | `Func<int, int>` | `LambdaSignature1` | `func(int64) int64` | `std::function` | `&mut dyn FnMut` |
-| Error type | throw string | `Exception(str)` | throw string | no `throws`/`Result` | throw string illegal | `ConfigurationErrorsException` | `IllegalArgumentException` | no `(T, error)` | no `expected` | no `Result` |
+| Error type | throw string | `Exception(str)` | throw string | `RgError` | `Exception` | `ConfigurationErrorsException` | `IllegalArgumentException` | no `(T, error)` | `std::runtime_error`, no `expected` | no `Result`; a `shape` stands in |
+
+`Enum` and `trait`-as-a-type have moved out of the second list and into the
+first: the compiler decides them once and each writer spells them. What is
+left there is `Result` / `(T, error)` / `throws` as a *type*, and generics
+surviving as generics rather than as `Stack_int`.
 
 The ownership / memory story is the part the compiler already thinks about
-(Rust borrows and `Rc`, C++ `shared_ptr`/`weak_ptr`, Swift `final`/`weak var`).
-The type story — `Result`, real enums, protocols/interfaces/traits, generics
-that survive into the output — is what none of the targets get from Ranger
-source today.
+(Rust borrows and `Rc`, C++ `shared_ptr`/`weak_ptr`, Swift `final`/`weak var`),
+and it now reaches further: a local built in a function and stored for the
+last time is moved rather than shared, and the `def` plus the field writes
+after it are one initialization on Rust.
+
+Integer width is the row to read before porting anything numeric. Ranger has
+one integer type and the writers do not all give it the same width, so a
+program that crosses 2³¹ is a different program on C++, C#, Java, Kotlin and
+Scala than it is on the rest. `bench/intwidth.rgr` is the probe.
 
 ## Shared sources
 
