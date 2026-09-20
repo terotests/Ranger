@@ -724,9 +724,27 @@ a screen reader is told about a \`div\`. **This workspace has the real ones.**
 
 \`\`\`
 ./evg-ui list                     what exists, one line each
-./evg-ui spec switch              its props, its classes, what it is measured against
+./evg-ui spec card                its props, its parts, what it is measured against
 ./evg-ui add switch --name "Wi-Fi" --checked --into doc.evg.json > add.json
 \`\`\`
+
+**Ask for the whole piece, not the control.** What a screen is made of is a
+ROW — an icon, a title over a subtitle, a switch at the end — and then
+thirty more like it. Reaching for the switch alone leaves you drawing the
+other four parts by hand every time, which is where a column of things that
+do not line up comes from: five hand-written paddings and five guesses at
+the gap. A whole settings card is one command:
+
+\`\`\`sh
+./evg-ui add card \\
+  --row "Signal strength|Excellent|value:Excellent" \\
+  --row "Frequency||value:5 GHz" \\
+  --row "Share network|Others on this device can connect|switch:on" \\
+  --row "Privacy|Use randomized MAC|chevron" --into doc.evg.json > add.json
+\`\`\`
+
+\`row\`, \`card\`, \`appbar\`, \`chips\` and \`field\` are the pieces;
+\`./evg-ui list\` has them at the top and \`spec\` says what each takes.
 
 \`add\` answers \`{tree, css, classes, ops}\`. The \`ops\` are a batch you can
 apply as it stands — a \`set-css\` carrying the rules the control needs on

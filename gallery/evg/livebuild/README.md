@@ -183,6 +183,16 @@ workspace now carries the door to them as `./evg-ui`:
 ./evg-ui add switch --name "Wi-Fi" --checked --into doc.evg.json > add.json
 ```
 
+It also answers with the whole PIECE rather than the part — `row`, `card`,
+`appbar`, `chips`, `field` — because a row is the unit a screen is built in,
+and an agent handed only the switch draws the other four parts by hand every
+time:
+
+```sh
+./evg-ui add card --row "Share network|Others can connect|switch:on" \
+                  --row "Privacy|Use randomized MAC|chevron" --into doc.evg.json
+```
+
 `add` answers a batch `./evg-agent patch` applies as it stands: a `set-css`
 carrying the rules the document does not have yet, and an `insert` carrying
 the control as a **subtree** — `EVGPatch`'s `insert` learned to take one for

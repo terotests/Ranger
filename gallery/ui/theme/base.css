@@ -218,6 +218,101 @@
 }
 .ui-accordion-body { color: #334155; }
 
+/* --- the pieces screens are made of ---------------------------------------- */
+/*
+ * A control is not what an agent builds. It builds a ROW — an icon, a title
+ * over a subtitle, and a switch at the end — and then thirty more like it.
+ * Offering it only the switch means it draws the other four parts itself
+ * every time, which is where a screen of things that do not line up comes
+ * from: five hand-written paddings, five guesses at the gap.
+ *
+ * These are that row and the handful of shapes around it, as rules. They use
+ * the same one-class-deep selectors as everything else here, so a document
+ * restyles a row by overriding `.ui-row-title` rather than by rebuilding it.
+ */
+
+/* A card of rows: the white rounded panel a settings screen is a list of. */
+.ui-card {
+  display: flex; flex-direction: column;
+  border-radius: 20px;
+  background-color: #ffffff;
+  padding: 4px 16px;
+}
+.ui-card-title { color: #64748b; font-size: 12px; height: 16px; padding: 10px 0 2px; }
+
+/* One row. The text block grows, so the control at the end sits against the
+   right edge whatever the words do. */
+.ui-row {
+  display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center;
+  gap: 14px;
+  padding: 10px 0;
+}
+.ui-row-icon {
+  display: flex; flex-direction: row; align-items: center; justify-content: center;
+  width: 24px; min-width: 24px; height: 24px; min-height: 24px;
+  color: #64748b; font-size: 15px;
+}
+.ui-row-text { display: flex; flex-direction: column; gap: 2px; flex-grow: 1; }
+.ui-row-title { color: #0f172a; font-size: 15px; font-weight: bold; height: 20px; }
+.ui-row-sub { color: #64748b; font-size: 12px; height: 16px; }
+.ui-row-value { color: #64748b; font-size: 13px; height: 18px; }
+.ui-row-chevron { color: #94a3b8; font-size: 14px; height: 18px; }
+/* A divider between rows rather than a border on each: two adjacent borders
+   are two lines, and this engine has no `:last-child` to take one away. */
+.ui-row-line { height: 1px; min-height: 1px; background-color: #eef1f6; }
+
+/* The bar at the top of a screen. */
+.ui-appbar {
+  display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center;
+  justify-content: space-between;
+  height: 48px; min-height: 48px;
+}
+.ui-appbar-title { color: #0f172a; font-size: 17px; font-weight: bold; height: 22px; }
+.ui-appbar-btn {
+  display: flex; flex-direction: row; align-items: center; justify-content: center;
+  width: 40px; min-width: 40px; height: 40px; min-height: 40px;
+  border-radius: 20px;
+  color: #0f172a; font-size: 16px;
+}
+.ui-appbar-btn:hover { background-color: #f1f5f9; }
+
+/* A row of round actions — Forget · Disconnect · Share. */
+.ui-chiprow {
+  display: flex; flex-direction: row; flex-wrap: nowrap;
+  justify-content: space-around; align-items: flex-start;
+  gap: 8px; padding: 8px 0;
+}
+.ui-chip { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.ui-chip-dot {
+  display: flex; flex-direction: row; align-items: center; justify-content: center;
+  width: 52px; min-width: 52px; height: 52px; min-height: 52px;
+  border-radius: 26px;
+  background-color: #eef1f6;
+  color: #0f172a; font-size: 18px;
+}
+.ui-chip-dot:hover { background-color: #e2e8f0; }
+.ui-chip-label { color: #334155; font-size: 12px; height: 16px; }
+
+/* A labelled field, which is the form's row. */
+.ui-field { display: flex; flex-direction: column; gap: 6px; }
+.ui-field-label { color: #0f172a; font-size: 13px; height: 18px; }
+.ui-field-help { color: #64748b; font-size: 12px; height: 16px; }
+.ui-field-error { color: #dc2626; font-size: 12px; height: 16px; }
+
+.theme-dark .ui-card { background-color: #111c31; }
+.theme-dark .ui-card-title { color: #94a3b8; }
+.theme-dark .ui-row-title { color: #e2e8f0; }
+.theme-dark .ui-row-sub,
+.theme-dark .ui-row-value { color: #94a3b8; }
+.theme-dark .ui-row-icon { color: #94a3b8; }
+.theme-dark .ui-row-line { background-color: #1e293b; }
+.theme-dark .ui-appbar-title { color: #e2e8f0; }
+.theme-dark .ui-appbar-btn { color: #e2e8f0; }
+.theme-dark .ui-chip-dot { background-color: #1e293b; color: #e2e8f0; }
+.theme-dark .ui-chip-label { color: #cbd5e1; }
+.theme-dark .ui-field-label { color: #e2e8f0; }
+.theme-dark .ui-field-help { color: #94a3b8; }
+
 /* --- calendar -------------------------------------------------------------- */
 
 /* A month, and the first control here that had NO rules at all: behaviour

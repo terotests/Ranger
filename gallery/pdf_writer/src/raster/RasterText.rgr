@@ -192,6 +192,15 @@ class RasterText {
         ; Calculate scale for this font size
         def scale:double (fontSize / (to_double font.unitsPerEm))
         
+        ; A GLYPH THIS FACE DOES NOT HAVE. An index past the end of `loca`
+        ; used to read past the end of the file, and the whole picture died
+        ; with "Offset is outside the bounds of the DataView" — so one arrow
+        ; or one emoji in a screen meant no screen at all. A face that lacks
+        ; a glyph draws nothing, which is what every other text engine does.
+        if ((glyphIndex < 0) || (glyphIndex >= font.numGlyphs)) {
+            return outline
+        }
+        
         def glyphLen:int (this.getGlyphLength(glyphIndex))
         if (glyphLen == 0) {
             ; Empty glyph (space, etc) - still need advance width!

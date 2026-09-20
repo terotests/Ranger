@@ -256,6 +256,13 @@ if (fs.existsSync(path.join(root, "lib/evg/bin/evg_agent.js"))) {
   if (!/\bswitch\b/.test(listed.stdout || "")) {
     throw new Error("the kit door answers nothing: " + (listed.stderr || listed.stdout || ""));
   }
+  // The PIECES come first in the list, because a row is what an agent is
+  // actually building when it reaches for a switch.
+  const pieces = (listed.stdout || "").indexOf("PIECES");
+  const controls = (listed.stdout || "").indexOf("CONTROLS");
+  if (pieces < 0 || controls < 0 || pieces > controls) {
+    throw new Error("the pieces are not offered before the controls");
+  }
   const doc = path.join(dir, "doc.evg.json");
   const added = spawnSync(shim, ["add", "switch", "--name", "Wi-Fi", "--into", doc], {
     encoding: "utf8",
@@ -278,7 +285,34 @@ if (fs.existsSync(path.join(root, "lib/evg/bin/evg_agent.js"))) {
   if (!after.includes("ui-switch-thumb")) throw new Error("the control did not land in the document");
   if (!after.includes(".ui-switch-track")) throw new Error("the control's rules did not land in the sheet");
   fs.rmSync(opsFile, { force: true });
-  console.log("  kit         ./evg-ui in the workspace, and its batch applies");
+
+  // A WHOLE PIECE. The row is the unit an agent works in, and a card of rows
+  // has to arrive with its rules, lay out, and contain a real control rather
+  // than a drawn one — which is the whole point of offering it.
+  const carded = spawnSync(
+    shim,
+    ["add", "card", "--row", "Share network|Others can connect|switch:on", "--row", "Privacy||chevron", "--into", doc],
+    { encoding: "utf8", timeout: 120000 },
+  );
+  const cardBatch = JSON.parse(carded.stdout || "{}");
+  if (!cardBatch.classes || !cardBatch.classes.includes("ui-row-title")) {
+    throw new Error("the card came back without its parts: " + (carded.stderr || carded.stdout));
+  }
+  const cardOps = path.join(dir, "kit-card.json");
+  fs.writeFileSync(cardOps, JSON.stringify({ ops: cardBatch.ops }));
+  const cardPatched = spawnSync(path.join(dir, "evg-agent"), ["patch", doc, cardOps], {
+    encoding: "utf8",
+    timeout: 120000,
+  });
+  const cardResult = JSON.parse(cardPatched.stdout || "{}");
+  if (!cardResult.ok) throw new Error("the card's batch was rejected: " + (cardPatched.stdout || cardPatched.stderr));
+  if ((cardResult.layout || {}).drawn) throw new Error("the kit's own card contains a drawn control");
+  const withCard = fs.readFileSync(doc, "utf8");
+  if (!withCard.includes("ui-row-title") || !withCard.includes(".ui-card")) {
+    throw new Error("the card did not land with its rules");
+  }
+  fs.rmSync(cardOps, { force: true });
+  console.log("  kit         ./evg-ui in the workspace: a control and a whole card both apply");
 }
 
 // An app workspace gets a different guide, and the tool to work it with. What

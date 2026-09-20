@@ -26,6 +26,7 @@ Import "../jsx/JSXToEVG.rgr"
 Import "pkg:evg/EVGElement.rgr"
 Import "pkg:evg/EVGUnit.rgr"
 Import "pkg:evg/EVGTreeJson.rgr"
+Import "pkg:evg/EVGStyleSheet.rgr"
 
 class EVGDocSource {
 
@@ -52,7 +53,22 @@ class EVGDocSource {
             if (null? root) {
                 return (EVGDocSource.nothing())
             }
-            return (unwrap root)
+            def tree:EVGElement (unwrap root)
+            ; THE DOCUMENT'S OWN STYLESHEET. A document may carry a `css`
+            ; block and join its nodes to it with `class-name`, which is what
+            ; every tool that lays one out — the agent CLI, the live page —
+            ; already reads. These tools did not, so a document that said
+            ; `.card { background-color: … }` painted as if it had said
+            ; nothing: not a missing property, the whole cascade. Anything
+            ; written inline still outranks it, so a file that never had a
+            ; sheet is unchanged.
+            if ((strlen tree.documentCss) > 0) {
+                def sheet (new EVGStyleSheet())
+                sheet.parse(tree.documentCss)
+                sheet.setViewport(pageWidth pageHeight false)
+                sheet.applyTree(tree "")
+            }
+            return tree
         }
         def converter (new JSXToEVG())
         converter.pageWidth = pageWidth

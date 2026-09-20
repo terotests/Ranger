@@ -75,6 +75,29 @@ npm run ui:kit add switch --name "Wi-Fi" --checked --into doc.evg.json
 npm run ui:kit shot checkbox --out cb.png    a picture, headless
 ```
 
+### The pieces, not the parts
+
+A control is not what anybody builds. They build a ROW — an icon, a title
+over a subtitle, a switch at the end — and then thirty more like it. Offered
+only the switch, an agent draws the other four parts itself every time, which
+is both where the drawn controls come from and where a column of things that
+do not line up comes from: five hand-written paddings and five guesses at the
+gap. So the kit offers the whole piece:
+
+```bash
+npm run ui:kit add card \
+  --row "Signal strength|Excellent|value:Excellent" \
+  --row "Share network|Others on this device can connect|switch:on" \
+  --row "Privacy|Use randomized MAC|chevron" --into doc.evg.json
+```
+
+`row`, `card`, `appbar`, `chips` and `field` are built in `ui_kit.mjs` out of
+plain nodes and this kit's own controls — there is no second control
+implementation — and their parts carry classes the sheet already styles, so a
+document restyles a row by overriding `.ui-row-title` rather than rebuilding
+it. `ui:kit:check` measures each one and fails if a piece of THIS kit contains
+a control drawn out of boxes.
+
 `add` answers `{tree, css, classes, ops}`. The tree is what the controller
 BUILT — not a drawing of it — the CSS is sliced out of this kit's own sheet,
 and the ops are a batch `evg_agent patch` applies as it stands: a `set-css`
