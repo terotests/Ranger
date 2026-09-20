@@ -257,6 +257,42 @@ function shot(file, rest) {
   });
 }
 
+// A picture of the EDITOR, not of a document: the chrome is EVG too, so it
+// paints through the same rasterizer.
+function chrome(file, rest) {
+  if (!buildCli()) return 2;
+  if (!buildPngTool()) {
+    process.stderr.write("rave: the rasterizer did not compile\n");
+    return 2;
+  }
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rave-chrome-"));
+  const tree = path.join(dir, "chrome.evg.json");
+  const out = flagOf(rest, "--out", "chrome.png");
+  const args = ["chromedata", path.resolve(file), tree];
+  for (const flag of ["--pane", "--route", "--width", "--height"]) {
+    const v = flagOf(rest, flag, "");
+    if (v) args.push(flag, v);
+  }
+  if (rest.includes("--paint")) args.push("--paint");
+  const made = spawnSync(process.execPath, [CLI_JS, ...args], { cwd: process.cwd(), encoding: "utf8" });
+  const text = (made.stdout || "") + (made.stderr || "");
+  const said = /^CHROME (\d+) (\d+)$/m.exec(text);
+  if (!said || !fs.existsSync(tree)) {
+    fs.rmSync(dir, { recursive: true, force: true });
+    process.stdout.write(text + "\n");
+    return 1;
+  }
+  const painted = spawnSync(
+    process.execPath,
+    [PNG_TOOL, tree, path.resolve(out), "-w", said[1], "-h", said[2]],
+    { cwd: ROOT, encoding: "utf8" },
+  );
+  fs.rmSync(dir, { recursive: true, force: true });
+  const ok = fs.existsSync(path.resolve(out));
+  process.stdout.write(ok ? `${out} ${said[1]}x${said[2]}\n` : (painted.stdout || "") + (painted.stderr || ""));
+  return ok ? 0 : 1;
+}
+
 function measure(file, rest) {
   if (!buildCli()) return 2;
   let findings = 0;
@@ -405,6 +441,7 @@ if (!cmd || cmd === "help" || cmd === "--help" || cmd === "-h") {
       "  rave text <file.fig>            …and printed as markup",
       "  rave spec                  the format, exactly as the AI prompt states it",
       "  rave shot <file> [--route /x] [--width 1440] [--out shot.png] [--wire]",
+      "  rave chrome <file> [--pane components] [--out chrome.png]",
       "  rave shot <file> --all [--out shots/]",
       "                             a PNG of a route at a width, painted by the",
       "                             gallery's own rasterizer — no browser —",
@@ -425,6 +462,15 @@ if (!cmd || cmd === "help" || cmd === "--help" || cmd === "-h") {
 
 function fileArg(rest) {
   return rest.find((a) => !a.startsWith("--") && !rest[rest.indexOf(a) - 1]?.startsWith("--"));
+}
+
+if (cmd === "chrome") {
+  const file = rest.find((a) => !a.startsWith("-"));
+  if (!file) {
+    process.stderr.write("usage: rave chrome <file> [--pane components] [--route /x] [--out chrome.png]\n");
+    process.exit(2);
+  }
+  process.exit(chrome(file, rest));
 }
 
 if (cmd === "shot") {

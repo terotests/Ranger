@@ -28,11 +28,13 @@ Import "RaveRuntime.rgr"
 Import "RavePatterns.rgr"
 Import "RaveOps.rgr"
 Import "RaveKit.rgr"
+Import "RaveWire.rgr"
 Import "RaveImport.rgr"
 Import "RaveText.rgr"
 Import "../../figma/src/FigParser.rgr"
 Import "../../figma/src/convert/FigToScene.rgr"
 Import "RaveA11y.rgr"
+Import "pkg:evg/EVGTreeJson.rgr"
 Import "RaveCss.rgr"
 Import "RaveBuild.rgr"
 Import "RaveFields.rgr"
@@ -151,6 +153,9 @@ class RaveEditor {
     def wizTablet:boolean true
     def wizMobile:boolean true
     def lastKey:string ""
+    ; The kit entry last dropped: the tile stays lit, so a run of the same
+    ; thing — four fields, three cards — reads as a run.
+    def lastKind:string ""
     def status:string "ready"
     ; the a11y problems of the active view, gathered once per frame
     def problems:[string]
@@ -1679,6 +1684,7 @@ class RaveEditor {
             r2.toastText = "Something happened"
             r2.invalidate()
         }
+        lastKind = kind
         status = (kind + " added")
         this.changed()
         return true
@@ -2304,6 +2310,14 @@ class RaveEditor {
         return ("{\"width\":" + (to_string (to_int pageW)) + ",\"height\":" + (to_string (to_int pageH)) + ",\"list\":" + body + "}")
     }
 
+    ; The editor's own chrome as an EVG tree, so a picture of the EDITOR can
+    ; be painted without a browser — the same way a route's picture is.
+    fn chromeTreeJson:string () {
+        this.laidOut()
+        def r:EVGElement (unwrap root)
+        return (EVGTreeJson.toText(r))
+    }
+
     fn a11yJson:string (generation:int focusId:string) {
         this.laidOut()
         def r:EVGElement (unwrap root)
@@ -2707,26 +2721,32 @@ class RaveEditor {
         host.addChild(note)
     }
 
+    ; The palette, drawn. A designer picks a Select from the shape of a
+    ; Select; thirty-six words in a column say nothing until each has been
+    ; dropped once and looked at. The tiles carry the same `add:` ids the
+    ; rows did, so everything downstream of a pick is unchanged.
     fn componentsPane:void (host:EVGElement) {
         def kinds:[string] (RaveKit.kinds())
         host.addChild((this.cap("COMPONENTS" (to_string (array_length kinds)))))
-        def list:EVGElement (RaveEditor.box("ra-pages" "" "list" "Components"))
         def group:string ""
+        def grid@(optional):EVGElement
         def i:int 0
         while (i < (array_length kinds)) {
             def k:string (itemAt kinds i)
             def g:string (RaveKit.groupOf(k))
             if (g != group) {
                 group = g
-                list.addChild((RaveEditor.quiet("ra-group" g)))
+                host.addChild((RaveEditor.quiet("ra-group" g)))
+                def fresh:EVGElement (RaveEditor.box("ra-wf-grid" "" "list" (g + " components")))
+                host.addChild(fresh)
+                grid = fresh
             }
-            def row:EVGElement (RaveEditor.box("ra-pagerow" ("add:" + k) "button" ("Add " + k)))
-            row.addChild((RaveEditor.quiet("ra-page-ic" "+")))
-            row.addChild((RaveEditor.quiet("ra-page-nm" k)))
-            list.addChild(row)
+            if grid {
+                def into:EVGElement (unwrap grid)
+                into.addChild((RaveWire.tile(k (k == lastKind))))
+            }
             i = (i + 1)
         }
-        host.addChild(list)
         def note:EVGElement (RaveEditor.box("ra-props-box" "" "" ""))
         note.addChild((RaveEditor.txt("ra-props" "goes into the selected container,")))
         note.addChild((RaveEditor.txt("ra-props" "or after the selected node")))

@@ -1187,6 +1187,31 @@ class RaveTest {
         c.ok("what is on the stage carries its kind" (RaveTest.includes(built "wf-button")))
         c.ok("…including the role, where the tag does not give it" (RaveTest.includes(built "wfr-")))
 
+        ; the palette: a drawing per entry, not a word per entry
+        ed.press("tab:components")
+        def kinds:[string] (RaveKit.kinds())
+        def missing:[string]
+        def flat:[string]
+        def ki:int 0
+        while (ki < (array_length kinds)) {
+            def kind:string (itemAt kinds ki)
+            if ((ed.chromeBoxJson(("add:" + kind))) == "[]") {
+                push missing kind
+            }
+            ki = (ki + 1)
+        }
+        c.eqInt("every kit entry has a tile on the palette" (array_length missing) 0)
+        if ((array_length missing) > 0) {
+            RaveTest.printAll(missing)
+        }
+        def tile:string (ed.chromeBoxJson("add:Checkbox"))
+        c.ok("…and a tile is a drawing, not a row" ((RaveTest.includes(tile "[]")) == false))
+        def before:int (array_length ed.doc.styles)
+        c.ok("pressing one drops it, as the row did" (ed.press("add:Checkbox")))
+        c.eqStr("…and the tile it came from stays lit" ed.lastKind "Checkbox")
+        c.ok("…with the document changed" ((array_length ed.doc.styles) >= before))
+        ed.press("undo")
+
         c.ok("wireframe can be turned off" (ed.press("wire:toggle")))
         ed.boardJson()
         def paintCss:string rt.css

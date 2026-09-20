@@ -29,6 +29,7 @@ Import "RaveImport.rgr"
 Import "RaveText.rgr"
 Import "RaveRuntime.rgr"
 Import "RavePatterns.rgr"
+Import "RaveEditor.rgr"
 Import "pkg:evg/EVGTreeJson.rgr"
 
 class RaveCli {
@@ -452,6 +453,45 @@ class RaveCli {
         return 0
     }
 
+    ; THE EDITOR ITSELF, as an EVG tree. The chrome is EVG like everything
+    ; else, so a picture of the editor is the same operation as a picture of
+    ; a route: build it at a stated size and write the tree out. Without this
+    ; the only way to look at a change to the rails is a browser.
+    sfn chromeData:int (path:string outPath:string) {
+        def reader (new RaveTextReader())
+        def app:RaveApp (RaveCli.openDoc(path reader))
+        if ((reader.errorCount()) > 0) {
+            def i:int 0
+            while (i < (reader.errorCount())) {
+                print ("  " + (reader.errorAt(i)))
+                i = (i + 1)
+            }
+            return 1
+        }
+        def width:double (?? (str2double (RaveCli.flag("--width" "1600"))) 1600.0)
+        def height:double (?? (str2double (RaveCli.flag("--height" "980"))) 980.0)
+        def ed (new RaveEditor())
+        ed.init((RaveCli.slurp("gallery/rave/web/rave.css")))
+        ed.setPageSize(width height)
+        if ((app.isEmpty()) == false) {
+            ed.adopt(app)
+        }
+        def pane:string (RaveCli.flag("--pane" ""))
+        if ((strlen pane) > 0) {
+            ed.press(("tab:" + pane))
+        }
+        def route:string (RaveCli.flag("--route" ""))
+        if ((strlen route) > 0) {
+            ed.press(("route:" + route))
+        }
+        if (RaveCli.hasFlag("--paint")) {
+            ed.press("wire:toggle")
+        }
+        write_file (RaveCli.dirOf(outPath)) (RaveCli.nameOf(outPath)) (ed.chromeTreeJson())
+        print (("CHROME " + (to_string (to_int width))) + " " + (to_string (to_int height)))
+        return 0
+    }
+
     ; A node the layout decided not to draw has no business in a picture of
     ; the page. The rasterizer walks the tree it is given rather than the one
     ; the layout kept, so a sidebar folded away at 390 would otherwise be
@@ -589,6 +629,17 @@ class RaveCli {
             def shotBad:int (RaveCli.shotData(path (shell_arg 2)))
             if (shotBad > 0) {
                 print ("RAVE FAIL " + (to_string shotBad))
+            }
+            return
+        }
+        if (cmd == "chromedata") {
+            if (n < 3) {
+                RaveCli.usage()
+                return
+            }
+            def chromeBad:int (RaveCli.chromeData(path (shell_arg 2)))
+            if (chromeBad > 0) {
+                print ("RAVE FAIL " + (to_string chromeBad))
             }
             return
         }
