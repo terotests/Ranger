@@ -228,6 +228,11 @@
       <span>nodes <b id="nodes">0</b></span>
       <span>tokens <b id="ntok">0</b></span>
       <span>layout <b id="lay">—</b></span>
+      <!-- What the run cost. `tokens` above counts the words streamed onto
+           this page; this is what the agent's CLI reports it actually spent,
+           which is the number anybody asks after watching a screen get
+           built. Empty until a run ends. -->
+      <span id="spendBox" hidden>spend <b id="spend">—</b></span>
     </div>
     <div class="findings" id="findings"></div>
   </div>
@@ -587,6 +592,25 @@ function start(keepPicture) {
     tokens += 1;
     $("ntok").textContent = String(tokens);
     $("think").scrollTop = $("think").scrollHeight;
+  });
+  // WHAT THE RUN COST, from the agent's own CLI rather than from counting
+  // what arrived here. Input is dominated by cache reads in any agent loop —
+  // the conversation is re-read on every tool call — so the read total is
+  // shown whole and broken out on hover, where the shape is visible.
+  on("usage", (d) => {
+    const k = (n) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(n));
+    const bits = [`${k(d.readTotal || 0)} in`, `${k(d.output || 0)} out`];
+    if (typeof d.costUsd === "number") bits.push(`$${d.costUsd.toFixed(4)}`);
+    $("spend").textContent = bits.join(" · ");
+    $("spendBox").hidden = false;
+    $("spendBox").title = [
+      `uncached input ${(d.input || 0).toLocaleString()}`,
+      `cache read     ${(d.cacheRead || 0).toLocaleString()}`,
+      `cache write    ${(d.cacheWrite || 0).toLocaleString()}`,
+      `output         ${(d.output || 0).toLocaleString()}`,
+      d.turns ? `turns          ${d.turns}` : "",
+      d.models ? `model          ${d.models.join(", ")}` : "",
+    ].filter(Boolean).join("\n");
   });
   on("ops", (d) => {
     for (const op of d.ops || []) {

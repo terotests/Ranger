@@ -454,6 +454,57 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   console.log("  cursor feed " + words.length + " words, 1 thought, no repeat");
 }
 
+// WHAT THE RUN COST. Both CLIs end a `stream-json` run with a `result` event
+// carrying the usage for the whole run, and it used to be dropped on the
+// floor — so after watching an agent build a screen the tool could not say
+// what building it took. The event below is the real shape `claude -p
+// --output-format stream-json --verbose` emits, trimmed to the fields read.
+{
+  const out = [];
+  const feed = makeCursorFeed((line) => out.push(JSON.parse(line)));
+  feed.feed(JSON.stringify({ type: "assistant", message: { content: [{ text: "ok" }] } }));
+  feed.feed(
+    JSON.stringify({
+      type: "result",
+      subtype: "success",
+      total_cost_usd: 0.008233,
+      num_turns: 1,
+      duration_ms: 2508,
+      usage: {
+        input_tokens: 2,
+        output_tokens: 4,
+        cache_read_input_tokens: 40945,
+        cache_creation_input_tokens: 0,
+      },
+      modelUsage: { "claude-sonnet-5": { costUSD: 0.008233 } },
+    }),
+  );
+  const spend = out.find((e) => e.t === "usage");
+  if (!spend) throw new Error("a finished run reported no usage: " + JSON.stringify(out));
+  if (spend.output !== 4 || spend.cacheRead !== 40945) {
+    throw new Error("usage did not carry the run's numbers: " + JSON.stringify(spend));
+  }
+  // The whole input side, because cache reads are nearly all of it in any
+  // agent loop and an "input" that left them out would read as almost free.
+  if (spend.readTotal !== 40947) {
+    throw new Error("readTotal must be input + cache read + cache write: " + JSON.stringify(spend));
+  }
+  if (spend.costUsd !== 0.008233 || spend.turns !== 1) {
+    throw new Error("usage lost the cost or the turn count: " + JSON.stringify(spend));
+  }
+  if (!Array.isArray(spend.models) || spend.models[0] !== "claude-sonnet-5") {
+    throw new Error("usage did not name the model: " + JSON.stringify(spend));
+  }
+  // A result with no usage at all must not invent one.
+  const bare = [];
+  const feed2 = makeCursorFeed((line) => bare.push(JSON.parse(line)));
+  feed2.feed(JSON.stringify({ type: "result", subtype: "success" }));
+  if (bare.some((e) => e.t === "usage")) {
+    throw new Error("a result with no usage reported one anyway: " + JSON.stringify(bare));
+  }
+  console.log("  spend       a finished run says what it cost: tokens, turns, model, dollars");
+}
+
 const missing = agents.filter((a) => !a.available).map((a) => a.id);
 if (missing.length) {
   console.log("  skipped     " + missing.join(", ") + " (not on this machine)");

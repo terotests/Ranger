@@ -335,7 +335,16 @@ named for `t`.
 | `code` | `App.rgr` so far |
 | `frame` | `{width,height,ncmds,added,nodes,list}` — `list` is `EVGDisplayList.toJson()` |
 | `measure` | the layout in numbers after the last frame — findings with amounts, `bottomFree`, `tight` |
+| `usage` | what the run cost: `input`, `cacheRead`, `cacheWrite`, `output`, `readTotal`, and `costUsd`, `turns`, `models` when the CLI says |
 | `done` | `ok`, step count, command count |
+
+`usage` comes from the agent CLI's own accounting, not from counting what
+arrived here — the `tokens` figure beside the phone is words streamed onto the
+page, which is a different and much smaller number. Both Cursor and Claude end
+a `stream-json` run with a `result` event carrying it; one parser reads both.
+`readTotal` is the whole input side including cache reads, because in an agent
+loop the conversation is re-read on every tool call and an "input" without them
+reads as almost free.
 
 The page shows `measure` under the phone: **layout ok** or the number of
 findings, then what they are. The same answer is written into a workspace
