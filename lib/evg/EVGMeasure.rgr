@@ -52,6 +52,12 @@ class EVGMeasure {
     ; picture is right — it is the only one of the two that survives "use the
     ; host's control" and still does nothing when pressed.
     def frozen:[string]
+    ; Set by a caller that is measuring a page whose holes a machine has
+    ; ALREADY filled — an app's page at check time. There a fixed state word
+    ; is the correct result of binding, not a control nailed shut, so that
+    ; half of the `frozen` check is off. Inline paint still counts: it
+    ; outranks the sheet whoever wrote it.
+    def boundView:boolean false
     def boxes:[string]
     def width:int 0
     def height:int 0
@@ -384,6 +390,9 @@ class EVGMeasure {
         def cn:string el.className
         def stateClass:string (EVGMeasure.stateClassIn(cn))
         def bound:boolean ((indexOf cn "{") >= 0)
+        if boundView {
+            bound = true
+        }
         def paint:string (EVGMeasure.inlinePaintIn(el 0))
         def named:boolean ((strlen el.id) > 0)
         ; A control with no state class at all is not claiming to have two

@@ -35,6 +35,7 @@ Import "../EVGElement.rgr"
 Import "../EVGInspect.rgr"
 Import "../EVGLayout.rgr"
 Import "../EVGMeasure.rgr"
+Import "../EVGHoles.rgr"
 Import "../EVGPatch.rgr"
 Import "../EVGUnit.rgr"
 Import "../EVGTreeJson.rgr"
@@ -468,6 +469,12 @@ class EvgAgent {
     ; right; this verb is the flags around it.
     fn measure:void (root:EVGElement) {
         def m (new EVGMeasure())
+        ; Fill the design's own state holes first, so the numbers describe the
+        ; control as it is drawn rather than a `ui-switch-state-{wifi}` that
+        ; matches no rule and lays out to nothing. `measure` never writes the
+        ; document back — `patch` is a different verb and a different tree —
+        ; so dressing in place here cannot reach the file.
+        EVGDress.dress(root)
         def w:int (EvgAgent.intFlag("--width" (EVGMeasure.sizeOf(root true 1200))))
         def h:int (EvgAgent.intFlag("--height" (EVGMeasure.sizeOf(root false 900))))
         def at:string ""

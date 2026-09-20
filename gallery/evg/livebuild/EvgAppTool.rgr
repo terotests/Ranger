@@ -1049,6 +1049,9 @@ class EvgAppTool {
         this.bind(tree runner)
 
         def m (new EVGMeasure())
+        ; The holes on this tree are already filled, just above. A state word
+        ; here is what binding produced, not a control that cannot move.
+        m.boundView = true
         m.look(tree pageW pageH "")
         out = (out + ",\"layout\":")
         out = (out + (m.summary(3)))

@@ -149,6 +149,14 @@ class EvgAppRules {
 
     ; A key the context does not have is left as it was written: a missing
     ; binding should look wrong on the screen, not look empty.
+    ;
+    ; `ScRunner.json` answers a key it does not hold with the JSON `null`, not
+    ; with nothing — so this used to write the word into the class and a
+    ; control bound to a key the machine never got became
+    ; `ui-switch-state-null`. That matches no rule, so the control painted as
+    ; if it had no state and never moved however often it was pressed, and the
+    ; screen said "null" nowhere a person would look. A hole left open says
+    ; the same thing where it can be seen, and `evg_app check` names the key.
     sfn fillText:string (text:string runner:ScRunner) {
         def out@(mutable):string ""
         def i@(mutable):int 0
@@ -171,11 +179,15 @@ class EvgAppRules {
                     i = (i + 1)
                 } {
                     def key:string (substring text (i + 1) close)
-                    def val:string (EvgAppRules.plainValue((runner.json(key))))
-                    if ((strlen val) == 0) {
+                    ; The RAW answer, because the test is for the bare JSON
+                    ; `null`. `plainValue` takes the quotes off first, which
+                    ; would make a context value that really is the string
+                    ; "null" look like a key that is not there.
+                    def raw:string (runner.json(key))
+                    if (EvgAppRules.isNothing(raw)) {
                         out = (out + (substring text i (close + 1)))
                     } {
-                        out = (out + val)
+                        out = (out + (EvgAppRules.plainValue(raw)))
                     }
                     i = (close + 1)
                 }
@@ -185,6 +197,16 @@ class EvgAppRules {
             }
         }
         return out
+    }
+
+    ; "the context does not hold this". A quoted "null" is a string somebody
+    ; chose and is left alone; the bare word is what `ScValOps.toJson` writes
+    ; for a key that is not there.
+    sfn isNothing:boolean (val:string) {
+        if ((strlen val) == 0) {
+            return true
+        }
+        return (val == "null")
     }
 
     ; A JSON scalar as a person would read it: the quotes off a string, and
