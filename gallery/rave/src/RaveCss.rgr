@@ -35,6 +35,132 @@ class RaveCss {
         return (s + "}\n")
     }
 
+    ; --- wireframe ------------------------------------------------------------
+    ; A wireframe is the document's LAYOUT with the document's PAINT dropped.
+    ; So the same rules are emitted, declaration by declaration, and only the
+    ; ones that decide where a box is and how big it is survive. Nothing in
+    ; the document changes: this is a second reading of the same rules, and
+    ; turning it off gives the first one back.
+
+    sfn isLayoutDecl:boolean (prop:string) {
+        if (prop == "display") { return true }
+        if (prop == "flex-direction") { return true }
+        if (prop == "flex-wrap") { return true }
+        if (prop == "flex-grow") { return true }
+        if (prop == "flex-shrink") { return true }
+        if (prop == "flex-basis") { return true }
+        if (prop == "flex") { return true }
+        if (prop == "justify-content") { return true }
+        if (prop == "align-items") { return true }
+        if (prop == "align-self") { return true }
+        if (prop == "align-content") { return true }
+        if (prop == "gap") { return true }
+        if (prop == "row-gap") { return true }
+        if (prop == "column-gap") { return true }
+        if (prop == "width") { return true }
+        if (prop == "height") { return true }
+        if (prop == "min-width") { return true }
+        if (prop == "max-width") { return true }
+        if (prop == "min-height") { return true }
+        if (prop == "max-height") { return true }
+        if (prop == "padding") { return true }
+        if (prop == "margin") { return true }
+        if (prop == "position") { return true }
+        if (prop == "left") { return true }
+        if (prop == "top") { return true }
+        if (prop == "right") { return true }
+        if (prop == "bottom") { return true }
+        if (prop == "overflow") { return true }
+        if (prop == "z-index") { return true }
+        if (prop == "text-align") { return true }
+        if (prop == "font-size") { return true }
+        if (prop == "grid-template-columns") { return true }
+        if (prop == "grid-template-rows") { return true }
+        if (prop == "grid-template-areas") { return true }
+        if (prop == "grid-area") { return true }
+        if (prop == "grid-column") { return true }
+        if (prop == "grid-row") { return true }
+        return false
+    }
+
+    ; The rule with only its layout half, or "" when nothing is left of it.
+    sfn layoutRuleText:string (r:RaveRule) {
+        def body:string ""
+        def i:int 0
+        while (i < (array_length r.decls)) {
+            def d:RaveDecl (itemAt r.decls i)
+            if (RaveCss.isLayoutDecl(d.name)) {
+                body = (body + d.name + ": " + d.value + "; ")
+            }
+            i = (i + 1)
+        }
+        if ((strlen body) == 0) {
+            return ""
+        }
+        return ("." + r.cls + " { " + body + "}\n")
+    }
+
+    ; The wire sheet itself. It draws what a node IS — the `wf-*` and `wfr-*`
+    ; classes `RaveBuild` puts on in wireframe mode — and nothing else, so a
+    ; document with no styles at all still reads as an interface.
+    sfn wireSheet:string () {
+        def s:string ".rv-page { background-color: #0b110e; }\n"
+        s = (s + ".wf { background-color: transparent; color: #5fd39a; font-size: 13px; }\n")
+        s = (s + ".wf-div, .wf-section, .wf-header, .wf-footer, .wf-main, .wf-aside, .wf-nav, .wf-form, .wf-ul, .wf-li { border: 1px solid #1f4f3b; }\n")
+        ; The words a node carries are drawn by a child the builder makes —
+        ; a button's caption, an input's value or placeholder — and those
+        ; children are the document's, not a node, so they are named here.
+        s = (s + ".rv-t, .rv-cap, .rv-value { color: #7fe9bb; }\n")
+        s = (s + ".wf-h1, .wf-h2, .wf-h3, .wf-h4 { color: #b4f5d2; }\n")
+        s = (s + ".wf-p, .wf-span, .wf-label { color: #5fd39a; }\n")
+        s = (s + ".wf-button, .wfr-button { border: 1px solid #3fd89b; color: #b4f5d2; background-color: #11241c; }\n")
+        s = (s + ".wf-a, .wfr-link { color: #7fe9bb; }\n")
+        s = (s + ".wf-input, .wfr-textbox { border: 1px solid #2f8f68; background-color: #0e1b16; color: #7fe9bb; }\n")
+        s = (s + ".wf-img, .wf-path, .wfr-img { border: 1px solid #2f8f68; background-color: #10201a; }\n")
+        s = (s + ".wfr-checkbox, .wfr-radio, .wfr-switch { border: 1px solid #3fd89b; background-color: #0e1b16; }\n")
+        s = (s + ".wfr-tab, .wfr-menuitem, .wfr-listitem { border: 1px solid #1f4f3b; color: #7fe9bb; }\n")
+        s = (s + ".wfr-dialog { border: 1px solid #3fd89b; background-color: #0b110e; }\n")
+        s = (s + ".rv-placeholder { color: #2f7a5b; }\n")
+        return s
+    }
+
+    sfn emitWire:string (app:RaveApp) {
+        def out:string ""
+        if ((array_length app.vars) > 0) {
+            out = (out + "@vars { ")
+            def i:int 0
+            while (i < (array_length app.vars)) {
+                def v:RaveVar (itemAt app.vars i)
+                out = (out + "--" + v.name + ": " + v.value + "; ")
+                i = (i + 1)
+            }
+            out = (out + "}\n")
+        }
+        out = (out + (RaveCss.base()))
+        def j:int 0
+        while (j < (array_length app.styles)) {
+            def r:RaveRule (itemAt app.styles j)
+            if ((strlen r.media) == 0) {
+                out = (out + (RaveCss.layoutRuleText(r)))
+            }
+            j = (j + 1)
+        }
+        def k:int 0
+        while (k < (array_length app.styles)) {
+            def r2:RaveRule (itemAt app.styles k)
+            if ((strlen r2.media) > 0) {
+                def body:string (RaveCss.layoutRuleText(r2))
+                if ((strlen body) > 0) {
+                    out = (out + "@media " + r2.media + " { " + body + "}\n")
+                }
+            }
+            k = (k + 1)
+        }
+        ; The wire sheet last: it is the only thing painting, so it wins
+        ; every tie it takes part in.
+        return (out + (RaveCss.wireSheet()))
+    }
+
     sfn emit:string (app:RaveApp) {
         def out:string ""
         if ((array_length app.vars) > 0) {

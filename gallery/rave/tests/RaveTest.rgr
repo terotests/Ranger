@@ -72,6 +72,18 @@ class RaveTest {
         return ("n" + (to_string id))
     }
 
+    ; Every class on a built tree, in one string, for asking what the
+    ; elements say they are.
+    sfn classesIn:string (e:EVGElement) {
+        def s:string (e.className + " ")
+        def i:int 0
+        while (i < (e.getChildCount())) {
+            s = (s + (RaveTest.classesIn((e.getChild(i)))))
+            i = (i + 1)
+        }
+        return s
+    }
+
     sfn printAll:void (lines:[string]) {
         def i:int 0
         while (i < (array_length lines)) {
@@ -1127,6 +1139,62 @@ class RaveTest {
 
     ; --- the kit ---------------------------------------------------------------------------
 
+    ; --- the wireframe stage ---------------------------------------------------
+    ; One width on the stage, and the document drawn as structure. The two
+    ; claims worth checking are that the OTHER widths still answer — the lint
+    ; covers every viewport whether or not it is on the screen — and that
+    ; wireframe drops paint WITHOUT dropping layout.
+    sfn wireChecks:void (c:Check) {
+        print ""
+        print "--- the wireframe stage ---"
+        def ed (new RaveEditor())
+        ed.init((RaveTest.chromeCss()))
+        ed.setPageSize(1440.0 860.0)
+        def rt:RaveRuntime (ed.runtime())
+        ed.boardJson()
+        c.ok("the project opens with more than one viewport" ((rt.viewCount()) > 1))
+        c.ok("…and the stage shows the first" (rt.shows(0)))
+        c.ok("…only the first" ((rt.shows(1)) == false))
+        def v0:RaveView (rt.view(0))
+        c.ok("…so the scene is one frame wide" (RaveTest.near(rt.sceneW v0.width)))
+
+        c.ok("a width can be picked" (ed.press("vp:1")))
+        ed.boardJson()
+        c.ok("…and that one is on the stage instead" (rt.shows(1)))
+        c.ok("…with the first put away" ((rt.shows(0)) == false))
+        def v1:RaveView (rt.view(1))
+        c.ok("…the scene being that frame" (RaveTest.near(rt.sceneW v1.width)))
+        c.eqInt("…and it is the view the inspector reads" ed.activeView 1)
+
+        ; The width that is NOT on the stage is still a width this document
+        ; has to hold at, so it is still built, laid out and linted.
+        RaveTest.lintClean(c rt 0 "the width off the stage still lints")
+        c.ok("…and still has boxes to measure" ((rt.widthOf(0 "page")) > 0.0))
+
+        c.ok("every frame can be shown at once" (ed.press("views:all")))
+        ed.boardJson()
+        c.ok("…and then they all are" ((rt.shows(0)) && (rt.shows(1))))
+        c.ok("…side by side" (rt.sceneW > (v0.width + v1.width)))
+        ed.press("vp:0")
+
+        ; wireframe: structure without paint
+        c.ok("the stage starts as a wireframe" ed.wire)
+        def wireCss:string rt.css
+        c.ok("…so the sheet says what a button IS" (RaveTest.includes(wireCss ".wf-button")))
+        c.ok("…and the document's layout is still in it" (RaveTest.includes(wireCss "gap:")))
+        c.ok("…while its paint is not" ((RaveTest.includes(wireCss "background-color: var(--accent)")) == false))
+        def built:string (RaveTest.classesIn((rt.pageOf(0))))
+        c.ok("what is on the stage carries its kind" (RaveTest.includes(built "wf-button")))
+        c.ok("…including the role, where the tag does not give it" (RaveTest.includes(built "wfr-")))
+
+        c.ok("wireframe can be turned off" (ed.press("wire:toggle")))
+        ed.boardJson()
+        def paintCss:string rt.css
+        c.ok("…and the document paints again" (RaveTest.includes(paintCss "background-color: var(--accent)")))
+        c.ok("…with nothing lost from the document itself" ((array_length ed.doc.styles) > 0))
+        RaveTest.lintClean(c rt 0 "the wireframe stage lints clean")
+    }
+
     ; Every entry in the Components pane, dropped onto a page one at a time.
     ; The claim the kit makes is that what is dropped already works: it lays
     ; out at every width, the engine rejects none of its rules, and the
@@ -1484,6 +1552,11 @@ class RaveTest {
         ed.press("field:color")
         RaveTest.typeText(ed "#e5e5e5")
         ed.keyWith("Enter" false false)
+        ; Contrast is about the paint, and the wireframe stage has none, so
+        ; the walk runs when Wire is off — which is where the colour it is
+        ; judging is actually on the screen.
+        c.eqInt("a faint colour is not a wireframe's problem" (ed.problemCount()) 0)
+        ed.press("wire:toggle")
         c.ok("faint text is a contrast problem" ((ed.problemCount()) == 1))
         c.ok("…and says so" (RaveTest.includes((ed.problemAt(0)) "contrast")))
         ed.press("undo")
@@ -1820,6 +1893,7 @@ class RaveTest {
         RaveTest.crudChecks(c)
         RaveTest.layoutChecks(c)
         RaveTest.wizardChecks(c)
+        RaveTest.wireChecks(c)
         RaveTest.kitChecks(c)
         RaveTest.tenMinuteTest(c)
         RaveTest.importChecks(c)

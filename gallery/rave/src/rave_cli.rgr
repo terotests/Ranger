@@ -435,6 +435,11 @@ class RaveCli {
         }
         def rt (new RaveRuntime(app))
         rt.addView("shot" width height (width < 600.0))
+        ; `--wire` paints the wireframe: the document's layout, drawn as
+        ; structure, with its own paint left out.
+        if (RaveCli.hasFlag("--wire")) {
+            rt.setWire(true)
+        }
         if ((RaveCli.hasFlag("--logged-out")) == false) {
             rt.setLoggedIn(true)
         }

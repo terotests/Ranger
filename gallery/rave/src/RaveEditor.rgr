@@ -87,6 +87,14 @@ class RaveEditor {
     def bh:double 0.0
     ; the view the keyboard talks to in Run, and the one the A11y pane shows
     def activeView:int 0
+    ; One viewport on the stage at a time. Three frames side by side answer
+    ; "does it hold at every width"; they are in the way while the question
+    ; is still "what is on this screen at all", which is the question the
+    ; wireframe stage is for.
+    def oneView:boolean true
+    ; Wireframe: the document's layout, drawn as structure, with its paint
+    ; left out. Style comes later and does not belong in this pass.
+    def wire:boolean true
     ; the field being edited: "field:<prop>", "node:<kind>", "css:<i>"
     def editing:string ""
     ; text | length — how the field is edited
@@ -1091,6 +1099,24 @@ class RaveEditor {
         }
         if (RaveEditor.hasPrefix(id "vp:")) {
             activeView = (RaveEditor.tailInt(id 3))
+            ; Picking a width is picking THE width: the stage goes back to
+            ; one frame, and fits it, because that is what was asked for.
+            oneView = true
+            this.syncViews()
+            needFit = true
+            dirty = true
+            return true
+        }
+        if (id == "views:all") {
+            oneView = (oneView == false)
+            this.syncViews()
+            needFit = true
+            dirty = true
+            return true
+        }
+        if (id == "wire:toggle") {
+            wire = (wire == false)
+            this.syncViews()
             dirty = true
             return true
         }
@@ -2199,9 +2225,26 @@ class RaveEditor {
         return (d > 0.5)
     }
 
-    ; What the A11y pane and the tree's warning marks read: the lint of the
-    ; active view plus the contrast walk, once per frame.
+    ; What the stage is showing, told to the runtime before anything is asked
+    ; of it: which viewport, and whether the document is drawn as a wireframe.
+    fn syncViews:void () {
+        def r:RaveRuntime (unwrap rt)
+        if (activeView >= (r.viewCount())) {
+            activeView = 0
+        }
+        if (activeView < 0) {
+            activeView = 0
+        }
+        if oneView {
+            r.setSolo(activeView)
+        } {
+            r.setSolo(0 - 1)
+        }
+        r.setWire(wire)
+    }
+
     fn gather:void () {
+        this.syncViews()
         def r:RaveRuntime (unwrap rt)
         clear problems
         def lint:[string] (r.lint(activeView))
@@ -2210,12 +2253,18 @@ class RaveEditor {
             push problems (itemAt lint i)
             i = (i + 1)
         }
-        def page:EVGElement (r.pageOf(activeView))
-        def contrast:[string] (RaveA11y.contrast(page))
-        def j:int 0
-        while (j < (array_length contrast)) {
-            push problems (itemAt contrast j)
-            j = (j + 1)
+        ; Contrast is a fact about the document's PAINT. A wireframe has none
+        ; — the stage is drawing structure — so the walk would be measuring
+        ; the wire sheet's own colours and saying nothing about the design.
+        ; The A11y pane says as much; turning Wire off brings it back.
+        if (wire == false) {
+            def page:EVGElement (r.pageOf(activeView))
+            def contrast:[string] (RaveA11y.contrast(page))
+            def j:int 0
+            while (j < (array_length contrast)) {
+                push problems (itemAt contrast j)
+                j = (j + 1)
+            }
         }
     }
 
@@ -2831,6 +2880,19 @@ class RaveEditor {
             bar.addChild((this.chip(("route:" + route.path) (RaveEditor.cut(label 18)) on)))
             i = (i + 1)
         }
+        bar.addChild((RaveEditor.box("ra-spacer" "" "" "")))
+        bar.addChild((RaveEditor.quiet("ra-screens-lab" "WIDTH")))
+        def v:int 0
+        while (v < (r.viewCount())) {
+            def vw:RaveView (r.view(v))
+            def von:boolean (v == activeView)
+            if (oneView == false) {
+                von = false
+            }
+            bar.addChild((this.chip(("vp:" + (to_string v)) (vw.name + " " + (to_string (to_int vw.width))) von)))
+            v = (v + 1)
+        }
+        bar.addChild((this.chip("views:all" "All" (oneView == false))))
         return bar
     }
 
@@ -2848,26 +2910,28 @@ class RaveEditor {
             def i:int 0
             while (i < (r.viewCount())) {
                 def v:RaveView (r.view(i))
-                def lx:double ((v.offsetX * zoom) + viewX)
-                def ly:double ((v.offsetY * zoom) + viewY)
-                def label:EVGElement (RaveEditor.box("ra-vplabel" ("vp:" + (to_string i)) "button" (v.name + " " + (to_string (to_int v.width)))))
-                if (i == activeView) {
-                    label.className = "ra-vplabel ra-vplabel-on"
-                }
-                label.setAttribute("left" ((to_string lx) + "px"))
-                label.setAttribute("top" ((to_string (ly - 22.0)) + "px"))
-                label.addChild((RaveEditor.quiet("ra-vplabel-t" (v.name + " · " + (to_string (to_int v.width))))))
-                board.addChild(label)
-                if ((mode == "design") && (selected > 0)) {
-                    def sid:string ("n" + (to_string selected))
-                    if (r.hasEl(i sid)) {
-                        def sel:EVGElement (RaveEditor.box("ra-selbox" "" "" ""))
-                        sel.a11yHidden = true
-                        sel.setAttribute("left" ((to_string (((r.leftOf(i sid)) * zoom) + viewX)) + "px"))
-                        sel.setAttribute("top" ((to_string (((r.topOf(i sid)) * zoom) + viewY)) + "px"))
-                        sel.setAttribute("width" ((to_string ((r.widthOf(i sid)) * zoom)) + "px"))
-                        sel.setAttribute("height" ((to_string ((r.heightOf(i sid)) * zoom)) + "px"))
-                        board.addChild(sel)
+                if (r.shows(i)) {
+                    def lx:double ((v.offsetX * zoom) + viewX)
+                    def ly:double ((v.offsetY * zoom) + viewY)
+                    def label:EVGElement (RaveEditor.box("ra-vplabel" ("vp:" + (to_string i)) "button" (v.name + " " + (to_string (to_int v.width)))))
+                    if (i == activeView) {
+                        label.className = "ra-vplabel ra-vplabel-on"
+                    }
+                    label.setAttribute("left" ((to_string lx) + "px"))
+                    label.setAttribute("top" ((to_string (ly - 22.0)) + "px"))
+                    label.addChild((RaveEditor.quiet("ra-vplabel-t" (v.name + " · " + (to_string (to_int v.width))))))
+                    board.addChild(label)
+                    if ((mode == "design") && (selected > 0)) {
+                        def sid:string ("n" + (to_string selected))
+                        if (r.hasEl(i sid)) {
+                            def sel:EVGElement (RaveEditor.box("ra-selbox" "" "" ""))
+                            sel.a11yHidden = true
+                            sel.setAttribute("left" ((to_string (((r.leftOf(i sid)) * zoom) + viewX)) + "px"))
+                            sel.setAttribute("top" ((to_string (((r.topOf(i sid)) * zoom) + viewY)) + "px"))
+                            sel.setAttribute("width" ((to_string ((r.widthOf(i sid)) * zoom)) + "px"))
+                            sel.setAttribute("height" ((to_string ((r.heightOf(i sid)) * zoom)) + "px"))
+                            board.addChild(sel)
+                        }
                     }
                 }
                 i = (i + 1)
@@ -2919,6 +2983,7 @@ class RaveEditor {
         bar.addChild((this.tool("zoom:in" "+" false "")))
         bar.addChild((this.tool("fit" "Fit" false "")))
         bar.addChild((RaveEditor.box("ra-tool-sep" "" "" "")))
+        bar.addChild((this.tool("wire:toggle" "Wire" wire "")))
         bar.addChild((this.tool("a11y:taborder" "Tab order" showTabOrder "")))
         return bar
     }
@@ -3469,6 +3534,9 @@ class RaveEditor {
         head.addChild((RaveEditor.txt("ra-note" ("as a reader hears " + v.name + " · " + (to_string (to_int v.width))))))
         def toggle:EVGElement (this.tool("a11y:taborder" "Show tab order on the stage" showTabOrder ""))
         head.addChild(toggle)
+        if wire {
+            head.addChild((RaveEditor.txt("ra-note" "wireframe: contrast is not checked")))
+        }
         insp.addChild(head)
 
         def t:EVGA11yTree (r.a11yTree(activeView))

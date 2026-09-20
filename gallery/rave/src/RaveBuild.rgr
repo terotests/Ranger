@@ -21,6 +21,10 @@ Import "pkg:evg/EVGElement.rgr"
 class RaveBuild {
     def app:RaveApp (new RaveApp(""))
     def auth:RaveAuth (new RaveAuth())
+    ; Wireframe: every element also carries what it IS — `wf-button`,
+    ; `wf-input`, `wfr-checkbox` — so one sheet can draw the whole document
+    ; as structure without the document's own classes saying anything.
+    def wire:boolean false
     ; What the slots of the route's layouts receive, outermost slot first,
     ; ending with the page itself.
     def slotChain:[int]
@@ -143,6 +147,27 @@ class RaveBuild {
                 s = (s + " cmp-" + n.component + "-" + n.variant)
             }
         }
+        return (s + (this.wireClasses(n)))
+    }
+
+    ; What this node IS, as classes a wireframe sheet can reach: the tag, and
+    ; the role when the node names one. None of it is style — it is the
+    ; element's kind, spelled so a class-only selector can pick it out.
+    fn wireClasses:string (n:RaveNode) {
+        if (wire == false) {
+            return ""
+        }
+        def s:string (" wf wf-" + n.tag)
+        def role:string (RaveBuild.roleOf(n.tag))
+        if ((strlen n.role) > 0) {
+            role = n.role
+        }
+        if ((strlen role) > 0) {
+            s = (s + " wfr-" + role)
+        }
+        if (n.kind == "instance") {
+            s = (s + " wf-instance")
+        }
         return s
     }
 
@@ -229,6 +254,7 @@ class RaveBuild {
             e.className = (e.className + " " + (itemAt n.classes i))
             i = (i + 1)
         }
+        e.className = (e.className + (this.wireClasses(n)))
         e.elementType = 1
         e.textContent = (this.tx(n.text))
         e.role = (RaveBuild.roleOf(n.tag))
