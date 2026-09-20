@@ -269,7 +269,7 @@ function chrome(file, rest) {
   const tree = path.join(dir, "chrome.evg.json");
   const out = flagOf(rest, "--out", "chrome.png");
   const args = ["chromedata", path.resolve(file), tree];
-  for (const flag of ["--pane", "--route", "--width", "--height"]) {
+  for (const flag of ["--pane", "--route", "--width", "--height", "--press", "--select"]) {
     const v = flagOf(rest, flag, "");
     if (v) args.push(flag, v);
   }

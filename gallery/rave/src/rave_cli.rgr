@@ -487,6 +487,36 @@ class RaveCli {
         if (RaveCli.hasFlag("--paint")) {
             ed.press("wire:toggle")
         }
+        ; `--select "section Hero"` picks a node by what it is and what it is
+        ; called, because the ids a picture would need are not in the markup.
+        def pick:string (RaveCli.flag("--select" ""))
+        if ((strlen pick) > 0) {
+            def sp:int (indexOf pick " ")
+            if (sp > 0) {
+                def tag:string (substring pick 0 sp)
+                def nm:string (substring pick (sp + 1) (strlen pick))
+                def nid:int (app.idOfNamed(tag nm))
+                if (nid > 0) {
+                    ed.press(("tree:" + (to_string nid)))
+                }
+            }
+        }
+        ; `--press "tree:12 flex:open"` drives the editor into the state the
+        ; picture is supposed to be of.
+        def presses:string (RaveCli.flag("--press" ""))
+        while ((strlen presses) > 0) {
+            def at:int (indexOf presses " ")
+            def one:string presses
+            if (at < 0) {
+                presses = ""
+            } {
+                one = (substring presses 0 at)
+                presses = (substring presses (at + 1) (strlen presses))
+            }
+            if ((strlen one) > 0) {
+                ed.press(one)
+            }
+        }
         write_file (RaveCli.dirOf(outPath)) (RaveCli.nameOf(outPath)) (ed.chromeTreeJson())
         print (("CHROME " + (to_string (to_int width))) + " " + (to_string (to_int height)))
         return 0

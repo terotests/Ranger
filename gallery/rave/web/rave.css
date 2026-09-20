@@ -397,6 +397,33 @@
   align-items: flex-start; gap: 8px; padding: 2px 7px 6px;
 }
 .ra-wf-name { font-size: 10.5px; height: 14px; color: #6b7280; }
+
+/* The layout menu: a button at the corner of the selected container, and a
+   strip of live flex icons under it. The icons are laid out by the engine
+   (RaveWire.flexIcon), so what they show is what the option does. */
+.ra-flexbtn {
+  position: absolute; display: flex; flex-direction: row;
+  align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 4px;
+  background-color: #0d6efd; border: 1px solid #0d6efd;
+}
+.ra-flexbtn-on { background-color: #0a58ca; border: 1px solid #0a58ca; }
+.ra-flexbtn-t { font-size: 11px; height: 13px; color: #ffffff; }
+.ra-flexmenu {
+  position: absolute; display: flex; flex-direction: column; gap: 2px;
+  padding: 8px; border-radius: 8px;
+  background-color: #ffffff; border: 1px solid #d5d9e2;
+}
+.ra-flexcap { font-size: 9.5px; font-weight: bold; height: 13px; color: #aab0bb; padding: 3px 1px 1px; }
+.ra-flexrow { display: flex; flex-direction: row; flex-wrap: wrap; gap: 4px; }
+.ra-flexopt {
+  display: flex; flex-direction: row; align-items: center; justify-content: center;
+  padding: 3px; border-radius: 5px; border: 1px solid #e7e9ee;
+}
+.ra-flexopt:hover { border: 1px solid #b9c0cc; }
+.ra-flexopt-on { border: 1px solid #0d6efd; background-color: #e8f1fe; }
+.ra-flexgap { display: flex; flex-direction: row; align-items: center; gap: 6px; padding: 4px 1px 0; }
+.ra-flexnow { font-size: 11px; height: 15px; color: #1a1d21; width: 44px; min-width: 44px; }
 /* What an import made of somebody's file: one row per guess, with the
    reason beside it. */
 .ra-noterow {

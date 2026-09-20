@@ -129,6 +129,65 @@ class RaveWire {
         return e
     }
 
+    ; --- the flex menu --------------------------------------------------------
+    ; The icons in the layout menu are not pictures of flexbox: they ARE
+    ; flexbox. Each one is a little flex box with the option set on it and
+    ; three blocks inside, laid out by the same engine that lays out the
+    ; page. A drawn arrow can be wrong about what `space-around` does; this
+    ; cannot be.
+
+    sfn block:EVGElement (w:double h:double) {
+        def e:EVGElement (EVGElement.createDiv())
+        e.a11yHidden = true
+        e.setAttribute("width" ((to_string w) + "px"))
+        e.setAttribute("min-width" ((to_string w) + "px"))
+        e.setAttribute("min-height" "4px")
+        if (h > 0.0) {
+            e.setAttribute("height" ((to_string h) + "px"))
+        }
+        e.setAttribute("background-color" (RaveWire.line()))
+        return e
+    }
+
+    sfn flexIcon:EVGElement (prop:string value:string) {
+        def e:EVGElement (RaveWire.plain(38.0 24.0))
+        e.setAttribute("display" "flex")
+        e.setAttribute("flex-direction" "row")
+        e.setAttribute("flex-wrap" "nowrap")
+        e.setAttribute("align-items" "center")
+        e.setAttribute("justify-content" "flex-start")
+        e.setAttribute("gap" "2px")
+        e.setAttribute("padding" "3px")
+        e.setAttribute("overflow" "hidden")
+        e.setAttribute("background-color" (RaveWire.ground()))
+        ; the option under the pointer, applied to the icon itself
+        e.setAttribute(prop value)
+        if (prop == "flex-direction") {
+            e.addChild((RaveWire.block(7.0 7.0)))
+            e.addChild((RaveWire.block(7.0 7.0)))
+            e.addChild((RaveWire.block(7.0 7.0)))
+            return e
+        }
+        if (prop == "flex-wrap") {
+            def i:int 0
+            while (i < 4) {
+                e.addChild((RaveWire.block(10.0 6.0)))
+                i = (i + 1)
+            }
+            return e
+        }
+        if ((prop == "align-items") || (prop == "align-self")) {
+            ; no height on the blocks, so `stretch` has something to do
+            e.addChild((RaveWire.block(7.0 0.0)))
+            e.addChild((RaveWire.block(7.0 0.0)))
+            e.addChild((RaveWire.block(7.0 0.0)))
+            return e
+        }
+        e.addChild((RaveWire.block(7.0 10.0)))
+        e.addChild((RaveWire.block(7.0 10.0)))
+        return e
+    }
+
     ; --- the drawings ---------------------------------------------------------
 
     ; One entry of the kit, 92 × 36, on the tile's dark ground.

@@ -111,6 +111,8 @@ class RaveEditor {
     ; bumped per edit so live changes coalesce into one undo step
     def session:int 0
     ; the choice list that is open, and the row the keys are on
+    ; The layout menu, hanging under the selected container.
+    def flexOpen:boolean false
     def openMenu:string ""
     def menuActive:int 0
     ; a drag in progress: selecting text in a field, or dragging a track
@@ -933,6 +935,9 @@ class RaveEditor {
         if (nid != selected) {
             this.commitEdit()
             this.closeMenu()
+            ; The layout menu is about the box it hangs off; another box is
+            ; another question.
+            flexOpen = false
         }
         selected = nid
         dirty = true
@@ -1118,6 +1123,23 @@ class RaveEditor {
             needFit = true
             dirty = true
             return true
+        }
+        if (id == "flex:open") {
+            flexOpen = (flexOpen == false)
+            dirty = true
+            return true
+        }
+        if (RaveEditor.hasPrefix(id "flexset:")) {
+            def spec:string (RaveEditor.tail(id 8))
+            def prop:string (RaveEditor.firstWord(spec))
+            def value:string (RaveEditor.restWords(spec))
+            if ((strlen value) == 0) {
+                return false
+            }
+            return (this.setStyle(prop value))
+        }
+        if (RaveEditor.hasPrefix(id "flexgap:")) {
+            return (this.stepGap((RaveEditor.tail(id 8))))
         }
         if (id == "wire:toggle") {
             wire = (wire == false)
@@ -1313,8 +1335,17 @@ class RaveEditor {
             if (dragging > 0) {
                 return (this.press("dropcancel"))
             }
+            if flexOpen {
+                flexOpen = false
+                dirty = true
+                return true
+            }
             this.select(0)
             return true
+        }
+        ; The layout menu is one key away from the keyboard, too.
+        if (ctrl && (k == "l")) {
+            return (this.press("flex:open"))
         }
         if ((k == "Delete") || (k == "Backspace")) {
             return (this.deleteSelected())
@@ -2052,6 +2083,42 @@ class RaveEditor {
         def did:boolean (e.setDecl((n.cls()) (this.media()) prop value))
         this.styleChanged()
         return did
+    }
+
+    ; The gap, up or down a step, from the layout menu. A gap that was never
+    ; set starts at 0 and the step is the one the inspector's track uses, so
+    ; the two agree about what a nudge is.
+    fn stepGap:boolean (which:string) {
+        if ((this.hasSelection()) == false) {
+            return false
+        }
+        def now:string (this.valueOf("gap"))
+        def len:RaveLength (RaveFields.parse(now (RaveFields.units("gap"))))
+        def unit:string len.unit
+        if ((strlen unit) == 0) {
+            unit = "px"
+        }
+        if (unit == "auto") {
+            unit = "px"
+        }
+        ; A step of one pixel is right for a track being dragged and wrong for
+        ; a button being pressed: this is the coarse nudge.
+        def step:double 4.0
+        if ((unit == "em") || (unit == "rem")) {
+            step = 0.25
+        }
+        def was:double 0.0
+        if len.ok {
+            was = (len.value())
+        }
+        def want:double (was + step)
+        if (which == "dec") {
+            want = (was - step)
+        }
+        if (want < 0.0) {
+            want = 0.0
+        }
+        return (this.setStyle("gap" ((RaveFields.fromNumber(want)) + unit)))
     }
 
     fn clearProp:boolean (prop:string) {
@@ -2959,12 +3026,113 @@ class RaveEditor {
             if showTabOrder {
                 this.tabOrderBadges(board)
             }
+            this.flexBadge(board)
         }
         def bar:EVGElement (this.toolbar())
         board.addChild(bar)
         boardEl = board
         st.addChild(board)
         return st
+    }
+
+    ; --- the layout menu ------------------------------------------------------
+    ; A container's arrangement is the one thing a designer changes over and
+    ; over while a screen is being found, and walking to the inspector for
+    ; each change breaks the thought. So the selected container carries a
+    ; button at its corner, and it opens the flex options as a strip of live
+    ; icons: pick the shape you want, without naming a property.
+
+    fn flexBadge:void (board:EVGElement) {
+        if (mode != "design") {
+            return
+        }
+        if ((this.hasSelection()) == false) {
+            return
+        }
+        def n:RaveNode (this.selectedNode())
+        if ((RaveKit.isContainer(n)) == false) {
+            return
+        }
+        def r:RaveRuntime (unwrap rt)
+        def sid:string ("n" + (to_string selected))
+        if ((r.hasEl(activeView sid)) == false) {
+            return
+        }
+        def left:double (((r.leftOf(activeView sid)) * zoom) + viewX)
+        def top:double (((r.topOf(activeView sid)) * zoom) + viewY)
+        def wide:double ((r.widthOf(activeView sid)) * zoom)
+        def tall:double ((r.heightOf(activeView sid)) * zoom)
+        def cls:string "ra-flexbtn"
+        if flexOpen {
+            cls = "ra-flexbtn ra-flexbtn-on"
+        }
+        def badge:EVGElement (RaveEditor.box(cls "flex:open" "button" "Layout of this container"))
+        badge.setAttribute("left" ((to_string ((left + wide) - 20.0)) + "px"))
+        badge.setAttribute("top" ((to_string (top + 2.0)) + "px"))
+        badge.addChild((RaveEditor.quiet("ra-flexbtn-t" "⇲")))
+        board.addChild(badge)
+        if flexOpen {
+            board.addChild((this.flexMenu(left (top + tall))))
+        }
+    }
+
+    ; The strip itself, under the box it is about.
+    fn flexMenu:EVGElement (atX:double atY:double) {
+        def panel:EVGElement (RaveEditor.box("ra-flexmenu" "" "menu" "Layout"))
+        def wide:double 268.0
+        def left:double atX
+        if ((left + wide) > bw) {
+            left = (bw - wide)
+        }
+        if (left < 4.0) {
+            left = 4.0
+        }
+        def top:double (atY + 6.0)
+        if ((top + 250.0) > bh) {
+            top = (bh - 250.0)
+        }
+        if (top < 4.0) {
+            top = 4.0
+        }
+        panel.setAttribute("left" ((to_string left) + "px"))
+        panel.setAttribute("top" ((to_string top) + "px"))
+        panel.setAttribute("width" ((to_string wide) + "px"))
+        this.flexGroup(panel "DIRECTION" "flex-direction")
+        this.flexGroup(panel "ALIGN" "align-items")
+        this.flexGroup(panel "DISTRIBUTE" "justify-content")
+        this.flexGroup(panel "WRAP" "flex-wrap")
+        def gapRow:EVGElement (RaveEditor.box("ra-flexgap" "" "" ""))
+        gapRow.addChild((RaveEditor.quiet("ra-flexcap" "GAP")))
+        gapRow.addChild((RaveEditor.box("ra-spacer" "" "" "")))
+        gapRow.addChild((RaveEditor.button("flexgap:dec" "−" "ra-tool-s" "ra-tool-t")))
+        def now:string (this.valueOf("gap"))
+        if ((strlen now) == 0) {
+            now = "0"
+        }
+        gapRow.addChild((RaveEditor.quiet("ra-flexnow" now)))
+        gapRow.addChild((RaveEditor.button("flexgap:inc" "+" "ra-tool-s" "ra-tool-t")))
+        panel.addChild(gapRow)
+        return panel
+    }
+
+    fn flexGroup:void (panel:EVGElement caption:string prop:string) {
+        panel.addChild((RaveEditor.quiet("ra-flexcap" caption)))
+        def row:EVGElement (RaveEditor.box("ra-flexrow" "" "" ""))
+        def opts:[string] (RaveFields.options(prop))
+        def now:string (this.valueOf(prop))
+        def i:int 0
+        while (i < (array_length opts)) {
+            def v:string (itemAt opts i)
+            def cls:string "ra-flexopt"
+            if (v == now) {
+                cls = "ra-flexopt ra-flexopt-on"
+            }
+            def cell:EVGElement (RaveEditor.box(cls ("flexset:" + prop + " " + v) "button" (prop + " " + v)))
+            cell.addChild((RaveWire.flexIcon(prop v)))
+            row.addChild(cell)
+            i = (i + 1)
+        }
+        panel.addChild(row)
     }
 
     fn tabOrderBadges:void (board:EVGElement) {
@@ -3767,6 +3935,24 @@ class RaveEditor {
 
     sfn pct:string (z:double) {
         return ((to_string (to_int ((z * 100.0) + 0.5))) + "%")
+    }
+
+    ; An id that carries two words — "flexset:justify-content center" — read
+    ; back one word at a time.
+    sfn firstWord:string (s:string) {
+        def at:int (indexOf s " ")
+        if (at < 0) {
+            return s
+        }
+        return (substring s 0 at)
+    }
+
+    sfn restWords:string (s:string) {
+        def at:int (indexOf s " ")
+        if (at < 0) {
+            return ""
+        }
+        return (substring s (at + 1) (strlen s))
     }
 
     sfn split:[string] (text:string) {
