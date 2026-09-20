@@ -44,9 +44,53 @@
 Import "EVGElement.rgr"
 
 class EVGHoles {
+    ; --- THE TWO SHAPES OF A HOLE ---------------------------------------------
+    ;
+    ;   {wifi}              the key's value, whatever it is
+    ;   {cinematic=4k30}    "checked" when the key IS that value, else "unchecked"
+    ;
+    ; The second exists because one thing a screen does constantly has no
+    ; expression in the first: CHOOSING ONE OF SEVERAL. A list of six
+    ; resolutions with a tick against the chosen one is not six switches —
+    ; it is one value, asked six different questions. Encoded with plain
+    ; holes it becomes a key per row that something has to keep consistent,
+    ; and the thing that has to is a person, who will get it wrong.
+    ;
+    ; Asking the question in the hole keeps the fact in one place. The answer
+    ; is a STATE WORD rather than a boolean because that is the vocabulary
+    ; every control in this engine already paints with, so a tick needs two
+    ; rules in the sheet — `.check-state-checked`, `.check-state-unchecked` —
+    ; and those two serve every row of every group in the app.
+    ;
+    ; A key with a `=` in it is not addressable, which is the price and is
+    ; cheap: `=` is not in any key anybody writes.
+    sfn keyOf:string (name:string) {
+        def cut:int (indexOf name "=")
+        if (cut < 0) {
+            return name
+        }
+        return (substring name 0 cut)
+    }
+
+    ; "" when the hole asks for the value rather than testing it.
+    sfn wantOf:string (name:string) {
+        def cut:int (indexOf name "=")
+        if (cut < 0) {
+            return ""
+        }
+        return (substring name (cut + 1) (strlen name))
+    }
+
+    sfn asksEquals:boolean (name:string) {
+        return ((indexOf name "=") >= 0)
+    }
+
     ; The `{name}` syntax, defined once. `EvgAppRules.fillText` fills the same
     ; holes from a machine's context; it differs only in where the value comes
     ; from, and it scans with this.
+    ;
+    ; A `{key=value}` reports `key`: the name a machine has to hold is the
+    ; key, and the value is the question being asked about it.
     sfn scan:void (text:string out:[string]) {
         def n:int (strlen text)
         def i@(mutable):int 0
@@ -65,7 +109,8 @@ class EVGHoles {
                 if (close < 0) {
                     i = n
                 } {
-                    def key:string (substring text (i + 1) close)
+                    def name:string (substring text (i + 1) close)
+                    def key:string (EVGHoles.keyOf(name))
                     if ((strlen key) > 0) {
                         if ((EVGHoles.mentions(out key)) == false) {
                             push out key

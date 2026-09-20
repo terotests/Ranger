@@ -424,4 +424,104 @@ fs.rmSync(broken, { recursive: true, force: true });
   }
 }
 
+// ONE OF SEVERAL. A settings sub-page is a list with a tick against the chosen
+// row, and it is one value rather than a row of switches. `pick.<key>.<value>`
+// is how a document says so, and `{key=value}` is how a tick asks.
+//
+// This is here because the encoding people reach for instead — a key per row,
+// each holding a tick or nothing — needs every row kept consistent with every
+// other, and the thing keeping them consistent is a person. The screen that
+// prompted it had five rows reading holes the machine had never heard of.
+{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "evg-app-pick-"));
+  fs.mkdirSync(path.join(dir, "pages"), { recursive: true });
+  const rows = ["720p30", "1080p30", "4k30"];
+  const design = path.join(dir, "design.evg.json");
+  fs.writeFileSync(
+    design,
+    JSON.stringify({
+      evg: 1,
+      css: ".check-state-checked { color: rgb(0,122,255); }\n.check-state-unchecked { color: rgba(0,0,0,0); }\n",
+      root: {
+        tag: "div",
+        id: "nav.cinematic",
+        props: { display: "flex", "flex-direction": "column", width: "390px", height: "300px" },
+        children: rows.map((v) => ({
+          tag: "div",
+          id: `pick.cinematic.${v}`,
+          role: "radio",
+          ...(v === "4k30" ? { checked: 2 } : {}),
+          props: { display: "flex", "flex-direction": "row", height: "44px" },
+          children: [
+            { tag: "span", text: v, props: { "flex-grow": "1.00", height: "20px" } },
+            { tag: "span", text: "✓", props: { "class-name": `check check-state-{cinematic=${v}}`, height: "20px" } },
+          ],
+        })),
+      },
+    }),
+  );
+  const made = app("init", dir, `--from=${design}`);
+  if (made.error) throw new Error("pick init failed: " + made.error);
+
+  const machine = JSON.parse(fs.readFileSync(path.join(dir, "machine.json"), "utf8"));
+  // One key, not one per row — and it opens on the row the document marks.
+  if (machine.context.cinematic !== "4k30") {
+    throw new Error("a choice group did not open on the row the document marks: " + JSON.stringify(machine.context));
+  }
+  if (Object.keys(machine.context).length !== 1) {
+    throw new Error("a choice group wrote more than one key: " + JSON.stringify(machine.context));
+  }
+  for (const v of rows) {
+    if (!machine.states.cinematic.on[`pick.cinematic.${v}`]) {
+      throw new Error(`no transition for pick.cinematic.${v}`);
+    }
+  }
+
+  // A press moves the tick, and nothing had to clear the other rows.
+  const hit = app("press", dir, "pick.cinematic.720p30");
+  if (hit.context.cinematic !== "720p30") throw new Error("the press did not set the choice: " + JSON.stringify(hit.context));
+  const out = path.join(dir, "after.evg.json");
+  app("render", dir, "pick.cinematic.720p30", `--out=${out}`);
+  const painted = fs.readFileSync(out, "utf8");
+  const ticks = [...painted.matchAll(/check check-state-(\w+)/g)].map((m) => m[1]);
+  if (ticks.length !== 3) throw new Error("expected three ticks, got " + ticks.length);
+  if (ticks[0] !== "checked" || ticks[1] !== "unchecked" || ticks[2] !== "unchecked") {
+    throw new Error("the tick did not move to the pressed row: " + ticks.join(","));
+  }
+  console.log("  one of several  a tick that is one value asked once per row, and a press moves it");
+}
+
+// EVERY NAME A PAGE READS. `boundControls` sees a switch — an id, and a
+// `{key}` in a class. It saw no hole in TEXT at all, so a row reading
+// `{cinematic}` got a machine that had never heard of the name and the hole
+// stayed a hole on the running screen.
+{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "evg-app-reads-"));
+  const design = path.join(dir, "design.evg.json");
+  fs.writeFileSync(
+    design,
+    JSON.stringify({
+      evg: 1,
+      css: "",
+      root: {
+        tag: "div",
+        props: { display: "flex", width: "390px", height: "100px" },
+        children: [{ tag: "span", text: "{cinematic}", props: { height: "20px" } }],
+      },
+    }),
+  );
+  const made = app("init", dir, `--from=${design}`);
+  if (made.error) throw new Error("init failed: " + made.error);
+  const machine = JSON.parse(fs.readFileSync(path.join(dir, "machine.json"), "utf8"));
+  if (!("cinematic" in machine.context)) {
+    throw new Error("a name the page reads in TEXT got no context key: " + JSON.stringify(machine.context));
+  }
+  const out = path.join(dir, "painted.evg.json");
+  app("render", dir, `--out=${out}`);
+  if (fs.readFileSync(out, "utf8").includes("{cinematic}")) {
+    throw new Error("an unset hole rendered as itself rather than as nothing");
+  }
+  console.log("  every name    a hole in text is a context key too, so it renders as nothing, not as {name}");
+}
+
 console.log("ALL PASS — a machine, a page per state, a model that agrees with itself, a memory that does not rot");

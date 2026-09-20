@@ -789,6 +789,38 @@ On ONE SCREEN a bound control shows its resting state until there is a
 machine to fill \`{key}\` from. That is not a mistake to fix by taking the
 binding out; it is what a control with nothing behind it looks like.
 
+### One of several — a sub-page with a tick
+
+A settings sub-page is a list with a tick against the chosen row. It is
+NOT a row of switches: it is one value, asked once per row. Say so with
+the id, the same way \`nav.<state>\` names a state:
+
+\`\`\`
+pick.<key>.<value>          pick.cinematic.4k30
+\`\`\`
+
+and let each row's tick ask the question rather than store the answer:
+
+\`\`\`json
+{"tag":"span","text":"✓","props":{"class-name":"check check-state-{cinematic=4k30}"}}
+\`\`\`
+
+\`{key=value}\` answers \`checked\` when the key IS that value and
+\`unchecked\` otherwise, so the whole app needs two rules —
+\`.check-state-checked\` and \`.check-state-unchecked\` — however many groups
+it has. \`init\` writes ONE context key and one transition per row, opening
+on the row you marked \`"checked": 2\`. Pressing a row sets the value;
+nothing clears the others, because they were never separate facts.
+
+Do not give each row its own key holding a tick or nothing. That works
+until two rows disagree, and then something has to keep five keys
+consistent — and the something is you.
+
+Every \`{name}\` a page reads gets a context key, including one in TEXT,
+so an unset hole renders as nothing. A hole you can still SEE on a
+running screen means the machine does not hold that name at all: run
+\`./evg-app check app\`, which names it.
+
 \`add\` answers \`{tree, css, classes, ops}\`. The \`ops\` are a batch you can
 apply as it stands — a \`set-css\` carrying the rules the control needs on
 top of the sheet the document already has, and an \`insert\` carrying the
