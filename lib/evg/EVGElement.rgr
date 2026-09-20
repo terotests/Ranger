@@ -3281,6 +3281,12 @@ class EVGElement {
         effectTrigger = other.effectTrigger
         fxNames = other.fxNames
         fxValues = other.fxValues
+        documentCss = other.documentCss
+        ; The marks go with the values. An element that took another's
+        ; cascaded properties and not the record of where they came from is
+        ; an element that writes the whole stylesheet into itself the next
+        ; time the tree is serialized.
+        cssProps = other.cssProps
         scrollTop = other.scrollTop
         scrollLeft = other.scrollLeft
         scrollWidth = other.scrollWidth
