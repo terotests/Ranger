@@ -232,6 +232,7 @@
   evg-effect-on: always;
   evg-fx-density: 1.25;
   evg-fx-rise: 0.05;
+  evg-fx-churn: 1;
   evg-fx-swirl: 2.6;
   evg-fx-scale: 190;
   evg-fx-height: 0.9;
@@ -252,6 +253,7 @@
   evg-effect-on: always;
   evg-fx-density: 1;
   evg-fx-rise: 0.03;
+  evg-fx-churn: 0.8;
   evg-fx-wind: 0.6;
   evg-fx-swirl: 2.4;
   evg-fx-scale: 240;
@@ -272,6 +274,7 @@
   evg-effect-on: always;
   evg-fx-density: 0.7;
   evg-fx-rise: 0.02;
+  evg-fx-churn: 0.5;
   evg-fx-wind: 1.2;
   evg-fx-swirl: 1.8;
   evg-fx-scale: 200;

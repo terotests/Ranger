@@ -18,7 +18,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a fog that fades out evenly; `evg-fx-height` moves that line, and at 3 or
   more the same effect is a cloud filling the box. It is lit by comparing the
   field with itself one step toward `evg-fx-angle` — a gradient, and what gives
-  a cloud its volume. `.fx-stage`, `.fx-cloud` and `.fx-haze` are in
+  a cloud its volume.
+
+  **And it boils while it rises**: every octave of the field drifts along a
+  direction of its own by an amount that GROWS with the octave, so in units of
+  its own features the fine detail moves several times faster than the big
+  shapes — the large billows hold their form while the tendrils inside them
+  tear and re-form. A field that merely translated could not do that, and read
+  as a photograph being dragged up the box. `evg-fx-churn` is that rate against
+  `evg-fx-rise`, and the two are the only clocks in the effect: at churn 0 the
+  whole field is one rigid translation, which is what makes the behaviours
+  separable and is checked as such — the frozen pair line up under one shift
+  (error 0.7 at exactly the 18 pixels `rise` asks for), the churning pair under
+  none (60x worse). `.fx-stage`, `.fx-cloud` and `.fx-haze` are in
   `effect-presets.css`, so they are in the gallery demo's background picker and
   on its contact sheet; the pixel gate holds the effect to banking up along its
   own floor, thinning toward the top, filling the box when told to, and moving.
@@ -412,6 +424,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     for every element it compares against.
 
 ### Fixed
+
+- **The smoke rose downward.** Page y counts down, and the field was sampled
+  with the clock SUBTRACTED from it, which moves a billow toward the floor. It
+  survived review because the motion was slow enough that nobody watched a
+  particular billow to see where it went — the screenshots all looked like
+  smoke. The shift search in `fx-check` now names the direction and the
+  distance: four seconds of `rise: 0.05` at `scale: 90` is 18 pixels, upward.
+  A NEGATIVE `evg-fx-rise` is now what pours it down the box, so a sheet
+  written against the old sign wants its sign flipped.
+
+- **`fx-check` rendered a contact sheet before it started.** It took the preset
+  reader from `effect-shots.mjs`, which is a script: importing it ran the whole
+  thing, browser and all. Harmless while it was fast, a 30-second timeout once
+  there were fourteen presets to paint. The check reads the file itself now.
 
 - **A demo that moves on its own now gets a frame without being touched.** Every
   path that started the gallery page's clock was an INPUT — a press, a key, a

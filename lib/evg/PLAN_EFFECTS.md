@@ -166,6 +166,23 @@ can put text on and still read it.
   thickening the pixel is in shadow — a gradient, which is what gives a cloud
   its volume.
 
+  AND IT BOILS WHILE IT RISES: every octave of the field drifts along a
+  direction of its own, by an amount that grows with the octave, so in units of
+  its own features the fine detail moves several times faster than the big
+  shapes — the large billows hold their form while the tendrils inside them
+  tear and re-form, which is how turbulence goes and what a field that merely
+  translated could never do. `churn` is that rate against `rise`, and at 0 the
+  smoke is a photograph being dragged up the box. It is checked as such: the
+  frozen pair line up under one shift — 18 pixels, upward, which is what `rise`
+  asks for — and the churning pair under none.
+
+  The two rates are separate so that either can be had without the other:
+  smoke crossing the box quickly and smoke boiling where it stands are
+  different pictures. Both defaults are deliberately slow, because a background
+  that demands to be watched is a background in the way, and both are one
+  number in a stylesheet away from anything else — `rise` in its direction as
+  well: at `evg-fx-rise: -0.15` the smoke pours DOWN the box.
+
 They take their box from the layout like the others, and each is in
 `effect-presets.css` two or three times, with different numbers.
 
@@ -265,7 +282,8 @@ the flat middle as it is at the bevel).
 | | default | |
 | --- | --- | --- |
 | `density` | 1.2 | how much of the field shows as smoke |
-| `rise` | 0.05 | how fast it climbs |
+| `rise` | 0.05 | how fast it climbs; NEGATIVE pours it down the box instead |
+| `churn` | 1 | how fast the shapes reorganise as they go; 0 is a rigid field sliding |
 | `wind` | 0 | sideways drift |
 | `swirl` | 2.6 | how hard the warp curls it; 0 is clouds of plain noise |
 | `scale` | 190 | the size of a billow, px |
