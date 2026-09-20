@@ -34,6 +34,58 @@
   background-color: #ffffff;
 }
 
+/* --- button ---------------------------------------------------------------
+   The ordinary kind: press it, something happens, it remembers nothing.
+
+   A VARIANT IS A CLASS. `primary` is the one a screen shouts with, and what
+   "primary" looks like is these two declarations — an orange CTA is this
+   file, not a new control and not a hand-drawn div. The width is the
+   CONTENT's: a button that fills its row is a row with a button-coloured
+   background, and every screen that drew its own got that wrong.            */
+
+.ui-button {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  align-self: flex-start;
+  /* The width is the CONTENT's. A flex box otherwise takes the whole row it
+     is in, which is how every hand-drawn CTA ended up as a row with a
+     button-coloured background. `align-self` is not enough: it aligns a box
+     that has already been given a width. */
+  width: fit-content;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background-color: #e2e8f0;
+  color: #0f172a;
+}
+.ui-button-label { font-weight: 600; }
+
+.ui-button-primary { background-color: #2563eb; color: #ffffff; border-color: #2563eb; }
+.ui-button-secondary { background-color: #e2e8f0; color: #0f172a; border-color: #cbd5e1; }
+.ui-button-ghost { background-color: rgba(0,0,0,0); color: #2563eb; border-color: transparent; }
+.ui-button-danger { background-color: #dc2626; color: #ffffff; border-color: #dc2626; }
+
+/* Held down. Not latched — a button has nothing to remember, so this is
+   painted while the finger is on it and painted back when it lifts. */
+.ui-button-state-pressed { transform: scale(0.97); }
+.ui-button-disabled { opacity: 0.45; }
+
+.theme-dark .ui-button { background-color: #1e293b; color: #e2e8f0; border-color: #334155; }
+.theme-dark .ui-button-secondary { background-color: #1e293b; color: #e2e8f0; border-color: #334155; }
+.theme-dark .ui-button-ghost { background-color: rgba(0,0,0,0); color: #60a5fa; }
+
+/* A row of CTAs. `gap` rather than margins so `space-between` and `center`
+   both look right without a second rule per alignment.                      */
+.ui-actions {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
 /* --- toggle --------------------------------------------------------------- */
 
 .ui-toggle {

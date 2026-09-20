@@ -401,6 +401,31 @@ const PATTERNS = {
     },
   },
 
+  // The row of CTAs at the bottom of a screen. It is here because it is what
+  // people were drawing by hand: two pills side by side, each a `div` with a
+  // radius and a colour, neither of them pressable and neither restyleable.
+  // `chips` is the round-icon-with-a-caption row and does not fit them.
+  actions: {
+    summary: "A row of buttons — the CTAs at the foot of a screen.",
+    props: {
+      button: {
+        type: "repeated",
+        note: "--button \"Add to plan|primary|plan.add\": words, variant, id",
+      },
+      align: { type: "\"center\" | \"start\" | \"end\" | \"fill\"", default: "center" },
+    },
+    build(props) {
+      const list = asList(props.button).map((spec) => {
+        const [label = "", variant = "secondary", id = ""] = String(spec).split("|");
+        return add("button", { name: label, variant, tid: id || undefined }).tree;
+      });
+      const where = { start: "flex-start", end: "flex-end", center: "center", fill: "space-between" }[
+        props.align || "center"
+      ] || "center";
+      return n("div", "ui-actions", { "justify-content": where }, list);
+    },
+  },
+
   field: {
     summary: "A labelled text field with its helper line — a form's row.",
     props: {
@@ -556,6 +581,7 @@ function sampleProps(name) {
   }
   if (name === "appbar") return { title: "Network details", action: "✎" };
   if (name === "chips") return { chip: ["Forget|✕|net.forget", "Share|▦|net.share"] };
+  if (name === "actions") return { button: ["Add to plan|primary|plan.add", "Update plan|secondary|plan.update"] };
   if (name === "field") return { label: "Email", placeholder: "name@example.com", help: "We only use it to sign you in." };
   return {};
 }
