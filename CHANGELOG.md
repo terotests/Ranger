@@ -9,6 +9,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Generated-code quality is three questions now, not one ranking.** The
+  single ordering read as a verdict, and it was one reading of the generated
+  files. It is split into correctness, speed and idiom, because a target can
+  do well on one and badly on another.
+
+  *Correctness* is what `gallery/friendly/compile.sh` already measured: eight
+  targets agree on all twelve studies. The one place they do not is integer
+  width — `100000 * 100000` answers `10000000000` on JavaScript, Python, PHP,
+  Go and Rust and `1410065408` on C++, C#, Java and Kotlin, and on C++ the
+  overflow is undefined behaviour rather than a wrap.
+  `gallery/friendly/bench/intwidth.rgr` is the probe.
+
+  *Speed* is new: `gallery/friendly/bench/` is the same Ranger program, five
+  kernels, each timing itself with `wall_clock_ms`. Kernels only: C++ 260 ms,
+  Kotlin 466, C# 663, Java 760, PHP 801, JavaScript 1076, Rust 2556,
+  Python 2566, Go 143882. Two of those are the compiler's doing and are
+  written down — `charAt` is O(n) on Go and Rust, and a Ranger map is a plain
+  object on JavaScript.
+
+  *Idiom* is the score that stays on the front page, and it is measured
+  against a published twelve-check table in `gallery/friendly/README.md` so
+  each cell can be disputed against the file it came from. On this compiler,
+  after native enums on twelve targets, Python annotations, PHP typed
+  properties and the ownership work: Swift 92, Kotlin 88, TypeScript 83,
+  Dart 83, C++ 83, C# 79, Scala 79, Python 75, Rust 75, JavaScript 71,
+  PHP 71, Java 67, Go 67. This supersedes the #1024 rescoring below. Swift is
+  top and has never been compiled on the build machine, which is exactly why
+  the three axes are kept apart.
+
+- **`wall_clock_ms` works on PHP, Dart, Scala and Swift.** They fell through
+  to the `*` template, which is `0.0`, so every duration a program measured
+  on those targets was zero.
+
 - **The front-page hero columns are gold, not a magic runtime.** The first
   column is still “There is no Silver Bullet.” Ranger is more like gold:
   heavier to start with, and a golden-file test when you target more than

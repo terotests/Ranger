@@ -1,5 +1,9 @@
 ; SPDX-License-Identifier: MIT
 
+Import "TraitAnalysis.rgr"
+Import "EnumAnalysis.rgr"
+Import "ForLoopAnalysis.rgr"
+
   class RangerScalaClassWriter {
   Extends ( RangerGenericClassWriter )
   def compiler:LiveCompiler
@@ -119,7 +123,12 @@
       }   
       
       case RangerNodeType.Enum {
-        wr.out("Int" false)
+        def scEnumName:string (scEnums.enumNameOf(node ctx))
+        if (this.scEnumIsNative(scEnumName ctx)) {
+          wr.out(scEnumName false)
+        } {
+          wr.out("Int" false)
+        }
       }
       case RangerNodeType.Integer {
         wr.out("Int" false)
@@ -173,6 +182,14 @@
           wr.out("Unit" false)
           return
         }
+        if(ctx.isDefinedClass(t_name)) {
+          def scTC:RangerAppClassDesc (ctx.findClass(t_name))
+          if scTC.is_trait {
+            if ((scalaTraits.isInterface(t_name ctx)) == false) {
+              ctx.addError(node (("the Scala target writes a `trait` as a mixin, so `" + t_name) + "` is not a type it can name. A trait that declares only METHODS becomes a Scala trait and can be used as a type; this one carries fields, which its consumers each hold their own copy of. Use a class with subclasses, or give the parameter a concrete type."))
+            }
+          }
+        }
         wr.out((this.getTypeString(t_name)) false)
       }
     }
@@ -212,7 +229,12 @@
       }   
       
       case RangerNodeType.Enum {
-        wr.out("Int" false)
+        def scEnumName:string (scEnums.enumNameOf(node ctx))
+        if (this.scEnumIsNative(scEnumName ctx)) {
+          wr.out(scEnumName false)
+        } {
+          wr.out("Int" false)
+        }
       }
       case RangerNodeType.Integer {
         wr.out("Int" false)
@@ -271,6 +293,11 @@
         def enumName:string (itemAt node.ns 1)
         def e@(optional):RangerAppEnum (ctx.getEnum(rootObjName))
         if (!null? e) {
+          ; `Color.Green`, not `1`, when the enum survives as a Scala type
+          if (this.scEnumIsNative(rootObjName ctx)) {
+            wr.out((rootObjName + "." + (ctx.transformWord(enumName))) false)
+            return
+          }
           wr.out(("" + (unwrap (get e.values enumName))) false)
           return
         }
@@ -450,6 +477,27 @@
           wr.out('val __break__ = new Breaks' true)
           wr.out('__break__.breakable {' true)
           wr.indent(1)
+        }
+
+        ; `for (v <- xs)` when the body reads neither the index nor the
+        ; collection; the index form below otherwise
+        if (scLoops.canIterate(node)) {
+          wr.out( 'for( ' false )
+          this.WalkNode( itemNode ctx wr )
+          wr.out( ' <- ' false)
+          this.WalkNode( listNode ctx wr )
+          wr.out(' ) {' true)
+          wr.indent(1)
+          this.WalkNode( bodyNode ctx wr )
+          wr.indent(-1)
+          wr.out("}" true)
+          if( break_cnt > 0  ) {
+            wr.indent(-1)
+            wr.out("}" true)
+            wr.indent(-1)
+            wr.out("}" true)
+          }
+          return
         }
 
         wr.out( 'for( ' false )
@@ -645,6 +693,88 @@
     wr.out(")" false)
   }
   
+  ; --- a behaviour-only trait used as a TYPE ---------------------------------
+  ; A Ranger `trait` is a MIXIN: its methods are copied into each class that
+  ; `does` it, and the trait itself reached no Scala type. `fn show(n:Named)`
+  ; emitted `n : Named` with no `Named` declared anywhere in the file --
+  ; accepted Ranger, and scalac stops at "not found: type Named".
+  ;
+  ; A trait of methods only is exactly what a Scala `trait` says, and the
+  ; mixin copies are the implementations. One carrying FIELDS is refused, as
+  ; on every other typed target: its consumers each own their own copy, so
+  ; there is nothing for a trait to declare.
+  def scalaTraits:TraitInterfaceAnalysis (new TraitInterfaceAnalysis())
+  def scala_traits_written:boolean false
+
+  ; which Ranger `Enum`s survive as a Scala type rather than a bare Int.
+  ; Same question Rust and C++ ask: compiler/EnumAnalysis.rgr.
+  def scEnums:EnumNativeAnalysis (new EnumNativeAnalysis())
+  def scala_enums_written:boolean false
+
+  ; can a `for` be the target's own loop over the collection?
+  ; Target-neutral question, one place: compiler/ForLoopAnalysis.rgr
+  def scLoops:ForLoopShape (new ForLoopShape())
+
+  fn scEnumIsNative:boolean (enumName:string ctx:RangerAppWriterContext) {
+    scEnums.targetName = "scala"
+    scEnums.fallbackType = "Int"
+    return (scEnums.isNative(enumName ctx))
+  }
+
+  ; A sealed class with one `case object` per member, rather than the Scala 3
+  ; `enum`: this writer emits no other Scala 3 construct, and the sealed form
+  ; compiles on both dialects while giving the same things -- a real type, a
+  ; named member, exhaustive `match`. The member keeps its integer as `value`
+  ; so the two lowerings stay interchangeable.
+  fn writeScalaNativeEnums:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+    if scala_enums_written {
+      return
+    }
+    scala_enums_written = true
+    def enumRoot:RangerAppWriterContext (ctx.getRoot())
+    for (keys enumRoot.definedEnums) sen:string sei {
+      if (this.scEnumIsNative(sen ctx)) {
+        def seDef:RangerAppEnum (unwrap (get enumRoot.definedEnums sen))
+        wr.out("" true)
+        wr.out(("sealed abstract class " + sen + "(val value : Int)") true)
+        wr.out(("object " + sen + " {") true)
+        wr.indent(1)
+        for (keys seDef.values) smn:string smi {
+          def smv:int (unwrap (get seDef.values smn))
+          wr.out(("case object " + (ctx.transformWord(smn)) + " extends " + sen + "(" + (to_string smv) + ")") true)
+        }
+        wr.indent(-1)
+        wr.out("}" true)
+      }
+    }
+  }
+
+  fn writeScalaTraitDefs:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+    if scala_traits_written {
+      return
+    }
+    scala_traits_written = true
+    scalaTraits.compute(ctx)
+    for (keys scalaTraits.ifaceTraits) tn:string tni {
+      def tc:RangerAppClassDesc (ctx.findClass(tn))
+      wr.out("" true)
+      wr.out(("trait " + tn + " {") true)
+      wr.indent(1)
+      for tc.defined_variants fnVar:string fvi {
+        def mVs:RangerAppMethodVariants (get tc.method_variants fnVar)
+        for mVs.variants variant:RangerAppFunctionDesc vi {
+          wr.out(("def " + variant.compiledName + "(") false)
+          this.writeArgsDef(variant ctx wr)
+          wr.out(") : " false)
+          this.writeTypeDef( (unwrap variant.nameNode) ctx wr)
+          wr.out("" true)
+        }
+      }
+      wr.indent(-1)
+      wr.out("}" true)
+    }
+  }
+
   fn writeClass:void (node:CodeNode ctx:RangerAppWriterContext orig_wr:CodeWriter) {
     def declaredFunction:[string:boolean]
     def cl:RangerAppClassDesc node.clDesc
@@ -659,6 +789,8 @@
       init_done = true
       wr.createTag("beginning")
     }
+    this.writeScalaNativeEnums(ctx wr)
+    this.writeScalaTraitDefs(ctx wr)
     def importFork:CodeWriter (wr.getTag("imports"))
     def b_class_has_content ( cl.has_constructor || ( has cl.variables) || (has cl.defined_variants) || (has cl.extends_classes) )
     if b_class_has_content {
@@ -705,13 +837,28 @@
         wr.out(")" false)
       }
 
+      ; Scala is NOMINAL, so unlike TypeScript the consumer has to say it
+      ; implements the trait. `extends` for the first, `with` for the rest --
+      ; a parent class takes the `extends` slot when there is one, and the
+      ; mixin copies are the implementations, which need no `override`.
+      def scIfaces:[string] (scalaTraits.basesOf((unwrap cl) ctx))
+      def scBases:int 0
       if ( ( array_length cl.extends_classes ) > 0 ) { 
         wr.out(" extends " false)
         for cl.extends_classes pName:string i {
           wr.out(pName false)
+          scBases = scBases + 1
   ;        parentClass = (ctx.findClass(pName))
         }
       }    
+      for scIfaces scName:string sci {
+        if (scBases > 0) {
+          wr.out((" with " + scName) false)
+        } {
+          wr.out((" extends " + scName) false)
+        }
+        scBases = scBases + 1
+      }
       
       wr.out(" {" true)
       wr.indent(1)

@@ -178,6 +178,13 @@ code:not(pre code) {
   margin: 0;
 }
 .quality__card p { max-width: 78ch; color: var(--dim); font-size: 15.5px; }
+/* the one-line caveat or headline under a target's score */
+.quality__note {
+  margin-top: 6px !important;
+  font-size: 14px !important;
+  color: var(--gold);
+  letter-spacing: .01em;
+}
 .quality__cols {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);

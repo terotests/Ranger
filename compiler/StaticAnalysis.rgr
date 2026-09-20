@@ -2576,7 +2576,190 @@ class StaticAnalyzer {
     return false
   }
 
-  fn walkForSharing:void (node:CodeNode fnCtx:RangerAppWriterContext fnName:string mutated:[string]) {
+  ; --- a store that MOVES rather than shares ---------------------------------
+  ; `push lines line` marks the stored class shared, because a named value put
+  ; into an object graph is held there "while the name stays reachable". In the
+  ; shopping-cart shape the name does NOT stay reachable: `add` makes the line,
+  ; fills it, pushes it and returns. The collection is its only owner, and on
+  ; Rust that is `Vec<CartLine>` rather than `Vec<Rc<RefCell<CartLine>>>` --
+  ; which also makes `Cart::clone()` copy the lines, as anyone would expect,
+  ; instead of handing out a second cart that shares them.
+  ;
+  ; The store is a MOVE only when every one of these holds. Sharing stands
+  ; otherwise, because being wrong in that direction is a program that does not
+  ; compile or that silently stops aliasing.
+
+  ; Does `name` name this node -- as a bare name, or as the root of a path?
+  fn nodeNamesLocal:boolean (node:CodeNode name:string) {
+    if node.expression {
+      return false
+    }
+    if ((array_length node.ns) > 0) {
+      return ((itemAt node.ns 0) == name)
+    }
+    return (node.vref == name)
+  }
+
+  ; A use of `name` anywhere later in the source than `afterSp`.
+  fn nameUsedAfter:boolean (node:CodeNode name:string afterSp:int) {
+    if (this.nodeNamesLocal(node name)) {
+      if (node.sp > afterSp) {
+        return true
+      }
+    }
+    for node.children ch:CodeNode i {
+      if (this.nameUsedAfter(ch name afterSp)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  ; `def other <name>` -- something else now points at the same object.
+  fn nameIsAliased:boolean (node:CodeNode name:string) {
+    if node.expression {
+      if ((array_length node.children) > 2) {
+        def head:CodeNode (node.getFirst())
+        if (head.vref == "def") {
+          def val:CodeNode (itemAt node.children 2)
+          if (this.nodeNamesLocal(val name)) {
+            return true
+          }
+        }
+      }
+    }
+    for node.children ch2:CodeNode i2 {
+      if (this.nameIsAliased(ch2 name)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  ; The `def` that creates `name`, counted: exactly one is a local made here.
+  fn countDefsOfName:int (node:CodeNode name:string) {
+    def cnt:int 0
+    if node.expression {
+      if ((array_length node.children) > 1) {
+        def head:CodeNode (node.getFirst())
+        if (head.vref == "def") {
+          def nameNode:CodeNode (node.getSecond())
+          if (nameNode.vref == name) {
+            cnt = 1
+          }
+        }
+      }
+    }
+    for node.children ch3:CodeNode i3 {
+      cnt = (cnt + (this.countDefsOfName(ch3 name)))
+    }
+    return cnt
+  }
+
+  ; The `def` node for `name`, or null when there is not exactly one.
+  fn findDefOfName@(optional):CodeNode (node:CodeNode name:string) {
+    if node.expression {
+      if ((array_length node.children) > 1) {
+        def head:CodeNode (node.getFirst())
+        if (head.vref == "def") {
+          def nameNode:CodeNode (node.getSecond())
+          if (nameNode.vref == name) {
+            def hit@(optional):CodeNode node
+            return hit
+          }
+        }
+      }
+    }
+    for node.children ch4:CodeNode i4 {
+      def found@(optional):CodeNode (this.findDefOfName(ch4 name))
+      if (!null? found) {
+        return found
+      }
+    }
+    def none@(optional):CodeNode
+    return none
+  }
+
+  ; The nearest enclosing block, so that a local made ONCE and pushed inside a
+  ; loop stays shared: its `def` sits in an outer block, the store in the
+  ; loop's own.
+  fn nearestBlockSp:int (node:CodeNode) {
+    def cur@(optional weak):CodeNode node.parent
+    while (!null? cur) {
+      def c:CodeNode (unwrap cur)
+      if c.is_block_node {
+        return c.sp
+      }
+      cur = c.parent
+    }
+    return -1
+  }
+
+  fn storeIsLocalMove:boolean (body:CodeNode storeNode:CodeNode stored:CodeNode name:string fnCtx:RangerAppWriterContext) {
+    ; a synthesized node has no source position, and the whole test is an
+    ; ordering on those
+    if (storeNode.sp <= 0) {
+      return false
+    }
+    if (stored.expression) {
+      return false
+    }
+    ; a path (`a.b`) is a read out of an object graph, never a local to move
+    if ((array_length stored.ns) > 1) {
+      return false
+    }
+    def p:RangerAppParamDesc (fnCtx.getVariableDef(name))
+    if ((strlen p.name) == 0) {
+      return false
+    }
+    if p.is_class_variable {
+      return false
+    }
+    if p.is_captured {
+      return false
+    }
+    ; exactly one `def name` in this body: a local made here, not a parameter
+    if ((this.countDefsOfName(body name)) != 1) {
+      return false
+    }
+    def defNodeOpt@(optional):CodeNode (this.findDefOfName(body name))
+    if (null? defNodeOpt) {
+      return false
+    }
+    def defNode:CodeNode (unwrap defNodeOpt)
+    if (defNode.sp <= 0) {
+      return false
+    }
+    if (defNode.sp > storeNode.sp) {
+      return false
+    }
+    ; the `def` and the store share a block, so the object is made fresh on
+    ; every path that reaches the store
+    def defBlock:int (this.nearestBlockSp(defNode))
+    def storeBlock:int (this.nearestBlockSp(storeNode))
+    if (defBlock < 0) {
+      return false
+    }
+    if (defBlock != storeBlock) {
+      return false
+    }
+    if (this.nameIsAliased(body name)) {
+      return false
+    }
+    ; the store is the last thing that names it. The bound is the END of the
+    ; store expression, not its start: `(push lines line)` holds `line` as its
+    ; own child, and that child sits after the opening paren.
+    def storeEnd:int storeNode.ep
+    if (storeEnd <= storeNode.sp) {
+      return false
+    }
+    if (this.nameUsedAfter(body name storeEnd)) {
+      return false
+    }
+    return true
+  }
+
+  fn walkForSharing:void (body:CodeNode node:CodeNode fnCtx:RangerAppWriterContext fnName:string mutated:[string]) {
     if node.expression {
       if ((array_length node.children) > 0) {
         def first:CodeNode (node.getFirst())
@@ -2592,9 +2775,19 @@ class StaticAnalyzer {
             def stored:CodeNode (itemAt node.children storeAt)
             def storedName:string (this.escapeValueName(stored))
             if ((strlen storedName) > 0) {
+              ; ...unless the name does not stay reachable: a local built here
+              ; and stored for the last time is a move, not sharing. The same
+              ; answer tells the writer that a defensive copy of this operand
+              ; is a copy nobody reads.
+              def isMove:boolean (this.storeIsLocalMove(body node stored storedName fnCtx))
+              if isMove {
+                stored.rg_moved_here = true
+              }
               def storedClass:string (this.nodeClassNameOf(stored fnCtx))
               if ((strlen storedClass) > 0) {
-                this.markClassShared(storedClass ("stored in " + fnName))
+                if (isMove == false) {
+                  this.markClassShared(storedClass ("stored in " + fnName))
+                }
               }
             }
           }
@@ -2712,7 +2905,7 @@ class StaticAnalyzer {
       }
     }
     for node.children child:CodeNode i {
-      this.walkForSharing(child fnCtx fnName mutated)
+      this.walkForSharing(body child fnCtx fnName mutated)
     }
   }
 
@@ -2766,7 +2959,7 @@ class StaticAnalyzer {
         currentFunction = fn
         def mutated:[string]
         this.collectMutatedNames((unwrap fn.fnBody) mutated)
-        this.walkForSharing((unwrap fn.fnBody) (unwrap fn.fnCtx) fn.name mutated)
+        this.walkForSharing((unwrap fn.fnBody) (unwrap fn.fnBody) (unwrap fn.fnCtx) fn.name mutated)
       }
     }
   }
@@ -2821,6 +3014,329 @@ class StaticAnalyzer {
       if (!null? cl.constructor_fn) {
         this.analyzeClassSharingFn((unwrap cl.constructor_fn))
       }
+    }
+  }
+
+  ; --- build-then-fill is one initialization --------------------------------
+  ; `def line (new CartLine)` followed by `line.name = …`, `line.cents = …` is
+  ; how a Ranger program writes a value, and on a value-model target it should
+  ; arrive as the value: `CartLine { name: …, cents: … }` rather than a default
+  ; instance and three writes into it. The shape is local and the conditions
+  ; are all syntactic, so the answer is the same for every target -- what
+  ; differs is only whether a writer knows how to spell it. This pass therefore
+  ; MARKS, and writes nothing: a writer that ignores the three fields emits
+  ; exactly what it emitted before.
+  ;
+  ; The run is folded only when every one of these holds, because being wrong
+  ; here reorders side effects:
+  ;   - the `def` makes the object with a no-argument `new`
+  ;   - the class is a plain class of this program: no parent, no union, no
+  ;     trait, no template, no generic instance, and not one the sharing
+  ;     analysis put behind a cell
+  ;   - the name is a plain local, not a field and not captured
+  ;   - the statements that follow assign ONLY fields of that name, each field
+  ;     once, and no assigned expression reads the name itself
+  fn foldObjectInitsAll:void () {
+    if (null? ctx) {
+      return
+    }
+    def root:RangerAppWriterContext ((unwrap ctx).getRoot())
+    for root.definedClasses cl:RangerAppClassDesc ci {
+      for cl.methods m:RangerAppFunctionDesc mi {
+        this.foldObjectInitsFn(m)
+      }
+      for cl.static_methods sm:RangerAppFunctionDesc smi {
+        this.foldObjectInitsFn(sm)
+      }
+      if (!null? cl.constructor_fn) {
+        this.foldObjectInitsFn((unwrap cl.constructor_fn))
+      }
+    }
+  }
+
+  fn foldObjectInitsFn:void (fn:RangerAppFunctionDesc) {
+    if (null? fn.fnBody) {
+      return
+    }
+    if (null? fn.fnCtx) {
+      return
+    }
+    this.foldObjectInitsIn((unwrap fn.fnBody) (unwrap fn.fnBody) (unwrap fn.fnCtx))
+  }
+
+  fn foldObjectInitsIn:void (body:CodeNode node:CodeNode fnCtx:RangerAppWriterContext) {
+    def cnt:int (array_length node.children)
+    def i:int 0
+    while (i < cnt) {
+      this.tryFoldObjectInit(body node i fnCtx)
+      i = i + 1
+    }
+    for node.children ch:CodeNode ci {
+      this.foldObjectInitsIn(body ch fnCtx)
+    }
+  }
+
+  ; How many times does this body name `name`? One means the use in hand is
+  ; the only one, so a value read there is the last read of it.
+  fn countNameUses:int (node:CodeNode name:string) {
+    def cnt:int 0
+    if (this.nodeNamesLocal(node name)) {
+      cnt = 1
+    }
+    for node.children ch:CodeNode ci {
+      cnt = (cnt + (this.countNameUses(ch name)))
+    }
+    return cnt
+  }
+
+  ; The class a `(new C)` with no constructor arguments names, or "".
+  fn plainNewClassName:string (value:CodeNode) {
+    if ((value.expression) == false) {
+      return ""
+    }
+    def kids:int (array_length value.children)
+    ; `(new C)` is two children; `(new C ())` is three, the third the empty
+    ; argument list the parser leaves behind. An argument list with anything
+    ; in it is a real constructor call and is not this shape.
+    if ((kids != 2) && (kids != 3)) {
+      return ""
+    }
+    def head:CodeNode (value.getFirst())
+    if (head.vref != "new") {
+      return ""
+    }
+    if (kids == 3) {
+      def args:CodeNode (value.getThird())
+      if ((array_length args.children) > 0) {
+        return ""
+      }
+    }
+    def cn:CodeNode (value.getSecond())
+    if ((array_length cn.ns) > 1) {
+      ; `new Val.Num(…)` -- a shape case, which has its own lowering
+      return ""
+    }
+    return cn.vref
+  }
+
+  fn classTakesFoldedInit:boolean (cl:RangerAppClassDesc) {
+    if cl.is_system {
+      return false
+    }
+    if cl.is_union {
+      return false
+    }
+    if cl.is_system_union {
+      return false
+    }
+    if cl.is_trait {
+      return false
+    }
+    if cl.is_template {
+      return false
+    }
+    if cl.is_operator_class {
+      return false
+    }
+    if cl.is_generic_instance {
+      return false
+    }
+    ; a parent's fields are not in the literal this pass would build
+    if ((array_length cl.extends_classes) > 0) {
+      return false
+    }
+    ; …and a class WITH children is the one the Rust writer may give interior
+    ; cells to, which the literal would have to wrap
+    if ((array_length cl.child_classes) > 0) {
+      return false
+    }
+    if cl.is_extended_by_children {
+      return false
+    }
+    ; behind a cell the writer builds the object a different way
+    if cl.rust_needs_ref_semantics {
+      return false
+    }
+    if ((array_length cl.variables) == 0) {
+      return false
+    }
+    ; A constructor body runs when `new` is called and does not run when a
+    ; struct literal is written, so a class that has one is never this shape.
+    if cl.has_constructor {
+      return false
+    }
+    ; …and neither is one whose field defaults DO something. A run that leaves
+    ; a field alone takes the rest from `new`, which a literal evaluates after
+    ; the fields it lists while the statement form ran it first; that reorder
+    ; is only observable when a default has an effect to observe.
+    for cl.variables dv:RangerAppParamDesc dvi {
+      def dvNode@(optional):CodeNode dv.node
+      if (!null? dvNode) {
+        def dvN:CodeNode (unwrap dvNode)
+        if ((array_length dvN.children) > 2) {
+          def dvVal:CodeNode (itemAt dvN.children 2)
+          if (this.nodeHasEffect(dvVal)) {
+            return false
+          }
+        }
+      }
+    }
+    return true
+  }
+
+  ; Does evaluating this initializer DO anything, as opposed to naming a
+  ; value? A call of any shape counts, at any depth.
+  fn nodeHasEffect:boolean (node:CodeNode) {
+    if node.has_call {
+      return true
+    }
+    if node.hasFnCall {
+      return true
+    }
+    if node.is_direct_method_call {
+      return true
+    }
+    for node.children ch:CodeNode ci {
+      if (this.nodeHasEffect(ch)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn classHasField:boolean (cl:RangerAppClassDesc name:string) {
+    for cl.variables v:RangerAppParamDesc vi {
+      if (v.name == name) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn tryFoldObjectInit:void (body:CodeNode block:CodeNode idx:int fnCtx:RangerAppWriterContext) {
+    def cnt:int (array_length block.children)
+    def st:CodeNode (itemAt block.children idx)
+    if ((st.expression) == false) {
+      return
+    }
+    if ((array_length st.children) < 3) {
+      return
+    }
+    def head:CodeNode (st.getFirst())
+    if (head.vref != "def") {
+      return
+    }
+    def nameNode:CodeNode (st.getSecond())
+    def localName:string nameNode.vref
+    if ((strlen localName) == 0) {
+      return
+    }
+    def value:CodeNode (itemAt st.children 2)
+    def clName:string (this.plainNewClassName(value))
+    if ((strlen clName) == 0) {
+      return
+    }
+    if (null? ctx) {
+      return
+    }
+    def root:RangerAppWriterContext ((unwrap ctx).getRoot())
+    if ((root.isDefinedClass(clName)) == false) {
+      return
+    }
+    def cl:RangerAppClassDesc (root.findClass(clName))
+    if ((this.classTakesFoldedInit(cl)) == false) {
+      return
+    }
+    def p:RangerAppParamDesc (fnCtx.getVariableDef(localName))
+    if ((strlen p.name) == 0) {
+      return
+    }
+    if p.is_class_variable {
+      return
+    }
+    if p.is_captured {
+      return
+    }
+    ; an Option<T> local, or one the weak-reference analysis put behind a
+    ; cell, is built by a path of its own
+    if (nameNode.hasFlag("optional")) {
+      return
+    }
+    if p.rust_needs_rc_wrap {
+      return
+    }
+
+    def fields:[string]
+    def values:[CodeNode]
+    def folded:[CodeNode]
+    def seen:[string:boolean]
+    def j:int (idx + 1)
+    def stop:boolean false
+    while ((j < cnt) && (stop == false)) {
+      def nx:CodeNode (itemAt block.children j)
+      def ok:boolean false
+      if nx.expression {
+        if ((array_length nx.children) >= 3) {
+          def nh:CodeNode (nx.getFirst())
+          if (nh.vref == "=") {
+            def lhs:CodeNode (nx.getSecond())
+            if ((array_length lhs.ns) == 2) {
+              if ((itemAt lhs.ns 0) == localName) {
+                def fieldName:string (itemAt lhs.ns 1)
+                if ((this.classHasField(cl fieldName)) && ((has seen fieldName) == false)) {
+                  def rhs:CodeNode (itemAt nx.children 2)
+                  ; the value may not read the object being built: in a
+                  ; literal there is no object yet to read
+                  if ((this.nameUsedAfter(rhs localName (0 - 1))) == false) {
+                    set seen fieldName true
+                    push fields fieldName
+                    push values rhs
+                    push folded nx
+                    ok = true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      if (ok == false) {
+        stop = true
+      }
+      j = j + 1
+    }
+
+    if ((array_length fields) == 0) {
+      return
+    }
+    ; A field value that NAMES something the body never mentions again is the
+    ; last read of that name: the literal takes it, and the copy the statement
+    ; form had to make is a copy nobody reads. Anything read again -- `gname`
+    ; below, returned after the literal -- keeps its copy.
+    for values fvn:CodeNode fvni {
+      if ((fvn.expression) == false) {
+        if ((array_length fvn.ns) <= 1) {
+          def vName:string fvn.vref
+          if ((strlen vName) > 0) {
+            def vp:RangerAppParamDesc (fnCtx.getVariableDef(vName))
+            if ((strlen vp.name) > 0) {
+              if (((vp.is_class_variable == false) && (vp.is_captured == false)) && ((this.countNameUses(body vName)) == 1)) {
+                if ((this.nameIsAliased(body vName)) == false) {
+                  fvn.rg_moved_here = true
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    st.rg_init_fold = true
+    st.rg_init_fields = fields
+    st.rg_init_values = values
+    st.rg_init_stmts = folded
+    st.rg_init_covers_all = ((array_length fields) == (array_length cl.variables))
+    for folded fn2:CodeNode fi2 {
+      fn2.rg_init_folded = true
     }
   }
 
@@ -3614,6 +4130,9 @@ class StaticAnalyzer {
     ; which classes would need Rc<RefCell> on a value-model target — reads
     ; the resolved summaries, so it runs after the fixpoint
     this.analyzeClassSharing()
+    ; …and which `def` + field-assignment runs are one initialization. After
+    ; the sharing verdict, because a class behind a cell is built differently.
+    this.foldObjectInitsAll()
     if strict {
       for root.definedClasses cl:RangerAppClassDesc i {
         this.reportOwnershipClass(cl)

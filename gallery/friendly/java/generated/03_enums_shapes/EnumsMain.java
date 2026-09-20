@@ -5,17 +5,17 @@ public class EnumsMain {
   public static void main(String [] args ) {
     RgArgs.args = args;
     final EnumsMain app = new EnumsMain();
-    System.out.println(String.valueOf( "color " + app.colorName(1) ) );
+    System.out.println(String.valueOf( "color " + app.colorName(Color.Green) ) );
     System.out.println(String.valueOf( app.describe((new Message_Ping())) ) );
     System.out.println(String.valueOf( app.describe((new Message_Text("hi"))) ) );
     System.out.println(String.valueOf( app.describe((new Message_Move(2, 3))) ) );
   }
   
-  public String colorName( final Integer c ) {
-    if ( c == 0 ) {
+  public String colorName( final Color c ) {
+    if ( c == Color.Red ) {
       return "red";
     }
-    if ( c == 1 ) {
+    if ( c == Color.Green ) {
       return "green";
     }
     return "blue";

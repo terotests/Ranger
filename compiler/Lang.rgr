@@ -3534,6 +3534,14 @@ fn r_wall_clock_ms() -> f64 {
                 csharp ( "(DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMilliseconds" )
                 kotlin ( "System.currentTimeMillis().toDouble()" )
                 java7 ( "((double)System.currentTimeMillis())" )
+                php ( "(microtime(true) * 1000.0)" )
+                dart ( "(DateTime.now().microsecondsSinceEpoch / 1000.0)" )
+                scala ( "(System.currentTimeMillis().toDouble)" )
+                swift3 ( "(Date().timeIntervalSince1970 * 1000.0)" (imp "Foundation") )
+                swift6 ( "(Date().timeIntervalSince1970 * 1000.0)" (imp "Foundation") )
+                ; `*` is 0.0: a target with no clock reports every duration as
+                ; zero rather than refusing to compile, which is what a program
+                ; that only prints a timing wants.
                 * ( "0.0" )
             }
         }
@@ -4881,8 +4889,25 @@ def r_div_f64(a, b):
         }
 
 
+        ; Every target reached this through the `*` macro, which expands to a
+        ; ternary over an explicit presence test. On JavaScript that is
+        ;   (((typeof(hit) !== "undefined" && hit != null ) ) ? hit : "unknown")
+        ; where `hit ?? "unknown"` says the same thing -- and says it once,
+        ; rather than naming the operand twice. Every entry below triggers on
+        ; exactly what that target's `null?` tests, so the meaning is
+        ; unchanged; the macro stays for the targets with no such operator
+        ; (Java, Go, Python, C++, Rust), which keep the ternary.
         ??               elvis:T         ( left@(optional):T right:T ) { 
             templates { 
+                es6 ( "(" (e 1) " ?? " (e 2) ")" )
+                dart ( "(" (e 1) " ?? " (e 2) ")" )
+                csharp ( "(" (e 1) " ?? " (e 2) ")" )
+                swift3 ( "(" (e 1) " ?? " (e 2) ")" )
+                swift6 ( "(" (e 1) " ?? " (e 2) ")" )
+                php ( "(" (e 1) " ?? " (e 2) ")" )
+                kotlin ( "(" (e 1) " ?: " (e 2) ")" )
+                ; an optional is an Option[T] here, not a nullable reference
+                scala ( "(" (e 1) ").getOrElse(" (e 2) ")" )
                 * @macro(true) ( '(? (!null? ' (e 1) ') (unwrap ' (e 1) ') ' (e 2) ')' ) 
             } 
         }        
@@ -5265,7 +5290,7 @@ def r_div_f64(a, b):
         switch          cmdSwitch:void          ( condition:int case_list:block )  {
             templates {
                 scala ( (e 1) " match { " I (block 2) i "}" )
-                kotlin ( "when (" (e 1) ") { " I (block 2) i "}" )
+                kotlin ( (custom _) )
                 python ( nl "match (" (e 1) "):" I (block 2) i nl )
                 ; Rust demands an exhaustive match, and a Ranger `switch` need not
                 ; have a `default`. The catch-all goes in unconditionally: where
@@ -5318,7 +5343,7 @@ def r_div_f64(a, b):
             templates {
                 cpp ( (custom _) )
                 scala ( (e 1) " match { " I (block 2) i "}" )
-                kotlin ( "when (" (e 1) ") { " I (block 2) i "}" )
+                kotlin ( (custom _) )
                 python ( nl "match (" (e 1) "):" I (block 2) i nl )
                 ; Rust matches a &str, so a String subject needs as_str().
                 ; `&*x` is a &str whether x is a String or already a &str;
@@ -5335,7 +5360,7 @@ def r_div_f64(a, b):
             templates {
 
                 scala ( (e 1) " match { " I (block 2) i "}" )
-                kotlin ( "when (" (e 1) ") { " I (block 2) i "}" )
+                kotlin ( (custom _) )
                 ; An ENUM condition lands here, not on the int overload above,
                 ; and Python and Rust have no C style switch -- without these two
                 ; the `*` fallback wrote a C `switch` into a Python file. The
@@ -5821,7 +5846,9 @@ case class customException(smth:String)  extends Exception
                 ; the collection. See RangerGolangClassWriter.goWriteForLoop.
                 go    (  (forkctx _ ) (def 2) (def 3) (custom _) )
 
-                php    ( (forkctx _ ) (def 2) (def 3) "for ( " (e 3) " = 0; " (e 3) " < count(" (e 1) "); " (e 3) "++) {" nl I (e 2) " = " (e 1) "[" (e 3) "];" nl (block 4) nl i "}" )
+                ; PLAN_CPP_IDIOMS C4, the PHP half: `foreach ($xs as $v)` when the
+                ; body reads neither the index nor the collection.
+                php    ( (forkctx _ ) (def 2) (def 3) (custom _) )
                 ; PLAN_CPP_IDIOMS C4: `for (T v : xs)` when the body reads
                 ; neither the index nor the collection.
                 java7 ( (forkctx _ ) (def 2) (def 3) (custom _) )

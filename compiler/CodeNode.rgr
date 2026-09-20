@@ -215,6 +215,32 @@ class CodeNode {
   def rust_preevaluated_args:[CodeNode]
   def rust_use_tmpvar:string ""   ; If non-empty, use this temp variable instead of evaluating
   def rust_is_tail_return:boolean false  ; last statement of a fn body: emit a tail expression, not `return x;`
+
+  ; --- what the static analysis tells the writers about this node -----------
+  ; Two facts, both target-neutral, both written by compiler/StaticAnalysis.rgr
+  ; before any writer runs. They are fields rather than `setFlag` annotations
+  ; because several writers read `vref_annotation.getFirst()` for a lambda
+  ; annotation and a synthetic flag would arrive there as one.
+
+  ; This operand is the LAST use of a local that was built in this function:
+  ; the store it feeds owns the value from here on, so a defensive copy of it
+  ; is a copy nobody reads. StaticAnalyzer.storeIsLocalMove decides it.
+  def rg_moved_here:boolean false
+
+  ; This `def` is followed by a run of field assignments that together are one
+  ; initialization -- `def line (new CartLine)` and then `line.name = …`. The
+  ; run is in `rg_init_fields` / `rg_init_values`, paired by index, and each
+  ; assignment statement carries `rg_init_folded` so the block walker leaves it
+  ; out. A writer that does not know the shape ignores all three and emits
+  ; exactly what it did before. StaticAnalyzer.foldObjectInits decides it.
+  def rg_init_fold:boolean false
+  def rg_init_fields:[string]
+  def rg_init_values:[CodeNode]
+  ; the assignment STATEMENTS the run covers, so a writer that spells the
+  ; folded form can disable them once it has written it
+  def rg_init_stmts:[CodeNode]
+  def rg_init_covers_all:boolean false
+  def rg_init_folded:boolean false
   
 ;  def method_type:RangerMethodCallType RangerMethodCallType.NoType
   def operator_pred:int 0

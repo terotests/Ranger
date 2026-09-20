@@ -1,4 +1,10 @@
 
+enum Color {
+  Red,
+  Green,
+  Blue,
+}
+
 abstract class union_Message {}
 
 class Message_Ping implements union_Message {
@@ -71,11 +77,11 @@ class Message__ops {
 
 class EnumsMain {
   
-  String colorName(int c) {
-    if ( c == 0 ) {
+  String colorName(Color c) {
+    if ( c == Color.Red ) {
       return "red";
     }
-    if ( c == 1 ) {
+    if ( c == Color.Green ) {
       return "green";
     }
     return "blue";
@@ -104,7 +110,7 @@ List<String> __g_args = <String>[];
 void main(List<String> args) {
   __g_args = args;
   EnumsMain app =  EnumsMain();
-  print( "color " + app.colorName(1) );
+  print( "color " + app.colorName(Color.Green) );
   print( app.describe(( Message_Ping())) );
   print( app.describe(( Message_Text("hi"))) );
   print( app.describe(( Message_Move(2, 3))) );

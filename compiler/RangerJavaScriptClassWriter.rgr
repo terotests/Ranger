@@ -1,8 +1,11 @@
 ; SPDX-License-Identifier: MIT
 
+Import "TraitAnalysis.rgr"
+
 
 Import "TTypeRegistry.rgr"
 Import "ForLoopAnalysis.rgr"
+Import "EnumAnalysis.rgr"
 
 Import "WebPageWriter.rgr"
 
@@ -547,7 +550,12 @@ class RangerJavaScriptClassWriter {
         
       }   
       case RangerNodeType.Enum {
-        wr.out("number" false)
+        def tsEnumName:string (tsEnums.enumNameOf(node ctx))
+        if (this.tsEnumIsNative(tsEnumName ctx)) {
+          wr.out(tsEnumName false)
+        } {
+          wr.out("number" false)
+        }
       }
       case RangerNodeType.Integer {
         wr.out("number" false)
@@ -625,6 +633,11 @@ class RangerJavaScriptClassWriter {
             }
             return
           }          
+          if cc.is_trait {
+            if ((tsTraits.isInterface(t_name ctx)) == false) {
+              ctx.addError(node (("the TypeScript target writes a `trait` as a mixin, so `" + t_name) + "` is not a type it can name. A trait that declares only METHODS becomes an interface and can be used as a type; this one carries fields, which its consumers each hold their own copy of. Use a class with subclasses, or give the parameter a concrete type."))
+            }
+          }
           def cc:RangerAppClassDesc (ctx.findClass(t_name))
           wr.out(cc.name false)
           return
@@ -642,6 +655,11 @@ class RangerJavaScriptClassWriter {
         def enumName:string (itemAt node.ns 1)
         def e@(optional):RangerAppEnum (ctx.getEnum(rootObjName))
         if (!null? e) {
+          ; `Color.Green`, not `1`, when the enum survives as a TS enum
+          if (this.tsEnumIsNative(rootObjName ctx)) {
+            wr.out((rootObjName + "." + (ctx.transformWord(enumName))) false)
+            return
+          }
           wr.out(("" + (unwrap (get e.values enumName))) false)
           return
         }
@@ -861,6 +879,95 @@ class RangerJavaScriptClassWriter {
       wr.newline()
     }
   }
+  ; --- a behaviour-only trait used as a TYPE, on TypeScript ------------------
+  ; A Ranger `trait` is a MIXIN: its methods are copied into each class that
+  ; `does` it, and the trait itself reaches no target as a type. Plain
+  ; JavaScript never writes a type, so nothing shows; TYPESCRIPT does, and
+  ; `fn show(n:Named)` emitted `show (n : Named)` with no `Named` declared --
+  ; accepted Ranger, and `tsc: TS2304 Cannot find name 'Named'`.
+  ;
+  ; A trait of methods only is exactly what an interface says, and TypeScript
+  ; is structural, so nothing has to declare that it implements one: User and
+  ; Bot already have the methods. A trait carrying FIELDS is refused, as on
+  ; every other typed target -- its consumers each own their own copy, so
+  ; there is nothing for an interface to promise.
+  def tsTraits:TraitInterfaceAnalysis (new TraitInterfaceAnalysis())
+  def ts_traits_written:boolean false
+
+  ; which Ranger `Enum`s survive as a TypeScript `enum` rather than a number.
+  ; Same question Rust and C++ ask: compiler/EnumAnalysis.rgr. TypeScript only:
+  ; plain JavaScript has no enum, and a frozen object in its place is a real
+  ; runtime value with its own identity -- a change of program, not of
+  ; spelling. There the integer lowering stays.
+  def tsEnums:EnumNativeAnalysis (new EnumNativeAnalysis())
+  def ts_enums_written:boolean false
+
+  fn tsEnumIsNative:boolean (enumName:string ctx:RangerAppWriterContext) {
+    if (target_typescript == false) {
+      return false
+    }
+    tsEnums.targetName = "typescript"
+    tsEnums.fallbackType = "number"
+    return (tsEnums.isNative(enumName ctx))
+  }
+
+  ; `enum Color { Red = 0, Green = 1 }`. A TypeScript enum member IS its
+  ; number at runtime, so the emitted JavaScript behaves exactly as the
+  ; integer lowering did.
+  fn writeTsNativeEnums:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+    if ts_enums_written {
+      return
+    }
+    ts_enums_written = true
+    if (target_typescript == false) {
+      return
+    }
+    def enumRoot:RangerAppWriterContext (ctx.getRoot())
+    for (keys enumRoot.definedEnums) ten:string tei {
+      if (this.tsEnumIsNative(ten ctx)) {
+        def teDef:RangerAppEnum (unwrap (get enumRoot.definedEnums ten))
+        wr.out("" true)
+        wr.out(("export enum " + ten + " {") true)
+        wr.indent(1)
+        for (keys teDef.values) tmn:string tmi {
+          def tmv:int (unwrap (get teDef.values tmn))
+          wr.out(((ctx.transformWord(tmn)) + " = " + (to_string tmv) + ",") true)
+        }
+        wr.indent(-1)
+        wr.out("}" true)
+      }
+    }
+  }
+
+  fn writeTsTraitInterfaces:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+    if ts_traits_written {
+      return
+    }
+    ts_traits_written = true
+    if (target_typescript == false) {
+      return
+    }
+    tsTraits.compute(ctx)
+    for (keys tsTraits.ifaceTraits) tn:string tni {
+      def tc:RangerAppClassDesc (ctx.findClass(tn))
+      wr.out("" true)
+      wr.out(("interface " + tn + " {") true)
+      wr.indent(1)
+      for tc.defined_variants fnVar:string fvi {
+        def mVs:RangerAppMethodVariants (get tc.method_variants fnVar)
+        for mVs.variants variant:RangerAppFunctionDesc vi {
+          wr.out((variant.compiledName + "(") false)
+          this.writeArgsDef(variant ctx wr)
+          wr.out(") : " false)
+          this.writeTypeDef( (unwrap variant.nameNode) ctx wr)
+          wr.out(";" true)
+        }
+      }
+      wr.indent(-1)
+      wr.out("}" true)
+    }
+  }
+
   fn writeClassVarDef:void (p:RangerAppParamDesc ctx:RangerAppWriterContext wr:CodeWriter) {
       if target_typescript {
         def cl@(optional weak):RangerAppClassDesc ctx.currentClass
@@ -1160,6 +1267,11 @@ class RangerJavaScriptClassWriter {
         do_export = false
       }
     }
+
+    ; after the header, never before it: the first line of a -nodecli file is
+    ; a shebang, and nothing may precede it
+    this.writeTsNativeEnums(ctx wr)
+    this.writeTsTraitInterfaces(ctx wr)
 
     if cl.has_doc {
       def clDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)

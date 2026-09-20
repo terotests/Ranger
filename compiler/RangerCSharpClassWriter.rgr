@@ -2,6 +2,7 @@
 
 Import "TraitAnalysis.rgr"
 Import "ForLoopAnalysis.rgr"
+Import "EnumAnalysis.rgr"
 
 
 ; ---- App1.csproj file has this kind of meta information, which could be updated...
@@ -45,6 +46,43 @@ class RangerCSharpClassWriter {
   ; Target-neutral question, one place: compiler/ForLoopAnalysis.rgr
   def csLoops:ForLoopShape (new ForLoopShape())
   def csharp_traits_written:boolean false
+
+  ; which Ranger `Enum`s survive as a C# `enum` rather than a bare int. The
+  ; question is the same one Rust and C++ ask, so the rules live in
+  ; EnumNativeAnalysis (compiler/EnumAnalysis.rgr).
+  def csEnums:EnumNativeAnalysis (new EnumNativeAnalysis())
+  def csharp_enums_written:boolean false
+
+  fn csEnumIsNative:boolean (enumName:string ctx:RangerAppWriterContext) {
+    csEnums.targetName = "csharp"
+    csEnums.fallbackType = "int"
+    return (csEnums.isNative(enumName ctx))
+  }
+
+  ; `public enum Color : int { Red = 0, Green = 1 }`. The underlying type is
+  ; pinned to int -- the type the fallback lowering uses -- so a cast back is
+  ; exact and nothing downstream has to know which form the enum got.
+  fn writeCSharpNativeEnums:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+    if csharp_enums_written {
+      return
+    }
+    csharp_enums_written = true
+    def enumRoot:RangerAppWriterContext (ctx.getRoot())
+    for (keys enumRoot.definedEnums) cen:string cei {
+      if (this.csEnumIsNative(cen ctx)) {
+        def ceDef:RangerAppEnum (unwrap (get enumRoot.definedEnums cen))
+        wr.out("" true)
+        wr.out(("public enum " + cen + " : int {") true)
+        wr.indent(1)
+        for (keys ceDef.values) cmn:string cmi {
+          def cmv:int (unwrap (get ceDef.values cmn))
+          wr.out(((ctx.transformWord(cmn)) + " = " + (to_string cmv) + ",") true)
+        }
+        wr.indent(-1)
+        wr.out("}" true)
+      }
+    }
+  }
 
   ; A behaviour-only trait named as a type, as a C# interface. The mixin copy
   ; still gives each consumer its own body; this makes the name a type, and
@@ -292,7 +330,13 @@ class RangerCSharpClassWriter {
       ; test the operator writes is always true, and `.Value` does not exist on
       ; it. A reference type is already nullable and takes no marker.
       case RangerNodeType.Enum {
-        wr.out("int" false)
+        ; the enum's own name when every use in the program is one a C# enum
+        ; can carry, int otherwise
+        if (this.csEnumIsNative(t_name ctx)) {
+          wr.out(t_name false)
+        } {
+          wr.out("int" false)
+        }
         this.writeNullableMark(node wr)
       }
       case RangerNodeType.Integer {
@@ -393,6 +437,11 @@ class RangerCSharpClassWriter {
         def enumName:string (itemAt node.ns 1)
         def e@(optional):RangerAppEnum (ctx.getEnum(rootObjName))
         if (!null? e) {
+          ; `Color.Green`, not `1`, when the enum survives as a C# enum
+          if (this.csEnumIsNative(rootObjName ctx)) {
+            wr.out((rootObjName + "." + (ctx.transformWord(enumName))) false)
+            return
+          }
           wr.out(("" + (unwrap (get e.values enumName))) false)
           return
         }
@@ -730,6 +779,7 @@ class RangerCSharpClassWriter {
         wr.indent(1)
       }
     }
+    this.writeCSharpNativeEnums(ctx wr)
     this.writeCSharpTraitInterfaces(ctx wr)
     this.writeCSharpUnionInterfaces(ctx wr)
     if cl.has_doc {

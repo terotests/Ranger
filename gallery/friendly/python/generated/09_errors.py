@@ -1,21 +1,24 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
+from typing import Optional
+
 
 
 class Guarded_Ok:
-  def __init__(self, value):
+  def __init__(self, value: int) -> None:
     self._rg_kind = "Guarded_Ok"
     self.value = 0
     self.value = value;
 class Guarded_Err:
-  def __init__(self, message):
+  def __init__(self, message: str) -> None:
     self._rg_kind = "Guarded_Err"
     self.message = ""
     self.message = message;
 class Guarded__ops:
-  def __init__(self):
+  def __init__(self) -> None:
     pass
   @staticmethod
-  def equals(a, b):
+  def equals(a: Guarded, b: Guarded) -> bool:
     if a is not None and getattr(a, "_rg_kind", None) == "Guarded_Ok":
       __ea0 = a
       if b is not None and getattr(b, "_rg_kind", None) == "Guarded_Ok":
@@ -34,18 +37,18 @@ class Guarded__ops:
       return False;
     return False;
   @staticmethod
-  def notEquals(a, b):
+  def notEquals(a: Guarded, b: Guarded) -> bool:
     if Guarded__ops.equals(a, b):
       return False;
     return True;
 class Guard:
-  def __init__(self):
+  def __init__(self) -> None:
     pass
-  def check(self, value):
+  def check(self, value: int) -> Guarded:
     if value < 0:
       return Guarded_Err("negative");
     return Guarded_Ok(value);
-  def describe(self, g):
+  def describe(self, g: Guarded) -> str:
     out = "?"
     if g is not None and getattr(g, "_rg_kind", None) == "Guarded_Ok":
       o = g
@@ -55,7 +58,7 @@ class Guard:
       out = "err:" + e.message;
     return out;
 class ErrorsMain:
-  def __init__(self):
+  def __init__(self) -> None:
     pass
 # Main entry point
 def main():

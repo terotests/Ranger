@@ -114,9 +114,9 @@ class OptionResultMain  {
     Lookup box = new Lookup();
     List<String> names = new List<String> {"ada", "grace"};
     String hit = box.findName(names, "ada");
-    Console.WriteLine("found " + ((hit != null) ? hit : "unknown"));
+    Console.WriteLine("found " + (hit ?? "unknown"));
     String miss = box.findName(names, "alan");
-    Console.WriteLine("miss " + ((miss != null) ? miss : "unknown"));
+    Console.WriteLine("miss " + (miss ?? "unknown"));
     if ( miss == null  ) {
       Console.WriteLine("miss is empty");
     }

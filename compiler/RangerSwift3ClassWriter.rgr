@@ -4,6 +4,41 @@ class RangerSwift3ClassWriter {
   Extends (RangerGenericClassWriter)
   def compiler:LiveCompiler
   def header_created:boolean false
+
+  ; which Ranger `Enum`s survive as a Swift `enum` rather than an Int.
+  ; Same question Rust and C++ ask: compiler/EnumAnalysis.rgr.
+  def sw3Enums:EnumNativeAnalysis (new EnumNativeAnalysis())
+  def swift3_enums_written:boolean false
+
+  fn sw3EnumIsNative:boolean (enumName:string ctx:RangerAppWriterContext) {
+    sw3Enums.targetName = "swift3"
+    sw3Enums.fallbackType = "Int"
+    return (sw3Enums.isNative(enumName ctx))
+  }
+
+  ; `enum Color : Int { case Red = 0 }`, the raw type pinned to the type the
+  ; fallback lowering uses.
+  fn writeSwiftNativeEnums:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+    if swift3_enums_written {
+      return
+    }
+    swift3_enums_written = true
+    def enumRoot:RangerAppWriterContext (ctx.getRoot())
+    for (keys enumRoot.definedEnums) sen:string sei {
+      if (this.sw3EnumIsNative(sen ctx)) {
+        def seDef:RangerAppEnum (unwrap (get enumRoot.definedEnums sen))
+        wr.out("" true)
+        wr.out(("enum " + sen + " : Int {") true)
+        wr.indent(1)
+        for (keys seDef.values) smn:string smi {
+          def smv:int (unwrap (get seDef.values smn))
+          wr.out(("case " + (ctx.transformWord(smn)) + " = " + (to_string smv)) true)
+        }
+        wr.indent(-1)
+        wr.out("}" true)
+      }
+    }
+  }
   ; S5 (PLAN_SHAPES.md): sealable unions → native enums (same as Swift6).
   def swift_unions_written:boolean false
 
@@ -201,7 +236,12 @@ class RangerSwift3ClassWriter {
         wr.out(')' false)
       }      
       case RangerNodeType.Enum {
-        wr.out("Int" false)
+        def sw3EnumName:string (sw3Enums.enumNameOf(node ctx))
+        if (this.sw3EnumIsNative(sw3EnumName ctx)) {
+          wr.out(sw3EnumName false)
+        } {
+          wr.out("Int" false)
+        }
       }
       case RangerNodeType.Integer {
         wr.out("Int" false)
@@ -268,6 +308,11 @@ class RangerSwift3ClassWriter {
       def e@(optional):RangerAppEnum (ctx.getEnum(rootObjName))
       if (!null? e) {
         def enumName:string (itemAt node.ns 1)
+        ; `Color.Red`, not `0`, when the enum survives as a Swift enum
+        if (this.sw3EnumIsNative(rootObjName ctx)) {
+          wr.out((rootObjName + "." + (ctx.transformWord(enumName))) false)
+          return
+        }
         wr.out(("" + (unwrap (get e.values enumName))) false)
       } {
         if node.hasParamDesc {
@@ -291,6 +336,11 @@ class RangerSwift3ClassWriter {
         def enumName:string (itemAt node.ns 1)
         def e@(optional):RangerAppEnum (ctx.getEnum(rootObjName))
         if (!null? e) {
+          ; `Color.Green`, not `1`, when the enum survives as a Swift enum
+          if (this.sw3EnumIsNative(rootObjName ctx)) {
+            wr.out((rootObjName + "." + (ctx.transformWord(enumName))) false)
+            return
+          }
           wr.out(("" + (unwrap (get e.values enumName))) false)
           return
         }
@@ -799,6 +849,7 @@ class RangerSwift3ClassWriter {
     if (null? cl) {
       return
     }
+    this.writeSwiftNativeEnums(ctx wr)
     this.writeSwiftUnionEnums(ctx wr)
     def declaredVariable:[string:boolean]
     def dblDeclaredFunction:[string:boolean]

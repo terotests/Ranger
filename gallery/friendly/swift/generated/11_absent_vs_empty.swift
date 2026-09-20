@@ -19,7 +19,7 @@ func __main__swift() {
   print(app.report(label : "unset", s : s))
   s = "";
   print(app.report(label : "empty", s : s))
-  print("empty ?? " + ((s != nil ) ? s! : "FALLBACK"))
+  print("empty ?? " + (s ?? "FALLBACK"))
   s = "x";
   print(app.report(label : "set", s : s))
   var n : Int? = nil
@@ -34,6 +34,6 @@ func __main__swift() {
   } else {
     print("int zero: present")
   }
-  print("int zero ?? " + String(((n != nil ) ? n! : 99)))
+  print("int zero ?? " + String((n ?? 99)))
 }
 __main__swift()

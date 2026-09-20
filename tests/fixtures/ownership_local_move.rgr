@@ -1,0 +1,60 @@
+; A local built in a function and stored for the last time is MOVED into the
+; collection, not shared with it: the name does not outlive the store, so the
+; collection is its only owner. The `def` and the field writes that follow are
+; one initialization, so the value is built rather than default-constructed and
+; then written into.
+;
+; `Keeper` is the counter-example in the same file: it hands the stored object
+; back out, so it stays shared and its `add` keeps the copy.
+
+class Line {
+    def name:string ""
+    def cents:int 0
+    def qty:int 1
+}
+
+class Held {
+    def label:string ""
+}
+
+class Basket {
+    def lines:[Line]
+    fn add:void (name:string cents:int qty:int) {
+        def line (new Line)
+        line.name = name
+        line.cents = cents
+        line.qty = qty
+        push lines line
+    }
+    fn subtotal:int () {
+        def sum:int 0
+        for this.lines line:Line i {
+            sum = (sum + (line.cents * line.qty))
+        }
+        return sum
+    }
+}
+
+class Keeper {
+    def held:[Held]
+    fn add:void (label:string) {
+        def h (new Held)
+        h.label = label
+        push held h
+    }
+    fn first:Held () {
+        return (itemAt held 0)
+    }
+}
+
+class LocalMoveMain {
+    sfn main:void () {
+        def b (new Basket)
+        b.add("pen" 150 2)
+        b.add("mug" 900 1)
+        print (to_string (b.subtotal()))
+        def k (new Keeper)
+        k.add("kept")
+        print ((k.first()).label)
+    }
+}

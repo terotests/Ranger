@@ -1,4 +1,10 @@
 
+enum class Color {
+  Red,
+  Green,
+  Blue,
+}
+
 sealed interface union_Message
 
 class Message_Ping : union_Message 
@@ -81,11 +87,11 @@ class EnumsMain
  {
   
   
-  fun  colorName( c : Int) : String {
-    if ( c == 0 ) {
+  fun  colorName( c : Color) : String {
+    if ( c == Color.Red ) {
       return "red";
     }
-    if ( c == 1 ) {
+    if ( c == Color.Green ) {
       return "green";
     }
     return "blue";
@@ -114,7 +120,7 @@ var __g_args : Array<String> = arrayOf()
 fun main(args : Array<String>) {
   __g_args = args
   val app : EnumsMain  =  EnumsMain();
-  println( "color " + app.colorName(1) )
+  println( "color " + app.colorName(Color.Green) )
   println( app.describe(( Message_Ping())) )
   println( app.describe(( Message_Text("hi"))) )
   println( app.describe(( Message_Move(2, 3))) )

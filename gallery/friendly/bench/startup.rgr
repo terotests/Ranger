@@ -1,0 +1,10 @@
+; The same program with no work in it. `bench.sh` runs this to measure what a
+; target costs before the first statement — process start, VM start, the
+; runtime the writer emits — and subtracts it from the benchmark's total, so
+; the reported figure is the work rather than the launch.
+
+class Startup {
+    sfn main:void () {
+        print "done"
+    }
+}

@@ -1,8 +1,11 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
+from typing import Optional
+
 
 
 class Request:
-  def __init__(self, host, path, port):
+  def __init__(self, host: str, path: str, port: int) -> None:
     self.host = ""
     self.path = "/"
     self.port = 80
@@ -10,34 +13,34 @@ class Request:
     self.path = path;
     self.port = port;
 class RequestBuild:
-  def __init__(self):
+  def __init__(self) -> None:
     pass
-  def withHost(self, r, h):
+  def withHost(self, r: Request, h: str) -> Request:
     return Request(h, r.path, r.port);
-  def withPath(self, r, p):
+  def withPath(self, r: Request, p: str) -> Request:
     return Request(r.host, p, r.port);
-  def withPort(self, r, n):
+  def withPort(self, r: Request, n: int) -> Request:
     return Request(r.host, r.path, n);
-  def url(self, r):
+  def url(self, r: Request) -> str:
     return (r.host + ":") + (str(r.port) + r.path);
 class MutRequest:
-  def __init__(self):
+  def __init__(self) -> None:
     self.host = ""
     self.path = "/"
     self.port = 80
-  def withHost(self, h):
+  def withHost(self, h: str) -> MutRequest:
     self.host = h;
     return self;
-  def withPath(self, p):
+  def withPath(self, p: str) -> MutRequest:
     self.path = p;
     return self;
-  def withPort(self, n):
+  def withPort(self, n: int) -> MutRequest:
     self.port = n;
     return self;
-  def url(self):
+  def url(self) -> str:
     return (self.host + ":") + (str(self.port) + self.path);
 class BuilderMain:
-  def __init__(self):
+  def __init__(self) -> None:
     pass
 # Main entry point
 def main():

@@ -2,6 +2,7 @@
 
 Import "TraitAnalysis.rgr"
 Import "ForLoopAnalysis.rgr"
+Import "EnumAnalysis.rgr"
 
 
 Import "AndroidPageWriter.rgr"
@@ -45,6 +46,54 @@ class RangerJava7ClassWriter {
   ; Target-neutral question, one place: compiler/ForLoopAnalysis.rgr
   def javaLoops:ForLoopShape (new ForLoopShape())
   def java_traits_written:boolean false
+
+  ; which Ranger `Enum`s survive as a Java `enum` rather than an Integer.
+  ; Same question Rust and C++ ask: compiler/EnumAnalysis.rgr.
+  def javaEnums:EnumNativeAnalysis (new EnumNativeAnalysis())
+  def java_enums_written:boolean false
+
+  fn javaEnumIsNative:boolean (enumName:string ctx:RangerAppWriterContext) {
+    javaEnums.targetName = "java"
+    javaEnums.fallbackType = "Integer"
+    return (javaEnums.isNative(enumName ctx))
+  }
+
+  ; `public enum Color { Red, Green, Blue }`, one file per type the way the
+  ; trait interfaces above are written. No discriminants: an enum only reaches
+  ; this form when no use in the program observes its integer value.
+  fn writeJavaNativeEnums:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+    if java_enums_written {
+      return
+    }
+    java_enums_written = true
+    def package_name:string (ctx.getCompilerSetting("package"))
+    def enumRoot:RangerAppWriterContext (ctx.getRoot())
+    for (keys enumRoot.definedEnums) jen:string jei {
+      if (this.javaEnumIsNative(jen ctx)) {
+        def jeDef:RangerAppEnum (unwrap (get enumRoot.definedEnums jen))
+        def eWr:CodeWriter (wr.getFileWriter("." (jen + ".java")))
+        if (this.isPackaged(ctx)) {
+          if ((strlen package_name) > 0) {
+            eWr.out(("package " + package_name + ";") true)
+          }
+        }
+        eWr.out(("public enum " + jen + " {") true)
+        eWr.indent(1)
+        def jeFirst:boolean true
+        for (keys jeDef.values) jmn:string jmi {
+          if jeFirst {
+            eWr.out((ctx.transformWord(jmn)) false)
+            jeFirst = false
+          } {
+            eWr.out(("," + (ctx.transformWord(jmn))) false)
+          }
+        }
+        eWr.out("" true)
+        eWr.indent(-1)
+        eWr.out("}" true)
+      }
+    }
+  }
 
   ; A behaviour-only trait named as a type, as a Java interface in a file of
   ; its own -- one public type per file is the rule here. The mixin copy still
@@ -607,7 +656,12 @@ public class RgJson {
 
         }
         case RangerNodeType.Enum {
-          wr.out("Integer" false)
+          def jEnumName:string (javaEnums.enumNameOf(node ctx))
+          if (this.javaEnumIsNative(jEnumName ctx)) {
+            wr.out(jEnumName false)
+          } {
+            wr.out("Integer" false)
+          }
         }
         case RangerNodeType.Integer {
           wr.out("Integer" false)
@@ -707,7 +761,12 @@ public class RgJson {
           }
         }        
         case RangerNodeType.Enum {
-          wr.out("Integer" false)
+          def jEnumName:string (javaEnums.enumNameOf(node ctx))
+          if (this.javaEnumIsNative(jEnumName ctx)) {
+            wr.out(jEnumName false)
+          } {
+            wr.out("Integer" false)
+          }
         }
         case RangerNodeType.Integer {
           wr.out("Integer" false)
@@ -800,6 +859,11 @@ public class RgJson {
         def enumName:string (itemAt node.ns 1)
         def e@(optional):RangerAppEnum (ctx.getEnum(rootObjName))
         if (!null? e) {
+          ; `Color.Green`, not `1`, when the enum survives as a Java enum
+          if (this.javaEnumIsNative(rootObjName ctx)) {
+            wr.out((rootObjName + "." + (ctx.transformWord(enumName))) false)
+            return
+          }
           wr.out(("" + (unwrap (get e.values enumName))) false)
           return
         }
@@ -1398,6 +1462,7 @@ public class RgJson {
       }
     }    
 
+    this.writeJavaNativeEnums(ctx orig_wr)
     this.writeJavaTraitInterfaces(ctx orig_wr)
     this.writeJavaJsonSupport(ctx orig_wr)
     wr.out("" true)

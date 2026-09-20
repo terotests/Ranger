@@ -1,12 +1,102 @@
 ; SPDX-License-Identifier: MIT
 
 Import "ForLoopAnalysis.rgr"
+Import "EnumAnalysis.rgr"
+Import "TraitAnalysis.rgr"
 
 class RangerPythonClassWriter {
   Extends (RangerGenericClassWriter)
   def compiler:LiveCompiler
   def thisName:string "self"
   def wrote_header:boolean false
+
+  ; which Ranger `Enum`s survive as a Python `IntEnum` rather than a bare int.
+  ; Same question Rust and C++ ask: compiler/EnumAnalysis.rgr.
+  def pyEnums:EnumNativeAnalysis (new EnumNativeAnalysis())
+  def python_enums_written:boolean false
+
+  ; which behaviour-only Ranger `trait`s become a typing.Protocol. Same
+  ; question every target with interfaces asks: compiler/TraitAnalysis.rgr.
+  ; A Protocol is structural, so the classes that carry the mixin copies
+  ; satisfy it without naming it -- which is what the Ranger `does` already
+  ; means, and what makes the name usable in an annotation.
+  def pyTraits:TraitInterfaceAnalysis (new TraitInterfaceAnalysis())
+  def python_traits_written:boolean false
+
+  fn writePythonTraitProtocols:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+    if python_traits_written {
+      return
+    }
+    python_traits_written = true
+    pyTraits.compute(ctx)
+    def wroteAny:boolean false
+    for (keys pyTraits.ifaceTraits) tn:string tni {
+      def tc:RangerAppClassDesc (ctx.findClass(tn))
+      if (wroteAny == false) {
+        wr.out("from typing import Protocol" true)
+        wr.out("" true)
+        wroteAny = true
+      }
+      wr.out(("class " + tn + "(Protocol):") true)
+      wr.indent(1)
+      def wroteMember:boolean false
+      for tc.defined_variants fnVar:string fvi {
+        def mVs:RangerAppMethodVariants (get tc.method_variants fnVar)
+        for mVs.variants variant:RangerAppFunctionDesc vi {
+          wr.out(("def " + variant.compiledName + "(self") false)
+          if ((array_length variant.params) > 0) {
+            wr.out(", " false)
+            this.writeArgsDef(variant ctx wr)
+          }
+          wr.out(")" false)
+          this.pyWriteReturnAnnotation(variant ctx wr)
+          wr.out(": ..." true)
+          wroteMember = true
+        }
+      }
+      if (wroteMember == false) {
+        wr.out("pass" true)
+      }
+      wr.indent(-1)
+      wr.out("" true)
+    }
+  }
+
+  fn pyEnumIsNative:boolean (enumName:string ctx:RangerAppWriterContext) {
+    pyEnums.targetName = "python"
+    pyEnums.fallbackType = "int"
+    return (pyEnums.isNative(enumName ctx))
+  }
+
+  ; `class Color(IntEnum): Red = 0`. IntEnum rather than Enum: the member
+  ; still IS its integer, so a value that reaches a place this writer does
+  ; not annotate -- a map key, a format string, JSON -- behaves as before.
+  fn writePythonNativeEnums:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+    if python_enums_written {
+      return
+    }
+    python_enums_written = true
+    def enumRoot:RangerAppWriterContext (ctx.getRoot())
+    def wroteAny:boolean false
+    for (keys enumRoot.definedEnums) pen:string pei {
+      if (this.pyEnumIsNative(pen ctx)) {
+        def peDef:RangerAppEnum (unwrap (get enumRoot.definedEnums pen))
+        if (wroteAny == false) {
+          wr.out("from enum import IntEnum" true)
+          wr.out("" true)
+          wroteAny = true
+        }
+        wr.out(("class " + pen + "(IntEnum):") true)
+        wr.indent(1)
+        for (keys peDef.values) pmn:string pmi {
+          def pmv:int (unwrap (get peDef.values pmn))
+          wr.out(((ctx.transformWord(pmn)) + " = " + (to_string pmv)) true)
+        }
+        wr.indent(-1)
+        wr.out("" true)
+      }
+    }
+  }
   ; can a `for` be the target's own loop over the collection?
   ; Target-neutral question, one place: compiler/ForLoopAnalysis.rgr
   def pyLoops:ForLoopShape (new ForLoopShape())
@@ -113,6 +203,11 @@ class RangerPythonClassWriter {
         def enumName:string (itemAt node.ns 1)
         def e@(optional):RangerAppEnum (ctx.getEnum(rootObjName))
         if (!null? e) {
+          ; `Color.Green`, not `1`, when the enum survives as an IntEnum
+          if (this.pyEnumIsNative(rootObjName ctx)) {
+            wr.out((rootObjName + "." + (ctx.transformWord(enumName))) false)
+            return
+          }
           wr.out(("" + (unwrap (get e.values enumName))) false)
           return
         }
@@ -529,6 +624,10 @@ class RangerPythonClassWriter {
         return "int"
       }
       case RangerNodeType.Enum {
+        def pyEnumName:string (pyEnums.enumNameOf(node ctx))
+        if (this.pyEnumIsNative(pyEnumName ctx)) {
+          return pyEnumName
+        }
         return "int"
       }
       case RangerNodeType.Char {
@@ -567,6 +666,211 @@ class RangerPythonClassWriter {
     wr.out((this.getPythonTypeName(node ctx)) false)
   }
 
+  ; --- type annotations (PLAN idiomatic Python) -----------------------------
+  ; Generated Python used to carry no types at all, so a reader of the output
+  ; had less to go on than a reader of the Ranger source. Every signature the
+  ; writer can name is annotated now. `from __future__ import annotations` is
+  ; written with the header, which makes every annotation a lazy string: a
+  ; class named before its `class` statement is then not a NameError, and the
+  ; file keeps compiling in the order the writer emits it.
+  ;
+  ; A type the writer cannot name -- a lambda, a generic parameter, a system
+  ; class with no python name -- is left unannotated rather than guessed.
+  fn pyTypeNameFor:string (tn:string ctx:RangerAppWriterContext) {
+    if ((strlen tn) == 0) {
+      return ""
+    }
+    switch tn {
+      case "int" {
+        return "int"
+      }
+      case "char" {
+        return "int"
+      }
+      case "double" {
+        return "float"
+      }
+      case "string" {
+        return "str"
+      }
+      case "boolean" {
+        return "bool"
+      }
+      case "void" {
+        return "None"
+      }
+      case "chararray" {
+        return "bytearray"
+      }
+      case "buffer" {
+        return "bytearray"
+      }
+      case "int_buffer" {
+        return "list[int]"
+      }
+      case "double_buffer" {
+        return "list[float]"
+      }
+    }
+    ; a nested collection arrives as its Ranger spelling: "[string]" or
+    ; "[string:[int]]"
+    if ((strlen tn) >= 2) {
+      if ((charAt tn 0) == (ccode "[")) {
+        return (this.pyCollectionTypeFor(tn ctx))
+      }
+    }
+    if (ctx.isDefinedClass(tn)) {
+      def cc:RangerAppClassDesc (ctx.findClass(tn))
+      if cc.is_system {
+        def sysName@(optional):string (get cc.systemNames "python")
+        if (!null? sysName) {
+          return (unwrap sysName)
+        }
+        return ""
+      }
+      if cc.is_trait {
+        ; a behaviour-only trait is a Protocol above, so the name IS a type
+        if (pyTraits.isInterface(tn ctx)) {
+          return tn
+        }
+        return ""
+      }
+      if cc.is_template {
+        return ""
+      }
+      if cc.is_generic_instance {
+        return ""
+      }
+      return tn
+    }
+    def eDef@(optional):RangerAppEnum ((ctx.getRoot()).getEnum(tn))
+    if (!null? eDef) {
+      if (this.pyEnumIsNative(tn ctx)) {
+        return tn
+      }
+      return "int"
+    }
+    return ""
+  }
+
+  fn pyCollectionTypeFor:string (tn:string ctx:RangerAppWriterContext) {
+    def n:int (strlen tn)
+    def inner:string (substring tn 1 (n - 1))
+    def il:int (strlen inner)
+    def depth:int 0
+    def sep:int (0 - 1)
+    def i:int 0
+    while (i < il) {
+      def c:int (charAt inner i)
+      if (c == (ccode "[")) {
+        depth = depth + 1
+      }
+      if (c == (ccode "]")) {
+        depth = depth - 1
+      }
+      if ((c == (ccode ":")) && (depth == 0)) {
+        sep = i
+      }
+      i = i + 1
+    }
+    if (sep >= 0) {
+      def kt:string (this.pyTypeNameFor((substring inner 0 sep) ctx))
+      def vt:string (this.pyTypeNameFor((substring inner (sep + 1) il) ctx))
+      if (((strlen kt) == 0) || ((strlen vt) == 0)) {
+        return "dict"
+      }
+      return (("dict[" + kt + ", ") + vt + "]")
+    }
+    def et:string (this.pyTypeNameFor(inner ctx))
+    if ((strlen et) == 0) {
+      return "list"
+    }
+    return (("list[" + et) + "]")
+  }
+
+  ; The annotation for a declaration node, or "" when the writer cannot name
+  ; the type.
+  fn pyAnnotationOf:string (node:CodeNode ctx:RangerAppWriterContext) {
+    def v_type:RangerNodeType node.value_type
+    if (((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.VRef)) || (v_type == RangerNodeType.NoType)) {
+      v_type = (node.typeNameAsType(ctx))
+    }
+    if (node.eval_type != RangerNodeType.NoType) {
+      v_type = node.eval_type
+    }
+    ; a lambda type: Callable would need the full signature, and getting it
+    ; wrong is worse than leaving it off
+    if (v_type == RangerNodeType.ExpressionType) {
+      return ""
+    }
+    def base:string ""
+    if (v_type == RangerNodeType.Array) {
+      def at:string node.array_type
+      if ((strlen node.eval_array_type) > 0) {
+        at = node.eval_array_type
+      }
+      def et:string (this.pyTypeNameFor(at ctx))
+      if ((strlen et) == 0) {
+        base = "list"
+      } {
+        base = (("list[" + et) + "]")
+      }
+    }
+    if (v_type == RangerNodeType.Hash) {
+      def kt:string node.key_type
+      if ((strlen node.eval_key_type) > 0) {
+        kt = node.eval_key_type
+      }
+      def vt:string node.array_type
+      if ((strlen node.eval_array_type) > 0) {
+        vt = node.eval_array_type
+      }
+      def kp:string (this.pyTypeNameFor(kt ctx))
+      def vp:string (this.pyTypeNameFor(vt ctx))
+      if (((strlen kp) == 0) || ((strlen vp) == 0)) {
+        base = "dict"
+      } {
+        base = (("dict[" + kp + ", ") + vp + "]")
+      }
+    }
+    if ((strlen base) == 0) {
+      def tn:string node.type_name
+      if ((strlen node.eval_type_name) > 0) {
+        tn = node.eval_type_name
+      }
+      base = (this.pyTypeNameFor(tn ctx))
+      if ((strlen base) == 0) {
+        switch v_type {
+          case RangerNodeType.Integer {
+            base = "int"
+          }
+          case RangerNodeType.Char {
+            base = "int"
+          }
+          case RangerNodeType.Double {
+            base = "float"
+          }
+          case RangerNodeType.String {
+            base = "str"
+          }
+          case RangerNodeType.Boolean {
+            base = "bool"
+          }
+        }
+      }
+    }
+    if ((strlen base) == 0) {
+      return ""
+    }
+    if (node.hasFlag("optional")) {
+      if (base == "None") {
+        return "None"
+      }
+      return (("Optional[" + base) + "]")
+    }
+    return base
+  }
+
   fn writeClassVarDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     ; Python doesn't need class variable declarations at class level
     ; They are initialized in __init__
@@ -589,6 +893,26 @@ class RangerPythonClassWriter {
         wr.out(", " false)
       }
       wr.out(arg.compiledName false)
+      def aNN@(optional):CodeNode arg.nameNode
+      if (!null? aNN) {
+        def ann:string (this.pyAnnotationOf((unwrap aNN) ctx))
+        if ((strlen ann) > 0) {
+          wr.out((": " + ann) false)
+        }
+      }
+    }
+  }
+
+  ; `-> T` on a signature, written from the function's name node the way every
+  ; typed target reads its return type.
+  fn pyWriteReturnAnnotation:void (variant:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    def rNN@(optional):CodeNode variant.nameNode
+    if (null? rNN) {
+      return
+    }
+    def ann:string (this.pyAnnotationOf((unwrap rNN) ctx))
+    if ((strlen ann) > 0) {
+      wr.out((" -> " + ann) false)
     }
   }
 
@@ -716,7 +1040,15 @@ class RangerPythonClassWriter {
     def importFork:CodeWriter (wr.fork())
 
     if (wrote_header == false) {
-      wr.out("# -*- coding: utf-8 -*-" true)
+      ; `from __future__` has to precede every other statement of the file,
+      ; and the import lines are written ahead of this point -- so it goes in
+      ; the slice that precedes them. Every annotation is then a lazy string,
+      ; and a class named before its own `class` statement is not a NameError.
+      def pyHead:CodeWriter (wr.getTag("before_imports"))
+      pyHead.out("# -*- coding: utf-8 -*-" true)
+      pyHead.out("from __future__ import annotations" true)
+      pyHead.out("from typing import Optional" true)
+      pyHead.out("" true)
       wr.out("" true)
       ; Where (create_polyfill "...") lands. Without the tag the helper text
       ; is written to a writer nobody reads, and the call to it fails at
@@ -725,6 +1057,8 @@ class RangerPythonClassWriter {
       wr.out("" true)
       wrote_header = true
     }
+    this.writePythonNativeEnums(ctx wr)
+    this.writePythonTraitProtocols(ctx wr)
 
     wr.out(("class " + cl.name) false)
     def parentClass:RangerAppClassDesc  
@@ -760,7 +1094,7 @@ class RangerPythonClassWriter {
         this.writeArgsDef(constr ctx wr)
       }
     }
-    wr.out("):" true)
+    wr.out(") -> None:" true)
     wr.indent(1)
 
     def wroteSuper:boolean false
@@ -888,7 +1222,9 @@ class RangerPythonClassWriter {
         wr.out("@staticmethod" true)
         wr.out(("def " + variant.compiledName + "(") false)
         this.writeArgsDef(variant ctx wr)
-        wr.out("):" true)
+        wr.out(")" false)
+        this.pyWriteReturnAnnotation(variant ctx wr)
+        wr.out(":" true)
       }
       wr.indent(1)
       if variant.has_doc {
@@ -922,7 +1258,9 @@ class RangerPythonClassWriter {
           wr.out(", " false)
           this.writeArgsDef(variant ctx wr)
         }
-        wr.out("):" true)
+        wr.out(")" false)
+        this.pyWriteReturnAnnotation(variant ctx wr)
+        wr.out(":" true)
         wr.indent(1)
         if variant.has_doc {
           def mDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)

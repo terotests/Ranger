@@ -1,3 +1,7 @@
+# -*- coding: utf-8 -*-
+from __future__ import annotations
+from typing import Optional
+
 
 def r_str_to_int(s):
   try:
@@ -5,24 +9,23 @@ def r_str_to_int(s):
   except (TypeError, ValueError):
     return None
 
-# -*- coding: utf-8 -*-
 
 
 class ParseOutcome_Ok:
-  def __init__(self, value):
+  def __init__(self, value: int) -> None:
     self._rg_kind = "ParseOutcome_Ok"
     self.value = 0
     self.value = value;
 class ParseOutcome_Err:
-  def __init__(self, message):
+  def __init__(self, message: str) -> None:
     self._rg_kind = "ParseOutcome_Err"
     self.message = ""
     self.message = message;
 class ParseOutcome__ops:
-  def __init__(self):
+  def __init__(self) -> None:
     pass
   @staticmethod
-  def equals(a, b):
+  def equals(a: ParseOutcome, b: ParseOutcome) -> bool:
     if a is not None and getattr(a, "_rg_kind", None) == "ParseOutcome_Ok":
       __ea0 = a
       if b is not None and getattr(b, "_rg_kind", None) == "ParseOutcome_Ok":
@@ -41,28 +44,28 @@ class ParseOutcome__ops:
       return False;
     return False;
   @staticmethod
-  def notEquals(a, b):
+  def notEquals(a: ParseOutcome, b: ParseOutcome) -> bool:
     if ParseOutcome__ops.equals(a, b):
       return False;
     return True;
 class Lookup:
-  def __init__(self):
+  def __init__(self) -> None:
     pass
-  def findName(self, names, key):
+  def findName(self, names: list[str], key: str) -> Optional[str]:
     found = None
     for n in names:
       if n == key:
         found = n;
         return found;
     return found;
-  def parseInt(self, text):
+  def parseInt(self, text: str) -> ParseOutcome:
     if text == "":
       return ParseOutcome_Err("empty");
     parsed = r_str_to_int(text)
     if parsed is None:
       return ParseOutcome_Err("not a number");
     return ParseOutcome_Ok(parsed);
-  def describe(self, r):
+  def describe(self, r: ParseOutcome) -> str:
     out = "?"
     if r is not None and getattr(r, "_rg_kind", None) == "ParseOutcome_Ok":
       o = r
@@ -72,7 +75,7 @@ class Lookup:
       out = "err:" + e.message;
     return out;
 class OptionResultMain:
-  def __init__(self):
+  def __init__(self) -> None:
     pass
 # Main entry point
 def main():

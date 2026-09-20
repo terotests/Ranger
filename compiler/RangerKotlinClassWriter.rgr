@@ -2,6 +2,7 @@
 
 Import "TraitAnalysis.rgr"
 Import "ForLoopAnalysis.rgr"
+Import "EnumAnalysis.rgr"
 
 class RangerKotlinClassWriter {
   Extends (RangerGenericClassWriter)
@@ -17,6 +18,41 @@ class RangerKotlinClassWriter {
   ; Target-neutral question, one place: compiler/ForLoopAnalysis.rgr
   def ktLoops:ForLoopShape (new ForLoopShape())
   def kotlin_traits_written:boolean false
+
+  ; which Ranger `Enum`s survive as a Kotlin `enum class` rather than an Int.
+  ; Same question Rust and C++ ask: compiler/EnumAnalysis.rgr.
+  def ktEnums:EnumNativeAnalysis (new EnumNativeAnalysis())
+  def kotlin_enums_written:boolean false
+
+  fn ktEnumIsNative:boolean (enumName:string ctx:RangerAppWriterContext) {
+    ktEnums.targetName = "kotlin"
+    ktEnums.fallbackType = "Int"
+    return (ktEnums.isNative(enumName ctx))
+  }
+
+  ; `enum class Color { Red, Green, Blue }`. No discriminants: an enum only
+  ; reaches this form when no use in the program observes its integer value,
+  ; which is exactly what the analysis checks.
+  fn writeKotlinNativeEnums:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+    if kotlin_enums_written {
+      return
+    }
+    kotlin_enums_written = true
+    def enumRoot:RangerAppWriterContext (ctx.getRoot())
+    for (keys enumRoot.definedEnums) ken:string kei {
+      if (this.ktEnumIsNative(ken ctx)) {
+        def keDef:RangerAppEnum (unwrap (get enumRoot.definedEnums ken))
+        wr.out("" true)
+        wr.out(("enum class " + ken + " {") true)
+        wr.indent(1)
+        for (keys keDef.values) kmn:string kmi {
+          wr.out(((ctx.transformWord(kmn)) + ",") true)
+        }
+        wr.indent(-1)
+        wr.out("}" true)
+      }
+    }
+  }
 
   ; A behaviour-only trait named as a type, as a Kotlin interface. The mixin
   ; copy still gives each consumer its own body; this makes the name a type,
@@ -306,7 +342,12 @@ class RangerKotlinClassWriter {
         }
       }
       case RangerNodeType.Enum {
-        wr.out("Int" false)
+        def ktEnumName:string (ktEnums.enumNameOf(node ctx))
+        if (this.ktEnumIsNative(ktEnumName ctx)) {
+          wr.out(ktEnumName false)
+        } {
+          wr.out("Int" false)
+        }
       }
       case RangerNodeType.Integer {
         wr.out("Int" false)
@@ -432,6 +473,11 @@ class RangerKotlinClassWriter {
         def enumName:string (itemAt node.ns 1)
         def e@(optional):RangerAppEnum (ctx.getEnum(rootObjName))
         if (!null? e) {
+          ; `Color.Green`, not `1`, when the enum survives as an enum class
+          if (this.ktEnumIsNative(rootObjName ctx)) {
+            wr.out((rootObjName + "." + (ctx.transformWord(enumName))) false)
+            return
+          }
           wr.out(("" + (unwrap (get e.values enumName))) false)
           return
         }
@@ -879,6 +925,7 @@ class RangerKotlinClassWriter {
         pkgHead.out("" true)
       }
     }
+    this.writeKotlinNativeEnums(ctx wr)
     this.writeKotlinTraitInterfaces(ctx wr)
     this.writeKotlinUnionInterfaces(ctx wr)
     wr.out("" true)
@@ -1287,11 +1334,54 @@ class RangerKotlinClassWriter {
 
   ; Nothing else routes a template through this writer, so the only command
   ; that arrives is the one Lang.rgr declares `(custom _)` for it.
+  ; `when` over an enum subject has to be exhaustive, and a Ranger `switch`
+  ; need not have a `default`; `else` also has to come last, while a Ranger
+  ; `default` may sit anywhere in the case list. The template form could do
+  ; neither, so the whole statement is written here: the cases in source
+  ; order, then the default -- or an empty `else` when there is none.
+  fn ktWriteSwitch:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def condition:CodeNode (node.getSecond())
+    def case_nodes:CodeNode (node.getThird())
+    wr.newline()
+    wr.out("when (" false)
+    this.WalkNode(condition ctx wr)
+    wr.out(") {" true)
+    wr.indent(1)
+    def defaultBlock@(optional):CodeNode
+    for case_nodes.children ch:CodeNode i {
+      def blockName:CodeNode (ch.getFirst())
+      if (blockName.vref == "default") {
+        defaultBlock = (ch.getSecond())
+      } {
+        def caseValue:CodeNode (ch.getSecond())
+        def caseBlock:CodeNode (ch.getThird())
+        this.WalkNode(caseValue ctx wr)
+        wr.out(" -> {" true)
+        wr.indent(1)
+        this.WalkNode(caseBlock ctx wr)
+        wr.indent(-1)
+        wr.out("}" true)
+      }
+    }
+    wr.out("else -> {" true)
+    wr.indent(1)
+    if (!null? defaultBlock) {
+      this.WalkNode((unwrap defaultBlock) ctx wr)
+    }
+    wr.indent(-1)
+    wr.out("}" true)
+    wr.indent(-1)
+    wr.out("}" true)
+  }
+
   fn CustomOperator:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def fc:CodeNode (node.getFirst())
     def cmd:string fc.vref
     if (cmd == "for") {
       this.ktWriteForLoop(node ctx wr)
+    }
+    if (cmd == "switch") {
+      this.ktWriteSwitch(node ctx wr)
     }
   }
 

@@ -6,7 +6,7 @@ class AbsentMain  {
     Console.WriteLine(app.report("unset", s));
     s = "";
     Console.WriteLine(app.report("empty", s));
-    Console.WriteLine("empty ?? " + ((s != null) ? s : "FALLBACK"));
+    Console.WriteLine("empty ?? " + (s ?? "FALLBACK"));
     s = "x";
     Console.WriteLine(app.report("set", s));
     int? n = null;
@@ -21,7 +21,7 @@ class AbsentMain  {
     } else {
       Console.WriteLine("int zero: present");
     }
-    Console.WriteLine("int zero ?? " + (((n != null) ? ((n).Value) : 99).ToString()));
+    Console.WriteLine("int zero ?? " + ((n ?? 99).ToString()));
   }
   public String report( String label , String s ) {
     if ( s == null  ) {

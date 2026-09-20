@@ -1,4 +1,10 @@
 
+enum Color : Int {
+  case Red = 0
+  case Green = 1
+  case Blue = 2
+}
+
 enum union_Message {
   case Message_Ping(Message_Ping)
   case Message_Text(Message_Text)
@@ -95,11 +101,11 @@ final class EnumsMain : Hashable  {
   func hash(into hasher: inout Hasher) {
     hasher.combine(ObjectIdentifier(self))
   }
-  func colorName(c : Int) -> String {
-    if ( c == 0 ) {
+  func colorName(c : Color) -> String {
+    if ( c == Color.Red ) {
       return "red"
     }
-    if ( c == 1 ) {
+    if ( c == Color.Green ) {
       return "green"
     }
     return "blue"
@@ -124,7 +130,7 @@ final class EnumsMain : Hashable  {
 // Main entry point
 func __main__swift() {
   let app : EnumsMain = EnumsMain()
-  print("color " + app.colorName(c : 1))
+  print("color " + app.colorName(c : Color.Green))
   print(app.describe(m : union_Message.Message_Ping(Message_Ping())))
   print(app.describe(m : union_Message.Message_Text(Message_Text(body : "hi"))))
   print(app.describe(m : union_Message.Message_Move(Message_Move(dx : 2, dy : 3))))

@@ -2375,6 +2375,12 @@ extension RangerRustClassWriter {
         arr_type = pp.nameNode.array_type
       }
       
+      ; …and the answer the static analysis already has: when this operand is
+      ; the last use of a local built in this function, the Vec owns it from
+      ; here on and every copy below would be a copy nobody reads.
+      ; StaticAnalyzer.storeIsLocalMove set the flag; see CodeNode.rg_moved_here.
+      def moved_here:boolean right.rg_moved_here
+
       ; Check if the pushed value might be used after this (needs cloning)
       def needs_clone:boolean false
       if (right.value_type == RangerNodeType.VRef) {
@@ -2437,6 +2443,9 @@ extension RangerRustClassWriter {
       if (((arr_type == "int") || (arr_type == "double")) || (arr_type == "boolean")) {
         needs_clone = false
       }
+      if moved_here {
+        needs_clone = false
+      }
       if needs_clone {
         ; a str-reference value (static string / borrowed &str param) makes
         ; the owned element with .to_string()
@@ -2459,7 +2468,7 @@ extension RangerRustClassWriter {
           wr.out(".to_string()" false)
         }
         ; Add .clone() when pushing objects to arrays (the pushed value may be used later)
-        if (right.value_type == RangerNodeType.VRef) {
+        if ((right.value_type == RangerNodeType.VRef) && (moved_here == false)) {
           if (arr_type != "string") {
             if (arr_type != "int") {
               if (arr_type != "double") {
@@ -2681,6 +2690,129 @@ extension RangerRustClassWriter {
     return false
   }
 
+  ; The element type a `for` binds, as a class name, or "" when it is not a
+  ; class of this program.
+  fn rustForItemClassName:string (item:CodeNode ctx:RangerAppWriterContext) {
+    def tn:string ""
+    if item.hasParamDesc {
+      def ipd:RangerAppParamDesc item.paramDesc
+      def ipdNN@(optional):CodeNode ipd.nameNode
+      if (!null? ipdNN) {
+        def ipdN:CodeNode (unwrap ipdNN)
+        tn = ipdN.type_name
+        if ((strlen ipdN.array_type) > 0) {
+          tn = ipdN.array_type
+        }
+      }
+    } {
+      tn = item.type_name
+      if ((strlen item.array_type) > 0) {
+        tn = item.array_type
+      }
+    }
+    if ((strlen tn) == 0) {
+      return ""
+    }
+    if ((ctx.isDefinedClass(tn)) == false) {
+      return ""
+    }
+    return tn
+  }
+
+  ; Is `field` of `clName` a scalar Rust copies? `&T` binds the element by
+  ; reference, and a read of a Copy field through one is a copy; a read of a
+  ; String or a Vec through one is a move out of a borrow, which is an error.
+  fn rustClassFieldIsCopy:boolean (clName:string field:string ctx:RangerAppWriterContext) {
+    def cl:RangerAppClassDesc (ctx.findClass(clName))
+    for cl.variables v:RangerAppParamDesc vi {
+      if (v.name == field) {
+        def vNN@(optional):CodeNode v.nameNode
+        if (null? vNN) {
+          return false
+        }
+        def vN:CodeNode (unwrap vNN)
+        if (vN.hasFlag("optional")) {
+          return false
+        }
+        if ((strlen vN.array_type) > 0) {
+          return false
+        }
+        if ((strlen vN.key_type) > 0) {
+          return false
+        }
+        def vt:string vN.type_name
+        if (vt == "int") { return true }
+        if (vt == "double") { return true }
+        if (vt == "boolean") { return true }
+        if (vt == "char") { return true }
+        if (TTypeRegistry.isIntAlias(vt)) { return true }
+        if (TTypeRegistry.isFloatAlias(vt)) { return true }
+        return false
+      }
+    }
+    return false
+  }
+
+  ; Can this loop bind `&T` -- a bare `.iter()` -- instead of cloning every
+  ; element? Only when the body does nothing with the name but read Copy
+  ; fields off it: `sum += line.cents * line.qty`. Every other shape (writing
+  ; a field, calling a method, handing the value on, reading a String or a
+  ; collection field out of it) either needs `&mut` or moves out of the
+  ; borrow, so those keep the clone.
+  fn rustForBodyOnlyReadsCopyFields:boolean (body:CodeNode itemName:string clName:string ctx:RangerAppWriterContext) {
+    if ((strlen clName) == 0) {
+      return false
+    }
+    if (body.expression) {
+      if ((array_length body.children) > 0) {
+        def h:CodeNode (body.getFirst())
+        ; `line.x = v` and every mutating operator that targets the name
+        if ((h.vref == "=") && ((array_length body.children) >= 3)) {
+          def lhs:CodeNode (body.getSecond())
+          if ((array_length lhs.ns) > 0) {
+            if ((itemAt lhs.ns 0) == itemName) {
+              return false
+            }
+          }
+        }
+      }
+    }
+    ; a method call ON the name: the callee may want `&mut self`, and this
+    ; writer cannot see which from here
+    if (body.hasFnCall) {
+      def fc:CodeNode (body.getFirst())
+      if ((array_length fc.ns) >= 2) {
+        if ((itemAt fc.ns 0) == itemName) {
+          return false
+        }
+      }
+    }
+    ; the name itself: only ever `item.field`, and only a Copy field
+    if ((body.expression) == false) {
+      def segs:int (array_length body.ns)
+      if (segs > 0) {
+        if ((itemAt body.ns 0) == itemName) {
+          if (segs != 2) {
+            return false
+          }
+          if ((this.rustClassFieldIsCopy(clName (itemAt body.ns 1) ctx)) == false) {
+            return false
+          }
+        }
+      } {
+        if (body.vref == itemName) {
+          return false
+        }
+      }
+    }
+    for body.children ch:CodeNode ci {
+      if ((this.rustForBodyOnlyReadsCopyFields(ch itemName clName ctx)) == false) {
+        return false
+      }
+    }
+    return true
+  }
+
   ; Does the body touch the thing being iterated? The iterator borrows the
   ; collection for the whole loop, so it has to be every NAME the collection
   ; expression rests on, not just the last segment: `for lctx.ownedLocals …`
@@ -2762,7 +2894,13 @@ extension RangerRustClassWriter {
       if itemIsCopy {
         wr.out(".iter().copied() {" true)
       } {
-        wr.out(".iter().cloned() {" true)
+        ; a body that only reads Copy fields off the element binds `&T` and
+        ; clones nothing; anything else keeps the owned element
+        if (this.rustForBodyOnlyReadsCopyFields(body itemName (this.rustForItemClassName(item ctx)) ctx)) {
+          wr.out(".iter() {" true)
+        } {
+          wr.out(".iter().cloned() {" true)
+        }
       }
       wr.indent(1)
       def iCtx:RangerAppWriterContext (ctx.fork())

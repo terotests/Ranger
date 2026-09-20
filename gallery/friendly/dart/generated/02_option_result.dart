@@ -101,9 +101,9 @@ void main(List<String> args) {
   Lookup box =  Lookup();
   List<String> names = ["ada", "grace"];
   String? hit = box.findName(names, "ada");
-  print( "found " + ((hit != null) ? hit! : "unknown") );
+  print( "found " + (hit ?? "unknown") );
   String? miss = box.findName(names, "alan");
-  print( "miss " + ((miss != null) ? miss! : "unknown") );
+  print( "miss " + (miss ?? "unknown") );
   if ( miss == null ) {
     print( "miss is empty" );
   }

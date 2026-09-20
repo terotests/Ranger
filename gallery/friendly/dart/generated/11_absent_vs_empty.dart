@@ -18,7 +18,7 @@ void main(List<String> args) {
   print( app.report("unset", s) );
   s = "";
   print( app.report("empty", s) );
-  print( "empty ?? " + ((s != null) ? s! : "FALLBACK") );
+  print( "empty ?? " + (s ?? "FALLBACK") );
   s = "x";
   print( app.report("set", s) );
   int? n = null;
@@ -33,5 +33,5 @@ void main(List<String> args) {
   } else {
     print( "int zero: present" );
   }
-  print( "int zero ?? " + (((n != null) ? n! : 99).toString()) );
+  print( "int zero ?? " + ((n ?? 99).toString()) );
 }

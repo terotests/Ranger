@@ -20,7 +20,7 @@ fun main(args : Array<String>) {
   println( app.report("unset", s) )
   s = "";
   println( app.report("empty", s) )
-  println( "empty ?? " + (if ((s != null)) s!! else "FALLBACK") )
+  println( "empty ?? " + (s ?: "FALLBACK") )
   s = "x";
   println( app.report("set", s) )
   var n : Int?  = null;
@@ -35,5 +35,5 @@ fun main(args : Array<String>) {
   } else {
     println( "int zero: present" )
   }
-  println( "int zero ?? " + ((if ((n != null)) n!! else 99).toString()) )
+  println( "int zero ?? " + ((n ?: 99).toString()) )
 }

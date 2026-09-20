@@ -1,23 +1,26 @@
 # -*- coding: utf-8 -*-
+from __future__ import annotations
+from typing import Optional
+
 
 
 class Point:
-  def __init__(self):
+  def __init__(self) -> None:
     self.x = 0
     self.y = 0
 class OptionalParams:
-  def __init__(self):
+  def __init__(self) -> None:
     pass
-  def shown(self, maybe):
+  def shown(self, maybe: Optional[str]) -> str:
     if maybe is None:
       return "unknown";
     return maybe;
-  def shownInt(self, a):
+  def shownInt(self, a: Optional[int]) -> int:
     if a is None:
       return 0;
     r = a
     return r;
-  def shownPoint(self, p):
+  def shownPoint(self, p: Optional[Point]) -> int:
     if p is None:
       return 0;
     q = p
