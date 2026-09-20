@@ -672,6 +672,10 @@ assumed.
   string means something different on the two targets. Everything in the
   compiler that needs bytes now goes through `LowIRUtil.utf8Bytes`; anything
   else that indexes strings has not been audited.
+  `docs/plans/PLAN_STRING_INDEXING.md` is the plan that answers this for the
+  language as a whole: `to_chars` is the portable code-point view,
+  `to_charbuffer` the portable byte view, and a raw index stays the target's
+  own unit and is documented as such.
 
 **Closed since this section was written:**
 
@@ -1208,6 +1212,61 @@ Rust, `offsetByCodePoints` on the JVM targets, `runes` on Dart, `mb_substr` on
 PHP, a surrogate-aware walk on C#, and `Array.from` elsewhere.
 
 `tests/string-index-semantics.test.ts` pins both halves across seven targets.
+
+### Rust and Go index the byte, and two bugs fell out of it
+
+`strlen`, `charAt` and `substring` on Rust and Go counted CHARACTERS, which
+is what made them quadratic -- `s.chars().nth(i)` walks from the start, and
+`[]rune(s)[i]` allocates and copies the whole string first. They are the
+UTF-8 byte now, which is what a `String` and a Go `string` are actually made
+of and the only unit either indexes in constant time. 120 000 characters of
+`gallery/friendly/bench/strscan.rgr`: Rust 8 830 ms to 11 ms, the same as
+C++; Go from not finishing inside two minutes to 19 ms.
+
+The speed was the reason to look. What the measurement found was worse:
+
+- **Go was losing text.** `indexOf` is `strings.Index` and answers a BYTE
+  offset, while `charAt`, `strlen` and `substring` counted runes, so a
+  scanner that found a delimiter and sliced at it sliced in the wrong place
+  the moment anything non-ASCII stood before it. For `"<a-umlaut>,b"` the
+  head came back as `"<a-umlaut>,"` and the tail as `""`. Rust had the same
+  bug and had papered over it -- `rg_index_of` converted the byte offset to
+  a character offset with an O(n) `chars().count()` on every call, and the
+  comment that fix left behind records what it cost: an OOXML parser reading
+  a slide with an umlaut in it "sliced the rest of the document one byte
+  short per accent and dropped every shape after the first". Making the unit
+  the byte removes the bug and the workaround together.
+- **Rust's `charcode` disagreed with Rust's `charAt`.** It has read
+  `as_bytes()[0]` all along. Java's read `getBytes()[0]`, which is SIGNED,
+  and answered -61 for the first byte of "<a-umlaut>" where `charAt` says
+  228; it is `charAt(0)` now.
+
+All nine targets with a toolchain here are internally consistent afterwards,
+in two families: C++, PHP, Rust and Go index the UTF-8 byte, and JavaScript,
+Python, Java, C# and Kotlin index the UTF-16 code unit (Python the code
+point, which is the same thing below U+10000).
+
+### A compiler whose own strings are bytes wrote every literal twice encoded
+
+Found by building the C++ self-host and running it: it emitted `"a-em-dash-b"`
+into its JavaScript output as `C3 A2 C2 80 C2 94` rather than `E2 80 94`.
+`EncodeString` walked the literal with `charAt` and rebuilt each character
+with `strfromcode` -- and `strfromcode` writes a CODE POINT, so on a
+byte-hosted compiler every byte of a multi byte character was encoded a
+second time. This was true of the C++ and PHP self-hosts all along and had
+never been noticed, because nothing checked their output against the node
+host's on text that was not ASCII. It is the same bug this file records
+against the LLVM writer, arrived at from the other direction.
+
+The fix is one line in each of the six `EncodeString` copies and in
+`DictNode`: copy the unit with a one-unit `substring` rather than rebuilding
+it from its code. That carries whatever the unit is across unchanged on every
+host. Afterwards the C++ and Go self-hosts each produce output BYTE-IDENTICAL
+to the node-hosted compiler's for the same input.
+
+One limitation worth recording: the Rust self-host compiles to 0 rustc errors
+but panics at startup on any input, and did so before this work too. It is a
+compile gate, not a run gate.
 
 ### A `charbuffer` is UTF-8 bytes, on every target
 

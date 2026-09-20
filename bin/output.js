@@ -12243,10 +12243,8 @@ class DictNode  {
     let encoded_str = "";
     const str_length = orig_str.length;
     let ii = 0;
-    const buff = r_cb_enc.encode(orig_str);
-    const cb_len = buff.length;
-    while (ii < cb_len) {
-      const cc = buff[ii];
+    while (ii < str_length) {
+      const cc = orig_str.charCodeAt(ii );
       switch (cc ) { 
         case 8 : 
           encoded_str = (encoded_str + String.fromCharCode(92)) + String.fromCharCode(98);
@@ -12273,7 +12271,7 @@ class DictNode  {
           encoded_str = (encoded_str + String.fromCharCode(92)) + String.fromCharCode(47);
           break;
         default: 
-          encoded_str = encoded_str + String.fromCharCode(cc);
+          encoded_str = encoded_str + orig_str.substring(ii, (ii + 1) );
           break;
       };
       ii = 1 + ii;
@@ -24092,7 +24090,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                 encoded_str_2 = (encoded_str_2 + String.fromCharCode(92)) + String.fromCharCode(92);
                 break;
               default: 
-                encoded_str_2 = encoded_str_2 + String.fromCharCode(cc);
+                encoded_str_2 = encoded_str_2 + node.string_value.substring(ii, (ii + 1) );
                 break;
             };
             ii = ii + 1;
@@ -39010,61 +39008,6 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                         );
                                         return;
                                       }
-                                      if ( cmd == "substring" ) {
-                                        ctx.setInExpr();
-                                        this.WalkNode(
-                                          node.getSecond(),
-                                          ctx,
-                                          wr
-                                        );
-                                        const subStart = this.rustUnwrapParens(node.getThird());
-                                        const subEnd = this.rustUnwrapParens(node.children[3]);
-                                        let startIsZero = false;
-                                        if ( subStart.value_type == 3 ) {
-                                          if ( subStart.int_value == 0 ) {
-                                            startIsZero = true;
-                                          }
-                                        }
-                                        wr.out(".chars()", false);
-                                        if ( startIsZero == false ) {
-                                          wr.out(".skip(", false);
-                                          if ( subStart.value_type == 3 ) {
-                                            wr.out("" + subStart.int_value, false);
-                                          } else {
-                                            wr.out("(", false);
-                                            wr.suppress_expr_parens = true;
-                                            this.WalkNode(subStart, ctx, wr);
-                                            wr.suppress_expr_parens = false;
-                                            wr.out(") as usize", false);
-                                          }
-                                          wr.out(")", false);
-                                        }
-                                        wr.out(".take(", false);
-                                        if ( startIsZero ) {
-                                          if ( subEnd.value_type == 3 ) {
-                                            wr.out("" + subEnd.int_value, false);
-                                          } else {
-                                            wr.out("(", false);
-                                            wr.suppress_expr_parens = true;
-                                            this.WalkNode(subEnd, ctx, wr);
-                                            wr.suppress_expr_parens = false;
-                                            wr.out(") as usize", false);
-                                          }
-                                        } else {
-                                          wr.out("((", false);
-                                          wr.suppress_expr_parens = true;
-                                          this.WalkNode(subEnd, ctx, wr);
-                                          wr.suppress_expr_parens = false;
-                                          wr.out(") - (", false);
-                                          wr.suppress_expr_parens = true;
-                                          this.WalkNode(subStart, ctx, wr);
-                                          wr.suppress_expr_parens = false;
-                                          wr.out(")) as usize", false);
-                                        }
-                                        wr.out(").collect::<String>()", false);
-                                        ctx.unsetInExpr();
-                                        return;
-                                      }
                                       if ( cmd == "strfromcode" ) {
                                         const sfcInFmt = wr.in_format_args;
                                         wr.out("char::from_u32(", false);
@@ -42109,15 +42052,17 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                               }
                                               if ( needsStrIndex ) {
                                                 header.out("fn rg_index_of(s: &str, key: &str) -> i64 {", true);
-                                                header.out("    match s.find(key) { Some(b) => s[..b].chars().count() as i64, None => -1 }", true);
+                                                header.out("    match s.find(key) { Some(b) => b as i64, None => -1 }", true);
                                                 header.out("}", true);
                                                 header.out("fn rg_index_of_from(s: &str, key: &str, start: i64) -> i64 {", true);
                                                 header.out("    if start <= 0 { return rg_index_of(s, key); }", true);
-                                                header.out("    let b0 = match s.char_indices().nth(start as usize) { Some((b, _)) => b, None => return -1 };", true);
-                                                header.out("    match s[b0..].find(key) { Some(b) => start + s[b0..b0 + b].chars().count() as i64, None => -1 }", true);
+                                                header.out("    let b0 = start as usize;", true);
+                                                header.out("    if b0 > s.len() { return -1; }", true);
+                                                header.out("    if !s.is_char_boundary(b0) { return -1; }", true);
+                                                header.out("    match s[b0..].find(key) { Some(b) => (b0 + b) as i64, None => -1 }", true);
                                                 header.out("}", true);
                                                 header.out("fn rg_last_index_of(s: &str, key: &str) -> i64 {", true);
-                                                header.out("    match s.rfind(key) { Some(b) => s[..b].chars().count() as i64, None => -1 }", true);
+                                                header.out("    match s.rfind(key) { Some(b) => b as i64, None => -1 }", true);
                                                 header.out("}", true);
                                               }
                                               header.out("", true);
@@ -43941,7 +43886,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                             encoded_str = (encoded_str + String.fromCharCode(92)) + String.fromCharCode(92);
                                                             break;
                                                           default: 
-                                                            encoded_str = encoded_str + String.fromCharCode(cc);
+                                                            encoded_str = encoded_str + node.string_value.substring(ii, (ii + 1) );
                                                             break;
                                                         };
                                                         ii = ii + 1;
@@ -44974,7 +44919,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                             encoded_str = (encoded_str + String.fromCharCode(92)) + String.fromCharCode(92);
                                                             break;
                                                           default: 
-                                                            encoded_str = encoded_str + String.fromCharCode(cc);
+                                                            encoded_str = encoded_str + node.string_value.substring(ii, (ii + 1) );
                                                             break;
                                                         };
                                                         ii = ii + 1;
@@ -51805,7 +51750,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                               encoded_str_2 = (encoded_str_2 + String.fromCharCode(92)) + String.fromCharCode(92);
                                                               break;
                                                             default: 
-                                                              encoded_str_2 = encoded_str_2 + String.fromCharCode(cc);
+                                                              encoded_str_2 = encoded_str_2 + node.string_value.substring(ii, (ii + 1) );
                                                               break;
                                                           };
                                                           ii = ii + 1;
@@ -52754,7 +52699,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                               encoded_str = (encoded_str + String.fromCharCode(92)) + String.fromCharCode(92);
                                                               break;
                                                             default: 
-                                                              encoded_str = encoded_str + String.fromCharCode(cc);
+                                                              encoded_str = encoded_str + node.string_value.substring(ii, (ii + 1) );
                                                               break;
                                                           };
                                                           ii = ii + 1;
@@ -74951,7 +74896,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                               encoded_str_2 = (encoded_str_2 + String.fromCharCode(92)) + String.fromCharCode(92);
                                                               break;
                                                             default: 
-                                                              encoded_str_2 = encoded_str_2 + String.fromCharCode(ch);
+                                                              encoded_str_2 = encoded_str_2 + node.string_value.substring(ii, (ii + 1) );
                                                               break;
                                                           };
                                                           ii = ii + 1;

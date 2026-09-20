@@ -235,12 +235,12 @@ Prefix form only:
 ("a" + "b")
 ```
 
-**An index does not mean the same thing on every target.** `strlen`, `charAt`
-and `substring` agree with each other on any one target, and disagree between
-targets: a UTF-16 code unit on JavaScript, Java, Kotlin, C#, Dart and Swift; a
-Unicode code point on Python, Go and Rust; a UTF-8 byte on C++ and PHP. So
-`(strlen "a—b")` is 3, 3 or 5 depending on where it runs, and an index-based
-scan over non-ASCII text lands in different places.
+**An index does not mean the same thing on every target.** `strlen`, `charAt`,
+`substring`, `indexOf` and `charcode` agree with each other on any one target,
+and disagree between targets: a UTF-16 code unit on JavaScript, Java, Kotlin,
+C#, Dart and Swift; a Unicode code point on Python; a UTF-8 byte on C++, PHP,
+Rust and Go. So `(strlen "a—b")` is 3 or 5 depending on where it runs, and an
+index-based scan over non-ASCII text lands in different places.
 
 `tests/fixtures/string_units.rgr` prints what the target it was compiled for
 actually does, and `tests/string-units.test.ts` pins it. Write ASCII-only
@@ -272,10 +272,11 @@ Above the Basic Multilingual Plane the three views differ by construction:
 `"a😀b"` is 3 `to_chars` elements, 6 `to_charbuffer` bytes, and 3 or 4 `strlen`
 units depending on the target.
 
-`charAt` is also **O(n) on Rust and Go** — `s.chars().nth(i)` and
-`[]rune(s)[i]` both walk from the start — so the ordinary
-`while (i < (strlen s)) { charAt s i }` loop is quadratic there.
-`gallery/friendly/bench/strscan.rgr` measures it.
+An index is **O(1) on every target**, because each one uses the unit its own
+string is made of. `gallery/friendly/bench/strscan.rgr` measures it: it used
+to be O(n) on Rust and Go — `s.chars().nth(i)` and `[]rune(s)[i]` both walked
+from the start — which made the ordinary
+`while (i < (strlen s)) { charAt s i }` loop quadratic there.
 
 ## I/O and errors
 

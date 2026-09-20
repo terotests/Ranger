@@ -21,10 +21,10 @@ func (this *TextTools) total (xs []int64) int64 {
   return acc
 }
 func (this *TextTools) firstChar (s string) string {
-  if  int64(len([]rune(s))) == int64(0) {
+  if  int64(len(s)) == int64(0) {
     return ""
   }
-  return string([]rune(s)[int64(0):int64(1)])
+  return s[int64(0):int64(1)]
 }
 func (this *TextTools) twice (xs []int64) int64 {
   return this.total(xs) + this.total(xs)

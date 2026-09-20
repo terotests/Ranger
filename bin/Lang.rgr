@@ -6153,9 +6153,10 @@ func r_last_index_of(_ s: String, _ needle: String) -> Int {
                 )
                 csharp ( (e 1) ".Length")
                 php ( "strlen(" (e 1) ")") 
-                go ( "int64(len([]rune(" (e 1) ")))")
+                ; bytes, not runes -- see the note on `charAt`
+                go ( "int64(len(" (e 1) "))")
                 python ( "len(" (e 1) ")")
-                rust ( (e 1) ".chars().count() as i64")
+                rust ( "(" (e 1) ".len() as i64)")
                 * ( (e 1) ".length")
             }
         }
@@ -7427,7 +7428,22 @@ func r_last_index_of(_ s: String, _ needle: String) -> Int {
                 kotlin ( (e 1) "[" (e 2) "].code")    
                 dart ( (e 1) ".codeUnitAt(" (e 2) ")" )
                 scala ( (e 1) "(" (e 2) ")")    
-                go ( "int64([]rune(" (e 1) ")[" (e 2) "])")  
+                ; A Ranger string index is the target's own unit, and on Go
+                ; that unit is the UTF-8 byte -- what a Go string is made of,
+                ; and the only one it indexes in constant time. It was the
+                ; rune, and `[]rune(s)` allocates and copies the WHOLE string
+                ; on every read, so a scan was quadratic with a large
+                ; constant: 60 000 characters did not finish inside two
+                ; minutes where C++ took 5 ms.
+                ; It also disagreed with Go's own other string operators.
+                ; `indexOf` is strings.Index and answers a BYTE offset, so a
+                ; scanner that found a delimiter and sliced at it sliced in
+                ; the wrong place as soon as anything non-ASCII stood before
+                ; it: for "<a-umlaut>,b" the head came back as "<a-umlaut>,"
+                ; and the tail as "" -- the rest of the text, dropped without
+                ; a word. `charcode` read []byte(s)[0] all along.
+                ; docs/plans/PLAN_STRING_INDEXING.md 2.4.
+                go ( "int64(" (e 1) "[" (e 2) "])")  
                 swift3 ( "Int( ( NSString(string: " (e 1) " ) ).character( at: " (e 2) " ) )")
                 swift3 ( "Int( String( " (e 1) ".characters[" (e 1) ".index(" (e 1) ".startIndex, offsetBy: " (e 2) ")]))!")
                 ; Also a named helper, and for the same reason: the inline form
@@ -7526,7 +7542,46 @@ func r_last_index_of(_ s: String, _ needle: String) -> Int {
 ")
                 )
                 python ( "ord(" (e 1) "[" (e 2) "])")
-                rust ( (e 1) ".chars().nth(" (idx 2) ").unwrap_or('\\0') as i64")
+                rust ( "rg_char_at(&" (e 1) ", " (e 2) ")"
+(create_polyfill "
+// A Ranger string index is the TARGET'S OWN unit, and on Rust that unit is
+// the UTF-8 byte -- what a String is actually made of, and the only one it
+// indexes in constant time. It used to be the char: strlen counted chars(),
+// charAt was chars().nth(i) and substring was chars().skip().take(), so the
+// ordinary `while (i < (strlen s)) { charAt s i }` scan walked the string
+// once per character and was quadratic -- 120 000 characters took 8.8 s
+// where C++ took 11 ms. It also disagreed with charcode, which has read
+// as_bytes()[0] all along.
+//
+// Both helpers are TOTAL, because the forms they replace were: an index past
+// the end answered a zero rather than panicking, and scanners here rely on
+// reading one past the last character.
+fn rg_char_at(s: &str, at: i64) -> i64 {
+    let b = s.as_bytes();
+    if at < 0 { return 0; }
+    let i = at as usize;
+    if i >= b.len() { return 0; }
+    b[i] as i64
+}
+
+// A byte slice of a String has to be valid UTF-8, and a slice that cuts a
+// multi byte character is not. Measured over the compiler compiling itself
+// and the markdown gallery -- 78 012 slices -- not one cut a character:
+// a scanner slices at a delimiter it found, every delimiter here is ASCII,
+// and an ASCII byte is always a character boundary in UTF-8. So
+// from_utf8_lossy is the backstop for what the measurement did not cover,
+// not the expected path. docs/plans/PLAN_STRING_INDEXING.md 4.1.
+fn rg_substring(s: &str, from: i64, to: i64) -> String {
+    let b = s.as_bytes();
+    let n = b.len() as i64;
+    let mut a = if from < 0 { 0 } else { from };
+    if a > n { a = n; }
+    let mut e = if to > n { n } else { to };
+    if e < a { e = a; }
+    String::from_utf8_lossy(&b[a as usize..e as usize]).to_string()
+}
+")
+                )
                 * ( (e 1) ".charCodeAt(" (e 2) " )")
             }
         }        
@@ -7627,7 +7682,10 @@ std::vector<std::string> r_get_keys_of_map( const M & orig_map )  {
                 cpp ( '' (e 1) '.substr(' (e 2) ', ' (e 3) ' - ' (e 2) ')' )
                 csharp ( (e 1) ".Substring(" (e 2) ", " (e 3) " - " (e 2) " )")
                 php ( "substr(" (e 1) ", " (e 2) ", " (e 3) " - " (e 2) ")")    
-                go ( "string([]rune(" (e 1) ")[" (e 2) ":" (e 3) "])")               
+                ; bytes, like strlen and charAt above and like C++ below.
+                ; Slicing bytes still round-trips UTF-8 -- the pieces of a
+                ; multi byte character concatenate back into the character.
+                go ( (e 1) "[" (e 2) ":" (e 3) "]")               
                 swift3 ( (e 1) "[" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 2) ")..<" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 3) ")]" )
                 swift6 ( "r_substring(" (e 1) ", " (e 2) ", " (e 3) ")"
 (create_polyfill "
@@ -7721,7 +7779,49 @@ func r_last_index_of(_ s: String, _ needle: String) -> Int {
 ")
                 )
                 python ( (e 1) "[" (e 2) ":" (e 3) "]" )
-                rust ( (custom _) )
+                ; rg_substring, the byte slice. The polyfill is the same
+                ; text as the one on `charAt` above, so whichever operator a
+                ; program uses first writes it and the other is deduped.
+                rust ( "rg_substring(&" (e 1) ", " (e 2) ", " (e 3) ")"
+(create_polyfill "
+// A Ranger string index is the TARGET'S OWN unit, and on Rust that unit is
+// the UTF-8 byte -- what a String is actually made of, and the only one it
+// indexes in constant time. It used to be the char: strlen counted chars(),
+// charAt was chars().nth(i) and substring was chars().skip().take(), so the
+// ordinary `while (i < (strlen s)) { charAt s i }` scan walked the string
+// once per character and was quadratic -- 120 000 characters took 8.8 s
+// where C++ took 11 ms. It also disagreed with charcode, which has read
+// as_bytes()[0] all along.
+//
+// Both helpers are TOTAL, because the forms they replace were: an index past
+// the end answered a zero rather than panicking, and scanners here rely on
+// reading one past the last character.
+fn rg_char_at(s: &str, at: i64) -> i64 {
+    let b = s.as_bytes();
+    if at < 0 { return 0; }
+    let i = at as usize;
+    if i >= b.len() { return 0; }
+    b[i] as i64
+}
+
+// A byte slice of a String has to be valid UTF-8, and a slice that cuts a
+// multi byte character is not. Measured over the compiler compiling itself
+// and the markdown gallery -- 78 012 slices -- not one cut a character:
+// a scanner slices at a delimiter it found, every delimiter here is ASCII,
+// and an ASCII byte is always a character boundary in UTF-8. So
+// from_utf8_lossy is the backstop for what the measurement did not cover,
+// not the expected path. docs/plans/PLAN_STRING_INDEXING.md 4.1.
+fn rg_substring(s: &str, from: i64, to: i64) -> String {
+    let b = s.as_bytes();
+    let n = b.len() as i64;
+    let mut a = if from < 0 { 0 } else { from };
+    if a > n { a = n; }
+    let mut e = if to > n { n } else { to };
+    if e < a { e = a; }
+    String::from_utf8_lossy(&b[a as usize..e as usize]).to_string()
+}
+")
+                )
                 * ( (e 1) ".substring(" (e 2) ", " (e 3) " )")
             }
         }
@@ -7914,10 +8014,12 @@ func r_last_index_of(_ s: String, _ needle: String) -> Int {
                 cpp( "((unsigned char)" (e 1) ".at(0))")
                 dart ( (e 1) ".codeUnitAt(0)" )
                 php ( "ord(" (e 1) ")") 
-                ; getBytes() answers byte[], and a Ranger char is an int:
-                  ; `Integer ch = (...)[0]` does not compile without the widening
-                  ; cast, because Java boxes byte to Byte, not to Integer.
-                java7 ( "((int)(" (e 1) ".getBytes())[0])") 
+                ; charAt, not getBytes()[0]. A Ranger char is an int on
+                ; Java and a string index is a UTF-16 code unit here, so
+                ; `charcode` has to answer what `charAt s 0` answers. The byte
+                ; form answered neither: a JVM byte is SIGNED, so the first
+                ; byte of "<a-umlaut>" came back as -61 where charAt says 228.
+                java7 ( "((int)" (e 1) ".charAt(0))") 
                 swift3 ( "UInt8( (  NSString(string: " (e 1) " )     ).character( at: 0 ) )" (imp "Foundation"))
                 swift3 ( "UInt8( String( " (e 1) ".characters[" (e 1) ".startIndex]))! ")
                 swift6 ( "r_char_at(" (e 1) ", 0)"

@@ -160,8 +160,18 @@ class RangerPythonClassWriter {
         case 92 {
             encoded_str = encoded_str + (strfromcode 92 ) + (strfromcode 92 )
         }
+        ; A character above ASCII is COPIED, not rebuilt from its code.
+        ; `charAt` answers the host's own unit -- a UTF-16 code unit, a code
+        ; point or a UTF-8 byte -- and `strfromcode` writes a CODE POINT, so
+        ; on a byte-hosted compiler every byte of a multi byte character was
+        ; encoded a second time: the C++ self-host wrote `a-em-dash-b` into
+        ; its JavaScript output as C3 A2 C2 80 C2 94 instead of E2 80 94.
+        ; The LLVM writer had the same bug for the same reason. A one unit
+        ; `substring` carries whatever the unit is across unchanged, and the
+        ; pieces concatenate back into the character on every target -- which
+        ; tests/fixtures/string_units.rgr checks as `roundtrip`.
         default {
-            encoded_str = encoded_str + (strfromcode cc)
+          encoded_str = (encoded_str + (substring node.string_value ii (ii + 1)))
         }
       }
       ii = ii + 1

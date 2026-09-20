@@ -6,10 +6,10 @@
 ;   while (i < (strlen s)) { … (charAt s i) … }
 ;
 ; On a target that indexes in constant time the loop is O(n) and doubling the
-; input doubles the time. On Rust (`s.chars().nth(i)`) and Go
-; (`int64([]rune(s)[i])`, which also allocates the whole rune slice per read)
-; each access walks from the start, so the loop is O(n²) and doubling the
-; input QUADRUPLES it.
+; input doubles the time. Rust and Go did not: `charAt` was
+; `s.chars().nth(i)` on Rust and `int64([]rune(s)[i])` on Go, so each access
+; walked from the start -- and on Go `[]rune(s)` allocated and copied the
+; whole string on every single read rather than merely walking it.
 ;
 ; Four sizes, so the shape is visible rather than asserted. Read the ratio
 ; between consecutive rows, not the absolute milliseconds:
@@ -17,7 +17,7 @@
 ;   ~2x  the target indexes in constant time
 ;   ~4x  the target re-walks the string on every read
 ;
-; Measured on this machine when the file was written:
+; Before docs/plans/PLAN_STRING_INDEXING.md stage 4, measured on this machine:
 ;
 ;   n         C++   JavaScript      Rust          Go
 ;   15 000    1 ms     4 ms       143 ms      6 906 ms
@@ -25,12 +25,21 @@
 ;   60 000    5 ms     7 ms     2 250 ms   (over 120 s)
 ;   120 000  11 ms    17 ms     8 830 ms   (over 120 s)
 ;
-; C++ and JavaScript double; Rust quadruples; Go quadruples from a base 48x
-; worse again, because `[]rune(s)` allocates and copies the whole string on
-; every single read rather than merely walking it.
+; C++ and JavaScript doubled; Rust quadrupled; Go quadrupled from a base 48x
+; worse again. After stage 4, where a string index on both is the UTF-8 byte
+; their string is actually made of:
+;
+;   n         C++   JavaScript      Rust          Go
+;   15 000    1 ms     4 ms         1 ms        1 ms
+;   30 000    2 ms     3 ms         2 ms        8 ms
+;   60 000    5 ms     7 ms         5 ms        5 ms
+;   120 000  11 ms    17 ms        11 ms       19 ms
+;
+; Rust is now C++ to the millisecond, and Go's 120 000 went from not
+; finishing inside two minutes to 19 ms. Both are linear.
 ;
 ; docs/plans/PLAN_STRING_INDEXING.md §1.3 is what this measures and §2.4 is
-; the proposed fix.
+; the fix.
 
 class StrScan {
 

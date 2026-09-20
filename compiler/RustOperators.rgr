@@ -688,63 +688,10 @@ extension RangerRustClassWriter {
       return
     }
 
-    ; substring: skip/take — the take count drops a literal-zero start
-    ; instead of emitting `x - 0`
-    if (cmd == "substring") {
-      ctx.setInExpr()
-      this.WalkNode((node.getSecond()) ctx wr)
-      def subStart:CodeNode (this.rustUnwrapParens((node.getThird())))
-      def subEnd:CodeNode (this.rustUnwrapParens((itemAt node.children 3)))
-      def startIsZero:boolean false
-      if (subStart.value_type == RangerNodeType.Integer) {
-        if (subStart.int_value == 0) {
-          startIsZero = true
-        }
-      }
-      wr.out(".chars()" false)
-      if (startIsZero == false) {
-        wr.out(".skip(" false)
-        if (subStart.value_type == RangerNodeType.Integer) {
-          wr.out(("" + subStart.int_value) false)
-        } {
-          wr.out("(" false)
-          wr.suppress_expr_parens = true
-          this.WalkNode(subStart ctx wr)
-          wr.suppress_expr_parens = false
-          wr.out(") as usize" false)
-        }
-        wr.out(")" false)
-      }
-      wr.out(".take(" false)
-      if startIsZero {
-        if (subEnd.value_type == RangerNodeType.Integer) {
-          wr.out(("" + subEnd.int_value) false)
-        } {
-          wr.out("(" false)
-          wr.suppress_expr_parens = true
-          this.WalkNode(subEnd ctx wr)
-          wr.suppress_expr_parens = false
-          wr.out(") as usize" false)
-        }
-      } {
-        ; Each side gets its OWN parens: with the outer parens suppressed,
-        ; an additive operand pair like end=(i + 2) start=(i + 1) printed as
-        ; `i + 2 - i + 1`, which is 3, not 1 — $& in a replace template was
-        ; read as a 3-char slice and never matched.
-        wr.out("((" false)
-        wr.suppress_expr_parens = true
-        this.WalkNode(subEnd ctx wr)
-        wr.suppress_expr_parens = false
-        wr.out(") - (" false)
-        wr.suppress_expr_parens = true
-        this.WalkNode(subStart ctx wr)
-        wr.suppress_expr_parens = false
-        wr.out(")) as usize" false)
-      }
-      wr.out(").collect::<String>()" false)
-      ctx.unsetInExpr()
-      return
-    }
+    ; `substring` on this target is rg_substring, a byte slice named in
+    ; compiler/Lang.rgr. It used to be emitted here as a chars()
+    ; skip/take chain, because a string index meant the character;
+    ; docs/plans/PLAN_STRING_INDEXING.md 2.4 made it the byte.
 
     ; strfromcode: a char is Display — inside a format! argument the
     ; .to_string() is dropped

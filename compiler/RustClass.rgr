@@ -1355,26 +1355,33 @@ extension RangerRustClassWriter {
         header.out("}" true)
         header.out("type HashMap<K, V> = RgOrderedMap<K, V>;" true)
       }
-      ; Every other string operator on this target counts CHARACTERS:
-      ; `strlen` is chars().count(), `charAt` is chars().nth(), `substring`
-      ; skips and takes characters. `str::find` counts BYTES, so an
+      ; `str::find` answers a BYTE offset, and a string index on this
+      ; target is now the byte too, so these three are the standard library
+      ; call and nothing else.
+      ;
+      ; They used to convert. Every other string operator counted
+      ; CHARACTERS -- `strlen` was chars().count(), `charAt` was
+      ; chars().nth(), `substring` skipped and took characters -- so an
       ; `indexOf` handed straight to `charAt` pointed past the character it
       ; found the moment anything non-ASCII stood before it. An OOXML parser
       ; reading a slide with "Hameenlinna" spelled with an umlaut in it
       ; sliced the rest of the document one byte short per accent and
-      ; dropped every shape after the first. These three do the conversion
-      ; once, in one place.
+      ; dropped every shape after the first. The conversion fixed that and
+      ; cost an O(n) chars().count() on every call; making the unit the byte
+      ; removes both. docs/plans/PLAN_STRING_INDEXING.md 2.4.
       if needsStrIndex {
         header.out("fn rg_index_of(s: &str, key: &str) -> i64 {" true)
-        header.out("    match s.find(key) { Some(b) => s[..b].chars().count() as i64, None => -1 }" true)
+        header.out("    match s.find(key) { Some(b) => b as i64, None => -1 }" true)
         header.out("}" true)
         header.out("fn rg_index_of_from(s: &str, key: &str, start: i64) -> i64 {" true)
         header.out("    if start <= 0 { return rg_index_of(s, key); }" true)
-        header.out("    let b0 = match s.char_indices().nth(start as usize) { Some((b, _)) => b, None => return -1 };" true)
-        header.out("    match s[b0..].find(key) { Some(b) => start + s[b0..b0 + b].chars().count() as i64, None => -1 }" true)
+        header.out("    let b0 = start as usize;" true)
+        header.out("    if b0 > s.len() { return -1; }" true)
+        header.out("    if !s.is_char_boundary(b0) { return -1; }" true)
+        header.out("    match s[b0..].find(key) { Some(b) => (b0 + b) as i64, None => -1 }" true)
         header.out("}" true)
         header.out("fn rg_last_index_of(s: &str, key: &str) -> i64 {" true)
-        header.out("    match s.rfind(key) { Some(b) => s[..b].chars().count() as i64, None => -1 }" true)
+        header.out("    match s.rfind(key) { Some(b) => b as i64, None => -1 }" true)
         header.out("}" true)
       }
       header.out("" true)

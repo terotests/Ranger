@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Rust and Go index the byte their string is made of.** `strlen`, `charAt`
+  and `substring` on both counted characters, which cost them the quadratic
+  scan — `charAt` walked from the start on every read, and on Go `[]rune(s)`
+  copied the whole string each time. `gallery/friendly/bench/strscan.rgr` at
+  120 000 characters: Rust 8 830 ms → 11 ms, which is C++ to the millisecond;
+  Go did not finish inside two minutes → 19 ms.
+
+  It was also a correctness fix. `indexOf` is `strings.Index` on Go and
+  answers a BYTE offset, so a scanner that found a delimiter and sliced at it
+  sliced in the wrong place as soon as anything non-ASCII stood before it:
+  for `"ä,b"` the head came back as `"ä,"` and the tail as `""` — the rest of
+  the text, dropped without a word. Rust had the same bug and paid an O(n)
+  `chars().count()` on every `indexOf` to hide it; that conversion is gone.
+  Rust's `charcode` read `as_bytes()[0]` all along and so disagreed with its
+  own `charAt`; Java's read `getBytes()[0]` and answered −61 where `charAt`
+  said 228. All nine runnable targets are now internally consistent.
+
+- **A byte-hosted compiler wrote every non-ASCII literal twice encoded.**
+  The C++ self-host emitted `"a—b"` into its JavaScript output as
+  `C3 A2 C2 80 C2 94` instead of `E2 80 94`: `EncodeString` rebuilt each
+  character with `strfromcode`, which writes a code point, from what `charAt`
+  gave it, which on a byte host is a byte. True of C++ and PHP all along and
+  never noticed. A one-unit `substring` copies the unit across instead, and
+  the C++ and Go self-hosts now produce output byte-identical to the
+  node-hosted compiler's.
+
 - **`to_chars` is the portable indexable view of text.** `def cs:[int]
   (to_chars s)` gives Unicode code points, the same sequence on every target,
   built once in O(n) and read in O(1). `charAt` on a `string` stays the

@@ -311,12 +311,74 @@ the hardest existing consumer, on a module that already has tests.
 *Gate: the EVG suites, plus the emoji cases EVGCodepoint's header names —
 `"a😀b"` measures as one glyph, the JSON display list is UTF-8 and not CESU-8.*
 
-### Stage 4 — Rust and Go index bytes
+### Stage 4 — Rust and Go index bytes — **done**
 
-§2.4, gated by the §4.1 experiment. The self-host is the test: the compiler's
-own parser scans `Lang.rgr`, which contains em dashes, and the C++ rendering
-already does byte indexing, so C++ and Rust should agree afterwards where they
-differ today.
+§2.4, gated by §4.1 (answered: zero cuts in 78 012 slices).
+
+`strlen`, `charAt` and `substring` on Rust and Go are now the UTF-8 byte
+their string is actually made of. Both had been the character, which cost
+them the quadratic scan of §1.3 — and, it turned out, correctness as well.
+
+**Go was losing text.** `indexOf` is `strings.Index` and answers a BYTE
+offset, while `charAt`, `strlen` and `substring` counted runes, so a scanner
+that found a delimiter and sliced at it sliced in the wrong place the moment
+anything non-ASCII stood before it. For `"ä,b"`:
+
+| | `indexOf` | `strlen` | head | tail |
+| --- | --- | --- | --- | --- |
+| Go, before | 2 | 3 | `ä,` | *(empty)* |
+| Go, after | 2 | 4 | `ä` | `b` |
+
+The tail — the rest of the document — was dropped without a word. Rust had
+the same bug and had papered over it: `rg_index_of` converted the byte offset
+to a character offset with `s[..b].chars().count()`, an O(n) pass on every
+call, and the comment in `compiler/RustClass.rgr` records the symptom that
+paid for it — an OOXML parser reading a slide with an umlaut in it "sliced
+the rest of the document one byte short per accent and dropped every shape
+after the first". Making the unit the byte removes the bug and the
+workaround. Rust's `charcode` had read `as_bytes()[0]` all along, so it
+disagreed with Rust's own `charAt`; now it does not.
+
+All nine runnable targets are internally consistent, in two families:
+
+| | `indexOf` | `strlen` | `charAt` at that index | `charcode` |
+| --- | --- | --- | --- | --- |
+| C++, PHP, **Rust**, **Go** | 2 | 4 | 44 | 195 |
+| JavaScript, Python, Java, C#, Kotlin | 1 | 3 | 44 | 228 |
+
+The speed, from `gallery/friendly/bench/strscan.rgr`:
+
+| n | Rust before | Rust after | Go before | Go after |
+| --- | --- | --- | --- | --- |
+| 15 000 | 143 ms | 1 ms | 6 906 ms | 1 ms |
+| 30 000 | 564 ms | 2 ms | 27 877 ms | 8 ms |
+| 60 000 | 2 250 ms | 5 ms | over 120 s | 5 ms |
+| 120 000 | 8 830 ms | 11 ms | over 120 s | 19 ms |
+
+Rust is C++ to the millisecond.
+
+**What the self-host then found.** A compiler whose own strings are bytes was
+writing every non-ASCII string literal into its output TWICE encoded: the
+C++ self-host emitted `"a—b"` as `C3 A2 C2 80 C2 94` instead of `E2 80 94`.
+`EncodeString` rebuilt each character with `strfromcode`, which writes a CODE
+POINT, from what `charAt` gave it, which on a byte host is a byte. This was
+already true of C++ and PHP and had never been noticed; Stage 4 would have
+extended it to Rust and Go. The same bug is recorded in `TARGET_NOTES.md`
+against the LLVM writer.
+
+The fix is one line in each of the six `EncodeString` copies and in
+`DictNode`: copy the unit with a one-unit `substring` instead of rebuilding
+it from its code. That carries whatever the unit is across unchanged, on
+every host. Afterwards the C++ and Go self-hosts each produce output
+**byte-identical** to the node-hosted compiler's for the same input, which is
+the strongest check available here.
+
+*Gate: npm test, the self-host checks on cpp, go, python, csharp, java,
+kotlin and rust, `gallery/friendly` (12 studies, 8 targets agreeing), and the
+C++ and Go self-hosts built, run, and diffed against the node host. The Rust
+self-host compiles to 0 errors but panics at startup on any input — it did so
+before this change too, so it is a pre-existing limitation and not a check
+this stage could use.*
 
 *Gate: `scripts/rust-selfhost-check.sh` at 0, `selfhost:check:go`, both
 renderings of the compiler producing byte-identical output to the node build,

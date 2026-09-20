@@ -147,17 +147,25 @@ function measure(target: string): Units | null {
 }
 
 describe("a string index means one of three things", () => {
-  const cases: Array<[string, typeof UTF16 | typeof CODEPOINT]> = [
+  const cases: Array<[string, typeof UTF16]> = [
     ["javascript", UTF16],
     ["kotlin", UTF16],
     ["python", CODEPOINT],
-    ["go", CODEPOINT],
-    ["rust", CODEPOINT],
+    // Rust and Go used to be code points. PLAN_STRING_INDEXING stage 4 made
+    // them the UTF-8 byte their string is actually made of: that is the unit
+    // either one indexes in O(1), and it is the unit their own `indexOf`
+    // always answered in.
+    ["go", UTF8_BYTE],
+    ["rust", UTF8_BYTE],
   ];
 
   for (const [target, model] of cases) {
     const name =
-      model === UTF16 ? "UTF-16 code units" : "Unicode code points";
+      model === UTF16
+        ? "UTF-16 code units"
+        : model === UTF8_BYTE
+          ? "UTF-8 bytes"
+          : "Unicode code points";
     it(`${target} indexes ${name}`, (ctx) => {
       const u = measure(target);
       if (!u) return ctx.skip();
@@ -168,10 +176,10 @@ describe("a string index means one of three things", () => {
     });
   }
 
-  // C++ and PHP index UTF-8 bytes. Neither has a compileAndRun helper here,
-  // and the byte model is already measured by gallery/friendly; the shape is
-  // recorded so the reader of this file sees all three.
-  it("records the third model without running it", () => {
+  // C++ and PHP index UTF-8 bytes too, and have no compileAndRun helper
+  // here; the byte model is measured above by Rust and Go and by
+  // gallery/friendly.
+  it("records the byte model's shape", () => {
     expect(UTF8_BYTE.bmpLen).toBe(5);
     expect(UTF8_BYTE.astralCodes.split(" ").length).toBe(6);
   });

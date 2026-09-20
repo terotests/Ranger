@@ -29,10 +29,17 @@ class DictNode {
     def encoded_str:string ""
     def str_length:int (strlen orig_str)
     def ii:int 0
-    def buff:charbuffer (to_charbuffer orig_str)
-    def cb_len:int (length buff)
-    while (ii < cb_len) {
-      def cc:char (charAt buff ii)
+    ; The string's own unit, not its bytes. Walking (to_charbuffer s) gave
+    ; UTF-8 bytes and the default arm below rebuilt each one with
+    ; `strfromcode`, which writes a CODE POINT -- so on a UTF-16 host every
+    ; byte of a multi byte character became its own character and the JSON
+    ; came out mojibake. Every case this switch names is ASCII, and an ASCII
+    ; byte is never part of a multi byte sequence, so the unit makes no
+    ; difference to finding them.
+    while (ii < str_length) {
+      ; :int, not :char -- `charAt` on a STRING is declared :int, and a
+      ; Ranger char is a byte on C#, which will not take a char implicitly
+      def cc:int (charAt orig_str ii)
       switch cc {
         case 8 {
           encoded_str = ((encoded_str + (strfromcode 92)) + (strfromcode 98))
@@ -59,7 +66,7 @@ class DictNode {
           encoded_str = ((encoded_str + (strfromcode 92)) + (strfromcode 47))
         }
         default {
-          encoded_str = (encoded_str + (strfromcode cc))
+          encoded_str = (encoded_str + (substring orig_str ii (ii + 1)))
         }
       }
       ii = (1 + ii)

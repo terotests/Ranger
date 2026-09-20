@@ -34,10 +34,10 @@ impl TextTools {
     acc
   }
   fn first_char(s : &str) -> String {
-    if  (s.chars().count() as i64) == 0 {
+    if  (s.len() as i64) == 0 {
       return "".to_string().clone();
     }
-    s.chars().take(1).collect::<String>().clone()
+    rg_substring(&s, 0, 1).clone()
   }
   fn twice(&self, xs : &[i64]) -> i64 {
     TextTools::total(xs) + TextTools::total(xs)
@@ -65,3 +65,41 @@ fn __rg_main_body() {
   println!("{}{}", "twice ".to_string(), t.twice(&xs));
   println!("{}{}", "first ".to_string(), TextTools::first_char("grace"));
 }
+
+// A Ranger string index is the TARGET'S OWN unit, and on Rust that unit is
+// the UTF-8 byte -- what a String is actually made of, and the only one it
+// indexes in constant time. It used to be the char: strlen counted chars(),
+// charAt was chars().nth(i) and substring was chars().skip().take(), so the
+// ordinary `while (i < (strlen s)) { charAt s i }` scan walked the string
+// once per character and was quadratic -- 120 000 characters took 8.8 s
+// where C++ took 11 ms. It also disagreed with charcode, which has read
+// as_bytes()[0] all along.
+//
+// Both helpers are TOTAL, because the forms they replace were: an index past
+// the end answered a zero rather than panicking, and scanners here rely on
+// reading one past the last character.
+fn rg_char_at(s: &str, at: i64) -> i64 {
+    let b = s.as_bytes();
+    if at < 0 { return 0; }
+    let i = at as usize;
+    if i >= b.len() { return 0; }
+    b[i] as i64
+}
+
+// A byte slice of a String has to be valid UTF-8, and a slice that cuts a
+// multi byte character is not. Measured over the compiler compiling itself
+// and the markdown gallery -- 78 012 slices -- not one cut a character:
+// a scanner slices at a delimiter it found, every delimiter here is ASCII,
+// and an ASCII byte is always a character boundary in UTF-8. So
+// from_utf8_lossy is the backstop for what the measurement did not cover,
+// not the expected path. docs/plans/PLAN_STRING_INDEXING.md 4.1.
+fn rg_substring(s: &str, from: i64, to: i64) -> String {
+    let b = s.as_bytes();
+    let n = b.len() as i64;
+    let mut a = if from < 0 { 0 } else { from };
+    if a > n { a = n; }
+    let mut e = if to > n { n } else { to };
+    if e < a { e = a; }
+    String::from_utf8_lossy(&b[a as usize..e as usize]).to_string()
+}
+
