@@ -197,7 +197,13 @@ class EvgAppTool {
         def cKeys:[string]
         def cInits:[string]
         this.boundControls((unwrap root) cIds cKeys cInits)
-        EvgAppTool.spit((appDir + "/machine.json") (EvgAppTool.machineWith(names cIds cKeys cInits)))
+        ; The choice groups, and then every key the document reads at all.
+        def pIds:[string]
+        def pKeys:[string]
+        def pVals:[string]
+        EvgAppTool.pickRows(ids pIds pKeys pVals)
+        def ctx:string (EvgAppTool.contextText((unwrap root) cKeys cInits pIds pKeys pVals))
+        EvgAppTool.spit((appDir + "/machine.json") (EvgAppTool.machineWith(names ctx cIds cKeys pIds pKeys pVals)))
 
         ; What is left, rather than only what was written.
         def missing:[string]
@@ -284,30 +290,148 @@ class EvgAppTool {
         return (out + "    ]")
     }
 
+    ; --- ONE OF SEVERAL --------------------------------------------------------
+    ; A settings sub-page is a list with a tick against the chosen row. That is
+    ; not a row of switches: it is ONE value, and pressing a row sets it.
+    ;
+    ; The convention is the id, the same way `nav.<state>` names a state:
+    ;
+    ;   pick.<key>.<value>      pick.cinematic.4k30
+    ;
+    ; which gives the machine a context key `cinematic` and one transition per
+    ; row assigning its own value. Nothing clears the other rows because there
+    ; is nothing to clear — they were never separate facts. The tick binds with
+    ; `{cinematic=4k30}` and asks the question rather than storing the answer.
+    ;
+    ; A value may contain dots; the key may not, because the split is at the
+    ; FIRST dot after the prefix. `pick.a.b.c` is key `a`, value `b.c`.
+    sfn pickRows:void (ids:[string] outIds:[string] outKeys:[string] outVals:[string]) {
+        def i:int 0
+        while (i < (array_length ids)) {
+            def id:string (itemAt ids i)
+            if ((indexOf id "pick.") == 0) {
+                def rest:string (substring id 5 (strlen id))
+                def dot:int (indexOf rest ".")
+                if (dot > 0) {
+                    def key:string (substring rest 0 dot)
+                    def val:string (substring rest (dot + 1) (strlen rest))
+                    if ((strlen val) > 0) {
+                        push outIds id
+                        push outKeys key
+                        push outVals val
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; THE CONTEXT IS WHAT THE DOCUMENT READS, not only what it can press.
+    ;
+    ; `boundControls` finds a switch: an id, and a `{key}` in its class. That
+    ; missed every hole in TEXT — a row's value, a tick, a count — so a
+    ; document that read `{cinematic}` got a machine that had never heard of
+    ; it, and the hole was still a hole on the running screen with nothing
+    ; saying why. An app should at least HOLD every name its own pages read.
+    ;
+    ; Three sources, in order of how much they know:
+    ;   a bound control   its own `checked`, so the app opens as drawn
+    ;   a choice group    the row the document marks, else the first row
+    ;   anything else     "", which renders as nothing rather than as `{name}`
+    sfn contextText:string (root:EVGElement cKeys:[string] cInits:[string]
+                            pIds:[string] pKeys:[string] pVals:[string]) {
+        def keys:[string]
+        def vals:[string]
+        def i:int 0
+        while (i < (array_length cKeys)) {
+            push keys (itemAt cKeys i)
+            push vals (itemAt cInits i)
+            i = (i + 1)
+        }
+        def p:int 0
+        while (p < (array_length pKeys)) {
+            def key:string (itemAt pKeys p)
+            if ((EvgAppTool.mentions(keys key)) == false) {
+                push keys key
+                push vals (EvgAppTool.chosenIn(root pIds pKeys pVals key))
+            }
+            p = (p + 1)
+        }
+        def read:[string]
+        EvgAppRules.keysOf(root read)
+        def r:int 0
+        while (r < (array_length read)) {
+            def key:string (itemAt read r)
+            if ((EvgAppTool.mentions(keys key)) == false) {
+                push keys key
+                push vals ""
+            }
+            r = (r + 1)
+        }
+        if ((array_length keys) == 0) {
+            return "{}"
+        }
+        def out:string "{ "
+        def c:int 0
+        while (c < (array_length keys)) {
+            if (c > 0) {
+                out = (out + ", ")
+            }
+            out = (out + (EVGTreeJson.str((itemAt keys c))) + ": " + (EVGTreeJson.str((itemAt vals c))))
+            c = (c + 1)
+        }
+        return (out + " }")
+    }
+
+    ; Which row of a group the document shows as chosen: the one whose element
+    ; says `checked`. Failing that the first, because a choice with nothing
+    ; chosen is a screen with no tick on it, which is not what was drawn.
+    sfn chosenIn:string (root:EVGElement pIds:[string] pKeys:[string] pVals:[string] key:string) {
+        def first:string ""
+        def i:int 0
+        while (i < (array_length pIds)) {
+            if ((itemAt pKeys i) == key) {
+                def val:string (itemAt pVals i)
+                if ((strlen first) == 0) {
+                    first = val
+                }
+                if (EvgAppTool.marksChecked(root (itemAt pIds i))) {
+                    return val
+                }
+            }
+            i = (i + 1)
+        }
+        return first
+    }
+
+    sfn marksChecked:boolean (el:EVGElement id:string) {
+        if (el.id == id) {
+            return (el.a11yChecked == 2)
+        }
+        def i:int 0
+        while (i < (array_length el.children)) {
+            if (EvgAppTool.marksChecked((itemAt el.children i) id)) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
     sfn machineFor:string (names:[string]) {
         def none:[string]
         def none2:[string]
         def none3:[string]
-        return (EvgAppTool.machineWith(names none none2 none3))
+        def none4:[string]
+        def none5:[string]
+        return (EvgAppTool.machineWith(names "{}" none none2 none3 none4 none5))
     }
 
-    sfn machineWith:string (names:[string] ids:[string] keys:[string] inits:[string]) {
+    sfn machineWith:string (names:[string] ctx:string ids:[string] keys:[string]
+                            pIds:[string] pKeys:[string] pVals:[string]) {
         def n:int (array_length names)
         def out:string "{\n \"id\": \"app\",\n \"initial\": "
         out = (out + (EVGTreeJson.str((itemAt names 0))))
-        def ctx:string "{}"
-        if ((array_length keys) > 0) {
-            ctx = "{ "
-            def c:int 0
-            while (c < (array_length keys)) {
-                if (c > 0) {
-                    ctx = (ctx + ", ")
-                }
-                ctx = (ctx + (EVGTreeJson.str((itemAt keys c))) + ": " + (EVGTreeJson.str((itemAt inits c))))
-                c = (c + 1)
-            }
-            ctx = (ctx + " }")
-        }
         out = (out + ",\n \"context\": " + ctx + ",\n \"states\": {\n")
         def i:int 0
         while (i < n) {
@@ -353,10 +477,27 @@ class EvgAppTool {
                 }
                 t = (t + 1)
             }
+            ; …and every row of a choice group, which assigns rather than
+            ; toggles: pressing it makes its own value the answer.
+            def q:int 0
+            while (q < (array_length pIds)) {
+                out = (out + ",\n")
+                out = (out + (EvgAppTool.assignFor((itemAt pIds q) (itemAt pKeys q) (itemAt pVals q))))
+                q = (q + 1)
+            }
             out = (out + "\n  } }")
             i = (i + 1)
         }
         return (out + "\n }\n}\n")
+    }
+
+    ; One row of a choice group. No guard: whatever was chosen before, this is
+    ; the choice now.
+    sfn assignFor:string (event:string key:string value:string) {
+        def out:string ("    " + (EVGTreeJson.str(event)) + ": ")
+        out = (out + "{ \"actions\": [ { \"assign\": { " + (EVGTreeJson.str(key)))
+        out = (out + ": { \"value\": " + (EVGTreeJson.str(value)) + " } } } ] }")
+        return out
     }
 
     sfn splitCommas:void (text:string out:[string]) {

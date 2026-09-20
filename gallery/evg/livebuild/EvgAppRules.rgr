@@ -21,6 +21,7 @@
 Import "../../statechart/src/Statechart.rgr"
 Import "pkg:evg/EVGElement.rgr"
 Import "pkg:evg/EVGTreeJson.rgr"
+Import "pkg:evg/EVGHoles.rgr"
 
 class EvgAppRules {
 
@@ -178,16 +179,29 @@ class EvgAppRules {
                     out = (out + (substring text i (i + 1)))
                     i = (i + 1)
                 } {
-                    def key:string (substring text (i + 1) close)
+                    def name:string (substring text (i + 1) close)
+                    def key:string (EVGHoles.keyOf(name))
                     ; The RAW answer, because the test is for the bare JSON
                     ; `null`. `plainValue` takes the quotes off first, which
                     ; would make a context value that really is the string
                     ; "null" look like a key that is not there.
                     def raw:string (runner.json(key))
-                    if (EvgAppRules.isNothing(raw)) {
-                        out = (out + (substring text i (close + 1)))
+                    if (EVGHoles.asksEquals(name)) {
+                        ; A question, not a lookup. A key the machine does
+                        ; not hold answers `unchecked` rather than leaving
+                        ; the hole: "is the choice 4k30?" has an answer even
+                        ; when nothing has chosen yet, and it is no.
+                        if (EvgAppRules.plainValue(raw) == (EVGHoles.wantOf(name))) {
+                            out = (out + "checked")
+                        } {
+                            out = (out + "unchecked")
+                        }
                     } {
-                        out = (out + (EvgAppRules.plainValue(raw)))
+                        if (EvgAppRules.isNothing(raw)) {
+                            out = (out + (substring text i (close + 1)))
+                        } {
+                            out = (out + (EvgAppRules.plainValue(raw)))
+                        }
                     }
                     i = (close + 1)
                 }
@@ -225,36 +239,11 @@ class EvgAppRules {
     }
 
     ; The `{key}` names in a node's text and class, whatever is around them.
+    ; One scanner, in `lib/evg`, so the design-time dress and the run-time
+    ; binding cannot disagree about what a hole is — and so `{key=value}`
+    ; reports `key`, which is the thing a machine has to hold.
     sfn scanKeys:void (text:string out:[string]) {
-        def n:int (strlen text)
-        def i@(mutable):int 0
-        while (i < n) {
-            if ((charAt text i) == 123) {
-                def j@(mutable):int (i + 1)
-                def close@(mutable):int (0 - 1)
-                while (j < n) {
-                    if ((charAt text j) == 125) {
-                        if (close < 0) {
-                            close = j
-                        }
-                    }
-                    j = (j + 1)
-                }
-                if (close < 0) {
-                    i = n
-                } {
-                    def key:string (substring text (i + 1) close)
-                    if ((strlen key) > 0) {
-                        if ((EvgAppRules.mentions(out key)) == false) {
-                            push out key
-                        }
-                    }
-                    i = (close + 1)
-                }
-            } {
-                i = (i + 1)
-            }
-        }
+        EVGHoles.scan(text out)
     }
 
     sfn keysOf:void (el:EVGElement out:[string]) {
