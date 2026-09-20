@@ -505,6 +505,60 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   console.log("  spend       a finished run says what it cost: tokens, turns, model, dollars");
 }
 
+// WHAT IS LIVE RIGHT NOW. The page has three states and they used to be eight
+// scattered `disabled =` lines, which is how the gaps got there: Run left the
+// prompt live, an agent mid-build left Run pressable, and a start-over chip
+// during Run deleted the app out from under the app that was running.
+//
+// Asserted against the source rather than a browser, because the point is that
+// ONE function owns it — a second owner is exactly the regression.
+{
+  const page = fs.readFileSync(path.join(here, "web/index.html"), "utf8");
+  const start = page.indexOf("function setPhase(phase)");
+  if (start < 0) throw new Error("the page has no setPhase — the phase table is gone");
+  const fn = page.slice(start, page.indexOf("// One line under the phone", start));
+  const must = [
+    ["edits are blocked unless idle", /const canEdit = idle;/],
+    ["the prompt field is disabled, not just its button", /\$\("prompt"\)\.disabled = !canEdit;/],
+    ["start-over chips follow canEdit", /for \(const b of \$\("chips"\)/],
+    ["reset follows canEdit", /\$\("reset"\)\.disabled = !canEdit;/],
+    // Not `!idle`: leaving Run has to stay possible while in Run.
+    ["Run is blocked while working and not while running", /\$\("run"\)\.disabled = working;/],
+    ["the spinner is the working phase", /spin\(working\);/],
+  ];
+  for (const [what, re] of must) {
+    if (!re.test(fn)) throw new Error("the phase table no longer says: " + what);
+  }
+  // A disabled submit button does not stop Enter in the field, so the handler
+  // has to check the phase itself.
+  if (!/if \(uiPhase !== "idle"\) return;\s*\n\s*start\(true\);/.test(page)) {
+    throw new Error("the submit handler does not guard on the phase");
+  }
+  // Reset leaves Run first: `resetSession` deletes app/, and an app running
+  // against a machine that is gone is the worst state this page can reach.
+  if (!/if \(runMode\) await leaveRun\(\);/.test(page)) {
+    throw new Error("reset does not leave Run mode before emptying the project");
+  }
+  console.log("  phases      idle / working / running, owned in one place");
+}
+
+// Reset empties the PROJECT, not just the picture: the app built from the old
+// screen goes too, or Run would drive states named after tabs that are gone.
+{
+  const dir = resetSession("settings");
+  fs.mkdirSync(path.join(dir, "app/pages"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "app/machine.json"), '{"id":"app"}\n');
+  resetSession("empty");
+  if (fs.existsSync(path.join(dir, "app"))) {
+    throw new Error("reset left the old app behind");
+  }
+  const doc = JSON.parse(fs.readFileSync(path.join(dir, "doc.evg.json"), "utf8"));
+  if ((doc.root.children || []).length !== 0) {
+    throw new Error("an emptied project is not empty: " + JSON.stringify(doc.root).slice(0, 120));
+  }
+  console.log("  reset       an empty project: blank canvas, and the old app thrown away");
+}
+
 const missing = agents.filter((a) => !a.available).map((a) => a.id);
 if (missing.length) {
   console.log("  skipped     " + missing.join(", ") + " (not on this machine)");

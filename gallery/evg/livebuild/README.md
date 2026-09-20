@@ -338,6 +338,27 @@ named for `t`.
 | `usage` | what the run cost: `input`, `cacheRead`, `cacheWrite`, `output`, `readTotal`, and `costUsd`, `turns`, `models` when the CLI says |
 | `done` | `ok`, step count, command count |
 
+### What is live right now
+
+The page has three states and one function that owns them:
+
+| | edits | start over · reset | Run |
+| --- | --- | --- | --- |
+| **idle** | yes | yes | enter |
+| **working** — an agent is building | no | no | no |
+| **running** — the machine owns the page | no | no | leave |
+
+Editing during Run would rewrite the document the app was built from, and a
+start-over during Run deletes `app/` out from under the app that is running.
+Entering Run mid-build would drive a screen that is still changing. Leaving Run
+stays possible in every state, which is why `Run` is disabled on *working* and
+not simply on "not idle".
+
+**Reset** empties the project: a blank canvas, and the app built from the old
+screen thrown away. It is the `empty` seed with its own button, because among
+the start-over chips it reads as one more sample screen when it is the only one
+that means throw this away.
+
 ### What size of screen
 
 The stage has Phone (390×844), Tablet (820×1180) and Desktop (1440×900), and a

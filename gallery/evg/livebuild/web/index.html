@@ -243,6 +243,7 @@
   <button type="button" class="chip" id="makeapp" hidden title="Write app/machine.json and a page per state from this phone">Make this an app</button>
   <span class="lbl">Keep</span>
   <button type="button" class="chip" id="save" title="Save this phone — the document and its app — so it survives the next start over">Save</button>
+  <button type="button" class="chip" id="reset" title="Empty the project: a blank canvas, and the app that was built from this screen thrown away">Reset</button>
   <select id="saved" class="chip" title="Open a saved design back into this session">
     <option value="">Saved…</option>
   </select>
@@ -357,7 +358,37 @@ $("prompt").value = kinds.kinds[0].prompt;
 
 $("ask").addEventListener("submit", (e) => {
   e.preventDefault();
+  // A disabled submit button does not reliably stop a form: pressing Enter in
+  // the field still submits in some browsers. The phase decides, not the
+  // button's state.
+  if (uiPhase !== "idle") return;
   start(true);
+});
+
+// START AGAIN WITH NOTHING.
+//
+// `Empty` was already one of the start-over chips and does the right thing,
+// but it reads as a seed among seeds — one more sample screen — when it is
+// the only one that means "throw this away". So it gets its own button, next
+// to Save, where a person looks for it.
+//
+// Leaving Run first is not politeness: `resetSession` deletes `app/`, and an
+// app running against a machine that no longer exists is the worst of the
+// states this page can be in.
+$("reset").addEventListener("click", async () => {
+  if (uiPhase !== "idle") return;
+  const hasWork = tokens > 0 || !$("makeapp").hidden;
+  if (hasWork && !confirm("Empty the project? The screen and any app built from it are thrown away.")) {
+    return;
+  }
+  if (runMode) await leaveRun();
+  current = "empty";
+  $("prompt").value = "";
+  for (const c of $("chips").querySelectorAll(".chip")) {
+    c.classList.toggle("active", c.textContent === "Empty");
+  }
+  await loadSeed("empty");
+  note("Empty project. Describe a screen and press Follow up.");
 });
 
 // SAVING, AND GETTING IT BACK.
@@ -428,6 +459,64 @@ $("saved").addEventListener("change", async (ev) => {
   }
 });
 
+// --- WHAT IS LIVE RIGHT NOW ---------------------------------------------------
+//
+// Three states, and one place that says what each allows. It used to be eight
+// scattered `disabled = ` lines, which is why the gaps were there: Run left
+// the prompt live, an agent mid-build left Run pressable, and a start-over
+// chip during Run wiped the app out from under the app that was running.
+//
+//   idle      nothing in flight: everything is live
+//   working   an agent is building: no second build, no Run against a screen
+//             that is still changing, and no start-over pulling the document
+//             out from under it
+//   running   the machine owns the page: no edits, because an edit rewrites
+//             the document the app was built from, and no reset for the same
+//             reason — leave Run first
+let uiPhase = "idle";
+
+function setPhase(phase) {
+  uiPhase = phase;
+  const working = phase === "working";
+  const running = phase === "running";
+  const idle = phase === "idle";
+
+  // Editing: the ask, and anything that rewrites the document.
+  const canEdit = idle;
+  $("go").disabled = !canEdit;
+  $("prompt").disabled = !canEdit;
+  $("prompt").title = canEdit
+    ? ""
+    : running
+      ? "Leave Run mode to edit — an edit rewrites the document this app was built from"
+      : "The agent is working";
+  $("attach").disabled = !canEdit;
+
+  // Start over, save and open all replace the session's files.
+  for (const b of $("chips").querySelectorAll(".chip")) {
+    b.disabled = !canEdit;
+    b.classList.toggle("off", !canEdit);
+  }
+  $("save").disabled = !idle;
+  $("saved").disabled = !idle;
+  $("reset").disabled = !canEdit;
+  $("reset").classList.toggle("off", !canEdit);
+
+  // Run is a different screen, so it cannot be entered mid-build. Leaving it
+  // must stay possible, which is why this is not simply `disabled = !idle`.
+  $("run").disabled = working;
+  $("run").classList.toggle("off", working);
+  $("run").title = working
+    ? "Wait for the agent to finish — the screen is still changing"
+    : running
+      ? "Back to the document"
+      : "Run the app: the machine owns the page, a press is an event";
+
+  $("makeapp").disabled = !idle;
+  for (const b of $("agents").querySelectorAll(".chip")) b.disabled = !idle;
+  spin(working);
+}
+
 // One line under the phone, where everything else about the screen is said.
 function note(text) {
   const el = document.createElement("div");
@@ -437,7 +526,7 @@ function note(text) {
 
 async function loadSeed(kind) {
   if (es) { es.close(); es = null; }
-  $("go").disabled = false;
+  setPhase("idle");
   const d = await (await fetch("/seed?kind=" + encodeURIComponent(kind))).json();
   current = d.kind || kind;
   paintFrame(d);
@@ -452,7 +541,6 @@ async function loadSeed(kind) {
   thinkStarted = false;
   pendingBreak = false;
   atParagraphStart = true;
-  spin(false);
 }
 
 // `measure` is the layout answering for itself: what overlaps and by how much,
@@ -592,7 +680,7 @@ function start(keepPicture) {
   pendingBreak = false;
   atParagraphStart = true;
   tokens = 0;
-  spin(true);
+  setPhase("working");
   $("think").textContent = "";
   $("ops").innerHTML = "";
   $("code").textContent = "";
@@ -602,7 +690,6 @@ function start(keepPicture) {
   $("ntok").textContent = "0";
   $("kindLabel").textContent = "";
   paintMeasure(null);
-  $("go").disabled = true;
   if (!keepPicture) $("screen").replaceChildren();
   const prompt = $("prompt").value.trim() || current;
   es = new EventSource(`/stream?agent=${encodeURIComponent(currentAgent)}&kind=${encodeURIComponent(current)}&prompt=${encodeURIComponent(prompt)}&pace=24`);
@@ -689,16 +776,14 @@ function start(keepPicture) {
     pendingBreak = true;
   });
   on("done", (d) => {
-    $("go").disabled = false;
-    spin(false);
+    setPhase("idle");
     $("added").textContent = d.ok ? "done" : "failed";
     const cur = $("think").querySelector(".cursor");
     if (cur) cur.remove();
     if (es) es.close();
   });
   es.onerror = () => {
-    $("go").disabled = false;
-    spin(false);
+    setPhase("idle");
     if (es && es.readyState === EventSource.CONNECTING) {
       // The stream ended. Do not let the browser open a second build.
       es.close();
@@ -884,8 +969,10 @@ async function makeApp() {
   } catch (e) {
     $("think").append("\n\napp: " + (e.message || e));
   } finally {
-    $("makeapp").disabled = false;
     $("makeapp").textContent = "Make this an app";
+    // Not `disabled = false`: this succeeds by entering Run mode, where the
+    // button must stay off. The phase is what knows that.
+    setPhase(uiPhase);
   }
 }
 
@@ -955,7 +1042,7 @@ async function enterRun() {
   if (es) { es.close(); es = null; }
   $("run").classList.add("live");
   $("screen").classList.add("live");
-  $("go").disabled = true;
+  setPhase("running");
   $("think").innerHTML = '<span class="empty">Run mode: the machine owns the page. Press the phone — an element\'s id is the event it sends.</span>';
   $("ops").innerHTML = '<span class="empty">Design mode streams ops. Run mode sends events.</span>';
   webApp = null;
@@ -997,7 +1084,7 @@ async function leaveRun() {
   $("makeapp").hidden = true;
   $("run").classList.remove("live");
   $("screen").classList.remove("live");
-  $("go").disabled = false;
+  setPhase("idle");
   try {
     const d = await (await fetch("/doc")).json();
     if (d.error) throw new Error(d.error);
@@ -1255,6 +1342,7 @@ async function boot() {
   // Size the stage before the first paint, so the picture never appears at
   // one size and jump to another.
   applyViewport({ refetch: false });
+  setPhase("idle");
   const v = viewport();
   try {
     const d = await (await fetch(`/doc?w=${v.w}&h=${v.h}`)).json();
