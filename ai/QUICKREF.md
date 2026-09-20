@@ -235,6 +235,24 @@ Prefix form only:
 ("a" + "b")
 ```
 
+**An index does not mean the same thing on every target.** `strlen`, `charAt`
+and `substring` agree with each other on any one target, and disagree between
+targets: a UTF-16 code unit on JavaScript, Java, Kotlin, C#, Dart and Swift; a
+Unicode code point on Python, Go and Rust; a UTF-8 byte on C++ and PHP. So
+`(strlen "a—b")` is 3, 3 or 5 depending on where it runs, and an index-based
+scan over non-ASCII text lands in different places.
+
+`tests/fixtures/string_units.rgr` prints what the target it was compiled for
+actually does, and `tests/string-units.test.ts` pins it. Write ASCII-only
+scans with `charAt`, use `lib/evg/EVGCodepoint.rgr` for text that may not be
+ASCII, and see `docs/plans/PLAN_STRING_INDEXING.md` for the migration to one
+unit.
+
+`charAt` is also **O(n) on Rust and Go** — `s.chars().nth(i)` and
+`[]rune(s)[i]` both walk from the start — so the ordinary
+`while (i < (strlen s)) { charAt s i }` loop is quadratic there.
+`gallery/friendly/bench/strscan.rgr` measures it.
+
 ## I/O and errors
 
 ```ranger

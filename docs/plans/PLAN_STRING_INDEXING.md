@@ -316,6 +316,39 @@ keeping `chars()` plus the Stage 5 migration.
 **This experiment runs before Stage 1**, because its answer changes the shape
 of the plan.
 
+**Answer: zero cuts.** The experiment was run by replacing the `cpp` arm of
+the `substring` template with a counting wrapper, generating and building the
+C++ self-host compiler from it, and reading the count at exit. A cut is a
+start or end index that lands on a UTF-8 continuation byte (`0b10xxxxxx`)
+with text on both sides of it.
+
+| workload | slices | cuts |
+|---|---|---|
+| the compiler compiling its own sources (`compiler/Compiler.rgr`, 12 targets' writers, `Lang.rgr`) | 37 193 | 0 |
+| the compiler compiling the markdown gallery (`gallery/markdown/bench/md_bench.rgr` and its imports) | 40 819 | 0 |
+
+Both inputs contain plenty of non-ASCII — em dashes, arrows and emoji in
+comments and string literals — so the zero is not for want of multi-byte text
+to cut. It is what §1 predicts: a scanner slices at a delimiter it found with
+`charAt`, every delimiter in this codebase is ASCII, and an ASCII byte is
+always a character boundary in UTF-8.
+
+So **Stage 4 is safe**: Rust can index and slice bytes, and a byte slice the
+compiler actually takes is always valid UTF-8. Stage 4 still has to decide
+what a Rust `substring` does when a *user's* program slices mid-character —
+the proposal is to keep it total by falling back to `from_utf8_lossy`, and to
+let the `-strict-strings` pass of §3.3 point at the call site instead of
+silently producing U+FFFD.
+
+One limit worth recording: this measures the compiler, which is the largest
+text walker in the repository but is still one program. An application-level
+run was attempted with the markdown bench, and could not be completed —
+`gallery/markdown/bench/md_bench.rgr` does not currently build on C++ for
+reasons unrelated to strings (a `MdBox::text` static/field collision and an
+`argc` shadow in the generated `main`). That is a separate defect; it is not a
+gap in this answer, since the compiler's own parser is precisely the code the
+template comment says depends on byte slicing.
+
 ### 4.2 Does `to_chars` cost the fast targets anything that matters?
 
 On JavaScript and Java a `charAt` scan allocates nothing today. Migrating one

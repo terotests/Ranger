@@ -1,0 +1,74 @@
+; strscan.rgr — is indexing a string O(1) on this target?
+;
+; The loop below is the commonest shape in this repository: walk a string one
+; index at a time and look at each character. 176 files contain one.
+;
+;   while (i < (strlen s)) { … (charAt s i) … }
+;
+; On a target that indexes in constant time the loop is O(n) and doubling the
+; input doubles the time. On Rust (`s.chars().nth(i)`) and Go
+; (`int64([]rune(s)[i])`, which also allocates the whole rune slice per read)
+; each access walks from the start, so the loop is O(n²) and doubling the
+; input QUADRUPLES it.
+;
+; Four sizes, so the shape is visible rather than asserted. Read the ratio
+; between consecutive rows, not the absolute milliseconds:
+;
+;   ~2x  the target indexes in constant time
+;   ~4x  the target re-walks the string on every read
+;
+; Measured on this machine when the file was written:
+;
+;   n         C++   JavaScript      Rust          Go
+;   15 000    1 ms     4 ms       143 ms      6 906 ms
+;   30 000    2 ms     3 ms       564 ms     27 877 ms
+;   60 000    5 ms     7 ms     2 250 ms   (over 120 s)
+;   120 000  11 ms    17 ms     8 830 ms   (over 120 s)
+;
+; C++ and JavaScript double; Rust quadruples; Go quadruples from a base 48x
+; worse again, because `[]rune(s)` allocates and copies the whole string on
+; every single read rather than merely walking it.
+;
+; docs/plans/PLAN_STRING_INDEXING.md §1.3 is what this measures and §2.4 is
+; the proposed fix.
+
+class StrScan {
+
+    ; Build a comma-joined string of `n` small numbers, then count the commas
+    ; by walking it one index at a time.
+    fn scan:int (n:int) {
+        def parts:[string]
+        def i:int 0
+        while (i < n) {
+            push parts (to_string (i % 997))
+            i = (i + 1)
+        }
+        def joined:string (join parts ",")
+        def total:int (strlen joined)
+        def j:int 0
+        def commas:int 0
+        while (j < total) {
+            if ((charAt joined j) == (ccode ",")) {
+                commas = (commas + 1)
+            }
+            j = (j + 1)
+        }
+        return commas
+    }
+
+    sfn main:void () {
+        def s:StrScan (new StrScan())
+        def sizes:[int]
+        push sizes 15000
+        push sizes 30000
+        push sizes 60000
+        push sizes 120000
+        for sizes n:int k {
+            def t0:double (wall_clock_ms)
+            def commas:int (s.scan(n))
+            def t1:double (wall_clock_ms)
+            print ((((to_string n) + " commas ") + (to_string commas)) + (" ms " + (to_string (to_int (t1 - t0)))))
+        }
+        print "done"
+    }
+}
