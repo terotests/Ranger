@@ -68,7 +68,10 @@ Six things to know, because they change how you write ops:
   do not. An inline property outranks the sheet, so `set-prop` still means
   what it meant. `evg-surface-effect` (`starfield`, `ripple`, `liquid-glass`)
   with `evg-effect-on` and `evg-fx-*` belongs in a rule too — it is a shader
-  over the element's box, and only a GPU painter draws it.
+  over the element's box, and only a GPU painter draws it. `liquid-glass`
+  refracts what is BEHIND the element: over an opaque `background-color`
+  only the edges show it and the body stays flat, which reads as the effect
+  not working. Give it a translucent fill and something worth seeing behind.
 
 - **`set-id` names a node.** An id is not a property — nothing paints it. It is
   what `query #id` finds, what the hit test answers with, and, if the document

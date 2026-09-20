@@ -140,7 +140,20 @@ class EVGLayout {
             return
         }
         def sheet:EVGStyleSheet (unwrap docSheet)
+        ; Last pass's marks first. A rule that was edited out would otherwise
+        ; leave a property marked as the sheet's forever, and the document
+        ; would stop writing down a value it is the only record of.
+        EVGLayout.clearCssMarks(root)
         sheet.applyTree(root "")
+    }
+
+    sfn clearCssMarks:void (el:EVGElement) {
+        el.clearCssMarks()
+        def i:int 0
+        while (i < (el.getChildCount())) {
+            EVGLayout.clearCssMarks((el.getChild(i)))
+            i = (i + 1)
+        }
     }
 
     fn warningCount:int () {

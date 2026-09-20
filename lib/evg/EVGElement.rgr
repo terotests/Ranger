@@ -913,6 +913,22 @@ class EVGElement {
     ; cascade — so front-ends call markInline() for every attribute they apply.
     def inlineProps:[string]
 
+    ; WHICH PROPERTIES CAME FROM THE DOCUMENT'S STYLESHEET.
+    ;
+    ; The sheet is applied by writing values onto elements, which makes a
+    ; cascaded value indistinguishable from an authored one the moment layout
+    ; has run — and anything that serializes the tree afterwards writes the
+    ; whole cascade into every node, turning a stylesheet into a one-time
+    ; macro. It happened: a page with six `.glass` cards came back with the
+    ; rule copied onto all six, class and all.
+    ;
+    ; So the sheet says so. `EVGStyleSheet` marks what it set, `EVGLayout`
+    ; clears the marks before re-applying, and `EVGTreeJson` leaves a marked
+    ; property out — the document keeps saying `class-name`, and the rule
+    ; stays one place. An inline property is never marked, because the sheet
+    ; does not touch one.
+    def cssProps:[string]
+
     ; PDF/Print settings (for Print element)
     def imageQuality:int 0          ; JPEG quality 1-100 (0 = use default)
     def maxImageSize:int 0          ; Max image dimension in pixels (0 = use default)
@@ -3008,6 +3024,33 @@ class EVGElement {
     ; Record that the authoring layer set `name` directly on this element.
     ; The local is `prop` and not `key`: `key` is a field of this class now,
     ; and a local shadowing it here would be a rename waiting to go wrong.
+    fn markCss:void (name:string) {
+        def prop:string (EVGElement.toKebab(name))
+        if ((this.fromCss(prop)) == false) {
+            push cssProps prop
+        }
+    }
+
+    fn fromCss:boolean (name:string) {
+        if ((array_length cssProps) == 0) {
+            return false
+        }
+        def prop:string (EVGElement.toKebab(name))
+        def i:int 0
+        while (i < (array_length cssProps)) {
+            if ((itemAt cssProps i) == prop) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    fn clearCssMarks:void () {
+        def empty:[string]
+        cssProps = empty
+    }
+
     fn markInline:void (name:string) {
         def prop:string (EVGElement.toKebab(name))
         if ((this.hasInline(prop)) == false) {
@@ -3238,6 +3281,12 @@ class EVGElement {
         effectTrigger = other.effectTrigger
         fxNames = other.fxNames
         fxValues = other.fxValues
+        documentCss = other.documentCss
+        ; The marks go with the values. An element that took another's
+        ; cascaded properties and not the record of where they came from is
+        ; an element that writes the whole stylesheet into itself the next
+        ; time the tree is serialized.
+        cssProps = other.cssProps
         scrollTop = other.scrollTop
         scrollLeft = other.scrollLeft
         scrollWidth = other.scrollWidth

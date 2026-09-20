@@ -733,10 +733,27 @@ screen that declares one with the GPU painter instead of SVG.
 }
 \`\`\`
 
-Put it on the node whose box it should cover and give that node a
-background of its own as well — an effect draws OVER the element, so a
-page with none behind it has nothing to sit on. \`ripple\` and
-\`liquid-glass\` are the other two that exist.
+Put it on the node whose box it should cover. A \`starfield\` draws the
+sky itself, so the node under it wants a dark background of its own.
+
+\`liquid-glass\` is the opposite and the one that disappoints: it
+REFRACTS WHAT IS BEHIND THE ELEMENT. Over an opaque
+\`background-color\` the effect still lands, but only the EDGES show it —
+a ghost of whatever is above the card, bent through its top rim — and
+the body of the card stays the flat colour it was told to be. That reads
+as "the effect did not work" and it is really "there was nothing to see
+through". Glass wants
+
+- a translucent fill — \`rgba(255,255,255,0.10)\` rather than
+  \`rgb(18,48,76)\` — so the whole box refracts and not just its rim, and
+- something worth seeing behind it: a starfield, a picture, a gradient.
+  Glass over a flat colour is a flat colour.
+
+Leave \`evg-fx-shine\` and \`evg-fx-sweep\` alone unless you know what
+you want from them; setting both to 0 removes the highlight and the
+moving bar, which are the two things that read as glass at a glance.
+
+\`ripple\` is the third, and it takes \`evg-effect-on: press drag\`.
 
 Spacing is \`gap\`, \`padding\` and \`margin\`. An empty \`span\` is
 not a spacer — it is a node with no size that reads as content to
