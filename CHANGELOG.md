@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`to_chars` is the portable indexable view of text.** `def cs:[int]
+  (to_chars s)` gives Unicode code points, the same sequence on every target,
+  built once in O(n) and read in O(1). `charAt` on a `string` stays the
+  target's own unit — that is what makes it O(1) there — and is right for a
+  scanner over ASCII structure; `to_chars` is for text a human wrote, where
+  `"a😀b"` has to be three characters and not two UTF-16 units plus two.
+  Because the program names the conversion, the allocation is asked for
+  rather than hidden behind an index.
+
 - **A `charbuffer` is UTF-8 bytes on every target.** It used to be whatever
   the host's string happened to be made of: UTF-16 units on JavaScript,
   Kotlin and Dart, code points on Python, bytes on the other eight, and on

@@ -33,13 +33,18 @@ import {
 
 const FIXTURE = "tests/fixtures/string_units.rgr";
 
-/** One target's answer to the three questions the fixture asks. */
+/** One target's answer to the questions the fixture asks. */
 interface Units {
   bmpLen: number;
   bmpCodes: string;
   astralLen: number;
   astralCodes: string;
   roundtrip: string;
+  /** `to_chars` — the portable view, which must agree everywhere. */
+  bmpChars: number;
+  bmpCharCodes: string;
+  astralChars: number;
+  astralCharCodes: string;
 }
 
 function parse(stdout: string): Units {
@@ -54,6 +59,10 @@ function parse(stdout: string): Units {
     astralLen: Number(line("astral len")),
     astralCodes: line("astral code"),
     roundtrip: line("roundtrip"),
+    bmpChars: Number(line("bmp chars")),
+    bmpCharCodes: line("bmp charcodes"),
+    astralChars: Number(line("astral chars")),
+    astralCharCodes: line("astral charcodes"),
   };
 }
 
@@ -178,6 +187,41 @@ describe("a string index means one of three things", () => {
     for (const [target, u] of seen) {
       expect(u!.roundtrip, `${target} scan and slice disagree`).toBe("yes");
     }
+  });
+});
+
+describe("to_chars means one thing everywhere", () => {
+  // The point of the operator: `charAt` is the target's own unit and the
+  // targets disagree above, while these four numbers are the same on all of
+  // them — including above the Basic Multilingual Plane, where the UTF-16
+  // targets see an emoji as two units and the UTF-8 ones as four bytes.
+  const CHARS = {
+    bmpChars: 3,
+    bmpCharCodes: "97 8212 98",
+    astralChars: 3,
+    astralCharCodes: "97 128512 98",
+  };
+
+  for (const target of Object.keys(runners)) {
+    it(`${target} reads code points`, (ctx) => {
+      const u = measure(target);
+      if (!u) return ctx.skip();
+      expect(u.bmpChars).toBe(CHARS.bmpChars);
+      expect(u.bmpCharCodes).toBe(CHARS.bmpCharCodes);
+      expect(u.astralChars).toBe(CHARS.astralChars);
+      expect(u.astralCharCodes).toBe(CHARS.astralCharCodes);
+    });
+  }
+
+  it("and every target that ran agrees, where charAt does not", (ctx) => {
+    const seen = Object.keys(runners)
+      .map((t) => measure(t))
+      .filter((u): u is Units => u !== null);
+    if (seen.length < 2) return ctx.skip();
+    expect(new Set(seen.map((u) => u.astralCharCodes)).size).toBe(1);
+    // ...while the raw index still gives three different answers, which is
+    // what the `it.fails` below records.
+    expect(new Set(seen.map((u) => u.astralLen)).size).toBeGreaterThan(1);
   });
 });
 

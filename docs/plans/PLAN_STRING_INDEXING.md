@@ -276,14 +276,30 @@ the process costs less than the slicing it replaces.
 kotlin and rust, `gallery/friendly`. Dart, Swift and Scala have no toolchain
 here and are read from the generated source.*
 
-### Stage 2 — `to_chars` exists
+### Stage 2 — `to_chars` exists — **done**
 
-Add the operator of §2.2 on all thirteen targets, with `string_units.rgr`
-extended to assert that `to_chars` gives the same answer everywhere including
-the astral case. Nothing migrates yet.
+The operator of §2.2 on all thirteen targets, and `string_units.rgr` extended
+with two more lines per input so the same fixture now prints both views:
+the target's own unit, which disagrees, and `to_chars`, which does not.
 
-*Gate: `string_units.rgr` passes on `to_chars` on every runnable target while
-still failing on raw `charAt`, which is the point.*
+| | `strlen` | `to_chars` |
+| --- | --- | --- |
+| `"a—b"` | 3 on nine targets, 5 on two | 3 everywhere |
+| `"a😀b"` | 4, 3 or 6 depending on the target | 3 everywhere |
+
+Six targets get it from the host — `Array.from` walks code points on
+JavaScript, a Python `str` and a Rust `char` and a Go `rune` already are code
+points, Dart has `runes` and Swift has `unicodeScalars`. Java, Kotlin, Scala
+and C# fold surrogate pairs back into the one code point they encode, PHP
+uses `mb_ord` over a `//u` split, and C++ decodes the UTF-8 itself.
+
+`tests/string-units.test.ts` now has both halves: `to_chars` must agree
+across every target that ran, and `strlen` must still disagree — the second
+assertion is what makes the first mean something.
+
+*Gate: string-units on nine targets, the self-host checks on cpp, go, python,
+csharp, java, kotlin and rust, rust-selfhost-check at 0, `gallery/friendly`.
+Dart, Scala, Swift 3 and Swift 6 were read from the generated source.*
 
 ### Stage 3 — `EVGCodepoint` moves onto `to_chars`
 

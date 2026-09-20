@@ -14,9 +14,15 @@
 ;
 ; Read the output as:
 ;
-;   len   <n>       (strlen s)
-;   code  <n> …     (charAt s i) for every i
-;   slice <text>    (substring s 1 2)
+;   len       <n>       (strlen s)
+;   code      <n> …     (charAt s i) for every i
+;   slice     <text>    (substring s 1 2)
+;   chars     <n>       (array_length (to_chars s))
+;   charcodes <n> …     every code point of s
+;
+; The first three are the target's own unit and disagree between targets.
+; The last two are `to_chars`, which is code points everywhere, and every
+; target has to give the same answer for them.
 ;
 ; A target whose `len`, `code` and `slice` disagree with each other is a bug
 ; in that writer. Targets that disagree with EACH OTHER are the defect this
@@ -40,6 +46,22 @@ class StringUnits {
         if (n > 2) {
             print ((label + " slice ") + (substring s 1 2))
         }
+        ; ...and the portable view of the same text. `to_chars` is Unicode
+        ; code points on every target, so these two lines have to agree
+        ; everywhere while the three above disagree.
+        def cs:[int] (to_chars s)
+        def cn:int (array_length cs)
+        print ((label + " chars ") + (to_string cn))
+        def cc:string ""
+        def k:int 0
+        while (k < cn) {
+            cc = (cc + (to_string (itemAt cs k)))
+            k = (k + 1)
+            if (k < cn) {
+                cc = (cc + " ")
+            }
+        }
+        print ((label + " charcodes ") + cc)
     }
 
     sfn main:void () {

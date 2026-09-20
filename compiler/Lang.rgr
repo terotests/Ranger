@@ -6396,6 +6396,148 @@ const r_cb_dec = new TextDecoder();
         ; bytes everywhere else, and on Scala `toCharArray.map(_.toByte)`,
         ; which silently truncates anything above U+00FF.
         ; docs/plans/PLAN_STRING_INDEXING.md 2.3.
+        ; The portable indexable view of text: Unicode CODE POINTS, the same
+        ; sequence on every target, built once in O(n) and read in O(1).
+        ;
+        ; `charAt` on a `string` is the target's own unit -- a UTF-16 code
+        ; unit, a code point or a UTF-8 byte, depending on where it runs --
+        ; and that is what makes it O(1) there. It is right for a scanner over
+        ; ASCII structure and wrong for anything a human wrote. `to_chars` is
+        ; the conversion that makes an index mean one thing everywhere, and
+        ; because the program names it, the allocation is asked for rather
+        ; than hidden.
+        ;
+        ;   def cs:[int] (to_chars s)
+        ;   def n:int (array_length cs)
+        ;   def c:int (itemAt cs 0)
+        ;
+        ; Above the Basic Multilingual Plane this is the only view that agrees
+        ; with itself: an emoji is ONE element here and two UTF-16 units or
+        ; four UTF-8 bytes in the other views.
+        ; docs/plans/PLAN_STRING_INDEXING.md 2.2.
+        to_chars   cmdToChars:[int]   ( text:string ) {
+            templates {
+                ranger ( "(to_chars " (e 1) ")" )
+                ; Array.from walks a string by code point, not by code unit,
+                ; which is exactly the difference this operator exists for
+                es6 ( "Array.from(" (e 1) ", (rg_c) => rg_c.codePointAt(0))" )
+                ; a Python str IS a sequence of code points
+                python ( "[ord(rg_c) for rg_c in " (e 1) "]" )
+                ; a Dart String indexes UTF-16, but `runes` is the code points
+                dart ( (e 1) ".runes.toList()" )
+                ; a Rust char IS a code point
+                rust ( (e 1) ".chars().map(|c| c as i64).collect::<Vec<i64>>()" )
+                swift3 ( "Array(" (e 1) ".unicodeScalars.map { Int($0.value) })" )
+                swift6 ( "Array(" (e 1) ".unicodeScalars.map { Int($0.value) })" )
+                php ( "array_map('mb_ord', preg_split('//u', " (e 1) ", -1, PREG_SPLIT_NO_EMPTY))" )
+                ; a Go rune IS a code point; the loop is only the int64 the
+                ; Ranger `[int]` is written as
+                go ( "r_to_chars(" (e 1) ")"
+(create_polyfill "
+func r_to_chars(s string) []int64 {
+    rs := []rune(s)
+    out := make([]int64, len(rs))
+    for i, r := range rs {
+        out[i] = int64(r)
+    }
+    return out
+}
+")
+                )
+                ; the JVM and .NET store UTF-16, so a surrogate pair has to be
+                ; folded back into the one code point it encodes
+                java7 ( "rg_to_chars(" (e 1) ")"
+(create_polyfill "
+static java.util.ArrayList<Integer> rg_to_chars(String s) {
+  java.util.ArrayList<Integer> out = new java.util.ArrayList<Integer>();
+  int i = 0;
+  while (i < s.length()) {
+    int cp = s.codePointAt(i);
+    out.add(cp);
+    i += Character.charCount(cp);
+  }
+  return out;
+}
+")
+                )
+                kotlin ( "rg_to_chars(" (e 1) ")"
+(create_polyfill "
+fun rg_to_chars(s: String): MutableList<Int> {
+  val out = mutableListOf<Int>()
+  var i = 0
+  while (i < s.length) {
+    val cp = s.codePointAt(i)
+    out.add(cp)
+    i += Character.charCount(cp)
+  }
+  return out
+}
+")
+                )
+                csharp ( "RgChars.ToChars(" (e 1) ")"
+(polyfill "after_imports" "
+static class RgChars {
+  public static System.Collections.Generic.List<int> ToChars(string s) {
+    System.Collections.Generic.List<int> res = new System.Collections.Generic.List<int>();
+    for (int i = 0; i < s.Length; i++) {
+      if (char.IsHighSurrogate(s[i]) && (i + 1) < s.Length && char.IsLowSurrogate(s[i + 1])) {
+        res.Add(char.ConvertToUtf32(s[i], s[i + 1]));
+        i++;
+      } else {
+        res.Add((int)s[i]);
+      }
+    }
+    return res;
+  }
+}
+")
+                )
+                scala ( "rg_to_chars(" (e 1) ")"
+(create_polyfill "
+def rg_to_chars(s: String): collection.mutable.ArrayBuffer[Int] = {
+  val out = collection.mutable.ArrayBuffer[Int]()
+  var i = 0
+  while (i < s.length) {
+    val cp = s.codePointAt(i)
+    out += cp
+    i += Character.charCount(cp)
+  }
+  out
+}
+")
+                )
+                ; a std::string is UTF-8 bytes, so this is the decode
+                cpp ( "r_to_chars(" (e 1) ")" (imp "<vector>") (imp "<string>")
+(create_polyfill "
+static std::vector<int> r_to_chars(const std::string & s) {
+    std::vector<int> out;
+    size_t i = 0;
+    while (i < s.size()) {
+        unsigned char c = (unsigned char)s[i];
+        int cp = 0;
+        size_t n = 1;
+        if ((c & 0x80) == 0) { cp = c; n = 1; }
+        else if ((c & 0xE0) == 0xC0) { cp = c & 0x1F; n = 2; }
+        else if ((c & 0xF0) == 0xE0) { cp = c & 0x0F; n = 3; }
+        else if ((c & 0xF8) == 0xF0) { cp = c & 0x07; n = 4; }
+        else { out.push_back(0xFFFD); i += 1; continue; }
+        if ((i + n) > s.size()) { out.push_back(0xFFFD); break; }
+        bool bad = false;
+        for (size_t k = 1; k < n; k++) {
+            unsigned char cc = (unsigned char)s[i + k];
+            if ((cc & 0xC0) != 0x80) { bad = true; break; }
+            cp = (cp << 6) | (cc & 0x3F);
+        }
+        out.push_back(bad ? 0xFFFD : cp);
+        i += n;
+    }
+    return out;
+}
+")
+                )
+            }
+        }
+
         to_charbuffer      cmdToCharBuffer:charbuffer       ( text:string ) { 
             templates {
                 ranger ( "(to_charbuffer " (e 1) ")") 

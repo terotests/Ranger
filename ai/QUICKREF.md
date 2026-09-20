@@ -248,8 +248,18 @@ scans with `charAt`, use `lib/evg/EVGCodepoint.rgr` for text that may not be
 ASCII, and see `docs/plans/PLAN_STRING_INDEXING.md` for the migration to one
 unit.
 
-`to_charbuffer` is the explicit byte view and DOES mean the same thing
-everywhere: UTF-8 bytes, indexed in O(1), on all thirteen targets.
+Two explicit conversions DO mean the same thing everywhere. `to_chars` is
+the portable indexable view — Unicode code points, built once in O(n) and
+read in O(1) — and is what text a human wrote should be walked with:
+
+```ranger
+def cs:[int] (to_chars s)            ; code points, same on every target
+def n:int (array_length cs)
+def c:int (itemAt cs 0)
+```
+
+`to_charbuffer` is the byte view: UTF-8 bytes, indexed in O(1), on all
+thirteen targets.
 
 ```ranger
 def b:charbuffer (to_charbuffer s)   ; UTF-8 bytes
@@ -257,6 +267,10 @@ def n:int (length b)
 def c:int (charAt b 0)               ; 0..255
 def head:string (substring b 0 1)    ; decoded back to text
 ```
+
+Above the Basic Multilingual Plane the three views differ by construction:
+`"a😀b"` is 3 `to_chars` elements, 6 `to_charbuffer` bytes, and 3 or 4 `strlen`
+units depending on the target.
 
 `charAt` is also **O(n) on Rust and Go** — `s.chars().nth(i)` and
 `[]rune(s)[i]` both walk from the start — so the ordinary
