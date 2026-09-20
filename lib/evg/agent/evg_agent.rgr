@@ -35,6 +35,8 @@ Import "../EVGElement.rgr"
 Import "../EVGInspect.rgr"
 Import "../EVGLayout.rgr"
 Import "../EVGMeasure.rgr"
+Import "../EVGHoles.rgr"
+Import "../EVGHitTest.rgr"
 Import "../EVGPatch.rgr"
 Import "../EVGUnit.rgr"
 Import "../EVGTreeJson.rgr"
@@ -87,6 +89,10 @@ class EvgAgent {
             this.measure(tree)
             return
         }
+        if (verb == "pick") {
+            this.pick(tree)
+            return
+        }
         this.usage()
     }
 
@@ -98,6 +104,160 @@ class EvgAgent {
         print "  patch   <doc> <ops.json> [--out=FILE]   apply ops, print the inverse"
         print "  measure <doc> [--width=N] [--height=N] [--boxes] [--at=PATH]"
         print "                                          lay it out and say what is wrong"
+        print "  pick    <doc> X Y [--width=N] [--height=N]"
+        print "                                          what is under that point, root first"
+    }
+
+    ; --- pick -----------------------------------------------------------------
+    ; The editor's question, which `query` cannot answer: somebody pointed at
+    ; the picture — what is that?
+    ;
+    ; It answers with the whole CHAIN from the root down to the deepest thing
+    ; under the point, not with one node, because the node under a pointer is
+    ; almost never the one somebody means. A click on a switch lands on its
+    ; thumb, and the thing to select is two levels up. Handing back the chain
+    ; lets the caller show the levels and let a person choose, and it costs one
+    ; walk rather than a round trip per level.
+    ;
+    ; The tree is dressed first, for the same reason `measure` dresses it: the
+    ; point was aimed at the picture on the screen, so the boxes have to be the
+    ; boxes that were drawn.
+    fn pick:void (root:EVGElement) {
+        def argc:int (shell_arg_cnt)
+        if (argc < 4) {
+            print "{\"error\":\"pick needs X and Y\"}"
+            return
+        }
+        EVGDress.dress(root)
+        def w:int (EvgAgent.intFlag("--width" (EVGMeasure.sizeOf(root true 1200))))
+        def h:int (EvgAgent.intFlag("--height" (EVGMeasure.sizeOf(root false 900))))
+        def ax:int (EvgAgent.numAt(2))
+        def ay:int (EvgAgent.numAt(3))
+        def px:double (to_double ax)
+        def py:double (to_double ay)
+        def l (new EVGLayout())
+        l.setPageSize((to_double w) (to_double h))
+        l.layout(root)
+        ; Every box where it was drawn. A `transform` is carried as a shift
+        ; that a reader settles before looking, and a picker is a reader.
+        ; Note this settles a subtree, not the shifted element's own box —
+        ; the same thing `EVGHitTest` does, so a thumb moved by a transform
+        ; answers as its track here exactly as it does under a press.
+        root.settleAll()
+        insp.build(root)
+
+        ; The deepest element holding the point. Depth decides, and among
+        ; equals the later one wins, because that is the one painted on top.
+        def best:string ""
+        def bestDepth:int (0 - 1)
+        def i:int 0
+        while (i < (insp.count())) {
+            def path:string (insp.pathAt(i))
+            def hit@(optional):EVGElement (insp.elementAt(path))
+            if ((null? hit) == false) {
+                def el:EVGElement (unwrap hit)
+                if ((el.isHidden()) == false) {
+                    if (EVGHitTest.containsPoint(el px py)) {
+                        def d:int (EvgAgent.depthOf(path))
+                        if (d >= bestDepth) {
+                            bestDepth = d
+                            best = path
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if ((strlen best) == 0) {
+            print "{\"chain\":[],\"count\":0}"
+            return
+        }
+        ; Up to the root, then printed the other way round, so the first entry
+        ; is the page and the last is what the pointer was actually over.
+        def up:[string]
+        def at:string best
+        def guard:int 0
+        while ((guard < 64) && ((strlen at) > 0)) {
+            push up at
+            at = (insp.parentOf(at))
+            guard = (guard + 1)
+        }
+        def out:string "{\"chain\":["
+        def n:int 0
+        def k:int ((array_length up) - 1)
+        while (k >= 0) {
+            def p:string (itemAt up k)
+            def got@(optional):EVGElement (insp.elementAt(p))
+            if ((null? got) == false) {
+                def el:EVGElement (unwrap got)
+                if (n > 0) {
+                    out = (out + ",")
+                }
+                out = (out + "\n  ")
+                out = (out + (EvgAgent.pickOne(p el)))
+                n = (n + 1)
+            }
+            k = (k - 1)
+        }
+        if (n > 0) {
+            out = (out + "\n")
+        }
+        out = ((out + "],\"count\":") + (to_string n))
+        out = ((out + ",\"at\":") + (EVGTreeJson.str(best)))
+        print (out + "}")
+    }
+
+    ; One link of the chain: enough to name it in a sidebar and draw a box
+    ; round it, and not the whole node.
+    sfn pickOne:string (path:string el:EVGElement) {
+        def out:string "{\"at\":"
+        out = (out + (EVGTreeJson.str(path)))
+        out = ((out + ",\"tag\":") + (EVGTreeJson.str(el.tagName)))
+        if ((strlen el.id) > 0) {
+            out = ((out + ",\"id\":") + (EVGTreeJson.str(el.id)))
+        }
+        if ((strlen el.className) > 0) {
+            out = ((out + ",\"class\":") + (EVGTreeJson.str(el.className)))
+        }
+        if ((strlen el.role) > 0) {
+            out = ((out + ",\"role\":") + (EVGTreeJson.str(el.role)))
+        }
+        def t:string (trim el.textContent)
+        if ((strlen t) > 0) {
+            out = ((out + ",\"text\":") + (EVGTreeJson.str(t)))
+        }
+        out = ((out + ",\"x\":") + (EVGMeasure.num(el.calculatedX)))
+        out = ((out + ",\"y\":") + (EVGMeasure.num(el.calculatedY)))
+        out = ((out + ",\"w\":") + (EVGMeasure.num(el.calculatedWidth)))
+        out = ((out + ",\"h\":") + (EVGMeasure.num(el.calculatedHeight)))
+        out = ((out + ",\"children\":") + (to_string (array_length el.children)))
+        return (out + "}")
+    }
+
+    ; A positional number argument. `to_int` on a string is optional-typed and
+    ; answers differently per target, so a digit loop is the same everywhere —
+    ; the same reason `intFlag` has one.
+    sfn numAt:int (slot:int) {
+        def v:string (shell_arg slot)
+        def out@(mutable):int 0
+        def k@(mutable):int 0
+        def neg:boolean ((indexOf v "-") == 0)
+        if neg {
+            k = 1
+        }
+        while (k < (strlen v)) {
+            def d:int (indexOf "0123456789" (substring v k (k + 1)))
+            if (d < 0) {
+                k = (strlen v)
+            } {
+                out = ((out * 10) + d)
+                k = (k + 1)
+            }
+        }
+        if neg {
+            return (0 - out)
+        }
+        return out
     }
 
     ; --- outline --------------------------------------------------------------
@@ -468,6 +628,12 @@ class EvgAgent {
     ; right; this verb is the flags around it.
     fn measure:void (root:EVGElement) {
         def m (new EVGMeasure())
+        ; Fill the design's own state holes first, so the numbers describe the
+        ; control as it is drawn rather than a `ui-switch-state-{wifi}` that
+        ; matches no rule and lays out to nothing. `measure` never writes the
+        ; document back — `patch` is a different verb and a different tree —
+        ; so dressing in place here cannot reach the file.
+        EVGDress.dress(root)
         def w:int (EvgAgent.intFlag("--width" (EVGMeasure.sizeOf(root true 1200))))
         def h:int (EvgAgent.intFlag("--height" (EVGMeasure.sizeOf(root false 900))))
         def at:string ""
@@ -584,11 +750,26 @@ class EvgAgent {
                                     if (key == "tag") {
                                         o.tag = (c.readString())
                                     } {
+                                      if (key == "node") {
+                                        ; A whole subtree, in the same shape a
+                                        ; document is written in, read by the
+                                        ; same reader. `insert` then puts in a
+                                        ; control rather than an empty box.
+                                        def sub@(optional):EVGElement (c.readNode())
+                                        if sub {
+                                            def kid:EVGElement (unwrap sub)
+                                            o.node = sub
+                                            if ((strlen o.tag) == 0) {
+                                                o.tag = kid.tagName
+                                            }
+                                        }
+                                      } {
                                         if (key == "index") {
                                             o.index = (c.readNumber())
                                         } {
                                             c.skipValue()
                                         }
+                                      }
                                     }
                                 }
                             }

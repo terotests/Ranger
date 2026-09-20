@@ -93,6 +93,24 @@ class EVGTreeJson {
         if ((strlen el.textContent) > 0) {
             out = (((out + ",\"text\":") + (EVGTreeJson.str(el.textContent))))
         }
+        ; WHAT THE NODE IS, not how it looks. A document that carries a real
+        ; control has to be able to say so: without this a switch is a pill
+        ; with a knob in it, indistinguishable from one somebody drew, and
+        ; everything reading the document afterwards — the accessibility tree,
+        ; the layout check that names drawn controls — has to guess.
+        if ((strlen el.role) > 0) {
+            out = (((out + ",\"role\":") + (EVGTreeJson.str(el.role))))
+        }
+        if ((strlen el.a11yLabel) > 0) {
+            out = (((out + ",\"label\":") + (EVGTreeJson.str(el.a11yLabel))))
+        }
+        if (el.a11yHidden) {
+            out = (out + ",\"hidden\":true")
+        }
+        ; 0 not applicable, 1 no, 2 yes — the tri-state a checkbox needs.
+        if (el.a11yChecked > 0) {
+            out = ((out + ",\"checked\":") + (to_string el.a11yChecked))
+        }
         def props:string (this.props(el))
         if ((strlen props) > 0) {
             out = ((((out + ",\"props\":{") + props) + "}"))
@@ -439,6 +457,21 @@ class EVGJsonCursor {
 
     ; Numbers appear in an ops file (`index`), never in a document, so this is
     ; small on purpose: an optional minus and digits.
+    ; `true` or `false`; anything else is stepped over and answers false.
+    fn readBool:boolean () {
+        this.skipWs()
+        if ((this.peek()) == 116) {
+            def i:int 0
+            while (i < 4) {
+                def taken:int (this.take())
+                i = (i + 1)
+            }
+            return true
+        }
+        this.skipValue()
+        return false
+    }
+
     fn readNumber:int () {
         this.skipWs()
         def neg:boolean false
@@ -525,6 +558,11 @@ class EVGJsonCursor {
         def id:string ""
         def key:string ""
         def text:string ""
+        ; What the node IS, read back the way it was written.
+        def role:string ""
+        def label:string ""
+        def hidden:boolean false
+        def checked:int 0
         def propNames:[string]
         def propValues:[string]
         def kids:[EVGElement]
@@ -544,6 +582,10 @@ class EVGJsonCursor {
                 el.id = id
                 el.key = key
                 el.textContent = text
+                el.role = role
+                el.a11yLabel = label
+                el.a11yHidden = hidden
+                el.a11yChecked = checked
                 def i:int 0
                 while (i < (array_length propNames)) {
                     def pn:string (itemAt propNames i)
@@ -581,6 +623,18 @@ class EVGJsonCursor {
                                 if (field == "text") {
                                     text = (this.readString())
                                 } {
+                                  if (field == "role") {
+                                    role = (this.readString())
+                                  } {
+                                  if (field == "label") {
+                                    label = (this.readString())
+                                  } {
+                                  if (field == "hidden") {
+                                    hidden = (this.readBool())
+                                  } {
+                                  if (field == "checked") {
+                                    checked = (this.readNumber())
+                                  } {
                                     if (field == "props") {
                                         this.readProps(propNames propValues)
                                     } {
@@ -590,6 +644,10 @@ class EVGJsonCursor {
                                             this.skipValue()
                                         }
                                     }
+                                  }
+                                  }
+                                  }
+                                  }
                                 }
                             }
                         }

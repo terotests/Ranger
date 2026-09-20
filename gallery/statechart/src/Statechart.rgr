@@ -113,6 +113,30 @@ class ScValOps {
         return false
     }
 
+    ; Two values that say the same thing. Only text and the shapes that have
+    ; an obvious text — a machine's context is JSON, and `"checked"` in a
+    ; file is a string whatever it means.
+    sfn asText:string (v:ScVal) {
+        match v {
+            Nothing { return "" }
+            Str s { return s.text }
+            Bool b {
+                if b.flag {
+                    return "true"
+                }
+                return "false"
+            }
+            Num n { return (to_string n.value) }
+            List l { return "" }
+            Map m { return "" }
+        }
+        return ""
+    }
+
+    sfn sameText:boolean (a:ScVal b:ScVal) {
+        return ((ScValOps.asText(a)) == (ScValOps.asText(b)))
+    }
+
     ; A map with one key set. The original spreads and overwrites:
     ; `{ ...context.keepSameByDay, [event.day]: event.keep }`.
     sfn withKey:ScVal (target:ScVal key:string value:ScVal) {
@@ -732,6 +756,18 @@ class ScRunner {
                 Map m { return (ScValOps.present(v)) }
             }
             return false
+        }
+        ; `is` — the value equals this one. The predicate a TOGGLE needs and
+        ; the only one these guards could not say: `present` and `nonBlank`
+        ; ask whether there is anything there, and a switch that is on and a
+        ; switch that is off both carry a word. Without it a machine can move
+        ; between screens and cannot flip a control on one.
+        if (g.kind == "is") {
+            def have:ScVal (this.valueOfGuard(g event))
+            if (null? g.operand) {
+                return false
+            }
+            return (ScValOps.sameText(have (unwrap g.operand)))
         }
         if (g.kind == "not") {
             return ((this.passes((itemAt g.parts 0) event)) == false)

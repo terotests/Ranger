@@ -55,7 +55,114 @@ hidden, tabstop, focused, visible — and the harness diffs the traces.
 npm run ui:test          # controllers + cascade, no browser, runs in CI
 npm run ui:report        # the scorecard, against real Radix in Chromium
 npm run ui:conformance   # the same run, printed as divergences
+npm run ui:kit:check     # every catalogued control builds, draws and is styled
 ```
+
+## The kit, for something that cannot click
+
+An agent asked to "add a switch" used to have to draw one: a rounded box, a
+circle, a colour, and a guess about what happens when it is pressed. What
+comes out looks like a switch in the screenshot that prompted it and is not a
+control — nothing presses, nothing reports a state, and a reader is told
+about a `div`.
+
+`gallery/ui/kit` is the door to the real ones for a program with no browser:
+
+```bash
+npm run ui:kit list                          what exists, one line each
+npm run ui:kit spec switch                   props, classes, what it is measured against
+npm run ui:kit add switch --name "Wi-Fi" --checked --into doc.evg.json
+npm run ui:kit shot checkbox --out cb.png    a picture, headless
+```
+
+### Does a control put into a document actually work?
+
+On ONE SCREEN, no: it looks right, it reports the right role, name and state
+to a reader, and pressing it does nothing, because a screen has nothing to
+remember with. In an APP it does, and it needs two things to:
+
+```bash
+npm run ui:kit add row --title "Wi-Fi" --control switch --checked \
+  --id toggle.wifi --bind wifi --into pages/settings.evg.json
+```
+
+- `--id` is the event a press sends to the machine.
+- `--bind` is where the state lives: the control is written with
+  `ui-switch-state-{wifi}` instead of a state word, and the app fills
+  `{wifi}` from its context on every render.
+
+The machine flips the key with two guarded alternatives — the first whose
+guard passes wins, so those two lines are a toggle — and the switch moves.
+`livebuild:app` checks that whole chain: the kit writes it, a press flips it,
+the render shows the other state.
+
+Two things had to change for that to be true. `EvgAppTool` bound `{key}` in
+TEXT only, so a document could show a number from the context and not a
+control's state. And the kit wrote its controls with the stylesheet already
+resolved into them, which is right for a picture and wrong for a document:
+an inline property outranks every rule, so a control saved that way is frozen
+in the state it was built in. `UiHost.plainTreeJson` is the tree with the
+classes and none of the paint.
+
+### The pieces, not the parts
+
+A control is not what anybody builds. They build a ROW — an icon, a title
+over a subtitle, a switch at the end — and then thirty more like it. Offered
+only the switch, an agent draws the other four parts itself every time, which
+is both where the drawn controls come from and where a column of things that
+do not line up comes from: five hand-written paddings and five guesses at the
+gap. So the kit offers the whole piece:
+
+```bash
+npm run ui:kit add card \
+  --row "Signal strength|Excellent|value:Excellent" \
+  --row "Share network|Others on this device can connect|switch:on" \
+  --row "Privacy|Use randomized MAC|chevron" --into doc.evg.json
+```
+
+`row`, `card`, `appbar`, `chips` and `field` are built in `ui_kit.mjs` out of
+plain nodes and this kit's own controls — there is no second control
+implementation — and their parts carry classes the sheet already styles, so a
+document restyles a row by overriding `.ui-row-title` rather than rebuilding
+it. `ui:kit:check` measures each one and fails if a piece of THIS kit contains
+a control drawn out of boxes.
+
+`add` answers `{tree, css, classes, ops}`. The tree is what the controller
+BUILT — not a drawing of it — the CSS is sliced out of this kit's own sheet,
+and the ops are a batch `evg_agent patch` applies as it stands: a `set-css`
+with the rules the document is missing, and an `insert` carrying the control
+as a subtree. (`EVGPatch`'s `insert` learned to carry one for this: a control
+is a tree, and an agent that can only insert one empty node at a time builds
+a drawing instead.)
+
+`catalog.json` declares the sentence and the props; everything else is
+computed — the classes off the built tree, the behaviours from
+`conformance/behaviours.json`, and "proven" from whether a conformance spec
+exercises it against the real Radix component. `ui:kit:check` fails when a
+control lays out to nothing, when a PART of it has no rule (that is how a
+component stops being usable without anybody noticing: it still works, it
+just looks like nothing), or when the sheet does not parse.
+
+The EVG live-build workspace carries it as `./evg-ui`, and its guide says to
+ask for a control rather than draw one — and to say so plainly when the kit
+has nothing for what was asked, because a drawing of a calendar is worse than
+an honest "there is no calendar here yet".
+
+**The calendar had no rules at all.** Behaviour complete, keyboard complete,
+125 checks of its own — and painting as bare text, because the only sheet
+that ever styled one belonged to a demo. `ui:kit:check` is what said so, and
+the rules are now in `theme/base.css` where the rest of the kit's are. Its
+weeks also needed `flex-wrap: nowrap` written down: EVG initialises
+`flex-wrap` to WRAP, so a week one pixel wider than its parent silently
+becomes two rows.
+
+**A switch is a track with a thumb.** It used to be a pill with a word in it:
+at Radix parity on every behaviour, and unusable in a real interface. Both it
+and the checkbox now build their parts — `ui-switch-track` / `ui-switch-thumb`,
+`ui-checkbox-box` / `ui-checkbox-mark` — each with its own state class, so
+another size, another colour and another travel are rules in a sheet. The
+checkbox's tick is a path, not a glyph: a font without ✓ in it paints a box,
+and the mark is the one part that has to be right.
 
 The browser side needs the reference host installed once — `ui:web` and
 `ui:report` both say so by name if it is missing:

@@ -71,6 +71,13 @@ class EVGPatchOp {
     def toPath:string ""
     def index:int 0
     def tag:string ""
+    ; `insert` may carry a whole SUBTREE rather than one empty tag. A real
+    ; control is a tree — a switch is a track with a thumb in it — and an
+    ; agent that can only insert one empty node at a time has to build one
+    ; out of a dozen ops, which is how a screen ends up with a drawing of a
+    ; switch instead of a switch. Reading it is the caller's: `evg_agent`
+    ; parses `"node": {…}` with the same reader that reads a document.
+    def node@(optional):EVGElement
     ; `restore` only: which detached subtree in the result's stash to put back.
     def stash:int 0
 
@@ -123,6 +130,18 @@ class EVGPatchOp {
         o.at = at
         o.index = index
         o.tag = tag
+        return o
+    }
+
+    ; A subtree, put in whole. Its inverse is the same `remove` an empty
+    ; insert gets, so undo needs to know nothing about this.
+    sfn insertTree:EVGPatchOp (at:string index:int kid:EVGElement) {
+        def o (new EVGPatchOp())
+        o.op = "insert"
+        o.at = at
+        o.index = index
+        o.tag = kid.tagName
+        o.node = kid
         return o
     }
 
@@ -427,6 +446,9 @@ class EVGPatch {
         }
         def parent:EVGElement (unwrap hit)
         def made@(optional):EVGElement (EVGPatch.create(op.tag))
+        if (op.node) {
+            made = op.node
+        }
         if (null? made) {
             return ((("no element type for tag \"" + op.tag) + "\" — div, span, img or path"))
         }

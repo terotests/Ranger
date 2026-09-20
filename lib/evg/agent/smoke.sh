@@ -36,6 +36,16 @@ echo "$found" | grep -q 'overlap by 100×40' || fail "overlap did not carry the 
 npm run --silent agent -- measure lib/evg/agent/fixtures/card.evg.json --width=600 --height=400 \
   | grep -q '"bottomFree"' || fail "measure did not report the free space"
 
+# a control somebody DREW. The fixture holds two switches that lay out the
+# same: one made of boxes, one that says `role: switch`. The first is named
+# with its path, the second is not — a document that declares what a node IS
+# is the whole difference, and it is what a kit's control carries.
+drawn=$(npm run --silent agent -- measure lib/evg/agent/fixtures/drawn.evg.json --width=390 --height=200)
+echo "$drawn" | grep -q '"drawn"' || fail "measure did not notice a drawn switch: $drawn"
+echo "$drawn" | grep -q '0/0/1: a pill with a knob' || fail "the drawn switch was not named by its path: $drawn"
+echo "$drawn" | grep -q '0/1/0: a pill' && fail "a control that declares its role was reported as drawn: $drawn"
+echo "$drawn" | grep -q '"count":0' || fail "a drawn control is not a layout defect and must not move count: $drawn"
+
 # alignment: the defect every other check passes. A stack that shares no edge,
 # and an overlay one padding to the right of the column it floats over.
 cat > "$work/ragged.evg.json" <<'JSON'

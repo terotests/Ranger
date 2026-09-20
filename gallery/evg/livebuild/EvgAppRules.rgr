@@ -123,6 +123,154 @@ class EvgAppRules {
         return false
     }
 
+    ; --- {key} ----------------------------------------------------------------
+    ; ONE COPY OF THE BINDING, because there were two and they drifted the
+    ; first time one of them learned something. The tool renders a page and so
+    ; does the browser runtime; a `{key}` filled in one and not the other is a
+    ; screen that works on the command line and is dead in the tab.
+    ;
+    ; It fills a node's TEXT and its CLASS NAME. The class matters as much as
+    ; the text: a control's state is a class — a switch is on because it
+    ; carries `ui-switch-state-checked` — so a document that binds only text
+    ; can show a number from the context and not a control's state.
+    sfn bindTree:void (el:EVGElement runner:ScRunner) {
+        if ((strlen el.textContent) > 0) {
+            el.textContent = (EvgAppRules.fillText(el.textContent runner))
+        }
+        if ((strlen el.className) > 0) {
+            el.className = (EvgAppRules.fillText(el.className runner))
+        }
+        def i:int 0
+        while (i < (array_length el.children)) {
+            EvgAppRules.bindTree((itemAt el.children i) runner)
+            i = (i + 1)
+        }
+    }
+
+    ; A key the context does not have is left as it was written: a missing
+    ; binding should look wrong on the screen, not look empty.
+    ;
+    ; `ScRunner.json` answers a key it does not hold with the JSON `null`, not
+    ; with nothing — so this used to write the word into the class and a
+    ; control bound to a key the machine never got became
+    ; `ui-switch-state-null`. That matches no rule, so the control painted as
+    ; if it had no state and never moved however often it was pressed, and the
+    ; screen said "null" nowhere a person would look. A hole left open says
+    ; the same thing where it can be seen, and `evg_app check` names the key.
+    sfn fillText:string (text:string runner:ScRunner) {
+        def out@(mutable):string ""
+        def i@(mutable):int 0
+        def n:int (strlen text)
+        while (i < n) {
+            def c:int (charAt text i)
+            if (c == 123) {
+                def close@(mutable):int (0 - 1)
+                def j@(mutable):int (i + 1)
+                while (j < n) {
+                    if ((charAt text j) == 125) {
+                        if (close < 0) {
+                            close = j
+                        }
+                    }
+                    j = (j + 1)
+                }
+                if (close < 0) {
+                    out = (out + (substring text i (i + 1)))
+                    i = (i + 1)
+                } {
+                    def key:string (substring text (i + 1) close)
+                    ; The RAW answer, because the test is for the bare JSON
+                    ; `null`. `plainValue` takes the quotes off first, which
+                    ; would make a context value that really is the string
+                    ; "null" look like a key that is not there.
+                    def raw:string (runner.json(key))
+                    if (EvgAppRules.isNothing(raw)) {
+                        out = (out + (substring text i (close + 1)))
+                    } {
+                        out = (out + (EvgAppRules.plainValue(raw)))
+                    }
+                    i = (close + 1)
+                }
+            } {
+                out = (out + (substring text i (i + 1)))
+                i = (i + 1)
+            }
+        }
+        return out
+    }
+
+    ; "the context does not hold this". A quoted "null" is a string somebody
+    ; chose and is left alone; the bare word is what `ScValOps.toJson` writes
+    ; for a key that is not there.
+    sfn isNothing:boolean (val:string) {
+        if ((strlen val) == 0) {
+            return true
+        }
+        return (val == "null")
+    }
+
+    ; A JSON scalar as a person would read it: the quotes off a string, and
+    ; nothing else touched.
+    sfn plainValue:string (json:string) {
+        def n:int (strlen json)
+        if (n < 2) {
+            return json
+        }
+        if ((charAt json 0) == 34) {
+            if ((charAt json (n - 1)) == 34) {
+                return (substring json 1 (n - 1))
+            }
+        }
+        return json
+    }
+
+    ; The `{key}` names in a node's text and class, whatever is around them.
+    sfn scanKeys:void (text:string out:[string]) {
+        def n:int (strlen text)
+        def i@(mutable):int 0
+        while (i < n) {
+            if ((charAt text i) == 123) {
+                def j@(mutable):int (i + 1)
+                def close@(mutable):int (0 - 1)
+                while (j < n) {
+                    if ((charAt text j) == 125) {
+                        if (close < 0) {
+                            close = j
+                        }
+                    }
+                    j = (j + 1)
+                }
+                if (close < 0) {
+                    i = n
+                } {
+                    def key:string (substring text (i + 1) close)
+                    if ((strlen key) > 0) {
+                        if ((EvgAppRules.mentions(out key)) == false) {
+                            push out key
+                        }
+                    }
+                    i = (close + 1)
+                }
+            } {
+                i = (i + 1)
+            }
+        }
+    }
+
+    sfn keysOf:void (el:EVGElement out:[string]) {
+        if ((strlen el.textContent) > 0) {
+            EvgAppRules.scanKeys(el.textContent out)
+        }
+        if ((strlen el.className) > 0) {
+            EvgAppRules.scanKeys(el.className out)
+        }
+        def i:int 0
+        while (i < (array_length el.children)) {
+            EvgAppRules.keysOf((itemAt el.children i) out)
+            i = (i + 1)
+        }
+    }
+
     sfn boolText:string (v:boolean) {
         if v {
             return "true"

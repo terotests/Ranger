@@ -98,25 +98,62 @@
 .ui-input-placeholder { color: #64748b; }
 .ui-input-caret { width: 2px; height: 18px; background-color: #2563eb; }
 
+/* A checkbox is a box with a tick in it, beside its words — not a pill that
+   changes colour. The box, the mark and the label are three classes a
+   document can restyle on its own: a rounder box, a bigger tick, another
+   accent. Nothing below is a coordinate a controller worked out. */
 .ui-checkbox {
-  border: 1px solid #cbd5e1;
-  padding: 8px 14px;
-  border-radius: 6px;
-  background-color: #e2e8f0;
+  display: flex; flex-direction: row; align-items: center; gap: 10px;
   color: #0f172a;
 }
-.ui-checkbox-state-checked { background-color: #2563eb; color: #ffffff; border-color: #2563eb; }
-.ui-checkbox-state-indeterminate { background-color: #fbbf24; color: #422006; }
+.ui-checkbox-box {
+  display: flex; flex-direction: row; align-items: center; justify-content: center;
+  width: 22px; min-width: 22px; height: 22px; min-height: 22px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background-color: #ffffff;
+}
+.ui-checkbox-box-state-checked { background-color: #2563eb; border-color: #2563eb; }
+.ui-checkbox-box-state-indeterminate { background-color: #fbbf24; border-color: #fbbf24; }
+/* The tick is drawn, not typed: a font without ✓ in it paints a box, and the
+   mark is the one part of a checkbox that has to be right. */
+.ui-checkbox-mark {
+  width: 16px; min-width: 16px; height: 16px; min-height: 16px;
+  fill: none; stroke: #ffffff; stroke-width: 2.2;
+}
+.ui-checkbox-mark-state-indeterminate { stroke: #422006; }
+.ui-checkbox-label { color: #0f172a; }
 .ui-checkbox-disabled { opacity: 0.45; }
 
+/* A switch is a track with a thumb in it, not a pill with a word in it. The
+   four rules below are the whole appearance, and every one of them is a rule
+   a document can override: another size is `width`/`height` on the track and
+   the thumb, another travel is the `translate` on the checked thumb, another
+   colour is `background-color`. Nothing here is a coordinate a controller
+   computed. */
 .ui-switch {
-  border: 1px solid #cbd5e1;
-  padding: 8px 14px;
-  border-radius: 999px;
-  background-color: #e2e8f0;
+  display: flex; flex-direction: row; align-items: center; gap: 10px;
   color: #0f172a;
 }
-.ui-switch-state-checked { background-color: #16a34a; color: #ffffff; border-color: #16a34a; }
+.ui-switch-track {
+  display: flex; flex-direction: row; align-items: center;
+  width: 44px; min-width: 44px; height: 26px; min-height: 26px;
+  padding: 3px;
+  border-radius: 999px;
+  border: 1px solid #cbd5e1;
+  background-color: #e2e8f0;
+}
+.ui-switch-track-state-checked { background-color: #16a34a; border-color: #16a34a; }
+.ui-switch-thumb {
+  width: 20px; min-width: 20px; height: 20px; min-height: 20px;
+  border-radius: 999px;
+  background-color: #ffffff;
+  transform: translate(0px, 0);
+}
+/* 44 − 2×3 padding − 20 thumb = 18: the travel is the geometry above, so a
+   track of another width needs this one number changed with it. */
+.ui-switch-thumb-state-checked { transform: translate(18px, 0); }
+.ui-switch-label { color: #0f172a; }
 .ui-switch-disabled { opacity: 0.45; }
 
 /* --- radio group ---------------------------------------------------------- */
@@ -181,6 +218,198 @@
 }
 .ui-accordion-body { color: #334155; }
 
+/* --- the pieces screens are made of ---------------------------------------- */
+/*
+ * A control is not what an agent builds. It builds a ROW — an icon, a title
+ * over a subtitle, and a switch at the end — and then thirty more like it.
+ * Offering it only the switch means it draws the other four parts itself
+ * every time, which is where a screen of things that do not line up comes
+ * from: five hand-written paddings, five guesses at the gap.
+ *
+ * These are that row and the handful of shapes around it, as rules. They use
+ * the same one-class-deep selectors as everything else here, so a document
+ * restyles a row by overriding `.ui-row-title` rather than by rebuilding it.
+ */
+
+/* A card of rows: the white rounded panel a settings screen is a list of. */
+.ui-card {
+  display: flex; flex-direction: column;
+  border-radius: 20px;
+  background-color: #ffffff;
+  padding: 4px 16px;
+}
+.ui-card-title { color: #64748b; font-size: 12px; height: 16px; padding: 10px 0 2px; }
+
+/* One row. The text block grows, so the control at the end sits against the
+   right edge whatever the words do. */
+.ui-row {
+  display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center;
+  gap: 14px;
+  padding: 10px 0;
+}
+.ui-row-icon {
+  display: flex; flex-direction: row; align-items: center; justify-content: center;
+  width: 24px; min-width: 24px; height: 24px; min-height: 24px;
+  color: #64748b; font-size: 15px;
+}
+.ui-row-text { display: flex; flex-direction: column; gap: 2px; flex-grow: 1; }
+.ui-row-title { color: #0f172a; font-size: 15px; font-weight: bold; height: 20px; }
+.ui-row-sub { color: #64748b; font-size: 12px; height: 16px; }
+.ui-row-value { color: #64748b; font-size: 13px; height: 18px; }
+.ui-row-chevron { color: #94a3b8; font-size: 14px; height: 18px; }
+/* A divider between rows rather than a border on each: two adjacent borders
+   are two lines, and this engine has no `:last-child` to take one away. */
+.ui-row-line { height: 1px; min-height: 1px; background-color: #eef1f6; }
+
+/* The bar at the top of a screen. */
+.ui-appbar {
+  display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center;
+  justify-content: space-between;
+  height: 48px; min-height: 48px;
+}
+.ui-appbar-title { color: #0f172a; font-size: 17px; font-weight: bold; height: 22px; }
+.ui-appbar-btn {
+  display: flex; flex-direction: row; align-items: center; justify-content: center;
+  width: 40px; min-width: 40px; height: 40px; min-height: 40px;
+  border-radius: 20px;
+  color: #0f172a; font-size: 16px;
+}
+.ui-appbar-btn:hover { background-color: #f1f5f9; }
+
+/* A row of round actions — Forget · Disconnect · Share. */
+.ui-chiprow {
+  display: flex; flex-direction: row; flex-wrap: nowrap;
+  justify-content: space-around; align-items: flex-start;
+  gap: 8px; padding: 8px 0;
+}
+.ui-chip { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.ui-chip-dot {
+  display: flex; flex-direction: row; align-items: center; justify-content: center;
+  width: 52px; min-width: 52px; height: 52px; min-height: 52px;
+  border-radius: 26px;
+  background-color: #eef1f6;
+  color: #0f172a; font-size: 18px;
+}
+.ui-chip-dot:hover { background-color: #e2e8f0; }
+.ui-chip-label { color: #334155; font-size: 12px; height: 16px; }
+
+/* A labelled field, which is the form's row. */
+.ui-field { display: flex; flex-direction: column; gap: 6px; }
+.ui-field-label { color: #0f172a; font-size: 13px; height: 18px; }
+.ui-field-help { color: #64748b; font-size: 12px; height: 16px; }
+.ui-field-error { color: #dc2626; font-size: 12px; height: 16px; }
+
+.theme-dark .ui-card { background-color: #111c31; }
+.theme-dark .ui-card-title { color: #94a3b8; }
+.theme-dark .ui-row-title { color: #e2e8f0; }
+.theme-dark .ui-row-sub,
+.theme-dark .ui-row-value { color: #94a3b8; }
+.theme-dark .ui-row-icon { color: #94a3b8; }
+.theme-dark .ui-row-line { background-color: #1e293b; }
+.theme-dark .ui-appbar-title { color: #e2e8f0; }
+.theme-dark .ui-appbar-btn { color: #e2e8f0; }
+.theme-dark .ui-chip-dot { background-color: #1e293b; color: #e2e8f0; }
+.theme-dark .ui-chip-label { color: #cbd5e1; }
+.theme-dark .ui-field-label { color: #e2e8f0; }
+.theme-dark .ui-field-help { color: #94a3b8; }
+
+/* --- calendar -------------------------------------------------------------- */
+
+/* A month, and the first control here that had NO rules at all: behaviour
+   complete, keyboard complete, and painting as bare text, because the only
+   sheet that ever styled one belonged to a demo. `ui:kit:check` is what said
+   so — a part with no rule is how a component stops being usable without
+   anybody noticing.
+
+   The grid is flex rows of equal cells rather than `display: grid`, so a week
+   is a row and a day is a cell, and restyling one day does not move the rest. */
+.ui-calendar {
+  display: flex; flex-direction: column; gap: 8px;
+  width: 274px; min-width: 274px;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background-color: #ffffff;
+  color: #0f172a;
+}
+.ui-calendar-nav { display: flex; flex-direction: row; align-items: center; justify-content: space-between; height: 28px; }
+.ui-calendar-prev,
+.ui-calendar-next {
+  display: flex; flex-direction: row; align-items: center; justify-content: center;
+  width: 26px; min-width: 26px; height: 26px; min-height: 26px;
+  border: 1px solid #e2e8f0; border-radius: 6px;
+  background-color: #f8fafc; color: #334155; font-size: 13px;
+}
+.ui-calendar-prev:hover,
+.ui-calendar-next:hover { background-color: #e2e8f0; }
+.ui-calendar-caption { display: flex; flex-direction: row; align-items: center; gap: 6px; }
+/* The month and the year sit on one baseline, so they need the same box: a
+   caption where the year rides higher than the month is the first thing the
+   eye finds. */
+.ui-calendar-month {
+  display: flex; flex-direction: row; align-items: center;
+  padding: 2px 0;
+  color: #0f172a; font-size: 14px; font-weight: bold; height: 22px;
+}
+.ui-calendar-year {
+  display: flex; flex-direction: row; align-items: center;
+  padding: 2px 6px; border-radius: 6px;
+  color: #0f172a; font-size: 14px; font-weight: bold; height: 22px;
+}
+.ui-calendar-year:hover { background-color: #f1f5f9; }
+.ui-calendar-year-open { background-color: #e2e8f0; }
+.ui-calendar-yearpanel {
+  display: flex; flex-direction: row; flex-wrap: wrap; gap: 4px;
+  padding: 6px; border: 1px solid #e2e8f0; border-radius: 8px;
+  background-color: #f8fafc;
+}
+.ui-calendar-yearopt {
+  display: flex; flex-direction: row; align-items: center; justify-content: center;
+  width: 52px; min-width: 52px; height: 26px; min-height: 26px;
+  border-radius: 6px; color: #334155; font-size: 12px;
+}
+.ui-calendar-yearopt:hover { background-color: #e2e8f0; }
+.ui-calendar-yearopt-on { background-color: #2563eb; color: #ffffff; }
+.ui-calendar-grid { display: flex; flex-direction: column; gap: 2px; }
+/* `nowrap` is not a default here: EVG initialises `flex-wrap` to WRAP, so a
+   week one pixel wider than its parent silently becomes two rows — which is
+   what the first month looked like. */
+.ui-calendar-weekdays,
+.ui-calendar-week { display: flex; flex-direction: row; flex-wrap: nowrap; gap: 2px; }
+.ui-calendar-weekday {
+  display: flex; flex-direction: row; align-items: center; justify-content: center;
+  width: 34px; min-width: 34px; height: 22px; min-height: 22px;
+  color: #64748b; font-size: 11px;
+}
+.ui-calendar-day {
+  display: flex; flex-direction: row; align-items: center; justify-content: center;
+  width: 34px; min-width: 34px; height: 30px; min-height: 30px;
+  border-radius: 8px;
+  color: #0f172a; font-size: 13px;
+}
+.ui-calendar-day:hover { background-color: #f1f5f9; }
+/* The states, each a class of its own so a document can say what "today"
+   looks like without touching what "selected" looks like. */
+.ui-calendar-day-outside { color: #cbd5e1; }
+.ui-calendar-day-disabled { color: #cbd5e1; }
+.ui-calendar-day-today { border: 1px solid #2563eb; color: #2563eb; }
+.ui-calendar-day-selected { background-color: #2563eb; color: #ffffff; }
+.ui-calendar-day-focused { border: 1px solid #93c5fd; }
+
+.theme-dark .ui-calendar { background-color: #0f172a; border-color: #1e293b; color: #e2e8f0; }
+.theme-dark .ui-calendar-month { color: #e2e8f0; }
+.theme-dark .ui-calendar-year { color: #e2e8f0; }
+.theme-dark .ui-calendar-prev,
+.theme-dark .ui-calendar-next { background-color: #1e293b; border-color: #334155; color: #cbd5e1; }
+.theme-dark .ui-calendar-weekday { color: #94a3b8; }
+.theme-dark .ui-calendar-day { color: #e2e8f0; }
+.theme-dark .ui-calendar-day-outside,
+.theme-dark .ui-calendar-day-disabled { color: #475569; }
+.theme-dark .ui-calendar-day-today { border-color: #60a5fa; color: #60a5fa; }
+.theme-dark .ui-calendar-day-selected { background-color: #3b82f6; color: #0f172a; }
+.theme-dark .ui-calendar-yearpanel { background-color: #1e293b; border-color: #334155; }
+.theme-dark .ui-calendar-yearopt { color: #cbd5e1; }
+
 /* --- dark theme, in the only descendant form the engine supports ----------- */
 
 .theme-dark .ui-root { background-color: #0f172a; }
@@ -188,10 +417,15 @@
 .theme-dark .ui-toggle-state-on { background-color: #3b82f6; color: #0f172a; }
 .theme-dark .ui-collapsible-trigger { background-color: #1e293b; color: #e2e8f0; }
 .theme-dark .ui-collapsible-content { background-color: #0b1222; color: #cbd5e1; }
-.theme-dark .ui-checkbox { background-color: #1e293b; color: #e2e8f0; }
-.theme-dark .ui-checkbox-state-checked { background-color: #3b82f6; color: #0f172a; }
-.theme-dark .ui-switch { background-color: #1e293b; color: #e2e8f0; }
-.theme-dark .ui-switch-state-checked { background-color: #22c55e; color: #052e16; }
+.theme-dark .ui-checkbox { color: #e2e8f0; }
+.theme-dark .ui-checkbox-label { color: #e2e8f0; }
+.theme-dark .ui-checkbox-box { background-color: #1e293b; border-color: #334155; }
+.theme-dark .ui-checkbox-box-state-checked { background-color: #3b82f6; border-color: #3b82f6; }
+.theme-dark .ui-switch { color: #e2e8f0; }
+.theme-dark .ui-switch-label { color: #e2e8f0; }
+.theme-dark .ui-switch-track { background-color: #1e293b; border-color: #334155; }
+.theme-dark .ui-switch-track-state-checked { background-color: #22c55e; border-color: #22c55e; }
+.theme-dark .ui-switch-thumb { background-color: #f8fafc; }
 .theme-dark .ui-radio { background-color: #1e293b; color: #e2e8f0; }
 .theme-dark .ui-radio-state-checked { background-color: #3b82f6; color: #0f172a; }
 .theme-dark .ui-tab { background-color: #1e293b; color: #cbd5e1; }
@@ -704,9 +938,9 @@
 
 /* The two-state controls. Colour AND border move together — a checkbox whose
    fill arrives before its border reads as two things happening. */
-.ui-checkbox,
+.ui-checkbox-box,
 .ui-radio,
-.ui-switch,
+.ui-switch-track,
 .ui-tab,
 .ui-togglegroup-item,
 .ui-accordion-trigger,
@@ -732,16 +966,16 @@
 .ui-accordion-trigger:hover,
 .ui-collapsible-trigger:hover { background-color: #e2e8f0; }
 
-.ui-checkbox:hover,
-.ui-switch:hover { background-color: #cbd5e1; }
+.ui-checkbox-box:hover,
+.ui-switch-track:hover { background-color: #cbd5e1; }
 
 /* A press is a small squeeze, and it is on the transform rather than the
    colour so it works on the controls whose colour is already carrying their
    state. `scale` and not `translate`: a button that moves down under the
    finger looks like it was nudged, one that shrinks looks pushed. */
-.ui-checkbox:active,
+.ui-checkbox-box:active,
 .ui-radio:active,
-.ui-switch:active,
+.ui-switch-track:active,
 .ui-tab:active,
 .ui-togglegroup-item:active,
 .ui-accordion-trigger:active,
@@ -752,9 +986,8 @@
 /* Checking something is the one moment worth a flourish, so the indicator
    overshoots very slightly and settles. The control's own centre is the pivot,
    which is what keeps a row of checkboxes on their baseline. */
-.ui-checkbox-state-checked,
-.ui-radio-state-checked,
-.ui-switch-state-checked {
+.ui-checkbox-box-state-checked,
+.ui-radio-state-checked {
   transition: background-color 180ms cubic-bezier(0.34, 1.4, 0.64, 1),
               border-color 180ms ease-out,
               transform 180ms cubic-bezier(0.34, 1.4, 0.64, 1);
@@ -787,9 +1020,9 @@
    refusing to do anything is worse than one that sits still — it promises
    something and then declines. Repeating the resting values under the state
    pseudo-classes is how that is said with the selectors this engine has. */
-.ui-checkbox:disabled,
+.ui-checkbox-box:disabled,
 .ui-radio:disabled,
-.ui-switch:disabled,
+.ui-switch-track:disabled,
 .ui-tab:disabled,
 .ui-togglegroup-item:disabled,
 .ui-accordion-trigger:disabled,

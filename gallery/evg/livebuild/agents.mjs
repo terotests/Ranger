@@ -715,6 +715,125 @@ An inline property still outranks the sheet, which is what lets the two
 mix: the rule says what a \`.card\` is, the node says what THIS card does
 differently, and \`set-prop\` keeps meaning what it meant.
 
+## Controls: ask for one, do not draw one
+
+A switch is not a rounded box with a circle in it. A checkbox is not a blue
+square with a tick drawn in it. Those look right in a screenshot and are not
+controls: nothing presses them, nothing reports what state they are in, and
+a screen reader is told about a \`div\`. **This workspace has the real ones.**
+
+\`\`\`
+./evg-ui list                     what exists, one line each
+./evg-ui spec card                its props, its parts, what it is measured against
+./evg-ui add switch --name "Wi-Fi" --checked --into doc.evg.json > add.json
+\`\`\`
+
+**Ask for the whole piece, not the control.** What a screen is made of is a
+ROW — an icon, a title over a subtitle, a switch at the end — and then
+thirty more like it. Reaching for the switch alone leaves you drawing the
+other four parts by hand every time, which is where a column of things that
+do not line up comes from: five hand-written paddings and five guesses at
+the gap. A whole settings card is one command:
+
+\`\`\`sh
+./evg-ui add card \\
+  --row "Signal strength|Excellent|value:Excellent" \\
+  --row "Frequency||value:5 GHz" \\
+  --row "Share network|Others on this device can connect|switch:on" \\
+  --row "Privacy|Use randomized MAC|chevron" --into doc.evg.json > add.json
+\`\`\`
+
+\`row\`, \`card\`, \`appbar\`, \`chips\` and \`field\` are the pieces;
+\`./evg-ui list\` has them at the top and \`spec\` says what each takes.
+
+### A control on a SCREEN is a picture. In an APP it can work.
+
+A switch dropped into \`doc.evg.json\` looks right, says what it is to a
+reader, and does nothing when pressed: one screen has nothing to remember
+with. What makes it work is the machine — and two things you have to give it:
+
+1. **An id**, which is the event its press sends: \`--id toggle.wifi\`.
+2. **A binding**, which is where its state lives: \`--bind wifi\` writes
+   \`ui-switch-state-{wifi}\` instead of a fixed state word, and the app
+   fills \`{wifi}\` from the context on every render — in a class, not just
+   in text.
+
+Then the machine flips the key, and the switch moves:
+
+\`\`\`json
+"toggle.wifi": [
+  {"guard": {"is": {"context": "wifi"}, "equals": "checked"},
+   "actions": [{"assign": {"wifi": {"value": "unchecked"}}}]},
+  {"actions": [{"assign": {"wifi": {"value": "checked"}}}]}
+]
+\`\`\`
+
+The first alternative whose guard passes wins, so those two lines ARE a
+toggle. \`"is"\` asks whether a value equals a word; \`present\` and
+\`nonBlank\` only ask whether there is anything there, which a switch that
+is off still has.
+
+Without \`--bind\` the control is frozen in the state it was added in. With
+it, \`./evg-app press app toggle.wifi\` and \`./evg-app render app\` are how
+you check it moved, without a browser.
+
+**You do not write those transitions yourself.** Bind the control while you
+are drawing the screen — \`--id\` and \`--bind\` on every switch and checkbox
+— and when the screen becomes an app (Run, or \`./evg-app init app\`) the
+machine is written with a context key per bound control, its state taken
+from how you drew it, and the flip wired to both the control and the row
+around it. A switch you did not bind gets no key and no event, and is a
+picture in the app too.
+
+On ONE SCREEN a bound control shows its resting state until there is a
+machine to fill \`{key}\` from. That is not a mistake to fix by taking the
+binding out; it is what a control with nothing behind it looks like.
+
+\`add\` answers \`{tree, css, classes, ops}\`. The \`ops\` are a batch you can
+apply as it stands — a \`set-css\` carrying the rules the control needs on
+top of the sheet the document already has, and an \`insert\` carrying the
+control itself as a subtree:
+
+\`\`\`sh
+node -e 'const a=require("./add.json");require("fs").writeFileSync("ops.json",JSON.stringify({ops:a.ops}))'
+./evg-agent patch doc.evg.json ops.json
+\`\`\`
+
+Use \`--at PATH --index N\` to say where it goes; the default is the end of
+the root. Then restyle it like anything else: the control's parts have
+classes of their own — \`ui-switch-track\`, \`ui-switch-thumb\`,
+\`ui-checkbox-box\`, \`ui-checkbox-mark\` — so another size, another colour
+and another travel are rules in the sheet, and the control keeps working.
+
+**A component that is not on the list is not in this kit.** Say so rather
+than drawing a picture of one. A calendar or a data grid is weeks of work,
+and a drawing of one is worse than an honest "there is no calendar here yet":
+it looks finished and does nothing.
+
+### \`drawn\` in the measure is this, and it is not a style note
+
+\`measure\` names controls you drew out of boxes:
+
+\`\`\`json
+{"drawn":["0/3/4/1: a pill with a knob in it is a drawn switch — use the host's switch control, not boxes"]}
+\`\`\`
+
+It is the one defect these numbers can see and you cannot: the screen looks
+right and that part of it does nothing. Replace it where it stands — the
+path in the message is the node to take out, and the kit puts the real one
+back in the same place:
+
+\`\`\`sh
+./evg-ui add switch --name "Share network" --checked --at 0/3/4 --index 1 --into doc.evg.json > add.json
+node -e 'const a=require("./add.json");require("fs").writeFileSync("ops.json",JSON.stringify({ops:[{op:"remove",at:"0/3/4/1"}].concat(a.ops)}))'
+./evg-agent patch doc.evg.json ops.json
+\`\`\`
+
+Then restyle it into the screen's own palette with the sheet: the parts have
+classes, so \`.ui-switch-track { background-color: … }\` is the whole job and
+the control keeps working. \`drawn\` empty is the goal, the same way
+\`count: 0\` is.
+
 ## Effects: things CSS cannot draw
 
 \`evg-surface-effect\` names a shader that runs over the element's own
@@ -784,6 +903,13 @@ wrong.
 \`outline\` prints one line per node: its path, its tag, its text, and
 only the properties it sets. Unkeyed paths shift when a sibling is
 inserted above them, so re-run it after any insert, remove or move.
+
+\`./evg-agent pick doc.evg.json X Y --width=390 --height=844\` goes the
+other way: a point on the picture, and back comes the chain from the page
+down to what is under it, each level with its address and its box. Use it
+when somebody says "the thing at the top right" — it turns a place on the
+screen into the \`--at=\` every other verb takes. Clicking the phone in
+design mode on the live page runs exactly this.
 
 \`patch\` takes a JSON file of ops and writes \`doc.evg.json\`:
 
@@ -1002,6 +1128,26 @@ function installEvgApp(dir) {
   return true;
 }
 
+// The control kit. `gallery/ui` has controls measured against Radix — a
+// switch that is a track with a thumb, a checkbox that is a box with a tick,
+// a slider that can be dragged — and until now an agent had no way to ask for
+// one. It drew them instead: a rounded box, a circle and a guess, which looks
+// right in a screenshot and is not a control. This is the door.
+//
+// The shim runs the tool out of the REPOSITORY rather than the workspace: it
+// needs the compiled host and the kit's own stylesheet, and copying those
+// into every workspace would be copying the kit.
+function installEvgUi(dir) {
+  const tool = path.join(root, "gallery", "ui", "kit", "ui_kit.mjs");
+  if (!fs.existsSync(tool)) return false;
+  fs.writeFileSync(
+    path.join(dir, "evg-ui"),
+    `#!/bin/sh\nexec node ${JSON.stringify(tool)} "$@"\n`,
+    { mode: 0o755 },
+  );
+  return true;
+}
+
 function installEvgAgent(dir) {
   const src = path.join(root, "lib/evg/bin/evg_agent.js");
   if (!ensureTool(src, ["./lib/evg/agent/evg_agent.rgr", "./lib/evg/bin", "evg_agent.js"], "evg-agent")) {
@@ -1009,6 +1155,7 @@ function installEvgAgent(dir) {
   }
   installEvgImage(dir);
   installEvgApp(dir);
+  installEvgUi(dir);
   fs.copyFileSync(src, path.join(dir, "evg_agent.js"));
   // The shim also leaves the ops behind. A workspace agent patches through
   // this script, and the host has no other way to learn WHAT it changed: it

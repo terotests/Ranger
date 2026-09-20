@@ -256,7 +256,7 @@
 
 /* Layer tools: a row of small buttons over the tree. */
 .ra-treetools {
-  display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center;
+  display: flex; flex-direction: row; flex-wrap: wrap; align-items: center;
   gap: 3px; padding: 4px 8px; border: 1px solid #f0f1f4;
 }
 .ra-tool-s { display: flex; flex-direction: row; align-items: center; border-radius: 6px; padding: 4px 7px; height: 24px; min-height: 24px; background-color: #f6f7f9; }
@@ -283,6 +283,11 @@
 .ra-vplabel-t { font-size: 10.5px; height: 13px; color: #7b8190; }
 .ra-vplabel-on .ra-vplabel-t { color: #0d6efd; }
 .ra-selbox { position: absolute; border: 2px solid #0d6efd; }
+/* The rest of a multiple selection: the same blue, thinner, so the one the
+   inspector is about is still the one that stands out. */
+.ra-selbox-also { border: 1px solid #0d6efd; }
+/* The rectangle being swept out over the stage. */
+.ra-marquee { position: absolute; border: 1px solid #0d6efd; background-color: rgba(13, 110, 253, 0.08); }
 .ra-tabbadge {
   position: absolute; display: flex; flex-direction: row; align-items: center; justify-content: center;
   width: 18px; min-width: 18px; height: 18px; min-height: 18px; border-radius: 9px;
@@ -389,6 +394,50 @@
 /* A group caption between the kit's rows, so thirty entries read as six
    lists rather than one. */
 .ra-group { font-size: 10px; font-weight: bold; height: 14px; color: #aab0bb; padding: 8px 7px 2px; }
+/* The component palette: two drawings across the rail, each on the same dark
+   ground the wireframe stage uses. The drawings themselves carry their
+   geometry inline (RaveWire) — what is here is only how they are ranged. */
+.ra-wf-grid {
+  display: flex; flex-direction: row; flex-wrap: wrap;
+  align-items: flex-start; gap: 8px; padding: 2px 7px 6px;
+}
+.ra-wf-name { font-size: 10.5px; height: 14px; color: #6b7280; }
+
+/* Where a dragged node would land: the target outlined, and whether it goes
+   INTO that box or BEFORE it said in words above it. */
+.ra-dropbox { position: absolute; border: 2px solid #16a34a; border-radius: 3px; }
+.ra-droptag {
+  position: absolute; display: flex; flex-direction: row; align-items: center;
+  height: 17px; padding: 0 6px; border-radius: 4px; background-color: #16a34a;
+}
+.ra-droptag-t { font-size: 10.5px; height: 14px; color: #ffffff; }
+
+/* The layout menu: a button at the corner of the selected container, and a
+   strip of live flex icons under it. The icons are laid out by the engine
+   (RaveWire.flexIcon), so what they show is what the option does. */
+.ra-flexbtn {
+  position: absolute; display: flex; flex-direction: row;
+  align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 4px;
+  background-color: #0d6efd; border: 1px solid #0d6efd;
+}
+.ra-flexbtn-on { background-color: #0a58ca; border: 1px solid #0a58ca; }
+.ra-flexbtn-t { font-size: 11px; height: 13px; color: #ffffff; }
+.ra-flexmenu {
+  position: absolute; display: flex; flex-direction: column; gap: 2px;
+  padding: 8px; border-radius: 8px;
+  background-color: #ffffff; border: 1px solid #d5d9e2;
+}
+.ra-flexcap { font-size: 9.5px; font-weight: bold; height: 13px; color: #aab0bb; padding: 3px 1px 1px; }
+.ra-flexrow { display: flex; flex-direction: row; flex-wrap: wrap; gap: 4px; }
+.ra-flexopt {
+  display: flex; flex-direction: row; align-items: center; justify-content: center;
+  padding: 3px; border-radius: 5px; border: 1px solid #e7e9ee;
+}
+.ra-flexopt:hover { border: 1px solid #b9c0cc; }
+.ra-flexopt-on { border: 1px solid #0d6efd; background-color: #e8f1fe; }
+.ra-flexgap { display: flex; flex-direction: row; align-items: center; gap: 6px; padding: 4px 1px 0; }
+.ra-flexnow { font-size: 11px; height: 15px; color: #1a1d21; width: 44px; min-width: 44px; }
 /* What an import made of somebody's file: one row per guess, with the
    reason beside it. */
 .ra-noterow {

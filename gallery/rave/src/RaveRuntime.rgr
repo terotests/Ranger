@@ -65,6 +65,14 @@ class RaveRuntime {
     def sheet:EVGStyleSheet (new EVGStyleSheet())
     def theme:string ""
     def views:[RaveView]
+    ; The one viewport on the stage, by index; -1 puts them all side by side.
+    ; A designer works at one width at a time — the others are noise until
+    ; the layout is settled — so the editor keeps this on and the exported
+    ; app, which has one view anyway, never notices.
+    def solo:int (0 - 1)
+    ; Wireframe: the document's paint dropped, its layout kept. What is left
+    ; is structure, which is what a wireframe is for.
+    def wire:boolean false
     def dirty:boolean true
     def generation:int 0
     def css:string ""
@@ -94,10 +102,23 @@ class RaveRuntime {
         this.reloadStyles()
     }
 
+    ; Wireframe on or off. The stylesheet is a different emission, not a
+    ; different document: nothing in the file changes when this is flipped.
+    fn setWire:void (on:boolean) {
+        if (wire == on) {
+            return
+        }
+        wire = on
+        this.reloadStyles()
+    }
+
     ; The stylesheet is rebuilt from the document whenever the document's
     ; rules change; the editor calls this after every style edit.
     fn reloadStyles:void () {
         css = (RaveCss.emit(app))
+        if wire {
+            css = (RaveCss.emitWire(app))
+        }
         def s (new EVGStyleSheet())
         s.parse(css)
         sheet = s
@@ -148,18 +169,40 @@ class RaveRuntime {
         return v
     }
 
-    ; Left to right, a gap between, the tallest sets the scene's height.
+    ; Which viewport the stage shows. -1 is all of them.
+    fn setSolo:void (i:int) {
+        if (solo == i) {
+            return
+        }
+        solo = i
+        dirty = true
+    }
+
+    fn shows:boolean (i:int) {
+        if (solo < 0) {
+            return true
+        }
+        return (i == solo)
+    }
+
+    ; Left to right, a gap between, the tallest sets the scene's height. A
+    ; view the stage is not showing takes no room and is not built.
     fn placeViews:void () {
         def x:double 0.0
         def h:double 0.0
         def i:int 0
         while (i < (array_length views)) {
             def v:RaveView (itemAt views i)
-            v.offsetX = x
-            v.offsetY = 0.0
-            x = (x + v.width + gap)
-            if (v.height > h) {
-                h = v.height
+            if (this.shows(i)) {
+                v.offsetX = x
+                v.offsetY = 0.0
+                x = (x + v.width + gap)
+                if (v.height > h) {
+                    h = v.height
+                }
+            } {
+                v.offsetX = 0.0
+                v.offsetY = 0.0
             }
             i = (i + 1)
         }
@@ -178,7 +221,7 @@ class RaveRuntime {
         def i:int 0
         while (i < (array_length views)) {
             def v:RaveView (itemAt views i)
-            if ((sx >= v.offsetX) && (sx <= (v.offsetX + v.width))) {
+            if ((this.shows(i)) && (sx >= v.offsetX) && (sx <= (v.offsetX + v.width))) {
                 if ((sy >= v.offsetY) && (sy <= (v.offsetY + v.height))) {
                     return i
                 }
@@ -272,6 +315,7 @@ class RaveRuntime {
         def r:RaveRouter (unwrap router)
         def route:RaveRoute (r.current())
         def b (new RaveBuild(app auth))
+        b.wire = wire
         b.params = r.params
         b.openOverlay = openOverlay
         b.toast = toastText
@@ -311,9 +355,16 @@ class RaveRuntime {
         def i:int 0
         while (i < (array_length views)) {
             def v:RaveView (itemAt views i)
-            def page:EVGElement (this.buildView(v))
-            sc.addChild(page)
-            v.page = page
+            if (this.shows(i)) {
+                def page:EVGElement (this.buildView(v))
+                sc.addChild(page)
+                v.page = page
+            } {
+                ; Not on the scene, and not stale either: the next question
+                ; asked of this width builds it again, off the scene.
+                def none@(optional):EVGElement
+                v.page = none
+            }
             i = (i + 1)
         }
         layout.setPageSize(sceneW sceneH)
@@ -322,8 +373,10 @@ class RaveRuntime {
         def j:int 0
         while (j < (array_length views)) {
             def v2:RaveView (itemAt views j)
-            def p2:EVGElement (unwrap v2.page)
-            v2.focus.settle(p2)
+            if ((this.shows(j)) && v2.page) {
+                def p2:EVGElement (unwrap v2.page)
+                v2.focus.settle(p2)
+            }
             j = (j + 1)
         }
         generation = (generation + 1)
@@ -336,10 +389,23 @@ class RaveRuntime {
         }
     }
 
+    ; EVERY VIEWPORT STILL ANSWERS, whatever the stage is drawing. A view the
+    ; stage is not showing is built and laid out on its own, off the scene,
+    ; so `lint`, the accessibility tree and the boxes are the same answers at
+    ; every width as they were when all the frames were side by side.
     fn pageOf:EVGElement (i:int) {
         this.ensure()
         def v:RaveView (itemAt views i)
-        return (unwrap v.page)
+        if v.page {
+            return (unwrap v.page)
+        }
+        def page:EVGElement (this.buildView(v))
+        def lay (new EVGLayout())
+        lay.setPageSize(v.width v.height)
+        lay.layout(page)
+        v.page = page
+        v.focus.settle(page)
+        return page
     }
 
     fn sceneRoot:EVGElement () {

@@ -34,6 +34,7 @@ Import "pkg:evg/EVGLayout.rgr"
 Import "pkg:evg/EVGDisplayList.rgr"
 Import "pkg:evg/EVGInspect.rgr"
 Import "pkg:evg/EVGMeasure.rgr"
+Import "pkg:evg/EVGHoles.rgr"
 Import "pkg:evg/EVGUnit.rgr"
 
 class EvgLiveBuild {
@@ -247,17 +248,42 @@ sfn main:void () {
         return true
     }
 
+    ; THE VIEW IS NOT THE DOCUMENT.
+    ;
+    ; Design mode has no machine, so `ui-switch-state-{wifi}` matches no rule
+    ; and a switch drawn with it used to be invisible on the screen somebody
+    ; was drawing. `EVGDress` fills those holes from what the document itself
+    ; says each control is showing, which is the same value the app opens with.
+    ;
+    ; It must not reach the file. `emitSave` serialises `root` straight back to
+    ; `doc.evg.json`, so dressing `root` would write design-only state classes
+    ; into the document, and a bound control would then carry both a hole and a
+    ; fixed word — the exact thing that makes a control stop moving once the
+    ; machine starts filling the hole. So the dress happens on a round-tripped
+    ; copy, and `root` stays the document as written.
+    fn viewRoot:EVGElement () {
+        def text:string (EVGTreeJson.toText(root))
+        def copy@(optional):EVGElement (EVGTreeJson.fromText(text))
+        if (null? copy) {
+            return root
+        }
+        def view:EVGElement (unwrap copy)
+        EVGDress.dress(view)
+        return view
+    }
+
     fn emitFrame:void () {
+        def view:EVGElement (this.viewRoot())
         def l (new EVGLayout())
         l.setPageSize((to_double pageW) (to_double pageH))
-        l.layout(root)
+        l.layout(view)
         def dl (new EVGDisplayList())
         dl.setTextEngine((l.getTextEngine()))
-        dl.build(root)
+        dl.build(view)
         def n:int (dl.count())
         def added:int (n - lastCmds)
         lastCmds = n
-        insp.build(root)
+        insp.build(view)
         def nodes:int (insp.count())
         def out:string "{\"t\":\"frame\""
         out = ((out + ",\"width\":") + (to_string pageW))
@@ -276,7 +302,10 @@ sfn main:void () {
     ; `"count":0` while the picture showed the pile.
     fn emitMeasure:void () {
         def m (new EVGMeasure())
-        m.look(root pageW pageH "")
+        ; The dressed copy, so the numbers describe the picture on the screen.
+        ; The `frozen` check still reads the holes, because dressing adds a
+        ; class beside one and never replaces it.
+        m.look((this.viewRoot()) pageW pageH "")
         findings = (array_length m.findings)
         def body:string (m.json(false))
         def inner:string (substring body 1 (strlen body))

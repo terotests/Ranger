@@ -162,6 +162,39 @@ ScValOps.present = function(v) {
   };
   return false;
 };
+ScValOps.asText = function(v) {
+  if( v != null && v.__rg_kind === "ScVal_Nothing" ) /* union case */ {
+    var __match0 = v;
+    return "";
+  };
+  if( v != null && v.__rg_kind === "ScVal_Str" ) /* union case */ {
+    var s = v;
+    return s.text;
+  };
+  if( v != null && v.__rg_kind === "ScVal_Bool" ) /* union case */ {
+    var b = v;
+    if ( b.flag ) {
+      return "true";
+    }
+    return "false";
+  };
+  if( v != null && v.__rg_kind === "ScVal_Num" ) /* union case */ {
+    var n = v;
+    return (n.value.toString());
+  };
+  if( v != null && v.__rg_kind === "ScVal_List" ) /* union case */ {
+    var l = v;
+    return "";
+  };
+  if( v != null && v.__rg_kind === "ScVal_Map" ) /* union case */ {
+    var m = v;
+    return "";
+  };
+  return "";
+};
+ScValOps.sameText = function(a, b) {
+  return ScValOps.asText(a) == ScValOps.asText(b);
+};
 ScValOps.withKey = function(target, key, value) {
   let keys = [];
   let entries = [];
@@ -171,7 +204,7 @@ ScValOps.withKey = function(target, key, value) {
       var k = m.keys[i];
       keys.push(k);
       entries.push(m.entries[i]);
-    };
+    }
   };
   if( target != null && target.__rg_kind === "ScVal_Nothing" ) /* union case */ {
     var __match1 = target;
@@ -194,7 +227,7 @@ ScValOps.withKey = function(target, key, value) {
     if ( k2 == key ) {
       at = j;
     }
-  };
+  }
   if ( at >= 0 ) {
     entries[at] = value;
   } else {
@@ -234,10 +267,9 @@ ScValOps.items = function(v) {
   let out = [];
   if( v != null && v.__rg_kind === "ScVal_List" ) /* union case */ {
     var l = v;
-    for ( let i = 0; i < l.items.length; i++) {
-      var item = l.items[i];
+    for ( const item of l.items) {
       out.push(item);
-    };
+    }
   };
   if( v != null && v.__rg_kind === "ScVal_Nothing" ) /* union case */ {
     var __match1 = v;
@@ -264,7 +296,7 @@ ScValOps.fieldJson = function(item, field) {
       if ( key == field ) {
         return ScValOps.toJson(m.entries[i]);
       }
-    };
+    }
   };
   if( item != null && item.__rg_kind === "ScVal_Nothing" ) /* union case */ {
     var __match1 = item;
@@ -287,10 +319,9 @@ ScValOps.appended = function(list, item) {
   let out = [];
   if( list != null && list.__rg_kind === "ScVal_List" ) /* union case */ {
     var l = list;
-    for ( let i = 0; i < l.items.length; i++) {
-      var existing = l.items[i];
+    for ( const existing of l.items) {
       out.push(existing);
-    };
+    }
   };
   if( list != null && list.__rg_kind === "ScVal_Nothing" ) /* union case */ {
     var __match1 = list;
@@ -337,10 +368,9 @@ ScValOps.toJson = function(v) {
   if( v != null && v.__rg_kind === "ScVal_List" ) /* union case */ {
     var l = v;
     let parts = [];
-    for ( let i = 0; i < l.items.length; i++) {
-      var item = l.items[i];
+    for ( const item of l.items) {
       parts.push(ScValOps.toJson(item));
-    };
+    }
     return ("[" + parts.join(",")) + "]";
   };
   if( v != null && v.__rg_kind === "ScVal_Map" ) /* union case */ {
@@ -349,7 +379,7 @@ ScValOps.toJson = function(v) {
     for ( let j = 0; j < m.keys.length; j++) {
       var k = m.keys[j];
       parts2.push((ScValOps.quote(k) + ":") + ScValOps.toJson(m.entries[j]));
-    };
+    }
     return ("{" + parts2.join(",")) + "}";
   };
   return "null";
@@ -393,7 +423,7 @@ class ScEvent  {
       if ( k == key ) {
         return this.values[i];
       }
-    };
+    }
     return ScValOps.nothing();
   };
 }
@@ -527,21 +557,19 @@ class Statechart  {
     return s;
   };
   stateAt (path) {
-    for ( let i = 0; i < this.states.length; i++) {
-      var s = this.states[i];
+    for ( const s of this.states) {
       if ( s.path == path ) {
         return s;
       }
-    };
+    }
     return new ScState();
   };
   hasState (path) {
-    for ( let i = 0; i < this.states.length; i++) {
-      var s = this.states[i];
+    for ( const s of this.states) {
       if ( s.path == path ) {
         return true;
       }
-    };
+    }
     return false;
   };
   context (key, value) {
@@ -584,7 +612,7 @@ class ScRunner  {
       var k = definition.keys[i];
       this.keys.push(k);
       this.values.push(definition.values[i]);
-    };
+    }
     this.pending.length = 0;
     this.enter(definition.initial);
     this.settle();
@@ -595,7 +623,7 @@ class ScRunner  {
       if ( k == key ) {
         return this.values[i];
       }
-    };
+    }
     return ScValOps.nothing();
   };
   json (key) {
@@ -608,7 +636,7 @@ class ScRunner  {
         this.values[i] = value;
         return;
       }
-    };
+    }
     this.keys.push(key);
     this.values.push(value);
   };
@@ -659,25 +687,30 @@ class ScRunner  {
       };
       return false;
     }
+    if ( g.kind == "is" ) {
+      const have = this.valueOfGuard(g, event);
+      if ( typeof(g.operand) === "undefined" ) {
+        return false;
+      }
+      return ScValOps.sameText(have, g.operand);
+    }
     if ( g.kind == "not" ) {
       return this.passes(g.parts[0], event) == false;
     }
     if ( g.kind == "or" ) {
-      for ( let i = 0; i < g.parts.length; i++) {
-        var part = g.parts[i];
+      for ( const part of g.parts) {
         if ( this.passes(part, event) ) {
           return true;
         }
-      };
+      }
       return false;
     }
     if ( g.kind == "and" ) {
-      for ( let j = 0; j < g.parts.length; j++) {
-        var part2 = g.parts[j];
+      for ( const part2 of g.parts) {
         if ( this.passes(part2, event) == false ) {
           return false;
         }
-      };
+      }
       return true;
     }
     if ( g.kind == "countEq" ) {
@@ -689,12 +722,11 @@ class ScRunner  {
     if ( g.kind == "some" ) {
       const list = ScValOps.items(this.valueOfGuard(g, event));
       const wanted = ScValOps.toJson(g.operand);
-      for ( let k = 0; k < list.length; k++) {
-        var item = list[k];
+      for ( const item of list) {
         if ( ScValOps.fieldJson(item, g.field) == wanted ) {
           return true;
         }
-      };
+      }
       return false;
     }
     return false;
@@ -717,14 +749,13 @@ class ScRunner  {
     }
     if ( value.kind == "or" ) {
       let last = ScValOps.nothing();
-      for ( let i = 0; i < value.parts.length; i++) {
-        var part = value.parts[i];
+      for ( const part of value.parts) {
         const answer = this.resolve(part, event);
         if ( ScValOps.present(answer) ) {
           return answer;
         }
         last = answer;
-      };
+      }
       return last;
     }
     if ( value.kind == "append" ) {
@@ -765,15 +796,13 @@ class ScRunner  {
     this.state = c.entryLeaf(path);
   };
   take (t, ownerPath, event) {
-    for ( let j = 0; j < t.assigns.length; j++) {
-      var a = t.assigns[j];
+    for ( const a of t.assigns) {
       const v = a.value;
       this.set(a.key, this.resolve(v, event));
-    };
-    for ( let k = 0; k < t.actions.length; k++) {
-      var name = t.actions[k];
+    }
+    for ( const name of t.actions) {
       this.pending.push(name);
-    };
+    }
     const target = ScRunner.resolveTarget(t.target, ownerPath);
     if ( target.length > 0 ) {
       this.enter(target);
@@ -792,15 +821,14 @@ class ScRunner  {
       let here = this.state;
       while (here.length > 0) {
         const s = c.stateAt(here);
-        for ( let i = 0; i < s.always.length; i++) {
-          var t = s.always[i];
+        for ( const t of s.always) {
           if ( moved == false ) {
             if ( this.allowed(t, empty) ) {
               this.take(t, here, empty);
               moved = true;
             }
           }
-        };
+        }
         if ( moved ) {
           here = "";
         } else {
@@ -835,8 +863,7 @@ class ScRunner  {
     let here = this.state;
     while (here.length > 0) {
       const s = c.stateAt(here);
-      for ( let i = 0; i < s.transitions.length; i++) {
-        var t = s.transitions[i];
+      for ( const t of s.transitions) {
         if ( t.event == event.type ) {
           if ( this.allowed(t, event) ) {
             this.take(t, here, event);
@@ -844,11 +871,10 @@ class ScRunner  {
             return true;
           }
         }
-      };
+      }
       here = ScRunner.parentOf(here);
     };
-    for ( let j = 0; j < c.transitions.length; j++) {
-      var t2 = c.transitions[j];
+    for ( const t2 of c.transitions) {
       if ( t2.event == event.type ) {
         if ( this.allowed(t2, event) ) {
           this.take(t2, "", event);
@@ -856,7 +882,7 @@ class ScRunner  {
           return true;
         }
       }
-    };
+    }
     return false;
   };
   sendType (type) {

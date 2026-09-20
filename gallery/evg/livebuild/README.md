@@ -169,6 +169,81 @@ npm run livebuild:app:web    # build the browser runtime by hand; the server
                              # builds it on demand
 ```
 
+## Controls the agent does not have to draw
+
+A switch drawn out of a rounded box and a circle looks right in the
+screenshot that prompted it and is not a control: nothing presses it, nothing
+reports its state, and a reader is told about a `div`. `gallery/ui` has the
+real ones — measured against Radix, behaviour by behaviour — and the
+workspace now carries the door to them as `./evg-ui`:
+
+```sh
+./evg-ui list                     what exists, one line each
+./evg-ui spec switch              props, classes, what it is measured against
+./evg-ui add switch --name "Wi-Fi" --checked --into doc.evg.json > add.json
+```
+
+It also answers with the whole PIECE rather than the part — `row`, `card`,
+`appbar`, `chips`, `field` — because a row is the unit a screen is built in,
+and an agent handed only the switch draws the other four parts by hand every
+time:
+
+```sh
+./evg-ui add card --row "Share network|Others can connect|switch:on" \
+                  --row "Privacy|Use randomized MAC|chevron" --into doc.evg.json
+```
+
+`add` answers a batch `./evg-agent patch` applies as it stands: a `set-css`
+carrying the rules the document does not have yet, and an `insert` carrying
+the control as a **subtree** — `EVGPatch`'s `insert` learned to take one for
+this, because a control is a tree and an agent that can only insert one empty
+node at a time builds a drawing instead.
+
+**A control on one screen is a picture; in an app it works.** Give it an id
+(`--id toggle.wifi`, the event its press sends) and a binding (`--bind wifi`,
+which writes `ui-switch-state-{wifi}` and lets the app fill it from the
+context on every render), and the machine can flip it with two guarded
+alternatives — `{"is": {"context":"wifi"}, "equals":"checked"}` is the
+predicate a toggle needs, and it is new. Without the binding the control is
+frozen in the state it was added in.
+
+**Make app wires them.** Bind while you draw — `--id toggle.wifi --bind wifi`
+— and `init` (which is what **Make app** runs) reads the bound controls off
+the screen: a context key each, its value taken from how the control was
+drawn, and the flip wired to the control and the row around it. Nobody opens
+`machine.json`.
+
+The parts keep their own classes (`ui-switch-track`, `ui-switch-thumb`,
+`ui-checkbox-box`, `ui-checkbox-mark`), so restyling one is editing rules, not
+redrawing boxes. What the kit does not have, the guide tells the agent to say
+rather than fake: a drawing of a calendar is worse than an honest "there is
+no calendar here yet" — it looks finished and does nothing.
+
+```sh
+npm run ui:kit:check    # every catalogued control builds, draws and is styled
+npm run livebuild:agents  # …and the workspace really carries the door
+```
+
+## What the machine is holding
+
+Run mode shows the **context** under the phone, and what the last press moved
+in it:
+
+```
+context  wifi=unchecked  ·  cellular=checked
+toggle.wifi moved wifi: checked → unchecked
+```
+
+That line is the difference between the two ways a button looks dead. A press
+the machine does not take says so already — `#toggle.wifi is not an event of
+settings`. A press it DOES take and that changes nothing on the screen used
+to look identical: now it either names the key that moved (so the control is
+not bound — `./evg-ui add … --bind wifi`) or says the transition assigns
+nothing.
+
+The context rides on every frame and every press, from the runtime in the
+tab, so none of it costs a request.
+
 ## CSS, and things CSS cannot draw
 
 A document carries a stylesheet — a `css` block beside the tree — and a node

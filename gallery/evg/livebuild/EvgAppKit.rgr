@@ -88,6 +88,27 @@ class EvgAppKit {
         return (EvgAppKit.plain((runner.json(key))))
     }
 
+    ; THE WHOLE CONTEXT, as JSON. A press that the machine takes and that
+    ; changes nothing on the screen is the hardest thing to tell from a press
+    ; that went nowhere: both look like a dead button. The keys and their
+    ; values say which of the two it was, so a host can show them and the
+    ; question stops being "is it broken".
+    fn contextJson:string () {
+        def out@(mutable):string "{"
+        def i@(mutable):int 0
+        while (i < (array_length runner.keys)) {
+            if (i > 0) {
+                out = (out + ",")
+            }
+            def key:string (itemAt runner.keys i)
+            out = (out + (EVGTreeJson.str(key)))
+            out = (out + ":")
+            out = (out + (runner.json(key)))
+            i = (i + 1)
+        }
+        return (out + "}")
+    }
+
     fn number:int (key:string) {
         def v:string (this.text(key))
         def out@(mutable):int 0
@@ -185,6 +206,7 @@ class EvgAppKit {
         out = (out + (EVGTreeJson.str(runner.state)))
         out = ((out + ",\"id\":") + (EVGTreeJson.str(id)))
         out = ((out + ",\"takes\":") + (EvgAppRules.boolText(takes)))
+        out = ((out + ",\"context\":") + (this.contextJson()))
         ; How many instances this kit is holding. A host that spawns a process
         ; per press reports the same number forever; one that keeps the app
         ; open reports the components a screen actually has.
@@ -210,6 +232,7 @@ class EvgAppKit {
         out = (out + (EVGTreeJson.str(runner.state)))
         out = ((out + ",\"width\":") + (to_string pageW))
         out = ((out + ",\"height\":") + (to_string pageH))
+        out = ((out + ",\"context\":") + (this.contextJson()))
         out = ((out + ",\"ncmds\":") + (to_string (dl.count())))
         out = ((out + ",\"nodes\":") + (to_string m.nodes))
         out = ((out + ",\"live\":") + (to_string (this.liveComponents())))
@@ -484,14 +507,7 @@ class EvgAppKit {
     ; to the tool that reads files: the browser runs the same binding, and a
     ; second copy of it there is a second set of rules.
     fn bind:void (el:EVGElement) {
-        if ((strlen el.textContent) > 0) {
-            el.textContent = (this.fill(el.textContent))
-        }
-        def i:int 0
-        while (i < (array_length el.children)) {
-            this.bind((itemAt el.children i))
-            i = (i + 1)
-        }
+        EvgAppRules.bindTree(el runner)
     }
 
     fn fill:string (text:string) {

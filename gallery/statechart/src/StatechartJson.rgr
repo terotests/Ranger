@@ -153,6 +153,14 @@ class StatechartJson {
             g.source = (StatechartJson.valueOf((spec.get("nonBlank"))))
             return g
         }
+        ; `{"is": {"context":"wifi"}, "equals": "checked"}` — the value on the
+        ; left is the expression, the word on the right is what it has to be.
+        if (spec.has("is")) {
+            g.kind = "is"
+            g.source = (StatechartJson.valueOf((spec.get("is"))))
+            g.operand = (ScValOps.str((spec.stringOr("equals" ""))))
+            return g
+        }
         if (spec.has("not")) {
             g.kind = "not"
             push g.parts (StatechartJson.guardOf((spec.get("not"))))

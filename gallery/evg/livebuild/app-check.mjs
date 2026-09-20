@@ -235,4 +235,193 @@ fs.rmSync(broken, { recursive: true, force: true });
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+// A CONTROL THAT WORKS. A switch put on a screen used to be a picture with a
+// real name: its press was an event and the machine took it, and nothing on
+// the screen could move, because a control's state is a CLASS and only text
+// was bound to the context. This is the whole chain in one check — the kit
+// writes the control, the machine flips the key, the render shows the other
+// state — and it is the difference between a screen of controls and a
+// drawing of one.
+{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "evg-app-bound-"));
+  fs.mkdirSync(path.join(dir, "pages"), { recursive: true });
+  const page = path.join(dir, "pages/settings.evg.json");
+  fs.writeFileSync(
+    page,
+    JSON.stringify({
+      evg: 1,
+      css: "",
+      root: { tag: "div", props: { display: "flex", width: "390px", height: "160px" }, children: [] },
+    }),
+  );
+  const kit = path.join(root, "gallery/ui/kit/ui_kit.mjs");
+  const added = spawnSync(
+    process.execPath,
+    [kit, "add", "row", "--title", "Wi-Fi", "--control", "switch", "--checked", "--id", "toggle.wifi", "--bind", "wifi", "--into", page],
+    { cwd: root, encoding: "utf8", timeout: 180000 },
+  );
+  const batch = JSON.parse(added.stdout || "{}");
+  if (!batch.ops) throw new Error("the kit did not answer a batch: " + (added.stderr || added.stdout));
+  const ops = path.join(dir, "ops.json");
+  fs.writeFileSync(ops, JSON.stringify({ ops: batch.ops }));
+  const agent = path.join(root, "lib/evg/bin/evg_agent.js");
+  if (fs.existsSync(agent)) {
+    spawnSync(process.execPath, [agent, "patch", page, ops], { cwd: root, encoding: "utf8", timeout: 180000 });
+    const doc = fs.readFileSync(page, "utf8");
+    if (!doc.includes("ui-switch-track-state-{wifi}")) {
+      throw new Error("the control's state is not bound to the machine: " + doc.slice(0, 400));
+    }
+    // The paint has to come from the RULES, not from properties baked into
+    // the node — an inline colour outranks every rule, and a control saved
+    // that way is frozen in the state it was built in.
+    if (/"background-color":"rgb\(22,163,74\)"/.test(doc)) {
+      throw new Error("the control was saved with its colours resolved into it");
+    }
+    fs.writeFileSync(
+      path.join(dir, "machine.json"),
+      JSON.stringify({
+        id: "bound",
+        initial: "settings",
+        context: { wifi: "checked" },
+        states: {
+          settings: {
+            on: {
+              "toggle.wifi": [
+                { guard: { is: { context: "wifi" }, equals: "checked" }, actions: [{ assign: { wifi: { value: "unchecked" } } }] },
+                { actions: [{ assign: { wifi: { value: "checked" } } }] },
+              ],
+              "toggle.wifi.control": [
+                { guard: { is: { context: "wifi" }, equals: "checked" }, actions: [{ assign: { wifi: { value: "unchecked" } } }] },
+                { actions: [{ assign: { wifi: { value: "checked" } } }] },
+              ],
+            },
+          },
+        },
+      }),
+    );
+    const pressed = app("press", dir, "toggle.wifi");
+    if ((pressed.context || {}).wifi !== "unchecked") {
+      throw new Error("a press did not flip the control: " + JSON.stringify(pressed.context));
+    }
+    const twice = app("press", dir, "toggle.wifi", "toggle.wifi");
+    if ((twice.context || {}).wifi !== "checked") {
+      throw new Error("two presses did not come back: " + JSON.stringify(twice.context));
+    }
+    const shown = spawnSync(process.execPath, [bin, "render", dir], { cwd: root, encoding: "utf8" }).stdout || "";
+    if (!shown.includes("ui-switch-track-state-checked")) {
+      throw new Error("the render did not fill the state in from the context");
+    }
+    console.log("  bound       a switch the machine owns: press it and the screen moves");
+  }
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+// MAKE APP WIRES THE CONTROLS. A screen with a bound switch on it is telling
+// the machine what it needs — a key called `wifi`, and an event that flips
+// it — and writing that by hand was the last step between "the kit drew me a
+// control" and "the control works". `init` reads them off the screen the way
+// it reads `nav.*` for the states, so a designed screen becomes an app whose
+// switches move without anybody opening machine.json.
+{
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "evg-app-wire-"));
+  const screen = path.join(dir, "doc.evg.json");
+  fs.writeFileSync(
+    screen,
+    JSON.stringify({
+      evg: 1,
+      css: "",
+      root: { tag: "div", props: { display: "flex", width: "390px", height: "200px" }, children: [] },
+    }),
+  );
+  const kit = path.join(root, "gallery/ui/kit/ui_kit.mjs");
+  const agent = path.join(root, "lib/evg/bin/evg_agent.js");
+  if (fs.existsSync(agent)) {
+    for (const [id, key, on] of [["toggle.cellular", "cellular", true], ["toggle.wifi", "wifi", false]]) {
+      const args = [kit, "add", "row", "--title", key, "--control", "switch", "--id", id, "--bind", key, "--into", screen];
+      if (on) args.push("--checked");
+      const made = JSON.parse(spawnSync(process.execPath, args, { cwd: root, encoding: "utf8", timeout: 180000 }).stdout || "{}");
+      const opsFile = path.join(dir, "ops.json");
+      fs.writeFileSync(opsFile, JSON.stringify({ ops: made.ops }));
+      spawnSync(process.execPath, [agent, "patch", screen, opsFile], { cwd: root, encoding: "utf8", timeout: 180000 });
+    }
+    const appDir = path.join(dir, "app");
+    // `--from=` is the flag form this tool reads.
+    app("init", appDir, `--from=${screen}`);
+    const machine = JSON.parse(fs.readFileSync(path.join(appDir, "machine.json"), "utf8"));
+    // The context comes off the SCREEN: the app opens as it was drawn.
+    if (machine.context.cellular !== "checked" || machine.context.wifi !== "unchecked") {
+      throw new Error("init did not read the controls' states: " + JSON.stringify(machine.context));
+    }
+    const on = machine.states.main.on;
+    for (const want of ["toggle.wifi", "toggle.wifi.control", "toggle.cellular"]) {
+      if (!on[want]) throw new Error(`init wired no event for ${want}`);
+    }
+    const flipped = app("press", appDir, "toggle.wifi");
+    if (flipped.context.wifi !== "checked") {
+      throw new Error("the wired toggle did not flip: " + JSON.stringify(flipped.context));
+    }
+    const rendered = spawnSync(process.execPath, [bin, "render", appDir], { cwd: root, encoding: "utf8" }).stdout || "";
+    if (!rendered.includes("ui-switch-track-state-checked") || !rendered.includes("ui-switch-track-state-unchecked")) {
+      throw new Error("the two switches render in the same state");
+    }
+    console.log("  make app    a screen's bound controls become context keys and events");
+  }
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+// THE SAME BINDING IN THE TAB. The tool renders a page and so does the
+// browser runtime, and for a while they were two copies of the rule: the CLI
+// filled `{key}` in a class and the tab did not, so a switch bound to the
+// machine moved on the command line and was dead in the browser — which is
+// the only place anybody looks. One copy now lives in `EvgAppRules`; this is
+// what says so, without a browser.
+{
+  const webBin = path.join(root, "gallery/evg/bin/evg_app_web.js");
+  if (fs.existsSync(webBin)) {
+    const src = fs.readFileSync(webBin, "utf8");
+    const mod = await import("data:text/javascript," + encodeURIComponent(src + "\nexport { EvgAppWeb };\n"));
+    const w = new mod.EvgAppWeb();
+    const machine = JSON.stringify({
+      id: "tab",
+      initial: "settings",
+      context: { wifi: "checked" },
+      states: {
+        settings: {
+          on: {
+            "toggle.wifi": [
+              { guard: { is: { context: "wifi" }, equals: "checked" }, actions: [{ assign: { wifi: { value: "unchecked" } } }] },
+              { actions: [{ assign: { wifi: { value: "checked" } } }] },
+            ],
+          },
+        },
+      },
+    });
+    if (!w.boot(machine)) throw new Error("the runtime in the tab did not boot");
+    w.put(
+      "settings",
+      JSON.stringify({
+        evg: 1,
+        css: "",
+        root: {
+          tag: "div",
+          props: { display: "flex", width: "390px", height: "200px" },
+          children: [{ tag: "div", id: "toggle.wifi", props: { width: "44px", height: "26px", "class-name": "ui-switch-track ui-switch-track-state-{wifi}" } }],
+        },
+      }),
+    );
+    w.size(390, 200);
+    if (!JSON.parse(w.frame()).context) throw new Error("a frame from the tab carries no context");
+    const hit = JSON.parse(w.press(20, 10));
+    if (!hit.takes) throw new Error("the press did not reach the machine in the tab");
+    if (!hit.context || hit.context.wifi !== "unchecked") {
+      throw new Error("the press answered no context: " + JSON.stringify(hit));
+    }
+    const cls = JSON.parse(w.doc()).root.children[0].props["class-name"];
+    if (!cls.includes("ui-switch-track-state-unchecked")) {
+      throw new Error("the tab did not fill the state into the class: " + cls);
+    }
+    console.log("  in the tab  the same binding and the same context the CLI has");
+  }
+}
+
 console.log("ALL PASS — a machine, a page per state, a model that agrees with itself, a memory that does not rot");

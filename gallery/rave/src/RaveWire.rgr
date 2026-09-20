@@ -1,0 +1,600 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; RaveWire — the Components pane, drawn
+; =============================================================================
+; A list of thirty-six words is not a component palette. A designer picks a
+; Select from the shape of a Select, and the shape is what says what the
+; thing is before anything has been dropped on the page.
+;
+; So every entry in `RaveKit` has a drawing here: the same dark ground and
+; green wires the wireframe stage uses, built out of plain `EVGElement`s with
+; their geometry inline. Inline because these live in the EDITOR's tree,
+; which the chrome stylesheet owns — a palette that needed the document's
+; sheet would go blank the moment the document changed.
+;
+; The drawings are icons, not renderings. What is dropped on the page is
+; `RaveKit.create`'s node tree; this is how it is offered.
+; =============================================================================
+
+Import "pkg:evg/EVGElement.rgr"
+
+class RaveWire {
+
+    ; The wire palette, in one place: the same colours the stage's wire sheet
+    ; uses, so a tile and the thing it drops look like each other.
+    sfn ground:string () { return "#0e1b16" }
+    sfn ink:string () { return "#7fe9bb" }
+    sfn line:string () { return "#3fd89b" }
+    sfn dim:string () { return "#2f8f68" }
+    sfn faint:string () { return "#1f4f3b" }
+
+    ; The size of one drawing. Two fit across the left rail.
+    sfn tileW:double () { return 100.0 }
+    sfn tileH:double () { return 48.0 }
+
+    ; --- the pieces -----------------------------------------------------------
+
+    sfn plain:EVGElement (w:double h:double) {
+        def e:EVGElement (EVGElement.createDiv())
+        e.a11yHidden = true
+        e.setAttribute("display" "flex")
+        e.setAttribute("flex-wrap" "nowrap")
+        e.setAttribute("align-items" "stretch")
+        if (w > 0.0) {
+            e.setAttribute("width" ((to_string w) + "px"))
+            e.setAttribute("min-width" ((to_string w) + "px"))
+        }
+        if (h > 0.0) {
+            e.setAttribute("height" ((to_string h) + "px"))
+            e.setAttribute("min-height" ((to_string h) + "px"))
+        }
+        return e
+    }
+
+    ; A box of a given size, laid out down the page.
+    sfn col:EVGElement (w:double h:double gap:double) {
+        def e:EVGElement (RaveWire.plain(w h))
+        e.setAttribute("flex-direction" "column")
+        e.setAttribute("gap" ((to_string gap) + "px"))
+        return e
+    }
+
+    ; …and across it.
+    sfn row:EVGElement (w:double h:double gap:double) {
+        def e:EVGElement (RaveWire.plain(w h))
+        e.setAttribute("flex-direction" "row")
+        e.setAttribute("align-items" "center")
+        e.setAttribute("gap" ((to_string gap) + "px"))
+        return e
+    }
+
+    ; An outlined box: the wire itself.
+    sfn frame:EVGElement (w:double h:double colour:string) {
+        def e:EVGElement (RaveWire.col(w h 3.0))
+        e.setAttribute("border" ("1px solid " + colour))
+        e.setAttribute("padding" "4px")
+        return e
+    }
+
+    sfn frameRow:EVGElement (w:double h:double colour:string) {
+        def e:EVGElement (RaveWire.row(w h 4.0))
+        e.setAttribute("border" ("1px solid " + colour))
+        e.setAttribute("padding" "4px")
+        return e
+    }
+
+    ; A filled bar: where words would be.
+    sfn bar:EVGElement (w:double h:double) {
+        def e:EVGElement (RaveWire.plain(w h))
+        e.setAttribute("background-color" (RaveWire.dim()))
+        return e
+    }
+
+    sfn brightBar:EVGElement (w:double h:double) {
+        def e:EVGElement (RaveWire.plain(w h))
+        e.setAttribute("background-color" (RaveWire.line()))
+        return e
+    }
+
+    sfn dot:EVGElement (d:double) {
+        def e:EVGElement (RaveWire.plain(d d))
+        e.setAttribute("background-color" (RaveWire.line()))
+        e.setAttribute("border-radius" "999px")
+        return e
+    }
+
+    sfn ring:EVGElement (d:double) {
+        def e:EVGElement (RaveWire.plain(d d))
+        e.setAttribute("border" ("1px solid " + (RaveWire.line())))
+        e.setAttribute("border-radius" "999px")
+        return e
+    }
+
+    sfn square:EVGElement (d:double) {
+        return (RaveWire.outline(d d (RaveWire.line())))
+    }
+
+    ; An outlined box of any shape.
+    sfn outline:EVGElement (w:double h:double colour:string) {
+        def e:EVGElement (RaveWire.plain(w h))
+        e.setAttribute("border" ("1px solid " + colour))
+        return e
+    }
+
+    sfn spacer:EVGElement () {
+        def e:EVGElement (EVGElement.createDiv())
+        e.a11yHidden = true
+        e.setAttribute("flex-grow" "1")
+        return e
+    }
+
+    ; --- the flex menu --------------------------------------------------------
+    ; The icons in the layout menu are not pictures of flexbox: they ARE
+    ; flexbox. Each one is a little flex box with the option set on it and
+    ; three blocks inside, laid out by the same engine that lays out the
+    ; page. A drawn arrow can be wrong about what `space-around` does; this
+    ; cannot be.
+
+    sfn block:EVGElement (w:double h:double) {
+        def e:EVGElement (EVGElement.createDiv())
+        e.a11yHidden = true
+        e.setAttribute("width" ((to_string w) + "px"))
+        e.setAttribute("min-width" ((to_string w) + "px"))
+        e.setAttribute("min-height" "4px")
+        if (h > 0.0) {
+            e.setAttribute("height" ((to_string h) + "px"))
+        }
+        e.setAttribute("background-color" (RaveWire.line()))
+        return e
+    }
+
+    sfn flexIcon:EVGElement (prop:string value:string) {
+        def e:EVGElement (RaveWire.plain(38.0 24.0))
+        e.setAttribute("display" "flex")
+        e.setAttribute("flex-direction" "row")
+        e.setAttribute("flex-wrap" "nowrap")
+        e.setAttribute("align-items" "center")
+        e.setAttribute("justify-content" "flex-start")
+        e.setAttribute("gap" "2px")
+        e.setAttribute("padding" "3px")
+        e.setAttribute("overflow" "hidden")
+        e.setAttribute("background-color" (RaveWire.ground()))
+        ; the option under the pointer, applied to the icon itself
+        e.setAttribute(prop value)
+        if (prop == "flex-direction") {
+            e.addChild((RaveWire.block(7.0 7.0)))
+            e.addChild((RaveWire.block(7.0 7.0)))
+            e.addChild((RaveWire.block(7.0 7.0)))
+            return e
+        }
+        if (prop == "flex-wrap") {
+            def i:int 0
+            while (i < 4) {
+                e.addChild((RaveWire.block(10.0 6.0)))
+                i = (i + 1)
+            }
+            return e
+        }
+        if ((prop == "align-items") || (prop == "align-self")) {
+            ; no height on the blocks, so `stretch` has something to do
+            e.addChild((RaveWire.block(7.0 0.0)))
+            e.addChild((RaveWire.block(7.0 0.0)))
+            e.addChild((RaveWire.block(7.0 0.0)))
+            return e
+        }
+        e.addChild((RaveWire.block(7.0 10.0)))
+        e.addChild((RaveWire.block(7.0 10.0)))
+        return e
+    }
+
+    ; --- the drawings ---------------------------------------------------------
+
+    ; One entry of the kit, 92 × 36, on the tile's dark ground.
+    sfn drawing:EVGElement (kind:string) {
+        def w:double 92.0
+        def h:double 36.0
+        def faint:string (RaveWire.faint())
+        def line:string (RaveWire.line())
+
+        if (kind == "Container") {
+            def e:EVGElement (RaveWire.frame(w h faint))
+            e.addChild((RaveWire.bar(60.0 5.0)))
+            e.addChild((RaveWire.bar(40.0 5.0)))
+            return e
+        }
+        if (kind == "Section") {
+            def e:EVGElement (RaveWire.frame(w h faint))
+            e.addChild((RaveWire.brightBar(30.0 6.0)))
+            e.addChild((RaveWire.bar(70.0 4.0)))
+            e.addChild((RaveWire.bar(54.0 4.0)))
+            return e
+        }
+        if (kind == "Grid") {
+            def e:EVGElement (RaveWire.col(w h 4.0))
+            def gr:int 0
+            while (gr < 2) {
+                def r:EVGElement (RaveWire.row(w 16.0 4.0))
+                def gc:int 0
+                while (gc < 3) {
+                    r.addChild((RaveWire.outline(28.0 16.0 faint)))
+                    gc = (gc + 1)
+                }
+                e.addChild(r)
+                gr = (gr + 1)
+            }
+            return e
+        }
+        if (kind == "Row") {
+            def e:EVGElement (RaveWire.row(w h 5.0))
+            e.addChild((RaveWire.frame(27.0 h faint)))
+            e.addChild((RaveWire.frame(27.0 h faint)))
+            e.addChild((RaveWire.frame(27.0 h faint)))
+            return e
+        }
+        if (kind == "Scroll area") {
+            def e:EVGElement (RaveWire.frameRow(w h faint))
+            def inner:EVGElement (RaveWire.col(74.0 0.0 4.0))
+            inner.addChild((RaveWire.bar(70.0 4.0)))
+            inner.addChild((RaveWire.bar(62.0 4.0)))
+            inner.addChild((RaveWire.bar(70.0 4.0)))
+            e.addChild(inner)
+            e.addChild((RaveWire.spacer()))
+            e.addChild((RaveWire.brightBar(4.0 20.0)))
+            return e
+        }
+        if (kind == "Separator") {
+            def e:EVGElement (RaveWire.col(w h 0.0))
+            e.setAttribute("justify-content" "center")
+            e.addChild((RaveWire.bar(w 1.0)))
+            return e
+        }
+        if (kind == "Heading") {
+            def e:EVGElement (RaveWire.col(w h 5.0))
+            e.setAttribute("justify-content" "center")
+            e.addChild((RaveWire.brightBar(56.0 9.0)))
+            e.addChild((RaveWire.bar(76.0 4.0)))
+            return e
+        }
+        if (kind == "Text") {
+            def e:EVGElement (RaveWire.col(w h 5.0))
+            e.setAttribute("justify-content" "center")
+            e.addChild((RaveWire.bar(88.0 4.0)))
+            e.addChild((RaveWire.bar(78.0 4.0)))
+            e.addChild((RaveWire.bar(58.0 4.0)))
+            return e
+        }
+        if (kind == "Label") {
+            def e:EVGElement (RaveWire.col(w h 0.0))
+            e.setAttribute("justify-content" "center")
+            e.addChild((RaveWire.bar(36.0 5.0)))
+            return e
+        }
+        if (kind == "Badge") {
+            def e:EVGElement (RaveWire.row(w h 0.0))
+            def b:EVGElement (RaveWire.row(36.0 15.0 0.0))
+            b.setAttribute("border" ("1px solid " + line))
+            b.setAttribute("border-radius" "999px")
+            b.setAttribute("padding" "0 6px")
+            b.addChild((RaveWire.bar(20.0 4.0)))
+            e.addChild(b)
+            return e
+        }
+        if (kind == "Button") {
+            def e:EVGElement (RaveWire.row(w h 0.0))
+            def b:EVGElement (RaveWire.row(58.0 24.0 0.0))
+            b.setAttribute("border" ("1px solid " + line))
+            b.setAttribute("justify-content" "center")
+            b.addChild((RaveWire.brightBar(26.0 5.0)))
+            e.addChild(b)
+            return e
+        }
+        if (kind == "Link") {
+            def e:EVGElement (RaveWire.col(w h 3.0))
+            e.setAttribute("justify-content" "center")
+            e.addChild((RaveWire.brightBar(44.0 5.0)))
+            e.addChild((RaveWire.bar(44.0 1.0)))
+            return e
+        }
+        if (kind == "Input") {
+            def e:EVGElement (RaveWire.col(w h 4.0))
+            e.setAttribute("justify-content" "center")
+            e.addChild((RaveWire.bar(28.0 4.0)))
+            def b:EVGElement (RaveWire.row(w 20.0 0.0))
+            b.setAttribute("border" ("1px solid " + (RaveWire.dim())))
+            b.setAttribute("padding" "0 5px")
+            b.addChild((RaveWire.bar(32.0 4.0)))
+            e.addChild(b)
+            return e
+        }
+        if (kind == "Textarea") {
+            def e:EVGElement (RaveWire.frame(w h (RaveWire.dim())))
+            e.addChild((RaveWire.bar(76.0 4.0)))
+            e.addChild((RaveWire.bar(84.0 4.0)))
+            e.addChild((RaveWire.bar(52.0 4.0)))
+            return e
+        }
+        if (kind == "Select") {
+            def e:EVGElement (RaveWire.col(w h 4.0))
+            e.setAttribute("justify-content" "center")
+            def b:EVGElement (RaveWire.row(w 22.0 0.0))
+            b.setAttribute("border" ("1px solid " + (RaveWire.dim())))
+            b.setAttribute("padding" "0 5px")
+            b.addChild((RaveWire.bar(34.0 4.0)))
+            b.addChild((RaveWire.spacer()))
+            b.addChild((RaveWire.brightBar(7.0 7.0)))
+            e.addChild(b)
+            return e
+        }
+        if (kind == "Checkbox") {
+            def e:EVGElement (RaveWire.row(w h 7.0))
+            e.addChild((RaveWire.square(13.0)))
+            e.addChild((RaveWire.bar(46.0 5.0)))
+            return e
+        }
+        if (kind == "Switch") {
+            def e:EVGElement (RaveWire.row(w h 8.0))
+            def t:EVGElement (RaveWire.row(26.0 14.0 0.0))
+            t.setAttribute("border" ("1px solid " + line))
+            t.setAttribute("border-radius" "999px")
+            t.setAttribute("padding" "0 2px")
+            t.addChild((RaveWire.dot(8.0)))
+            e.addChild(t)
+            e.addChild((RaveWire.bar(40.0 5.0)))
+            return e
+        }
+        if (kind == "Radio group") {
+            def e:EVGElement (RaveWire.col(w h 6.0))
+            e.setAttribute("justify-content" "center")
+            def r1:EVGElement (RaveWire.row(w 12.0 7.0))
+            r1.addChild((RaveWire.dot(11.0)))
+            r1.addChild((RaveWire.bar(44.0 4.0)))
+            def r2:EVGElement (RaveWire.row(w 12.0 7.0))
+            r2.addChild((RaveWire.ring(11.0)))
+            r2.addChild((RaveWire.bar(36.0 4.0)))
+            e.addChild(r1)
+            e.addChild(r2)
+            return e
+        }
+        if (kind == "Slider") {
+            def e:EVGElement (RaveWire.row(w h 0.0))
+            e.addChild((RaveWire.brightBar(34.0 2.0)))
+            e.addChild((RaveWire.dot(12.0)))
+            e.addChild((RaveWire.bar(46.0 2.0)))
+            return e
+        }
+        if (kind == "Form") {
+            def e:EVGElement (RaveWire.col(w h 4.0))
+            def f1:EVGElement (RaveWire.row(w 11.0 0.0))
+            f1.setAttribute("border" ("1px solid " + (RaveWire.dim())))
+            def f2:EVGElement (RaveWire.row(w 11.0 0.0))
+            f2.setAttribute("border" ("1px solid " + (RaveWire.dim())))
+            def act:EVGElement (RaveWire.row(w 10.0 0.0))
+            act.addChild((RaveWire.spacer()))
+            act.addChild((RaveWire.brightBar(30.0 10.0)))
+            e.addChild(f1)
+            e.addChild(f2)
+            e.addChild(act)
+            return e
+        }
+        if (kind == "Card") {
+            def e:EVGElement (RaveWire.frame(w h line))
+            e.addChild((RaveWire.brightBar(36.0 6.0)))
+            e.addChild((RaveWire.bar(78.0 4.0)))
+            e.addChild((RaveWire.bar(62.0 4.0)))
+            return e
+        }
+        if (kind == "List") {
+            def e:EVGElement (RaveWire.col(w h 6.0))
+            def i:int 0
+            while (i < 3) {
+                def r:EVGElement (RaveWire.row(w 8.0 6.0))
+                r.addChild((RaveWire.dot(4.0)))
+                r.addChild((RaveWire.bar((70.0 - (to_double (i * 8))) 4.0)))
+                e.addChild(r)
+                i = (i + 1)
+            }
+            return e
+        }
+        if (kind == "Table") {
+            def e:EVGElement (RaveWire.col(w h 0.0))
+            def i:int 0
+            while (i < 3) {
+                def r:EVGElement (RaveWire.row(w 12.0 0.0))
+                def j:int 0
+                while (j < 3) {
+                    def cell:EVGElement (RaveWire.row(30.0 12.0 0.0))
+                    cell.setAttribute("border" ("1px solid " + faint))
+                    cell.setAttribute("padding" "0 3px")
+                    if (i == 0) {
+                        cell.addChild((RaveWire.brightBar(14.0 3.0)))
+                    } {
+                        cell.addChild((RaveWire.bar(18.0 3.0)))
+                    }
+                    r.addChild(cell)
+                    j = (j + 1)
+                }
+                e.addChild(r)
+                i = (i + 1)
+            }
+            return e
+        }
+        if (kind == "Avatar") {
+            def e:EVGElement (RaveWire.row(w h 7.0))
+            e.addChild((RaveWire.ring(28.0)))
+            def side:EVGElement (RaveWire.col(50.0 0.0 4.0))
+            side.addChild((RaveWire.bar(44.0 4.0)))
+            side.addChild((RaveWire.bar(30.0 4.0)))
+            e.addChild(side)
+            return e
+        }
+        if (kind == "Progress") {
+            def e:EVGElement (RaveWire.col(w h 5.0))
+            e.setAttribute("justify-content" "center")
+            def t:EVGElement (RaveWire.row(w 9.0 0.0))
+            t.setAttribute("border" ("1px solid " + (RaveWire.dim())))
+            t.addChild((RaveWire.brightBar(38.0 7.0)))
+            e.addChild(t)
+            e.addChild((RaveWire.bar(28.0 3.0)))
+            return e
+        }
+        if (kind == "Image") {
+            def e:EVGElement (RaveWire.row(w h 0.0))
+            e.setAttribute("border" ("1px solid " + (RaveWire.dim())))
+            e.setAttribute("justify-content" "center")
+            e.addChild((RaveWire.ring(14.0)))
+            return e
+        }
+        if (kind == "Navigation") {
+            def e:EVGElement (RaveWire.frameRow(w h faint))
+            e.addChild((RaveWire.brightBar(20.0 5.0)))
+            e.addChild((RaveWire.bar(20.0 5.0)))
+            e.addChild((RaveWire.bar(20.0 5.0)))
+            return e
+        }
+        if (kind == "Sidebar") {
+            def e:EVGElement (RaveWire.row(w h 4.0))
+            def side:EVGElement (RaveWire.frame(26.0 h line))
+            side.addChild((RaveWire.bar(16.0 3.0)))
+            side.addChild((RaveWire.bar(16.0 3.0)))
+            side.addChild((RaveWire.bar(12.0 3.0)))
+            def body:EVGElement (RaveWire.frame(62.0 h faint))
+            body.addChild((RaveWire.bar(48.0 4.0)))
+            body.addChild((RaveWire.bar(40.0 4.0)))
+            e.addChild(side)
+            e.addChild(body)
+            return e
+        }
+        if (kind == "Top bar") {
+            def e:EVGElement (RaveWire.col(w h 4.0))
+            def top:EVGElement (RaveWire.frameRow(w 14.0 line))
+            top.addChild((RaveWire.brightBar(18.0 4.0)))
+            top.addChild((RaveWire.spacer()))
+            top.addChild((RaveWire.bar(12.0 4.0)))
+            top.addChild((RaveWire.bar(12.0 4.0)))
+            def body:EVGElement (RaveWire.frame(w 18.0 faint))
+            body.addChild((RaveWire.bar(60.0 4.0)))
+            e.addChild(top)
+            e.addChild(body)
+            return e
+        }
+        if (kind == "Tabs") {
+            def e:EVGElement (RaveWire.col(w h 4.0))
+            def tabs:EVGElement (RaveWire.row(w 16.0 4.0))
+            def i:int 0
+            while (i < 3) {
+                def t:EVGElement (RaveWire.col(28.0 16.0 3.0))
+                t.setAttribute("align-items" "center")
+                t.setAttribute("justify-content" "center")
+                t.addChild((RaveWire.bar(18.0 4.0)))
+                if (i == 0) {
+                    t.addChild((RaveWire.brightBar(28.0 2.0)))
+                }
+                tabs.addChild(t)
+                i = (i + 1)
+            }
+            e.addChild(tabs)
+            e.addChild((RaveWire.bar(76.0 4.0)))
+            return e
+        }
+        if (kind == "Breadcrumb") {
+            def e:EVGElement (RaveWire.row(w h 5.0))
+            e.addChild((RaveWire.bar(20.0 4.0)))
+            e.addChild((RaveWire.dot(3.0)))
+            e.addChild((RaveWire.bar(26.0 4.0)))
+            e.addChild((RaveWire.dot(3.0)))
+            e.addChild((RaveWire.brightBar(18.0 4.0)))
+            return e
+        }
+        if (kind == "Menu") {
+            def e:EVGElement (RaveWire.frame(w h line))
+            e.addChild((RaveWire.brightBar(58.0 4.0)))
+            e.addChild((RaveWire.bar(66.0 4.0)))
+            e.addChild((RaveWire.bar(48.0 4.0)))
+            return e
+        }
+        if (kind == "Dialog") {
+            def e:EVGElement (RaveWire.row(w h 0.0))
+            e.setAttribute("border" ("1px solid " + faint))
+            e.setAttribute("justify-content" "center")
+            def panel:EVGElement (RaveWire.frame(58.0 26.0 line))
+            panel.addChild((RaveWire.brightBar(26.0 4.0)))
+            panel.addChild((RaveWire.bar(44.0 3.0)))
+            e.addChild(panel)
+            return e
+        }
+        if (kind == "Sheet") {
+            def e:EVGElement (RaveWire.row(w h 0.0))
+            e.setAttribute("border" ("1px solid " + faint))
+            e.addChild((RaveWire.spacer()))
+            def panel:EVGElement (RaveWire.frame(36.0 h line))
+            panel.addChild((RaveWire.brightBar(22.0 4.0)))
+            panel.addChild((RaveWire.bar(26.0 3.0)))
+            e.addChild(panel)
+            return e
+        }
+        if (kind == "Command menu") {
+            def e:EVGElement (RaveWire.frame(w h line))
+            def q:EVGElement (RaveWire.row(84.0 11.0 4.0))
+            q.setAttribute("border" ("1px solid " + (RaveWire.dim())))
+            q.setAttribute("padding" "0 3px")
+            q.addChild((RaveWire.brightBar(5.0 5.0)))
+            q.addChild((RaveWire.bar(30.0 3.0)))
+            e.addChild(q)
+            e.addChild((RaveWire.bar(70.0 3.0)))
+            e.addChild((RaveWire.bar(54.0 3.0)))
+            return e
+        }
+        if (kind == "Toast") {
+            def e:EVGElement (RaveWire.col(w h 0.0))
+            e.setAttribute("border" ("1px solid " + faint))
+            e.addChild((RaveWire.spacer()))
+            def r:EVGElement (RaveWire.row(w 16.0 0.0))
+            r.addChild((RaveWire.spacer()))
+            def t:EVGElement (RaveWire.row(48.0 15.0 4.0))
+            t.setAttribute("border" ("1px solid " + line))
+            t.setAttribute("padding" "0 4px")
+            t.addChild((RaveWire.dot(5.0)))
+            t.addChild((RaveWire.bar(26.0 3.0)))
+            r.addChild(t)
+            e.addChild(r)
+            return e
+        }
+        ; Anything the kit grows that has no drawing yet is still offered —
+        ; as a plain box, so a missing drawing is visible rather than fatal.
+        def e:EVGElement (RaveWire.frame(w h faint))
+        e.addChild((RaveWire.bar(52.0 5.0)))
+        return e
+    }
+
+    ; One tile of the palette: the drawing on its dark ground, with the name
+    ; under it. The id is the kit's own `add:` command, so a tile does what
+    ; the row it replaced did.
+    sfn tile:EVGElement (kind:string selected:boolean) {
+        def cell:EVGElement (RaveWire.col((RaveWire.tileW()) 0.0 3.0))
+        cell.id = ("add:" + kind)
+        cell.role = "button"
+        cell.a11yLabel = ("Add " + kind)
+        cell.a11yFocusable = true
+        def ground:EVGElement (RaveWire.row((RaveWire.tileW()) (RaveWire.tileH()) 0.0))
+        ground.setAttribute("background-color" (RaveWire.ground()))
+        ground.setAttribute("justify-content" "center")
+        ground.setAttribute("align-items" "center")
+        ground.setAttribute("border-radius" "5px")
+        ground.setAttribute("overflow" "hidden")
+        def border:string (RaveWire.faint())
+        if selected {
+            border = (RaveWire.line())
+        }
+        ground.setAttribute("border" ("1px solid " + border))
+        ground.addChild((RaveWire.drawing(kind)))
+        cell.addChild(ground)
+        def name:EVGElement (EVGElement.createDiv())
+        name.elementType = 1
+        name.className = "ra-wf-name"
+        name.textContent = kind
+        name.a11yHidden = true
+        cell.addChild(name)
+        return cell
+    }
+}

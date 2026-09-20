@@ -147,11 +147,12 @@ function runAgent(verb, tree, extra) {
   return { ok: (out.status ?? 0) === 0 && !/^rave:/.test(text), text };
 }
 
-function shotTree(file, route, width, loggedOut) {
+function shotTree(file, route, width, loggedOut, wire) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rave-tree-"));
   const tree = path.join(dir, "tree.evg.json");
   const args = ["shotdata", path.resolve(file), tree, "--route", route, "--width", String(width)];
   if (loggedOut) args.push("--logged-out");
+  if (wire) args.push("--wire");
   const made = spawnSync(process.execPath, [CLI_JS, ...args], { cwd: process.cwd(), encoding: "utf8" });
   const text = (made.stdout || "") + (made.stderr || "");
   const said = /^SHOT (\d+) (\d+) (.+)$/m.exec(text);
@@ -185,8 +186,8 @@ function measureTree(built) {
   };
 }
 
-function onePng(file, route, width, out, loggedOut) {
-  const built = shotTree(file, route, width, loggedOut);
+function onePng(file, route, width, out, loggedOut, wire) {
+  const built = shotTree(file, route, width, loggedOut, wire);
   if (!built.ok) return { ok: false, text: built.text };
   const painted = spawnSync(
     process.execPath,
@@ -212,12 +213,14 @@ function routesAndWidths(file) {
 
 function eachShot(file, rest, fn) {
   const loggedOut = rest.includes("--logged-out");
+  // --wire paints the document as a wireframe: its layout, none of its paint.
+  const wire = rest.includes("--wire");
   const { routes, widths } = routesAndWidths(file);
   if (rest.includes("--all")) {
     let bad = 0;
     for (const route of routes) {
       for (const width of widths) {
-        const r = fn(route, width, loggedOut, true);
+        const r = fn(route, width, loggedOut, true, wire);
         if (!r.ok) bad += 1;
       }
     }
@@ -225,7 +228,7 @@ function eachShot(file, rest, fn) {
   }
   const route = flagOf(rest, "--route", routes[0] || "/");
   const width = Number(flagOf(rest, "--width", widths[0] || 1440));
-  const r = fn(route, width, loggedOut, false);
+  const r = fn(route, width, loggedOut, false, wire);
   return r.ok ? 0 : 1;
 }
 
@@ -238,27 +241,63 @@ function shot(file, rest) {
   if (rest.includes("--all")) {
     const dir = flagOf(rest, "--out", "shots");
     fs.mkdirSync(dir, { recursive: true });
-    return eachShot(file, rest, (route, width, loggedOut) => {
+    return eachShot(file, rest, (route, width, loggedOut, all, wire) => {
       const slug = (route === "/" ? "home" : route.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "")) + "-" + width;
       const dest = path.join(dir, slug + ".png");
-      const r = onePng(file, route, width, dest, loggedOut);
+      const r = onePng(file, route, width, dest, loggedOut, wire);
       process.stdout.write((r.ok ? "" : "FAILED ") + dest + "\n" + r.text + "\n");
       return r;
     });
   }
   const out = flagOf(rest, "--out", "shot.png");
-  return eachShot(file, rest, (route, width, loggedOut) => {
-    const r = onePng(file, route, width, out, loggedOut);
+  return eachShot(file, rest, (route, width, loggedOut, all, wire) => {
+    const r = onePng(file, route, width, out, loggedOut, wire);
     process.stdout.write(r.text + "\n");
     return r;
   });
 }
 
+// A picture of the EDITOR, not of a document: the chrome is EVG too, so it
+// paints through the same rasterizer.
+function chrome(file, rest) {
+  if (!buildCli()) return 2;
+  if (!buildPngTool()) {
+    process.stderr.write("rave: the rasterizer did not compile\n");
+    return 2;
+  }
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rave-chrome-"));
+  const tree = path.join(dir, "chrome.evg.json");
+  const out = flagOf(rest, "--out", "chrome.png");
+  const args = ["chromedata", path.resolve(file), tree];
+  for (const flag of ["--pane", "--route", "--width", "--height", "--press", "--select"]) {
+    const v = flagOf(rest, flag, "");
+    if (v) args.push(flag, v);
+  }
+  if (rest.includes("--paint")) args.push("--paint");
+  const made = spawnSync(process.execPath, [CLI_JS, ...args], { cwd: process.cwd(), encoding: "utf8" });
+  const text = (made.stdout || "") + (made.stderr || "");
+  const said = /^CHROME (\d+) (\d+)$/m.exec(text);
+  if (!said || !fs.existsSync(tree)) {
+    fs.rmSync(dir, { recursive: true, force: true });
+    process.stdout.write(text + "\n");
+    return 1;
+  }
+  const painted = spawnSync(
+    process.execPath,
+    [PNG_TOOL, tree, path.resolve(out), "-w", said[1], "-h", said[2]],
+    { cwd: ROOT, encoding: "utf8" },
+  );
+  fs.rmSync(dir, { recursive: true, force: true });
+  const ok = fs.existsSync(path.resolve(out));
+  process.stdout.write(ok ? `${out} ${said[1]}x${said[2]}\n` : (painted.stdout || "") + (painted.stderr || ""));
+  return ok ? 0 : 1;
+}
+
 function measure(file, rest) {
   if (!buildCli()) return 2;
   let findings = 0;
-  const code = eachShot(file, rest, (route, width, loggedOut) => {
-    const built = shotTree(file, route, width, loggedOut);
+  const code = eachShot(file, rest, (route, width, loggedOut, all, wire) => {
+    const built = shotTree(file, route, width, loggedOut, wire);
     if (!built.ok) {
       process.stdout.write(built.text + "\n");
       return built;
@@ -277,8 +316,8 @@ function outline(file, rest) {
   if (!buildCli()) return 2;
   const depth = flagOf(rest, "--depth", "6");
   const at = flagOf(rest, "--at", "");
-  return eachShot(file, rest, (route, width, loggedOut) => {
-    const built = shotTree(file, route, width, loggedOut);
+  return eachShot(file, rest, (route, width, loggedOut, all, wire) => {
+    const built = shotTree(file, route, width, loggedOut, wire);
     if (!built.ok) {
       process.stdout.write(built.text + "\n");
       return built;
@@ -401,7 +440,8 @@ if (!cmd || cmd === "help" || cmd === "--help" || cmd === "-h") {
       "  rave import <file.fig> [out]    a Figma file, read as an application",
       "  rave text <file.fig>            …and printed as markup",
       "  rave spec                  the format, exactly as the AI prompt states it",
-      "  rave shot <file> [--route /x] [--width 1440] [--out shot.png]",
+      "  rave shot <file> [--route /x] [--width 1440] [--out shot.png] [--wire]",
+      "  rave chrome <file> [--pane components] [--out chrome.png]",
       "  rave shot <file> --all [--out shots/]",
       "                             a PNG of a route at a width, painted by the",
       "                             gallery's own rasterizer — no browser —",
@@ -424,10 +464,19 @@ function fileArg(rest) {
   return rest.find((a) => !a.startsWith("--") && !rest[rest.indexOf(a) - 1]?.startsWith("--"));
 }
 
+if (cmd === "chrome") {
+  const file = rest.find((a) => !a.startsWith("-"));
+  if (!file) {
+    process.stderr.write("usage: rave chrome <file> [--pane components] [--route /x] [--out chrome.png]\n");
+    process.exit(2);
+  }
+  process.exit(chrome(file, rest));
+}
+
 if (cmd === "shot") {
   const file = fileArg(rest);
   if (!file) {
-    process.stderr.write("usage: rave shot <file> [--route /x] [--width 1440] [--out shot.png] [--all]\n");
+    process.stderr.write("usage: rave shot <file> [--route /x] [--width 1440] [--out shot.png] [--all] [--wire]\n");
     process.exit(2);
   }
   process.exit(shot(file, rest));

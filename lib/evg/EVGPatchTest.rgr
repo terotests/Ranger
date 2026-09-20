@@ -270,6 +270,32 @@ class EVGPatchTest {
         this.same("leaving the original" back.textContent "Orders")
     }
 
+    ; A CONTROL, not an empty box. A switch is a track with a thumb in it, so
+    ; an insert that can only carry one tag makes an agent build one out of a
+    ; dozen ops — and a dozen ops is how a screen ends up with a drawing of a
+    ; switch rather than a switch.
+    fn testInsertSubtree:void () {
+        print ""
+        print "-- insert a whole subtree"
+        def root:EVGElement (this.build())
+        def card:EVGElement (itemAt root.children 0)
+        def track:EVGElement (EVGElement.createDiv())
+        track.className = "ui-switch-track"
+        def thumb:EVGElement (EVGElement.createDiv())
+        thumb.className = "ui-switch-thumb"
+        track.addChild(thumb)
+        def p (new EVGPatch())
+        def list:[EVGPatchOp] (this.ops())
+        push list (EVGPatchOp.insertTree("0/0" 0 track))
+        def r:EVGPatchResult (p.apply(root list))
+        this.ok("it applied" r.ok)
+        def first:EVGElement (itemAt card.children 0)
+        this.same("the subtree went in whole" first.className "ui-switch-track")
+        this.ok("with what was inside it" ((array_length first.children) == 1))
+        p.rollback(root)
+        this.ok("rollback takes the whole thing out again" ((array_length card.children) == 1))
+    }
+
     fn testInsertUnknownTag:void () {
         print ""
         print "-- insert of something that is not an element"
@@ -468,6 +494,36 @@ class EVGPatchTest {
         this.same("as did the key" readSide.key "side")
     }
 
+    ; WHAT A NODE IS survives the file. A document that cannot say "this is a
+    ; switch" leaves everything downstream guessing from the shape, and a
+    ; control drawn out of boxes is exactly the same shape as a real one.
+    fn testMeaningRoundTrip:void () {
+        print ""
+        print "-- what a node IS, written and read"
+        def root:EVGElement (this.build())
+        def card:EVGElement (itemAt root.children 0)
+        card.role = "switch"
+        card.a11yLabel = "Wi-Fi"
+        card.a11yChecked = 2
+        def kid:EVGElement (itemAt card.children 0)
+        kid.a11yHidden = true
+        def once:string (EVGTreeJson.toText(root))
+        this.ok("the role is in the file" ((indexOf once "\"role\":\"switch\"") >= 0))
+        def back@(optional):EVGElement (EVGTreeJson.fromText(once))
+        this.ok("it read back" ((null? back) == false))
+        if (null? back) {
+            return
+        }
+        def again:EVGElement (unwrap back)
+        def readCard:EVGElement (itemAt again.children 0)
+        this.same("the role survived" readCard.role "switch")
+        this.same("the name survived" readCard.a11yLabel "Wi-Fi")
+        this.ok("the state survived" (readCard.a11yChecked == 2))
+        def readKid:EVGElement (itemAt readCard.children 0)
+        this.ok("a part stays hidden from a reader" readKid.a11yHidden)
+        this.same("the two texts agree" (EVGTreeJson.toText(again)) once)
+    }
+
     fn testDefaultsAreNotWritten:void () {
         print ""
         print "-- a fresh tree says almost nothing"
@@ -606,6 +662,8 @@ class EVGPatchTest {
         this.testSetText()
         this.testSetTextOnAParent()
         this.testInsert()
+        this.testInsertSubtree()
+        this.testMeaningRoundTrip()
         this.testInsertUnknownTag()
         this.testRemoveAndRestore()
         this.testRemoveRoot()
