@@ -138,6 +138,12 @@ are emission-time fixes with no semantic risk.
 
 ### What the five blanket `#![allow]`s hide: 980 rustc warnings
 
+*(Historical. There is no blanket block any more: every allow is asked for by
+the program that needs it, and the parentheses and the stray `mut` that made
+two of them necessary are gone —
+[PLAN_RUST_SEMANTIC_IDIOMS.md §Q](PLAN_RUST_SEMANTIC_IDIOMS.md). The counts
+below are what the header was hiding when it was fixed.)*
+
 Every Rust output opens with `allow(unused_parens, unused_mut,
 unused_variables, non_snake_case, dead_code)`. Stripping the header from
 `jpeg_on.rs`:

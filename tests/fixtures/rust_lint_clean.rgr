@@ -1,0 +1,33 @@
+class CartLine {
+  def name:string ""
+  def price:int 0
+  def qty:int 1
+  fn total:int () {
+    return (this.price * this.qty)
+  }
+}
+class Cart {
+  def lines:[CartLine]
+  fn add:void (name:string price:int qty:int) {
+    def line:CartLine (new CartLine())
+    line.name = name
+    line.price = price
+    line.qty = qty
+    push this.lines line
+  }
+  fn total:int (discount_pct:int) {
+    def sum:int 0
+    for this.lines line:CartLine i {
+      sum = sum + (line.total())
+    }
+    if (discount_pct > 0) {
+      sum = (idiv (sum * discount_pct) 100)
+    }
+    return sum
+  }
+}
+fn main:void () {
+  def c:Cart (new Cart())
+  c.add("apple" 100 3)
+  print ("" + (c.total(10)))
+}

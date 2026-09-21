@@ -145,6 +145,38 @@ describe("Rust Code Generation", () => {
     });
   });
 
+  // The shopping-cart study from the playground: nothing in it draws any of
+  // the lints the header used to allow for, so the header carries one line.
+  // An allow nobody needs hides this backend's own regressions — with the
+  // header quiet, rustc reports a stray `mut` or a redundant paren the
+  // generator starts emitting. PLAN_RUST_SEMANTIC_IDIOMS Q.
+  describe("A file that needs no allow gets none", () => {
+    const result = getGeneratedRustCode(`${FIXTURES_DIR}/rust_lint_clean.rgr`);
+
+    it("carries dead_code and nothing else", () => {
+      expect(result.success, `Failed: ${result.error}`).toBe(true);
+      expect(result.code).toContain("#![allow(dead_code)]");
+      const allows = (result.code ?? "").match(/#!\[allow\([^)]*\)\]/g) ?? [];
+      expect(allows).toEqual(["#![allow(dead_code)]"]);
+    });
+
+    it("writes the shapes that made the allows unnecessary", () => {
+      // the fold's local is never written again, so it is not `mut`
+      expect(result.code).toContain("let line: CartLine = CartLine {");
+      expect(result.code).not.toContain("let mut line: CartLine");
+      // the body only calls a &self method on the element
+      expect(result.code).toContain("for line in &self.lines {");
+      // `=` already delimits its right side
+      expect(result.code).toContain("sum = sum * discount_pct / 100;");
+      // and the constructor names Self, with an empty String that allocates
+      // nothing
+      expect(result.code).toContain("pub fn new() -> Self {");
+      expect(result.code).toContain("Self {");
+      expect(result.code).toContain("name: String::new(),");
+      expect(result.code).not.toContain('"".to_string()');
+    });
+  });
+
   describe("Borrowed collection parameters as slices", () => {
     const result = getGeneratedRustCode(`${FIXTURES_DIR}/rust_slice_params.rgr`);
 

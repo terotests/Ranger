@@ -727,9 +727,20 @@ not need the whole `Iterator` abstraction to emit good Rust.
 
 ### L. `snake_case`
 
-**Status: done, and `#![allow(non_snake_case)]` is gone.** `parseInt` is
-`parse_int`, `evenCount` is `even_count`. The 81 000-line Rust rendering of this
-compiler draws **zero** naming warnings with the allow taken away.
+**Status: done, and `#![allow(non_snake_case)]` is asked for rather than
+written.** `parseInt` is `parse_int`, `evenCount` is `even_count`.
+
+The rename has one escape: when the snake_case spelling of a name is already
+some *other* name in the same program, `adjustType` keeps the original, because
+renaming would merge the two. A file that needed the escape carries
+`#![allow(non_snake_case)]` and a file that did not carries nothing —
+`rustNeedsNonSnakeCase` asks the question of the whole name set once, in the
+header. The Rust rendering of this compiler needs it in 731 places; the twelve
+`friendly` studies need it nowhere.
+
+(An earlier measurement recorded here said that rendering drew **zero** naming
+warnings with the allow taken away. It does not, and did not: the escape was
+already in `adjustType` when that line was written.)
 
 **The documented blocker does not hold.** `@serialize(true)` was said to tie the
 JSON keys to the field names, so a rename would move the wire format. It does
@@ -865,7 +876,7 @@ document. Both recorded so they are decisions rather than omissions.
 | P2 | **I** behaviour-only trait → Rust trait | **done** | no |
 | P2 | **J** handle/data split | large, highest risk | yes |
 | P3 | **K** `for` lowering | **done** | no |
-| P3 | **L** snake_case | **done**, allow dropped | no |
+| P3 | **L** snake_case | **done**, allow demand-driven | no |
 | P3 | **M** borrow-provenance inference | medium | yes |
 | P4 | **N** semantic interfaces | design | no |
 | P4 | **O** library mode (public surface) | **done**; generics/modules not | no |
@@ -876,8 +887,9 @@ of which it had recorded as something milder than they were. **P1 is complete**
 — the generated file is ~40% shorter (**G**), a Ranger `Enum` that can be one is
 a Rust `enum` (**F**), a `match` over a shape is a `match` (**E**), and a
 `string` payload rides in the variant (**D**). **I** (P2), **K** and **L** (P3)
-and the public-surface half of **O** (P4) are in as well, and
-`#![allow(non_snake_case)]` is gone.
+and the public-surface half of **O** (P4) are in as well, and every
+`#![allow(...)]` in the header is now asked for by the program rather than
+written for good measure — see §Q.
 
 Each was verified the same way: the selfhost build stays at its 9 pre-existing
 rustc errors, all ten `friendly` targets compile and run, the gallery programs
@@ -1106,6 +1118,59 @@ templates wrote `(e 2) ".toString()"`, so `"" + i * 4` came out as
 `"" + i * 4.toString()` — `Int * String`, which is not a program. The operand
 is parenthesised now, on both sides of the concat and on Dart, C# and Scala,
 which had the same shape.
+
+## Q. The header is built from what the file contains
+
+`#![allow(unused_parens)] … #![allow(clippy::ptr_arg)]` used to be a fixed
+block at the top of every Rust file. An allow nobody needs hides the backend's
+own regressions: a stray `mut` or a redundant paren the generator starts
+emitting is swallowed by the pragma instead of being reported. With the header
+quiet, rustc and clippy are a free regression test on this writer.
+
+A `file_attributes` slice sits ahead of `before_imports` and stays open for the
+whole file, so a line can be added from the emission site itself — `unused_mut`
+is asked for by the one `let mut` the writer could not prove. The rest are
+predicates over the program, computed in the header:
+
+| allow | asked for when |
+| --- | --- |
+| `dead_code` | always — a program's public surface is dead code in a single-file rendering, which says nothing about the generator |
+| `unused_variables` | a parameter the body never reads (an unused *local* is commented out or given an `_` name already) |
+| `unused_assignments` | a dead store, or a writer-supplied initializer (`= None`, `= Vec::new()`) that is assigned before it is read |
+| `non_snake_case` | §L's escape fired |
+| `clippy::collapsible_if` | an `if` whose whole body is one `if`, neither with an `else` |
+| `clippy::too_many_arguments` | a function declaring seven or more parameters |
+| `clippy::ptr_arg` | a borrowed collection of class values (`&Vec<T>`; a borrowed scalar array is a slice and a borrowed string is `&str`) |
+
+The predicates skip what the class-writing loop skips. `Vector.set` has an
+unused parameter and is never emitted, and it alone was asking every file for
+`unused_variables`.
+
+`unused_parens` is not in the table because the parentheses are gone. A `let`
+value, an assignment's right side and a template's argument slot all delimit
+the expression already, so the pair an operator template puts around its whole
+result comes off there — `let n: i64 = (xs.len() as i64);` and
+`rg_substring(&s, i, (i + 1))` were the two shapes, 996 warnings between them.
+An operand with an operator on either side keeps its pair: that is what makes
+the precedence right, and it is why the Kotlin `.toString()` fix above still
+holds. The template-slot rule is target-neutral, so `g.check(0 - 1)` is what
+every target emits now.
+
+`manual_clamp` and `upper_case_acronyms` were dropped outright: measured with
+clippy over the twelve studies and this compiler's own rendering, each with the
+header stripped, neither fires anywhere.
+
+**Measured.** The Rust rendering of this compiler: 2 148 warnings → 321, with
+0 rustc errors, and it still compiles the compiler to output byte-identical to
+`bin/output.js`. What is left was never covered by any of these allows — 152
+`private_interfaces`, 67 unreachable match arms, 20 type names, 60 residual
+parens. The Cart study from the playground carries `#![allow(dead_code)]` alone
+and draws no rustc warning at all.
+
+Three shapes went with it, all from the same reading of that study:
+`let line: CartLine = …` where the fold's local is never written again,
+`for line in &self.lines` where the body only calls `&self` methods on the
+element, and `Self { … }` / `String::new()` in a constructor.
 
 Related: [`gallery/friendly/rust/README.md`](../../gallery/friendly/rust/README.md),
 [PLAN_RUST_IDIOMATICITY.md](PLAN_RUST_IDIOMATICITY.md),
