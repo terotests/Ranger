@@ -27,7 +27,7 @@
       "file": "lib/RangerProcess.rgr",
       "title": "Process",
       "import": "RangerProcess.rgr",
-      "summary": "The process runtime. The playground environment ships this file."
+      "summary": "The process runtime."
     },
     {
       "id": "cmdparams",
