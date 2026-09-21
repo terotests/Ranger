@@ -34,9 +34,10 @@ export const DEFAULT_DOCKER_IMAGE = "node:22-bookworm-slim";
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const repoRoot = path.resolve(here, "../../..");
 export const DEFAULT_MAX_TURNS = 64;
-/** Paid Gemini 3.8 Flash (Developer API), USD per 1M tokens. */
+/** Paid Gemini 3.8 Flash (Developer API), USD per 1M tokens through 2026-12-31. */
 export const GEMINI_FLASH_INPUT_PER_M = 0.75;
 export const GEMINI_FLASH_OUTPUT_PER_M = 3.75;
+export const GEMINI_FLASH_CACHE_PER_M = 0.075;
 const TOOL_OUT_CAP = 24_000;
 const DEFAULT_HISTORY_CHARS = 350_000;
 const RUN_TIMEOUT_MS = 90_000;
@@ -264,15 +265,17 @@ doc.evg.json is the screen. TASK.md is the ask (also in the user message). AGENT
 
 The loop:
 1. ./evg-agent outline doc.evg.json
-2. write_file an ops JSON, then ./evg-agent patch doc.evg.json ops.json
+2. write_file an ops JSON (not the document), then ./evg-agent patch doc.evg.json ops.json
 3. ./evg-agent measure doc.evg.json --width=390 --height=844
-Fix findings. count:0 is the goal. After a save, layout.json has the same numbers.
+Fix findings. count:0 is the goal. The host writes layout.json after a save — do not.
+
+Never write_file doc.evg.json. A whole-document replace is how a one-line row fix becomes a new screen. Patch the nodes the outline named.
 
 Host tools (call these — do not reinvent them with python or a shell):
 - run: ./evg-agent, ./evg-ui, ./evg-app, ./evg-image only
 - read_file / write_file / list_dir
 - image_info: the attached picture's palette (attachment.json)
-- ocr: Tesseract on attachment.png (or another workspace image)
+- ocr: Tesseract on attachment.png — only when the ask is about the picture's labels
 
 Do not git, do not read evg_agent.js, do not write /tmp, do not sips or hand-roll BMP crops. When the screen is right, stop.`;
 }
@@ -325,6 +328,12 @@ export function denyRead(rel) {
 export function denyWrite(rel) {
   const name = path.basename(String(rel || ""));
   if (name === GEMINI_HISTORY) return "write_file will not overwrite the conversation log";
+  if (name === "doc.evg.json") {
+    return "write_file will not replace doc.evg.json — write ops.json, then ./evg-agent patch doc.evg.json ops.json";
+  }
+  if (name === "layout.json") {
+    return "write_file will not invent layout.json — ./evg-agent measure writes it";
+  }
   return "";
 }
 
@@ -638,11 +647,14 @@ export function splitParts(parts) {
 function usageOf(data) {
   const u = (data && data.usageMetadata) || {};
   const num = (v) => (typeof v === "number" && isFinite(v) ? v : 0);
+  const prompt = num(u.promptTokenCount);
+  const cache = Math.min(num(u.cachedContentTokenCount), prompt);
   return {
-    input: num(u.promptTokenCount),
+    input: prompt,
+    fresh: prompt - cache,
     output: num(u.candidatesTokenCount) + num(u.thoughtsTokenCount),
     thoughts: num(u.thoughtsTokenCount),
-    cacheRead: num(u.cachedContentTokenCount),
+    cacheRead: cache,
     cacheWrite: 0,
   };
 }
@@ -650,18 +662,29 @@ function usageOf(data) {
 export function geminiRates(env = process.env) {
   const inputPerM = Number(env.EVG_GEMINI_INPUT_PER_M || GEMINI_FLASH_INPUT_PER_M);
   const outputPerM = Number(env.EVG_GEMINI_OUTPUT_PER_M || GEMINI_FLASH_OUTPUT_PER_M);
+  const inRate = Number.isFinite(inputPerM) && inputPerM >= 0 ? inputPerM : GEMINI_FLASH_INPUT_PER_M;
+  const outRate = Number.isFinite(outputPerM) && outputPerM >= 0 ? outputPerM : GEMINI_FLASH_OUTPUT_PER_M;
+  const cacheRaw = env.EVG_GEMINI_CACHE_PER_M;
+  const cacheNum = cacheRaw == null || cacheRaw === "" ? inRate * (GEMINI_FLASH_CACHE_PER_M / GEMINI_FLASH_INPUT_PER_M) : Number(cacheRaw);
   return {
-    inputPerM: Number.isFinite(inputPerM) && inputPerM >= 0 ? inputPerM : GEMINI_FLASH_INPUT_PER_M,
-    outputPerM: Number.isFinite(outputPerM) && outputPerM >= 0 ? outputPerM : GEMINI_FLASH_OUTPUT_PER_M,
+    inputPerM: inRate,
+    outputPerM: outRate,
+    cachePerM: Number.isFinite(cacheNum) && cacheNum >= 0 ? cacheNum : GEMINI_FLASH_CACHE_PER_M,
   };
 }
 
-/** About-cost from Gemini usageMetadata. Thoughts count as output. */
+/**
+ * About-cost from Gemini usageMetadata.
+ * promptTokenCount already includes cachedContentTokenCount; those hits
+ * are $0.075/1M, not $0.75/1M. Thoughts count as output.
+ */
 export function geminiCostUsd(usage, env = process.env) {
-  const { inputPerM, outputPerM } = geminiRates(env);
-  const input = Number(usage && usage.input) || 0;
+  const { inputPerM, outputPerM, cachePerM } = geminiRates(env);
+  const prompt = Number(usage && usage.input) || 0;
+  const cache = Math.min(Number(usage && usage.cacheRead) || 0, prompt);
+  const fresh = usage && usage.fresh != null ? Number(usage.fresh) || 0 : Math.max(0, prompt - cache);
   const output = Number(usage && usage.output) || 0;
-  return (input / 1_000_000) * inputPerM + (output / 1_000_000) * outputPerM;
+  return (fresh / 1_000_000) * inputPerM + (cache / 1_000_000) * cachePerM + (output / 1_000_000) * outputPerM;
 }
 
 function tokCount(n) {
@@ -678,9 +701,12 @@ function moneyUsd(n) {
 export function formatGeminiSpend(usage, extra = {}) {
   const env = extra.env || process.env;
   const cost = extra.cost != null ? extra.cost : geminiCostUsd(usage, env);
-  const parts = [`${tokCount(usage && usage.input)} in`, `${tokCount(usage && usage.output)} out`];
+  const cache = Math.min(Number(usage && usage.cacheRead) || 0, Number(usage && usage.input) || 0);
+  const fresh = usage && usage.fresh != null ? Number(usage.fresh) || 0 : Math.max(0, (Number(usage && usage.input) || 0) - cache);
+  const parts = [`${tokCount(fresh)} fresh`, `${tokCount(usage && usage.output)} out`];
   if (usage && usage.thoughts) parts.push(`${tokCount(usage.thoughts)} thought`);
-  if (usage && usage.cacheRead) parts.push(`${tokCount(usage.cacheRead)} cache`);
+  if (cache) parts.push(`${tokCount(cache)} cache`);
+  if ((Number(usage && usage.input) || 0) > fresh) parts.push(`${tokCount(usage.input)} prompt`);
   parts.push(`~${moneyUsd(cost)}`);
   if (extra.turns) parts.push(`${extra.turns} turn${extra.turns === 1 ? "" : "s"}`);
   return parts.join(" · ");
@@ -695,7 +721,7 @@ function resultEvent(spend, { turns, started, model, env, subtype = "success" })
     duration_ms: Date.now() - started,
     total_cost_usd: cost,
     usage: {
-      input_tokens: spend.input,
+      input_tokens: spend.fresh,
       output_tokens: spend.output,
       cache_read_input_tokens: spend.cacheRead,
       cache_creation_input_tokens: spend.cacheWrite,
@@ -706,6 +732,7 @@ function resultEvent(spend, { turns, started, model, env, subtype = "success" })
 
 function addUsage(into, piece) {
   into.input += piece.input;
+  into.fresh += piece.fresh || 0;
   into.output += piece.output;
   into.thoughts += piece.thoughts || 0;
   into.cacheRead += piece.cacheRead;
@@ -804,7 +831,7 @@ export async function geminiLoop({
     Number(env.EVG_GEMINI_HISTORY_CHARS || DEFAULT_HISTORY_CHARS),
   );
 
-  const spend = { input: 0, output: 0, thoughts: 0, cacheRead: 0, cacheWrite: 0 };
+  const spend = { input: 0, fresh: 0, output: 0, thoughts: 0, cacheRead: 0, cacheWrite: 0 };
   const maxTurns = geminiMaxTurns(env);
   const started = Date.now();
   let turns = 0;
@@ -910,7 +937,9 @@ async function main() {
   }
   const rates = geminiRates();
   process.stderr.write(`Gemini: ${geminiModel()} → ${geminiBase()}\n`);
-  process.stderr.write(`rates $${rates.inputPerM} / $${rates.outputPerM} per 1M in/out (Flash paid tier)\n`);
+  process.stderr.write(
+    `rates $${rates.inputPerM} fresh / $${rates.cachePerM} cache / $${rates.outputPerM} out per 1M (Flash paid tier)\n`,
+  );
   try {
     const result = await geminiLoop({
       workspace: ws,

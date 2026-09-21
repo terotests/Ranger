@@ -48,7 +48,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `read_file` will not open the conversation log or compiled `evg_*.js`.
   Docker is opt-in (`EVG_GEMINI_SANDBOX=docker`): same argv in
   `node:22-bookworm-slim` (`--network none`, repo read-only); `ocr` stays
-  on the host. `npm run livebuild:withgemini` checks the key and opens the
+  on the host. Each Gemini reply's `usageMetadata` is printed on the
+  withgemini console (fresh / cache / output tokens and an about-cost at
+  the paid Flash rates $0.75 / $0.075 / $3.75 per 1M — cache hits are
+  not billed as fresh input) and sent to the page spend line.
+  `write_file` will not replace `doc.evg.json` or invent `layout.json`.
+  `npm run livebuild:withgemini` checks the key and opens the
   page with Gemini selected. The orchestrator suite drives the loop against
   a fake fetch, so CI never spends Google credits.
 

@@ -39,6 +39,7 @@ Optional:
   export EVG_GEMINI_MAX_TURNS=64          # generateContent rounds per Follow-up
   export EVG_GEMINI_SANDBOX=docker        # opt-in: same four tools in node-slim
   export TESSERACT_PATH=/opt/homebrew/bin/tesseract   # ocr tool; brew install tesseract
+  # about-cost defaults: $0.75 fresh / $0.075 cache / $3.75 out per 1M
 
 Then:
   npm run livebuild:withgemini
@@ -80,7 +81,9 @@ function report() {
   process.stderr.write(`Max turns:   ${geminiMaxTurns()}\n`);
   process.stderr.write(`Sandbox:     ${geminiSandbox()}\n`);
   process.stderr.write(`Endpoint:    ${geminiBase()}\n`);
-  process.stderr.write(`Rates:       $${rates.inputPerM} / $${rates.outputPerM} per 1M in/out (Flash paid tier)\n`);
+  process.stderr.write(
+    `Rates:       $${rates.inputPerM} fresh / $${rates.cachePerM} cache / $${rates.outputPerM} out per 1M (Flash paid tier)\n`,
+  );
 }
 
 function main() {

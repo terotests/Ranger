@@ -111,11 +111,13 @@ stops after `EVG_GEMINI_MAX_TURNS` model rounds (64 unless you raise it) —
 that is the message `Gemini hit EVG_GEMINI_MAX_TURNS (N) without finishing`.
 
 Each generateContent reply carries `usageMetadata`. The withgemini console
-prints that per turn and for the whole Follow-up — input tokens, output
-tokens (thoughts included), and an about-cost at the paid Flash rates
-**$0.75 / $3.75 per 1M in/out**. The same dollars land on the page spend
-line. Override with `EVG_GEMINI_INPUT_PER_M` / `EVG_GEMINI_OUTPUT_PER_M`
-if Google moves the card.
+prints that per turn and for the whole Follow-up — uncached input, cache
+hits, output (thoughts included), and an about-cost at the paid Flash rates
+**$0.75 fresh / $0.075 cache / $3.75 out per 1M**. `promptTokenCount`
+already includes the cache; those hits are not billed at the fresh rate.
+The same dollars land on the page spend line. Override with
+`EVG_GEMINI_INPUT_PER_M` / `EVG_GEMINI_CACHE_PER_M` /
+`EVG_GEMINI_OUTPUT_PER_M` if Google moves the card.
 
 `run` is not a host shell. Gemini proposes a line; this process splits it
 into argv and will only exec `./evg-agent`, `./evg-ui`, `./evg-app` or

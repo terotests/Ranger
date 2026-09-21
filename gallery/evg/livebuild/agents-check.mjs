@@ -685,15 +685,23 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   if (!/gemini API ready/.test(checkOn.stdout || "")) {
     throw new Error("withgemini --check did not say ready: " + (checkOn.stdout || checkOn.stderr));
   }
-  if (!/\$0\.75 \/ \$3\.75 per 1M/.test(checkOn.stderr || "")) {
-    throw new Error("withgemini --check should print Flash rates: " + (checkOn.stderr || ""));
+  if (!/\$0\.75 fresh \/ \$0\.075 cache \/ \$3\.75 out per 1M/.test(checkOn.stderr || "")) {
+    throw new Error("withgemini --check should print Flash rates including cache: " + (checkOn.stderr || ""));
   }
   const million = geminiCostUsd({ input: 1_000_000, output: 1_000_000 });
   if (Math.abs(million - 4.5) > 1e-9) {
-    throw new Error("1M in + 1M out should be $4.50 at Flash paid rates, got " + million);
+    throw new Error("1M fresh + 1M out should be $4.50 at Flash paid rates, got " + million);
+  }
+  const cachedOnly = geminiCostUsd({ input: 1_000_000, cacheRead: 1_000_000, output: 0 });
+  if (Math.abs(cachedOnly - 0.075) > 1e-9) {
+    throw new Error("1M cache-hit input should be $0.075, not full $0.75, got " + cachedOnly);
+  }
+  const mixed = geminiCostUsd({ input: 1_851_438, fresh: 202_521, cacheRead: 1_648_917, output: 17_223 });
+  if (mixed > 0.4 || mixed < 0.3) {
+    throw new Error("a 12-turn cache-heavy run should be about $0.34, got " + mixed);
   }
   const about = formatGeminiSpend({ input: 12400, output: 860 });
-  if (!/12,400 in/.test(about) || !/860 out/.test(about) || !/~\$/.test(about)) {
+  if (!/12,400 fresh/.test(about) || !/860 out/.test(about) || !/~\$/.test(about)) {
     throw new Error("spend line should name tokens and dollars: " + about);
   }
   console.log("  withgemini  " + String(checkOn.stdout || "").trim());
@@ -782,6 +790,14 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   const histWrite = executeTool(ws, "write_file", { path: GEMINI_HISTORY, contents: "nope" });
   if (!histWrite.error || !/conversation log/.test(histWrite.error)) {
     throw new Error("write_file must refuse the conversation log: " + JSON.stringify(histWrite));
+  }
+  const replaceDoc = executeTool(ws, "write_file", { path: "doc.evg.json", contents: "{}" });
+  if (!replaceDoc.error || !/patch/.test(replaceDoc.error)) {
+    throw new Error("write_file must refuse a whole-document replace: " + JSON.stringify(replaceDoc));
+  }
+  const fakeLayout = executeTool(ws, "write_file", { path: "layout.json", contents: "{}" });
+  if (!fakeLayout.error || !/measure/.test(fakeLayout.error)) {
+    throw new Error("write_file must refuse layout.json: " + JSON.stringify(fakeLayout));
   }
   fs.writeFileSync(
     path.join(ws, "attachment.json"),
@@ -932,7 +948,10 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
     throw new Error("usage did not add both turns: " + JSON.stringify(spend));
   }
   if (!spend.modelUsage["gemini-3.8-flash"]) throw new Error("result did not name the model");
-  const expectCost = geminiCostUsd({ input: 170, output: 18 });
+  if (spend.usage.input_tokens !== 165 || spend.usage.cache_read_input_tokens !== 5) {
+    throw new Error("usage should split cache out of the prompt: " + JSON.stringify(spend.usage));
+  }
+  const expectCost = geminiCostUsd({ input: 170, fresh: 165, cacheRead: 5, output: 18 });
   if (typeof spend.total_cost_usd !== "number" || Math.abs(spend.total_cost_usd - expectCost) > 1e-12) {
     throw new Error("result should carry the Flash about-cost: " + JSON.stringify(spend));
   }
