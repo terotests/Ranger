@@ -23,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The playground opens on the front-page shopping cart.** First example is
+  `landing/examples/Cart.rgr` — the same source the home page compiles into
+  the target tabs — rather than Hello World.
+
 - **Front-page bench re-run: Go is 236 ms, third after C++ and Rust.**
   Re-running after the string-index fix (C++ 136, Rust 170, Go 236, Java
   351, JavaScript 508, Python 971). PHP, C# and Kotlin were not on this
