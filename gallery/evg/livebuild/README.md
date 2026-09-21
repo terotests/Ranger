@@ -115,7 +115,9 @@ next generateContent uses `toolConfig.functionCallingConfig.mode=ANY`
 so Gemini must call a tool. A whole-page `ops.json` hits the output cap
 and never becomes a `functionCall`; the prompt asks for one card under
 2000 bytes. If the retries still emit no tool, the Follow-up errors
-instead of saying it finished.
+instead of saying it finished. Several screens need `set-id`
+(`nav.orders`) then `./evg-app init` / `check` — `count:7` now
+includes the missing ids, not only the number.
 
 Each generateContent reply carries `usageMetadata`. The withgemini console
 prints that per turn and for the whole Follow-up — uncached input, cache

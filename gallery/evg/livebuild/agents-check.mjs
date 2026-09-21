@@ -841,6 +841,33 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   if (!/plainTreeJson/.test(boom.reply)) {
     throw new Error("a failed ./evg-ui must show stderr, not just exit 1: " + JSON.stringify(boom));
   }
+  const checked = summarizeTool("run", { command: "./evg-app check app" }, {
+    ok: true,
+    status: 0,
+    stdout: JSON.stringify({
+      count: 7,
+      missing: ["nav.home", "nav.orders"],
+      findings: ["home and orders share a document"],
+      next: "give what should switch tabs those ids",
+    }),
+    stderr: "",
+  });
+  if (!/missing nav.home/.test(checked.reply) || !/share a document/.test(checked.reply)) {
+    throw new Error("evg-app check must show missing ids, not only count: " + JSON.stringify(checked));
+  }
+  const badId = summarizeTool("run", { command: "./evg-agent patch doc.evg.json ops.json" }, {
+    ok: false,
+    status: 1,
+    stdout: JSON.stringify({
+      ok: false,
+      applied: 0,
+      rejected: ['op 0 (set-prop 0/6/0 id=nav.home): property "id" is not patchable — nothing here can read it back, so the edit could not be undone'],
+    }),
+    stderr: "",
+  });
+  if (!/set-id/.test(badId.reply)) {
+    throw new Error("a rejected set-prop id must name set-id: " + JSON.stringify(badId));
+  }
   const prompt = geminiSystemPrompt();
   for (const need of [
     "ocr attachment.png at most ONCE",
@@ -854,6 +881,8 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
     "jatka",
     "One card per write_file",
     "2000 bytes",
+    "set-id",
+    "nav.home",
   ]) {
     if (!prompt.includes(need)) throw new Error("gemini system prompt missing " + need);
   }

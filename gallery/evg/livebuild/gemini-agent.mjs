@@ -282,6 +282,11 @@ insert with only "tag" is an empty box. A subtree is "node" (document shape), no
 
 Never write_file doc.evg.json or layout.json. measure count:0 with three empty nodes is not success — outline must name the cards you added.
 
+Several screens (Orders / Analytics / Settings) is an app, not hidden divs:
+1. set-id each tab: {"op":"set-id","at":"0/6/0","value":"nav.home"} — id is NOT a property (set-prop id is rejected).
+2. ./evg-app init app --from=doc.evg.json  (or Run on the page). Then patch app/pages/<state>.evg.json so the pages differ. ./evg-app check app --width=W --height=H. count:N with missing nav.* means the tabs have no ids yet.
+3. Do not rewrite a whole page tree. Patch one card on that page. The live phone is still doc.evg.json until Run.
+
 Labels: one span per phrase, spaces between words ("Acme 360", not "Acme360"). Do not insert the same text twice — two overlapping spans paint as Revenuee / monthlyy.
 
 A thought is not a patch. One card per write_file (under 2000 bytes). A whole-page ops.json is cut off before the functionCall and the host sees no tool. Do not paste JSON in the thought — ./evg-ui add card is the unit. If you still have a header, KPI row, or body column to add, call a tool in that turn. Stopping after "Section 3 will be…" leaves a half screen. Header plus four KPI cards is not the dashboard — keep adding until outline names the remaining cards (products, opportunities, feed).
@@ -302,7 +307,7 @@ export const PLAN_NUDGE =
   "Your last reply used the output budget and never issued a functionCall. A plan is not a patch. Do not dump the page in the thought. Call write_file now with ops.json under 2000 bytes (ONE card) or ./evg-ui add card, then ./evg-agent patch.";
 
 const PLAN_FUTURE =
-  /\b(let's|i(?:'| wi)ll (?:now |then )?(?:add|insert|build|write|patch|keep|get|construct|create)|next(?:\s+i|'ll|\s+step)|then (?:i(?:'| wi)ll|let's)|write_file|functionCall|write(?:_file)? ops|ops\.json|remaining (?:cards?|columns?)|keep (?:building|going|adding)|time to (?:build|add|insert)|i(?: am|'m) going to|jatka)\b/i;
+  /\b(let's.{0,60}?\b(?:build(?:ing|s)?|built|add|insert|continue|patch|write)|i(?:'| wi)ll (?:now |then )?(?:add|insert|build|write|patch|keep|get|construct|create)|next(?:\s+i|'ll|\s+step)|then (?:i(?:'| wi)ll|let's)|write_file|functionCall|write(?:_file)? ops|ops\.json|remaining (?:cards?|columns?)|keep (?:building|going|adding)|time to (?:build|add|insert)|i(?: am|'m) going to|jatka)\b/i;
 const PLAN_DONE =
   /\b(done|finished|complete|matches the ask|nothing (?:left|more) to (?:add|do)|outline now names)\b/i;
 
@@ -310,7 +315,7 @@ export function looksLikeUnfinishedPlan(text, thought = "") {
   const s = `${text}\n${thought}`.replace(/\s+/g, " ").trim();
   if (s.length < 24) return false;
   if (!PLAN_FUTURE.test(s)) return false;
-  if (PLAN_DONE.test(s) && !/\b(remaining|keep (?:building|adding)|i(?:'| wi)ll (?:add|insert|build)|let's|write_file)\b/i.test(s)) {
+  if (PLAN_DONE.test(s) && !/\b(remaining|keep (?:building|adding)|i(?:'| wi)ll (?:add|insert|build)|let's (?:build|add|insert)|write_file)\b/i.test(s)) {
     return false;
   }
   return true;
@@ -753,6 +758,50 @@ function clipOneLine(text, cap = 280) {
   return `${s.slice(0, cap)}…`;
 }
 
+function firstJsonObject(text) {
+  const s = String(text || "").trim();
+  if (!s.startsWith("{")) return null;
+  try {
+    return JSON.parse(s);
+  } catch {
+    return null;
+  }
+}
+
+/** count:7 hid "missing nav.orders" and "pages are copies" — that is why subpages stalled. */
+export function summarizeRunReply(out, result) {
+  const raw = String(out || "");
+  const j = firstJsonObject(result && result.stdout ? result.stdout : raw);
+  if (j && typeof j === "object") {
+    const bits = [];
+    if (j.count != null) bits.push(`count:${j.count}`);
+    if (j.ok === false && Array.isArray(j.rejected) && j.rejected.length) {
+      bits.push(String(j.rejected[0]));
+    }
+    if (Array.isArray(j.missing) && j.missing.length) {
+      bits.push(`missing ${j.missing.slice(0, 6).join(", ")}`);
+    }
+    if (Array.isArray(j.findings) && j.findings.length) {
+      bits.push(j.findings.slice(0, 3).join("; "));
+    }
+    if (j.next) bits.push(String(j.next));
+    if (bits.length) {
+      let line = bits.join(" — ");
+      if (/property "id" is not patchable|id is not patchable/i.test(line)) {
+        line += ' — id is set-id, not set-prop: {"op":"set-id","at":"0/6/0","value":"nav.home"}';
+      }
+      return clipOneLine(line, 420);
+    }
+  }
+  const count = /"count"\s*:\s*(-?\d+)/.exec(raw);
+  if (count) return `count:${count[1]}`;
+  if (result && !result.ok) {
+    return clipOneLine(result.stderr || result.stdout || `exit ${result.status}`);
+  }
+  if (result && result.stdout) return clipOneLine(result.stdout);
+  return "ok";
+}
+
 function writeKind(contents) {
   const s = String(contents ?? "");
   if (/"op"\s*:/.test(s) && /\[/.test(s)) return "ops";
@@ -776,12 +825,7 @@ export function summarizeTool(name, rawArgs, result) {
   else if (name === "ocr" && result && result.text) reply = clipOneLine(result.text);
   else if (name === "run") {
     const out = `${result && result.stdout ? result.stdout : ""}\n${result && result.stderr ? result.stderr : ""}`;
-    const count = /"count"\s*:\s*(-?\d+)/.exec(out);
-    if (count) reply = `count:${count[1]}`;
-    else if (result && !result.ok) {
-      reply = clipOneLine(result.stderr || result.stdout || `exit ${result.status}`);
-    } else if (result && result.stdout) reply = clipOneLine(result.stdout);
-    else reply = "ok";
+    reply = summarizeRunReply(out, result);
   } else if (name === "read_file" && result && result.contents != null) {
     reply = `read ${String(result.contents).length.toLocaleString("en-US")} chars`;
   } else if (name === "image_info" && result) {

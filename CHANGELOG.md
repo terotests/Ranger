@@ -71,6 +71,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   replayed history, and errors instead of reporting a finished
   Follow-up. The prompt also asks for spaces between words and one
   span per label, so overlapping duplicates do not paint as `Revenuee`.
+  Several screens use `set-id` (`nav.orders`) then `./evg-app init` /
+  `check`; a `count:7` from check now carries the missing ids, and
+  `set-prop id` is answered with the `set-id` op.
   `npm run livebuild:withgemini` checks the key and opens the
   page with Gemini selected. The orchestrator suite drives the loop against
   a fake fetch, so CI never spends Google credits.
