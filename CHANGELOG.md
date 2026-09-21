@@ -73,7 +73,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   span per label, so overlapping duplicates do not paint as `Revenuee`.
   Several screens use `set-id` (`nav.orders`) then `./evg-app init` /
   `check`; a `count:7` from check now carries the missing ids, and
-  `set-prop id` is answered with the `set-id` op.
+  `set-prop id` is answered with the `set-id` op. A 40-turn Follow-up
+  that billed ~4.7M input tokens was replaying every outline, thought
+  and `read_file` of the document; tool results are now capped, a fat
+  `.evg.json` is kept on disk, old turns fold into a snapshot, and the
+  console prints `send N chars` per call.
   `npm run livebuild:withgemini` checks the key and opens the
   page with Gemini selected. The orchestrator suite drives the loop against
   a fake fetch, so CI never spends Google credits.

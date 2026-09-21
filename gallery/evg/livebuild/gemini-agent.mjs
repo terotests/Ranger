@@ -39,7 +39,11 @@ export const GEMINI_FLASH_INPUT_PER_M = 0.75;
 export const GEMINI_FLASH_OUTPUT_PER_M = 3.75;
 export const GEMINI_FLASH_CACHE_PER_M = 0.075;
 const TOOL_OUT_CAP = 24_000;
-const DEFAULT_HISTORY_CHARS = 350_000;
+/** Backstop after compactHistory. The old 350k cap is why a 40-turn
+ *  Follow-up billed ~4.7M input tokens — every call replayed the essays. */
+export const DEFAULT_HISTORY_CHARS = 24_000;
+export const HISTORY_KEEP_MSGS = 8;
+export const TOOL_RESULT_CAP = 2_500;
 const RUN_TIMEOUT_MS = 90_000;
 
 export function geminiKey(env = process.env) {
@@ -280,7 +284,7 @@ The loop:
 
 insert with only "tag" is an empty box. A subtree is "node" (document shape), not "children" on the op — children there is ignored and outline will show empty divs. Prefer ./evg-ui: one add card is a whole measured piece.
 
-Never write_file doc.evg.json or layout.json. measure count:0 with three empty nodes is not success — outline must name the cards you added.
+Never write_file doc.evg.json or layout.json. Never read_file a .evg.json — the tree is on disk; outline / measure / patch. A 13k document in the prompt is why a Follow-up burns millions of input tokens. measure count:0 with three empty nodes is not success — outline must name the cards you added.
 
 Several screens (Orders / Analytics / Settings) is an app, not hidden divs:
 1. set-id each tab: {"op":"set-id","at":"0/6/0","value":"nav.home"} — id is NOT a property (set-prop id is rejected).
@@ -367,6 +371,128 @@ export function slimModelThoughts(contents, cap = THOUGHT_SLIM_CAP) {
       }),
     };
   });
+}
+
+/**
+ * What we put back into the prompt after a tool runs. The live document
+ * stays on disk; the model gets a line, not a 13k tree or an 8k outline.
+ */
+export function compactToolResult(name, rawArgs, result) {
+  if (!result || result.error) return result;
+  if (name === "read_file") {
+    if (result.contents == null) return result;
+    const n = String(result.contents).length;
+    if (n > TOOL_RESULT_CAP) {
+      return { path: result.path, bytes: n, hint: "truncated — outline / measure, do not re-read" };
+    }
+    return result;
+  }
+  if (name === "write_file") {
+    return { ok: true, path: result.path, bytes: result.bytes };
+  }
+  if (name === "ocr" && result.text && String(result.text).length > 2_000) {
+    return { ...result, text: clip(result.text, 2_000) };
+  }
+  if (name === "run") {
+    const stdout = String(result.stdout || "");
+    const stderr = String(result.stderr || "");
+    if (stdout.length > TOOL_RESULT_CAP || /^0\s+\S+/.test(stdout)) {
+      return {
+        ok: result.ok,
+        status: result.status,
+        stdout: clip(stdout, TOOL_RESULT_CAP),
+        stderr: clip(stderr, 400),
+      };
+    }
+  }
+  return result;
+}
+
+function snapshotDropped(dropped) {
+  const bits = [];
+  for (const c of dropped || []) {
+    for (const p of (c && c.parts) || []) {
+      if (p && p.functionCall && p.functionCall.name) bits.push(`called ${p.functionCall.name}`);
+      if (p && p.functionResponse) {
+        const n = p.functionResponse.name || "tool";
+        const r = p.functionResponse.response;
+        bits.push(`${n}: ${clipOneLine(typeof r === "string" ? r : JSON.stringify(r || {}), 72)}`);
+      }
+    }
+  }
+  return [
+    "Earlier turns were compacted. The live UI is doc.evg.json on disk, not this chat.",
+    bits.length ? `Already ran: ${bits.slice(-10).join("; ")}.` : "",
+    "Continue with outline / measure / patch. Do not read_file the document.",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+/**
+ * Keep the first user task and the last few messages. Everything in
+ * between becomes one snapshot so turn 40 does not replay turn 1–39.
+ */
+export function slimStoredResults(contents) {
+  return (Array.isArray(contents) ? contents : []).map((c) => {
+    if (!c || !Array.isArray(c.parts)) return c;
+    return {
+      ...c,
+      parts: c.parts.map((p) => {
+        if (!p || !p.functionResponse) return p;
+        const fr = p.functionResponse;
+        return {
+          ...p,
+          functionResponse: { ...fr, response: compactToolResult(fr.name, {}, fr.response) },
+        };
+      }),
+    };
+  });
+}
+
+export function compactHistory(contents, extra = {}) {
+  const keep = Number(extra.keep != null ? extra.keep : HISTORY_KEEP_MSGS);
+  const cap = Number(extra.cap != null ? extra.cap : DEFAULT_HISTORY_CHARS);
+  const out = slimStoredResults(Array.isArray(contents) ? contents.slice() : []);
+  if (out.length <= 2) return out;
+  let cut = out.length > keep + 1 ? out.length - keep : 1;
+  if (cut < 1) cut = 1;
+  if (out[cut] && out[cut].role === "user" && (out[cut].parts || []).some((p) => p.functionResponse) && cut > 1) {
+    cut -= 1;
+  }
+  if (cut > 1) {
+    const head = out[0];
+    const dropped = out.slice(1, cut);
+    const tail = out.slice(cut);
+    const snap = snapshotDropped(dropped);
+    return trimHistory([head, { role: "user", parts: [{ text: snap }] }, ...tail], cap);
+  }
+  return trimHistory(out, cap);
+}
+
+export function prepareContents(contents, env = {}) {
+  const keep = Number(env.EVG_GEMINI_HISTORY_KEEP || HISTORY_KEEP_MSGS);
+  const cap = Number(env.EVG_GEMINI_HISTORY_CHARS || DEFAULT_HISTORY_CHARS);
+  return compactHistory(slimModelThoughts(slimStoredResults(contents)), { keep, cap });
+}
+
+export function payloadStats(body) {
+  const sys = JSON.stringify((body && body.systemInstruction) || "").length;
+  const tools = JSON.stringify((body && body.tools) || "").length;
+  const hist = JSON.stringify((body && body.contents) || "").length;
+  const chars = sys + tools + hist;
+  return {
+    chars,
+    sys,
+    tools,
+    hist,
+    msgs: ((body && body.contents) || []).length,
+    tok: Math.round(chars / 4),
+  };
+}
+
+export function formatPayloadStats(s) {
+  return `send ${tokCount(s.chars)} chars ~${tokCount(s.tok)} tok · ${s.msgs} msgs (sys ${tokCount(s.sys)}, tools ${tokCount(s.tools)}, hist ${tokCount(s.hist)})`;
 }
 
 function clip(text, cap = TOOL_OUT_CAP) {
@@ -681,7 +807,16 @@ export function executeTool(workspace, name, rawArgs, env = process.env) {
       if (!fs.existsSync(file)) return { error: `not found: ${args.path}` };
       const st = fs.statSync(file);
       if (!st.isFile()) return { error: `not a file: ${args.path}` };
-      return { path: String(args.path), contents: clip(fs.readFileSync(file, "utf8"), 80_000) };
+      const rel = String(args.path);
+      const raw = fs.readFileSync(file, "utf8");
+      if (/\.evg\.json$/i.test(rel) && raw.length > 1_500) {
+        return {
+          path: rel,
+          bytes: raw.length,
+          hint: "document is on disk — ./evg-agent outline and patch. Do not put the tree in the prompt.",
+        };
+      }
+      return { path: rel, contents: clip(raw, 8_000) };
     }
     if (name === "write_file") {
       const blocked = denyWrite(args.path);
@@ -826,8 +961,9 @@ export function summarizeTool(name, rawArgs, result) {
   else if (name === "run") {
     const out = `${result && result.stdout ? result.stdout : ""}\n${result && result.stderr ? result.stderr : ""}`;
     reply = summarizeRunReply(out, result);
-  } else if (name === "read_file" && result && result.contents != null) {
-    reply = `read ${String(result.contents).length.toLocaleString("en-US")} chars`;
+  } else if (name === "read_file" && result) {
+    if (result.hint) reply = `${result.bytes || 0} bytes — ${clipOneLine(result.hint, 160)}`;
+    else if (result.contents != null) reply = `read ${String(result.contents).length.toLocaleString("en-US")} chars`;
   } else if (name === "image_info" && result) {
     reply =
       result.kind === "palette"
@@ -1002,7 +1138,7 @@ export function requestBody(contents, env = process.env, extra = {}) {
   }
   const body = {
     systemInstruction: { parts: [{ text: geminiSystemPrompt() }] },
-    contents: slimModelThoughts(contents),
+    contents: prepareContents(contents, env),
     tools: [{ functionDeclarations: GEMINI_TOOLS }],
     generationConfig: gen,
   };
@@ -1039,10 +1175,7 @@ export async function geminiLoop({
 
   const prior = dropTrailingPlan(loadHistory(workspace));
   const followUp = prior.length > 0;
-  let contents = trimHistory(
-    [...prior, { role: "user", parts: [{ text: task }] }],
-    Number(env.EVG_GEMINI_HISTORY_CHARS || DEFAULT_HISTORY_CHARS),
-  );
+  let contents = prepareContents([...prior, { role: "user", parts: [{ text: task }] }], env);
 
   const spend = { input: 0, fresh: 0, output: 0, thoughts: 0, cacheRead: 0, cacheWrite: 0 };
   const maxTurns = geminiMaxTurns(env);
@@ -1053,11 +1186,15 @@ export async function geminiLoop({
 
   for (let i = 0; i < maxTurns; i += 1) {
     if (signal && signal.aborted) throw new Error("aborted");
+    const body = requestBody(contents, env, { forceTool });
+    const sent = payloadStats(body);
+    log(formatPayloadStats(sent));
+    appendTrace(workspace, formatPayloadStats(sent));
     const data = await geminiGenerate({
       base,
       model,
       key,
-      body: requestBody(contents, env, { forceTool }),
+      body,
       fetchImpl,
       signal,
     });
@@ -1137,11 +1274,12 @@ export async function geminiLoop({
         subtype: "started",
         tool_call: { shellToolCall: { args: { command: sum.shown } } },
       });
-      const fr = { name, response: result };
+      const fr = { name, response: compactToolResult(name, args, result) };
       if (fc.id) fr.id = fc.id;
       responses.push({ functionResponse: fr });
     }
     contents.push({ role: "user", parts: responses });
+    contents = prepareContents(contents, env);
     saveHistory(workspace, contents, { model, followUp });
   }
 

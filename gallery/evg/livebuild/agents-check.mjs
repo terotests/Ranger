@@ -28,6 +28,11 @@ import {
   needsToolNudge,
   dropTrailingPlan,
   slimModelThoughts,
+  compactHistory,
+  compactToolResult,
+  prepareContents,
+  payloadStats,
+  formatPayloadStats,
   PLAN_NUDGE,
   OPS_WRITE_CAP,
 } from "./gemini-agent.mjs";
@@ -832,6 +837,11 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   if (!guideRead.error || !/system prompt/.test(guideRead.error)) {
     throw new Error("read_file must refuse AGENTS.md: " + JSON.stringify(guideRead));
   }
+  fs.writeFileSync(path.join(ws, "fat.evg.json"), `${"{\"tag\":\"div\"},".repeat(400)}\n`);
+  const fat = executeTool(ws, "read_file", { path: "fat.evg.json" });
+  if (fat.contents || !fat.hint || !/outline/.test(fat.hint) || !(fat.bytes > 1500)) {
+    throw new Error("read_file must not dump a fat .evg.json into the prompt: " + JSON.stringify(fat));
+  }
   const boom = summarizeTool("run", { command: "./evg-ui add button --name test" }, {
     ok: false,
     status: 1,
@@ -883,6 +893,7 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
     "2000 bytes",
     "set-id",
     "nav.home",
+    "Never read_file a .evg.json",
   ]) {
     if (!prompt.includes(need)) throw new Error("gemini system prompt missing " + need);
   }
@@ -927,6 +938,39 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   if (slimed[0].parts[0].text.length > 700 || slimed[0].parts[0].thoughtSignature !== "keep") {
     throw new Error("slimModelThoughts should clip thoughts and keep the signature: " + JSON.stringify(slimed));
   }
+  const longHist = [
+    { role: "user", parts: [{ text: "build it" }] },
+    ...Array.from({ length: 20 }, (_, i) => ({
+      role: i % 2 ? "user" : "model",
+      parts: [
+        i % 2
+          ? { functionResponse: { name: "read_file", response: { contents: "x".repeat(8000) } } }
+          : { functionCall: { name: "read_file", args: { path: "doc.evg.json" } } },
+      ],
+    })),
+  ];
+  const folded = compactHistory(longHist, { keep: 6, cap: 24_000 });
+  if (folded.length > 10) throw new Error("compactHistory should fold old turns: " + folded.length);
+  if (!JSON.stringify(folded).includes("compacted")) {
+    throw new Error("compactHistory should leave a snapshot: " + JSON.stringify(folded[1]));
+  }
+  if (JSON.stringify(folded).length > 20_000) {
+    throw new Error("compacted history still huge: " + JSON.stringify(folded).length);
+  }
+  const packed = compactToolResult("read_file", { path: "doc.evg.json" }, { path: "doc.evg.json", contents: "y".repeat(8000) });
+  if (packed.contents || !packed.hint) {
+    throw new Error("compactToolResult must drop a fat read: " + JSON.stringify(packed));
+  }
+  const sent = payloadStats({
+    systemInstruction: { parts: [{ text: "sys" }] },
+    tools: [{ functionDeclarations: [{ name: "run" }] }],
+    contents: folded,
+  });
+  if (!/msgs/.test(formatPayloadStats(sent)) || sent.msgs !== folded.length) {
+    throw new Error("payloadStats should describe the request: " + JSON.stringify(sent));
+  }
+  const prepared = prepareContents(longHist, { EVG_GEMINI_HISTORY_KEEP: "6" });
+  if (prepared.length > 10) throw new Error("prepareContents should compact: " + prepared.length);
   const hugeOps = executeTool(ws, "write_file", {
     path: "ops.json",
     contents: `{"ops":[${"{\"op\":\"set-text\",\"at\":\"0\",\"value\":\"n\"},".repeat(200)}]}`,

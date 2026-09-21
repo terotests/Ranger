@@ -124,7 +124,14 @@ prints that per turn and for the whole Follow-up — uncached input, cache
 hits, output (thoughts included), and an about-cost at the paid Flash rates
 **$0.75 fresh / $0.075 cache / $3.75 out per 1M**. `promptTokenCount`
 already includes the cache; those hits are not billed at the fresh rate.
-The same dollars land on the page spend line. The console (and
+The same dollars land on the page spend line. Each generateContent also
+prints what was *sent* (`send N chars ~tok · M msgs (sys / tools / hist)`)
+so a 4.7M-input run is visible as history, not as drawing. The host
+compacts the chat: tool results stay under 2.5k, a fat `.evg.json` is
+refused (`outline` instead of `read_file`), and after a handful of
+turns the middle of the conversation becomes one snapshot. The live
+document stays on disk; the model gets a diff, not 93 nodes again.
+The console (and
 `.gemini-trace.log` in the session) also prints the thought and each
 `→ tool · ← result`, so a Follow-up that OCR'd a screenshot and rewrote
 the document is visible as that, not only as a finished paragraph.
