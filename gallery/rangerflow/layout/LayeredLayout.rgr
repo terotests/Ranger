@@ -25,13 +25,14 @@
 ;   3. order within layers   barycentre sweeps, which is the crossing reduction
 ;   4. assign coordinates    pack each layer, centre it on its neighbours
 ;
-; The seed for (3) is the order the chart was written in, with one exception:
-; a dummy that stands for a reversed (back) edge starts on the LEFT of its
-; layer — the start of the cross axis, which is the top under `LR`. A return
-; path that begins on the right of the column it is returning up crosses the
-; boxes on the way; the same path on the left does not. Mermaid's TB default
-; is the same convention: top to bottom, left to right, the feedback on the
-; left.
+    ; The seed for (3) is the order the chart was written in. Under TB/BT a
+    ; dummy that stands for a reversed (back) edge starts on the LEFT of its
+    ; layer — the start of the cross axis. A return path that begins on the
+    ; right of the column it is returning up crosses the boxes on the way;
+    ; the same path on the left does not. Mermaid's TB default is that
+    ; convention: top to bottom, left to right, the feedback on the left.
+    ; Under LR/RL the dummies still follow the nodes, which is the picture
+    ; a row of states has always been.
 ;
 ; Long edges get the real treatment: an edge spanning more than one layer is
 ; replaced, for the duration of the layout, by a chain of DUMMY vertices — one
@@ -738,12 +739,27 @@ class LayeredLayout {
         return (itemAt edgeReversed e)
     }
 
-    ; Per layer: return-path dummies, then real nodes in graph order, then
-    ; the dummies of forward long edges. Barycentre keeps this where the
-    ; keys tie, which they do for a cycle A→B→C→A: B and the dummy of the
-    ; reversed C→A both look at the same neighbour, so the dummy stays left
-    ; and C stands under it rather than to the right of B.
+    ; A TB/BT column: the return belongs on the left. An LR/RL row keeps
+    ; dummies after the nodes — a return on the top of a row of states is
+    ; a different picture, and not what this change is for.
+    fn verticalFlow:boolean () {
+        if (direction == "LR") {
+            return false
+        }
+        if (direction == "RL") {
+            return false
+        }
+        return true
+    }
+
+    ; Per layer, under TB/BT: return-path dummies, then real nodes in graph
+    ; order, then the dummies of forward long edges. Barycentre keeps this
+    ; where the keys tie, which they do for a cycle A→B→C→A: B and the dummy
+    ; of the reversed C→A both look at the same neighbour, so the dummy stays
+    ; left and C stands under it rather than to the right of B. Under LR/RL
+    ; the nodes come first, then every dummy, as they always did.
     fn seedVertexOrder:void () {
+        def vertical:boolean (this.verticalFlow())
         def lc:int (this.layerCount())
         def total:int (this.vertexCount())
         def l:int 0
@@ -757,8 +773,12 @@ class LayeredLayout {
                     if ((itemAt vNode v) >= 0) {
                         push nodes v
                     } {
-                        if (this.reversedDummy(v)) {
-                            push backs v
+                        if vertical {
+                            if (this.reversedDummy(v)) {
+                                push backs v
+                            } {
+                                push rest v
+                            }
                         } {
                             push rest v
                         }
@@ -767,11 +787,13 @@ class LayeredLayout {
                 v = (v + 1)
             }
             def order:int 0
-            def a:int 0
-            while (a < (array_length backs)) {
-                set_at vOrder (itemAt backs a) order
-                order = (order + 1)
-                a = (a + 1)
+            if vertical {
+                def a:int 0
+                while (a < (array_length backs)) {
+                    set_at vOrder (itemAt backs a) order
+                    order = (order + 1)
+                    a = (a + 1)
+                }
             }
             def b:int 0
             while (b < (array_length nodes)) {
@@ -1302,10 +1324,13 @@ class LayeredLayout {
                         ; A return path ends here: count it with the real
                         ; neighbours so the node sits on that side rather
                         ; than on the parent and leaving the path to go
-                        ; around the far side of the column.
-                        if (this.reversedDummy(other)) {
-                            realTotal = (realTotal + oc)
-                            realN = (realN + 1)
+                        ; around the far side of the column. TB/BT only —
+                        ; an LR row of states is not this picture.
+                        if (this.verticalFlow()) {
+                            if (this.reversedDummy(other)) {
+                                realTotal = (realTotal + oc)
+                                realN = (realN + 1)
+                            }
                         }
                     }
                 }
