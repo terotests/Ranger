@@ -130,7 +130,8 @@ those and an empty outline says `add card`.
 `./evg-ui add` prints ops — `--into` is the insert path, not an
 edit — so a successful add answers with `patch add.json` and does
 not put the ops back in the prompt.
-A photo attach sends Gemini the **pixels**, the **vectorized SVG**,
+A photo attach sends Gemini the **pixels**, the **vectorized SVG**
+(up to 64k chars — not the old 8k clip),
 the palette and OCR on the **first turn** of a Follow-up (any UI).
 Later turns stay cheap; `image_info` / `ocr` / `read_file attachment.svg`
 send them again if the model asks. The brief says EVG is HTML flex/grid,

@@ -53,6 +53,9 @@ import {
   EXAMPLE_RANGER_UI,
   exampleUiBlock,
   denyExplore,
+  SVG_BRIEF_CAP,
+  FILE_READ_CAP,
+  pictureMediaParts,
 } from "./gemini-agent.mjs";
 import http from "node:http";
 
@@ -1147,6 +1150,15 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   }
   if (!withPic[0].parts.some((p) => /Vectorized SVG/.test(p.text || ""))) {
     throw new Error("the SVG must ride with the photo: " + JSON.stringify(withPic));
+  }
+  if (SVG_BRIEF_CAP < 64_000 || FILE_READ_CAP < 64_000) {
+    throw new Error("SVG/read caps must be 64k, not 8k: " + SVG_BRIEF_CAP + "/" + FILE_READ_CAP);
+  }
+  const fatSvg = `<svg xmlns="http://www.w3.org/2000/svg">${"<rect/>".repeat(2_500)}<!--TAIL20K--></svg>\n`;
+  fs.writeFileSync(path.join(picWs, "attachment.svg"), fatSvg);
+  const fatText = pictureMediaParts(picWs).map((p) => p.text || "").join("");
+  if (fatSvg.length < SVG_BRIEF_CAP && !/TAIL20K/.test(fatText)) {
+    throw new Error("a ~20k SVG must not be clipped at 8k: " + fatText.length);
   }
   const stripped = stripInlineData(withPic);
   if (stripped[0].parts.some((p) => p.inlineData)) {

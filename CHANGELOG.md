@@ -20,7 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **EXAMPLE_UI** JSON (AppBar, chips, Overview / Recent Orders,
   `ui-tabbar`) plus the add/patch recipe. `add card` without `--row` is
   refused. A picture Follow-up that outlines/queries/reads the SVG twice
-  is stopped on the third look.
+  is stopped on the third look. The first-turn SVG, `read_file`, and
+  `/build` POST body caps are 64k characters (were 8k).
 
 ### Added
 

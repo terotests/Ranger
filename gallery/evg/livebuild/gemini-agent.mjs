@@ -424,7 +424,8 @@ export const STALL_NUDGE =
   `Stop exploring. Next tool is ${ADD_CARD} then ./evg-agent patch doc.evg.json add.json. Not ocr, not image_info, not list, not TASK.md.`;
 export const PICTURE_STALL_NUDGE =
   "You already saw the photo. Copy EXAMPLE_UI types (rave.AppBar, rave.Card, SettingsRow, ui-tabbar) and change the words. NEXT: a FILLED ./evg-ui add card --title … --row … then patch. Not outline, not query, not svg.";
-export const SVG_BRIEF_CAP = 8_000;
+export const SVG_BRIEF_CAP = 64_000;
+export const FILE_READ_CAP = 64_000;
 export const IMAGE_INLINE_MAX = 3_500_000;
 
 export function stallNudgeFor(workspace) {
@@ -1558,7 +1559,7 @@ export function executeTool(workspace, name, rawArgs, env = process.env) {
         }
         saveOnce(workspace, { svgRead: true });
         bumpExplore(workspace, true);
-        return { path: rel, bytes: raw.length, contents: clip(raw, 16_000) };
+        return { path: rel, bytes: raw.length, contents: clip(raw, FILE_READ_CAP) };
       }
       bumpExplore(workspace, isLoopCall(name, args));
       if (/\.evg\.json$/i.test(rel) && raw.length > 1_500) {
@@ -1575,7 +1576,7 @@ export function executeTool(workspace, name, rawArgs, env = process.env) {
           hint: `ops file — ./evg-agent patch doc.evg.json ${rel}. Do not put the ops in the prompt.`,
         };
       }
-      return { path: rel, contents: clip(raw, 8_000) };
+      return { path: rel, contents: clip(raw, FILE_READ_CAP) };
     }
     if (name === "write_file") {
       const blocked = denyWrite(args.path);
