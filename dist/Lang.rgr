@@ -1513,7 +1513,47 @@ func r_io_get_env( name string) *GoNullable {
                 ; optional this operator returns
                 python ( "os.environ.get(" (e 1) ")" (imp "os") )
                 dart ( "Platform.environment[" (e 1) "]" (imp "dart:io") )
-                cpp ( "std::getenv(" (e 1) ".c_str()) ? std::string(std::getenv(" (e 1) ".c_str())) : std::string(\"\")" (imp "<cstdlib>") )
+                ; same story as read_file: the operator is optional and Python
+                ; already answers None for a name that is not set. C++ handed
+                ; back the empty string for unset and for set-to-empty alike.
+                cpp ( "r_cpp_env_var(" (e 1) ")" (imp "<cstdlib>")
+(create_polyfill
+"
+template <class T>
+class r_optional_primitive {
+  public:
+    // has_value has to start false: cpp_str_to_int and its siblings leave the
+    // field untouched when the conversion throws, and an indeterminate bool
+    // made a failed str2int read back as a value on the C++ target.
+    bool has_value = false;
+    T value = T();
+    r_optional_primitive() {}
+    // a plain value placed into an optional slot: returning a bare string
+    // from a function declared @(optional):string arrives here. Declaring
+    // any constructor takes the implicit default one away, hence the pair.
+    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
+    r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
+        has_value = rhs.has_value;
+        value = rhs.value;
+        return *this;
+    }
+    r_optional_primitive<T> & operator=(const T a_value) {
+        has_value = true;
+        value = a_value;
+        return *this;
+    }
+};
+"
+)
+(create_polyfill "
+inline r_optional_primitive<std::string> r_cpp_env_var(const std::string& name) {
+    r_optional_primitive<std::string> res;
+    const char* v = std::getenv(name.c_str());
+    if (v) { res = std::string(v); }
+    return res;
+}
+")
+                )
                 ; * ("/* environment variable reading not implemented */")
             }
         }   
@@ -1524,7 +1564,11 @@ func r_io_get_env( name string) *GoNullable {
                 llvm ( "(shell_arg " (e 1) ")")
                 cpp ( "std::string(__g_argv[" (e 1) " + 1])")
                 php ( "$argv[" (e 1) " + 1]" )
-                java7 ( "args[" (e 1) "]")
+                ; `args` is in scope only inside main on Java, and a class
+                ; method that reads the command line is not. main copies it
+                ; into a static holder the writer emits (RgArgs.java), the
+                ; same shape as __g_args on Kotlin and Dart.
+                java7 ( "RgArgs.args[" (e 1) "]")
                 csharp ('Environment.GetCommandLineArgs()[' (e 1) ' + 1]' (imp "System"))
                 go ( "os.Args[" (e 1) " + 1]"  (imp "os"))
                 swift3 ("CommandLine.arguments[" (e 1) " + 1]")
@@ -1552,7 +1596,7 @@ func r_io_get_env( name string) *GoNullable {
                 swift6 ("CommandLine.arguments.count - 1")
                 csharp ('Environment.GetCommandLineArgs().Length - 1' (imp "System"))                
                 php ( "(count($argv) - 1)" )
-                java7 ( "args.length")
+                java7 ( "RgArgs.args.length")
                 go ( "int64( len( os.Args) - 1 )"  (imp "os"))
                 es6 ( "(process.argv.length - 2)" )
                 rust ( "(std::env::args().len() as i64 - 1)")
@@ -3490,6 +3534,14 @@ fn r_wall_clock_ms() -> f64 {
                 csharp ( "(DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMilliseconds" )
                 kotlin ( "System.currentTimeMillis().toDouble()" )
                 java7 ( "((double)System.currentTimeMillis())" )
+                php ( "(microtime(true) * 1000.0)" )
+                dart ( "(DateTime.now().microsecondsSinceEpoch / 1000.0)" )
+                scala ( "(System.currentTimeMillis().toDouble)" )
+                swift3 ( "(Date().timeIntervalSince1970 * 1000.0)" (imp "Foundation") )
+                swift6 ( "(Date().timeIntervalSince1970 * 1000.0)" (imp "Foundation") )
+                ; `*` is 0.0: a target with no clock reports every duration as
+                ; zero rather than refusing to compile, which is what a program
+                ; that only prints a timing wants.
                 * ( "0.0" )
             }
         }
@@ -3792,17 +3844,51 @@ def rg_read_file(path, filename):
         return None
 ")
                 )
+                ; read_file is declared optional, and Python already answers
+                ; None for a file it cannot read. C++ used to hand back the
+                ; empty string for both a missing file and an empty one.
                 cpp ( "r_cpp_readFile( " (e 1) " , " (e 2) ")" (imp "<fstream>")
+(create_polyfill
+"
+template <class T>
+class r_optional_primitive {
+  public:
+    // has_value has to start false: cpp_str_to_int and its siblings leave the
+    // field untouched when the conversion throws, and an indeterminate bool
+    // made a failed str2int read back as a value on the C++ target.
+    bool has_value = false;
+    T value = T();
+    r_optional_primitive() {}
+    // a plain value placed into an optional slot: returning a bare string
+    // from a function declared @(optional):string arrives here. Declaring
+    // any constructor takes the implicit default one away, hence the pair.
+    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
+    r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
+        has_value = rhs.has_value;
+        value = rhs.value;
+        return *this;
+    }
+    r_optional_primitive<T> & operator=(const T a_value) {
+        has_value = true;
+        value = a_value;
+        return *this;
+    }
+};
+"
+)
 (create_polyfill "
-std::string  r_cpp_readFile(const std::string& path, const std::string& filename) 
+r_optional_primitive<std::string>  r_cpp_readFile(const std::string& path, const std::string& filename)
 {
+  r_optional_primitive<std::string> res;
   std::ifstream ifs(path + \"/\" + filename);
+  if (!ifs) { return res; }
   std::string content( (std::istreambuf_iterator<char>(ifs) ),
                        (std::istreambuf_iterator<char>()    ) );
-  return content;
-}    
-    ")                        
-            
+  res = content;
+  return res;
+}
+    ")
+
                 )
                 php ("file_get_contents(" (e 1) " . \"/\" . " (e 2) ") " )
                 swift3 ("r_read_file(dirName: " (e 1) " + \"/\" + " (e 2) ") " 
@@ -3878,6 +3964,194 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
 }
 "))
                 es6 ( "(require('fs').readFileSync( " (e 1) " + '/' + " (e 2) " , 'utf8'))" )
+                kotlin ( "try { java.io.File(if (" (e 1) ".isEmpty()) " (e 2) " else " (e 1) " + \"/\" + " (e 2) ").readText() } catch (_: Exception) { null }" (imp "java.io.File") )
+                dart ( (imp "dart:io") "(() { try { final __p = (" (e 1) ").isEmpty ? (" (e 2) ") : ((" (e 1) ") + \"/\" + (" (e 2) ")); return File(__p).readAsStringSync(); } catch (_) { return null; } })()" )
+                csharp ( "RgFiles.ReadFile(" (e 1) ", " (e 2) ")"
+                (polyfill "after_imports" "
+// Files on the C# target. System.IO says all of this, but each operator needs
+// one expression and several need a try/catch, so they are wrapped here.
+static class RgFiles {
+  static string Join(string path, string name) {
+    if (path.Length == 0) { return name; }
+    return path + \"/\" + name;
+  }
+  // The optional this operator returns: null is how C# spells absent, which is
+  // what a missing or unreadable file has to answer.
+  public static string ReadFile(string path, string name) {
+    try {
+      return System.IO.File.ReadAllText(Join(path, name), new System.Text.UTF8Encoding(false));
+    } catch (System.Exception) {
+      return null;
+    }
+  }
+  public static void WriteFile(string path, string name, string data) {
+    string full = Join(path, name);
+    string dir = System.IO.Path.GetDirectoryName(full);
+    if (dir != null && dir.Length > 0) { System.IO.Directory.CreateDirectory(dir); }
+    // No BOM: every other target writes plain UTF-8 and the compiler compares
+    // its own output byte for byte.
+    System.IO.File.WriteAllText(full, data, new System.Text.UTF8Encoding(false));
+  }
+  public static void CreateDir(string path) {
+    try { System.IO.Directory.CreateDirectory(path); } catch (System.Exception) { }
+  }
+  public static bool DirExists(string path) {
+    return System.IO.Directory.Exists(path);
+  }
+}
+")
+                )
+            }
+        }
+
+        ; read_file, but not async on JavaScript. read_file awaits fs.readFile,
+        ; so on JavaScript every function that reads a file, and every function
+        ; that can reach one, is emitted async: in the compiler that was the
+        ; whole import, analysis and writer chain, and each call then paid for
+        ; a promise and a heap frame -- three seconds of a twelve second
+        ; compile, all of it garbage. This one reads with readFileSync and
+        ; answers absent on failure, as read_file does. The other targets read
+        ; synchronously either way and share read_file's polyfills, which the
+        ; writer emits once per text. Use it where blocking the event loop is
+        ; fine: a command line tool, not a server.
+        read_file_sync   cmdReadFileSync@(optional):string (path:string filename:string) {
+
+            templates {
+                llvm ( "(read_file " (e 1) " " (e 2) ")")
+                ts ( "(() => { try { return require('fs').readFileSync( " (e 1) " + '/' + " (e 2) " , 'utf8'); } catch (e) { return undefined; } })()" )
+                es6 ( "(() => { try { return require('fs').readFileSync( " (e 1) " + '/' + " (e 2) " , 'utf8'); } catch (e) { return undefined; } })()" )
+                ranger (  "(read_file " (e 1) " " (e 2) ")" )
+                ; returns the optional: None is how Python spells absent, which
+                ; is what a missing or unreadable file has to answer
+                python ( "rg_read_file(" (e 1) ", " (e 2) ")" (imp "os")
+(create_polyfill "
+def rg_read_file(path, filename):
+    try:
+        with open(os.path.join(path, filename), \"r\", encoding=\"utf-8\") as f:
+            return f.read()
+    except Exception:
+        return None
+")
+                )
+                ; read_file is declared optional, and Python already answers
+                ; None for a file it cannot read. C++ used to hand back the
+                ; empty string for both a missing file and an empty one.
+                cpp ( "r_cpp_readFile( " (e 1) " , " (e 2) ")" (imp "<fstream>")
+(create_polyfill
+"
+template <class T>
+class r_optional_primitive {
+  public:
+    // has_value has to start false: cpp_str_to_int and its siblings leave the
+    // field untouched when the conversion throws, and an indeterminate bool
+    // made a failed str2int read back as a value on the C++ target.
+    bool has_value = false;
+    T value = T();
+    r_optional_primitive() {}
+    // a plain value placed into an optional slot: returning a bare string
+    // from a function declared @(optional):string arrives here. Declaring
+    // any constructor takes the implicit default one away, hence the pair.
+    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
+    r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
+        has_value = rhs.has_value;
+        value = rhs.value;
+        return *this;
+    }
+    r_optional_primitive<T> & operator=(const T a_value) {
+        has_value = true;
+        value = a_value;
+        return *this;
+    }
+};
+"
+)
+(create_polyfill "
+r_optional_primitive<std::string>  r_cpp_readFile(const std::string& path, const std::string& filename)
+{
+  r_optional_primitive<std::string> res;
+  std::ifstream ifs(path + \"/\" + filename);
+  if (!ifs) { return res; }
+  std::string content( (std::istreambuf_iterator<char>(ifs) ),
+                       (std::istreambuf_iterator<char>()    ) );
+  res = content;
+  return res;
+}
+    ")
+
+                )
+                php ("file_get_contents(" (e 1) " . \"/\" . " (e 2) ") " )
+                swift3 ("r_read_file(dirName: " (e 1) " + \"/\" + " (e 2) ") " 
+(create_polyfill "
+func r_read_file ( dirName:String ) -> String? {
+    let res: String?
+    do {
+        res = try String(contentsOfFile:dirName)
+    } catch {
+        res = nil
+    }
+    return res
+}
+    ")                                  
+                )
+                swift6 ("r_read_file(dirName: " (e 1) " + \"/\" + " (e 2) ") " 
+                    (imp "Foundation")
+(create_polyfill "
+func r_read_file ( dirName:String ) -> String? {
+    let res: String?
+    do {
+        res = try String(contentsOfFile:dirName, encoding: .utf8)
+    } catch let error {
+        print(\"Error reading file: \\(dirName)\")
+        print(\"Error: \\(error.localizedDescription)\")
+        res = nil
+    }
+    return res
+}
+    ")                                  
+                )
+                java7 ( "readFile(" (e 1) " + \"/\" + " (e 2) " , StandardCharsets.UTF_8 )"  
+                    (imp "java.nio.file.Paths") 
+                    (imp "java.io.File")
+                    (imp "java.nio.file.Files") 
+                    (imp 'java.io.IOException')
+                    (imp "java.nio.charset.Charset")
+                    (imp "java.nio.charset.StandardCharsets")
+(create_polyfill "
+static String readFile(String path, Charset encoding) 
+{
+  try {
+    byte[] encoded = Files.readAllBytes(Paths.get(path));
+    return new String(encoded, encoding);
+  } catch(IOException e) { 
+    return \"\";
+  }
+}    
+    ")                        
+                        
+                        )
+                scala ( "Try(Source.fromFile(" (e 1) " + \"/\" + " (e 2) ").getLines.mkString).toOption" (imp "scala.io.Source") (imp "scala.util.Try"))
+                go (  "r_io_read_file(" (e 1) ", " (e 2) ")" (imp "io/ioutil")
+(create_polyfill "
+
+// polyfill for reading files
+func r_io_read_file( path string , fileName string ) *GoNullable {
+   res := new(GoNullable);
+   if v, err := ioutil.ReadFile(path + \"/\" + fileName); err == nil {
+     res.has_value = true
+     res.value = string(v)
+   } else {
+     res.has_value = false
+   }
+   return res 
+}
+"))
+                rust ( "r_read_file(&" (e 1) ", &" (e 2) ")"
+(create_polyfill "
+fn r_read_file(path: &str, filename: &str) -> Option<String> {
+    let full_path = format!(\"{}/{}\", path, filename);
+    std::fs::read_to_string(full_path).ok()
+}
+"))
                 kotlin ( "try { java.io.File(if (" (e 1) ".isEmpty()) " (e 2) " else " (e 1) " + \"/\" + " (e 2) ").readText() } catch (_: Exception) { null }" (imp "java.io.File") )
                 dart ( (imp "dart:io") "(() { try { final __p = (" (e 1) ").isEmpty ? (" (e 2) ") : ((" (e 1) ") + \"/\" + (" (e 2) ")); return File(__p).readAsStringSync(); } catch (_) { return null; } })()" )
                 csharp ( "RgFiles.ReadFile(" (e 1) ", " (e 2) ")"
@@ -4042,6 +4316,13 @@ static class RgFiles {
             templates {
                 cpp ( "/*unwrap dbl*/" (e 1) ".value" )
                 csharp ( "(" (e 1) ").Value" )
+            }
+        }
+        ; see the null? overload: an optional string carries its own presence
+        ; bit on C++, so reading the value out of one is not a no-op.
+        unwrap       cmdUnwrap:string        ( arg@(optional):string ) {
+            templates {
+                cpp ( (e 1) ".value" )
             }
         }
         ; `bool?` is a Nullable<bool> like the two above, and `if (unwrap ok)`
@@ -4234,12 +4515,15 @@ static class RgFiles {
                     ; An enum value is an int on every target, and Python does
                     ; not concatenate an int onto a str.
                     python ( (e 1) " + str(" (e 2) ")" )
-                    kotlin ( (e 1) " + " (e 2) ".toString()" )
+                    ; the operand is parenthesised because `.toString()` binds
+                    ; to the last TOKEN, not to the expression: `"" + i * 4`
+                    ; came out as `"" + i * 4.toString()`, which is Int * String.
+                    kotlin ( (e 1) " + (" (e 2) ").toString()" )
                     ; an enum is an int on Dart, and Dart has no String + int
-                    dart ( (e 1) " + " (e 2) ".toString()" )
+                    dart ( (e 1) " + (" (e 2) ").toString()" )
                     java7 ( (e 1) " + String.valueOf(" (e 2) ")" )
-                    csharp ( (e 1) " + " (e 2) ".ToString()" )
-                    scala ( (e 1) " + " (e 2) ".toString" )
+                    csharp ( (e 1) " + (" (e 2) ").ToString()" )
+                    scala ( (e 1) " + (" (e 2) ").toString" )
                     * ( (e 1) " + " (e 2) )
                 }
             }
@@ -4265,8 +4549,8 @@ static class RgFiles {
                     rust ( (custom _) )
                     swift3 ( (e 1) " + String(" (e 2)")" )
                     swift6 ( (e 1) " + String(" (e 2)")" )
-                    kotlin ( (e 1) " + " (e 2)".toString()" )
-                    dart ( (e 1) " + " (e 2)".toString()" )
+                    kotlin ( (e 1) " + (" (e 2) ").toString()" )
+                    dart ( (e 1) " + (" (e 2) ").toString()" )
                     cpp ( (e 1 ) " + " "r_double_to_string(" (e 2) ")" (imp "<sstream>") (imp "<iomanip>") (imp "<string>") (imp "<cstdlib>")
 (create_polyfill "
 inline std::string r_double_to_string(double v) {
@@ -4298,8 +4582,8 @@ inline std::string r_double_to_string(double v) {
                     go ( "strings.Join([]string{ " (e 1) ",strconv.FormatInt(" (e 2) ", 10) }, \"\")" (imp "strings") (imp "strconv"))
                     swift3 ( (e 1) " + String(" (e 2)")" )
                     swift6 ( (e 1) " + String(" (e 2)")" )
-                    kotlin ( (e 1) " + " (e 2)".toString()" )
-                    dart ( (e 1) " + " (e 2)".toString()" )
+                    kotlin ( (e 1) " + (" (e 2) ").toString()" )
+                    dart ( (e 1) " + (" (e 2) ").toString()" )
                     rust ( (custom _) )
                     cpp ( (e 1 ) " + std::to_string(" (e 2) ")")
                     php ( (e 1) " . " (e 2) ) 
@@ -4462,8 +4746,8 @@ inline std::string r_double_to_string(double v) {
             templates {
                     swift3 ( "String(" (e 1) ") + " (e 2) )
                     swift6 ( "String(" (e 1) ") + " (e 2) )
-                    kotlin ( (e 1) ".toString() + " (e 2) )
-                    dart ( (e 1) ".toString() + " (e 2) )
+                    kotlin ( "(" (e 1) ").toString() + " (e 2) )
+                    dart ( "(" (e 1) ").toString() + " (e 2) )
                     go ( "strings.Join([]string{ strconv.FormatFloat(" (e 1) ",'f', -1, 64)," (e 2) " }, \"\")" (imp "strings") (imp "strconv"))
                     cpp ( "r_double_to_string(" (e 1) ")" (imp "<sstream>") (imp "<iomanip>") (imp "<string>") (imp "<cstdlib>")
 (create_polyfill "
@@ -4496,8 +4780,8 @@ inline std::string r_double_to_string(double v) {
                     go ( "strings.Join([]string{ strconv.FormatInt(" (e 1) ", 10)," (e 2) " }, \"\")" (imp "strings") (imp "strconv"))
                     swift3 ( "String(" (e 1) ") + " (e 2) )
                     swift6 ( "String(" (e 1) ") + " (e 2) )
-                    kotlin ( (e 1) ".toString() + " (e 2) )
-                    dart ( (e 1) ".toString() + " (e 2) )
+                    kotlin ( "(" (e 1) ").toString() + " (e 2) )
+                    dart ( "(" (e 1) ").toString() + " (e 2) )
                     rust ( "format!(\"{}{}\", " (e 1) ", " (e 2) ")" )
                     cpp ( "std::to_string(" (e 1) ") + " (e 2) )
                     php ( (e 1) " . " (e 2) ) 
@@ -4605,8 +4889,25 @@ def r_div_f64(a, b):
         }
 
 
+        ; Every target reached this through the `*` macro, which expands to a
+        ; ternary over an explicit presence test. On JavaScript that is
+        ;   (((typeof(hit) !== "undefined" && hit != null ) ) ? hit : "unknown")
+        ; where `hit ?? "unknown"` says the same thing -- and says it once,
+        ; rather than naming the operand twice. Every entry below triggers on
+        ; exactly what that target's `null?` tests, so the meaning is
+        ; unchanged; the macro stays for the targets with no such operator
+        ; (Java, Go, Python, C++, Rust), which keep the ternary.
         ??               elvis:T         ( left@(optional):T right:T ) { 
             templates { 
+                es6 ( "(" (e 1) " ?? " (e 2) ")" )
+                dart ( "(" (e 1) " ?? " (e 2) ")" )
+                csharp ( "(" (e 1) " ?? " (e 2) ")" )
+                swift3 ( "(" (e 1) " ?? " (e 2) ")" )
+                swift6 ( "(" (e 1) " ?? " (e 2) ")" )
+                php ( "(" (e 1) " ?? " (e 2) ")" )
+                kotlin ( "(" (e 1) " ?: " (e 2) ")" )
+                ; an optional is an Option[T] here, not a nullable reference
+                scala ( "(" (e 1) ").getOrElse(" (e 2) ")" )
                 * @macro(true) ( '(? (!null? ' (e 1) ') (unwrap ' (e 1) ') ' (e 2) ')' ) 
             } 
         }        
@@ -4844,7 +5145,12 @@ def r_div_f64(a, b):
                 swift3 ( "if ( " (e 1) " != nil ) {" nl I (block 2) i nl "}" nl )
                 swift6 ( "if ( " (e 1) " != nil ) {" nl I (block 2) i nl "}" nl )
                 kotlin ( "if ( " (e 1) " != null ) {" nl I (block 2) i nl "}" nl )
-                java7 ( "if ( " (e 1) ".isPresent()) {" nl I (block 2) i nl "}" nl )
+                ; NOT Optional.isPresent(): java.util.Optional is Java 8, and
+                ; an optional on this target is a nullable reference or a boxed
+                ; primitive -- which is what `null?` already compares against.
+                ; The six `isPresent()` entries were the only thing that
+                ; disagreed, and each one was a "cannot find symbol".
+                java7 ( "if ( " (e 1) " != null) {" nl I (block 2) i nl "}" nl )
                 csharp ( "if ( " (e 1) " != null) {" nl I (block 2) i nl "}" nl )
                 php ( "if ( isset( " (e 1) " ) ) {" nl I (block 2) i nl "}" nl )
                 go ( "if ( " (e 1) ".has_value) {" nl I (block 2) i nl "}" nl )
@@ -4863,7 +5169,7 @@ def r_div_f64(a, b):
                 swift3 ( "if ( " (e 1) " != nil ) {" nl I (block 2) i nl "}" nl )
                 swift6 ( "if ( " (e 1) " != nil ) {" nl I (block 2) i nl "}" nl )
                 kotlin ( "if ( " (e 1) " != null ) {" nl I (block 2) i nl "}" nl )
-                java7 ( "if ( " (e 1) ".isPresent()) {" nl I (block 2) i nl "}" nl )
+                java7 ( "if ( " (e 1) " != null) {" nl I (block 2) i nl "}" nl )
                 csharp ( "if ( " (e 1) " != null) {" nl I (block 2) i nl "}" nl )
                 php ( "if ( isset( " (e 1) " ) ) {" nl I (block 2) i nl "}" nl )
                 go ( "if ( " (e 1) ".has_value) {" nl I (block 2) i nl "}" nl )
@@ -4883,7 +5189,7 @@ def r_div_f64(a, b):
                 ranger ( "if ( " (e 1) " ) {" I nl (block 2) i nl "} {" nl I (block 3) i "}" nl)
                 php ( "if ( isset(" (e 1) ") ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 scala ( "if ( " (e 1) ".isDefined ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
-                java7 ( "if ( " (e 1) ".isPresent() ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
+                java7 ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 csharp ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 kotlin ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 rust ( "if " (e 1) ".is_some() {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
@@ -4902,7 +5208,7 @@ def r_div_f64(a, b):
                 ranger ( "if ( " (e 1) " ) {" I nl (block 2) i nl "} {" nl I (block 3) i "}" nl)
                 php ( "if ( isset(" (e 1) ") ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 scala ( "if ( " (e 1) ".isDefined ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
-                java7 ( "if ( " (e 1) ".isPresent() ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
+                java7 ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 csharp ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 kotlin ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 rust ( "if " (e 1) ".is_some() {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
@@ -4923,7 +5229,7 @@ def r_div_f64(a, b):
                 swift6 ( "if ( " (e 1) " != nil ) {" nl I (block 2) i nl "}" nl )
                 kotlin ( "if ( " (e 1) " != null ) {" nl I (block 2) i nl "}" nl )
                 dart ( "if ( " (e 1) " != null ) {" nl I (block 2) i nl "}" nl )
-                java7 ( "if ( " (e 1) ".isPresent()) {" nl I (block 2) i nl "}" nl )
+                java7 ( "if ( " (e 1) " != null) {" nl I (block 2) i nl "}" nl )
                 csharp ( "if ( " (e 1) " != null) {" nl I (block 2) i nl "}" nl )
                 ; go ( "" (e 1 ) " == nil " ) 
                 ; is_some
@@ -4942,7 +5248,7 @@ def r_div_f64(a, b):
                 ranger ( "if ( " (e 1) " ) {" I nl (block 2) i nl "} {" nl I (block 3) i "}" nl)
                 php ( "if ( isset(" (e 1) ") ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 scala ( "if ( " (e 1) ".isDefined ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
-                java7 ( "if ( " (e 1) ".isPresent() ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
+                java7 ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 csharp ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 kotlin ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 dart ( "if ( " (e 1) " != null ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl )
@@ -4984,7 +5290,7 @@ def r_div_f64(a, b):
         switch          cmdSwitch:void          ( condition:int case_list:block )  {
             templates {
                 scala ( (e 1) " match { " I (block 2) i "}" )
-                kotlin ( "when (" (e 1) ") { " I (block 2) i "}" )
+                kotlin ( (custom _) )
                 python ( nl "match (" (e 1) "):" I (block 2) i nl )
                 ; Rust demands an exhaustive match, and a Ranger `switch` need not
                 ; have a `default`. The catch-all goes in unconditionally: where
@@ -5037,7 +5343,7 @@ def r_div_f64(a, b):
             templates {
                 cpp ( (custom _) )
                 scala ( (e 1) " match { " I (block 2) i "}" )
-                kotlin ( "when (" (e 1) ") { " I (block 2) i "}" )
+                kotlin ( (custom _) )
                 python ( nl "match (" (e 1) "):" I (block 2) i nl )
                 ; Rust matches a &str, so a String subject needs as_str().
                 ; `&*x` is a &str whether x is a String or already a &str;
@@ -5054,7 +5360,7 @@ def r_div_f64(a, b):
             templates {
 
                 scala ( (e 1) " match { " I (block 2) i "}" )
-                kotlin ( "when (" (e 1) ") { " I (block 2) i "}" )
+                kotlin ( (custom _) )
                 ; An ENUM condition lands here, not on the int overload above,
                 ; and Python and Rust have no C style switch -- without these two
                 ; the `*` fallback wrote a C `switch` into a Python file. The
@@ -5076,8 +5382,10 @@ def r_div_f64(a, b):
 
         ; A case over a string needs its own entry for Rust only: a match arm is
         ; a pattern, and the Rust writer gives a string literal in expression
-        ; position a `.to_string()`, which a pattern does not take. `(str 1)`
-        ; writes the text of the literal and nothing else. Every other target
+        ; position a `.to_string()`, which a pattern does not take. `(estr 1)`
+        ; writes the text of the literal, escaped and unquoted -- escaped
+        ; because a pattern holding a raw quote, backslash or newline ends
+        ; early, which is how `case "\""` became `"""`. Every other target
         ; keeps the spelling of the case above.
         case        cmdCase:void          (  condition:string case_block:block )  {
             templates {
@@ -5091,7 +5399,7 @@ def r_div_f64(a, b):
                 es6 ( nl "case " (e 1)" : " nl I (java_case 2) nl i )
                 cpp ( nl "case " (e 1)" : " nl I "{" nl I (block 2) nl "break;" i nl "}" i )
                 python ( nl "case " (e 1) ":" nl I "pass" nl (block 2) nl i )
-                rust ( nl "\"" (str 1) "\" => {" nl I (block 2) nl i "}" nl )
+                rust ( nl "\"" (estr 1) "\" => {" nl I (block 2) nl i "}" nl )
                 * ( nl "case " (e 1)" : " nl I (block 2) nl "break;" i )
             }
         }
@@ -5240,9 +5548,15 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
                 cpp ((e 1) ".has_value == false")     
             }
         }               
+        ; an optional string used to be a bare std::string on C++, with ""
+        ; standing in for absent. That is the one place the C++ output
+        ; disagreed with every other target: `s = ""` then `null? s` answered
+        ; true here and false on JS, Python, Go and Rust. It is an
+        ; r_optional_primitive<std::string> now, so "" is a value like any
+        ; other and the presence bit is its own.
         null?       cmdIsNotNull:boolean        ( arg@(optional):string ) {
             templates {
-                cpp ((e 1) ".empty()")
+                cpp ((e 1) ".has_value == false")
             }
         }
 
@@ -5297,7 +5611,7 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
         }               
         !null?       cmdIsNotNull:boolean        ( arg@(optional):string ) {
             templates {
-                cpp ((e 1) ".empty() == false ")
+                cpp ((e 1) ".has_value")
             }
         }
 
@@ -5347,7 +5661,8 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
                 es6 ( "( e.toString())" )
                 php ( "( $e->getMessage())" )
                 java7 ( "( e.getMessage())" )
-                cpp ( " \"unspecified error\" " )
+                ; the local the try template binds in its handler
+                cpp ( "__rg_err_msg" )
                 ; Dart has no `try` entry of its own and takes the `*` one, which
                 ; binds `e`.
                 dart ( "e.toString()" )
@@ -5372,6 +5687,17 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
                 php ( "throw new Exception(" (e 1) ");")
                 csharp ( "throw new ConfigurationErrorsException(" (e 1) ");" (imp "System.Configuration"))
                 java7 ( "throw new IllegalArgumentException(" (e 1) ");")
+                ; `throw "negative"` in C++ throws a `const char*`, which the
+                ; catch-all below caught and could say nothing about — every
+                ; error came out as "unspecified error". A std::exception
+                ; carries the text, and the try template asks it for one.
+                cpp ( "throw std::runtime_error(" (e 1) ");" (imp "<stdexcept>"))
+                ; Kotlin has no checked exceptions and needs no `throws` on the
+                ; signature, but what is thrown must be a Throwable — a String
+                ; is not, and `throw "negative"` is a kotlinc error, not a
+                ; warning. Exception(msg) puts the text where `e.message` reads
+                ; it, which is what the `error_msg` template already expects.
+                kotlin ( "throw Exception(" (e 1) ")")
                 swift3 ( 
                     nl "throw "  (e 1) ";" nl 
 (create_polyfill 
@@ -5379,6 +5705,26 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
 extension String: Error {}
 "
 )                    
+                )
+                ; swift6 had no entry of its own and fell through to `*`, which
+                ; writes `throw "negative"` — a String is not an Error, and
+                ; swiftc refuses it. A small error type rather than
+                ; `extension String: Error {}` (what swift3 does): extending a
+                ; stdlib type with a stdlib protocol is a retroactive
+                ; conformance, which Swift 6 language mode warns about.
+                ; CustomStringConvertible is what keeps `error_msg` correct
+                ; without a template of its own — `String(describing: error)`
+                ; is the message, not `RgError(message: "…")`.
+                swift6 (
+                    nl "throw RgError(message: "  (e 1) ")" nl
+(create_polyfill
+"
+struct RgError: Error, CustomStringConvertible {
+    let message: String
+    var description: String { message }
+}
+"
+)
                 )
                 scala ( "throw new customException(" (e 1) ")"
 
@@ -5424,7 +5770,18 @@ case class customException(smth:String)  extends Exception
                 ; with swift there is no do without try...
                 swift3 ( "do {" nl I (block 1) i nl "} catch { " nl I (block 2) i nl "}" )
                 swift6 ( "do {" nl I (block 1) i nl "} catch { " nl I (block 2) i nl "}" )
-                cpp ( nl "try {" nl I (block 1) i nl "} catch( ... ) {" nl I (block 2) i nl "}" nl )
+                ; The catch stays a catch-ALL — a Ranger `try` block has to
+                ; survive whatever crosses it, including a throw from a
+                ; polyfill or a library that is not a std::exception. Asking
+                ; what it was is the rethrow idiom: re-throw inside the
+                ; handler and catch it again by type. That gives `error_msg`
+                ; the real text without narrowing what is caught, and without
+                ; writing the user's catch block out twice.
+                cpp ( nl "try {" nl I (block 1) i nl "} catch( ... ) {" nl I
+                      "std::string __rg_err_msg = \"unspecified error\";" nl
+                      "try { throw; } catch( const std::exception& __rg_e ) { __rg_err_msg = __rg_e.what(); } catch( ... ) {}" nl
+                      "(void)__rg_err_msg;" nl
+                      (block 2) i nl "}" nl (imp "<stdexcept>") (imp "<string>") )
                 ; Python needs a statement in each suite, and a generated catch
                 ; block is often empty (the @serialize writer emits one), so both
                 ; suites open with `pass`.
@@ -5448,9 +5805,13 @@ case class customException(smth:String)  extends Exception
                 ; body wants one. swift_rc writes `_` for either name when its
                 ; ref_cnt is 0 -- the swift3 template already did this for the
                 ; index, and the item needs it just as much.
-                swift6 ( (forkctx _ ) (def 2) (def 3) nl "for (" (swift_rc 3) ", " (swift_rc 2) ") in " (e 1) ".enumerated() {" nl I (block 4) nl i "}" )
-                kotlin ( (forkctx _ ) (def 2) (def 3) "for ( " (e 3) " in " (e 1) ".indices ) {" nl I "val " (e 2) " = " (e 1) "[" (e 3) "]" nl (block 4) nl i "}" )
-                dart ( (forkctx _ ) (def 2) (def 3) "for ( int " (e 3) " = 0; " (e 3) " < " (e 1) ".length; " (e 3) "++) {" nl I "var " (e 2) " = " (e 1) "[" (e 3) "];" nl (block 4) nl i "}" )
+                ; PLAN_CPP_IDIOMS C4: `for v in xs` when the body reads
+                ; neither the index nor the collection.
+                swift6 ( (forkctx _ ) (def 2) (def 3) nl (custom _) )
+                ; PLAN_CPP_IDIOMS C4: `for (v in xs)` when the body reads
+                ; neither the index nor the collection.
+                kotlin ( (forkctx _ ) (def 2) (def 3) (custom _) )
+                dart ( (forkctx _ ) (def 2) (def 3) (custom _) )
 
                 ; Use index-based loop for Rust with cloned item - no reassignment needed as item is cloned.
                 ; The index counts in i64, because Ranger declares it `int` and the
@@ -5462,7 +5823,12 @@ case class customException(smth:String)  extends Exception
                 ; borrow alive for the whole loop, and a body that borrows the
                 ; same thing mutably cannot run. The temporary is named after
                 ; the index, so nested loops do not collide.
-                rust ( (forkctx _ ) (def 2) (def 3) "let __n_" (e 3) " = (" (e 1) ".len() as i64);" nl "for " (e 3) " in 0..__n_" (e 3) " {" nl I "let mut " (e 2) " = " (e 1) "[" (e 3) " as usize]" (cloneif 2) ";" nl (block 4) nl i "}" )
+                ; PLAN_RUST_SEMANTIC_IDIOMS K: the writer picks between the
+                ; index loop this used to be and `for v in xs.iter().copied()`
+                ; (or `.cloned()`), because only it can ask whether the body
+                ; reads the index or touches the collection.
+                ; See RustOperators.rustWriteForLoop.
+                rust ( (forkctx _ ) (def 2) (def 3) nl (custom _) )
 
                 ; idea of go for macro implementation, not working yet...         
                 go_idea  @macro(true) (nl 
@@ -5476,17 +5842,35 @@ case class customException(smth:String)  extends Exception
                     i
                 "}" nl
                 )
-                go    (  (forkctx _ ) (def 3) "var " (e 3) " int64 = 0;  " nl "for ; " (e 3) " < int64(len(" (e 1) ")) ; " (e 3) "++ {" nl I nl (go_for_bind 2) nl (block 4) nl i "}" )
+                ; PLAN_CPP_IDIOMS C4, the Go half: the writer picks between the
+                ; index loop this used to be and `for _, v := range xs`, because
+                ; only it can ask whether the body reads the index or touches
+                ; the collection. See RangerGolangClassWriter.goWriteForLoop.
+                go    (  (forkctx _ ) (def 2) (def 3) (custom _) )
 
-                php    ( (forkctx _ ) (def 2) (def 3) "for ( " (e 3) " = 0; " (e 3) " < count(" (e 1) "); " (e 3) "++) {" nl I (e 2) " = " (e 1) "[" (e 3) "];" nl (block 4) nl i "}" )
-                java7 ( (forkctx _ ) (def 2) (def 3) "for ( int " (e 3) " = 0; " (e 3) " < " (e 1) ".size(); " (e 3) "++) {" nl I (typeof 2) " " (e 2) " = " (e 1) ".get(" (e 3) ");" nl (block 4) nl i "}" )
-                csharp ( (forkctx _ ) (def 2) (def 3) "for ( int " (e 3) " = 0; " (e 3) " < " (e 1) ".Count; " (e 3) "++) {" nl I (typeof 2) " " (e 2) " = " (e 1) "[" (e 3) "];" nl (block 4) nl i "}" )
+                ; PLAN_CPP_IDIOMS C4, the PHP half: `foreach ($xs as $v)` when the
+                ; body reads neither the index nor the collection.
+                php    ( (forkctx _ ) (def 2) (def 3) (custom _) )
+                ; PLAN_CPP_IDIOMS C4: `for (T v : xs)` when the body reads
+                ; neither the index nor the collection.
+                java7 ( (forkctx _ ) (def 2) (def 3) (custom _) )
+                csharp ( (forkctx _ ) (def 2) (def 3) (custom _) )
                 scala ( (custom _) )      
-                cpp ( (forkctx _ ) (def 2) (def 3) "for ( int " (e 3) " = 0; " (e 3) " != (int)(" (e 1) ".size()); " (e 3) "++) {" nl 
-                            I (typeof 2) " " (e 2) " = " (e 1) ".at(" (e 3) ");" nl (block 4) nl i "}" )          
+                ; PLAN_CPP_IDIOMS C4: the writer picks between the index loop
+                ; this used to be and `for ( const T& v : xs )`, because only it
+                ; can ask whether the body reads the index or touches the
+                ; collection. See RangerCppClassWriter.cppWriteForLoop.
+                cpp ( (forkctx _ ) (def 2) (def 3) (custom _) )
                 cpp.old ( (forkctx _ ) (def 2) (def 3) "for ( std::vector< " (typeof 2) ">::size_type " (e 3) " = 0; " (e 3) " != " (e 1) ".size(); " (e 3) "++) {" nl 
                             I (typeof 2) " " (e 2) " = " (e 1) ".at(" (e 3) ");" nl (block 4) nl i "}" )          
-                python ( (forkctx _ ) (def 2) (def 3) "for " (e 3) ", " (e 2) " in enumerate(" (e 1) "):" nl I (block 4) nl i )
+                ; PLAN_CPP_IDIOMS C4: `for v in xs:` when the body never
+                ; reads the index enumerate() was handing it.
+                python ( (forkctx _ ) (def 2) (def 3) (custom _) )
+                ; PLAN_CPP_IDIOMS C4: `for (const v of xs)` when the body reads
+                ; neither the index nor the collection. es5 is left on the `*`
+                ; template below -- `for...of` is ES6.
+                es6 ( (forkctx _ ) (def 2) (def 3) (custom _) )
+                ts ( (forkctx _ ) (def 2) (def 3) (custom _) )
                 * ( (forkctx _ ) (def 2) (def 3) "for ( let " (e 3) " = 0; " (e 3) " < " (e 1) ".length; " (e 3) "++) {" nl I "var " (e 2) " = " (e 1) "[" (e 3) "];" nl (block 4) nl i "}" )
             }
         }
@@ -5771,9 +6155,10 @@ func r_last_index_of(_ s: String, _ needle: String) -> Int {
                 )
                 csharp ( (e 1) ".Length")
                 php ( "strlen(" (e 1) ")") 
-                go ( "int64(len([]rune(" (e 1) ")))")
+                ; bytes, not runes -- see the note on `charAt`
+                go ( "int64(len(" (e 1) "))")
                 python ( "len(" (e 1) ")")
-                rust ( (e 1) ".chars().count() as i64")
+                rust ( "(" (e 1) ".len() as i64)")
                 * ( (e 1) ".length")
             }
         }
@@ -5904,24 +6289,113 @@ static bool r_regex_test_i(string pattern, string s) {
         ; swift:
         ; String(data: Data(bytes: s[sp ..< i]) , encoding: .utf8)!
 
+        ; ===================================================================
+        ; `charbuffer` IS A BUFFER OF BYTES.
+        ; ===================================================================
+        ;
+        ; One element is one OCTET, 0..255. It is not a character, it is not
+        ; a code point, and it is not "a string that happens to hold bytes".
+        ; `Vec<u8>` on Rust, `[]byte` on Go, `Uint8Array` on JavaScript,
+        ; `bytes` on Python, `byte[]` on the JVM and .NET, `[UInt8]` on
+        ; Swift, `List<int>` on Dart. That is the whole of the type, and it
+        ; is the same type whether the bytes came from a file, a socket, a
+        ; JPEG or a piece of text.
+        ;
+        ; TEXT IS A SEPARATE THING, AND THE CONVERSION NAMES ITS ENCODING.
+        ; `string` is text; `charbuffer` is bytes; nothing turns one into the
+        ; other by itself. Three operators cross that line, and because a
+        ; text<->bytes conversion cannot be done without choosing an
+        ; encoding, all three are defined to use UTF-8:
+        ;
+        ;   (to_charbuffer s)   text  -> its UTF-8 bytes
+        ;   (to_string buf)     bytes -> the text they are the UTF-8 of
+        ;   (substring buf a b) bytes -> the text THAT RANGE is the UTF-8 of
+        ;
+        ; UTF-8 is a property of those three conversions. It is NOT a
+        ; property of the buffer: a `charbuffer` holding a PNG is not
+        ; "UTF-8 bytes", it is bytes, and `to_string` on it is meaningless.
+        ;
+        ; THE MISTAKE THIS COMMENT EXISTS TO STOP. `(charAt buf i)` answers
+        ; ONE BYTE. A character outside ASCII is two, three or four of them,
+        ; so a loop that copies a buffer back into text one element at a time
+        ;
+        ;     while (i < (length buf)) {                 ; WRONG
+        ;       out = out + (substring buf i (i + 1))
+        ;       i = i + 1
+        ;     }
+        ;
+        ; decodes each byte of a multi-byte character on its own and gets a
+        ; replacement character for each. That is a real defect this
+        ; compiler shipped: `RangerLispParser` decoded escapes that way, and
+        ; every literal holding both a backslash escape and a non-ASCII
+        ; character came out broken. Walk the STRING when the subject is
+        ; text (`strlen`, `charAt` and `substring` on a `string` agree with
+        ; each other on any one target), and reach for a `charbuffer` when
+        ; the subject really is bytes.
+        ;
+        ; WHY BYTES AND NOT THE HOST'S OWN UNIT. A `charbuffer` used to be
+        ; whatever each host's string was made of -- UTF-16 units on
+        ; JavaScript, Kotlin and Dart, code points on Python, bytes
+        ; elsewhere, and on Scala a `toCharArray.map(_.toByte)` that
+        ; silently truncated anything above U+00FF. A byte is the one unit
+        ; every host can hold exactly: a UTF-16 target cannot hold a lone
+        ; code point above the BMP in one unit, and a code-point target
+        ; cannot hold a surrogate half. Every one of them can hold a byte.
+        ; docs/plans/PLAN_STRING_INDEXING.md 2.3.
+        ;
+        ; THE VIEWS OF TEXT, for when a byte is not what is wanted:
+        ;
+        ;   (to_chars s)      [int], Unicode CODE POINTS, one per character,
+        ;                     the same sequence on every target
+        ;   (char_length s)   how many characters, without building that
+        ;                     array
+        ;   (strlen s) / (charAt s i) / (substring s a b)
+        ;                     the TARGET'S OWN unit -- a byte, a UTF-16 code
+        ;                     unit or a code point, depending on where it
+        ;                     runs. Right for a scan over ASCII structure,
+        ;                     wrong for a column or a width. `-strict-strings`
+        ;                     reports the sites where the difference shows.
+        ; ===================================================================
+
+        ; The TEXT that this range of bytes is the UTF-8 of. One of the
+        ; three places the line between bytes and text is crossed, so it
+        ; decodes: a range that cuts a character in half gives a replacement
+        ; character, which is what makes a one-byte-at-a-time copy of a
+        ; buffer back into a string wrong. See the block above.
         substring   cmdSubstring:string       ( text:charbuffer start:int end:int ) { 
             templates {
                 ranger ( "(substring " (e 1) " " (e 2) " " (e 3) ")") 
                 csharp ( "System.Text.Encoding.UTF8.GetString(" (e 1) ", " (e 2) ", " (e 3) " - " (e 2) ")" )
-                scala ( "new String(" (e 1) ".slice(" (e 2) ", " (e 3) ").map(_.toChar) )")
-                java7 ( "new String(" (e 1) "," (e 2) ", " (e 3) " - " (e 2) " )")
+                ; the bytes are UTF-8, so they are decoded as UTF-8 -- a
+                ; byte-to-char cast reads them as Latin-1 and mangles
+                ; everything above U+007F
+                scala ( "new String(" (e 1) ".slice(" (e 2) ", " (e 3) "), \"UTF-8\")")
+                java7 ( "new String(" (e 1) "," (e 2) ", " (e 3) " - " (e 2) ", java.nio.charset.StandardCharsets.UTF_8)")
                 swift3 ( "String(data: Data(bytes:" (e 1) "[" (e 2) " ..< " (e 3) "]), encoding: .utf8)!"  (imp "Foundation"))
                 swift6 ( "String(data: Data(" (e 1) "[" (e 2) " ..< " (e 3) "]), encoding: .utf8)!"  (imp "Foundation"))
-                kotlin ( "String(" (e 1) "," (e 2) ", " (e 3) " - " (e 2) " )")           
+                kotlin ( "String(" (e 1) "," (e 2) ", " (e 3) " - " (e 2) ", Charsets.UTF_8)")           
                 go ( "fmt.Sprintf(\"%s\", " (e 1) "[" (e 2) ":" (e 3) "])"               
                  (imp "fmt")
                 )
                 cpp ( "std::string( " (e 1) " + " (e 2) ", " (e 3) " - " (e 2) " )")
-                ; a charbuffer is List<int> on Dart, so the `*` fallback (the
-                ; JavaScript String.substring) does not apply to it
-                dart ( "String.fromCharCodes(" (e 1) ".sublist(" (e 2) ", " (e 3) "))" )
-                ; ...and a str on Python, where the slice is the substring
-                python ( (e 1) "[" (e 2) ":" (e 3) "]" )
+                ; a charbuffer is a List<int> of BYTES on Dart, so the `*`
+                ; fallback (the JavaScript String.substring) does not apply to
+                ; it, and the bytes have to be decoded rather than read as
+                ; code units
+                dart ( (imp "dart:convert") "utf8.decode(" (e 1) ".sublist(" (e 2) ", " (e 3) "))" )
+                ; ...and `bytes` on Python, where slicing gives bytes back
+                python ( (e 1) "[" (e 2) ":" (e 3) "].decode(\"utf-8\")" )
+                ; ...and a Uint8Array on JavaScript, where it is neither a
+                ; string nor sliceable with String.substring
+                es6 ( "r_cb_dec.decode(" (e 1) ".subarray(" (e 2) ", " (e 3) "))"
+(create_polyfill "
+// A charbuffer is a buffer of BYTES, so it is a Uint8Array here
+// rather than the string it used to be. One encoder and one decoder for the
+// process: constructing them per call is most of the cost of a short slice.
+const r_cb_enc = new TextEncoder();
+const r_cb_dec = new TextDecoder();
+")
+                )
                 php ( "substr(" (e 1) ", " (e 2) ", " (e 3) " - " (e 2) ")") 
                 ; a charbuffer is Vec<u8> on Rust: slice the bytes and read
                 ; them back as UTF-8. The `*` fallback is JavaScript's String
@@ -5931,40 +6405,345 @@ static bool r_regex_test_i(string pattern, string s) {
             }
         }
 
+        ; The TEXT these bytes are the UTF-8 of -- the other direction of
+        ; `to_charbuffer`. Bytes that are not valid UTF-8 come back as
+        ; replacement characters; a buffer holding a PNG has no text in it
+        ; and this operator has nothing to say about one.
         to_string bufferToString:string       ( text:charbuffer ) { 
             templates {      
                 ranger ( "(to_string " (e 1) ")")
                 go ( "string(" (e 1) ")" )
-                dart ( "String.fromCharCodes(" (e 1) ")" )
+                dart ( (imp "dart:convert") "utf8.decode(" (e 1) ")" )
                 csharp ( "System.Text.Encoding.UTF8.GetString(" (e 1) ")" )
+                python ( (e 1) ".decode(\"utf-8\")" )
+                es6 ( "r_cb_dec.decode(" (e 1) ")"
+(create_polyfill "
+// A charbuffer is a buffer of BYTES, so it is a Uint8Array here
+// rather than the string it used to be. One encoder and one decoder for the
+// process: constructing them per call is most of the cost of a short slice.
+const r_cb_enc = new TextEncoder();
+const r_cb_dec = new TextDecoder();
+")
+                )
+                rust ( "String::from_utf8_lossy(&" (e 1) ").to_string()" )
+                java7 ( "new String(" (e 1) ", java.nio.charset.StandardCharsets.UTF_8)" )
+                kotlin ( "String(" (e 1) ", Charsets.UTF_8)" )
+                scala ( "new String(" (e 1) ", \"UTF-8\")" )
+                swift3 ( "String(decoding: " (e 1) ", as: UTF8.self)" )
+                swift6 ( "String(decoding: " (e 1) ", as: UTF8.self)" )
+                ; cpp (const char*) and php (a byte string) already ARE the
+                ; text; everything else has to decode it
                 * ( (e 1) )
             }
         }     
 
+        ; ...and the same thing under the method-call spelling.
         toString   bufferToString:string       ( text:charbuffer ) { 
             templates {      
                 go ( "string(" (e 1) ")" )
-                dart ( "String.fromCharCodes(" (e 1) ")" )
+                dart ( (imp "dart:convert") "utf8.decode(" (e 1) ")" )
                 csharp ( "System.Text.Encoding.UTF8.GetString(" (e 1) ")" )
+                python ( (e 1) ".decode(\"utf-8\")" )
+                es6 ( "r_cb_dec.decode(" (e 1) ")"
+(create_polyfill "
+// A charbuffer is a buffer of BYTES, so it is a Uint8Array here
+// rather than the string it used to be. One encoder and one decoder for the
+// process: constructing them per call is most of the cost of a short slice.
+const r_cb_enc = new TextEncoder();
+const r_cb_dec = new TextDecoder();
+")
+                )
+                rust ( "String::from_utf8_lossy(&" (e 1) ").to_string()" )
+                java7 ( "new String(" (e 1) ", java.nio.charset.StandardCharsets.UTF_8)" )
+                kotlin ( "String(" (e 1) ", Charsets.UTF_8)" )
+                scala ( "new String(" (e 1) ", \"UTF-8\")" )
+                swift3 ( "String(decoding: " (e 1) ", as: UTF8.self)" )
+                swift6 ( "String(decoding: " (e 1) ", as: UTF8.self)" )
+                ; cpp (const char*) and php (a byte string) already ARE the
+                ; text; everything else has to decode it
                 * ( (e 1) )
             }
         }        
+
+        ; A `charbuffer` is a buffer of BYTES -- see the block above the
+        ; charbuffer overloads for what that does and does not mean. This
+        ; operator is one of the two places the line between text and bytes
+        ; is crossed, so it is the place that names the encoding: the bytes
+        ; are the UTF-8 of the text, on every target.
+        ; docs/plans/PLAN_STRING_INDEXING.md 2.3.
+        ; The portable indexable view of text: Unicode CODE POINTS, the same
+        ; sequence on every target, built once in O(n) and read in O(1).
+        ;
+        ; `charAt` on a `string` is the target's own unit -- a UTF-16 code
+        ; unit, a code point or a UTF-8 byte, depending on where it runs --
+        ; and that is what makes it O(1) there. It is right for a scanner over
+        ; ASCII structure and wrong for anything a human wrote. `to_chars` is
+        ; the conversion that makes an index mean one thing everywhere, and
+        ; because the program names it, the allocation is asked for rather
+        ; than hidden.
+        ;
+        ;   def cs:[int] (to_chars s)
+        ;   def n:int (array_length cs)
+        ;   def c:int (itemAt cs 0)
+        ;
+        ; Above the Basic Multilingual Plane this is the only view that agrees
+        ; with itself: an emoji is ONE element here and two UTF-16 units or
+        ; four UTF-8 bytes in the other views.
+        ; docs/plans/PLAN_STRING_INDEXING.md 2.2.
+        to_chars   cmdToChars:[int]   ( text:string ) {
+            templates {
+                ranger ( "(to_chars " (e 1) ")" )
+                ; Array.from walks a string by code point, not by code unit,
+                ; which is exactly the difference this operator exists for
+                es6 ( "Array.from(" (e 1) ", (rg_c) => rg_c.codePointAt(0))" )
+                ; a Python str IS a sequence of code points
+                python ( "[ord(rg_c) for rg_c in " (e 1) "]" )
+                ; a Dart String indexes UTF-16, but `runes` is the code points
+                dart ( (e 1) ".runes.toList()" )
+                ; a Rust char IS a code point
+                rust ( (e 1) ".chars().map(|c| c as i64).collect::<Vec<i64>>()" )
+                swift3 ( "Array(" (e 1) ".unicodeScalars.map { Int($0.value) })" )
+                swift6 ( "Array(" (e 1) ".unicodeScalars.map { Int($0.value) })" )
+                php ( "array_map('mb_ord', preg_split('//u', " (e 1) ", -1, PREG_SPLIT_NO_EMPTY))" )
+                ; a Go rune IS a code point; the loop is only the int64 the
+                ; Ranger `[int]` is written as
+                go ( "r_to_chars(" (e 1) ")"
+(create_polyfill "
+func r_to_chars(s string) []int64 {
+    rs := []rune(s)
+    out := make([]int64, len(rs))
+    for i, r := range rs {
+        out[i] = int64(r)
+    }
+    return out
+}
+")
+                )
+                ; the JVM and .NET store UTF-16, so a surrogate pair has to be
+                ; folded back into the one code point it encodes
+                java7 ( "rg_to_chars(" (e 1) ")"
+(create_polyfill "
+static java.util.ArrayList<Integer> rg_to_chars(String s) {
+  java.util.ArrayList<Integer> out = new java.util.ArrayList<Integer>();
+  int i = 0;
+  while (i < s.length()) {
+    int cp = s.codePointAt(i);
+    out.add(cp);
+    i += Character.charCount(cp);
+  }
+  return out;
+}
+")
+                )
+                kotlin ( "rg_to_chars(" (e 1) ")"
+(create_polyfill "
+fun rg_to_chars(s: String): MutableList<Int> {
+  val out = mutableListOf<Int>()
+  var i = 0
+  while (i < s.length) {
+    val cp = s.codePointAt(i)
+    out.add(cp)
+    i += Character.charCount(cp)
+  }
+  return out
+}
+")
+                )
+                csharp ( "RgChars.ToChars(" (e 1) ")"
+(polyfill "after_imports" "
+static class RgChars {
+  public static System.Collections.Generic.List<int> ToChars(string s) {
+    System.Collections.Generic.List<int> res = new System.Collections.Generic.List<int>();
+    for (int i = 0; i < s.Length; i++) {
+      if (char.IsHighSurrogate(s[i]) && (i + 1) < s.Length && char.IsLowSurrogate(s[i + 1])) {
+        res.Add(char.ConvertToUtf32(s[i], s[i + 1]));
+        i++;
+      } else {
+        res.Add((int)s[i]);
+      }
+    }
+    return res;
+  }
+}
+")
+                )
+                scala ( "rg_to_chars(" (e 1) ")"
+(create_polyfill "
+def rg_to_chars(s: String): collection.mutable.ArrayBuffer[Int] = {
+  val out = collection.mutable.ArrayBuffer[Int]()
+  var i = 0
+  while (i < s.length) {
+    val cp = s.codePointAt(i)
+    out += cp
+    i += Character.charCount(cp)
+  }
+  out
+}
+")
+                )
+                ; a std::string is UTF-8 bytes, so this is the decode
+                cpp ( "r_to_chars(" (e 1) ")" (imp "<vector>") (imp "<string>")
+(create_polyfill "
+static std::vector<int> r_to_chars(const std::string & s) {
+    std::vector<int> out;
+    size_t i = 0;
+    while (i < s.size()) {
+        unsigned char c = (unsigned char)s[i];
+        int cp = 0;
+        size_t n = 1;
+        if ((c & 0x80) == 0) { cp = c; n = 1; }
+        else if ((c & 0xE0) == 0xC0) { cp = c & 0x1F; n = 2; }
+        else if ((c & 0xF0) == 0xE0) { cp = c & 0x0F; n = 3; }
+        else if ((c & 0xF8) == 0xF0) { cp = c & 0x07; n = 4; }
+        else { out.push_back(0xFFFD); i += 1; continue; }
+        if ((i + n) > s.size()) { out.push_back(0xFFFD); break; }
+        bool bad = false;
+        for (size_t k = 1; k < n; k++) {
+            unsigned char cc = (unsigned char)s[i + k];
+            if ((cc & 0xC0) != 0x80) { bad = true; break; }
+            cp = (cp << 6) | (cc & 0x3F);
+        }
+        out.push_back(bad ? 0xFFFD : cp);
+        i += n;
+    }
+    return out;
+}
+")
+                )
+            }
+        }
+
+        ; How many CHARACTERS are in this string -- the same number on every
+        ; target, whatever unit that target happens to index in.
+        ;
+        ; `strlen` counts the target's own unit: UTF-16 code units on
+        ; JavaScript, Java, Kotlin, C#, Scala, Dart and Swift 6, UTF-8 bytes
+        ; on Rust, Go, C++ and PHP, code points on Python.
+        ; That is the right number for a scan -- `while (i < (strlen s))` with
+        ; `charAt s i` reads the same string either way -- and the wrong one
+        ; for anything a person sees: a column, a width, a padding count, a
+        ; truncation point. Those differ per target the moment the text stops
+        ; being ASCII, and they differ silently.
+        ;
+        ; `char_length` is the count that does not: Unicode code points, the
+        ; length of `(to_chars s)` without building the array.
+        ;
+        ;   def w:int (char_length line)     ; a column
+        ;   def n:int (strlen line)          ; a scan bound
+        ;
+        ; For ASCII the two are equal, so the cost of choosing the honest one
+        ; is nothing on the input that dominates.
+        ; docs/plans/PLAN_STRING_INDEXING.md 3.3.
+        char_length   cmdCharLength:int   ( text:string ) {
+            templates {
+                ranger ( "(char_length " (e 1) ")" )
+                ; a Python str IS a sequence of code points
+                python ( "len(" (e 1) ")" )
+                ; a Rust char IS a code point
+                rust ( "(" (e 1) ".chars().count() as i64)" )
+                ; a Go rune IS a code point
+                go ( "int64(utf8.RuneCountInString(" (e 1) "))" (imp "unicode/utf8") )
+                dart ( (e 1) ".runes.length" )
+                swift3 ( (e 1) ".unicodeScalars.count" )
+                swift6 ( (e 1) ".unicodeScalars.count" )
+                php ( "mb_strlen(" (e 1) ", 'UTF-8')" )
+                ; the JVM stores UTF-16: codePointCount folds each surrogate
+                ; pair back into the one code point it encodes. The helper is
+                ; there so the argument is evaluated once
+                java7 ( "rg_char_length(" (e 1) ")"
+(create_polyfill "
+static int rg_char_length(String s) {
+  return s.codePointCount(0, s.length());
+}
+")
+                )
+                kotlin ( "rg_char_length(" (e 1) ")"
+(create_polyfill "
+fun rg_char_length(s: String): Int {
+  return s.codePointCount(0, s.length)
+}
+")
+                )
+                scala ( "rg_char_length(" (e 1) ")"
+(create_polyfill "
+def rg_char_length(s: String): Int = s.codePointCount(0, s.length)
+")
+                )
+                ; .NET is UTF-16 as well, but EnumerateRunes is too new for
+                ; every runtime this targets -- counting everything that is
+                ; not the low half of a pair is the same answer
+                csharp ( "RgCharLength.Of(" (e 1) ")"
+(polyfill "after_imports" "
+static class RgCharLength {
+  public static int Of(string s) {
+    int n = 0;
+    for (int i = 0; i < s.Length; i++) {
+      if (char.IsLowSurrogate(s[i])) { continue; }
+      n++;
+    }
+    return n;
+  }
+}
+")
+                )
+                ; a std::string is UTF-8 bytes: every byte that is not a
+                ; continuation byte starts a new code point
+                cpp ( "r_char_length(" (e 1) ")" (imp "<string>")
+(create_polyfill "
+static int r_char_length(const std::string & s) {
+    int n = 0;
+    for (size_t i = 0; i < s.size(); i++) {
+        if (((unsigned char)s[i] & 0xC0) != 0x80) { n++; }
+    }
+    return n;
+}
+")
+                )
+                ; a JavaScript string is UTF-16: skip the low half of every
+                ; surrogate pair. Array.from(s).length is the same number and
+                ; allocates the array this exists to avoid
+                es6 ( "r_char_length(" (e 1) ")"
+(create_polyfill "
+function r_char_length(s) {
+    let n = 0;
+    for (let i = 0; i < s.length; i++) {
+        const c = s.charCodeAt(i);
+        if (c >= 0xDC00 && c <= 0xDFFF) { continue; }
+        n++;
+    }
+    return n;
+}
+")
+                )
+            }
+        }
 
         to_charbuffer      cmdToCharBuffer:charbuffer       ( text:string ) { 
             templates {
                 ranger ( "(to_charbuffer " (e 1) ")") 
                 swift3 ( "Array(" (e 1) ".utf8)" )
-                scala ( (e 1) ".toCharArray.map(_.toByte)")
-                java7 ( (e 1) ".getBytes()" )
+                swift6 ( "Array(" (e 1) ".utf8)" )
+                scala ( (e 1) ".getBytes(\"UTF-8\")")
+                java7 ( (e 1) ".getBytes(java.nio.charset.StandardCharsets.UTF_8)" )
                 csharp ( "System.Text.Encoding.UTF8.GetBytes(" (e 1) ")" )
-                kotlin ( (e 1 ) ".toCharArray()" )
+                kotlin ( (e 1 ) ".toByteArray(Charsets.UTF_8)" )
                 ; as_bytes/to_vec, not into_bytes: the source may be a
                 ; borrowed &str, and into_bytes consumes an owned String
                 rust ( (e 1) ".as_bytes().to_vec()")
                 cpp ( (e 1) ".c_str()")
-                dart ( (e 1) ".codeUnits" )
+                dart ( (imp "dart:convert") "utf8.encode(" (e 1) ")" )
                 php ( (e 1) )
                 go("[]byte(" (e 1) ")")
+                python ( (e 1) ".encode(\"utf-8\")" )
+                es6 ( "r_cb_enc.encode(" (e 1) ")"
+(create_polyfill "
+// A charbuffer is a buffer of BYTES, so it is a Uint8Array here
+// rather than the string it used to be. One encoder and one decoder for the
+// process: constructing them per call is most of the cost of a short slice.
+const r_cb_enc = new TextEncoder();
+const r_cb_dec = new TextDecoder();
+")
+                )
                 * ( (e 1) )
             }
         }
@@ -6216,7 +6995,7 @@ static void r_buffer_write_file(String path, String filename, byte[] data) {
                 )
                 python ( "open(" (e 1) " + '/' + " (e 2) ", 'wb').write(" (e 3) ")" )
                 swift6 ( "try? Data(" (e 3) ").write(to: URL(fileURLWithPath: " (e 1) " + \"/\" + " (e 2) "))" (imp "Foundation") )
-                csharp ( "System.IO.File.WriteAllBytes(" (e 1) " + \"/\" + " (e 2) ", " (e 3) ")" )
+                csharp ( "System.IO.File.WriteAllBytes(" (e 1) " + \"/\" + " (e 2) ", " (e 3) ");" )
                 kotlin ( "java.io.File(" (e 1) " + \"/\" + " (e 2) ").writeBytes(" (e 3) ")" )
                 dart ( (imp "dart:io") "File((" (e 1) ") + \"/\" + (" (e 2) ")).writeAsBytesSync(" (e 3) ")" )
                 php ( "file_put_contents(" (e 1) " . '/' . " (e 2) ", " (e 3) "->d);" )
@@ -6271,7 +7050,7 @@ static byte[] r_buffer_read_file(String path, String filename) {
                 java7 ( "System.arraycopy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ");" )
                 python ( (e 1) "[" (e 2) ":" (e 2) "+" (e 5) "] = " (e 3) "[" (e 4) ":" (e 4) "+" (e 5) "]" )
                 swift6 ( (e 1) ".replaceSubrange(Int(" (e 2) ")..<Int(" (e 2) "+" (e 5) "), with: " (e 3) "[Int(" (e 4) ")..<Int(" (e 4) "+" (e 5) ")])" )
-                csharp ( "Array.Copy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ")" )
+                csharp ( "Array.Copy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ");" )
                 kotlin ( "System.arraycopy(" (e 3) ", " (e 4) ", " (e 1) ", " (e 2) ", " (e 5) ")" )
                 php ( "r_buf_copy(" (e 1) ", " (e 2) ", " (e 3) ", " (e 4) ", " (e 5) ");" )
             }
@@ -6423,7 +7202,7 @@ static byte[] r_buffer_read_file(String path, String filename) {
                 java7 ( "System.arraycopy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ")" )
                 python ( (e 1) "[" (e 2) ":" (e 2) "+" (e 5) "] = " (e 3) "[" (e 4) ":" (e 4) "+" (e 5) "]" )
                 swift6 ( (e 1) ".replaceSubrange(Int(" (e 2) ")..<Int(" (e 2) "+" (e 5) "), with: " (e 3) "[Int(" (e 4) ")..<Int(" (e 4) "+" (e 5) ")])" )
-                csharp ( "Array.Copy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ")" )
+                csharp ( "Array.Copy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ");" )
                 kotlin ( "System.arraycopy(" (e 3) ", " (e 4) ", " (e 1) ", " (e 2) ", " (e 5) ")" )
             }
         }
@@ -6550,7 +7329,7 @@ static byte[] r_buffer_read_file(String path, String filename) {
                 java7 ( "System.arraycopy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ")" )
                 python ( (e 1) "[" (e 2) ":" (e 2) "+" (e 5) "] = " (e 3) "[" (e 4) ":" (e 4) "+" (e 5) "]" )
                 swift6 ( (e 1) ".replaceSubrange(Int(" (e 2) ")..<Int(" (e 2) "+" (e 5) "), with: " (e 3) "[Int(" (e 4) ")..<Int(" (e 4) "+" (e 5) ")])" )
-                csharp ( "Array.Copy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ")" )
+                csharp ( "Array.Copy(" (e 3) ", (int)" (e 4) ", " (e 1) ", (int)" (e 2) ", (int)" (e 5) ");" )
                 kotlin ( "System.arraycopy(" (e 3) ", " (e 4) ", " (e 1) ", " (e 2) ", " (e 5) ")" )
             }
         }
@@ -6613,6 +7392,9 @@ static byte[] r_buffer_read_file(String path, String filename) {
         }
 
         ; Length
+        ; HOW MANY BYTES. For text that is not ASCII this is more than the
+        ; number of characters -- `char_length` is that one. See the block
+        ; above the charbuffer overloads.
         length      cmdLength:int       ( buffer:charbuffer ) { 
             templates {
                 ranger ( "(length " (e 1) ")") 
@@ -6624,9 +7406,10 @@ static byte[] r_buffer_read_file(String path, String filename) {
                 java7 ( (e 1 ) ".length" )
                 cpp( "strlen( " (e 1) " )" (imp "<cstring>"))
                 go ( "int64(len(" (e 1 ) "))")
-                ; to_charbuffer passes the string through on Python, so a
-                ; charbuffer IS a str there -- the `*` fallback is the
-                ; JavaScript `.length` property
+                ; how many BYTES. A Python charbuffer is `bytes`, so `len`
+                ; counts octets, not characters -- the same number every
+                ; other arm here answers. The `*` fallback is the JavaScript
+                ; `.length` property of a Uint8Array
                 python ( "len(" (e 1) ")" )
                 php ( "strlen(" (e 1 ) ")")
                 * ( (e 1) ".length" )
@@ -6828,7 +7611,22 @@ func r_last_index_of(_ s: String, _ needle: String) -> Int {
                 kotlin ( (e 1) "[" (e 2) "].code")    
                 dart ( (e 1) ".codeUnitAt(" (e 2) ")" )
                 scala ( (e 1) "(" (e 2) ")")    
-                go ( "int64([]rune(" (e 1) ")[" (e 2) "])")  
+                ; A Ranger string index is the target's own unit, and on Go
+                ; that unit is the UTF-8 byte -- what a Go string is made of,
+                ; and the only one it indexes in constant time. It was the
+                ; rune, and `[]rune(s)` allocates and copies the WHOLE string
+                ; on every read, so a scan was quadratic with a large
+                ; constant: 60 000 characters did not finish inside two
+                ; minutes where C++ took 5 ms.
+                ; It also disagreed with Go's own other string operators.
+                ; `indexOf` is strings.Index and answers a BYTE offset, so a
+                ; scanner that found a delimiter and sliced at it sliced in
+                ; the wrong place as soon as anything non-ASCII stood before
+                ; it: for "<a-umlaut>,b" the head came back as "<a-umlaut>,"
+                ; and the tail as "" -- the rest of the text, dropped without
+                ; a word. `charcode` read []byte(s)[0] all along.
+                ; docs/plans/PLAN_STRING_INDEXING.md 2.4.
+                go ( "int64(" (e 1) "[" (e 2) "])")  
                 swift3 ( "Int( ( NSString(string: " (e 1) " ) ).character( at: " (e 2) " ) )")
                 swift3 ( "Int( String( " (e 1) ".characters[" (e 1) ".index(" (e 1) ".startIndex, offsetBy: " (e 2) ")]))!")
                 ; Also a named helper, and for the same reason: the inline form
@@ -6927,7 +7725,55 @@ func r_last_index_of(_ s: String, _ needle: String) -> Int {
 ")
                 )
                 python ( "ord(" (e 1) "[" (e 2) "])")
-                rust ( (e 1) ".chars().nth(" (idx 2) ").unwrap_or('\\0') as i64")
+                rust ( "rg_char_at(&" (e 1) ", " (e 2) ")"
+(create_polyfill "
+// A Ranger string index is the TARGET'S OWN unit, and on Rust that unit is
+// the UTF-8 byte -- what a String is actually made of, and the only one it
+// indexes in constant time. It used to be the char: strlen counted chars(),
+// charAt was chars().nth(i) and substring was chars().skip().take(), so the
+// ordinary `while (i < (strlen s)) { charAt s i }` scan walked the string
+// once per character and was quadratic -- 120 000 characters took 8.8 s
+// where C++ took 11 ms. It also disagreed with charcode, which has read
+// as_bytes()[0] all along.
+//
+// Both helpers are TOTAL, because the forms they replace were: an index past
+// the end answered a zero rather than panicking, and scanners here rely on
+// reading one past the last character.
+fn rg_char_at(s: &str, at: i64) -> i64 {
+    let b = s.as_bytes();
+    if at < 0 { return 0; }
+    let i = at as usize;
+    if i >= b.len() { return 0; }
+    b[i] as i64
+}
+
+// A byte slice of a String has to be valid UTF-8, and a slice that cuts a
+// multi byte character is not. Measured over the compiler compiling itself
+// and the markdown gallery -- 78 012 slices -- not one cut a character:
+// a scanner slices at a delimiter it found, every delimiter here is ASCII,
+// and an ASCII byte is always a character boundary in UTF-8. So
+// from_utf8_lossy is the backstop for what the measurement did not cover,
+// not the expected path. docs/plans/PLAN_STRING_INDEXING.md 4.1.
+fn rg_substring(s: &str, from: i64, to: i64) -> String {
+    let b = s.as_bytes();
+    let n = b.len() as i64;
+    let mut a = if from < 0 { 0 } else { from };
+    if a > n { a = n; }
+    let mut e = if to > n { n } else { to };
+    if e < a { e = a; }
+    // A Rust String cannot hold half a character, so a slice that cuts one
+    // has to be rounded to a boundary rather than returned as bytes -- which
+    // is what C++, PHP and Go can do and Rust cannot. The rule is Swift's,
+    // for the same reason (see r_substring): the unit that STARTS a character
+    // carries the whole of it and the units inside it carry nothing, so a
+    // walk that copies one unit at a time still reproduces the text.
+    while a < n && (b[a as usize] & 0xC0) == 0x80 { a += 1; }
+    if e < a { e = a; }
+    while e < n && (b[e as usize] & 0xC0) == 0x80 { e += 1; }
+    String::from_utf8_lossy(&b[a as usize..e as usize]).to_string()
+}
+")
+                )
                 * ( (e 1) ".charCodeAt(" (e 2) " )")
             }
         }        
@@ -6974,6 +7820,11 @@ std::vector<std::string> r_get_keys_of_map( const M & orig_map )  {
             }
         } 
 
+        ; ONE BYTE, 0..255, at that index. Not one character: a character
+        ; outside ASCII is two, three or four of these, so this is the
+        ; operator to reach for when the subject really is bytes and the
+        ; wrong one for walking text. See the block above the charbuffer
+        ; overloads.
         charAt      cmdCharAt:char       ( text:charbuffer position:int ) { 
             templates {
                 ranger ( "(charAt " (e 1) " " ( e 2 ) ")")
@@ -6983,14 +7834,18 @@ std::vector<std::string> r_get_keys_of_map( const M & orig_map )  {
                 ; a charbuffer is List<int> on Dart: index it, do not call
                 ; codeUnitAt (which is the String overload's entry)
                 dart ( (e 1) "[" (e 2) "]" )
-                python ( "ord(" (e 1) "[" (e 2) "])" )
+                ; `bytes` on Python: indexing one already gives the int
+                python ( (e 1) "[" (e 2) "]" )
+                ; a Uint8Array on JavaScript, so index it rather than falling
+                ; through to the String.charCodeAt below
+                es6 ( (e 1) "[" (e 2) "]" )
                 csharp ( (e 1) "[" (e 2) "]")
                 php ( "ord(" (e 1) "[" (e 2) "])")               
-                java7 ( (e 1) "[" (e 2) "]")  
-                ; .code: a charbuffer is a CharArray on Kotlin, and `char` is an
-                ; integer code unit there as it is on every other target
-                kotlin ( (e 1) "[" (e 2) "].code")    
-                scala ( (e 1) "(" (e 2) ")")    
+                ; a byte is SIGNED on the JVM, so & 0xFF is what makes the
+                ; answer the 0..255 the operator is declared to return
+                java7 ( "((" (e 1) "[(int)" (e 2) "]) & 0xFF)")  
+                kotlin ( "(" (e 1) "[(" (e 2) ").toInt()].toInt() and 0xFF)")    
+                scala ( "(" (e 1) "(" (e 2) ".toInt()) & 0xFF)")    
                 go ( (e 1) "[" (e 2) "]")  
                 swift3 ( (e 1) "[" (e 2) "]")    
                 ; Vec<u8> on Rust, so index the byte; `char` is an integer
@@ -7024,7 +7879,10 @@ std::vector<std::string> r_get_keys_of_map( const M & orig_map )  {
                 cpp ( '' (e 1) '.substr(' (e 2) ', ' (e 3) ' - ' (e 2) ')' )
                 csharp ( (e 1) ".Substring(" (e 2) ", " (e 3) " - " (e 2) " )")
                 php ( "substr(" (e 1) ", " (e 2) ", " (e 3) " - " (e 2) ")")    
-                go ( "string([]rune(" (e 1) ")[" (e 2) ":" (e 3) "])")               
+                ; bytes, like strlen and charAt above and like C++ below.
+                ; Slicing bytes still round-trips UTF-8 -- the pieces of a
+                ; multi byte character concatenate back into the character.
+                go ( (e 1) "[" (e 2) ":" (e 3) "]")               
                 swift3 ( (e 1) "[" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 2) ")..<" (e 1) ".index(" (e 1) ".startIndex, offsetBy:" (e 3) ")]" )
                 swift6 ( "r_substring(" (e 1) ", " (e 2) ", " (e 3) ")"
 (create_polyfill "
@@ -7118,7 +7976,58 @@ func r_last_index_of(_ s: String, _ needle: String) -> Int {
 ")
                 )
                 python ( (e 1) "[" (e 2) ":" (e 3) "]" )
-                rust ( (custom _) )
+                ; rg_substring, the byte slice. The polyfill is the same
+                ; text as the one on `charAt` above, so whichever operator a
+                ; program uses first writes it and the other is deduped.
+                rust ( "rg_substring(&" (e 1) ", " (e 2) ", " (e 3) ")"
+(create_polyfill "
+// A Ranger string index is the TARGET'S OWN unit, and on Rust that unit is
+// the UTF-8 byte -- what a String is actually made of, and the only one it
+// indexes in constant time. It used to be the char: strlen counted chars(),
+// charAt was chars().nth(i) and substring was chars().skip().take(), so the
+// ordinary `while (i < (strlen s)) { charAt s i }` scan walked the string
+// once per character and was quadratic -- 120 000 characters took 8.8 s
+// where C++ took 11 ms. It also disagreed with charcode, which has read
+// as_bytes()[0] all along.
+//
+// Both helpers are TOTAL, because the forms they replace were: an index past
+// the end answered a zero rather than panicking, and scanners here rely on
+// reading one past the last character.
+fn rg_char_at(s: &str, at: i64) -> i64 {
+    let b = s.as_bytes();
+    if at < 0 { return 0; }
+    let i = at as usize;
+    if i >= b.len() { return 0; }
+    b[i] as i64
+}
+
+// A byte slice of a String has to be valid UTF-8, and a slice that cuts a
+// multi byte character is not. Measured over the compiler compiling itself
+// and the markdown gallery -- 78 012 slices -- not one cut a character:
+// a scanner slices at a delimiter it found, every delimiter here is ASCII,
+// and an ASCII byte is always a character boundary in UTF-8. So
+// from_utf8_lossy is the backstop for what the measurement did not cover,
+// not the expected path. docs/plans/PLAN_STRING_INDEXING.md 4.1.
+fn rg_substring(s: &str, from: i64, to: i64) -> String {
+    let b = s.as_bytes();
+    let n = b.len() as i64;
+    let mut a = if from < 0 { 0 } else { from };
+    if a > n { a = n; }
+    let mut e = if to > n { n } else { to };
+    if e < a { e = a; }
+    // A Rust String cannot hold half a character, so a slice that cuts one
+    // has to be rounded to a boundary rather than returned as bytes -- which
+    // is what C++, PHP and Go can do and Rust cannot. The rule is Swift's,
+    // for the same reason (see r_substring): the unit that STARTS a character
+    // carries the whole of it and the units inside it carry nothing, so a
+    // walk that copies one unit at a time still reproduces the text.
+    while a < n && (b[a as usize] & 0xC0) == 0x80 { a += 1; }
+    if e < a { e = a; }
+    while e < n && (b[e as usize] & 0xC0) == 0x80 { e += 1; }
+    String::from_utf8_lossy(&b[a as usize..e as usize]).to_string()
+}
+")
+                )
                 * ( (e 1) ".substring(" (e 2) ", " (e 3) " )")
             }
         }
@@ -7311,7 +8220,12 @@ func r_last_index_of(_ s: String, _ needle: String) -> Int {
                 cpp( "((unsigned char)" (e 1) ".at(0))")
                 dart ( (e 1) ".codeUnitAt(0)" )
                 php ( "ord(" (e 1) ")") 
-                java7 ( "((" (e 1) ".getBytes())[0])") 
+                ; charAt, not getBytes()[0]. A Ranger char is an int on
+                ; Java and a string index is a UTF-16 code unit here, so
+                ; `charcode` has to answer what `charAt s 0` answers. The byte
+                ; form answered neither: a JVM byte is SIGNED, so the first
+                ; byte of "<a-umlaut>" came back as -61 where charAt says 228.
+                java7 ( "((int)" (e 1) ".charAt(0))") 
                 swift3 ( "UInt8( (  NSString(string: " (e 1) " )     ).character( at: 0 ) )" (imp "Foundation"))
                 swift3 ( "UInt8( String( " (e 1) ".characters[" (e 1) ".startIndex]))! ")
                 swift6 ( "r_char_at(" (e 1) ", 0)"
@@ -7424,7 +8338,10 @@ func r_last_index_of(_ s: String, _ needle: String) -> Int {
             templates {
                 ranger ( "(strfromcode " (e 1) ")")
                 csharp ( "((char)" (e 1) ").ToString()") 
-                java7 ( "(new String( new char[] {" (e 1) " }))") 
+                ; the cast is not decoration: a Ranger `char` is a Java
+                ; `byte`, and a byte in a char[] initialiser is a narrowing
+                ; conversion javac refuses
+                java7 ( "(new String( new char[] {(char)(" (e 1) ") }))") 
                 kotlin ( (e 1) ".toChar().toString()")
                 swift3 ( "(String( Character( UnicodeScalar(" (e 1) " ) )))") 
                 ; A named helper, not an inline expression. UnicodeScalar has
@@ -7719,6 +8636,11 @@ class r_optional_primitive {
     // made a failed str2int read back as a value on the C++ target.
     bool has_value = false;
     T value = T();
+    r_optional_primitive() {}
+    // a plain value placed into an optional slot: returning a bare string
+    // from a function declared @(optional):string arrives here. Declaring
+    // any constructor takes the implicit default one away, hence the pair.
+    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
     r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
         has_value = rhs.has_value;
         value = rhs.value;
@@ -7902,6 +8824,11 @@ class r_optional_primitive {
     // made a failed str2int read back as a value on the C++ target.
     bool has_value = false;
     T value = T();
+    r_optional_primitive() {}
+    // a plain value placed into an optional slot: returning a bare string
+    // from a function declared @(optional):string arrives here. Declaring
+    // any constructor takes the implicit default one away, hence the pair.
+    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
     r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
         has_value = rhs.has_value;
         value = rhs.value;
@@ -8030,6 +8957,9 @@ def r_str_to_double(s):
                 ranger ( "(join " (e 1) " " (e 2) ")")          
                 java7 ( "joinStrings(" (e 1 ) ", " (e 2) ")" 
                     (imp "java.lang.StringBuilder")
+                    ; the helper takes an ArrayList, so the file that gets the
+                    ; helper needs the import even when nothing else in it does
+                    (imp "java.util.*")
 (create_polyfill "
 static String joinStrings(ArrayList<String> list, String delimiter) 
 {
@@ -8128,6 +9058,11 @@ class r_optional_primitive {
     // made a failed str2int read back as a value on the C++ target.
     bool has_value = false;
     T value = T();
+    r_optional_primitive() {}
+    // a plain value placed into an optional slot: returning a bare string
+    // from a function declared @(optional):string arrives here. Declaring
+    // any constructor takes the implicit default one away, hence the pair.
+    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
     r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
         has_value = rhs.has_value;
         value = rhs.value;
@@ -8179,6 +9114,11 @@ class r_optional_primitive {
     // made a failed str2int read back as a value on the C++ target.
     bool has_value = false;
     T value = T();
+    r_optional_primitive() {}
+    // a plain value placed into an optional slot: returning a bare string
+    // from a function declared @(optional):string arrives here. Declaring
+    // any constructor takes the implicit default one away, hence the pair.
+    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
     r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
         has_value = rhs.has_value;
         value = rhs.value;
@@ -8237,6 +9177,37 @@ r_optional_primitive<double> cpp_get_map_string_double_value( const M & m , cons
                 ; to give an optional T, so the borrow is cloned away.
                 rust ( (e 1) ".get(" (kref 2) ").cloned()" )
                 cpp ( "r_map_get_val(" (e 1) ", " (ckey 2) ")"
+; the string case below hands back one of these, so its definition has to be
+; on the page before r_map_get_val is. Same text the writer emits for an
+; optional primitive, and createPolyfill keys its dedup on the text.
+(create_polyfill
+"
+template <class T>
+class r_optional_primitive {
+  public:
+    // has_value has to start false: cpp_str_to_int and its siblings leave the
+    // field untouched when the conversion throws, and an indeterminate bool
+    // made a failed str2int read back as a value on the C++ target.
+    bool has_value = false;
+    T value = T();
+    r_optional_primitive() {}
+    // a plain value placed into an optional slot: returning a bare string
+    // from a function declared @(optional):string arrives here. Declaring
+    // any constructor takes the implicit default one away, hence the pair.
+    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
+    r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
+        has_value = rhs.has_value;
+        value = rhs.value;
+        return *this;
+    }
+    r_optional_primitive<T> & operator=(const T a_value) {
+        has_value = true;
+        value = a_value;
+        return *this;
+    }
+};
+"
+)
 (create_polyfill
 "
 // Map read that never inserts on miss (unlike std::map::operator[]) and does a
@@ -8255,9 +9226,18 @@ r_optional_primitive<double> cpp_get_map_string_double_value( const M & m , cons
 // is only ever named for a variant-valued map, so a declaration is enough here
 // and a program with no shape at all still compiles.
 template <class T> class r_optional_union;
+// Same story for a string-valued map, for a different reason: std::string has
+// no null state either, so a miss and a key holding the empty string read back
+// the same. Every other target tells those apart, and r_optional_primitive is
+// the shape an optional string already has on this one; it is defined by the
+// polyfill just above.
+#include <string>
 template<typename T> struct r_map_result { typedef T type; };
 template<typename... A> struct r_map_result<std::variant<A...>> {
     typedef r_optional_union<std::variant<A...>> type;
+};
+template<> struct r_map_result<std::string> {
+    typedef r_optional_primitive<std::string> type;
 };
 template<typename M, typename K>
 typename r_map_result<typename M::mapped_type>::type r_map_get_val( const M & m , const K & key) {
@@ -8792,7 +9772,7 @@ bool r_string_ends_with(const std::string& str, const std::string& suffix) {
         ; change only the first one -- JavaScript, Go, C++ and Python -- and the
         ; other half changed them all, so the same program gave two answers.
         ; The compiler itself wants every occurrence: the trigraph escaping of
-        ; ng_RangerCppClassWriter.rgr calls `(replace s "??=" ...)` on a whole
+        ; RangerCppClassWriter.rgr calls `(replace s "??=" ...)` on a whole
         ; generated file.
         replace _:string (str:string oldStr:string newStr:string) {
             templates {
@@ -8956,7 +9936,12 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                  java7 ( (e 1) ".remove((int)(" (e 2) "));" )
                  csharp ( (e 1) ".RemoveAt((int)(" (e 2) "));" )
                  scala ( (e 1) ".remove((" (e 2) ").toInt)" )
-                 rust ( (e 1) ".remove(" (e 2) " as usize);" )
+                 ; the index is parenthesised: `as` binds tighter than `-`
+                 ; in Rust, so `remove(cnt - 1 as usize)` is
+                 ; `cnt - (1 as usize)` -- i64 minus usize, which is the
+                 ; only thing standing between this compiler's own Rust
+                 ; rendering and rustc
+                 rust ( (e 1) ".remove((" (e 2) ") as usize);" )
             }
         }
 
@@ -9207,6 +10192,23 @@ func r_index_of ( arr:" (typeof 1)  " , elem: " (typeof 2) ") -> Int { " nl I
                 ; .toMutableList(): sortedWith answers a read only List, and every
                 ; array in the writer is a MutableList
                 kotlin ( (e 1) ".sortedWith(Comparator { __a, __b -> (" (e 2) ")(__a, __b).toInt() }).toMutableList()" )
+                ; Java 7 has no lambdas and no statement expressions, so the
+                ; callback arrives as a LambdaSignature object and the sort
+                ; itself is a helper. Collections.sort is in place, and `sort`
+                ; leaves its argument alone on every other target, so the
+                ; helper sorts a COPY. Without this entry there was no java7
+                ; template at all and the operator did not match: the compiler
+                ; could not be rendered to Java at all, stopping at
+                ; "Could not match argument types for sort" in FlowCollect.
+                java7 ( "r_sort_copy(" (e 1) ", new java.util.Comparator<" (atype 1) ">() { public int compare(" (atype 1) " __a, " (atype 1) " __b) { return (" (e 2) ").run(__a, __b).intValue(); } })" (imp "java.util.*")
+(create_polyfill "
+static <T> ArrayList<T> r_sort_copy(ArrayList<T> list, java.util.Comparator<T> cmp) {
+  ArrayList<T> copy = new ArrayList<T>(list);
+  java.util.Collections.sort(copy, cmp);
+  return copy;
+}
+")
+                )
                 ; `..sort` is a cascade, so the expression is the sorted COPY --
                 ; `sort` leaves its argument alone on every other target.
                 dart ( "(" (typeof 1) ".from(" (e 1) ")..sort((__a, __b) => (" (e 2) ")(__a, __b)))" )
@@ -9486,6 +10488,12 @@ static class RgList {
                     "readline.emitKeypressEvents(process.stdin);" nl
                     "if (process.stdin.isTTY) { process.stdin.setRawMode(true); }" nl
                     "process.stdin.resume();" nl
+                    ; The handler's parameters are PREFIXED. Named `str` and `key`, they
+                    ; shadowed any Ranger variable of the same name -- and `key` is the
+                    ; obvious name for a key variable, so `on_keypress key { ... }` gave the
+                    ; block node's key OBJECT instead of the string, and the assignment
+                    ; below landed on the parameter rather than on the Ranger local.
+                    ; ISSUES.md #91.
                     "process.stdin.on('keypress', (__rgr_s, __rgr_key) => {" nl I
                     "if (__rgr_key && __rgr_key.ctrl && __rgr_key.name === 'c') { process.stdout.write('\\x1b[?25h'); process.exit(); }" nl
                     "var __rgr_k = \"\";" nl
@@ -10528,7 +11536,7 @@ std::string r_cpp_str_to_uppercase(const std::string& original)
                 csharp ( (e 1) " != null  && " (e 2) " != null") 
 
                 php ( "isset("(e 1) ") && isset(" (e 2) ")") 
-                java7 ( (e 1) ".isPresent()  && " (e 2) ".isPresent()") 
+                java7 ( (e 1) " != null  && " (e 2) " != null") 
                 rust ( (e 1) ".is_some()  && " (e 2) ".is_some()") 
                 swift3 ( (e 1) " != nil  && " (e 2) " != nil") 
                 swift6 ( (e 1) " != nil  && " (e 2) " != nil") 
@@ -10546,7 +11554,7 @@ std::string r_cpp_str_to_uppercase(const std::string& original)
                 ranger ( "(" (e 1) " && " (e 2) ")" ) 
                 php ( (e 1) " && isset(" (e 2) ")") 
                 scala ( (e 1) " && " (e 2) ".isDefined") 
-                java7 ( (e 1) " && " (e 2) ".isPresent()") 
+                java7 ( (e 1) " && " (e 2) " != null") 
                 csharp ( (e 1) " && " (e 2) " != null") 
 
                 rust ( (e 1) " && " (e 2) ".is_some()") 
@@ -10566,7 +11574,7 @@ std::string r_cpp_str_to_uppercase(const std::string& original)
                 ranger ( "(" (e 1) " && " (e 2) ")" ) 
                 php ( "isset("(e 1) ") && " (e 2) ) 
                 scala ( ""(e 1) ".isDefined && " (e 2) ) 
-                java7 ( ""(e 1) ".isPresent() && " (e 2) ) 
+                java7 ( ""(e 1) " != null && " (e 2) ) 
                 csharp ( ""(e 1) " != null && " (e 2) ) 
 
                 rust ( ""(e 1) ".is_some() && " (e 2) ) 
@@ -10765,7 +11773,12 @@ std::string r_cpp_str_to_uppercase(const std::string& original)
         start@(moves@( 1 )) cmdHttpServerStart:void (server:HttpServer port:int) {
             templates {
                 go ( (custom _) )
-                es6 ( (e 1) ".start(" (e 2) ")" )
+                ; es6 used to emit `server.start(port)` -- a call to a method
+                ; nothing generated, so every JavaScript HTTP server died on its
+                ; first statement after printing. It is a custom operator now, and
+                ; RangerJavaScriptHttpServerWriter writes the server.
+                ; ISSUES.md #93.
+                es6 ( (custom _) )
                 * ( "/* start HttpServer not implemented */" )
             }
         }
@@ -10791,7 +11804,7 @@ std::string r_cpp_str_to_uppercase(const std::string& original)
             }
         }
 
-        ; proc_send is lowered in ng_RangerProcessProcSend.rgr (typed handler methods, overload match).
+        ; proc_send is lowered in RangerProcessProcSend.rgr (typed handler methods, overload match).
 
         begin_dispatch_turn@(moves@( 1 )) cmdBeginDispatchTurn:void (root:RangerProcessBase) {
             templates {

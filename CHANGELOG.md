@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.0] - 2026-09-21
+
+The compiler's generated code is faster because the index into a string is
+the unit the string is made of. On Rust and Go that used to mean a
+character walk from the start on every `charAt`; a 120 000-character scan
+went from 8.8 s to 11 ms on Rust and from "did not finish" to 19 ms on Go.
+The front-page kernels now read C++ 136 ms, Rust 170, Go 236, Java 351,
+JavaScript 508, Python 971.
+
+A `record` nothing aliases is a C++ value rather than a `shared_ptr`.
+`for` is that target's own loop. `char_length` counts characters a person
+sees; `to_chars` is the portable indexable view; a `charbuffer` is bytes.
+`-strict-strings` reports the three ways a string-unit number can escape
+and is at zero on the compiler itself. A failed compile exits non-zero.
+
+The Rust self-host compiles the compiler: 5 596 785 bytes, identical to
+the node host, in 7.3 s.
+
 ### Added
 
 - **`char_length`: how many characters, on all fourteen targets.** `strlen`

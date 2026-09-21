@@ -1,6 +1,6 @@
 # Ranger Compiler
 
-**Version 3.5.1** | Cross-language compiler - compile once, run anywhere
+**Version 3.6.0** | Cross-language compiler - compile once, run anywhere
 
 Ranger is a self-hosting cross-language compiler that lets you write code once and compile to multiple target languages including JavaScript, TypeScript, Python, Go, Rust, Swift, C++, Java, Kotlin, C#, PHP, and Scala.
 
