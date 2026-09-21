@@ -291,10 +291,11 @@ export function geminiSystemPrompt() {
 
 Start with ./evg-agent outline doc.evg.json. The outline is the screen. Do not OCR or write ops before you have it. A Follow-up that says continue / jatka means keep patching this doc — do not start over.
 
-A picture is a PHOTO of a UI, not the UI:
+A picture is a PHOTO of any UI, not the UI:
+- The host already sends the pixels, the vectorized SVG, the palette and OCR. Rebuild what you see.
 - image_info → palette. Use those colours.
-- ocr attachment.png at most ONCE. Tesseract on a busy dashboard is noisy. If the text is broken, keep the words you got — do not re-OCR or change psm.
-- Do not read attachment.ops.json or attachment.svg (path data).
+- ocr is already in the brief. Ask again only if you need the words; a second psm will not become a spec.
+- read_file attachment.svg if you need the vector again. Do not read attachment.ops.json (path data for pasting).
 - ./evg-agent patch doc.evg.json attachment.ops.json PASTES the photo. "Make a dashboard like this" means rebuild with ./evg-ui, not paste the photo.
 
 The loop:
@@ -317,11 +318,13 @@ Several screens (Orders / Analytics / Settings) is an app, not hidden divs:
 
 set-prop is one CSS name (height, padding-top, gap, background-color), not style= and not a shorthand blob. set-prop needs "prop" and "value" — {"op":"set-prop","at":"0","prop":"flex-direction","value":"column"}, not 0=column. A 1px overflow is one set-prop on the finding path, then measure — do not query every sibling. outline --at=PATH for one node; query/measure replies already include the match props and boxes [x,y,w,h]. ops.json is {"ops":[...]} — a bare op object or [] is "no ops in that file".
 
-After an empty outline the NEXT tool is ./evg-ui add card (not list, not ocr, not image_info, not read_file TASK.md). TASK.md is already this message. ocr once; a second ocr is refused. --into is the insert path — it does not edit the file. After add > add.json the next tool is ./evg-agent patch doc.evg.json add.json, not read_file.
+After an empty outline the NEXT tool is ./evg-ui add card (not list, not read_file TASK.md). TASK.md is already this message. The photo and SVG are already in the ask. --into is the insert path — it does not edit the file. After add > add.json the next tool is ./evg-agent patch doc.evg.json add.json, not read_file add.json.
+
+A picture in the ask can be any UI. The host sends the pixels, the vectorized SVG, the palette and OCR. Rebuild what you see — match that layout, not a generic settings list. Labels with spaces (Acme 360, not Acme360). If you need the photo or SVG again, call image_info, ocr, or read_file attachment.svg.
 
 Labels: one span per phrase, spaces between words ("Acme 360", not "Acme360"). Do not insert the same text twice — two overlapping spans paint as Revenuee / monthlyy.
 
-A thought is not a patch. One card per write_file (under 2000 bytes). A whole-page ops.json is cut off before the functionCall and the host sees no tool. Do not paste JSON in the thought — ./evg-ui add card is the unit. If you still have a header, KPI row, or body column to add, call a tool in that turn. Stopping after "Section 3 will be…" leaves a half screen. Header plus four KPI cards is not the dashboard — keep adding until outline names the remaining cards (products, opportunities, feed).
+A thought is not a patch. One card per write_file (under 2000 bytes). A whole-page ops.json is cut off before the functionCall and the host sees no tool. Do not paste JSON in the thought. If you still have a header, KPI row, or body column to add, call a tool in that turn. Stopping after "Section 3 will be…" leaves a half screen. Header plus four KPI cards is not the dashboard — keep adding until outline names the remaining cards (products, opportunities, feed).
 
 Do not git, evg_agent.js, --help, /tmp, python, sips. When the outline matches the ask, stop.`;
 }
@@ -340,6 +343,22 @@ export const PLAN_NUDGE =
   "Your last reply used the output budget and never issued a functionCall. A plan is not a patch. Do not dump the page in the thought. Call write_file now with ops.json under 2000 bytes (ONE card) or ./evg-ui add card, then ./evg-agent patch.";
 export const STALL_NUDGE =
   `Stop exploring. Next tool is ${ADD_CARD} then ./evg-agent patch doc.evg.json add.json. Not ocr, not image_info, not list, not TASK.md.`;
+export const PICTURE_STALL_NUDGE =
+  "The photo and SVG are in the ask. Rebuild what you see. If you need them again, image_info or read_file attachment.svg.";
+export const SVG_BRIEF_CAP = 8_000;
+export const IMAGE_INLINE_MAX = 3_500_000;
+
+export function stallNudgeFor(workspace) {
+  return hasPicture(workspace) ? PICTURE_STALL_NUDGE : STALL_NUDGE;
+}
+
+export function hasPicture(workspace) {
+  if (!workspace) return false;
+  for (const name of ["attachment.json", "attachment.png", "attachment.jpg", "attachment.jpeg", "attachment.webp"]) {
+    if (fs.existsSync(path.join(workspace, name))) return true;
+  }
+  return false;
+}
 
 const PLAN_FUTURE =
   /\b(let's.{0,60}?\b(?:build(?:ing|s)?|built|add|insert|continue|patch|write)|i(?:'| wi)ll (?:now |then )?(?:add|insert|build|write|patch|keep|get|construct|create)|next(?:\s+i|'ll|\s+step)|then (?:i(?:'| wi)ll|let's)|write_file|functionCall|write(?:_file)? ops|ops\.json|remaining (?:cards?|columns?)|keep (?:building|going|adding)|time to (?:build|add|insert)|i(?: am|'m) going to|jatka)\b/i;
@@ -581,7 +600,7 @@ function snapshotDropped(dropped) {
   return [
     "Earlier turns were compacted. The live UI is doc.evg.json on disk, not this chat.",
     bits.length ? `Already ran: ${bits.slice(-10).join("; ")}.` : "",
-    "Continue with ./evg-ui add card then patch. Do not ocr, image_info, or read TASK.md again.",
+    "Continue with ./evg-ui add card then patch. Do not read TASK.md again. The photo and SVG stay in the ask.",
   ]
     .filter(Boolean)
     .join(" ");
@@ -719,10 +738,10 @@ export function pendingOpsFile(workspace) {
 }
 
 export function isSightseeingCall(name, rawArgs) {
-  if (name === "ocr" || name === "image_info" || name === "list_dir") return true;
+  if (name === "list_dir") return true;
   if (name === "read_file") {
     const p = String((rawArgs && rawArgs.path) || "");
-    return /TASK\.md|attachment\.(json|png|jpe?g|webp)|AGENTS\.md|add\.json|ops.*\.json/i.test(p);
+    return /TASK\.md|AGENTS\.md|add\.json|ops.*\.json/i.test(p);
   }
   if (name === "run") {
     const c = String((rawArgs && rawArgs.command) || "");
@@ -752,8 +771,8 @@ export function denyRead(rel) {
   if (/^evg[_-].+\.js$/i.test(name)) {
     return "read_file will not open compiled tool sources — call ./evg-agent, do not read the JS";
   }
-  if (name === "attachment.ops.json" || name === "attachment.svg") {
-    return "that file is path data for the photo — image_info has the palette; paste with ./evg-agent patch doc.evg.json attachment.ops.json; to rebuild a UI like it, ocr once and ./evg-ui";
+  if (name === "attachment.ops.json") {
+    return "that file is path data for pasting the photo — patch attachment.ops.json to paste; read_file attachment.svg for the vector, image_info for the palette";
   }
   if (/^(add|ops)[-_.a-z0-9]*\.json$/i.test(name) || /\.ops\.json$/i.test(name)) {
     return `${name} is ops — ./evg-agent patch doc.evg.json ${name}. Do not read it.`;
@@ -936,6 +955,170 @@ function runOcr(workspace, args, env) {
   return { path: rel, psm, lang, text: clip((r.stdout || "").trim(), 16_000) };
 }
 
+const ERAZER_ROLE = /^(page|panel|button|text|label|tab|menuitem|icon|form|menu|slider|textfield)\b/;
+
+function erazerBin(env = process.env) {
+  return String(env.EVG_ERAZER || path.join(repoRoot, "gallery/erazer/bin/erazer_cli.js")).trim();
+}
+
+function runErazerOutline(workspace, imageRel, env = process.env) {
+  const bin = erazerBin(env);
+  if (!bin || !fs.existsSync(bin)) return "";
+  const img = resolveInWorkspace(workspace, imageRel);
+  if (!fs.existsSync(img)) return "";
+  const out = path.join(workspace, "attachment.erazer.evg.json");
+  const r = spawnSync(process.execPath, [bin, img, out, "--outline"], {
+    encoding: "utf8",
+    timeout: 90_000,
+    maxBuffer: 4 * 1024 * 1024,
+    cwd: workspace,
+    env: { ...env },
+  });
+  if (r.status !== 0) return "";
+  const lines = String(r.stdout || "")
+    .split(/\n/)
+    .map((l) => l.replace(/\s+$/, ""))
+    .filter((l) => ERAZER_ROLE.test(l.trim()));
+  return clip(lines.slice(0, 48).join("\n"), 2_000);
+}
+
+function pictureImageName(workspace) {
+  for (const name of ["attachment.png", "attachment.jpg", "attachment.jpeg", "attachment.webp"]) {
+    if (fs.existsSync(path.join(workspace, name))) return name;
+  }
+  return "";
+}
+
+/** Palette + OCR + Erazer + SVG note. The pixels themselves go as inlineData. */
+export function collectPictureBrief(workspace, env = process.env) {
+  if (!hasPicture(workspace)) return "";
+  const bits = [
+    "## PICTURE BRIEF",
+    "A photo is attached (pixels + vectorized SVG). Rebuild what you see — any UI, not a guessed template. Use the palette. Labels with spaces.",
+  ];
+  let att = null;
+  try {
+    att = JSON.parse(fs.readFileSync(path.join(workspace, "attachment.json"), "utf8"));
+  } catch {
+    att = null;
+  }
+  if (att && (att.width || att.colors)) {
+    const colors = (att.colors || [])
+      .slice(0, 8)
+      .map((c) => `${c.hex} ${Math.round((c.share || 0) * 100)}%`)
+      .join(", ");
+    bits.push(`Size: ${att.width || "?"}×${att.height || "?"} · ${att.layers || "?"} layers. Palette: ${colors}.`);
+  }
+  const image = pictureImageName(workspace);
+  const once = loadOnce(workspace);
+  let ocrText = String(once.ocrText || "").trim();
+  if (!ocrText && image) {
+    const r = runOcr(workspace, { path: image }, env);
+    if (r && r.text) {
+      ocrText = String(r.text).trim();
+      saveOnce(workspace, { ocr: true, ocrText });
+    }
+  }
+  if (ocrText) {
+    bits.push("Labels (OCR, noisy — keep spaces, do not glue words):");
+    bits.push(clip(ocrText.replace(/\s+/g, " "), 900));
+  }
+  let erazer = String(once.erazer || "").trim();
+  if (!erazer && image) {
+    erazer = runErazerOutline(workspace, image, env);
+    if (erazer) saveOnce(workspace, { erazer });
+  }
+  if (erazer) {
+    bits.push("Erazer widgets (geometry):");
+    bits.push(erazer);
+  }
+  const svgPath = path.join(workspace, "attachment.svg");
+  if (fs.existsSync(svgPath)) {
+    const n = fs.statSync(svgPath).size;
+    bits.push(`Vectorized SVG is attached (${n} bytes). Ask again with read_file attachment.svg if you need it.`);
+  }
+  bits.push("Need the photo or SVG again: image_info, ocr, or read_file attachment.svg.");
+  const text = bits.join("\n");
+  try {
+    fs.writeFileSync(path.join(workspace, "PICTURE.md"), `${text}\n`);
+  } catch {
+    /* workspace may be gone */
+  }
+  return text;
+}
+
+export function pictureMime(name) {
+  if (/\.jpe?g$/i.test(name)) return "image/jpeg";
+  if (/\.webp$/i.test(name)) return "image/webp";
+  if (/\.gif$/i.test(name)) return "image/gif";
+  return "image/png";
+}
+
+/** Pixels + SVG for generateContent. Not stored in .gemini-history.json. */
+export function pictureMediaParts(workspace) {
+  const parts = [];
+  if (!workspace) return parts;
+  const name = pictureImageName(workspace);
+  if (name) {
+    const file = path.join(workspace, name);
+    try {
+      const st = fs.statSync(file);
+      if (st.size <= IMAGE_INLINE_MAX) {
+        parts.push({
+          inlineData: { mimeType: pictureMime(name), data: fs.readFileSync(file).toString("base64") },
+        });
+      } else {
+        parts.push({ text: `${name} is ${st.size} bytes — too large to inline. image_info has the size.` });
+      }
+    } catch {
+      /* missing */
+    }
+  }
+  const svgPath = path.join(workspace, "attachment.svg");
+  if (fs.existsSync(svgPath)) {
+    try {
+      const raw = fs.readFileSync(svgPath, "utf8");
+      parts.push({ text: `Vectorized SVG (${raw.length} chars):\n${clip(raw, SVG_BRIEF_CAP)}` });
+    } catch {
+      /* missing */
+    }
+  }
+  return parts;
+}
+
+export function contentsWithPicture(contents, workspace) {
+  const media = pictureMediaParts(workspace);
+  if (!media.length) return contents;
+  const out = (Array.isArray(contents) ? contents : []).map((c) => ({
+    ...c,
+    parts: Array.isArray(c.parts) ? c.parts.slice() : [],
+  }));
+  const first = out.find((c) => c && c.role === "user");
+  if (!first) return [...out, { role: "user", parts: media }];
+  if ((first.parts || []).some((p) => p && p.inlineData)) return out;
+  first.parts = [...first.parts, ...media];
+  return out;
+}
+
+export function stripInlineData(contents) {
+  return (Array.isArray(contents) ? contents : []).map((c) => ({
+    ...c,
+    parts: (c.parts || []).map((p) =>
+      p && p.inlineData
+        ? { text: `[inline ${p.inlineData.mimeType || "image"} omitted from history]` }
+        : p,
+    ),
+  }));
+}
+
+export function askedForPicture(name, rawArgs) {
+  if (name === "image_info" || name === "ocr") return true;
+  if (name === "read_file") {
+    return /attachment\.(png|jpe?g|webp|gif|svg|json)$/i.test(String((rawArgs && rawArgs.path) || ""));
+  }
+  return false;
+}
+
 function tokenizeRun(raw) {
   const out = [];
   let cur = "";
@@ -1059,6 +1242,17 @@ export function executeTool(workspace, name, rawArgs, env = process.env) {
       if (!st.isFile()) return { error: `not a file: ${args.path}` };
       const rel = String(args.path);
       const raw = fs.readFileSync(file, "utf8");
+      if (IMAGE_EXTS.has(path.extname(rel).toLowerCase())) {
+        return {
+          path: rel,
+          bytes: raw.length,
+          kind: "image",
+          hint: "pixels are attached on the next turn — do not read a PNG as text",
+        };
+      }
+      if (/\.svg$/i.test(rel)) {
+        return { path: rel, bytes: raw.length, contents: clip(raw, 16_000) };
+      }
       if (/\.evg\.json$/i.test(rel) && raw.length > 1_500) {
         return {
           path: rel,
@@ -1092,25 +1286,14 @@ export function executeTool(workspace, name, rawArgs, env = process.env) {
       return { ok: true, path: String(args.path), bytes: contents.length };
     }
     if (name === "list_dir") return listDir(workspace, args.path);
-    if (name === "image_info") {
-      const rel = String(args.path || "").trim() || "attachment.json";
-      const once = loadOnce(workspace);
-      const images = once.images && typeof once.images === "object" ? once.images : {};
-      if (images[rel]) {
-        return { error: `image_info already ran for ${rel} — use those colours. Next: ${ADD_CARD}` };
-      }
-      const result = imageInfo(workspace, args.path);
-      if (!result.error) saveOnce(workspace, { images: { ...images, [rel]: true } });
-      return result;
-    }
+    if (name === "image_info") return imageInfo(workspace, args.path);
     if (name === "ocr") {
-      if (loadOnce(workspace).ocr) {
-        return {
-          error: `ocr already ran — keep those words. Next: ${ADD_CARD} then ./evg-agent patch doc.evg.json add.json`,
-        };
+      const once = loadOnce(workspace);
+      if (once.ocr && once.ocrText) {
+        return { path: String(args.path || "").trim() || defaultOcrPath(workspace), text: once.ocrText, again: true };
       }
       const result = runOcr(workspace, args, env);
-      if (!result.error) saveOnce(workspace, { ocr: true });
+      if (!result.error) saveOnce(workspace, { ocr: true, ocrText: result.text || "" });
       return result;
     }
     return { error: `unknown tool ${name}` };
@@ -1133,7 +1316,7 @@ export function saveHistory(workspace, contents, extra = {}) {
   const file = path.join(workspace, GEMINI_HISTORY);
   fs.writeFileSync(
     file,
-    `${JSON.stringify({ contents, saved: new Date().toISOString(), ...extra }, null, 0)}\n`,
+    `${JSON.stringify({ contents: stripInlineData(contents), saved: new Date().toISOString(), ...extra }, null, 0)}\n`,
   );
 }
 
@@ -1523,7 +1706,7 @@ export function requestBody(contents, env = process.env, extra = {}) {
   }
   const body = {
     systemInstruction: { parts: [{ text: geminiSystemPrompt() }] },
-    contents: prepareContents(contents, env),
+    contents: contentsWithPicture(prepareContents(contents, env), extra.workspace),
     tools: [{ functionDeclarations: GEMINI_TOOLS }],
     generationConfig: gen,
   };
@@ -1560,7 +1743,11 @@ export async function geminiLoop({
 
   const prior = dropTrailingPlan(loadHistory(workspace));
   const followUp = prior.length > 0;
-  let contents = prepareContents([...prior, { role: "user", parts: [{ text: task }] }], env);
+  const brief = collectPictureBrief(workspace, env);
+  if (brief) log(`picture brief ${brief.length} chars`);
+  const hadBrief = /PICTURE BRIEF/.test(JSON.stringify(prior));
+  const userText = brief && !hadBrief ? `${task}\n\n${brief}` : task;
+  let contents = prepareContents([...prior, { role: "user", parts: [{ text: userText }] }], env);
 
   const spend = { input: 0, fresh: 0, output: 0, thoughts: 0, cacheRead: 0, cacheWrite: 0 };
   const maxTurns = geminiMaxTurns(env);
@@ -1572,7 +1759,7 @@ export async function geminiLoop({
 
   for (let i = 0; i < maxTurns; i += 1) {
     if (signal && signal.aborted) throw new Error("aborted");
-    const body = requestBody(contents, env, { forceTool });
+    const body = requestBody(contents, env, { forceTool, workspace });
     const sent = payloadStats(body);
     log(formatPayloadStats(sent));
     appendTrace(workspace, formatPayloadStats(sent));
@@ -1668,10 +1855,11 @@ export async function geminiLoop({
     if (recentSightseeing(contents, 4) && stallNudges < MAX_STALL_NUDGES) {
       stallNudges += 1;
       forceTool = true;
-      log(`nudge: sightseeing (${stallNudges}/${MAX_STALL_NUDGES}) — next turn must add a card`);
-      appendTrace(workspace, `nudge: ${STALL_NUDGE}`);
-      onEvent({ type: "assistant", message: { content: [{ text: STALL_NUDGE }] } });
-      contents.push({ role: "user", parts: [{ text: STALL_NUDGE }] });
+      const stall = stallNudgeFor(workspace);
+      log(`nudge: sightseeing (${stallNudges}/${MAX_STALL_NUDGES}) — next turn must rebuild`);
+      appendTrace(workspace, `nudge: ${stall}`);
+      onEvent({ type: "assistant", message: { content: [{ text: stall }] } });
+      contents.push({ role: "user", parts: [{ text: stall }] });
     }
     contents = prepareContents(contents, env);
     saveHistory(workspace, contents, { model, followUp });

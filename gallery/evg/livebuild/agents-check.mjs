@@ -35,6 +35,11 @@ import {
   formatPayloadStats,
   PLAN_NUDGE,
   STALL_NUDGE,
+  PICTURE_STALL_NUDGE,
+  collectPictureBrief,
+  hasPicture,
+  contentsWithPicture,
+  stripInlineData,
   ADD_CARD,
   OPS_WRITE_CAP,
   recentSightseeing,
@@ -1019,23 +1024,72 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   if (!fs.existsSync(path.join(ws, "add.json"))) {
     throw new Error("bare add should write add.json for the next patch");
   }
-  if (!isSightseeingCall("ocr", {}) || !isSightseeingCall("run", { command: "./evg-agent outline doc.evg.json" })) {
-    throw new Error("ocr and outline must count as sightseeing");
+  if (isSightseeingCall("ocr", {}) || isSightseeingCall("image_info", {})) {
+    throw new Error("asking for the photo again is not sightseeing");
+  }
+  if (!isSightseeingCall("run", { command: "./evg-agent outline doc.evg.json" })) {
+    throw new Error("outline must still count as sightseeing");
   }
   if (isSightseeingCall("run", { command: "./evg-ui add card --title T --into doc.evg.json" })) {
     throw new Error("add card must not count as sightseeing");
   }
   const stallHist = [
     { role: "model", parts: [{ functionCall: { name: "run", args: { command: "./evg-agent outline doc.evg.json" } } }] },
-    { role: "model", parts: [{ functionCall: { name: "image_info", args: {} } }] },
-    { role: "model", parts: [{ functionCall: { name: "ocr", args: {} } }] },
-    { role: "model", parts: [{ functionCall: { name: "ocr", args: {} } }] },
+    { role: "model", parts: [{ functionCall: { name: "run", args: { command: "./evg-agent query doc.evg.json 0" } } }] },
+    { role: "model", parts: [{ functionCall: { name: "list_dir", args: {} } }] },
+    { role: "model", parts: [{ functionCall: { name: "read_file", args: { path: "TASK.md" } } }] },
   ];
   if (!recentSightseeing(stallHist, 4)) {
     throw new Error("four explore tools must look like a stall");
   }
   if (!STALL_NUDGE.includes("add card") || !ADD_CARD.includes("add card")) {
     throw new Error("stall nudge must name add card");
+  }
+  if (!PICTURE_STALL_NUDGE.includes("SVG") || !/what you see/.test(PICTURE_STALL_NUDGE)) {
+    throw new Error("a picture stall must point at the photo and SVG: " + PICTURE_STALL_NUDGE);
+  }
+  const picWs = fs.mkdtempSync(path.join(os.tmpdir(), "evg-pic-"));
+  fs.writeFileSync(
+    path.join(picWs, "attachment.json"),
+    JSON.stringify({
+      width: 474,
+      height: 1018,
+      layers: 12,
+      colors: [{ hex: "#F6F3EF", share: 0.62 }, { hex: "#FFFFFF", share: 0.2 }],
+    }),
+  );
+  fs.writeFileSync(path.join(picWs, "attachment.svg"), "<svg xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"10\" height=\"10\"/></svg>\n");
+  if (!hasPicture(picWs)) throw new Error("attachment.json must count as a picture");
+  const brief = collectPictureBrief(picWs, { ...process.env, TESSERACT_PATH: path.join(picWs, "no-tess") });
+  if (!/PICTURE BRIEF/.test(brief) || !/#F6F3EF/.test(brief) || !/SVG/.test(brief)) {
+    throw new Error("picture brief must carry palette and SVG: " + brief);
+  }
+  if (!fs.existsSync(path.join(picWs, "PICTURE.md"))) {
+    throw new Error("collectPictureBrief should write PICTURE.md");
+  }
+  const tiny = Buffer.alloc(24);
+  tiny[0] = 0x89;
+  tiny[1] = 0x50;
+  tiny[2] = 0x4e;
+  tiny[3] = 0x47;
+  tiny.writeUInt32BE(13, 8);
+  tiny.write("IHDR", 12);
+  tiny.writeUInt32BE(8, 16);
+  tiny.writeUInt32BE(8, 20);
+  fs.writeFileSync(path.join(picWs, "attachment.png"), tiny);
+  const withPic = contentsWithPicture([{ role: "user", parts: [{ text: "build this" }] }], picWs);
+  if (!withPic[0].parts.some((p) => p.inlineData && p.inlineData.mimeType === "image/png")) {
+    throw new Error("the photo must go to Gemini as inlineData: " + JSON.stringify(withPic));
+  }
+  if (!withPic[0].parts.some((p) => /Vectorized SVG/.test(p.text || ""))) {
+    throw new Error("the SVG must ride with the photo: " + JSON.stringify(withPic));
+  }
+  const stripped = stripInlineData(withPic);
+  if (stripped[0].parts.some((p) => p.inlineData)) {
+    throw new Error("history must drop inline image bytes");
+  }
+  if (!stripped[0].parts.some((p) => /omitted from history/.test(p.text || ""))) {
+    throw new Error("stripInlineData should leave a stub: " + JSON.stringify(stripped));
   }
   const wrapHint = executeTool(ws, "write_file", {
     path: "ops.json",
@@ -1084,7 +1138,7 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   }
   const prompt = geminiSystemPrompt();
   for (const need of [
-    "ocr attachment.png at most ONCE",
+    "pixels, the vectorized SVG",
     '"node"',
     "820×1180",
     "./evg-ui",
@@ -1104,6 +1158,8 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
     "NEXT tool is ./evg-ui add card",
     "TASK.md is already this message",
     "not read_file",
+    "vectorized SVG",
+    "attachment.svg",
   ]) {
     if (!prompt.includes(need)) throw new Error("gemini system prompt missing " + need);
   }
@@ -1251,12 +1307,17 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
     throw new Error("ocr should echo path and lang: " + JSON.stringify(ocred));
   }
   const ocrDefault = executeTool(ws, "ocr", {}, { ...process.env, TESSERACT_PATH: tess });
-  if (!ocrDefault.error || !/already ran/.test(ocrDefault.error)) {
-    throw new Error("second ocr must be refused: " + JSON.stringify(ocrDefault));
+  if (ocrDefault.error || !/Follow up/.test(ocrDefault.text || "") || !ocrDefault.again) {
+    throw new Error("second ocr must return the same words: " + JSON.stringify(ocrDefault));
   }
   const imageAgain = executeTool(ws, "image_info", {});
-  if (!imageAgain.error || !/already ran/.test(imageAgain.error)) {
-    throw new Error("second image_info on the same path must be refused: " + JSON.stringify(imageAgain));
+  if (imageAgain.error || imageAgain.kind !== "palette") {
+    throw new Error("second image_info must return the palette again: " + JSON.stringify(imageAgain));
+  }
+  fs.writeFileSync(path.join(ws, "attachment.svg"), "<svg xmlns=\"http://www.w3.org/2000/svg\"><g id=\"layer\"/></svg>\n");
+  const svgRead = executeTool(ws, "read_file", { path: "attachment.svg" });
+  if (svgRead.error || !/layer/.test(svgRead.contents || "")) {
+    throw new Error("attachment.svg must be readable: " + JSON.stringify(svgRead));
   }
   console.log("  gemini host list_dir / image_info / ocr; archaeology reads refused");
 
@@ -1277,6 +1338,13 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
       }
       if (body.generationConfig?.thinkingConfig?.includeThoughts !== true) {
         throw new Error("includeThoughts must be on so the console can show the thought");
+      }
+      const firstUser = (body.contents || []).find((c) => c.role === "user");
+      if (!firstUser || !(firstUser.parts || []).some((p) => p.inlineData && p.inlineData.mimeType === "image/png")) {
+        throw new Error("a picture workspace must send the photo as inlineData");
+      }
+      if (!(firstUser.parts || []).some((p) => /Vectorized SVG/.test(p.text || ""))) {
+        throw new Error("a picture workspace must send the SVG with the photo");
       }
       return {
         ok: true,
@@ -1376,6 +1444,9 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   }
   const hist = loadHistory(ws);
   if (hist.length < 4) throw new Error("history too short to continue a Follow-up: " + hist.length);
+  if (hist.some((c) => (c.parts || []).some((p) => p && p.inlineData))) {
+    throw new Error("history must not store inline image bytes");
+  }
   fs.writeFileSync(path.join(ws, "TASK.md"), "Now make the title gold.\n");
   let followCalls = 0;
   const followFetch = async (url, opts) => {

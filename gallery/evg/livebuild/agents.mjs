@@ -635,15 +635,16 @@ ${colors}
 Use them. A screen built around the picture's own palette looks like it
 belongs to the picture; one built from guessed colours does not.
 
-Three files, three jobs:
+Four files, four jobs:
 
-- \`${ATTACH_BASE}.json\` — the palette. \`image_info\` is enough; do not
-  re-read it for coordinates.
-- \`${ATTACH_BASE}.png\` — the pixels. \`ocr\` at most once if you need
-  labels. Tesseract on a busy dashboard is noisy; a second pass with
-  another psm will not become a spec.
-- \`${ATTACH_BASE}.ops.json\` / \`${ATTACH_BASE}.svg\` — the same photo as
-  vector layers (tens of thousands of coordinates). Do not read them.
+- \`${ATTACH_BASE}.json\` — the palette. The host sends it; \`image_info\`
+  if you need it again.
+- \`${ATTACH_BASE}.png\` — the pixels. The host sends them every turn;
+  \`ocr\` again if you need the words.
+- \`${ATTACH_BASE}.svg\` — the vectorized photo. The host sends an excerpt;
+  \`read_file attachment.svg\` if you need it again.
+- \`${ATTACH_BASE}.ops.json\` — path data for pasting the photo. Do not
+  read it.
 
 To **paste the photo** onto the screen (the picture itself, not rebuilt
 widgets), apply the patch that is already written — you never handle the
@@ -657,10 +658,10 @@ It inserts at \`${a.insertsAt || "0/0"}\` at ${a.placed || "its own size"}.
 That is a screenshot on the page. It is not a dashboard made of cards.
 
 To **rebuild a UI like the picture** ("make a dashboard like this"):
-outline the live document, take the palette, OCR once for the words, then
-\`./evg-ui add card\` / \`row\` / \`appbar\` (and small patches). Do not
-apply \`${ATTACH_BASE}.ops.json\` as the whole screen, and do not dump its
-coordinates into a new ops file.
+the host sends the pixels, the vectorized SVG, the palette and OCR.
+Rebuild what you see — the picture can be any UI. Ask again with
+\`image_info\`, \`ocr\` or \`read_file attachment.svg\` if you need them.
+Do not apply \`${ATTACH_BASE}.ops.json\` as the whole screen.
 
 Re-trace at another size only if you are placing the photo:
 
