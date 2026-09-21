@@ -141,9 +141,9 @@ send them again if the model asks. The brief says EVG is HTML flex/grid,
 names page/cards/accent hexes, and lists Erazer or SVG `x,y w×h` boxes.
 Pieces are `./evg-ui add appbar|pills|bars|tiles|banner|card|chips|tabbar`
 — those write `ui-appbar` / `ui-pills` / `ui-bars` / `ui-tile` /
-`ui-banner` / `ui-card` so **Export** collapses to `rave.AppBar` /
-`rave.Pills` / `rave.Bars` / `rave.Tile` / `rave.Banner` / `rave.Card` /
-`SettingsRow`. A dashboard photo must stay tiles + bars + banner, not a
+`ui-banner` / `ui-card` / `ui-tabbar` so **Export** collapses to `rave.AppBar` /
+`rave.Pills` / `rave.Bars` / `rave.Tile` / `rave.Banner` / `rave.TabBar` /
+`rave.Card` / `SettingsRow`. A dashboard photo must stay tiles + bars + banner, not a
 flattened SettingsRow list. After `add` the host paints the photo
 palette onto the new piece and **removes leftover SettingsRow cards**
 (and the old icon-chip row) in the same patch. A `write_file` that

@@ -47,6 +47,8 @@ export const EXAMPLE_RANGER_UI = {
     "rave.Tiles": { library: "@rave/core", version: "2" },
     "rave.Tile": { library: "@rave/core", version: "2" },
     "rave.Banner": { library: "@rave/core", version: "2" },
+    "rave.TabBar": { library: "@rave/core", version: "2" },
+    "rave.Tab": { library: "@rave/core", version: "2" },
     SettingsRow: { library: "@rave/settings", version: "1" },
   },
   ui: {
@@ -63,7 +65,19 @@ export const EXAMPLE_RANGER_UI = {
           { type: "rave.Chip", props: { label: "Year" } },
         ],
       },
-      { type: "rave.Bars", props: { title: "Steps & Calories Trend", value: "Avg 9,240 steps/day", badge: "+12% vs last week" } },
+      {
+        type: "rave.Bars",
+        props: {
+          title: "Steps & Calories Trend",
+          value: "Avg 9,240 steps/day",
+          badge: "+12% vs last week",
+          bars: [
+            { label: "M", height: "44px", color: "#805754" },
+            { label: "T", height: "62px", color: "#EF9587" },
+            { label: "W", height: "50px", color: "#524247" },
+          ],
+        },
+      },
       {
         type: "rave.Tiles",
         children: [
@@ -82,13 +96,12 @@ export const EXAMPLE_RANGER_UI = {
         },
       },
       {
-        type: "evg.div",
-        class: "ui-tabbar",
+        type: "rave.TabBar",
         children: [
-          { type: "evg.div", id: "nav.today", class: "ui-tab-item", children: [{ type: "evg.span", class: "ui-tab-label", text: "Today" }] },
-          { type: "evg.div", id: "nav.activity", class: "ui-tab-item", children: [{ type: "evg.span", class: "ui-tab-label", text: "Activity" }] },
-          { type: "evg.div", id: "nav.analytics", class: "ui-tab-item", children: [{ type: "evg.span", class: "ui-tab-label active", text: "Progress" }] },
-          { type: "evg.div", id: "nav.profile", class: "ui-tab-item", children: [{ type: "evg.span", class: "ui-tab-label", text: "Goals" }] },
+          { type: "rave.Tab", id: "nav.today", props: { label: "Today", icon: "⌂" } },
+          { type: "rave.Tab", id: "nav.activity", props: { label: "Activity", icon: "⚡" } },
+          { type: "rave.Tab", id: "nav.analytics", props: { label: "Progress", icon: "◈", active: true } },
+          { type: "rave.Tab", id: "nav.profile", props: { label: "Goals", icon: "◎" } },
         ],
       },
     ],
@@ -112,7 +125,7 @@ export const EXAMPLE_ADD_RECIPE = [
 
 export function exampleUiBlock() {
   return [
-    "EXAMPLE_UI — match the photo LAYOUT, not a settings list. A Wi-Fi / settings photo is add card --row (SettingsRow). A dashboard is pills + bars + tiles + banner — do not flatten a chart or a 2×2 into SettingsRow.",
+    "EXAMPLE_UI — match the photo LAYOUT, not a settings list. A Wi-Fi / settings photo is add card --row (SettingsRow). A dashboard is pills + bars + tiles + banner + tabbar — do not flatten a chart or a 2×2 into SettingsRow. Export is rave.AppBar / rave.Pills / rave.Bars / rave.Tile / rave.Banner / rave.TabBar (not evg.div soup).",
     JSON.stringify(EXAMPLE_RANGER_UI),
     "Build it with these commands (add, then patch, then the next). Never add card without --row. Never turn a dashboard into SettingsRows:",
     EXAMPLE_ADD_RECIPE,
@@ -484,7 +497,7 @@ The loop:
 1. outline
 2. ./evg-ui add appbar|pills|bars|tiles|banner|card|chips|tabbar — then ./evg-agent patch doc.evg.json add.json.
    A 2×2 of metrics is add tiles. A bar chart is add bars. A highlight is add banner. Day/Week is add pills. add card --row is SettingsRow — only a settings list. Do not flatten a dashboard into rows.
-   Export is ranger-ui: those classes become rave.AppBar / rave.Pills / rave.Bars / rave.Tile / rave.Banner / rave.Card / SettingsRow. A hand insert node MUST have a kit class-name (ui-card / ui-tile / ui-bars / ui-banner / ui-pills / ui-appbar / ui-tabbar). Then set-css a sheet — set-css replaces the whole sheet, send it whole. Bare evg.div trees fail Export.
+   Export is ranger-ui: those classes become rave.AppBar / rave.Pills / rave.Bars / rave.Tile / rave.Banner / rave.TabBar / rave.Card / SettingsRow. A hand insert node MUST have a kit class-name (ui-card / ui-tile / ui-bars / ui-banner / ui-pills / ui-appbar / ui-tabbar). Then set-css a sheet — set-css replaces the whole sheet, send it whole. Bare evg.div trees fail Export.
    spec is optional. Do not smoke-test with add button. Do not read AGENTS.md. No --help.
 3. ./evg-agent measure doc.evg.json --width=W --height=H
    W×H is what TASK.md said: phone 390×844, tablet 820×1180, desktop 1440×900. Not always 390.
@@ -529,7 +542,7 @@ export const PLAN_NUDGE =
 export const STALL_NUDGE =
   `Stop exploring. Next tool is ${ADD_CARD} then ./evg-agent patch doc.evg.json add.json. Not ocr, not image_info, not list, not TASK.md.`;
 export const PICTURE_STALL_NUDGE =
-  "You already saw the photo. Copy EXAMPLE_UI types for the LAYOUT you see. A chart is add bars, a 2×2 is add tiles, a highlight is add banner, Day/Week is add pills. add card --row is ONLY a settings list — do not flatten a dashboard into SettingsRow. NEXT: one FILLED ./evg-ui add … then patch. Not outline, not query, not svg.";
+  "You already saw the photo. Copy EXAMPLE_UI types for the LAYOUT you see. A chart is add bars, a 2×2 is add tiles, a highlight is add banner, Day/Week is add pills, a bottom nav is add tabbar. add card --row is ONLY a settings list — do not flatten a dashboard into SettingsRow. NEXT: one FILLED ./evg-ui add … then patch. Not outline, not query, not svg.";
 export const SVG_BRIEF_CAP = 64_000;
 export const FILE_READ_CAP = 64_000;
 export const IMAGE_INLINE_MAX = 3_500_000;
@@ -1368,7 +1381,7 @@ export function collectPictureBrief(workspace, env = process.env) {
     "## PICTURE BRIEF",
     "A photo is attached (pixels + vectorized SVG). Rebuild what you see — any UI, not a guessed template.",
     "EVG is HTML flex/grid: display:flex + flex-direction:column|row + gap, or display:grid + grid-template-columns:1fr 1fr. Not left/top.",
-    "Pieces: ./evg-ui add appbar|pills|bars|tiles|banner|card|chips|tabbar (ui-card / ui-tile / ui-bars / ui-banner / ui-tabbar). Do not insert unnamed div trees — Export needs those classes for rave.Card / rave.Tile.",
+    "Pieces: ./evg-ui add appbar|pills|bars|tiles|banner|card|chips|tabbar (ui-card / ui-tile / ui-bars / ui-banner / ui-tabbar). Do not insert unnamed div trees — Export needs those classes for rave.Card / rave.Tile / rave.TabBar.",
     "A 2×2 of metrics is add tiles. A bar chart is add bars. A highlight is add banner. Day/Week is add pills. add card --row is a settings list (SettingsRow) — do not flatten a dashboard into rows.",
     "If the outline still names leftover SettingsRow / ui-card / ui-chiprow after pills/tiles/bars, remove those paths in one ops.json (highest index first). Adding pills/tiles/bars/banner also drops them on patch. Do not leave both.",
     "count:0 is no page overflow. The page footer layout N / align / tight is suspicious overlap — not done. Copy OCR spaces (7h 38m, not 7h38m). EXAMPLE_UI is types, not the words.",
@@ -1974,7 +1987,7 @@ function insertAddsKeeper(op) {
 
 /** When adding pills/tiles/bars/banner, drop leftover SettingsRow cards in the same batch. */
 export function attachLeftoverRemoves(text, workspace, kind) {
-  if (!/^(pills|tiles|bars|banner)$/.test(String(kind || ""))) return String(text || "");
+  if (!/^(pills|tiles|bars|banner|tabbar)$/.test(String(kind || ""))) return String(text || "");
   const ats = leftoverSettingsAts(evgRootOf(workspace));
   if (!ats.length) return String(text || "");
   let j;

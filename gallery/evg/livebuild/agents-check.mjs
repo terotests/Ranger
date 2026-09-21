@@ -1181,6 +1181,9 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   if (EXAMPLE_RANGER_UI.ui.children[0].type !== "rave.AppBar" || !exampleUiBlock().includes("rave.Tile") || !/do not flatten/.test(exampleUiBlock())) {
     throw new Error("EXAMPLE_UI must be an AppBar + tiles/bars/banner screen, not a SettingsRow list");
   }
+  if (!exampleUiBlock().includes("rave.TabBar") || !/add tabbar/.test(exampleUiBlock()) || !exampleUiBlock().includes('"bars":')) {
+    throw new Error("EXAMPLE_UI must name TabBar and keep Bars series data");
+  }
   fs.writeFileSync(path.join(picWs, ".gemini-once.json"), JSON.stringify({ exploreStreak: 2 }) + "\n");
   const blockedOutline = denyExplore(picWs, "run", { command: "./evg-agent outline doc.evg.json" });
   if (!blockedOutline || !/EXAMPLE_UI/.test(blockedOutline) || !/FILLED/.test(blockedOutline)) {
@@ -1421,6 +1424,16 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   if (!/"remove"/.test(attached) || !attached.includes("0/2") || !attached.includes("0/1")) {
     throw new Error("add tiles must queue leftover removes: " + attached);
   }
+  const attachedTab = attachLeftoverRemoves(
+    JSON.stringify({
+      ops: [{ op: "insert", at: "0", index: 9999, node: { tag: "div", props: { "class-name": "ui-tabbar" }, children: [] } }],
+    }),
+    ws,
+    "tabbar",
+  );
+  if (!/"remove"/.test(attachedTab) || !attachedTab.includes("0/0")) {
+    throw new Error("add tabbar must queue leftover removes: " + attachedTab);
+  }
   if (leftoverSettingsAts(JSON.parse(fs.readFileSync(path.join(ws, "doc.evg.json"), "utf8")).root).length !== 3) {
     throw new Error("leftoverSettingsAts should see two cards and the chiprow");
   }
@@ -1568,6 +1581,7 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
     "add tiles",
     "rave.Tile",
     "rave.Banner",
+    "rave.TabBar",
     "Leftover SettingsRow",
     "highest index first",
     "page footer",

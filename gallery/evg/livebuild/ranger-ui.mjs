@@ -33,6 +33,8 @@ const COMPONENT_ROOTS = [
   { test: /(?:^|\s)ui-tile(?:\s|$)/, type: "rave.Tile", library: LIBRARY, leaf: false },
   { test: /(?:^|\s)ui-bars(?:\s|$)/, type: "rave.Bars", library: LIBRARY, leaf: false },
   { test: /(?:^|\s)ui-banner(?:\s|$)/, type: "rave.Banner", library: LIBRARY, leaf: false },
+  { test: /(?:^|\s)ui-tabbar(?:\s|$)/, type: "rave.TabBar", library: LIBRARY, leaf: false },
+  { test: /(?:^|\s)ui-tab-item(?:\s|$)/, type: "rave.Tab", library: LIBRARY, leaf: true },
   { test: /(?:^|\s)(?:ui-row|row)(?:\s|$)/, type: "SettingsRow", library: SETTINGS_LIB, leaf: false },
 ];
 
@@ -44,10 +46,10 @@ const ROLE_TYPES = {
 };
 
 const KIT_CLASS_RE =
-  /^(ui-switch|ui-checkbox|ui-btn|ui-button|ui-slider|ui-input|ui-field|ui-chip|ui-appbar|ui-card|ui-row|ui-pill|ui-tile|ui-bar|ui-banner|ui-radio|ui-tabs|ui-avatar|ui-sep|ui-toast|ui-dialog|ui-tooltip|ui-progress|ui-select|ui-combobox|ui-breadcrumb|ui-accordion|ui-collapsible|ui-toggle|ui-popover|ui-table|ui-grid|ui-menu|ui-dropdown)/;
+  /^(ui-switch|ui-checkbox|ui-btn|ui-button|ui-slider|ui-input|ui-field|ui-chip|ui-appbar|ui-card|ui-row|ui-pill|ui-tile|ui-bar|ui-banner|ui-tabbar|ui-tab-|ui-radio|ui-tabs|ui-avatar|ui-sep|ui-toast|ui-dialog|ui-tooltip|ui-progress|ui-select|ui-combobox|ui-breadcrumb|ui-accordion|ui-collapsible|ui-toggle|ui-popover|ui-table|ui-grid|ui-menu|ui-dropdown)/;
 
 const PART_CLASS_RE =
-  /^(ui-switch-|ui-checkbox-|ui-row-(?:title|sub|text|icon|value|chevron|line)|ui-card-title|ui-appbar-|ui-chip-(?:dot|label)|ui-tile-(?:icon|label|value|sub)|ui-bars-(?:title|badge|value|head|row)|ui-bar(?:-col|-label)?$|ui-banner-(?:icon|eyebrow|title|sub))/;
+  /^(ui-switch-|ui-checkbox-|ui-row-(?:title|sub|text|icon|value|chevron|line)|ui-card-title|ui-appbar-|ui-chip-(?:dot|label)|ui-tile-(?:icon|label|value|sub)|ui-bars-(?:title|badge|value|head|row)|ui-bar(?:-col|-label)?$|ui-banner-(?:icon|eyebrow|title|sub)|ui-tab-(?:icon|label))/;
 
 const VISUAL = new Set([
   "background-color",
@@ -184,8 +186,11 @@ function inferSpec(node, path, ctx) {
   const hit = matchComponent(node);
   if (hit) return hit;
   if (!node || path === ((ctx && ctx.rootPath) || "0")) return null;
+  if (ctx && ctx.parentType === "rave.TabBar") {
+    return { type: "rave.Tab", library: LIBRARY, leaf: true, test: null, inferred: true };
+  }
   if (!isScreenChild(path, ctx)) return null;
-  if (looksLikeTabbar(node)) return null;
+  if (looksLikeTabbar(node)) return { type: "rave.TabBar", library: LIBRARY, leaf: false, test: null, inferred: true };
   if (childIsDiv(node) && (node.children || []).length >= 2 && textOf(node)) {
     return { type: "rave.Card", library: LIBRARY, leaf: false, test: null, inferred: true };
   }
@@ -374,6 +379,38 @@ function barsProps(node) {
   if (title) props.title = title;
   if (value) props.value = value;
   if (badge) props.badge = badge;
+  const bars = [];
+  const walk = (n) => {
+    if (!n || typeof n !== "object") return;
+    if (classList(n).includes("ui-bar-col")) {
+      const item = {};
+      const label = namedText(n, /^ui-bar-label$/);
+      const fill = findByClass(n, /^ui-bar$/);
+      if (label) item.label = label;
+      if (fill && fill.props && fill.props.height) item.height = String(fill.props.height);
+      if (fill && fill.props && fill.props["background-color"]) item.color = String(fill.props["background-color"]);
+      if (Object.keys(item).length) bars.push(item);
+    }
+    for (const c of n.children || []) walk(c);
+  };
+  walk(node);
+  if (bars.length) props.bars = bars;
+  return props;
+}
+
+function tabProps(node) {
+  const props = {};
+  const labelNode = findByClass(node, /^ui-tab-label/);
+  const icon = namedText(node, /^ui-tab-icon$/);
+  const label = (labelNode && labelNode.text) || textOf(node);
+  if (label) props.label = String(label).replace(/\s+/g, " ").trim();
+  if (icon) props.icon = icon;
+  if (
+    classList(node).some((c) => /-active$/.test(c)) ||
+    classList(labelNode).some((c) => /-active$/.test(c))
+  ) {
+    props.active = true;
+  }
   return props;
 }
 
@@ -409,19 +446,18 @@ export function convertNode(node, path, ctx) {
 
   if (Object.keys(vis).length) {
     if (!klass) {
-      const key = styleKey(vis);
-      if (!ctx.styleClasses.has(key)) {
-        const n = ctx.styleClasses.size + 1;
-        ctx.styleClasses.set(key, `rui-s${n}`);
+      if (isRoot) klass = "screen";
+      else {
+        const key = styleKey(vis);
+        if (!ctx.styleClasses.has(key)) {
+          const n = ctx.styleClasses.size + 1;
+          ctx.styleClasses.set(key, `rui-s${n}`);
+        }
+        klass = ctx.styleClasses.get(key);
       }
-      klass = ctx.styleClasses.get(key);
     }
     const sel = `.${klass.split(/\s+/)[0]}`;
     mergeRule(ctx.styles, sel, vis);
-  }
-
-  if (!spec && looksLikeTabbar(node) && isScreenChild(path, ctx) && !/\bui-tabbar\b/.test(klass)) {
-    klass = klass ? `${klass} ui-tabbar` : "ui-tabbar";
   }
 
   if (spec) {
@@ -436,20 +472,25 @@ export function convertNode(node, path, ctx) {
     else if (spec.type === "rave.Tile") props = tileProps(node);
     else if (spec.type === "rave.Banner") props = bannerProps(node);
     else if (spec.type === "rave.Bars") props = barsProps(node);
+    else if (spec.type === "rave.Tab") props = tabProps(node);
     else if (spec.type === "rave.AppBar") props = appbarProps(node);
     else if (spec.type === "rave.Button" || spec.type === "rave.Chip") {
       const t = textOf(node);
       if (t) props.label = t;
+      if (classList(node).includes("ui-pill-active")) props.active = true;
     }
     if (Object.keys(props).length) out.props = props;
     if (!spec.leaf) {
       const kids = [];
+      const prevParent = ctx.parentType;
+      ctx.parentType = spec.type;
       for (let i = 0; i < (node.children || []).length; i += 1) {
         const ch = node.children[i];
         if (isPartNode(ch) && !matchComponent(ch)) continue;
         const conv = convertNode(ch, `${path}/${i}`, ctx);
         if (conv) kids.push(conv);
       }
+      ctx.parentType = prevParent;
       if (kids.length) out.children = kids;
     }
     return out;
@@ -490,6 +531,24 @@ function countUi(node) {
   let n = 1;
   for (const c of node.children || []) n += countUi(c);
   return n;
+}
+
+function collectTypes(node, out = new Set()) {
+  if (!node || typeof node !== "object") return out;
+  if (node.type) out.add(node.type);
+  for (const c of node.children || []) collectTypes(c, out);
+  return out;
+}
+
+/** Seed chip "empty" is the starting canvas, not the finished screen. */
+export function inferKind(ui, given = "") {
+  const asked = String(given || "").trim();
+  if (asked && asked !== "empty") return asked;
+  const types = collectTypes(ui);
+  const dash = ["rave.Pills", "rave.Bars", "rave.Tiles", "rave.Banner", "rave.TabBar"].filter((t) => types.has(t));
+  if (dash.length >= 2) return "dashboard";
+  if (types.has("SettingsRow") || types.has("rave.Switch")) return "settings";
+  return asked;
 }
 
 function collectUiIds(node, out) {
@@ -607,7 +666,7 @@ export function buildRangerUi({
     meta: {
       name: String(name || "screen").slice(0, 120),
       prompt: prompt || "",
-      kind: kind || "",
+      kind: inferKind(converted.ui, kind),
       handoff: HANDOFF,
     },
     viewport: view,

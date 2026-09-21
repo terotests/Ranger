@@ -16,7 +16,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { collectFiles, exportSession, outlineOf } from "./export.mjs";
-import { buildRangerUi, convertDocument, validateRangerUi, FORMAT, VERSION } from "./ranger-ui.mjs";
+import { buildRangerUi, convertDocument, inferKind, validateRangerUi, FORMAT, VERSION } from "./ranger-ui.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "../../..");
@@ -266,12 +266,17 @@ const soupCard = findType(soupConv.ui, "rave.Card")[0];
 if (!soupCard || !soupCard.props || soupCard.props.title !== "RECENT ACTIVITIES") {
   throw new Error("inferred card title missing: " + JSON.stringify(soupConv.ui, null, 2));
 }
-const tab = (soupConv.ui.children || []).find((c) => c && /\bui-tabbar\b/.test(c.class || ""));
-if (!tab) throw new Error("pinned short labels did not become ui-tabbar: " + JSON.stringify(soupConv.ui, null, 2));
-console.log("  author/soup card/row aliases + inferred titled panel + tabbar class");
+const tab = findType(soupConv.ui, "rave.TabBar")[0];
+if (!tab) throw new Error("pinned short labels did not become rave.TabBar: " + JSON.stringify(soupConv.ui, null, 2));
+if (!findType(tab, "rave.Tab").length) throw new Error("tab items did not become rave.Tab");
+if (soupConv.ui.class !== "screen") {
+  throw new Error("root visual class should be screen, not a generated rui-sN: " + soupConv.ui.class);
+}
+console.log("  author/soup card/row aliases + inferred titled panel + TabBar");
 
 const dashPieces = {
   evg: 1,
+  css: ".ui-tabbar {\n  display: flex; height: 56px;\n}\n.ui-tab-item { display: flex; }\n.ui-tab-icon { height: 22px; }\n.theme-dark .ui-tabbar { background-color: #111c31; }\n.rui-s2 {\n  color: rgb(240,215,123);\n}\n",
   root: {
     tag: "div",
     children: [
@@ -295,6 +300,35 @@ const dashPieces = {
         children: [
           { tag: "span", text: "Steps & Calories Trend", props: { "class-name": "ui-bars-title" } },
           { tag: "span", text: "Avg 9,240 steps/day", props: { "class-name": "ui-bars-value" } },
+          {
+            tag: "div",
+            props: { "class-name": "ui-bars-row" },
+            children: [
+              {
+                tag: "div",
+                props: { "class-name": "ui-bar-col" },
+                children: [
+                  { tag: "div", props: { "class-name": "ui-bar", height: "44px", "background-color": "#EF9587" } },
+                  { tag: "span", text: "M", props: { "class-name": "ui-bar-label" } },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      {
+        tag: "div",
+        props: { "class-name": "ui-tabbar" },
+        children: [
+          {
+            tag: "div",
+            id: "nav.progress",
+            props: { "class-name": "ui-tab-item" },
+            children: [
+              { tag: "span", text: "◈", props: { "class-name": "ui-tab-icon" } },
+              { tag: "span", text: "Progress", props: { "class-name": "ui-tab-label ui-tab-label-active" } },
+            ],
+          },
         ],
       },
       {
@@ -318,7 +352,7 @@ const dashPieces = {
 };
 const dashConv = convertDocument(dashPieces, { viewport: { width: 390, height: 844 } });
 const dashKinds = typesIn(dashConv.ui);
-for (const need of ["rave.Tiles", "rave.Tile", "rave.Bars", "rave.Banner", "rave.Pills", "rave.Chip"]) {
+for (const need of ["rave.Tiles", "rave.Tile", "rave.Bars", "rave.Banner", "rave.Pills", "rave.Chip", "rave.TabBar", "rave.Tab"]) {
   if (!dashKinds.includes(need)) throw new Error("dashboard piece did not collapse to " + need + ": " + dashKinds.join(", "));
 }
 const tile = findType(dashConv.ui, "rave.Tile")[0];
@@ -329,7 +363,33 @@ const banner = findType(dashConv.ui, "rave.Banner")[0];
 if (!banner || !banner.props || banner.props.title !== "100k Steps in 10 Days") {
   throw new Error("banner title missing: " + JSON.stringify(banner));
 }
-console.log("  dashboard   tiles/bars/banner/pills collapse to named types");
+const bars = findType(dashConv.ui, "rave.Bars")[0];
+if (!bars || !bars.props || !Array.isArray(bars.props.bars) || bars.props.bars[0].label !== "M") {
+  throw new Error("bars series missing: " + JSON.stringify(bars));
+}
+const chip = findType(dashConv.ui, "rave.Chip").find((c) => c.props && c.props.label === "Week");
+if (!chip || chip.props.active !== true) throw new Error("active pill must set Chip.active: " + JSON.stringify(chip));
+const tabItem = findType(dashConv.ui, "rave.Tab")[0];
+if (!tabItem || tabItem.props.label !== "Progress" || tabItem.props.active !== true || tabItem.id !== "nav.progress") {
+  throw new Error("tab did not collapse: " + JSON.stringify(tabItem));
+}
+if (JSON.stringify(dashConv.ui).includes("ui-tab-icon") || JSON.stringify(dashConv.ui).includes("evg.div")) {
+  throw new Error("tab internals leaked: " + JSON.stringify(dashConv.ui));
+}
+if ((dashConv.css || "").includes(".ui-tabbar") || (dashConv.css || "").includes(".ui-tab-icon")) {
+  throw new Error("kit tabbar CSS leaked: " + dashConv.css);
+}
+if (!(dashConv.css || "").includes(".rui-s2")) {
+  throw new Error("author chip colour was stripped with the kit sheet: " + dashConv.css);
+}
+const kinded = buildRangerUi({ doc: dashPieces, kind: "empty", name: "Progress" });
+if (kinded.compact.meta.kind !== "dashboard") {
+  throw new Error("empty seed with dashboard pieces should infer kind dashboard: " + kinded.compact.meta.kind);
+}
+if (inferKind(dashConv.ui, "empty") !== "dashboard") {
+  throw new Error("inferKind missed dashboard pieces");
+}
+console.log("  dashboard   tiles/bars/banner/pills/TabBar collapse to named types");
 
 // --- an app's machine and pages travel ---------------------------------------
 
