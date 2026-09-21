@@ -990,6 +990,35 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   if (!addRead.error || !/patch/.test(addRead.error)) {
     throw new Error("read_file add.json must be refused: " + JSON.stringify(addRead));
   }
+  fs.writeFileSync(
+    path.join(ws, "evg-ui"),
+    "#!/bin/sh\nprintf '{\"ops\":[{\"op\":\"set-text\",\"at\":\"0\",\"value\":\"n\"}]}\\n'\n",
+    { mode: 0o755 },
+  );
+  const added = executeTool(ws, "run", { command: "./evg-ui add card --title T --into doc.evg.json > add-card.json" }, {
+    ...process.env,
+    EVG_GEMINI_SANDBOX: "host",
+  });
+  if (added.error || !added.ok) throw new Error("add card should run: " + JSON.stringify(added));
+  if (/"op"\s*:/.test(String(added.stdout || ""))) {
+    throw new Error("redirected add must not replay the ops: " + added.stdout);
+  }
+  if (!/patch/.test(String(added.hint || added.stdout || ""))) {
+    throw new Error("add > add.json must say to patch: " + JSON.stringify(added));
+  }
+  if (!fs.existsSync(path.join(ws, "add-card.json")) || !/"op"/.test(fs.readFileSync(path.join(ws, "add-card.json"), "utf8"))) {
+    throw new Error("add must still write the ops file");
+  }
+  const addedBare = executeTool(ws, "run", { command: "./evg-ui add card --title T --into doc.evg.json" }, {
+    ...process.env,
+    EVG_GEMINI_SANDBOX: "host",
+  });
+  if (/"op"\s*:/.test(String(addedBare.stdout || ""))) {
+    throw new Error("bare add must not dump ops into the prompt: " + addedBare.stdout);
+  }
+  if (!fs.existsSync(path.join(ws, "add.json"))) {
+    throw new Error("bare add should write add.json for the next patch");
+  }
   if (!isSightseeingCall("ocr", {}) || !isSightseeingCall("run", { command: "./evg-agent outline doc.evg.json" })) {
     throw new Error("ocr and outline must count as sightseeing");
   }
@@ -1074,6 +1103,7 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
     '{"ops":[...]}',
     "NEXT tool is ./evg-ui add card",
     "TASK.md is already this message",
+    "not read_file",
   ]) {
     if (!prompt.includes(need)) throw new Error("gemini system prompt missing " + need);
   }

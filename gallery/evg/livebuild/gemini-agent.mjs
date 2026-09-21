@@ -180,12 +180,33 @@ function spawnRun(workspace, command, env = process.env) {
       return { error: String(e.message || e), sandbox: box === "docker" ? "docker" : "host" };
     }
   }
+  const follow = evgUiAddFollowup(workspace, parsed, stdout, r.status === 0);
   return {
     ok: r.status === 0,
     status: r.status,
-    stdout: clip(stdout),
+    stdout: clip(follow ? follow.stdout : stdout),
     stderr: clip(stderr),
+    hint: follow ? follow.stdout : undefined,
+    wrote: follow ? follow.wrote : parsed.stdoutTo || undefined,
     sandbox: box === "docker" ? "docker" : "host",
+  };
+}
+
+/** add prints ops; --into is the insert path, not an edit. Keep the ops on disk. */
+function evgUiAddFollowup(workspace, parsed, stdout, ok) {
+  if (!ok || !parsed || parsed.bin !== "./evg-ui" || parsed.argv[0] !== "add") return null;
+  if (!/"op"\s*:/.test(String(stdout || ""))) return null;
+  const dest = parsed.stdoutTo || "add.json";
+  if (!parsed.stdoutTo) {
+    try {
+      fs.writeFileSync(resolveInWorkspace(workspace, dest), stdout);
+    } catch {
+      return null;
+    }
+  }
+  return {
+    wrote: dest,
+    stdout: `wrote ${dest} (${String(stdout).length} bytes). Next: ./evg-agent patch doc.evg.json ${dest}. --into is the insert path, not an edit. Do not read_file ${dest}.`,
   };
 }
 
@@ -296,7 +317,7 @@ Several screens (Orders / Analytics / Settings) is an app, not hidden divs:
 
 set-prop is one CSS name (height, padding-top, gap, background-color), not style= and not a shorthand blob. set-prop needs "prop" and "value" — {"op":"set-prop","at":"0","prop":"flex-direction","value":"column"}, not 0=column. A 1px overflow is one set-prop on the finding path, then measure — do not query every sibling. outline --at=PATH for one node; query/measure replies already include the match props and boxes [x,y,w,h]. ops.json is {"ops":[...]} — a bare op object or [] is "no ops in that file".
 
-After an empty outline the NEXT tool is ./evg-ui add card (not list, not ocr, not image_info, not read_file TASK.md). TASK.md is already this message. ocr once; a second ocr is refused.
+After an empty outline the NEXT tool is ./evg-ui add card (not list, not ocr, not image_info, not read_file TASK.md). TASK.md is already this message. ocr once; a second ocr is refused. --into is the insert path — it does not edit the file. After add > add.json the next tool is ./evg-agent patch doc.evg.json add.json, not read_file.
 
 Labels: one span per phrase, spaces between words ("Acme 360", not "Acme360"). Do not insert the same text twice — two overlapping spans paint as Revenuee / monthlyy.
 
