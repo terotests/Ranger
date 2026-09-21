@@ -114,7 +114,7 @@ function main() {
   report();
   process.stderr.write(`\nOpen http://127.0.0.1:${PORT}/?agent=gemini\n`);
   process.stderr.write("The page calls Gemini Flash over the network and runs ./evg-agent in a bounded workspace.\n");
-  process.stderr.write("Each Follow-up prints input / output tokens and an about-cost on this console.\n");
+  process.stderr.write("Each Follow-up prints thoughts, → tool / ← result, tokens and an about-cost on this console.\n");
   process.stderr.write("This uses your Google AI Studio credits. Ctrl+C stops the server.\n\n");
 
   const child = spawn(process.execPath, [path.join(here, "serve.mjs")], {

@@ -20,6 +20,9 @@ import {
   parseRun,
   geminiCostUsd,
   formatGeminiSpend,
+  summarizeTool,
+  splitParts,
+  GEMINI_TRACE,
 } from "./gemini-agent.mjs";
 import http from "node:http";
 
@@ -882,6 +885,9 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
       for (const need of ["run", "read_file", "write_file", "list_dir", "image_info", "ocr"]) {
         if (!decls.includes(need)) throw new Error("Gemini tools missing " + need);
       }
+      if (body.generationConfig?.thinkingConfig?.includeThoughts !== true) {
+        throw new Error("includeThoughts must be on so the console can show the thought");
+      }
       return {
         ok: true,
         status: 200,
@@ -892,6 +898,7 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
                 content: {
                   role: "model",
                   parts: [
+                    { text: "Stamp a small file, do not rewrite the phone.", thought: true },
                     { text: "I will stamp the folder." },
                     {
                       functionCall: { name: "write_file", args: { path: "stamp.txt", contents: "gemini-ok\n" } },
@@ -941,8 +948,27 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   if (!fs.existsSync(path.join(ws, "stamp.txt"))) throw new Error("Gemini run tool did not execute");
   const stamp = fs.readFileSync(path.join(ws, "stamp.txt"), "utf8");
   if (!/gemini-ok/.test(stamp)) throw new Error("stamp.txt was wrong: " + stamp);
+  if (!events.some((e) => e.type === "assistant" && /Stamp a small file/.test(JSON.stringify(e)))) {
+    throw new Error("thought parts must reach the page: " + JSON.stringify(events.filter((e) => e.type === "assistant")));
+  }
   if (!events.some((e) => e.type === "assistant")) throw new Error("no assistant events");
   if (!events.some((e) => e.type === "tool_call")) throw new Error("no tool_call events");
+  const shown = events.find((e) => e.type === "tool_call");
+  const cmd = shown?.tool_call?.shellToolCall?.args?.command || "";
+  if (!/stamp\.txt/.test(cmd) || !/bytes/.test(cmd) || !/wrote/.test(cmd)) {
+    throw new Error("tool_call should say what was written: " + cmd);
+  }
+  if (!fs.existsSync(path.join(ws, GEMINI_TRACE))) throw new Error("the run left no .gemini-trace.log");
+  const parts = splitParts([{ text: "hidden plan", thought: true }, { text: "visible" }]);
+  if (parts.thought !== "hidden plan" || parts.text !== "visible") {
+    throw new Error("splitParts must keep thoughts out of the spoken text: " + JSON.stringify(parts));
+  }
+  const denied = summarizeTool("write_file", { path: "doc.evg.json", contents: '{"root":{"tag":"div","children":[]}}' }, {
+    error: "write_file will not replace doc.evg.json — write ops.json, then ./evg-agent patch",
+  });
+  if (!/whole EVG tree/.test(denied.call) || !/will not replace/.test(denied.reply)) {
+    throw new Error("a document replace should be named as one: " + JSON.stringify(denied));
+  }
   const spend = events.find((e) => e.type === "result");
   if (!spend || spend.usage.output_tokens !== 18) {
     throw new Error("usage did not add both turns: " + JSON.stringify(spend));

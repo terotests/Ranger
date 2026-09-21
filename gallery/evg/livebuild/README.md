@@ -115,7 +115,11 @@ prints that per turn and for the whole Follow-up — uncached input, cache
 hits, output (thoughts included), and an about-cost at the paid Flash rates
 **$0.75 fresh / $0.075 cache / $3.75 out per 1M**. `promptTokenCount`
 already includes the cache; those hits are not billed at the fresh rate.
-The same dollars land on the page spend line. Override with
+The same dollars land on the page spend line. The console (and
+`.gemini-trace.log` in the session) also prints the thought and each
+`→ tool · ← result`, so a Follow-up that OCR'd a screenshot and rewrote
+the document is visible as that, not only as a finished paragraph.
+Override with
 `EVG_GEMINI_INPUT_PER_M` / `EVG_GEMINI_CACHE_PER_M` /
 `EVG_GEMINI_OUTPUT_PER_M` if Google moves the card.
 

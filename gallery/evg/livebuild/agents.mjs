@@ -22,6 +22,7 @@ import { parseRestyle, restyleEnv } from "./restyle.mjs";
 import {
   DEFAULT_GEMINI_MODEL,
   GEMINI_HISTORY,
+  GEMINI_TRACE,
   geminiKey,
   geminiModel,
 } from "./gemini-agent.mjs";
@@ -1344,6 +1345,11 @@ export function resetSession(kind = "dashboard") {
   }
   try {
     fs.unlinkSync(path.join(dir, GEMINI_HISTORY));
+  } catch {
+    /* first */
+  }
+  try {
+    fs.unlinkSync(path.join(dir, GEMINI_TRACE));
   } catch {
     /* first */
   }

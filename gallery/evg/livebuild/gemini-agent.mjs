@@ -316,9 +316,12 @@ export function tesseractBin(env = process.env) {
 }
 
 /** Compiled tool sources and the conversation log are not part of the phone. */
+export const GEMINI_TRACE = ".gemini-trace.log";
+
 export function denyRead(rel) {
   const name = path.basename(String(rel || ""));
   if (name === GEMINI_HISTORY) return "read_file will not open the conversation log";
+  if (name === GEMINI_TRACE) return "read_file will not open the tool trace";
   if (/^evg[_-].+\.js$/i.test(name)) {
     return "read_file will not open compiled tool sources — call ./evg-agent, do not read the JS";
   }
@@ -632,6 +635,7 @@ export function trimHistory(contents, cap = DEFAULT_HISTORY_CHARS) {
 
 export function splitParts(parts) {
   const texts = [];
+  const thoughts = [];
   const calls = [];
   for (const p of parts || []) {
     if (!p || typeof p !== "object") continue;
@@ -639,9 +643,68 @@ export function splitParts(parts) {
       calls.push(p);
       continue;
     }
-    if (typeof p.text === "string" && p.text) texts.push(p.text);
+    if (typeof p.text === "string" && p.text) {
+      if (p.thought) thoughts.push(p.text);
+      else texts.push(p.text);
+    }
   }
-  return { text: texts.join("\n").trim(), calls };
+  return { text: texts.join("\n").trim(), thought: thoughts.join("\n").trim(), calls };
+}
+
+function clipOneLine(text, cap = 280) {
+  const s = String(text ?? "").replace(/\s+/g, " ").trim();
+  if (s.length <= cap) return s;
+  return `${s.slice(0, cap)}…`;
+}
+
+function writeKind(contents) {
+  const s = String(contents ?? "");
+  if (/"op"\s*:/.test(s) && /\[/.test(s)) return "ops";
+  if (/"tag"\s*:/.test(s) && /"children"\s*:/.test(s)) return "whole EVG tree";
+  return "text";
+}
+
+/** One line for the page and the withgemini console: what was asked, what came back. */
+export function summarizeTool(name, rawArgs, result) {
+  const args = argsOf({ args: rawArgs });
+  let call = name;
+  if (name === "run") call = String(args.command || "run").trim() || "run";
+  else if (name === "write_file") {
+    const n = String(args.contents ?? "").length;
+    call = `write_file ${args.path || ""} (${n.toLocaleString("en-US")} bytes, ${writeKind(args.contents)})`;
+  } else if (name === "read_file" || name === "list_dir" || name === "image_info" || name === "ocr") {
+    call = `${name} ${args.path || (name === "list_dir" ? "." : "")}`.trim();
+  }
+  let reply = "ok";
+  if (result && result.error) reply = `error: ${result.error}`;
+  else if (name === "ocr" && result && result.text) reply = clipOneLine(result.text);
+  else if (name === "run") {
+    const out = `${result && result.stdout ? result.stdout : ""}\n${result && result.stderr ? result.stderr : ""}`;
+    const count = /"count"\s*:\s*(-?\d+)/.exec(out);
+    if (count) reply = `count:${count[1]}`;
+    else if (result && result.stdout) reply = clipOneLine(result.stdout);
+    else reply = result && result.ok ? "ok" : `exit ${result && result.status}`;
+  } else if (name === "read_file" && result && result.contents != null) {
+    reply = `read ${String(result.contents).length.toLocaleString("en-US")} chars`;
+  } else if (name === "image_info" && result) {
+    reply =
+      result.kind === "palette"
+        ? `palette ${result.width}×${result.height}, ${(result.colors || []).length} colours`
+        : `${result.kind || "image"} ${result.width || "?"}×${result.height || "?"}`;
+  } else if (name === "write_file" && result && result.ok) {
+    reply = `wrote ${result.bytes} bytes`;
+  } else if (name === "list_dir" && result && result.entries) {
+    reply = `${result.entries.length} names`;
+  }
+  return { call, reply, shown: `${call} · ${reply}` };
+}
+
+function appendTrace(workspace, line) {
+  try {
+    fs.appendFileSync(path.join(workspace, GEMINI_TRACE), `${line}\n`);
+  } catch {
+    /* workspace may be gone */
+  }
 }
 
 function usageOf(data) {
@@ -788,8 +851,11 @@ function requestBody(contents, env = process.env) {
   };
   const think = String(env.EVG_GEMINI_THINKING || "").trim();
   if (think === "0") gen.thinkingConfig = { thinkingBudget: 0 };
-  else if (think && think !== "1" && Number.isFinite(Number(think))) {
-    gen.thinkingConfig = { thinkingBudget: Number(think) };
+  else {
+    gen.thinkingConfig = { includeThoughts: true };
+    if (think && think !== "1" && Number.isFinite(Number(think))) {
+      gen.thinkingConfig.thinkingBudget = Number(think);
+    }
   }
   return {
     systemInstruction: { parts: [{ text: geminiSystemPrompt() }] },
@@ -864,8 +930,14 @@ export async function geminiLoop({
     });
     saveHistory(workspace, contents, { model, followUp });
 
-    const { text, calls } = splitParts(parts);
+    const { text, thought, calls } = splitParts(parts);
+    if (thought) {
+      log(`think: ${clipOneLine(thought, 1500)}`);
+      appendTrace(workspace, `think: ${thought}`);
+      onEvent({ type: "assistant", message: { content: [{ text: thought }] } });
+    }
     if (text) {
+      if (thought) log(`say: ${clipOneLine(text, 400)}`);
       onEvent({ type: "assistant", message: { content: [{ text }] } });
     }
     if (!calls.length) {
@@ -879,22 +951,17 @@ export async function geminiLoop({
       const fc = part.functionCall;
       const name = fc.name;
       const args = argsOf(fc);
-      const shown =
-        name === "run"
-          ? String(args.command || name)
-          : name === "read_file" ||
-              name === "write_file" ||
-              name === "list_dir" ||
-              name === "image_info" ||
-              name === "ocr"
-            ? `${name} ${args.path || ""}`.trim()
-            : name;
+      const result = executeTool(workspace, name, args, env);
+      const sum = summarizeTool(name, args, result);
+      log(`→ ${sum.call}`);
+      log(`← ${sum.reply}`);
+      appendTrace(workspace, `→ ${sum.call}`);
+      appendTrace(workspace, `← ${sum.reply}`);
       onEvent({
         type: "tool_call",
         subtype: "started",
-        tool_call: { shellToolCall: { args: { command: shown } } },
+        tool_call: { shellToolCall: { args: { command: sum.shown } } },
       });
-      const result = executeTool(workspace, name, args, env);
       const fr = { name, response: result };
       if (fc.id) fr.id = fc.id;
       responses.push({ functionResponse: fr });

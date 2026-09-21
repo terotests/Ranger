@@ -53,6 +53,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the paid Flash rates $0.75 / $0.075 / $3.75 per 1M — cache hits are
   not billed as fresh input) and sent to the page spend line.
   `write_file` will not replace `doc.evg.json` or invent `layout.json`.
+  Thoughts are requested back (`includeThoughts`) and each tool is printed
+  as `→ call · ← result` on the withgemini console and in `.gemini-trace.log`.
   `npm run livebuild:withgemini` checks the key and opens the
   page with Gemini selected. The orchestrator suite drives the loop against
   a fake fetch, so CI never spends Google credits.
