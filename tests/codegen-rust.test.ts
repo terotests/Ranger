@@ -160,6 +160,17 @@ describe("Rust Code Generation", () => {
       expect(allows).toEqual(["#![allow(dead_code)]"]);
     });
 
+    it("leaves one blank line after the allows, not a run of them", () => {
+      // Cart has no Rc, no helpers: the two blanks that used to stand in for
+      // those blocks were empty lines under `#![allow(dead_code)]`.
+      expect(result.code).toMatch(
+        /^#!\[allow\(dead_code\)\]\n\n#\[derive\(Clone\)\]/,
+      );
+      expect(result.code).not.toMatch(
+        /^#!\[allow\(dead_code\)\]\n\n\n/,
+      );
+    });
+
     it("writes the shapes that made the allows unnecessary", () => {
       // the fold's local is never written again, so it is not `mut`
       expect(result.code).toContain("let line: CartLine = CartLine {");

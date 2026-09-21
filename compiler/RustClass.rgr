@@ -1544,6 +1544,11 @@ extension RangerRustClassWriter {
       if (this.rustNeedsPtrArg(ctx)) {
         this.rustNeedClippyAllow("ptr_arg" wr)
       }
+      ; one blank after the allows. unused_mut is added to file_attributes
+      ; later, so the separator lives here — after every allow, not glued
+      ; onto them. The two blanks that used to follow for the use block and
+      ; the helper block were written even when both were empty, which is
+      ; the Cart shape: three empty lines under `#![allow(dead_code)]`.
       header.out("" true)
       def needsRc:boolean (this.rustNeedsRcHeader(ctx))
       if needsRc {
@@ -1582,7 +1587,9 @@ extension RangerRustClassWriter {
       ; header already does with UnsafeCell, so nothing is brought into scope
       ; to be shadowed. It also drops an unused-import warning from every
       ; generated program that has no interior cell at all.
-      header.out("" true)
+      if ((needsRc || anyWeakField)) {
+        header.out("" true)
+      }
       ; D-UNION (PLAN_SHAPES.md S5): a union is a real Rust enum, one variant
       ; per member, each holding that member's cell. A `case` narrowing is then
       ; an `if let` on the tag — no trait object, no downcast, and a closed set
@@ -1915,7 +1922,9 @@ extension RangerRustClassWriter {
         header.out("    match s.rfind(key) { Some(b) => b as i64, None => -1 }" true)
         header.out("}" true)
       }
-      header.out("" true)
+      if (((needsRc || needsMap) || needsStrIndex)) {
+        header.out("" true)
+      }
       ; receiver-mutability pre-pass: every plain class method's
       ; &self / &mut self verdict lands on its desc BEFORE any emission,
       ; so call sites in earlier-emitted classes borrow the receiver's
