@@ -36,10 +36,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and runs `./evg-agent` in the workspace, rather than delegating to
   `agent -p`. Conversation history lives in `.gemini-history.json` so Follow
   up is the next turn; a start-over chip drops it. `EVG_GEMINI_MODEL`
-  selects the Flash id (`gemini-2.5-flash` by default).
-  `npm run livebuild:withgemini` checks the key and opens the page with Gemini
-  selected. The orchestrator suite drives the loop against a fake fetch, so
-  CI never spends Google credits.
+  selects the Flash id (`gemini-3.8-flash` by default). One Follow-up is
+  capped at `EVG_GEMINI_MAX_TURNS` generateContent rounds (64 by default;
+  the first cut stopped at 24). `run` is not a host shell: only
+  `./evg-agent`, `./evg-ui`, `./evg-app` and `./evg-image` are accepted —
+  the python / tesseract / sips loop against `/tmp` is refused — Gemini
+  proposes a line, this process splits argv and execs that binary, never
+  `sh -c`. The useful pieces of that loop are host tools instead:
+  `list_dir`, `image_info` (palette / image header, no pixel sampling)
+  and `ocr` (Tesseract on a workspace image, `TESSERACT_PATH`).
+  `read_file` will not open the conversation log or compiled `evg_*.js`.
+  Docker is opt-in (`EVG_GEMINI_SANDBOX=docker`): same argv in
+  `node:22-bookworm-slim` (`--network none`, repo read-only); `ocr` stays
+  on the host. `npm run livebuild:withgemini` checks the key and opens the
+  page with Gemini selected. The orchestrator suite drives the loop against
+  a fake fetch, so CI never spends Google credits.
 
 ### Changed
 

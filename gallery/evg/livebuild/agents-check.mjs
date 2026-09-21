@@ -18,6 +18,8 @@ import {
   denyRun,
   dockerRunArgs,
   parseRun,
+  geminiCostUsd,
+  formatGeminiSpend,
 } from "./gemini-agent.mjs";
 import http from "node:http";
 
@@ -683,6 +685,17 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   if (!/gemini API ready/.test(checkOn.stdout || "")) {
     throw new Error("withgemini --check did not say ready: " + (checkOn.stdout || checkOn.stderr));
   }
+  if (!/\$0\.75 \/ \$3\.75 per 1M/.test(checkOn.stderr || "")) {
+    throw new Error("withgemini --check should print Flash rates: " + (checkOn.stderr || ""));
+  }
+  const million = geminiCostUsd({ input: 1_000_000, output: 1_000_000 });
+  if (Math.abs(million - 4.5) > 1e-9) {
+    throw new Error("1M in + 1M out should be $4.50 at Flash paid rates, got " + million);
+  }
+  const about = formatGeminiSpend({ input: 12400, output: 860 });
+  if (!/12,400 in/.test(about) || !/860 out/.test(about) || !/~\$/.test(about)) {
+    throw new Error("spend line should name tokens and dollars: " + about);
+  }
   console.log("  withgemini  " + String(checkOn.stdout || "").trim());
 
   const ws = fs.mkdtempSync(path.join(os.tmpdir(), "evg-gemini-"));
@@ -919,6 +932,13 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
     throw new Error("usage did not add both turns: " + JSON.stringify(spend));
   }
   if (!spend.modelUsage["gemini-3.8-flash"]) throw new Error("result did not name the model");
+  const expectCost = geminiCostUsd({ input: 170, output: 18 });
+  if (typeof spend.total_cost_usd !== "number" || Math.abs(spend.total_cost_usd - expectCost) > 1e-12) {
+    throw new Error("result should carry the Flash about-cost: " + JSON.stringify(spend));
+  }
+  if (Math.abs((spend.modelUsage["gemini-3.8-flash"].costUSD || 0) - expectCost) > 1e-12) {
+    throw new Error("modelUsage should carry costUSD: " + JSON.stringify(spend.modelUsage));
+  }
   const hist = loadHistory(ws);
   if (hist.length < 4) throw new Error("history too short to continue a Follow-up: " + hist.length);
   fs.writeFileSync(path.join(ws, "TASK.md"), "Now make the title gold.\n");
@@ -1056,7 +1076,11 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
     if (!seen.some((e) => e.t === "session" && e.agent === "gemini")) {
       throw new Error("session did not name gemini");
     }
-    if (!seen.some((e) => e.t === "usage")) throw new Error("spawned Gemini reported no usage");
+    const usage = seen.find((e) => e.t === "usage");
+    if (!usage) throw new Error("spawned Gemini reported no usage");
+    if (typeof usage.costUsd !== "number" || usage.input !== 23 || usage.output !== 7) {
+      throw new Error("spawned usage should carry tokens and dollars: " + JSON.stringify(usage));
+    }
     const done = seen.filter((e) => e.t === "done").at(-1);
     if (!done?.ok) throw new Error("spawned Gemini done.ok is false: " + JSON.stringify(done));
     console.log("  gemini run  orchestrator spawn, usage on the page, tool hit the workspace");

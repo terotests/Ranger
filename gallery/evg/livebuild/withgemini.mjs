@@ -18,7 +18,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { geminiBase, geminiKey, geminiMaxTurns, geminiModel, geminiSandbox } from "./gemini-agent.mjs";
+import { geminiBase, geminiKey, geminiMaxTurns, geminiModel, geminiRates, geminiSandbox } from "./gemini-agent.mjs";
 import { root } from "./agents.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -74,11 +74,13 @@ function compile(src, out, outRel = "gallery/evg/bin") {
 }
 
 function report() {
+  const rates = geminiRates();
   process.stderr.write(`Gemini key:  ${geminiKey() ? "yes" : "no"}\n`);
   process.stderr.write(`Model:       ${geminiModel()}\n`);
   process.stderr.write(`Max turns:   ${geminiMaxTurns()}\n`);
   process.stderr.write(`Sandbox:     ${geminiSandbox()}\n`);
   process.stderr.write(`Endpoint:    ${geminiBase()}\n`);
+  process.stderr.write(`Rates:       $${rates.inputPerM} / $${rates.outputPerM} per 1M in/out (Flash paid tier)\n`);
 }
 
 function main() {
@@ -109,6 +111,7 @@ function main() {
   report();
   process.stderr.write(`\nOpen http://127.0.0.1:${PORT}/?agent=gemini\n`);
   process.stderr.write("The page calls Gemini Flash over the network and runs ./evg-agent in a bounded workspace.\n");
+  process.stderr.write("Each Follow-up prints input / output tokens and an about-cost on this console.\n");
   process.stderr.write("This uses your Google AI Studio credits. Ctrl+C stops the server.\n\n");
 
   const child = spawn(process.execPath, [path.join(here, "serve.mjs")], {

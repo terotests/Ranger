@@ -34,6 +34,9 @@ export const DEFAULT_DOCKER_IMAGE = "node:22-bookworm-slim";
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const repoRoot = path.resolve(here, "../../..");
 export const DEFAULT_MAX_TURNS = 64;
+/** Paid Gemini 3.8 Flash (Developer API), USD per 1M tokens. */
+export const GEMINI_FLASH_INPUT_PER_M = 0.75;
+export const GEMINI_FLASH_OUTPUT_PER_M = 3.75;
 const TOOL_OUT_CAP = 24_000;
 const DEFAULT_HISTORY_CHARS = 350_000;
 const RUN_TIMEOUT_MS = 90_000;
@@ -638,14 +641,73 @@ function usageOf(data) {
   return {
     input: num(u.promptTokenCount),
     output: num(u.candidatesTokenCount) + num(u.thoughtsTokenCount),
+    thoughts: num(u.thoughtsTokenCount),
     cacheRead: num(u.cachedContentTokenCount),
     cacheWrite: 0,
+  };
+}
+
+export function geminiRates(env = process.env) {
+  const inputPerM = Number(env.EVG_GEMINI_INPUT_PER_M || GEMINI_FLASH_INPUT_PER_M);
+  const outputPerM = Number(env.EVG_GEMINI_OUTPUT_PER_M || GEMINI_FLASH_OUTPUT_PER_M);
+  return {
+    inputPerM: Number.isFinite(inputPerM) && inputPerM >= 0 ? inputPerM : GEMINI_FLASH_INPUT_PER_M,
+    outputPerM: Number.isFinite(outputPerM) && outputPerM >= 0 ? outputPerM : GEMINI_FLASH_OUTPUT_PER_M,
+  };
+}
+
+/** About-cost from Gemini usageMetadata. Thoughts count as output. */
+export function geminiCostUsd(usage, env = process.env) {
+  const { inputPerM, outputPerM } = geminiRates(env);
+  const input = Number(usage && usage.input) || 0;
+  const output = Number(usage && usage.output) || 0;
+  return (input / 1_000_000) * inputPerM + (output / 1_000_000) * outputPerM;
+}
+
+function tokCount(n) {
+  return Math.round(Number(n) || 0).toLocaleString("en-US");
+}
+
+function moneyUsd(n) {
+  const v = Number(n) || 0;
+  if (v === 0) return "$0";
+  if (v < 0.0001) return `$${v.toFixed(6)}`;
+  return `$${v.toFixed(4)}`;
+}
+
+export function formatGeminiSpend(usage, extra = {}) {
+  const env = extra.env || process.env;
+  const cost = extra.cost != null ? extra.cost : geminiCostUsd(usage, env);
+  const parts = [`${tokCount(usage && usage.input)} in`, `${tokCount(usage && usage.output)} out`];
+  if (usage && usage.thoughts) parts.push(`${tokCount(usage.thoughts)} thought`);
+  if (usage && usage.cacheRead) parts.push(`${tokCount(usage.cacheRead)} cache`);
+  parts.push(`~${moneyUsd(cost)}`);
+  if (extra.turns) parts.push(`${extra.turns} turn${extra.turns === 1 ? "" : "s"}`);
+  return parts.join(" · ");
+}
+
+function resultEvent(spend, { turns, started, model, env, subtype = "success" }) {
+  const cost = geminiCostUsd(spend, env);
+  return {
+    type: "result",
+    subtype,
+    num_turns: turns,
+    duration_ms: Date.now() - started,
+    total_cost_usd: cost,
+    usage: {
+      input_tokens: spend.input,
+      output_tokens: spend.output,
+      cache_read_input_tokens: spend.cacheRead,
+      cache_creation_input_tokens: spend.cacheWrite,
+    },
+    modelUsage: { [model]: { costUSD: cost } },
   };
 }
 
 function addUsage(into, piece) {
   into.input += piece.input;
   into.output += piece.output;
+  into.thoughts += piece.thoughts || 0;
   into.cacheRead += piece.cacheRead;
   into.cacheWrite += piece.cacheWrite;
 }
@@ -720,6 +782,7 @@ export async function geminiLoop({
   fetchImpl = fetch,
   env = process.env,
   signal,
+  log = () => {},
 }) {
   const key = geminiKey(env);
   if (!key) throw new Error("GEMINI_API_KEY is not set (Google AI Studio). GOOGLE_API_KEY is also accepted.");
@@ -741,7 +804,7 @@ export async function geminiLoop({
     Number(env.EVG_GEMINI_HISTORY_CHARS || DEFAULT_HISTORY_CHARS),
   );
 
-  const spend = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+  const spend = { input: 0, output: 0, thoughts: 0, cacheRead: 0, cacheWrite: 0 };
   const maxTurns = geminiMaxTurns(env);
   const started = Date.now();
   let turns = 0;
@@ -756,7 +819,10 @@ export async function geminiLoop({
       fetchImpl,
       signal,
     });
-    addUsage(spend, usageOf(data));
+    const piece = usageOf(data);
+    addUsage(spend, piece);
+    turns += 1;
+    log(`turn ${turns}  ${formatGeminiSpend(piece, { env })}  (run ${formatGeminiSpend(spend, { turns, env })})`);
     const candidate = data.candidates && data.candidates[0];
     const parts = (candidate && candidate.content && candidate.content.parts) || [];
     if (!parts.length) {
@@ -769,7 +835,6 @@ export async function geminiLoop({
       role: (candidate.content && candidate.content.role) || "model",
       parts,
     });
-    turns += 1;
     saveHistory(workspace, contents, { model, followUp });
 
     const { text, calls } = splitParts(parts);
@@ -777,20 +842,9 @@ export async function geminiLoop({
       onEvent({ type: "assistant", message: { content: [{ text }] } });
     }
     if (!calls.length) {
-      onEvent({
-        type: "result",
-        subtype: "success",
-        num_turns: turns,
-        duration_ms: Date.now() - started,
-        usage: {
-          input_tokens: spend.input,
-          output_tokens: spend.output,
-          cache_read_input_tokens: spend.cacheRead,
-          cache_creation_input_tokens: spend.cacheWrite,
-        },
-        modelUsage: { [model]: {} },
-      });
-      return { ok: true, turns, followUp, model, usage: spend };
+      const result = resultEvent(spend, { turns, started, model, env });
+      onEvent(result);
+      return { ok: true, turns, followUp, model, usage: spend, costUsd: result.total_cost_usd };
     }
 
     const responses = [];
@@ -822,7 +876,11 @@ export async function geminiLoop({
     saveHistory(workspace, contents, { model, followUp });
   }
 
-  throw new Error(`Gemini hit EVG_GEMINI_MAX_TURNS (${maxTurns}) without finishing`);
+  const capped = resultEvent(spend, { turns, started, model, env, subtype: "error" });
+  onEvent(capped);
+  throw new Error(
+    `Gemini hit EVG_GEMINI_MAX_TURNS (${maxTurns}) without finishing — ${formatGeminiSpend(spend, { turns, env })}`,
+  );
 }
 
 function emit(obj) {
@@ -850,13 +908,18 @@ async function main() {
     process.stderr.write("GEMINI_API_KEY is not set. Get one at https://aistudio.google.com/apikey\n");
     process.exit(1);
   }
+  const rates = geminiRates();
   process.stderr.write(`Gemini: ${geminiModel()} → ${geminiBase()}\n`);
+  process.stderr.write(`rates $${rates.inputPerM} / $${rates.outputPerM} per 1M in/out (Flash paid tier)\n`);
   try {
     const result = await geminiLoop({
       workspace: ws,
       onEvent: emit,
+      log: (line) => process.stderr.write(`${line}\n`),
     });
-    process.stderr.write(`Gemini finished in ${result.turns} turn(s)\n`);
+    process.stderr.write(
+      `Gemini finished in ${result.turns} turn(s) — ${formatGeminiSpend(result.usage, { turns: result.turns })}\n`,
+    );
     process.exit(result.ok ? 0 : 1);
   } catch (e) {
     const text = String(e.message || e);
