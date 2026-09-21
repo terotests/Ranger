@@ -31,18 +31,41 @@ def large (numbers.filter({ return (item > 3) }))   ; a type method
 
 ## Where the operators are
 
-| Source | Availability |
-| --- | --- |
-| `compiler/Lang.rgr` | Always. The core of the language. |
-| `lib/stdops.rgr` | Always. The compiler loads it with the core. |
-| The other files in `lib/` | After an `Import` statement in the program. |
+`compiler/Lang.rgr` is the language definition. It is the base of the operator
+set. Ranger has no separate standard library.
 
-The [operator reference](/Ranger/docs/reference/operators/statements/) holds the
-core template operators. The
-[library operators](/Ranger/docs/reference/libraries/json/) hold the library
-template operators, and the
-[type methods](/Ranger/docs/reference/methods/stdlib/) hold the second
-mechanism.
+You can declare more library operators for the compiler in `Lang.rgr` and in
+imported files.
+
+| Source | Role |
+| --- | --- |
+| `compiler/Lang.rgr` | The language definition. Every program uses it. |
+| `lib/stdops.rgr` | Loaded with `Lang.rgr`. Macros and the `ret` operator. |
+| An imported file | Extra library operators after `Import`. `lib/stdlib.rgr` and `lib/JSON.rgr` are examples. |
+
+The [operator reference](/Ranger/docs/reference/operators/statements/) lists
+`Lang.rgr`. The [library operator pages](/Ranger/docs/reference/libraries/stdlib/)
+list imported files.
+
+## Custom operators
+
+A custom operator needs a new compiler. Compile the compiler again:
+
+```sh
+npm run compile
+```
+
+Declare the operator in `Lang.rgr` or in a file that the program imports:
+
+```lisp
+operators {
+    twice _:int (value:int) {
+        templates {
+            * ( (e 1) " + " (e 1) )
+        }
+    }
+}
+```
 
 ## A definition
 
@@ -112,11 +135,11 @@ ceil  _:int (value:double) {
 }
 ```
 
-Python had no `ceil` template until this release, so it took the default one.
-The compilation reported success and the Python file held `Math.ceil(d)`, which
-Python cannot run. `ceil` now has a Python template, and the
-[coverage page](/Ranger/docs/reference/coverage/) states which operators are
-still in that state.
+A target that has no template of its own then receives that JavaScript in
+its output file, and the compilation reports success. Python wrote
+`Math.ceil(d)` this way in an earlier version. `ceil` now has a Python
+template. The [coverage page](/Ranger/docs/reference/coverage/) states which
+operators are still in that state.
 
 The mark ✱ therefore states the origin of the code. Compile the output of a new
 operator with the toolchain of the target before you depend on it.

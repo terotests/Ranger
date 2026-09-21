@@ -10,6 +10,12 @@ operator or the function first, and the arguments after it.
 print ("sum " + (1 + 2))
 ```
 
+A call on a dotted receiver can use the parentheses against the name.
+`helper.value()` is the same call as `(helper.value())`.
+
+A block holds one statement per line. `{ def c:int 5 return c }` is a parse
+error.
+
 ## Class
 
 A class holds data and functions:

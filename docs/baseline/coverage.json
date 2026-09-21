@@ -1,9 +1,9 @@
 {
   "perSource": {
     "core": {
-      "operators": 337,
-      "withExample": 26,
-      "withDescription": 8
+      "operators": 355,
+      "withExample": 27,
+      "withDescription": 9
     },
     "stdops": {
       "operators": 2,
@@ -11,12 +11,12 @@
       "withDescription": 0
     },
     "stdlib": {
-      "operators": 45,
+      "operators": 49,
       "withExample": 8,
       "withDescription": 0
     },
     "json": {
-      "operators": 36,
+      "operators": 38,
       "withExample": 0,
       "withDescription": 0
     },
@@ -112,8 +112,8 @@
     }
   },
   "total": {
-    "operators": 838,
-    "withExample": 34,
-    "withDescription": 8
+    "operators": 862,
+    "withExample": 35,
+    "withDescription": 9
   }
 }

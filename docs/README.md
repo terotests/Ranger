@@ -21,7 +21,7 @@ that publishes the site, so the documentation cannot drift from the release.
 
 | Path | Content | In git |
 | --- | --- | --- |
-| `sources.json` | The files that declare operators, and the status of each: `stable` (documented) or `legacy` (listed on the not-covered page, no reference pages). A file in `lib/` with an `operators { }` block or an `operator type:` block must be listed. | yes |
+| `sources.json` | The files that declare operators, and the status of each: `stable` (documented) or `legacy` (no reference pages). A file in `lib/` with an `operators { }` block or an `operator type:` block must be listed. `classLibraries` names top-level `lib/*.rgr` files that hold classes only. `tests/docs-usage.test.ts` fails when either list drifts from the tree. | yes |
 | `examples/` | Example programs. Each one compiles. A header `id:` binds it to operators; a header `topic:` binds it to a guide page. | yes |
 | `descriptions/` | One Markdown file per operator, with the prose. | yes |
 | `tools/` | The generator (stages A to D). | yes |
@@ -49,13 +49,18 @@ compiler is not built.
 
 ## The two operator mechanisms
 
+Ranger has no separate standard library. `compiler/Lang.rgr` is the language
+definition. Extra library operators go in `Lang.rgr` or in an imported file.
+A custom operator needs `npm run compile`.
+
 | Mechanism | Where | Portability |
 | --- | --- | --- |
 | Template operator | `operators { }` / `commands { }` blocks. One emission string per target. | Manual. A target with no template and no `*` fallback writes no code. |
 | Type method | `operator type:<T> <scope> { fn … }` blocks. Ordinary Ranger code. | Every target that compiles the library. |
 
-The reference covers both. A type method has a page under
-`reference/methods/`, states its target scope and shows its Ranger body.
+The reference covers both. A type method is on the library page of its source
+under `reference/libraries/`. The entry states its target scope and shows its
+Ranger body.
 
 ## How the model is read
 

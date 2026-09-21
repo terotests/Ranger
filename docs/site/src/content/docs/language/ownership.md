@@ -72,9 +72,8 @@ no current path assigns.)
 
 The pass covers the methods, the static methods and the constructor of each
 class. It needs no annotation, and it decides most parameters: a compilation of
-`gallery/pdf_writer/src/tools/jpeg_scaler.rgr` reads 110 functions and decides
-all 256 parameters — 254 `borrowed`, and 2 buffers that the decoder stores
-into a member.
+`gallery/pdf_writer/src/tools/jpeg_scaler.rgr` reads 114 functions and decides
+all 261 parameters — 257 `borrowed`, and 4 `moved`.
 
 ### Read the result
 
@@ -196,9 +195,9 @@ reference exists. Declare a `weak` field `@(weak optional)` and read it with the
 | `lives` | The value lives longer than its block. The compiler uses it in its reference bookkeeping. |
 | `temp` | The value is temporary. The compiler uses it in its reference bookkeeping. |
 
-`weak` is the one that changes the output, and it does not work on each target
-yet. [The memory page](/Ranger/docs/targets/memory/) holds the emission and the
-state of each target.
+`weak` is the one that changes the output. It works on C++, on Swift, and on
+Rust with the shared-class default.
+[The memory page](/Ranger/docs/targets/memory/) holds the emission.
 
 `strong`, `lives` and `temp` change no output on any target. The compiler reads
 `lives` and `temp` in `compiler/RangerAppParamDesc.rgr`, where it follows the
@@ -217,5 +216,5 @@ strength and the lifetime of each reference through the assignments.
    calls `moved`, `shared` or `unknown` costs a copy of a pointer at each
    call.
 
-The nine targets that collect memory need none of this. The program is the same
+The ten targets that collect memory need none of this. The program is the same
 for them, and the annotations change nothing in their output.

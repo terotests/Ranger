@@ -15,7 +15,7 @@ def ratio:double 0.5    ; the program declares the type
 
 | Type | Content | Example of a value |
 | --- | --- | --- |
-| `int` | A whole number. The target uses a 64 bit integer when it has one. | `42` |
+| `int` | A whole number. Width is 64 bits or 32 bits, by target. | `42` |
 | `double` | A number with a fraction. | `3.14` |
 | `string` | Text. | `"Ranger"` |
 | `char` | One character. | `'a'` |
@@ -23,7 +23,9 @@ def ratio:double 0.5    ; the program declares the type
 
 The compiler also has fixed width integer types: `int8`, `int16`, `int32`,
 `int64` and the unsigned types. Use them when the program writes a binary
-format or when it must agree with a C structure.
+format or when it must agree with a C structure. C++, C#, Java and Kotlin
+write a 32 bit integer for `int`. JavaScript, Python, PHP, Go and Rust write
+a 64 bit integer. See [Target languages](/Ranger/docs/targets/overview/).
 
 ## Collections
 

@@ -5,7 +5,8 @@ description: How to add an example, a description or a new operator source to th
 
 The operator reference is generated. Do not edit a page under
 `reference/operators/` or `reference/libraries/`: the next build removes the
-change. Edit the input of the generator instead.
+change. Edit the input of the generator instead. Type methods of a library are
+on the same page as its template operators.
 
 ## The input files
 
@@ -78,7 +79,7 @@ operators and the registry has no entry for it.
 | Status | Effect |
 | --- | --- |
 | `stable` | The source gets reference pages and a place in the navigation. |
-| `legacy` | The source gets no page. The [not covered page](/Ranger/docs/reference/not-covered/) names it, with the `reason` field. |
+| `legacy` | The source gets no page. |
 
 Measure before a change of status. The measurement has two parts, and a file is
 `legacy` only when it fails both.
@@ -100,6 +101,13 @@ also when no file in the repository does. A file on that list stays `stable`,
 and the test `docs-tools.test.ts` fails when it does not.
 
 A `legacy` entry needs a `reason`, and the reason states the measurement.
+
+The test `tests/docs-usage.test.ts` repeats the measurement. It fails when a
+`legacy` file has an importer that is not itself legacy. It fails when a
+`stable` library has no importer and is not in the playground list. It also
+fails when a top-level `lib/*.rgr` file holds no operator block and is missing
+from `classLibraries` in `docs/sources.json`. Those entries keep the registry
+complete. They get no generated page, because they declare no operators.
 
 The `CreateFile` list in `compiler/VirtualCompiler.rgr` is **not** a third
 signal. That function writes `compileEnv.js`, its only caller is a comment, and

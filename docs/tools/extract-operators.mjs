@@ -99,6 +99,7 @@ async function main() {
       targets: TARGETS,
     },
     sources: [],
+    classLibraries: registry.classLibraries || [],
     operators: [],
     methods: [],
     macros: [],

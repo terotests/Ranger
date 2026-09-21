@@ -1,4 +1,4 @@
-;; id: core/add.int.opt-int, core/sub.int.int, core/mul.int.int, core/div.int.int
+;; id: core/add.int.opt-int, core/sub.int.int, core/mul.int.int, core/div.int.int, core/idiv.int.int
 ;; title: Integer arithmetic
 ;; category: numeric
 
@@ -10,5 +10,6 @@ class Main {
         print ("difference " + (a - b))
         print ("product " + (a * b))
         print ("quotient " + (a / b))
+        print ("integer quotient " + (idiv a b))
     }
 }

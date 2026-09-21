@@ -13,7 +13,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { CATEGORIES, CATEGORY_BY_ID, defaultTemplateIsJavaScript } from "./lib/model.mjs";
 import { operatorFileName } from "./lib/opid.mjs";
-import { CONTENT, DATA, DESCRIPTIONS, ROOT, readJson } from "./lib/paths.mjs";
+import { CONTENT, DATA, DESCRIPTIONS, readJson } from "./lib/paths.mjs";
 import { blobUrl } from "./lib/source-url.mjs";
 
 const REPOSITORY = "https://github.com/terotests/Ranger";
@@ -173,7 +173,8 @@ function main() {
   });
 
   // One page per library that the documentation covers. A legacy source has
-  // no page: it is listed on the not-covered page instead, with the reason.
+  // no page: no maintained program imports it. Type methods of the same file
+  // go on this page, not on a second page with the same library name.
   const libraries = model.sources.filter(
     (s) => s.id !== "core" && s.id !== "stdops" && s.status !== "legacy",
   );
@@ -181,50 +182,20 @@ function main() {
     const operators = model.operators
       .filter((o) => o.source === library.id)
       .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
-    if (operators.length === 0) {
-      return;
-    }
-    const file = path.join(referenceDir, "libraries", `${library.id}.mdx`);
-    const intro = [
-      library.summary,
-      "",
-      library.import
-        ? `To use these operators, add the import to the program:\n\n\`\`\`lisp\nImport "${library.import}"\n\`\`\``
-        : "The compiler loads this file with the core library.",
-      "",
-      `Source: [${library.file}](${blobUrl(REPOSITORY, library.file)}).`,
-    ].join("\n");
-    writePage(
-      file,
-      page({
-        title: library.title,
-        description: `${library.summary} ${operators.length} operators.`,
-        order: index + 1,
-        operators,
-        examples,
-        intro,
-      }),
-    );
-    written += 1;
-  });
-
-  // The type methods: the second operator mechanism of the language.
-  fs.rmSync(path.join(referenceDir, "methods"), { recursive: true, force: true });
-  const methodSources = model.sources.filter(
-    (source) => source.status !== "legacy" && model.methods.some((m) => m.source === source.id),
-  );
-  methodSources.forEach((source, index) => {
-    const methods = model.methods
-      .filter((m) => m.source === source.id)
+    const methods = (model.methods || [])
+      .filter((m) => m.source === library.id)
       .sort(
         (a, b) =>
           a.receiver.localeCompare(b.receiver) ||
           a.name.localeCompare(b.name) ||
           a.id.localeCompare(b.id),
       );
+    if (operators.length === 0 && methods.length === 0) {
+      return;
+    }
     writePage(
-      path.join(referenceDir, "methods", `${source.id}.mdx`),
-      methodPage(source, methods, examples),
+      path.join(referenceDir, "libraries", `${library.id}.mdx`),
+      libraryPage({ library, operators, methods, examples, order: index + 1 }),
     );
     written += 1;
   });
@@ -352,23 +323,94 @@ function main() {
   writePage(path.join(referenceDir, "coverage.mdx"), coveragePage(model, examples, targets));
   written += 1;
 
-  // The sources that the documentation does not cover.
-  writePage(path.join(referenceDir, "not-covered.mdx"), notCoveredPage(model));
-  written += 1;
+  fs.rmSync(path.join(referenceDir, "not-covered.mdx"), { force: true });
 
   process.stderr.write(`docs: ${written} reference pages written\n`);
 }
 
+const TYPE_METHOD_INTRO = [
+  "A type method is an operator of the receiver type. The call is",
+  "`receiver.name(…)`. The body is Ranger code, so the compiler writes it for",
+  "every target that compiles the library.",
+].join("\n");
+
 /**
- * A page of type methods.
+ * One library page: template operators and type methods of the same source.
  *
  * A type method is an operator of the second mechanism: ordinary Ranger code in
  * an `operator type:<T>` block. The call is `receiver.name(…)`, and the
  * compiler compiles the body like any other Ranger source. The body therefore
- * works for every target that compiles the library, and the page states the
- * target scope of the block instead of a template list.
+ * works for every target that compiles the library. The page states the target
+ * scope of the block instead of a template list.
  */
-function methodPage(source, methods, examples) {
+function libraryPage({ library, operators, methods, examples, order }) {
+  const hasOperators = operators.length > 0;
+  const hasMethods = methods.length > 0;
+  const count = operators.length + methods.length;
+  const intro = [
+    library.summary,
+    "",
+    library.import
+      ? `To use these operators, add the import to the program:\n\n\`\`\`lisp\nImport "${library.import}"\n\`\`\``
+      : "The compiler loads this file with the core library.",
+    "",
+    `Source: [${library.file}](${blobUrl(REPOSITORY, library.file)}).`,
+  ];
+  if (hasOperators && hasMethods) {
+    intro.push(
+      "",
+      "This file holds two operator mechanisms. The template operators write",
+      "target code from a string per language. The type methods are Ranger",
+      "code. The compiler compiles them for every target that loads the library.",
+    );
+  } else if (hasMethods) {
+    intro.push("", TYPE_METHOD_INTRO);
+  }
+
+  const body = [];
+  body.push(
+    frontMatter({
+      title: library.title,
+      description: `${library.summary} ${count} operators.`,
+      sidebarOrder: order,
+      tableOfContents: hasMethods,
+    }),
+  );
+  if (hasOperators) {
+    body.push('import OperatorEntry from "../../../../components/OperatorEntry.astro";');
+    body.push('import TargetSupportLegend from "../../../../components/TargetSupportLegend.astro";');
+  }
+  if (hasMethods) {
+    body.push('import MethodEntry from "../../../../components/MethodEntry.astro";');
+  }
+  body.push('import model from "../../../../data/operators.json";');
+  body.push('import exampleData from "../../../../data/examples.json";');
+  body.push("");
+  body.push(intro.join("\n"), "");
+
+  if (hasOperators) {
+    if (hasMethods) {
+      body.push("## Template operators", "");
+    }
+    body.push(summaryTable(operators));
+    body.push("<TargetSupportLegend />", "");
+    for (const operator of operators) {
+      const withExamples = examplesFor(examples, operator.id);
+      body.push(operatorSection(operator, withExamples, readDescription(operator.id)).text);
+    }
+  }
+
+  if (hasMethods) {
+    if (hasOperators) {
+      body.push("## Type methods", "", TYPE_METHOD_INTRO, "");
+    }
+    body.push(methodSections(methods));
+  }
+
+  return body.join("\n");
+}
+
+function methodSections(methods) {
   const byReceiver = new Map();
   for (const method of methods) {
     if (!byReceiver.has(method.receiver)) {
@@ -378,28 +420,6 @@ function methodPage(source, methods, examples) {
   }
 
   const body = [];
-  body.push(
-    frontMatter({
-      title: `${source.title} methods`,
-      description: `The type methods that ${source.file} declares. ${methods.length} methods.`,
-      tableOfContents: false,
-    }),
-  );
-  body.push('import MethodEntry from "../../../../components/MethodEntry.astro";');
-  body.push('import model from "../../../../data/operators.json";');
-  body.push('import exampleData from "../../../../data/examples.json";');
-  body.push("");
-  body.push(
-    "A type method is an operator of the receiver type. The call is",
-    "`receiver.name(…)`. The body is Ranger code, so the compiler writes it for",
-    "every target that compiles the library.",
-    "",
-  );
-  if (source.import) {
-    body.push("```lisp", `Import "${source.import}"`, "```", "");
-  }
-  body.push(`Source: [${source.file}](${blobUrl(REPOSITORY, source.file)}).`, "");
-
   for (const [receiver, list] of byReceiver) {
     body.push(`## \`${receiver}\``, "");
     const rows = list.map((method) => {
@@ -427,76 +447,6 @@ function methodPage(source, methods, examples) {
     }
   }
   return body.join("\n");
-}
-
-/**
- * The sources that the reference does not document.
- *
- * A legacy file stays in the tree and it stays in docs/sources.json, so the
- * registry check keeps working and a reader can find the file. It gets no
- * reference page, because a page would state that the operators are part of the
- * maintained language. The measure of "legacy" is the import: no maintained
- * program imports the file.
- */
-function notCoveredPage(model) {
-  const legacy = model.sources.filter((source) => source.status === "legacy");
-  const rows = legacy.map((source) => {
-    const operators = model.operators.filter((o) => o.source === source.id).length;
-    const methods = (model.methods || []).filter((m) => m.source === source.id).length;
-    return (
-      `| [\`${source.file}\`](${blobUrl(REPOSITORY, source.file)}) | ` +
-      `${operators} | ${methods} | ${source.reason || ""} |`
-    );
-  });
-
-  return [
-    frontMatter({
-      title: "Libraries that this documentation does not cover",
-      description:
-        "The operator sources that stay in the repository but get no reference page, and the reason for each.",
-      sidebarOrder: 3,
-    }),
-    "The repository holds operator sources that no maintained program imports.",
-    "They stay in the tree, and the compiler still reads them when a program",
-    "imports them. This documentation does not give them a reference page: a",
-    "page would state that the operators are a part of the maintained language,",
-    "and the measurement below does not support that.",
-    "",
-    "The measurement has two parts:",
-    "",
-    "1. **The `Import` statement.** An operator of a library is available only",
-    "   after a program imports the file, so a file that no program imports has",
-    "   no user in this repository.",
-    "2. **The playground environment.** The list in",
-    "   `playground/scripts/build-compiler-env.mjs` states which library files",
-    "   the browser compiler ships. A file on that list is available to every",
-    "   program in the playground, also when no file in the repository imports",
-    "   it. Such a file stays in the documentation.",
-    "",
-    "A file that fails both parts is on the list below.",
-    "",
-    "| File | Template operators | Type methods | Why |",
-    "| --- | --- | --- | --- |",
-    ...rows,
-    "",
-    "## What to do with these",
-    "",
-    "- To read the operators, open the source file. Each file holds the",
-    "  `operators { }` or `operator type:` blocks with the templates.",
-    "- To use one in a program, add the import. The compiler accepts the file;",
-    "  it is not removed and it is not disabled.",
-    "- To make one part of the documentation again, change `status` to `stable`",
-    "  in `docs/sources.json` and add an example. Measure the use first.",
-    "",
-    "The maintained equivalents:",
-    "",
-    "| Instead of | Use |",
-    "| --- | --- |",
-    "| `lib/WebServerLib.rgr` | The HTTP server operators of `compiler/Lang.rgr` |",
-    "| `lib/Time.rgr` | `lib/IsoDateLib.rgr` for calendar work |",
-    "| `lib/ImmutableVector.rgr` | The array and map operators of the core |",
-    "",
-  ].join("\n");
 }
 
 function coveragePage(model, examples, targets) {
@@ -556,10 +506,9 @@ function coveragePage(model, examples, targets) {
     "| --- | --- | --- | --- | --- |",
     ...rows,
     "",
-    `${legacyCount} more operator sources are in the repository and are not in the`,
-    "table above. The",
-    "[not covered page](/Ranger/docs/reference/not-covered/) names them and gives",
-    "the reason for each.",
+    `${legacyCount} more operator sources stay in \`lib/\` and have no page.`,
+    "No maintained program imports them. The generator skips them so a page",
+    "does not present them as part of the maintained language.",
     "",
     "## Templates per target",
     "",
