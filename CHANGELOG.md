@@ -41,9 +41,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   capped at `EVG_GEMINI_MAX_TURNS` generateContent rounds (64 by default;
   the first cut stopped at 24). `run` is not a host shell: only
   `./evg-agent`, `./evg-ui`, `./evg-app` and `./evg-image` are accepted —
-  the python / tesseract / sips loop against `/tmp` is refused — and when
-  Docker is up those four run in `node:22-bookworm-slim` (`--network none`,
-  repo read-only). `EVG_GEMINI_SANDBOX=docker|host` overrides.
+  the python / tesseract / sips loop against `/tmp` is refused — Gemini
+  proposes a line, this process splits argv and execs that binary, never
+  `sh -c`. Docker is opt-in (`EVG_GEMINI_SANDBOX=docker`): same argv in
+  `node:22-bookworm-slim` (`--network none`, repo read-only).
   `npm run livebuild:withgemini` checks the key and opens the page with Gemini
   selected. The orchestrator suite drives the loop against a fake fetch, so
   CI never spends Google credits.

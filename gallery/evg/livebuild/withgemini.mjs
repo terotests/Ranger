@@ -37,7 +37,7 @@ GOOGLE_API_KEY is accepted if GEMINI_API_KEY is empty.
 Optional:
   export EVG_GEMINI_MODEL=gemini-3.8-flash
   export EVG_GEMINI_MAX_TURNS=64          # generateContent rounds per Follow-up
-  export EVG_GEMINI_SANDBOX=docker        # run tools in node-slim (no python/tesseract)
+  export EVG_GEMINI_SANDBOX=docker        # opt-in: same four tools in node-slim
 
 Then:
   npm run livebuild:withgemini

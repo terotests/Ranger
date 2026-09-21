@@ -97,7 +97,7 @@ To drive it with **Gemini Flash** over the network (no Cursor CLI):
 export GEMINI_API_KEY=…              # https://aistudio.google.com/apikey
 # export EVG_GEMINI_MODEL=gemini-3.8-flash   # default; any Flash id
 # export EVG_GEMINI_MAX_TURNS=64             # generateContent rounds per Follow-up
-# export EVG_GEMINI_SANDBOX=docker           # tools in node-slim; `host` skips Docker
+# export EVG_GEMINI_SANDBOX=docker           # opt-in: same argv in node-slim
 npm run livebuild:withgemini
 # open http://127.0.0.1:8765/?agent=gemini
 ```
@@ -110,11 +110,11 @@ conversation held in the session. Start-over chips drop it. One Follow-up
 stops after `EVG_GEMINI_MAX_TURNS` model rounds (64 unless you raise it) —
 that is the message `Gemini hit EVG_GEMINI_MAX_TURNS (N) without finishing`.
 
-`run` is not a host shell. Only `./evg-agent`, `./evg-ui`, `./evg-app` and
-`./evg-image` are accepted, so Flash cannot OCR `/tmp` or call `tesseract`.
-If Docker is running, those four also execute inside `node:22-bookworm-slim`
-(`--network none`, repo mounted read-only). Force it with
-`EVG_GEMINI_SANDBOX=docker`, or stay on the host with `=host`.
+`run` is not a host shell. Gemini proposes a line; this process splits it
+into argv and will only exec `./evg-agent`, `./evg-ui`, `./evg-app` or
+`./evg-image`. python / tesseract / `sips` / `/tmp` never start. Docker is
+opt-in (`EVG_GEMINI_SANDBOX=docker`): same argv, `node:22-bookworm-slim`,
+`--network none`, repo read-only.
 
 Without a browser:
 

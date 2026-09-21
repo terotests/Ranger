@@ -17,6 +17,7 @@ import {
   GEMINI_HISTORY,
   denyRun,
   dockerRunArgs,
+  parseRun,
 } from "./gemini-agent.mjs";
 import http from "node:http";
 
@@ -709,6 +710,19 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   if (denyRun("./evg-ui add switch --into doc.evg.json > add.json")) {
     throw new Error("denyRun blocked a relative redirect");
   }
+  const parsed = parseRun("./evg-ui add switch --into doc.evg.json > add.json");
+  if (parsed.error || parsed.bin !== "./evg-ui" || parsed.stdoutTo !== "add.json") {
+    throw new Error("redirect should be argv + a file, not a shell: " + JSON.stringify(parsed));
+  }
+  fs.writeFileSync(path.join(ws, "evg-agent"), "#!/bin/sh\nprintf 'outlined\\n'\n", { mode: 0o755 });
+  const redirected = executeTool(ws, "run", { command: "./evg-agent outline doc.evg.json > out.txt" }, {
+    ...process.env,
+    EVG_GEMINI_SANDBOX: "host",
+  });
+  if (redirected.error) throw new Error("filtered ./evg-agent should run: " + redirected.error);
+  if (fs.readFileSync(path.join(ws, "out.txt"), "utf8") !== "outlined\n") {
+    throw new Error("redirect was not applied by the host: " + (redirected.stdout || ""));
+  }
   const dargs = dockerRunArgs("/tmp/evg-ws", "./evg-agent outline doc.evg.json", {
     EVG_GEMINI_DOCKER_IMAGE: "node:22-bookworm-slim",
     EVG_GEMINI_REPO: "/opt/ranger",
@@ -721,13 +735,13 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   if (!djoin.includes("/opt/ranger:/opt/ranger:ro")) {
     throw new Error("the repo must be read-only in the container: " + djoin);
   }
-  if (dargs.includes("python") || djoin.includes("tesseract")) {
-    throw new Error("the sandbox image is node, not an OCR box");
+  if (dargs.includes("sh") && dargs.includes("-c")) {
+    throw new Error("docker must exec argv, not sh -c: " + djoin);
   }
-  if (dargs.at(-1) !== "./evg-agent outline doc.evg.json") {
+  if (dargs.at(-3) !== "./evg-agent" || dargs.at(-1) !== "doc.evg.json") {
     throw new Error("docker argv lost the command: " + djoin);
   }
-  console.log("  gemini run  python/tesseract/sips refused; docker has no net, repo ro");
+  console.log("  gemini run  filtered argv, no shell; docker has no net, repo ro");
 
   const requests = [];
   let calls = 0;
@@ -954,6 +968,7 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   } finally {
     geminiHttp.server.close();
     restoreKeys();
+    restoreBox();
     if (prevBase === undefined) delete process.env.GEMINI_API_BASE;
     else process.env.GEMINI_API_BASE = prevBase;
     if (prevModel === undefined) delete process.env.EVG_GEMINI_MODEL;

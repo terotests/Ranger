@@ -11,9 +11,8 @@
  *   GOOGLE_API_KEY is accepted if GEMINI_API_KEY is empty.
  *   EVG_GEMINI_MODEL selects the Flash id (default gemini-3.8-flash).
  *   EVG_GEMINI_MAX_TURNS is generateContent rounds per Follow-up (default 64).
- *   EVG_GEMINI_SANDBOX=auto|docker|host — `run` goes in a node-slim
- *   container (no python, no tesseract) when Docker is up; allowlist
- *   always applies.
+ *   EVG_GEMINI_SANDBOX=docker|host — `run` is argv against four tools,
+ *   never a shell. Docker is opt-in.
  *
  * Stdout is the same `stream-json` shape Cursor already emits, so the
  * page's thinking panel and spend line work without a second parser.
@@ -80,15 +79,16 @@ export function resetDockerMemo() {
   dockerMemo = undefined;
 }
 
-/** host | docker | docker-missing */
 export function geminiSandbox(env = process.env) {
-  const v = String(env.EVG_GEMINI_SANDBOX || "auto").trim().toLowerCase();
-  if (v === "host" || v === "off" || v === "0") return "host";
+  const v = String(env.EVG_GEMINI_SANDBOX || "host").trim().toLowerCase();
+  if (v === "auto") return dockerRunning(env) ? "docker" : "host";
   if (v === "docker") return dockerRunning(env) ? "docker" : "docker-missing";
-  return dockerRunning(env) ? "docker" : "host";
+  return "host";
 }
 
 export function dockerRunArgs(workspace, command, env = process.env) {
+  const parsed = typeof command === "string" ? parseRun(command) : command;
+  if (parsed.error) throw new Error(parsed.error);
   const image = geminiDockerImage(env);
   const root = env.EVG_GEMINI_REPO || repoRoot;
   const args = [
@@ -118,11 +118,13 @@ export function dockerRunArgs(workspace, command, env = process.env) {
   } catch {
     /* Windows */
   }
-  args.push(image, "sh", "-c", command);
+  args.push(image, parsed.bin, ...parsed.argv);
   return args;
 }
 
 function spawnRun(workspace, command, env = process.env) {
+  const parsed = parseRun(command);
+  if (parsed.error) return { error: parsed.error };
   const childEnv = { ...env };
   delete childEnv.GEMINI_API_KEY;
   delete childEnv.GOOGLE_API_KEY;
@@ -132,9 +134,10 @@ function spawnRun(workspace, command, env = process.env) {
       error: "EVG_GEMINI_SANDBOX=docker but docker is not running. Install Docker, or set EVG_GEMINI_SANDBOX=host.",
     };
   }
+  let r;
   if (box === "docker") {
     const bin = env.DOCKER_BIN || "docker";
-    const r = spawnSync(bin, dockerRunArgs(workspace, command, env), {
+    r = spawnSync(bin, dockerRunArgs(workspace, parsed, env), {
       encoding: "utf8",
       timeout: RUN_TIMEOUT_MS,
       maxBuffer: 2 * 1024 * 1024,
@@ -143,27 +146,32 @@ function spawnRun(workspace, command, env = process.env) {
     if (r.error && /ENOENT/.test(String(r.error))) {
       return { error: "docker is not on PATH" };
     }
-    return {
-      ok: r.status === 0,
-      status: r.status,
-      stdout: clip(r.stdout || ""),
-      stderr: clip(r.stderr || ""),
-      sandbox: "docker",
-    };
+  } else {
+    r = spawnSync(parsed.bin, parsed.argv, {
+      cwd: workspace,
+      encoding: "utf8",
+      timeout: RUN_TIMEOUT_MS,
+      maxBuffer: 2 * 1024 * 1024,
+      env: childEnv,
+    });
   }
-  const r = spawnSync("sh", ["-c", command], {
-    cwd: workspace,
-    encoding: "utf8",
-    timeout: RUN_TIMEOUT_MS,
-    maxBuffer: 2 * 1024 * 1024,
-    env: childEnv,
-  });
+  const stdout = r.stdout || "";
+  const stderr = r.stderr || "";
+  if (parsed.stdoutTo) {
+    try {
+      const dest = resolveInWorkspace(workspace, parsed.stdoutTo);
+      if (parsed.append && fs.existsSync(dest)) fs.appendFileSync(dest, stdout);
+      else fs.writeFileSync(dest, stdout);
+    } catch (e) {
+      return { error: String(e.message || e), sandbox: box === "docker" ? "docker" : "host" };
+    }
+  }
   return {
     ok: r.status === 0,
     status: r.status,
-    stdout: clip(r.stdout || ""),
-    stderr: clip(r.stderr || ""),
-    sandbox: "host",
+    stdout: clip(stdout),
+    stderr: clip(stderr),
+    sandbox: box === "docker" ? "docker" : "host",
   };
 }
 
@@ -171,13 +179,13 @@ export const GEMINI_TOOLS = [
   {
     name: "run",
     description:
-      "Run ONE workspace tool. Only ./evg-agent, ./evg-ui, ./evg-app, ./evg-image are allowed — no python, no tesseract, no git, no /tmp. Example: ./evg-agent outline doc.evg.json",
+      "Run ONE workspace tool as argv, not a shell. Only ./evg-agent, ./evg-ui, ./evg-app, ./evg-image. Example: ./evg-agent outline doc.evg.json",
     parameters: {
       type: "object",
       properties: {
         command: {
           type: "string",
-          description: "A shell command to run in the workspace.",
+          description: "The tool and its arguments. Not a shell line.",
         },
       },
       required: ["command"],
@@ -220,7 +228,7 @@ The loop:
 3. ./evg-agent measure doc.evg.json --width=390 --height=844
 Fix findings. count:0 is the goal. After a save, layout.json has the same numbers.
 
-run may only invoke ./evg-agent, ./evg-ui, ./evg-app, ./evg-image. Use read_file and write_file for everything else. Do not python, tesseract, sips, git, or write /tmp. Do not OCR a screenshot — the document and measure are the picture.
+run may only invoke ./evg-agent, ./evg-ui, ./evg-app, ./evg-image — the host parses argv and refuses everything else. Use read_file and write_file for files. Do not python, tesseract, sips, git, or write /tmp. Do not OCR a screenshot — the document and measure are the picture.
 
 Stay in this folder. Edit the live document in place. Do not replace it with a blank page unless the task says to start over. When the screen is right, stop — do not keep calling tools.`;
 }
@@ -254,53 +262,78 @@ export function argsOf(fc) {
 
 export const RUN_BINS = ["./evg-agent", "./evg-ui", "./evg-app", "./evg-image"];
 
+function tokenizeRun(raw) {
+  const out = [];
+  let cur = "";
+  let q = "";
+  for (let i = 0; i < raw.length; i += 1) {
+    const c = raw[i];
+    if (q) {
+      if (c === q) q = "";
+      else cur += c;
+      continue;
+    }
+    if (c === "'" || c === '"') {
+      q = c;
+      continue;
+    }
+    if (/[;`$()|&\n]/.test(c)) {
+      return { error: "run is not a shell — one ./evg-* command, no pipes, no substitution" };
+    }
+    if (/\s/.test(c)) {
+      if (cur) out.push(cur);
+      cur = "";
+      continue;
+    }
+    cur += c;
+  }
+  if (q) return { error: "unclosed quote" };
+  if (cur) out.push(cur);
+  return { tokens: out };
+}
+
 /**
- * `run` is not a shell. Flash will OCR /tmp, rewrite BMP headers and call
- * tesseract if you let it — those are host processes, and they are how a
- * "bounded workspace" stops being bounded. Only the four workspace tools
- * are allowed; read_file / write_file cover the rest.
+ * Gemini proposes a command; this process decides. Nothing is handed to a
+ * shell: the line is split into argv, the binary must be one of RUN_BINS,
+ * and that file is exec'd. A trailing `> file` is applied here after the
+ * tool exits.
  */
-export function denyRun(command) {
+export function parseRun(command) {
   const raw = String(command || "").trim();
-  if (!raw) return "run needs a command";
-  const chunks = raw.split(/\s*(?:&&|\|\||;|\n)\s*/);
-  for (const chunk of chunks) {
-    const piece0 = chunk.trim();
-    if (!piece0) continue;
-    if (piece0.includes("|")) {
-      return "run cannot pipe — call one ./evg-* command at a time";
-    }
-    let abs = false;
-    let dots = false;
-    let piece = piece0
-      .replace(/(?:^|\s)\d*(?:>>?|<<?)\s*\/dev\/null/g, " ")
-      .replace(/(?:^|\s)\d*>&?\d*/g, " ")
-      .replace(/(?:^|\s)(?:>>?|<<?)\s*(\S+)/g, (_, file) => {
-        if (file === "/dev/null") return " ";
-        if (file.startsWith("/")) {
-          abs = true;
-          return " ";
-        }
-        if (file.includes("..")) {
-          dots = true;
-          return " ";
-        }
-        return " ";
-      });
-    if (abs) return "run cannot redirect outside the workspace";
-    if (dots) return "run cannot use .. in a path";
-    piece = piece.trim();
-    const tok = piece.split(/\s+/)[0] || "";
-    if (!RUN_BINS.includes(tok)) {
-      return `run only accepts ${RUN_BINS.join(", ")}. Not: ${tok || raw.slice(0, 80)}`;
-    }
-    const rest = piece.slice(tok.length);
-    if (/\.\.(\/|$)/.test(rest)) return "run cannot use .. in a path";
-    if (/(?:^|[\s='"])\/(?!dev\/null)/.test(rest)) {
-      return "run cannot take absolute paths — stay in this folder";
+  if (!raw) return { error: "run needs a command" };
+  const tok = tokenizeRun(raw);
+  if (tok.error) return tok;
+  const tokens = tok.tokens.slice();
+  if (!tokens.length) return { error: "run needs a command" };
+  let stdoutTo = "";
+  let append = false;
+  if (tokens.length >= 2 && (tokens[tokens.length - 2] === ">" || tokens[tokens.length - 2] === ">>")) {
+    stdoutTo = tokens.pop();
+    append = tokens.pop() === ">>";
+  }
+  if (tokens.some((t) => t === ">" || t === ">>" || t === "<")) {
+    return { error: "run only allows a trailing > file redirect" };
+  }
+  const bin = tokens[0];
+  const argv = tokens.slice(1);
+  if (!RUN_BINS.includes(bin)) {
+    return { error: `run only accepts ${RUN_BINS.join(", ")}. Not: ${bin}` };
+  }
+  if (stdoutTo) {
+    if (stdoutTo.startsWith("/") || stdoutTo.includes("..")) {
+      return { error: "redirect must be a relative file in the workspace" };
     }
   }
-  return "";
+  for (const a of argv) {
+    if (a.startsWith("/") || a.includes("..")) {
+      return { error: "run cannot take absolute paths or .. — stay in this folder" };
+    }
+  }
+  return { bin, argv, stdoutTo, append };
+}
+
+export function denyRun(command) {
+  return parseRun(command).error || "";
 }
 
 export function executeTool(workspace, name, rawArgs, env = process.env) {
