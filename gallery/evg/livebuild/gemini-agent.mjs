@@ -463,9 +463,11 @@ function compactBox(b) {
 
 function findingPaths(findings) {
   const wanted = new Set();
+  const re = /\b(\d+(?:\/(?:k:[A-Za-z_][\w-]*|\d+))*)/g;
   for (const f of findings || []) {
-    const m = String(f).match(/\b(\d+(?:\/[\w:]+)*)/);
-    if (m) wanted.add(m[1]);
+    const s = String(f);
+    let m;
+    while ((m = re.exec(s))) wanted.add(m[1]);
   }
   return wanted;
 }
@@ -938,13 +940,13 @@ export function executeTool(workspace, name, rawArgs, env = process.env) {
       const blocked = denyWrite(args.path);
       if (blocked) return { error: blocked };
       const contents = String(args.contents ?? "");
-      const opsErr = opsWriteError(String(args.path || ""), contents);
-      if (opsErr) return { error: opsErr };
       if (/"op"\s*:/.test(contents) && contents.length > OPS_WRITE_CAP) {
         return {
           error: `ops file is ${contents.length} bytes — one card per write_file (under ${OPS_WRITE_CAP}). Split it and patch this card first.`,
         };
       }
+      const opsErr = opsWriteError(String(args.path || ""), contents);
+      if (opsErr) return { error: opsErr };
       const file = resolveInWorkspace(workspace, args.path);
       fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.writeFileSync(file, contents, "utf8");
