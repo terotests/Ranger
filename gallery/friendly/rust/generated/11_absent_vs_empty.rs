@@ -23,7 +23,7 @@ fn main() {
   __rg_main_thread.join().expect("main thread panicked");
 }
 fn __rg_main_body() {
-  let mut app: AbsentMain = AbsentMain::new();
+  let app: AbsentMain = AbsentMain::new();
   let mut s: Option<String> = None;
   println!("{}", AbsentMain::report("unset", s.clone()));
   s = Some(String::new());

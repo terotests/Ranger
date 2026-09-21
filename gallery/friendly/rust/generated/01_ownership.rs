@@ -86,7 +86,7 @@ impl TreeNode {
       parent: None,
     }
   }
-  fn adopt(__self_rc: &Rc<RefCell<TreeNode>>, mut c: Rc<RefCell<TreeNode>>) {
+  fn adopt(__self_rc: &Rc<RefCell<TreeNode>>, c: Rc<RefCell<TreeNode>>) {
     c.borrow_mut().parent = Some(Rc::downgrade(__self_rc));
     __self_rc.borrow_mut().kids.push(c.clone());
   }
@@ -109,10 +109,10 @@ fn main() {
   __rg_main_thread.join().expect("main thread panicked");
 }
 fn __rg_main_body() {
-  let mut ops: PointOps = PointOps::new();
-  let mut origin: Point = Point::new(3, 4);
+  let ops: PointOps = PointOps::new();
+  let origin: Point = Point::new(3, 4);
   println!("manhattan {}", ops.manhattan(&origin));
-  let mut summed: Point = ops.add_points(&origin, &origin);
+  let summed: Point = ops.add_points(&origin, &origin);
   println!("sum.x {}", summed.x);
   let mut left: Rc<RefCell<Counter>> = Rc::new(RefCell::new(Counter::new()));
   let mut alias: Rc<RefCell<Counter>> = left.clone();

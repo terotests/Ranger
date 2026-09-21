@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+#![allow(unused_assignments)]
 
 use std::rc::Rc;
 use std::cell::RefCell;
@@ -133,7 +134,7 @@ fn main() {
   __rg_main_thread.join().expect("main thread panicked");
 }
 fn __rg_main_body() {
-  let mut g: Guard = Guard::new();
+  let g: Guard = Guard::new();
   println!("{}", g.describe(&Guard::check(3)));
   println!("{}", g.describe(&Guard::check(0 - 1)));
 }

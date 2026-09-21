@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+#![allow(unused_assignments)]
 #![allow(unused_mut)]
 
 use std::rc::Rc;
@@ -148,7 +149,7 @@ fn main() {
   __rg_main_thread.join().expect("main thread panicked");
 }
 fn __rg_main_body() {
-  let mut r#box: Lookup = Lookup::new();
+  let r#box: Lookup = Lookup::new();
   let mut names: Vec<String> = vec!["ada".to_string(), "grace".to_string()];
   let hit: Option<String> = Lookup::find_name(&names, "ada");
   println!("found {}", if hit.is_some() { hit.clone().unwrap() } else { "unknown".to_string() });

@@ -621,7 +621,10 @@ class RangerRustClassWriter {
         wr.out(", " false)
       }
       ; the body calls `&mut self` methods on the element as freely as any
-      ; other name, so the binding is mutable; an unused `mut` is a warning
+      ; other name, so the binding is mutable. Whether it had to be is not
+      ; answerable from here -- a lambda parameter carries no descriptor --
+      ; so the header is asked for `unused_mut` on its behalf.
+      this.rustNeedAllow("unused_mut" wr)
       wr.out(("mut " + (this.adjustType(arg.vref))) false)
     }
     wr.out("| {" true)
@@ -2238,10 +2241,19 @@ class RangerRustClassWriter {
   ; fires on it. The whole name set answers the same question at once.
   fn rustNeedsNonSnakeCase:boolean () {
     for rustIdentNames nsV:boolean nsName:string {
+      if ((strlen nsName) == 0) {
+        continue
+      }
       def nsSn:string (this.rustSnakeCase(nsName))
-      if (nsSn != nsName) {
-        if (has rustIdentNames nsSn) {
-          return true
+      ; a TYPE name keeps its spelling on this target whatever the set says,
+      ; so a generic parameter `S` beside a local `s` is not a collision --
+      ; it was every study in the gallery asking for the allow
+      def nsLead@(units):int (charAt nsName 0)
+      if ((nsLead < 65) || (nsLead > 90)) {
+        if (nsSn != nsName) {
+          if (has rustIdentNames nsSn) {
+            return true
+          }
         }
       }
     }
@@ -2284,6 +2296,113 @@ class RangerRustClassWriter {
   ; Is there a use of this local reached THROUGH its name -- `hit.ok = false`,
   ; `c.add(...)`, `decl.types.push(...)` -- at a line beyond `minLine`? Pass a
   ; negative minLine to ask about the whole method body.
+  fn rustNmIsName:boolean (seg:string a:string b:string) {
+    return ((seg == a) || (seg == b))
+  }
+
+  ; Does this local have to be `mut`? `set_cnt` answers for a name that is
+  ; assigned; everything else is reached THROUGH the name, and the four ways
+  ; that can mutate are here. A local that none of them touches binds `let`,
+  ; and rustc says so when this is wrong -- which is the point: the header
+  ; asks for `unused_mut` only where the answer could not be had.
+  fn rustLocalNeedsMut:boolean (srcName:string cName:string typeName:string ctx:RangerAppWriterContext) {
+    def nmM@(optional):RangerAppFunctionDesc (ctx.getCurrentMethod())
+    if (null? nmM) {
+      return true
+    }
+    def nmFn:RangerAppFunctionDesc (unwrap nmM)
+    def nmBO@(optional):CodeNode nmFn.fnBody
+    if (null? nmBO) {
+      return true
+    }
+    def nmBody:CodeNode (unwrap nmBO)
+    def nmNeeds:boolean false
+    nmBody.forTree({
+      if ((array_length item.children) >= 2) {
+        def nmH:CodeNode (item.getFirst())
+        ; `name.field = …`
+        if ((nmH.vref == "=") && ((array_length item.children) >= 3)) {
+          def nmL:CodeNode (itemAt item.children 1)
+          if ((array_length nmL.ns) >= 2) {
+            if (this.rustNmIsName((itemAt nmL.ns 0) srcName cName)) {
+              nmNeeds = true
+            }
+          }
+        }
+        ; `push name v`, `set name k v`, `buffer_set name …` -- an operator
+        ; that writes through its first operand
+        if (this.rustIsMutatingOpName(nmH.vref)) {
+          def nmT:CodeNode (itemAt item.children 1)
+          if ((array_length nmT.ns) >= 1) {
+            if (this.rustNmIsName((itemAt nmT.ns 0) srcName cName)) {
+              nmNeeds = true
+            }
+          }
+        }
+      }
+      if (item.hasFnCall) {
+        def nmFc:CodeNode (item.getFirst())
+        def nmSegs:int (array_length nmFc.ns)
+        ; `name.m(…)` -- mut exactly when `m` is emitted `&mut self`.
+        ; rust_mut_self is settled for every class before the first line is
+        ; written. A longer path, or a class or method that will not resolve,
+        ; keeps the mut.
+        if (nmSegs >= 2) {
+          if (this.rustNmIsName((itemAt nmFc.ns 0) srcName cName)) {
+            if (nmSegs != 2) {
+              nmNeeds = true
+            } {
+              def nmClO@(optional):RangerAppClassDesc (ctx.findClass(typeName))
+              if (null? nmClO) {
+                nmNeeds = true
+              } {
+                def nmCl:RangerAppClassDesc (unwrap nmClO)
+                def nmMd@(optional):RangerAppFunctionDesc (nmCl.findMethod((itemAt nmFc.ns 1)))
+                if (null? nmMd) {
+                  nmNeeds = true
+                } {
+                  def nmMdD:RangerAppFunctionDesc (unwrap nmMd)
+                  if nmMdD.rust_mut_self {
+                    nmNeeds = true
+                  }
+                }
+              }
+            }
+          }
+        }
+        ; `f(name)` where the callee takes that parameter by `&mut`
+        if ((array_length item.children) > 1) {
+          def nmArgs:CodeNode (item.getSecond())
+          def nmFd@(optional):RangerAppFunctionDesc item.fnDesc
+          for nmArgs.children nmA:CodeNode nmAi {
+            def nmAr:CodeNode nmA
+            while (nmAr.expression && ((array_length nmAr.children) == 1)) {
+              nmAr = (nmAr.getFirst())
+            }
+            if ((array_length nmAr.ns) == 1) {
+              if (this.rustNmIsName((itemAt nmAr.ns 0) srcName cName)) {
+                if (null? nmFd) {
+                  nmNeeds = true
+                } {
+                  def nmFdD:RangerAppFunctionDesc (unwrap nmFd)
+                  if ((array_length nmFdD.params) > nmAi) {
+                    def nmP:RangerAppParamDesc (itemAt nmFdD.params nmAi)
+                    if (nmP.rust_borrow_type == 2) {
+                      nmNeeds = true
+                    }
+                  } {
+                    nmNeeds = true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    })
+    return nmNeeds
+  }
+
   fn rustLocalPathUseAfter:boolean (srcName:string cName:string minLine:int ctx:RangerAppWriterContext) {
     def puM@(optional):RangerAppFunctionDesc (ctx.getCurrentMethod())
     if (null? puM) {
@@ -2528,16 +2647,42 @@ class RangerRustClassWriter {
       ; reached through a method that mutates, or through a collection, is
       ; assigned in ways set_cnt does not see. `#![allow(unused_mut)]` is
       ; what covers the remainder, and it is the honest place for it.
-      if (needs_mut || is_object) {
-        ; `mut` with no assignment behind it is a guess: an object reached
-        ; through a &mut self method, a collection pushed to. The guess is
-        ; right often enough to keep, and where it is wrong rustc says so --
-        ; which is why the allow is asked for here and not in the header.
-        if (p.set_cnt == 0) {
-          if ((this.rustLocalPathUseAfter(p.name p.compiledName (0 - 1) ctx)) == false) {
-            this.rustNeedAllow("unused_mut" wr)
+      ; `set_cnt` is the assignment count; everything else that can mutate
+      ; reaches through the name, and rustLocalNeedsMut is what asks. It used
+      ; to be `needs_mut || is_object` -- every object and every collection
+      ; local `mut` whatever the body did with it, and `#![allow(unused_mut)]`
+      ; covering the rest.
+      ;
+      ; It answers for an OBJECT local only. A collection or a buffer is
+      ; handed to a callee as `&mut` far more often than the call site can
+      ; see -- `this.markAsyncFrom(item visited)` resolves to no fnDesc here
+      ; -- and dropping the mut on those was measured at 43 rustc errors,
+      ; every one an E0596 on a map or an array. Those keep the blanket mut
+      ; and the header asks for `unused_mut` on their behalf.
+      def wantMut:boolean ((p.set_cnt > 0) || p.is_class_variable)
+      def mutIsProven:boolean true
+      if (wantMut == false) {
+        if ((map_or_hash || is_buffer) || local_needs_rc_wrap) {
+          wantMut = true
+          mutIsProven = false
+        } {
+          if is_object {
+            def nmClChk@(optional):RangerAppClassDesc (ctx.findClass(nn.type_name))
+            if (null? nmClChk) {
+              wantMut = true
+              mutIsProven = false
+            } {
+              wantMut = (this.rustLocalNeedsMut(p.name p.compiledName nn.type_name ctx))
+            }
           }
         }
+      }
+      if wantMut {
+        if (mutIsProven == false) {
+          this.rustNeedAllow("unused_mut" wr)
+        }
+      }
+      if wantMut {
         wr.out(((("let mut " + unused_pfx) + (this.adjustType(p.compiledName))) + ": ") false)
       } {
         wr.out(((("let " + unused_pfx) + (this.adjustType(p.compiledName))) + ": ") false)
@@ -3057,7 +3202,26 @@ class RangerRustClassWriter {
       def is_object:boolean ((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.Array) || (v_type == RangerNodeType.Hash) || (v_type == RangerNodeType.IntBuffer) || (v_type == RangerNodeType.DoubleBuffer) || (v_type == RangerNodeType.CharBuffer) || (v_type == RangerNodeType.Buffer))
       ; Use compiledName to include any name transformations (e.g. len -> __len)
       def paramName:string (this.adjustType(arg.compiledName))
-      def rust_mut_pfx:string "mut "
+      ; a `mut` BINDING is needed only when the body reassigns the parameter
+      ; itself. `fn show(mut who: &mut User)` writes through the reference,
+      ; which the `&mut` covers; the binding never moves, and the `mut` was
+      ; rustc's unused_mut on every such signature.
+      def rust_mut_pfx:string ""
+      if (arg.set_cnt > 0) {
+        rust_mut_pfx = "mut "
+      }
+      ; …and a parameter that arrives BY mutable reference keeps it: the body
+      ; may pass it on as `&mut name`, which reborrows through the binding
+      ; and so needs the binding mutable. Dropping it there was measured at
+      ; 11 rustc errors, every one an E0596 on a `&mut` parameter handed to
+      ; another call. Whether this particular one is passed on is not
+      ; answerable from a signature, so the header is asked instead.
+      if (rust_mut_pfx == "") {
+        if ((arg.rust_borrow_type == 2) || arg.needs_cpp_reference) {
+          rust_mut_pfx = "mut "
+          this.rustNeedAllow("unused_mut" wr)
+        }
+      }
       if rust_in_trait_decl {
         rust_mut_pfx = ""
       }

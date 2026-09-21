@@ -1,5 +1,4 @@
 #![allow(dead_code)]
-#![allow(unused_mut)]
 
 
 
@@ -88,14 +87,14 @@ fn main() {
   __rg_main_thread.join().expect("main thread panicked");
 }
 fn __rg_main_body() {
-  let mut b: RequestBuild = RequestBuild::new();
-  let mut start: Request = Request::new(String::new(), "/".to_string(), 80);
-  let mut step1: Request = b.with_host(&start, "localhost");
-  let mut step2: Request = b.with_port(&step1, 8080);
-  let mut done: Request = b.with_path(&step2, "/api");
+  let b: RequestBuild = RequestBuild::new();
+  let start: Request = Request::new(String::new(), "/".to_string(), 80);
+  let step1: Request = b.with_host(&start, "localhost");
+  let step2: Request = b.with_port(&step1, 8080);
+  let done: Request = b.with_path(&step2, "/api");
   println!("copy {}", b.url(&done));
   let mut m: MutRequest = MutRequest::new();
-  let mut chained: MutRequest = m.with_host("localhost".to_string())
+  let chained: MutRequest = m.with_host("localhost".to_string())
     .with_port(8080)
     .with_path("/api".to_string());
   println!("mut {}", chained.url());

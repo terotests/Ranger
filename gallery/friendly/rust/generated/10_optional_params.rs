@@ -1,4 +1,6 @@
 #![allow(dead_code)]
+#![allow(unused_assignments)]
+#![allow(unused_mut)]
 
 use std::rc::Rc;
 use std::cell::RefCell;
@@ -48,7 +50,7 @@ impl OptionalParams {
     let r: i64 = a.unwrap();
     r
   }
-  fn shown_point(&self, mut p: Option<Rc<RefCell<Point>>>) -> i64 {
+  fn shown_point(&self, p: Option<Rc<RefCell<Point>>>) -> i64 {
     if  p.is_none() {
       return 0;
     }
@@ -62,7 +64,7 @@ fn main() {
   __rg_main_thread.join().expect("main thread panicked");
 }
 fn __rg_main_body() {
-  let mut app: OptionalParams = OptionalParams::new();
+  let app: OptionalParams = OptionalParams::new();
   let mut hit: Option<String> = None;
   hit = Some("ada".to_string());
   println!("name {}", OptionalParams::shown(hit.clone()));

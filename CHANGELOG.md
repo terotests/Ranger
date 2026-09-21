@@ -33,7 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   one `let mut` the writer could not prove, the rest by predicates over the
   program (a parameter the body never reads, a dead store, a name whose
   snake_case spelling is already another name here, an `if` inside an `if`,
-  seven parameters, a borrowed `Vec`). Only `dead_code` is unconditional — a
+  seven parameters, a borrowed `Vec`). Across the twelve `friendly` studies
+  the header matches what each file needs exactly, and no study asks for a
+  line it does not need. Only `dead_code` is unconditional — a
   program's public surface is dead code in a single-file rendering of it,
   which says nothing about the generator. The predicates skip what the
   class-writing loop skips: `Vector.set` has an unused parameter and is never
@@ -47,6 +49,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   between them. An operand with an operator on either side keeps its pair —
   that is what makes the precedence right. The template-slot rule is
   target-neutral, so `g.check(0 - 1)` is what every target emits now.
+
+- **`mut` is asked of the body rather than of the type.** An object local
+  used to be `mut` whatever was done with it, and so did a collection, a
+  buffer and every parameter binding. An object local now takes `mut` only
+  when the body assigns it, writes through it, calls a method emitted
+  `&mut self` on it, or hands it where the callee takes `&mut`; a parameter
+  takes it only when the body reassigns the parameter itself. Collections and
+  `&mut` parameters keep the blanket `mut` and ask for the allow — dropping
+  it on those was measured at 43 and 11 rustc errors, every one an E0596
+  where a call site writes `&mut name` and the callee is invisible from
+  there.
 
 - **Three Rust shapes from the same reading.** A folded object literal binds
   `let line: CartLine = …` rather than `let mut`, unless the body writes

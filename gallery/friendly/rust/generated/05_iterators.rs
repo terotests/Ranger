@@ -58,7 +58,7 @@ fn main() {
   __rg_main_thread.join().expect("main thread panicked");
 }
 fn __rg_main_body() {
-  let mut s: Stats = Stats::new();
+  let s: Stats = Stats::new();
   let mut xs: Vec<i64> = vec![1, 2, 3, 4];
   println!("sum {}", Stats::total(&xs));
   println!("evens {}", Stats::even_count(&xs));

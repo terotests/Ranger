@@ -1136,7 +1136,8 @@ predicates over the program, computed in the header:
 | --- | --- |
 | `dead_code` | always — a program's public surface is dead code in a single-file rendering, which says nothing about the generator |
 | `unused_variables` | a parameter the body never reads (an unused *local* is commented out or given an `_` name already) |
-| `unused_assignments` | a dead store, or a writer-supplied initializer (`= None`, `= Vec::new()`) that is assigned before it is read |
+| `unused_assignments` | a store with nothing reading it afterwards, or an initializer overwritten before anything read it |
+| `unused_mut` | a `mut` the writer could not prove: a collection or buffer local, a `&mut` parameter binding, a lambda parameter |
 | `non_snake_case` | §L's escape fired |
 | `clippy::collapsible_if` | an `if` whose whole body is one `if`, neither with an `else` |
 | `clippy::too_many_arguments` | a function declaring seven or more parameters |
@@ -1145,6 +1146,28 @@ predicates over the program, computed in the header:
 The predicates skip what the class-writing loop skips. `Vector.set` has an
 unused parameter and is never emitted, and it alone was asking every file for
 `unused_variables`.
+
+The two that read the body are walks over it rather than guesses, and each
+was wrong in a way the studies showed before it was right:
+
+- **The dead store** needs the *first* write against the *first* read, not
+  the last against the last: `let mut found = None;` with a `return found`
+  above the assignment is not dead. And the declaration's own name node is a
+  mention, not a read — counting it hid every real case. The target of an
+  assignment is identified by name and line rather than by node, because the
+  walk reaches the wrapper the front end puts around an expression and never
+  the node the assignment holds; the first mention of that name on that line
+  is the target, which leaves `x = x + 1` its read.
+- **`mut`** is `set_cnt`, plus the four ways a name can be mutated through:
+  a field write, a mutating operator with the name as first operand, a call
+  to a method emitted `&mut self`, and the name passed where the callee takes
+  `&mut`. It answers for an OBJECT local only. A collection is handed to a
+  callee as `&mut` more often than the call site can see — `this.markAsyncFrom(item visited)`
+  resolves to no `fnDesc` there — and dropping the mut on collections was
+  measured at **43 rustc errors**, every one an E0596. A `mut` on a
+  PARAMETER binding is needed only when the body reassigns the parameter
+  itself, except for a `&mut` parameter, which may be passed on as
+  `&mut name` and reborrows through the binding: 11 more E0596.
 
 `unused_parens` is not in the table because the parentheses are gone. A `let`
 value, an assignment's right side and a template's argument slot all delimit
@@ -1164,8 +1187,19 @@ header stripped, neither fires anywhere.
 0 rustc errors, and it still compiles the compiler to output byte-identical to
 `bin/output.js`. What is left was never covered by any of these allows — 152
 `private_interfaces`, 67 unreachable match arms, 20 type names, 60 residual
-parens. The Cart study from the playground carries `#![allow(dead_code)]` alone
-and draws no rustc warning at all.
+parens. The Cart study from the playground carries `#![allow(dead_code)]`
+alone and draws no rustc warning at all.
+
+Across the twelve `friendly` studies the header now matches what each file
+needs exactly: six ask for `unused_mut`, four for `unused_assignments`, two
+for neither. No study asks for one it does not need. Four still draw one
+`unused variable` each, which is a real artifact rather than a missing allow:
+`def app (new AbsentMain())` followed only by `app.report(…)` compiles to a
+call that names the class rather than the local, so the local is never read.
+Whether the receiver survives into the call is not answerable from the `def`
+site — `rust_can_be_static` and `rustMethodNeedsReceiver` both say it does
+not, for methods whose emitted call passes `&doc` all the same — so the
+warning is left standing where it is true.
 
 Three shapes went with it, all from the same reading of that study:
 `let line: CartLine = …` where the fold's local is never written again,

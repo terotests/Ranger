@@ -261,7 +261,9 @@ describe("Ranger Compiler - Rust &T for proven-borrowed params (PLAN_RUST_OWNERS
   });
 
   it("keeps a moved parameter owned", () => {
-    expect(result.code).toContain("fn add_token(&mut self, mut t: Node)");
+    // owned, and the binding is not `mut`: the body never reassigns `t`, and
+    // a `mut` binding nobody needs is rustc's unused_mut
+    expect(result.code).toContain("fn add_token(&mut self, t: Node)");
   });
 });
 
@@ -371,7 +373,7 @@ describe("Ranger Compiler - Rc<RefCell> for shared classes, the Rust default (PL
     // INSTEAD of a receiver — see above — and the call site passes the
     // receiver's cell.
     expect(weakRs).toContain(
-      "fn adopt(__self_rc: &Rc<RefCell<Parent>>, mut c: Rc<RefCell<Child>>)"
+      "fn adopt(__self_rc: &Rc<RefCell<Parent>>, c: Rc<RefCell<Child>>)"
     );
     expect(weakRs).toContain("adopt(&p, c.clone())");
   });

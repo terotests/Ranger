@@ -438,39 +438,54 @@ extension RangerRustClassWriter {
       return false
     }
     def dsBody:CodeNode (unwrap dsBodyO)
-    def dsSynth:[string:boolean]
+    def dsInit:[string:boolean]
     def dsDefLine:[string:int]
+    def dsPendingW:[string:boolean]
+    def dsFirstWrite:[string:int]
     def dsLastWrite:[string:int]
+    def dsFirstRead:[string:int]
     def dsLastRead:[string:int]
     dsBody.forTree({
       if ((array_length item.children) >= 2) {
         def dsH:CodeNode (item.getFirst())
-        ; `def x` -- with no initializer, the writer supplies one
+        ; `def x …` -- with a value, or without one where the writer supplies
+        ; `= None` / `= Vec::new()` / `= HashMap::default()`
         if (dsH.vref == "def") {
           def dsNameN:CodeNode (itemAt item.children 1)
           def dsNm:string dsNameN.vref
           if ((strlen dsNm) > 0) {
             set dsDefLine dsNm (item.getLine())
-            if ((array_length item.children) <= 2) {
-              def dsIsSynth:boolean false
-              if (dsNameN.hasFlag("optional")) {
-                dsIsSynth = true
-              }
-              if ((dsNameN.value_type == RangerNodeType.Array) || (dsNameN.value_type == RangerNodeType.Hash)) {
-                dsIsSynth = true
-              }
-              if dsIsSynth {
-                set dsSynth dsNm true
-              }
+            ; the declaration's own name node is a mention, not a read --
+            ; the same pending marker the assignment target uses
+            set dsPendingW ((dsNm + "#") + (item.getLine())) true
+            def dsHasInit:boolean ((array_length item.children) > 2)
+            if (dsNameN.hasFlag("optional")) {
+              dsHasInit = true
+            }
+            if ((dsNameN.value_type == RangerNodeType.Array) || (dsNameN.value_type == RangerNodeType.Hash)) {
+              dsHasInit = true
+            }
+            if dsHasInit {
+              set dsInit dsNm true
             }
           }
         }
-        ; `x = …` -- a write to a bare name, not through a path
+        ; `x = …` -- a write to a bare name, not through a path. The target
+        ; is noted by name and line rather than by node: the walk reaches the
+        ; wrapper the front end puts around an expression, never the node the
+        ; assignment holds, so identity does not answer "is this mention the
+        ; target?". The FIRST mention of that name on that line is, which is
+        ; what pre-order gives; `x = x + 1` keeps its read.
         if ((dsH.vref == "=") && ((array_length item.children) >= 3)) {
           def dsLhs:CodeNode (itemAt item.children 1)
           if ((array_length dsLhs.ns) == 1) {
             def dsWn:string (itemAt dsLhs.ns 0)
-            set dsLastWrite dsWn (item.getLine())
+            def dsWl:int (item.getLine())
+            set dsPendingW ((dsWn + "#") + dsWl) true
+            if ((has dsFirstWrite dsWn) == false) {
+              set dsFirstWrite dsWn dsWl
+            }
+            set dsLastWrite dsWn dsWl
           }
         }
       }
@@ -481,19 +496,18 @@ extension RangerRustClassWriter {
           def dsRn:string (itemAt item.ns 0)
           def dsRl:int (item.getLine())
           def dsIsLhs:boolean false
-          def dsPO@(optional):CodeNode item.parent
-          if (!null? dsPO) {
-            def dsP:CodeNode (unwrap dsPO)
-            if ((array_length dsP.children) >= 3) {
-              def dsPh:CodeNode (dsP.getFirst())
-              if (dsPh.vref == "=") {
-                if ((itemAt dsP.children 1) == item) {
-                  dsIsLhs = true
-                }
-              }
+          def dsKey:string ((dsRn + "#") + dsRl)
+          if (has dsPendingW dsKey) {
+            def dsStillW:boolean (unwrap (get dsPendingW dsKey))
+            if dsStillW {
+              dsIsLhs = true
+              set dsPendingW dsKey false
             }
           }
           if (dsIsLhs == false) {
+            if ((has dsFirstRead dsRn) == false) {
+              set dsFirstRead dsRn dsRl
+            }
             def dsPrevR:int (0 - 1)
             if (has dsLastRead dsRn) {
               dsPrevR = (unwrap (get dsLastRead dsRn))
@@ -506,7 +520,7 @@ extension RangerRustClassWriter {
       }
     })
     def dsFound:boolean false
-    for dsLastWrite dsWl:int dsWName:string {
+    for dsLastWrite dsWl2:int dsWName:string {
       def dsDl:int (0 - 1)
       if (has dsDefLine dsWName) {
         dsDl = (unwrap (get dsDefLine dsWName))
@@ -514,16 +528,36 @@ extension RangerRustClassWriter {
       if (dsDl < 0) {
         continue
       }
-      if (has dsSynth dsWName) {
-        if (dsWl > dsDl) {
-          dsFound = true
+      ; the value the declaration put there, overwritten before anything
+      ; read it: `let mut out: String = "?".to_string();` and then `out = …`
+      ; on every path through the body
+      if (has dsInit dsWName) {
+        def dsFw:int (0 - 1)
+        if (has dsFirstWrite dsWName) {
+          dsFw = (unwrap (get dsFirstWrite dsWName))
+        }
+        def dsFr:int (0 - 1)
+        if (has dsFirstRead dsWName) {
+          dsFr = (unwrap (get dsFirstRead dsWName))
+        }
+        if (dsFw > dsDl) {
+          if (dsFr < 0) {
+            dsFound = true
+          } {
+            ; a read on the same line as the write is the `x = x + 1` shape,
+            ; which reads what the declaration put there
+            if (dsFw < dsFr) {
+              dsFound = true
+            }
+          }
         }
       }
+      ; …and a store with nothing reading it afterwards anywhere
       def dsRl2:int (0 - 1)
       if (has dsLastRead dsWName) {
         dsRl2 = (unwrap (get dsLastRead dsWName))
       }
-      if (dsWl > dsRl2) {
+      if (dsWl2 > dsRl2) {
         dsFound = true
       }
     }

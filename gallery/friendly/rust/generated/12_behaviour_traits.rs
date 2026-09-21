@@ -1,5 +1,4 @@
 #![allow(dead_code)]
-#![allow(unused_mut)]
 
 use std::rc::Rc;
 use std::cell::RefCell;
@@ -81,7 +80,7 @@ impl TraitsMain {
     Self {
     }
   }
-  fn show(mut n: Rc<RefCell<dyn NamedTrait>>) -> String {
+  fn show(n: Rc<RefCell<dyn NamedTrait>>) -> String {
     return n.borrow().label().clone();
   }
 }
@@ -91,9 +90,9 @@ fn main() {
   __rg_main_thread.join().expect("main thread panicked");
 }
 fn __rg_main_body() {
-  let mut app: TraitsMain = TraitsMain::new();
-  let mut u: User = User::new();
-  let mut b: Bot = Bot::new();
+  let app: TraitsMain = TraitsMain::new();
+  let u: User = User::new();
+  let b: Bot = Bot::new();
   println!("user {}", TraitsMain::show(Rc::new(RefCell::new(u)).clone()));
   println!("bot {}", TraitsMain::show(Rc::new(RefCell::new(b)).clone()));
   println!("weight {}", User::weight());

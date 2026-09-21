@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+#![allow(unused_mut)]
 
 
 
@@ -56,7 +57,7 @@ fn main() {
   __rg_main_thread.join().expect("main thread panicked");
 }
 fn __rg_main_body() {
-  let mut app: TraitsMain = TraitsMain::new();
+  let app: TraitsMain = TraitsMain::new();
   let mut u: User = User::new();
   u.name = "ada";
   u.age = 36;
