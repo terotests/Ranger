@@ -4,12 +4,8 @@
 #![allow(unused_assignments)]
 #![allow(dead_code)]
 // The clippy allows below cover shapes that mirror the Ranger source
-// itself - statement-level clamp chains, nested ifs, function arity and
-// type names - which the transpiler must not rewrite or rename.
-#![allow(clippy::manual_clamp)]
+// itself, which the transpiler must not rewrite or rename.
 #![allow(clippy::collapsible_if)]
-#![allow(clippy::too_many_arguments)]
-#![allow(clippy::upper_case_acronyms)]
 #![allow(clippy::ptr_arg)]
 
 use std::rc::Rc;
@@ -35,14 +31,13 @@ impl<T: ?Sized> RgIdentical for Rc<RefCell<T>> {
 }
 
 #[derive(Clone)]
-struct User { 
-  uname : &'static str, 
+struct User {
+  uname: &'static str,
 }
-impl User { 
-  
-  pub fn new() ->  User {
-    User { 
-      uname:"", 
+impl User {
+  pub fn new() -> Self {
+    User {
+      uname: "",
     }
   }
   fn label() -> String {
@@ -65,14 +60,13 @@ impl Sized2Trait for User {
   }
 }
 #[derive(Clone)]
-struct Bot { 
-  id : i64, 
+struct Bot {
+  id: i64,
 }
-impl Bot { 
-  
-  pub fn new() ->  Bot {
-    Bot { 
-      id:0, 
+impl Bot {
+  pub fn new() -> Self {
+    Bot {
+      id: 0,
     }
   }
   fn label() -> String {
@@ -87,15 +81,14 @@ impl NamedTrait for Bot {
   }
 }
 #[derive(Clone)]
-struct TraitsMain { 
+struct TraitsMain {
 }
-impl TraitsMain { 
-  
-  pub fn new() ->  TraitsMain {
-    TraitsMain { 
+impl TraitsMain {
+  pub fn new() -> Self {
+    TraitsMain {
     }
   }
-  fn show(mut n : Rc<RefCell<dyn NamedTrait>>) -> String {
+  fn show(mut n: Rc<RefCell<dyn NamedTrait>>) -> String {
     return n.borrow().label().clone();
   }
 }
@@ -105,10 +98,10 @@ fn main() {
   __rg_main_thread.join().expect("main thread panicked");
 }
 fn __rg_main_body() {
-  let mut app : TraitsMain = TraitsMain::new();
-  let mut u : User = User::new();
-  let mut b : Bot = Bot::new();
-  println!("{}{}", "user ".to_string(), TraitsMain::show(Rc::new(RefCell::new(u)).clone()));
-  println!("{}{}", "bot ".to_string(), TraitsMain::show(Rc::new(RefCell::new(b)).clone()));
-  println!("{}{}", "weight ".to_string(), User::weight());
+  let mut app: TraitsMain = TraitsMain::new();
+  let mut u: User = User::new();
+  let mut b: Bot = Bot::new();
+  println!("user {}", TraitsMain::show(Rc::new(RefCell::new(u)).clone()));
+  println!("bot {}", TraitsMain::show(Rc::new(RefCell::new(b)).clone()));
+  println!("weight {}", User::weight());
 }

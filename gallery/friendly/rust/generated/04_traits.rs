@@ -4,27 +4,22 @@
 #![allow(unused_assignments)]
 #![allow(dead_code)]
 // The clippy allows below cover shapes that mirror the Ranger source
-// itself - statement-level clamp chains, nested ifs, function arity and
-// type names - which the transpiler must not rewrite or rename.
-#![allow(clippy::manual_clamp)]
+// itself, which the transpiler must not rewrite or rename.
 #![allow(clippy::collapsible_if)]
-#![allow(clippy::too_many_arguments)]
-#![allow(clippy::upper_case_acronyms)]
 #![allow(clippy::ptr_arg)]
 
 
 
 #[derive(Clone)]
-struct User { 
-  age : i64, 
-  name : &'static str, 
+struct User {
+  age: i64,
+  name: &'static str,
 }
-impl User { 
-  
-  pub fn new() ->  User {
-    User { 
-      age:0, 
-      name:"", 
+impl User {
+  pub fn new() -> Self {
+    User {
+      age: 0,
+      name: "",
     }
   }
   fn as_string(&self) -> String {
@@ -35,34 +30,32 @@ impl User {
   }
 }
 #[derive(Clone)]
-struct Bot { 
-  name : &'static str, 
+struct Bot {
+  name: &'static str,
 }
-impl Bot { 
-  
-  pub fn new() ->  Bot {
-    Bot { 
-      name:"", 
+impl Bot {
+  pub fn new() -> Self {
+    Bot {
+      name: "",
     }
   }
   fn as_string(&self) -> String {
-    format!("{}{}", "bot:".to_string(), self.name).clone()
+    format!("bot:{}", self.name).clone()
   }
   fn label(&self) -> String {
     self.name.to_string()
   }
 }
 #[derive(Clone)]
-struct TraitsMain { 
+struct TraitsMain {
 }
-impl TraitsMain { 
-  
-  pub fn new() ->  TraitsMain {
-    TraitsMain { 
+impl TraitsMain {
+  pub fn new() -> Self {
+    TraitsMain {
     }
   }
-  fn show(mut who : &mut User) -> String {
-    format!("{}{}{}{}", "label=".to_string(), who.label(), " text=".to_string(), who.as_string()).clone()
+  fn show(mut who: &mut User) -> String {
+    format!("label={} text={}", who.label(), who.as_string()).clone()
   }
 }
 fn main() {
@@ -71,12 +64,12 @@ fn main() {
   __rg_main_thread.join().expect("main thread panicked");
 }
 fn __rg_main_body() {
-  let mut app : TraitsMain = TraitsMain::new();
-  let mut u : User = User::new();
+  let mut app: TraitsMain = TraitsMain::new();
+  let mut u: User = User::new();
   u.name = "ada";
   u.age = 36;
   println!("{}", TraitsMain::show(&mut u));
-  let mut b : Bot = Bot::new();
+  let mut b: Bot = Bot::new();
   b.name = "r2";
   println!("{}", b.as_string());
 }

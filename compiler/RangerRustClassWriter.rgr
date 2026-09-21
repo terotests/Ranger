@@ -2215,7 +2215,7 @@ class RangerRustClassWriter {
     def clNode:CodeNode (value.getSecond())
     def clName:string clNode.vref
     def cl:RangerAppClassDesc (ctx.findClass(clName))
-    wr.out((("let mut " + (this.adjustType(p.compiledName))) + " : " + clName + " = " + clName + " {") true)
+    wr.out((("let mut " + (this.adjustType(p.compiledName))) + ": " + clName + " = " + clName + " {") true)
     wr.indent(1)
     def cnt:int (array_length node.rg_init_fields)
     def i:int 0
@@ -2333,7 +2333,7 @@ class RangerRustClassWriter {
         if (p.set_cnt > 0) {
           s_mut = "let mut "
         }
-        wr.out((((s_mut + unused_pfx) + (this.adjustType(p.compiledName))) + " : &'static str = ") false)
+        wr.out((((s_mut + unused_pfx) + (this.adjustType(p.compiledName))) + ": &'static str = ") false)
         if ((array_length node.children) > 2) {
           this.rustWriteStaticStrValue((node.getThird()) ctx wr)
         } {
@@ -2369,10 +2369,15 @@ class RangerRustClassWriter {
         }
       }
       
+      ; An object local keeps `mut` whichever way it is written. Dropping it
+      ; for the unassigned ones was measured at 295 rustc errors: a local
+      ; reached through a method that mutates, or through a collection, is
+      ; assigned in ways set_cnt does not see. `#![allow(unused_mut)]` is
+      ; what covers the remainder, and it is the honest place for it.
       if (needs_mut || is_object) {
-        wr.out(((("let mut " + unused_pfx) + (this.adjustType(p.compiledName))) + " : ") false)
+        wr.out(((("let mut " + unused_pfx) + (this.adjustType(p.compiledName))) + ": ") false)
       } {
-        wr.out(((("let " + unused_pfx) + (this.adjustType(p.compiledName))) + " : ") false)
+        wr.out(((("let " + unused_pfx) + (this.adjustType(p.compiledName))) + ": ") false)
       }
       def nameN:CodeNode (unwrap p.nameNode)
       
@@ -2911,9 +2916,9 @@ class RangerRustClassWriter {
         }
         if (arg.rust_borrow_type == 1) {
           if argIsPlainClass {
-            wr.out(((paramName + " : &") + (this.rustSharedTypeString(nameN.type_name ctx))) false)
+            wr.out(((paramName + ": &") + (this.rustSharedTypeString(nameN.type_name ctx))) false)
           } {
-            wr.out((paramName + " : &Rc<RefCell<") false)
+            wr.out((paramName + ": &Rc<RefCell<") false)
             this.writeTypeDef(nameN ctx wr)
             wr.out(">>" false)
           }
@@ -2924,12 +2929,12 @@ class RangerRustClassWriter {
           ; an @(optional) parameter is Option<…>: the body asks it
           ; `is_none()` and unwraps it, and a caller may have nothing to pass
           if (nameN.hasFlag("optional")) {
-            wr.out((((((rust_mut_pfx + paramName) + " : Option<") + (this.rustSharedTypeString(nameN.type_name ctx))) + ">")) false)
+            wr.out((((((rust_mut_pfx + paramName) + ": Option<") + (this.rustSharedTypeString(nameN.type_name ctx))) + ">")) false)
           } {
-            wr.out((((rust_mut_pfx + paramName) + " : ") + (this.rustSharedTypeString(nameN.type_name ctx))) false)
+            wr.out((((rust_mut_pfx + paramName) + ": ") + (this.rustSharedTypeString(nameN.type_name ctx))) false)
           }
         } {
-          wr.out((rust_mut_pfx + paramName + " : Rc<RefCell<") false)
+          wr.out((rust_mut_pfx + paramName + ": Rc<RefCell<") false)
           this.writeTypeDef(nameN ctx wr)
           wr.out(">>" false)
         }
@@ -2943,7 +2948,7 @@ class RangerRustClassWriter {
       ; Check if parameter is assigned - if so, make it mut
       if needsMutRef {
         ; Parameter is mutated - needs mut
-        wr.out((rust_mut_pfx + paramName + " : &mut ") false)
+        wr.out((rust_mut_pfx + paramName + ": &mut ") false)
         this.writeTypeDef(nameN ctx wr)
       } {
         if needsImmutableBorrow {
@@ -2973,14 +2978,14 @@ class RangerRustClassWriter {
             }
           }
           if ((strlen slice_elem) > 0) {
-            wr.out((((paramName + " : &[") + slice_elem) + "]") false)
+            wr.out((((paramName + ": &[") + slice_elem) + "]") false)
           } {
             ; a borrowed read-only string is &str: every call site coerces
             ; (&String and &'static str alike), no allocation either way
             if (((nameN.type_name == "string") && ((strlen nameN.array_type) == 0)) && ((strlen nameN.key_type) == 0)) {
-              wr.out((paramName + " : &str") false)
+              wr.out((paramName + ": &str") false)
             } {
-              wr.out((paramName + " : &") false)
+              wr.out((paramName + ": &") false)
               this.writeTypeDef(nameN ctx wr)
             }
           }
@@ -2992,12 +2997,12 @@ class RangerRustClassWriter {
           ; the body agrees with. An optional LOCAL and an optional RETURN never
           ; went through here, which is why only parameters were wrong.
           if is_object {
-            wr.out((rust_mut_pfx + paramName + " : ") false)
+            wr.out((rust_mut_pfx + paramName + ": ") false)
           } {
             if (arg.set_cnt > 0) {
-              wr.out((rust_mut_pfx + paramName + " : ") false)
+              wr.out((rust_mut_pfx + paramName + ": ") false)
             } {
-              wr.out((paramName + " : ") false)
+              wr.out((paramName + ": ") false)
             }
           }
           this.writeTypeDef(nameN ctx wr)

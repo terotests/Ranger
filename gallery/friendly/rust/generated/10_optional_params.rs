@@ -4,12 +4,8 @@
 #![allow(unused_assignments)]
 #![allow(dead_code)]
 // The clippy allows below cover shapes that mirror the Ranger source
-// itself - statement-level clamp chains, nested ifs, function arity and
-// type names - which the transpiler must not rewrite or rename.
-#![allow(clippy::manual_clamp)]
+// itself, which the transpiler must not rewrite or rename.
 #![allow(clippy::collapsible_if)]
-#![allow(clippy::too_many_arguments)]
-#![allow(clippy::upper_case_acronyms)]
 #![allow(clippy::ptr_arg)]
 
 use std::rc::Rc;
@@ -27,46 +23,44 @@ impl<T: ?Sized> RgIdentical for Rc<RefCell<T>> {
 }
 
 #[derive(Clone)]
-struct Point { 
-  x : i64, 
-  y : i64, 
+struct Point {
+  x: i64,
+  y: i64,
 }
-impl Point { 
-  
-  pub fn new() ->  Point {
-    Point { 
-      x:0, 
-      y:0, 
+impl Point {
+  pub fn new() -> Self {
+    Point {
+      x: 0,
+      y: 0,
     }
   }
 }
 #[derive(Clone)]
-struct OptionalParams { 
+struct OptionalParams {
 }
-impl OptionalParams { 
-  
-  pub fn new() ->  OptionalParams {
-    OptionalParams { 
+impl OptionalParams {
+  pub fn new() -> Self {
+    OptionalParams {
     }
   }
-  fn shown(maybe : Option<String>) -> String {
+  fn shown(maybe: Option<String>) -> String {
     if  maybe.is_none() {
       return "unknown".to_string().clone();
     }
     maybe.clone().unwrap().clone()
   }
-  fn shown_int(a : Option<i64>) -> i64 {
+  fn shown_int(a: Option<i64>) -> i64 {
     if  a.is_none() {
       return 0;
     }
-    let r : i64 = a.unwrap();
+    let r: i64 = a.unwrap();
     r
   }
-  fn shown_point(&self, mut p : Option<Rc<RefCell<Point>>>) -> i64 {
+  fn shown_point(&self, mut p: Option<Rc<RefCell<Point>>>) -> i64 {
     if  p.is_none() {
       return 0;
     }
-    let mut q : Rc<RefCell<Point>> = p.clone().unwrap();
+    let mut q: Rc<RefCell<Point>> = p.clone().unwrap();
     return q.borrow().x;
   }
 }
@@ -76,18 +70,18 @@ fn main() {
   __rg_main_thread.join().expect("main thread panicked");
 }
 fn __rg_main_body() {
-  let mut app : OptionalParams = OptionalParams::new();
-  let mut hit : Option<String> = None;
+  let mut app: OptionalParams = OptionalParams::new();
+  let mut hit: Option<String> = None;
   hit = Some("ada".to_string());
-  println!("{}{}", "name ".to_string(), OptionalParams::shown(hit.clone()));
-  let miss : Option<String> = None;
-  println!("{}{}", "miss ".to_string(), OptionalParams::shown(miss.clone()));
-  let mut n : Option<i64> = None;
+  println!("name {}", OptionalParams::shown(hit.clone()));
+  let miss: Option<String> = None;
+  println!("miss {}", OptionalParams::shown(miss.clone()));
+  let mut n: Option<i64> = None;
   n = Some(41);
-  println!("{}{}", "int ".to_string(), OptionalParams::shown_int(n));
-  let mut p : Option<Rc<RefCell<Point>>> = None;
-  let mut pt : Rc<RefCell<Point>> = Rc::new(RefCell::new(Point::new()));
+  println!("int {}", OptionalParams::shown_int(n));
+  let mut p: Option<Rc<RefCell<Point>>> = None;
+  let mut pt: Rc<RefCell<Point>> = Rc::new(RefCell::new(Point::new()));
   pt.borrow_mut().x = 7;
   p = Some(pt.clone());
-  println!("{}{}", "point ".to_string(), app.shown_point(p.clone()));
+  println!("point {}", app.shown_point(p.clone()));
 }

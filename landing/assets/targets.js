@@ -55,9 +55,9 @@ window.RANGER_TARGETS = {
   "rust": {
    "label": "Rust",
    "hl": "rust",
-   "skipped": 16,
+   "skipped": 12,
    "cmd": "rgrc -l=rust Cart.rgr",
-   "code": "#[derive(Clone)]\nstruct CartLine { \n  name : String, \n  cents : i64, \n  qty : i64, \n}\nimpl CartLine { \n  \n  pub fn new() ->  CartLine {\n    CartLine { \n      name:\"\".to_string(), \n      cents:0, \n      qty:1, \n    }\n  }\n}\n#[derive(Clone)]\nstruct Cart { \n  lines : Vec<CartLine>, \n}\nimpl Cart { \n  \n  pub fn new() ->  Cart {\n    Cart { \n      lines: Vec::new(), \n    }\n  }\n  fn add(&mut self, name : String, cents : i64, qty : i64) {\n    let mut line : CartLine = CartLine {\n      name,\n      cents,\n      qty,\n    };\n    self.lines.push(line);\n  }\n  fn subtotal(&self) -> i64 {\n    let mut sum : i64 = 0;\n    for line in self.lines.iter() {\n      sum += line.cents * line.qty;\n    }\n    sum\n  }\n  fn total(&self, discount_pct : i64) -> i64 {\n    let sum : i64 = self.subtotal();\n    sum - (((sum * discount_pct)) / (100))\n  }\n}"
+   "code": "#[derive(Clone)]\nstruct CartLine {\n  name: String,\n  cents: i64,\n  qty: i64,\n}\nimpl CartLine {\n  pub fn new() -> Self {\n    CartLine {\n      name: \"\".to_string(),\n      cents: 0,\n      qty: 1,\n    }\n  }\n}\n#[derive(Clone)]\nstruct Cart {\n  lines: Vec<CartLine>,\n}\nimpl Cart {\n  pub fn new() -> Self {\n    Cart {\n      lines: Vec::new(),\n    }\n  }\n  fn add(&mut self, name: String, cents: i64, qty: i64) {\n    let mut line: CartLine = CartLine {\n      name,\n      cents,\n      qty,\n    };\n    self.lines.push(line);\n  }\n  fn subtotal(&self) -> i64 {\n    let mut sum: i64 = 0;\n    for line in &self.lines {\n      sum += line.cents * line.qty;\n    }\n    sum\n  }\n  fn total(&self, discount_pct: i64) -> i64 {\n    let sum: i64 = self.subtotal();\n    sum - (sum * discount_pct / 100)\n  }\n}"
   }
  }
 };
