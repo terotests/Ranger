@@ -109,6 +109,26 @@ function main() {
   } catch (e) {
     process.stderr.write(`evg_agent compile skipped: ${e.message}\n`);
   }
+  try {
+    const host = path.join(root, "gallery/ui/bin/ui_host.cjs");
+    const src = path.join(root, "gallery/ui/src/UiHost.rgr");
+    const stale =
+      !fs.existsSync(host) ||
+      (fs.existsSync(src) && fs.statSync(src).mtimeMs > fs.statSync(host).mtimeMs);
+    if (stale) {
+      process.stderr.write("ui host: compiling gallery/ui/bin/ui_host.cjs\n");
+      const log = spawnSync(
+        "node",
+        ["bin/output.js", "-es6", "-nodemodule", "./gallery/ui/src/UiHost.rgr", "-d=./gallery/ui/bin", "-o=ui_host.cjs"],
+        { cwd: root, encoding: "utf8", env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr:./lib/stdops.rgr" }, maxBuffer: 20 * 1024 * 1024 },
+      );
+      if (!fs.existsSync(host)) {
+        process.stderr.write(`ui host compile skipped: ${(log.stderr || log.stdout || "").slice(-400)}\n`);
+      }
+    }
+  } catch (e) {
+    process.stderr.write(`ui host compile skipped: ${e.message}\n`);
+  }
 
   process.env.EVG_LIVEBUILD_DEFAULT_AGENT = process.env.EVG_LIVEBUILD_DEFAULT_AGENT || "gemini";
   report();

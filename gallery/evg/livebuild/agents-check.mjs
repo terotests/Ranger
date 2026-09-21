@@ -810,8 +810,21 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   if (!opsRead.error || !/path data/.test(opsRead.error)) {
     throw new Error("read_file must refuse attachment.ops.json: " + JSON.stringify(opsRead));
   }
+  const guideRead = executeTool(ws, "read_file", { path: "AGENTS.md" });
+  if (!guideRead.error || !/system prompt/.test(guideRead.error)) {
+    throw new Error("read_file must refuse AGENTS.md: " + JSON.stringify(guideRead));
+  }
+  const boom = summarizeTool("run", { command: "./evg-ui add button --name test" }, {
+    ok: false,
+    status: 1,
+    stdout: "",
+    stderr: "TypeError: host.plainTreeJson is not a function\n",
+  });
+  if (!/plainTreeJson/.test(boom.reply)) {
+    throw new Error("a failed ./evg-ui must show stderr, not just exit 1: " + JSON.stringify(boom));
+  }
   const prompt = geminiSystemPrompt();
-  for (const need of ["ocr attachment.png at most ONCE", '"node"', "820×1180", "./evg-ui"]) {
+  for (const need of ["ocr attachment.png at most ONCE", '"node"', "820×1180", "./evg-ui", "Do not read AGENTS.md"]) {
     if (!prompt.includes(need)) throw new Error("gemini system prompt missing " + need);
   }
   fs.writeFileSync(

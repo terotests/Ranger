@@ -271,10 +271,12 @@ A picture is a PHOTO of a UI, not the UI:
 
 The loop:
 1. outline
-2. ./evg-ui list / spec / add card|row|appbar|chips|field … > add.json
-   or write_file ops.json then ./evg-agent patch doc.evg.json ops.json
+2. ./evg-ui add card --title "…" --row "Title|Sub|value:42" --into doc.evg.json > add.json
+   then ./evg-agent patch doc.evg.json add.json
+   spec is optional. Do not smoke-test with add button. Do not read AGENTS.md.
 3. ./evg-agent measure doc.evg.json --width=W --height=H
    W×H is what TASK.md said: phone 390×844, tablet 820×1180, desktop 1440×900. Not always 390.
+   count:0 on the seed (one empty column) is not done — outline must name the cards.
 
 insert with only "tag" is an empty box. A subtree is "node" (document shape), not "children" on the op — children there is ignored and outline will show empty divs. Prefer ./evg-ui: one add card is a whole measured piece.
 
@@ -330,6 +332,9 @@ export function denyRead(rel) {
   }
   if (name === "attachment.ops.json" || name === "attachment.svg") {
     return "that file is path data for the photo — image_info has the palette; paste with ./evg-agent patch doc.evg.json attachment.ops.json; to rebuild a UI like it, ocr once and ./evg-ui";
+  }
+  if (name === "AGENTS.md") {
+    return "the loop is already in the system prompt — ./evg-ui list for pieces, outline for the screen. Do not load the whole guide.";
   }
   return "";
 }
@@ -688,8 +693,10 @@ export function summarizeTool(name, rawArgs, result) {
     const out = `${result && result.stdout ? result.stdout : ""}\n${result && result.stderr ? result.stderr : ""}`;
     const count = /"count"\s*:\s*(-?\d+)/.exec(out);
     if (count) reply = `count:${count[1]}`;
-    else if (result && result.stdout) reply = clipOneLine(result.stdout);
-    else reply = result && result.ok ? "ok" : `exit ${result && result.status}`;
+    else if (result && !result.ok) {
+      reply = clipOneLine(result.stderr || result.stdout || `exit ${result.status}`);
+    } else if (result && result.stdout) reply = clipOneLine(result.stdout);
+    else reply = "ok";
   } else if (name === "read_file" && result && result.contents != null) {
     reply = `read ${String(result.contents).length.toLocaleString("en-US")} chars`;
   } else if (name === "image_info" && result) {

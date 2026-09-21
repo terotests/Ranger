@@ -47,12 +47,33 @@ const AGENT = path.join(root, "lib", "evg", "bin", "evg_agent.js");
 
 const read = (p) => JSON.parse(fs.readFileSync(p, "utf8"));
 
+function hostLooksLive() {
+  if (!fs.existsSync(HOST)) return false;
+  const src = path.join(here, "..", "src", "UiHost.rgr");
+  if (fs.existsSync(src) && fs.statSync(src).mtimeMs > fs.statSync(HOST).mtimeMs) return false;
+  try {
+    const resolved = require.resolve(HOST);
+    delete require.cache[resolved];
+    const M = require(HOST);
+    const probe = new M.UiHost();
+    return typeof probe.plainTreeJson === "function" && typeof probe.addButton === "function";
+  } catch {
+    return false;
+  }
+}
+
 function ensureHost() {
-  if (fs.existsSync(HOST)) return;
+  if (hostLooksLive()) return;
   const built = spawnSync("npm", ["run", "ui:build"], { cwd: root, encoding: "utf8" });
-  if (!fs.existsSync(HOST)) {
+  try {
+    const resolved = require.resolve(HOST);
+    delete require.cache[resolved];
+  } catch {
+    /* not loaded yet */
+  }
+  if (!hostLooksLive()) {
     process.stderr.write((built.stdout || "") + (built.stderr || ""));
-    throw new Error("the compiled host is missing and `npm run ui:build` did not make one");
+    throw new Error("the compiled host is missing addButton/plainTreeJson and `npm run ui:build` did not fix it");
   }
 }
 
