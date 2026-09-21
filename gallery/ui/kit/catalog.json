@@ -20,6 +20,26 @@
   ],
   "components": [
     {
+      "type": "button",
+      "summary": "The ordinary button: press it, something happens, it remembers nothing. A CTA is the `primary` variant.",
+      "role": "button",
+      "props": {
+        "name": {
+          "type": "string",
+          "note": "the words on it"
+        },
+        "variant": {
+          "type": "\"primary\" | \"secondary\" | \"ghost\" | \"danger\"",
+          "default": "secondary",
+          "note": "a class on the root, so the sheet decides what primary looks like"
+        },
+        "disabled": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    {
       "type": "switch",
       "summary": "An on/off control drawn as a track with a thumb that slides.",
       "role": "switch",

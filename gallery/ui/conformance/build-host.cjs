@@ -37,6 +37,10 @@ function buildHost(M, fixture, css) {
   for (const c of fixture.controls) {
     let ctl;
     switch (c.type) {
+      case "button":
+        ctl = host.addButton(c.tid, c.name, c.variant || "secondary");
+        break;
+
       case "toggle":
         ctl = host.addToggle(c.tid, c.name);
         break;
@@ -335,6 +339,7 @@ function buildHost(M, fixture, css) {
  * than a hand-kept list, so "implemented" cannot drift from what the code does.
  */
 const SUPPORTED_TYPES = [
+  "button",
   "toggle",
   "collapsible",
   "checkbox",

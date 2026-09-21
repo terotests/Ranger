@@ -692,7 +692,11 @@ function start(keepPicture) {
   paintMeasure(null);
   if (!keepPicture) $("screen").replaceChildren();
   const prompt = $("prompt").value.trim() || current;
-  es = new EventSource(`/stream?agent=${encodeURIComponent(currentAgent)}&kind=${encodeURIComponent(current)}&prompt=${encodeURIComponent(prompt)}&pace=24`);
+  // The device goes with the ask. Without it the frames came back at the
+  // document's own size and the stage snapped to a phone mid-build, and the
+  // agent had no way to know which screen it was designing for.
+  const v = viewport();
+  es = new EventSource(`/stream?agent=${encodeURIComponent(currentAgent)}&kind=${encodeURIComponent(current)}&prompt=${encodeURIComponent(prompt)}&w=${v.w}&h=${v.h}&pace=24`);
   const on = (type, fn) => es.addEventListener(type, (ev) => {
     if (!ev.data) return;
     fn(JSON.parse(ev.data));

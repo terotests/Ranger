@@ -17,6 +17,7 @@
 
 Import "UiTree.rgr"
 Import "UiCtl.rgr"
+Import "ButtonCtl.rgr"
 Import "ToggleCtl.rgr"
 Import "CollapsibleCtl.rgr"
 Import "CheckboxCtl.rgr"
@@ -132,6 +133,21 @@ class UiHost {
         def r:EVGElement (unwrap root)
         def el:EVGElement (unwrap c.rootEl)
         r.addChild(el)
+    }
+
+    ; The ordinary button: press it, something happens, it remembers nothing.
+    ; `variant` is a class on the root, so an orange CTA is two rules in a
+    ; sheet rather than a hand-drawn div.
+    fn addButton:ButtonCtl (tid:string name:string variant:string) {
+        def c (new ButtonCtl())
+        c.tid = tid
+        c.name = name
+        if ((strlen variant) > 0) {
+            c.variant = variant
+        }
+        c.build()
+        this.add(c)
+        return c
     }
 
     fn addToggle:ToggleCtl (tid:string name:string) {

@@ -8,7 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { listAgents, runTask, root, findCursorAgent, cursorSpawnArgs, frameFixture, resetSession, readSessionDoc, prepareSession, sessionDir, makeCursorFeed, attachmentOf, clearAttachment, ATTACH_BASE } from "./agents.mjs";
+import { listAgents, runTask, root, findCursorAgent, cursorSpawnArgs, frameFixture, resetSession, readSessionDoc, prepareSession, sessionDir, makeCursorFeed, deviceLine, attachmentOf, clearAttachment, ATTACH_BASE } from "./agents.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const bin = path.join(root, "gallery/evg/bin/evg_livebuild.js");
@@ -540,6 +540,38 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
     throw new Error("reset does not leave Run mode before emptying the project");
   }
   console.log("  phases      idle / working / running, owned in one place");
+}
+
+// THE DEVICE GOES WITH THE ASK.
+//
+// Picking Tablet and then typing a prompt used to snap the stage back to a
+// phone: the frames streamed during a build were laid out at the document's
+// own size, because nothing carried the choice into the build. And the agent
+// was never told either, so "add a sidebar" on a desktop got a 390-wide phone
+// with a sidebar squeezed into it.
+{
+  if (typeof deviceLine !== "function") throw new Error("deviceLine is gone");
+  if (deviceLine(null) !== "") throw new Error("no viewport must add nothing to the ask");
+  if (deviceLine({ width: 0, height: 0 }) !== "") throw new Error("an empty viewport must add nothing");
+
+  const tablet = deviceLine({ width: 820, height: 1180 });
+  if (!/tablet/.test(tablet) || !/820/.test(tablet) || !/1180/.test(tablet)) {
+    throw new Error("the tablet was not named with its size: " + tablet);
+  }
+  if (!/portrait/.test(tablet)) throw new Error("orientation missing: " + tablet);
+  const desk = deviceLine({ width: 1440, height: 900 });
+  if (!/desktop/.test(desk) || !/landscape/.test(desk)) {
+    throw new Error("a desktop on its side was not described: " + desk);
+  }
+  // A turned tablet is still a tablet — the name comes from either side.
+  if (!/tablet/.test(deviceLine({ width: 1180, height: 820 }))) {
+    throw new Error("a landscape tablet lost its name");
+  }
+  // The point of saying it at all: the root has to BE that size.
+  if (!/root must be 820px wide/.test(tablet)) {
+    throw new Error("the ask does not tell the agent to build at that size: " + tablet);
+  }
+  console.log("  device      the ask says which screen it is for, and how big");
 }
 
 // Reset empties the PROJECT, not just the picture: the app built from the old

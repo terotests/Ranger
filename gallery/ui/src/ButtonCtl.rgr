@@ -1,0 +1,139 @@
+; SPDX-License-Identifier: AGPL-3.0-or-later
+
+; =============================================================================
+; ButtonCtl — the one that was missing
+; =============================================================================
+;
+; The kit had `toggle`, which is a button that STAYS PRESSED, and nothing for
+; the ordinary kind: press it, something happens, it does not remember. That
+; is the commonest control on any screen, and every screen built with this kit
+; drew its own — a `div` with a radius and some words in it, each one a
+; slightly different shade of the same orange, none of them restyleable and
+; none of them focusable. An agent asked for a button, found `chips` (a round
+; icon with a label under it), and drew a pill instead.
+;
+; Parity contract:
+;   role      button
+;   state     "idle" | "pressed"   — held, not latched; `activate` does not
+;                                    change it, because a button has nothing
+;                                    to remember
+;   disabled  never activates, is not a tab stop
+;
+; A VARIANT IS A CLASS, NOT A COLOUR. `primary`, `secondary`, `ghost` and
+; `danger` are the four a screen actually needs, and each is one more class on
+; the root — `ui-button-primary` — so the sheet decides what primary looks
+; like. An orange CTA is `primary` with two rules changed, not a new control
+; and not a hand-drawn box.
+;
+;   button.ui-button.ui-button-primary       the control, what a press lands on
+;     span.ui-button-label                   the words
+;
+; The label is its own element rather than text on the root because a button
+; with an icon beside its words is the next thing anybody asks for, and a
+; sheet cannot space two things that are one text node.
+; =============================================================================
+
+Import "UiCtl.rgr"
+Import "UiTree.rgr"
+Import "pkg:evg/EVGElement.rgr"
+Import "pkg:evg/EVGA11yTree.rgr"
+
+class ButtonCtl extends UiCtl {
+    ; "primary" | "secondary" | "ghost" | "danger"
+    def variant:string "secondary"
+    ; Held down. A press paints it; letting go paints it back.
+    def held:boolean false
+
+    Constructor () {
+        rootEl = (EVGElement.createDiv())
+    }
+
+    fn stateWord:string () {
+        if held {
+            return "pressed"
+        }
+        return "idle"
+    }
+
+    fn variantClass:string () {
+        if (variant == "primary") {
+            return "ui-button-primary"
+        }
+        if (variant == "ghost") {
+            return "ui-button-ghost"
+        }
+        if (variant == "danger") {
+            return "ui-button-danger"
+        }
+        return "ui-button-secondary"
+    }
+
+    fn build:void () {
+        def el:EVGElement (unwrap rootEl)
+        el.id = tid
+        el.className = "ui-button"
+        UiTree.addClass(el (this.variantClass()))
+        if disabled {
+            UiTree.addClass(el "ui-button-disabled")
+        }
+        UiTree.setState(el "ui-button" (this.stateWord()))
+        UiTree.clearChildren(el)
+        el.elementType = 0
+        el.textContent = ""
+
+        def words:EVGElement (EVGElement.createSpan())
+        words.className = "ui-button-label"
+        words.textContent = name
+        words.elementType = 1
+        ; What a reader is told is the row this controller reports; the label
+        ; is how the button is drawn.
+        words.a11yHidden = true
+        el.addChild(words)
+    }
+
+    ; A button has nothing to remember, so this reports the press and leaves
+    ; the control as it was. Returning the id is what tells a host that
+    ; something happened — a toggle returns "" because its change IS the state.
+    fn activate:string (target:string) {
+        if disabled {
+            return ""
+        }
+        if (target != tid) {
+            return ""
+        }
+        return tid
+    }
+
+    fn press:void (down:boolean) {
+        if disabled {
+            return
+        }
+        held = down
+        this.build()
+    }
+
+    fn isFocusable:boolean (target:string) {
+        if (target != tid) {
+            return false
+        }
+        if disabled {
+            return false
+        }
+        return true
+    }
+
+    fn rows:[UiRow] () {
+        def out:[UiRow]
+        def r:UiRow (UiRow.of(tid (EVGA11yRole.button()) name))
+        r.state = (this.stateWord())
+        r.disabled = disabled
+        if disabled {
+            r.tabStop = false
+        } {
+            r.tabStop = true
+            r.focusable = true
+        }
+        push out r
+        return out
+    }
+}
