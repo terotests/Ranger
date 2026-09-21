@@ -40,8 +40,8 @@ export default defineConfig({
   // Type methods used to have their own pages. They now live on the library
   // page of the same source, so the old addresses move there.
   redirects: {
-    "/reference/methods/stdlib": "/reference/libraries/stdlib",
-    "/reference/methods/json": "/reference/libraries/json",
+    "/reference/methods/stdlib": "/Ranger/docs/reference/libraries/stdlib/",
+    "/reference/methods/json": "/Ranger/docs/reference/libraries/json/",
   },
   integrations: [
     starlight({
