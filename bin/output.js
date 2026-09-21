@@ -42901,7 +42901,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                             if ( needsRc ) {
                                                               header.out("use std::cell::RefCell;", true);
                                                             }
-                                                            header.out("", true);
+                                                            if ( needsRc || anyWeakField ) {
+                                                              header.out("", true);
+                                                            }
                                                             const hdrTraitRoot = ctx.getRoot();
                                                             for ( let hti = 0; hti < hdrTraitRoot.definedClassList.length; hti++) {
                                                               var htName = hdrTraitRoot.definedClassList[hti];
@@ -43189,7 +43191,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                               header.out("    match s.rfind(key) { Some(b) => b as i64, None => -1 }", true);
                                                               header.out("}", true);
                                                             }
-                                                            header.out("", true);
+                                                            if ( (needsRc || needsMap) || needsStrIndex ) {
+                                                              header.out("", true);
+                                                            }
                                                             let mutPass = 0;
                                                             let mutChanged = true;
                                                             while (mutPass < 12 && mutChanged) {
