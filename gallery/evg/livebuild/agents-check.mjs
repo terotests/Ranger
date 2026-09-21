@@ -23,6 +23,7 @@ import {
   summarizeTool,
   splitParts,
   GEMINI_TRACE,
+  geminiSystemPrompt,
 } from "./gemini-agent.mjs";
 import http from "node:http";
 
@@ -253,6 +254,9 @@ if (fs.existsSync(path.join(root, "lib/evg/bin/evg_agent.js"))) {
     if (!guide.includes(need)) throw new Error(`the guide never mentions ${need}`);
   }
   if (guide.includes("<svg")) throw new Error("the guide is carrying path data — that is what the ops file is for");
+  if (!/photograph of a UI, not the UI/.test(guide) || !/rebuild a UI like the picture/.test(guide)) {
+    throw new Error("the guide must split paste-the-photo from rebuild-the-UI: " + guide.slice(guide.indexOf("A picture"), guide.indexOf("A picture") + 400));
+  }
   console.log("  picture     palette + ops in the guide, no coordinates");
   clearAttachment(dir);
 }
@@ -801,6 +805,14 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   const fakeLayout = executeTool(ws, "write_file", { path: "layout.json", contents: "{}" });
   if (!fakeLayout.error || !/measure/.test(fakeLayout.error)) {
     throw new Error("write_file must refuse layout.json: " + JSON.stringify(fakeLayout));
+  }
+  const opsRead = executeTool(ws, "read_file", { path: "attachment.ops.json" });
+  if (!opsRead.error || !/path data/.test(opsRead.error)) {
+    throw new Error("read_file must refuse attachment.ops.json: " + JSON.stringify(opsRead));
+  }
+  const prompt = geminiSystemPrompt();
+  for (const need of ["ocr attachment.png at most ONCE", '"node"', "820×1180", "./evg-ui"]) {
+    if (!prompt.includes(need)) throw new Error("gemini system prompt missing " + need);
   }
   fs.writeFileSync(
     path.join(ws, "attachment.json"),

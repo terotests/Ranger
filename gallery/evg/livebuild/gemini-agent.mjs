@@ -259,25 +259,28 @@ export const GEMINI_TOOLS = [
 ];
 
 export function geminiSystemPrompt() {
-  return `You are a local agent editing a phone UI in this folder.
+  return `You edit the live document in this folder. TASK.md is the ask (it names the size). AGENTS.md is the guide.
 
-doc.evg.json is the screen. TASK.md is the ask (also in the user message). AGENTS.md is the full guide.
+Start with ./evg-agent outline doc.evg.json. The outline is the screen. Do not OCR or write ops before you have it.
+
+A picture is a PHOTO of a UI, not the UI:
+- image_info → palette. Use those colours.
+- ocr attachment.png at most ONCE. Tesseract on a busy dashboard is noisy. If the text is broken, keep the words you got — do not re-OCR or change psm.
+- Do not read attachment.ops.json or attachment.svg (path data).
+- ./evg-agent patch doc.evg.json attachment.ops.json PASTES the photo. "Make a dashboard like this" means rebuild with ./evg-ui, not paste the photo.
 
 The loop:
-1. ./evg-agent outline doc.evg.json
-2. write_file an ops JSON (not the document), then ./evg-agent patch doc.evg.json ops.json
-3. ./evg-agent measure doc.evg.json --width=390 --height=844
-Fix findings. count:0 is the goal. The host writes layout.json after a save — do not.
+1. outline
+2. ./evg-ui list / spec / add card|row|appbar|chips|field … > add.json
+   or write_file ops.json then ./evg-agent patch doc.evg.json ops.json
+3. ./evg-agent measure doc.evg.json --width=W --height=H
+   W×H is what TASK.md said: phone 390×844, tablet 820×1180, desktop 1440×900. Not always 390.
 
-Never write_file doc.evg.json. A whole-document replace is how a one-line row fix becomes a new screen. Patch the nodes the outline named.
+insert with only "tag" is an empty box. A subtree is "node" (document shape), not "children" on the op — children there is ignored and outline will show empty divs. Prefer ./evg-ui: one add card is a whole measured piece.
 
-Host tools (call these — do not reinvent them with python or a shell):
-- run: ./evg-agent, ./evg-ui, ./evg-app, ./evg-image only
-- read_file / write_file / list_dir
-- image_info: the attached picture's palette (attachment.json)
-- ocr: Tesseract on attachment.png — only when the ask is about the picture's labels
+Never write_file doc.evg.json or layout.json. measure count:0 with three empty nodes is not success — outline must name the cards you added.
 
-Do not git, do not read evg_agent.js, do not write /tmp, do not sips or hand-roll BMP crops. When the screen is right, stop.`;
+Do not git, evg_agent.js, --help, /tmp, python, sips. When the outline matches the ask, stop.`;
 }
 
 function clip(text, cap = TOOL_OUT_CAP) {
@@ -324,6 +327,9 @@ export function denyRead(rel) {
   if (name === GEMINI_TRACE) return "read_file will not open the tool trace";
   if (/^evg[_-].+\.js$/i.test(name)) {
     return "read_file will not open compiled tool sources — call ./evg-agent, do not read the JS";
+  }
+  if (name === "attachment.ops.json" || name === "attachment.svg") {
+    return "that file is path data for the photo — image_info has the palette; paste with ./evg-agent patch doc.evg.json attachment.ops.json; to rebuild a UI like it, ocr once and ./evg-ui";
   }
   return "";
 }

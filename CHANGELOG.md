@@ -55,6 +55,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `write_file` will not replace `doc.evg.json` or invent `layout.json`.
   Thoughts are requested back (`includeThoughts`) and each tool is printed
   as `→ call · ← result` on the withgemini console and in `.gemini-trace.log`.
+  The workspace guide and Gemini prompt now split *paste the photo* from
+  *rebuild a UI like it*, name `insert`/`node` (a `children` key on the op
+  is ignored), and tell the model to OCR once and measure at the size
+  TASK.md named. `read_file` will not open `attachment.ops.json` / `.svg`.
   `npm run livebuild:withgemini` checks the key and opens the
   page with Gemini selected. The orchestrator suite drives the loop against
   a fake fetch, so CI never spends Google credits.

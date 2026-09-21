@@ -625,9 +625,7 @@ function attachmentSection(dir) {
   return `
 ## A picture was attached
 
-\`${ATTACH_BASE}.svg\` is it, traced to flat colour layers by Ranger's
-bitmap tracer — ${a.width}×${a.height}, ${a.layers} layers. It is vector,
-so the document can hold it and every painter draws it.
+This is a photograph of a UI, not the UI. ${a.width}×${a.height}, ${a.layers} layers.
 
 Its colours, by how much of the picture they cover:
 
@@ -636,24 +634,40 @@ ${colors}
 Use them. A screen built around the picture's own palette looks like it
 belongs to the picture; one built from guessed colours does not.
 
-To put the picture itself on the phone, apply the patch that is already
-written for it — you never have to handle the path data:
+Three files, three jobs:
+
+- \`${ATTACH_BASE}.json\` — the palette. \`image_info\` is enough; do not
+  re-read it for coordinates.
+- \`${ATTACH_BASE}.png\` — the pixels. \`ocr\` at most once if you need
+  labels. Tesseract on a busy dashboard is noisy; a second pass with
+  another psm will not become a spec.
+- \`${ATTACH_BASE}.ops.json\` / \`${ATTACH_BASE}.svg\` — the same photo as
+  vector layers (tens of thousands of coordinates). Do not read them.
+
+To **paste the photo** onto the screen (the picture itself, not rebuilt
+widgets), apply the patch that is already written — you never handle the
+path data:
 
 \`\`\`
 ./evg-agent patch doc.evg.json ${ATTACH_BASE}.ops.json
 \`\`\`
 
 It inserts at \`${a.insertsAt || "0/0"}\` at ${a.placed || "its own size"}.
-Edit that file's \`at\` / \`index\` / width first if it belongs somewhere
-else, or re-trace at another size:
+That is a screenshot on the page. It is not a dashboard made of cards.
+
+To **rebuild a UI like the picture** ("make a dashboard like this"):
+outline the live document, take the palette, OCR once for the words, then
+\`./evg-ui add card\` / \`row\` / \`appbar\` (and small patches). Do not
+apply \`${ATTACH_BASE}.ops.json\` as the whole screen, and do not dump its
+coordinates into a new ops file.
+
+Re-trace at another size only if you are placing the photo:
 
 \`\`\`
 ./evg-image ${ATTACH_BASE}.png --out=${ATTACH_BASE} --width=200 --at=0 --index=2
 \`\`\`
 
-\`--preset\` takes lineart, poster, photo, broken or print. If the task is
-about the colours rather than the picture, use the palette and leave the
-picture out.
+\`--preset\` takes lineart, poster, photo, broken or print.
 `;
 }
 
@@ -672,9 +686,13 @@ ${task}
 
 ## The screen
 
-390 × 844, one phone. \`doc.evg.json\` already holds a real UI — read it,
-or run \`./evg-agent outline doc.evg.json\`, before you change anything.
-If the outline has more than a handful of nodes, the phone is not empty.
+The seed is 390 × 844 (phone). If TASK.md names a tablet (820 × 1180) or
+a desktop, the root must be that size — measure with those flags. A
+tablet is not a phone stretched.
+
+\`doc.evg.json\` already holds a real UI — run
+\`./evg-agent outline doc.evg.json\` before you change anything. If the
+outline has more than a handful of nodes, the screen is not empty.
 Edit it in place. Do not replace it with a blank page unless the task
 says to start over.
 
@@ -955,8 +973,11 @@ wrong.
 \`\`\`
 ./evg-agent outline doc.evg.json                          # 1. addresses
 ./evg-agent patch   doc.evg.json ops.json                 # 2. change it
-./evg-agent measure doc.evg.json --width=390 --height=844 # 3. is it right?
+./evg-agent measure doc.evg.json --width=W --height=H     # 3. is it right?
 \`\`\`
+
+W×H is what TASK.md said (390×844 phone, 820×1180 tablet, 1440×900
+desktop). Measuring a tablet document at 390×844 is the wrong question.
 
 \`outline\` prints one line per node: its path, its tag, its text, and
 only the properties it sets. Unkeyed paths shift when a sibling is
@@ -978,6 +999,20 @@ design mode on the live page runs exactly this.
   {"op":"insert","at":"0/0","index":2,"tag":"span"}
 ]}
 \`\`\`
+
+\`insert\` with only \`tag\` is an empty node. A subtree is \`node\` —
+the same shape as a document — not \`children\` on the op. A \`children\`
+key is skipped, the insert lands as an empty box, and \`outline\` will
+show three nodes after you thought you built a dashboard:
+
+\`\`\`json
+{"op":"insert","at":"0","index":0,"node":{"tag":"div","props":{"display":"flex"},
+  "children":[{"tag":"span","text":"Hi"}]}}
+\`\`\`
+
+Prefer \`./evg-ui add card\` for anything with rows. One command is a
+whole measured piece; an 18k hand-written tree is how \`children\` gets
+ignored.
 
 A rejected op fails the whole batch and changes nothing, so a batch is
 safe to attempt: you never have to work out what half-applied.
@@ -1716,7 +1751,7 @@ export async function runWorkspaceAgent({ id, kind, prompt, seed, session = fals
   const live = looksLikeEvg(seed) || looksLikeEvg(readSessionDoc());
   if (session && live && kind !== "empty") {
     tokenize(
-      "Follow-up on the phone already in doc.evg.json. Edit that document. Do not replace it with a blank page.",
+      "Follow-up on the screen already in doc.evg.json. Edit that document. Do not replace it with a blank page.",
       onLine,
     );
   }
