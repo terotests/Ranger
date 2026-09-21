@@ -23,9 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **The front-page Silver Bullet copy is the shorter paragraph.** Ranger is
-  a little heavier to get started with, and a golden test when you have
-  more than one language to target.
+- **The front-page hero copy is the shorter two columns.** Silver Bullet:
+  Ranger is a little heavier to get started with, and a golden test when
+  you have more than one language to target. Stay DRY: AI makes generating
+  code easier; consistent validation across platforms is the remaining
+  problem.
 
 - **Front-page bench re-run: Go is 236 ms, third after C++ and Rust.**
   Re-running after the string-index fix (C++ 136, Rust 170, Go 236, Java
