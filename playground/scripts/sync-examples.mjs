@@ -14,13 +14,21 @@ const outDir = path.join(rangerRoot, "playground/public/examples");
  * dropping a wall of compiler errors into the output pane.
  *
  * @type {{ id: string, title: string, file: string, description: string,
- *          needsProcess?: boolean, unsupported?: Record<string, string> }[]}
+ *          from?: string, needsProcess?: boolean, unsupported?: Record<string, string> }[]}
  */
 const NO_SCALA_PROCESS = {
   scala: "Scala output cannot compile RangerProcess.rgr (for-loop with continue)",
 };
 
 export const EXAMPLES = [
+  {
+    id: "cart",
+    title: "Cart",
+    file: "Cart.rgr",
+    from: "landing/examples/Cart.rgr",
+    description:
+      "The example on the front page: line items, a subtotal, and a percent discount.",
+  },
   {
     id: "hello",
     title: "Hello World",
@@ -169,10 +177,18 @@ class TickDemo {
 fs.mkdirSync(outDir, { recursive: true });
 
 for (const ex of EXAMPLES) {
-  const src = path.join(fixtures, ex.file);
+  const src = ex.from
+    ? path.join(rangerRoot, ex.from)
+    : path.join(fixtures, ex.file);
   const dest = path.join(outDir, ex.file);
   if (fs.existsSync(src)) {
-    fs.copyFileSync(src, dest);
+    let text = fs.readFileSync(src, "utf8").replace(/\r\n/g, "\n");
+    if (ex.from) {
+      // Same drop as landing/tools/examples.mjs: the playground shows the
+      // classes, not the file's SPDX header.
+      text = text.replace(/^(?:;[^\n]*\n|\n)+/, "").trim() + "\n";
+    }
+    fs.writeFileSync(dest, text);
   } else if (EXTRA[ex.file]) {
     fs.writeFileSync(dest, EXTRA[ex.file]);
   } else {

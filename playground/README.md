@@ -5,15 +5,16 @@ In-browser Ranger compiler, published at [https://terotests.github.io/Ranger/pla
 Targets: **JavaScript** (optional TypeScript annotations), **Python**, **Go**, **Rust**,
 **C++**, **C#**, **Java**, **Kotlin**, **Swift 6**, **Dart**, **PHP** and **Scala** — every
 writer the `VirtualCompiler` bundle carries except LLVM (no lowering for shapes) and
-Swift 3 (superseded by the Swift 6 writer). Same pipeline as `rgrc`, with examples from
-`tests/fixtures/`.
+Swift 3 (superseded by the Swift 6 writer). Same pipeline as `rgrc`. The default
+example is the cart from the front page (`landing/examples/Cart.rgr`); the rest
+come from `tests/fixtures/`.
 
-The examples cover hello/infix/optionals, the `shape` / `case` / `group` closed variant
+The examples cover the front-page cart, infix/optionals, the `shape` / `case` / `group` closed variant
 families, and the `@process` runtime. A target that genuinely cannot build an example is
 disabled in the picker with the reason on hover, rather than dropping compiler errors in
 the output pane — Scala, for instance, cannot compile `RangerProcess.rgr`.
 
-The picker state is in the URL: `?example=shape-value&lang=rust`.
+The picker state is in the URL: `?example=cart&lang=php`.
 
 ## Local development
 
@@ -38,7 +39,8 @@ Outputs static files to `playground/dist/`. The build:
 
 1. Compiles `compiler/VirtualCompiler.rgr` to `public/ranger-compiler.js` (browser bundle; do not use `-client`)
 2. Writes `public/compileEnv.json` (Lang + stdlib in memory)
-3. Copies test fixtures into `public/examples/`
+3. Copies playground examples into `public/examples/` (the cart from
+   `landing/examples/Cart.rgr`, the rest from `tests/fixtures/`)
 
 ## GitHub Pages
 
