@@ -315,7 +315,67 @@ function hexLum(hex) {
   return (r * 299 + g * 587 + b * 114) / 1000;
 }
 
-/** Paint kit pieces with the photo palette so add-then-patch is already themed. */
+/** Kit class only names the fill *kind*. Hexes come from photo box shapes. */
+const SURFACE_CLASS = /^(ui-card|ui-tiles|ui-tile|ui-bars|ui-tabbar)$/;
+const HIGHLIGHT_CLASS = /^(ui-banner|ui-pill-active)$/;
+const COLUMN_CLASS = /^(ui-bar)$/;
+const INK_CLASS = /^(ui-tile-value|ui-bars-value|ui-appbar-title|ui-tile-label|ui-bars-title|ui-banner-title|ui-row-title|ui-card-title)$/;
+const MUTED_CLASS = /^(ui-tile-sub|ui-bars-badge|ui-banner-sub|ui-banner-eyebrow|ui-row-sub)$/;
+
+function nodeKind(node) {
+  const names = classTokens(nodePieceClass(node));
+  if (names.some((n) => COLUMN_CLASS.test(n))) return "column";
+  if (names.some((n) => HIGHLIGHT_CLASS.test(n))) return "highlight";
+  if (names.some((n) => SURFACE_CLASS.test(n))) return "surface";
+  if (names.some((n) => INK_CLASS.test(n))) return "ink";
+  if (names.some((n) => MUTED_CLASS.test(n))) return "muted";
+  if (names.includes("ui-pill") && !names.includes("ui-pill-active")) return "muted";
+  return "";
+}
+
+/**
+ * Split Erazer / SVG boxes by *shape* (any UI): tall columns, compact chips,
+ * wide accent slabs, big surfaces. Not "banner = first accent".
+ */
+export function photoFillRoles(boxes, roles) {
+  const list = (boxes || []).filter((b) => b && b.fill && b.w >= 8 && b.h >= 8);
+  const page = (roles && roles.page) || "";
+  const cards = (roles && roles.cards) || "";
+  const accents = (roles && Array.isArray(roles.accents) ? roles.accents : []).filter(Boolean);
+  const near = (hex, target) => !!(target && hex && colorDist(hex, target) < 48);
+  const unique = (hexes) => {
+    const out = [];
+    for (const h of hexes) {
+      if (!h) continue;
+      if (out.some((x) => colorDist(x, h) < 28)) continue;
+      out.push(h);
+    }
+    return out;
+  };
+  const columns = unique(
+    list.filter(looksLikeBarBox).sort((a, b) => a.x - b.x || a.y - b.y).map((b) => b.fill),
+  );
+  const chips = unique(
+    list
+      .filter((b) => !looksLikeBarBox(b) && b.w >= 24 && b.w <= 180 && b.h >= 16 && b.h <= 52 && !near(b.fill, page) && !near(b.fill, cards))
+      .sort((a, b) => a.x - b.x)
+      .map((b) => b.fill),
+  );
+  const slabs = list
+    .filter((b) => !looksLikeBarBox(b) && b.w >= 80 && b.h >= 28 && !near(b.fill, page) && !near(b.fill, cards))
+    .sort((a, b) => b.w * b.h - a.w * a.h);
+  const highlights = unique(slabs.map((b) => b.fill));
+  return {
+    columns: columns.length ? columns : accents.slice(),
+    chips,
+    highlights: highlights.length ? highlights : chips.slice(),
+    surface: cards || "",
+    ink: (roles && roles.text && roles.text[0]) || (cards && hexLum(cards) < 90 ? "#F5F3EF" : ""),
+    muted: chips[chips.length - 1] || accents[accents.length - 1] || (cards && hexLum(cards) < 90 ? "#8B8E96" : ""),
+  };
+}
+
+/** Paint kit pieces from photo box shapes so add-then-patch is already themed. */
 export function paintAddOps(text, workspace) {
   const roles = picturePalette(workspace);
   if (!roles) return String(text || "");
@@ -327,11 +387,12 @@ export function paintAddOps(text, workspace) {
   }
   const ops = j && Array.isArray(j.ops) ? j.ops : null;
   if (!ops) return String(text || "");
-  const accents = Array.isArray(roles.accents) ? roles.accents : [];
+  const fills = photoFillRoles(loadPhotoBoxes(workspace), roles);
   const pageDark = hexLum(roles.page) < 90;
-  const fg = (roles.text && roles.text[0]) || (pageDark ? "#F5F3EF" : "");
-  const muted = (accents.length ? accents[accents.length - 1] : "") || (pageDark ? "#8B8E96" : "");
-  let accentI = 0;
+  const fg = fills.ink || (pageDark ? "#F5F3EF" : "");
+  const muted = fills.muted || (pageDark ? "#8B8E96" : "");
+  const highlight = fills.highlights[0] || fills.chips[0] || (roles.accents && roles.accents[0]) || roles.cards;
+  let colI = 0;
   let changed = false;
   const setProp = (node, key, value) => {
     if (!node || !value) return;
@@ -342,25 +403,16 @@ export function paintAddOps(text, workspace) {
   };
   const paint = (node) => {
     if (!node || typeof node !== "object") return;
-    if (nodeHasClass(node, "ui-card") || nodeHasClass(node, "ui-tiles") || nodeHasClass(node, "ui-tile") || nodeHasClass(node, "ui-bars") || nodeHasClass(node, "ui-tabbar")) {
-      setProp(node, "background-color", roles.cards);
+    const kind = nodeKind(node);
+    if (kind === "surface") setProp(node, "background-color", fills.surface || roles.cards);
+    if (kind === "highlight") setProp(node, "background-color", highlight);
+    if (kind === "column") {
+      const swatch = fills.columns[colI] || fills.columns[colI % Math.max(fills.columns.length, 1)];
+      colI += 1;
+      if (swatch) setProp(node, "background-color", swatch);
     }
-    if (nodeHasClass(node, "ui-banner")) setProp(node, "background-color", accents[0] || roles.cards);
-    if (nodeHasClass(node, "ui-pill-active")) setProp(node, "background-color", accents[0] || roles.cards);
-    if (nodeHasClass(node, "ui-bar") && accents.length) {
-      setProp(node, "background-color", accents[accentI++ % accents.length]);
-    }
-    if (fg) {
-      for (const name of ["ui-tile-value", "ui-bars-value", "ui-appbar-title", "ui-tile-label", "ui-bars-title", "ui-banner-title", "ui-row-title", "ui-card-title"]) {
-        if (nodeHasClass(node, name)) setProp(node, "color", fg);
-      }
-    }
-    if (muted) {
-      for (const name of ["ui-tile-sub", "ui-bars-badge", "ui-banner-sub", "ui-banner-eyebrow", "ui-row-sub"]) {
-        if (nodeHasClass(node, name)) setProp(node, "color", muted);
-      }
-      if (nodeHasClass(node, "ui-pill") && !nodeHasClass(node, "ui-pill-active")) setProp(node, "color", muted);
-    }
+    if (kind === "ink" && fg) setProp(node, "color", fg);
+    if (kind === "muted" && muted) setProp(node, "color", muted);
     for (const kid of node.children || []) paint(kid);
   };
   for (const op of ops) {
@@ -501,7 +553,7 @@ The loop:
    spec is optional. Do not smoke-test with add button. Do not read AGENTS.md. No --help.
 3. ./evg-agent measure doc.evg.json --width=W --height=H
    W×H is what TASK.md said: phone 390×844, tablet 820×1180, desktop 1440×900. Not always 390.
-   measure count:0 means no page overflow, not a finished screen. The page footer layout N / align / tight is for you — those are suspicious overlaps. count:0 with align/tight is NOT done. Copy OCR spaces (7h 38m, not 7h38m). EXAMPLE_UI is the types, not the words.
+   measure count:0 means no page overflow, not a finished screen. The page footer layout N / align / tight is for you — those are suspicious overlaps. count:0 with align/tight is NOT done. bars cover the title when fill+label is taller than the row, or Erazer colour boxes sit at a different y — grow .ui-bars-row, do not flatten the chart tops. Copy OCR spaces (7h 38m, not 7h38m). EXAMPLE_UI is the types, not the words.
 
 insert the first child at "0", not "0/0" — 0/0 does not exist on an empty root. insert with only "tag" is an empty box. A subtree is "node" (document shape), not "children" on the op. One add card is a whole measured piece with ui-card. box-sizing is not patchable — one bad prop rejects the whole file.
 
@@ -743,20 +795,25 @@ function findingPaths(findings) {
 }
 
 /** Same align/tight lines the page footer shows as `layout N`. count:0 is not clean. */
-export function layoutSuspicion(j) {
-  if (!j || typeof j !== "object") return { findings: [], align: [], tight: [], n: 0, line: "" };
+export function layoutSuspicion(j, ctx = {}) {
+  if (!j || typeof j !== "object") return { findings: [], align: [], tight: [], bars: [], n: 0, line: "" };
   const layout = j.layout && typeof j.layout === "object" ? j.layout : {};
   const findings = [...(j.findings || []), ...(layout.findings || [])].filter(Boolean);
-  const align = [...(j.align || []), ...(layout.align || [])].filter(Boolean);
+  let align = [...(j.align || []), ...(layout.align || [])].filter(Boolean);
   const tight = [...(j.tight || []), ...(layout.tight || [])].filter(Boolean);
-  const n = findings.length + align.length;
+  if (ctx.doc) align = align.filter((line) => !chartAlignLine(line, ctx.doc));
+  const overflow = ctx.doc ? barsOverflowHints(ctx.doc) : [];
+  const placed = ctx.doc ? colorPlacementHints(ctx.doc, j.boxes || layout.boxes, ctx.photoBoxes, ctx.scale) : [];
+  const bars = [...overflow, ...placed];
+  const n = findings.length + align.length + bars.length;
   const bits = [];
   if (n) bits.push(`layout ${n} — not done`);
   if (findings.length) bits.push(findings.slice(0, 3).join("; "));
+  if (bars.length) bits.push(bars[0]);
   if (align.length) bits.push("suspicious overlap/align: " + align.slice(0, 3).join("; "));
   if (tight.length) bits.push("tight: " + tight.slice(0, 2).join(" · "));
   if (!n && tight.length) bits.unshift("crowded — check overlap");
-  return { findings, align, tight, n, line: bits.join(" — ") };
+  return { findings, align, tight, bars, n, line: bits.join(" — ") };
 }
 
 /** Outline quotes that lost OCR spaces (7h38m, 64BPMM). */
@@ -818,7 +875,7 @@ function compactRunJson(j, result) {
       tight: Array.isArray(j.layout.tight) ? j.layout.tight.slice(0, 4) : undefined,
     };
   }
-  const sus = layoutSuspicion(j);
+  const sus = layoutSuspicion(j, result && result.layoutCtx);
   if (sus.line) out.hint = sus.line;
   if (result.stderr) out.stderr = clip(result.stderr, 400);
   return out;
@@ -1336,6 +1393,273 @@ export function picturePalette(workspace) {
   }
 }
 
+export function normalizeHex(color) {
+  const s = String(color || "").trim();
+  if (!s) return "";
+  if (s.startsWith("#")) {
+    const h = s.slice(1);
+    const full = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
+    return full.length >= 6 ? `#${full.slice(0, 6).toUpperCase()}` : "";
+  }
+  const rgb = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i.exec(s);
+  if (!rgb) return "";
+  return `#${[rgb[1], rgb[2], rgb[3]].map((n) => Number(n).toString(16).padStart(2, "0")).join("").toUpperCase()}`;
+}
+
+function colorDist(a, b) {
+  const hex = (c) => {
+    const h = normalizeHex(c).replace("#", "");
+    if (h.length < 6) return [128, 128, 128];
+    return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+  };
+  const A = hex(a);
+  const B = hex(b);
+  return Math.abs(A[0] - B[0]) + Math.abs(A[1] - B[1]) + Math.abs(A[2] - B[2]);
+}
+
+/** Erazer outline lines → boxes with fill. `panel 40,260 28x70 #EF9587`. */
+export function parseErazerBoxes(text) {
+  const out = [];
+  const re = /^\s*(page|panel|button|icon|tab|slider)\s+(-?\d+),(-?\d+)\s+(\d+)x(\d+)\s+(#[0-9A-Fa-f]{3,8})/gm;
+  let m;
+  while ((m = re.exec(String(text || "")))) {
+    out.push({
+      role: m[1],
+      x: Number(m[2]),
+      y: Number(m[3]),
+      w: Number(m[4]),
+      h: Number(m[5]),
+      fill: normalizeHex(m[6]),
+    });
+  }
+  return out;
+}
+
+/** Tall thin accent rects — the chart columns in a photo. */
+export function looksLikeBarBox(r) {
+  if (!r || !r.fill) return false;
+  if (r.w > 80 || r.h < 18) return false;
+  if (r.h < r.w * 1.05) return false;
+  const L = hexLum(r.fill);
+  return L > 35 && L < 235;
+}
+
+export function loadPhotoBoxes(workspace) {
+  if (!workspace) return [];
+  const once = loadOnce(workspace);
+  let boxes = parseErazerBoxes(once.erazer);
+  if (boxes.length) return boxes;
+  const svgPath = path.join(workspace, "attachment.svg");
+  if (!fs.existsSync(svgPath)) return [];
+  try {
+    return geometryFromSvg(fs.readFileSync(svgPath, "utf8")).map((r) => ({
+      role: "panel",
+      x: r.x,
+      y: r.y,
+      w: r.w,
+      h: r.h,
+      fill: normalizeHex(r.fill),
+    }));
+  } catch {
+    return [];
+  }
+}
+
+export function photoBarSwatches(workspace) {
+  return loadPhotoBoxes(workspace)
+    .filter(looksLikeBarBox)
+    .sort((a, b) => a.x - b.x || a.y - b.y)
+    .map((b) => b.fill);
+}
+
+function pxOf(v) {
+  const n = parseFloat(String(v || ""));
+  return Number.isFinite(n) ? n : 0;
+}
+
+function nodeAtPath(root, path) {
+  const segs = String(path || "").split("/").filter((s) => s !== "");
+  if (!root || !segs.length) return root || null;
+  let n = root;
+  for (let i = 1; i < segs.length; i += 1) {
+    const idx = Number(segs[i]);
+    if (!n || !Array.isArray(n.children) || !n.children[idx]) return null;
+    n = n.children[idx];
+  }
+  return n;
+}
+
+function findClassDeep(node, name) {
+  if (!node) return null;
+  if (nodeHasClass(node, name)) return node;
+  for (const c of node.children || []) {
+    const hit = findClassDeep(c, name);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+function walkNodes(node, path, visit) {
+  if (!node) return;
+  visit(node, path);
+  (node.children || []).forEach((c, i) => walkNodes(c, `${path}/${i}`, visit));
+}
+
+/** Chart columns are supposed to have different tops — that is not misalignment. */
+export function chartAlignLine(line, doc) {
+  const paths = String(line || "").match(/\d+(?:\/\d+)+/g) || [];
+  const root = doc && doc.root;
+  if (!root || !paths.length) return false;
+  return paths.some((p) => {
+    const n = nodeAtPath(root, p);
+    return n && (nodeHasClass(n, "ui-bar-col") || nodeHasClass(n, "ui-bar") || nodeHasClass(n, "ui-bars-row"));
+  });
+}
+
+/**
+ * fill + label + gap taller than .ui-bars-row spills upward into the title.
+ * Measure count stays 0 because overflow-up is not a finding.
+ */
+export function barsOverflowHints(doc) {
+  const root = doc && doc.root;
+  if (!root) return [];
+  const css = String((doc && doc.css) || "");
+  const cssH = (() => {
+    const m = /\.ui-bars-row[^{]*\{[^}]*\b(?:min-)?height:\s*(\d+)px/.exec(css);
+    return m ? Number(m[1]) : 88;
+  })();
+  const hits = [];
+  walkNodes(root, "0", (n, path) => {
+    if (!nodeHasClass(n, "ui-bars-row")) return;
+    const rowH = pxOf(n.props && (n.props.height || n.props["min-height"])) || cssH;
+    (n.children || []).forEach((col, i) => {
+      const fill = findClassDeep(col, "ui-bar");
+      const fillH = pxOf(fill && fill.props && fill.props.height);
+      if (!fillH) return;
+      const gap = pxOf(col && col.props && col.props.gap) || 6;
+      const labelH = 12;
+      const need = fillH + gap + labelH;
+      if (need > rowH + 0.5) {
+        const color = normalizeHex(fill.props && fill.props["background-color"]);
+        hits.push(
+          `${path}/${i} ${color || "bar"} fill ${fillH}px + label ${labelH}px + gap ${gap}px = ${need} > row ${rowH}px — bars cover the title. Grow .ui-bars-row or shrink the fill.`,
+        );
+      }
+    });
+  });
+  return hits.slice(0, 4);
+}
+
+function collectEvgBars(doc, boxes) {
+  const root = doc && doc.root;
+  if (!root) return [];
+  const byAt = new Map((boxes || []).filter((b) => b && b.at).map((b) => [String(b.at), b]));
+  const out = [];
+  walkNodes(root, "0", (n, path) => {
+    if (!nodeHasClass(n, "ui-bar")) return;
+    const box = byAt.get(path) || {};
+    out.push({
+      at: path,
+      color: normalizeHex(n.props && n.props["background-color"]),
+      x: box.x,
+      y: box.y,
+      w: box.w,
+      h: box.h,
+    });
+  });
+  return out;
+}
+
+function collectEvgByClass(doc, boxes, re) {
+  const root = doc && doc.root;
+  if (!root) return [];
+  const byAt = new Map((boxes || []).filter((b) => b && b.at).map((b) => [String(b.at), b]));
+  const out = [];
+  walkNodes(root, "0", (n, path) => {
+    const cls = nodePieceClass(n);
+    if (!re.test(cls)) return;
+    const box = byAt.get(path);
+    if (!box) return;
+    out.push({ at: path, text: n.text || "", ...box });
+  });
+  return out;
+}
+
+/**
+ * Erazer / SVG colour boxes vs laid-out ui-bar nodes. Same hex in the wrong
+ * band means the chart spilled into the title.
+ */
+export function colorPlacementHints(doc, boxes, photoBoxes, scale = { x: 1, y: 1 }) {
+  const evg = collectEvgBars(doc, boxes);
+  const photos = (photoBoxes || []).filter(looksLikeBarBox).map((b) => ({
+    ...b,
+    x: b.x * (scale && scale.x ? scale.x : 1),
+    y: b.y * (scale && scale.y ? scale.y : 1),
+    w: b.w * (scale && scale.x ? scale.x : 1),
+    h: b.h * (scale && scale.y ? scale.y : 1),
+  }));
+  const hits = [];
+  const used = new Set();
+  for (const e of evg) {
+    if (!e.color) continue;
+    let best = null;
+    let bestD = 90;
+    photos.forEach((p, i) => {
+      if (used.has(i)) return;
+      const d = colorDist(e.color, p.fill);
+      if (d < bestD) {
+        bestD = d;
+        best = { p, i };
+      }
+    });
+    if (!best || e.y == null || !Number.isFinite(Number(e.y))) continue;
+    used.add(best.i);
+    const dy = Math.abs(Number(e.y) - best.p.y);
+    if (dy > 28) {
+      hits.push(
+        `${e.at} ${e.color} at y=${Math.round(Number(e.y))} but photo has that colour at y=${Math.round(best.p.y)} — the bar is in the wrong place (over the title).`,
+      );
+    }
+  }
+  const titles = collectEvgByClass(doc, boxes, /ui-bars-(?:title|value|head)/);
+  for (const e of evg) {
+    if (e.x == null || e.y == null) continue;
+    for (const t of titles) {
+      if (t.x == null) continue;
+      if (e.x < t.x + t.w && e.x + (e.w || 0) > t.x && e.y < t.y + t.h && e.y + (e.h || 0) > t.y) {
+        hits.push(`${e.at} ${e.color || "bar"} overlaps ${t.at} "${t.text || "title"}".`);
+      }
+    }
+  }
+  return hits.slice(0, 4);
+}
+
+export function evgDocOf(workspace) {
+  if (!workspace) return null;
+  try {
+    const j = JSON.parse(fs.readFileSync(path.join(workspace, "doc.evg.json"), "utf8"));
+    if (j && j.root) return j;
+    if (j && j.tag) return { root: j, css: j.css || "" };
+  } catch {
+    /* missing */
+  }
+  return null;
+}
+
+export function layoutCtxOf(workspace) {
+  if (!workspace) return {};
+  let scale = { x: 1, y: 1 };
+  try {
+    const att = JSON.parse(fs.readFileSync(path.join(workspace, "attachment.json"), "utf8"));
+    const pw = Number(att.width) || 0;
+    const ph = Number(att.height) || 0;
+    if (pw >= 8 && ph >= 8) scale = { x: 390 / pw, y: 844 / ph };
+  } catch {
+    /* no photo size */
+  }
+  return { doc: evgDocOf(workspace), photoBoxes: loadPhotoBoxes(workspace), scale };
+}
+
 /** Tracer SVG rects → Erazer-shaped "panel x,y w×h #hex" lines. */
 export function geometryFromSvg(svg) {
   const out = [];
@@ -1384,7 +1708,7 @@ export function collectPictureBrief(workspace, env = process.env) {
     "Pieces: ./evg-ui add appbar|pills|bars|tiles|banner|card|chips|tabbar (ui-card / ui-tile / ui-bars / ui-banner / ui-tabbar). Do not insert unnamed div trees — Export needs those classes for rave.Card / rave.Tile / rave.TabBar.",
     "A 2×2 of metrics is add tiles. A bar chart is add bars. A highlight is add banner. Day/Week is add pills. add card --row is a settings list (SettingsRow) — do not flatten a dashboard into rows.",
     "If the outline still names leftover SettingsRow / ui-card / ui-chiprow after pills/tiles/bars, remove those paths in one ops.json (highest index first). Adding pills/tiles/bars/banner also drops them on patch. Do not leave both.",
-    "count:0 is no page overflow. The page footer layout N / align / tight is suspicious overlap — not done. Copy OCR spaces (7h 38m, not 7h38m). EXAMPLE_UI is types, not the words.",
+    "count:0 is no page overflow. The page footer layout N / align / tight is suspicious overlap — not done. Bars over the title: Erazer colour boxes say where each hex belongs — grow the row, do not flatten tops. Copy OCR spaces (7h 38m, not 7h38m). EXAMPLE_UI is types, not the words.",
     "Copy EXAMPLE_UI from the system prompt (rave.AppBar, rave.Pills, rave.Bars, rave.Tile, rave.Banner, SettingsRow only for lists). Change the words to this photo. ONE outline, then add FILLED pieces. Empty ui-card is a failed turn.",
   ];
   let att = null;
@@ -1686,6 +2010,7 @@ export function executeTool(workspace, name, rawArgs, env = process.env) {
       const blocked = denyRun(command);
       if (blocked) return { error: blocked };
       const result = spawnRun(workspace, command, env);
+      if (result && typeof result === "object") result.layoutCtx = layoutCtxOf(workspace);
       bumpExplore(workspace, isLoopCall(name, args));
       if (/\boutline\b/.test(command) && result && result.ok) {
         const pending = pendingOpsFile(workspace);
@@ -1895,13 +2220,15 @@ export function summarizeRunReply(out, result) {
         bits.push(j.layout.findings.slice(0, 3).join("; "));
       }
     }
-    const sus = layoutSuspicion(j);
+    const sus = layoutSuspicion(j, result && result.layoutCtx);
     if (sus.line) bits.push(sus.line);
     if (bits.length) {
       let line = hintPatchReject(bits.join(" — "));
       const nodes = j.nodes != null ? j.nodes : j.layout && j.layout.nodes;
       if (j.count === 0 && nodes != null && Number(nodes) <= 2) {
         line += ` — empty seed. Next: ${ADD_CARD}`;
+      } else if (sus.bars && sus.bars.length) {
+        line += " — bars cover the title. Grow .ui-bars-row or shrink fills so fill+label+gap fit. Do not flatten chart tops.";
       } else if (sus.n || sus.tight.length) {
         line += " — count:0 is no page overflow, not a clean layout. Fix align/tight (same lines as the page footer). Copy OCR spaces.";
       } else if (j.count === 0 && (j.bottomFree != null || (Array.isArray(j.boxes) && j.boxes.length))) {

@@ -145,12 +145,16 @@ Pieces are `./evg-ui add appbar|pills|bars|tiles|banner|card|chips|tabbar`
 `rave.Pills` / `rave.Bars` / `rave.Tile` / `rave.Banner` / `rave.TabBar` /
 `rave.Card` / `SettingsRow`. A dashboard photo must stay tiles + bars + banner, not a
 flattened SettingsRow list. After `add` the host paints the photo
-palette onto the new piece and **removes leftover SettingsRow cards**
+onto the new piece from **Erazer / SVG box shapes** (tall columns, wide
+slabs, compact chips — not “banner = first accent”) and **removes leftover SettingsRow cards**
 (and the old icon-chip row) in the same patch. A `write_file` that
 drops those leftovers while pills/tiles/bars stay is allowed;
 wiping the whole screen is not. `measure` `count:0` is no page overflow,
 not a finish — the page footer `layout N` / align / tight is forwarded
-to Gemini every turn as suspicious overlap (not done). Glued OCR labels
+to Gemini every turn as suspicious overlap (not done). Bar-column tops a
+few pixels apart are the chart, not misalignment — fills that do not fit
+the row (or Erazer colour boxes at a different *y*) mean the bars cover
+the title. Glued OCR labels
 (`7h38m`) are flagged. A hand `insert` of an unnamed `div` tree is
 refused (box soup). `set-css` is allowed and replaces the sheet. The
 system prompt starts with a compact **EXAMPLE_UI** (AppBar, pills, bars,

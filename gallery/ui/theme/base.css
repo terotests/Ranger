@@ -416,7 +416,7 @@
 .ui-bars-value { color: #0f172a; font-size: 22px; font-weight: bold; height: 28px; }
 .ui-bars-row {
   display: flex; flex-direction: row; align-items: flex-end; justify-content: space-between;
-  gap: 8px; height: 88px; min-height: 88px;
+  gap: 8px; height: 98px; min-height: 98px;
 }
 .ui-bar-col {
   display: flex; flex-direction: column; align-items: center; justify-content: flex-end;

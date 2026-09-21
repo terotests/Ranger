@@ -517,6 +517,8 @@ const PATTERNS = {
       const bars = asList(props.bar).map((spec) => {
         const [label = "", pctRaw = "50", color = ""] = String(spec).split("|");
         const pct = Math.max(8, Math.min(100, Number(pctRaw) || 50));
+        // Row is 98px: 80 fill + 6 gap + 12 label. An 88px row lets the fill
+        // spill upward into the title (measure count stays 0 — overflow is up).
         const h = Math.round((pct / 100) * 80);
         const fill = { height: `${h}px` };
         if (color) fill["background-color"] = color;
@@ -528,7 +530,7 @@ const PATTERNS = {
           props.badge ? text("ui-bars-badge", props.badge) : null,
         ]),
         text("ui-bars-value", props.value),
-        n("div", "ui-bars-row", null, bars),
+        n("div", "ui-bars-row", { height: "98px", "min-height": "98px" }, bars),
       ]);
     },
   },

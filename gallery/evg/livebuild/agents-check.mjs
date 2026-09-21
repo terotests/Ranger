@@ -53,6 +53,13 @@ import {
   leftoverSettingsAts,
   layoutSuspicion,
   gluedLabelHints,
+  parseErazerBoxes,
+  looksLikeBarBox,
+  barsOverflowHints,
+  colorPlacementHints,
+  photoBarSwatches,
+  photoFillRoles,
+  loadPhotoBoxes,
   OPS_WRITE_CAP,
   recentSightseeing,
   isSightseeingCall,
@@ -1320,6 +1327,171 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   if (layoutSuspicion({ count: 0, align: ["0/2/2/1 and 0/2/2/5: top edges 2px apart"] }).n !== 1) {
     throw new Error("layoutSuspicion must count align as layout N");
   }
+  const barsDoc = {
+    css: ".ui-bars-row { height: 88px; min-height: 88px; }",
+    root: {
+      tag: "div",
+      children: [
+        {
+          tag: "div",
+          props: { "class-name": "ui-bars" },
+          children: [
+            { tag: "span", text: "Steps & Calories Trend", props: { "class-name": "ui-bars-title" } },
+            { tag: "span", text: "Avg 9,240 steps/day", props: { "class-name": "ui-bars-value" } },
+            {
+              tag: "div",
+              props: { "class-name": "ui-bars-row" },
+              children: [
+                {
+                  tag: "div",
+                  props: { "class-name": "ui-bar-col" },
+                  children: [
+                    { tag: "div", props: { "class-name": "ui-bar", height: "77px", "background-color": "rgb(239,149,135)" } },
+                    { tag: "span", text: "F", props: { "class-name": "ui-bar-label" } },
+                  ],
+                },
+                {
+                  tag: "div",
+                  props: { "class-name": "ui-bar-col" },
+                  children: [
+                    { tag: "div", props: { "class-name": "ui-bar", height: "44px", "background-color": "rgb(128,87,84)" } },
+                    { tag: "span", text: "M", props: { "class-name": "ui-bar-label" } },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  };
+  const overflow = barsOverflowHints(barsDoc);
+  if (!overflow.length || !/cover the title/.test(overflow[0]) || !/77px/.test(overflow[0])) {
+    throw new Error("88px row + 77px fill must be bars-over-title: " + JSON.stringify(overflow));
+  }
+  const chartAlign = layoutSuspicion(
+    { count: 0, align: ["0/0/2/0 and 0/0/2/1: top edges 2px apart — align them or mean it"] },
+    { doc: barsDoc },
+  );
+  if (chartAlign.align.length) throw new Error("bar-column tops are the chart, not misalignment: " + JSON.stringify(chartAlign));
+  if (!chartAlign.n || !/cover the title/.test(chartAlign.line)) {
+    throw new Error("overflowing bars must still be not-done after dropping chart align: " + chartAlign.line);
+  }
+  const erazer = parseErazerBoxes("panel 40,260 28x70 #EF9587\npanel 16,80 358x40 #22242A\n");
+  if (erazer.length !== 2 || !looksLikeBarBox(erazer[0]) || looksLikeBarBox(erazer[1])) {
+    throw new Error("Erazer tall accent is a bar, wide card is not: " + JSON.stringify(erazer));
+  }
+  const placed = colorPlacementHints(
+    barsDoc,
+    [{ at: "0/0/2/0/0", x: 40, y: 180, w: 28, h: 77 }],
+    [{ x: 40, y: 260, w: 28, h: 70, fill: "#EF9587" }],
+  );
+  if (!placed.length || !/#EF9587/.test(placed[0]) || !/wrong place/.test(placed[0])) {
+    throw new Error("same hex at a different y must flag bars over the title: " + JSON.stringify(placed));
+  }
+  const colorWs = fs.mkdtempSync(path.join(os.tmpdir(), "evg-bars-"));
+  fs.writeFileSync(
+    path.join(colorWs, "attachment.json"),
+    JSON.stringify({
+      width: 390,
+      height: 844,
+      colors: [
+        { hex: "#23252B", share: 0.48 },
+        { hex: "#17181C", share: 0.31 },
+        { hex: "#AAB4F9", share: 0.09 },
+      ],
+    }),
+  );
+  fs.writeFileSync(
+    path.join(colorWs, "attachment.svg"),
+    '<svg xmlns="http://www.w3.org/2000/svg"><rect x="40" y="260" width="28" height="70" fill="#805754"/><rect x="80" y="240" width="28" height="90" fill="#EF9587"/></svg>\n',
+  );
+  const swatches = photoBarSwatches(colorWs);
+  if (swatches[0] !== "#805754" || swatches[1] !== "#EF9587") {
+    throw new Error("photo bar swatches must be left-to-right Erazer colours: " + JSON.stringify(swatches));
+  }
+  const paintedBars = paintAddOps(
+    JSON.stringify({
+      ops: [{
+        op: "insert",
+        at: "0",
+        node: {
+          tag: "div",
+          props: { "class-name": "ui-bars" },
+          children: [
+            { tag: "div", props: { "class-name": "ui-bar" } },
+            { tag: "div", props: { "class-name": "ui-bar" } },
+          ],
+        },
+      }],
+    }),
+    colorWs,
+  );
+  if (!paintedBars.includes("#805754") || !paintedBars.includes("#EF9587")) {
+    throw new Error("add bars must pick Erazer column colours, not a shuffled accent list: " + paintedBars);
+  }
+  const slabWs = fs.mkdtempSync(path.join(os.tmpdir(), "evg-slab-"));
+  fs.writeFileSync(
+    path.join(slabWs, "attachment.json"),
+    JSON.stringify({
+      width: 390,
+      height: 844,
+      colors: [
+        { hex: "#23252B", share: 0.48 },
+        { hex: "#17181C", share: 0.31 },
+        { hex: "#EF9587", share: 0.12 },
+        { hex: "#AAB4F8", share: 0.08 },
+      ],
+    }),
+  );
+  fs.writeFileSync(
+    path.join(slabWs, "attachment.svg"),
+    '<svg xmlns="http://www.w3.org/2000/svg"><rect x="16" y="520" width="320" height="72" fill="#AAB4F8"/><rect x="40" y="260" width="28" height="70" fill="#805754"/></svg>\n',
+  );
+  const fills = photoFillRoles(loadPhotoBoxes(slabWs), paletteRoles([
+    { hex: "#23252B", share: 0.48 },
+    { hex: "#17181C", share: 0.31 },
+    { hex: "#EF9587", share: 0.12 },
+    { hex: "#AAB4F8", share: 0.08 },
+  ]));
+  if (fills.highlights[0] !== "#AAB4F8" || fills.columns[0] !== "#805754") {
+    throw new Error("highlight is the wide slab, columns are the tall rects — not accents[0]: " + JSON.stringify(fills));
+  }
+  const paintedSlab = paintAddOps(
+    JSON.stringify({
+      ops: [{
+        op: "insert",
+        at: "0",
+        node: {
+          tag: "div",
+          children: [
+            { tag: "div", props: { "class-name": "ui-banner" } },
+            { tag: "div", props: { "class-name": "ui-pill ui-pill-active" } },
+            { tag: "div", props: { "class-name": "ui-bar" } },
+          ],
+        },
+      }],
+    }),
+    slabWs,
+  );
+  if (!/"background-color": "#AAB4F8"/.test(paintedSlab) || /ui-banner[\s\S]*#EF9587/.test(paintedSlab)) {
+    throw new Error("banner/pill must take the photo slab, not the first accent: " + paintedSlab);
+  }
+  if (!paintedSlab.includes("#805754")) {
+    throw new Error("column fill must still take the tall photo rect: " + paintedSlab);
+  }
+  fs.rmSync(slabWs, { recursive: true, force: true });
+  fs.rmSync(colorWs, { recursive: true, force: true });
+  const shadyBars = summarizeTool("run", { command: "./evg-agent measure --width=390 --height=844" }, {
+    ok: true,
+    status: 0,
+    stdout: JSON.stringify({ count: 0, bottomFree: 100, nodes: 76 }),
+    stderr: "",
+    layoutCtx: { doc: barsDoc },
+  });
+  if (!/cover the title/.test(shadyBars.reply) || !/Grow/.test(shadyBars.reply)) {
+    throw new Error("measure must tell Gemini the bars cover the title: " + shadyBars.reply);
+  }
   if (!gluedLabelHints(`0/3/0 span "7h38m"\n0/3/1 span "64BPMM"`).includes("7h38m")) {
     throw new Error("glued OCR labels must be flagged: " + gluedLabelHints(`0/3/0 span "7h38m"`));
   }
@@ -1587,6 +1759,7 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
     "page footer",
     "7h 38m",
     "NOT done",
+    "bars cover the title",
   ]) {
     if (!prompt.includes(need)) throw new Error("gemini system prompt missing " + need);
   }
