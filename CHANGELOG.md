@@ -21,6 +21,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   standard library has nothing. It is the length of `(to_chars s)` without
   building the array, and for ASCII it is `strlen`.
 
+- **EVG live build can export a screen as a brief for another agent.** Save
+  keeps a design on this machine. **Export** copies it out: the document,
+  the app if the screen became one, an outline of the tree, and the
+  instructions that tell a Ranger + EVG agent how to turn that picture into
+  a real application — Rave if it needs routes, `EVGPatch` / `evg-app` if it
+  is already a screen. The page puts the markdown on the clipboard or
+  downloads the JSON bundle. `npm run livebuild:export`.
+
 ### Changed
 
 - **The Rust header is built from what the file contains.** Every output used

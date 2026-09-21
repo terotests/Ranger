@@ -33,6 +33,7 @@ import {
   frameDocument,
   root as repoRoot,
 } from "./agents.mjs";
+import { exportSession } from "./export.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "../../..");
@@ -884,6 +885,34 @@ function main() {
     }
     if (url.pathname === "/saved") {
       send(res, 200, "application/json; charset=utf-8", JSON.stringify({ saved: savedList() }));
+      return;
+    }
+    // A brief another Ranger + EVG agent can paste. Save keeps a design on
+    // this machine; this is the door out. The page copies the markdown to
+    // the clipboard or downloads the JSON — the server only builds the
+    // payload, so a test can check the brief without a browser.
+    if (url.pathname === "/export") {
+      const file = path.join(sessionDir(), "doc.evg.json");
+      if (!fs.existsSync(file)) {
+        send(res, 404, "application/json; charset=utf-8", JSON.stringify({ error: "there is no document in this session to export" }));
+        return;
+      }
+      try {
+        const view = viewportOf(url);
+        const events = frameDocument(file, view);
+        const measure = events.find((e) => e && e.t === "measure") || null;
+        const made = exportSession({
+          dir: sessionDir(),
+          prompt: lastPrompt,
+          kind: lastKind,
+          name: lastPrompt || lastKind || "screen",
+          viewport: view || { width: 390, height: 844 },
+          measure,
+        });
+        send(res, 200, "application/json; charset=utf-8", JSON.stringify(made));
+      } catch (e) {
+        send(res, 500, "application/json; charset=utf-8", JSON.stringify({ error: String(e.message || e) }));
+      }
       return;
     }
     if (url.pathname === "/save" && req.method === "POST") {

@@ -287,7 +287,20 @@ runs on a server.
 
 ```sh
 npm run livebuild:save    # save, start over, open — byte for byte, app and all
+npm run livebuild:export  # a brief another Ranger + EVG agent can paste
 ```
+
+**Export** is the door out. Save keeps the design on this machine; Export
+builds a markdown brief of the same files — the document, the app if the
+screen became one, an outline of the tree, and the instructions that tell
+another agent in a Ranger + EVG checkout how to turn that picture into a
+real application (Rave if it needs routes, the EVG document and
+`EVGPatch` if it is already a screen). The page copies it to the clipboard
+or downloads it; the JSON bundle is the same files without the prose.
+
+The next agent is a chat, not a special importer. Paste the brief into a
+Ranger session and let it run `rave check` / `agent measure` until the
+numbers say the app matches the screen.
 
 Three things that used to throw a design away and no longer do: turning Run
 off, reloading the page, and restarting the server. Only the seed chips start
@@ -342,17 +355,19 @@ named for `t`.
 
 The page has three states and one function that owns them:
 
-| | edits | start over · reset | Run |
-| --- | --- | --- | --- |
-| **idle** | yes | yes | enter |
-| **working** — an agent is building | no | no | no |
-| **running** — the machine owns the page | no | no | leave |
+| | edits | start over · reset | Run | Export |
+| --- | --- | --- | --- | --- |
+| **idle** | yes | yes | enter | yes |
+| **working** — an agent is building | no | no | no | no |
+| **running** — the machine owns the page | no | no | leave | yes |
 
 Editing during Run would rewrite the document the app was built from, and a
 start-over during Run deletes `app/` out from under the app that is running.
 Entering Run mid-build would drive a screen that is still changing. Leaving Run
 stays possible in every state, which is why `Run` is disabled on *working* and
-not simply on "not idle".
+not simply on "not idle". **Export** is a read of the session's files, so it
+stays live during Run — that is when you have something worth handing to the
+next agent.
 
 **Reset** empties the project: a blank canvas, and the app built from the old
 screen thrown away. It is the `empty` seed with its own button, because among
@@ -446,4 +461,6 @@ one, so the UI can say "+12" without walking the list.
 | `agents-check.mjs` | orchestrator: recipe, mock workspace, self slot |
 | `browser-smoke.mjs` | Chromium: three recipes and a typed prompt |
 | `web/index.html` | the page |
+| `export.mjs` | the brief: files + outline + how a Ranger + EVG agent builds the app |
+| `export-check.mjs` | the brief is this session's files, not the example app |
 | `stream-check.mjs` | parse the CLI stream as JSON |
