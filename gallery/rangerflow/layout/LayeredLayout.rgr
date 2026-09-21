@@ -673,7 +673,36 @@ class LayeredLayout {
                         def first:int -1
                         def l:int (lf + 1)
                         while (l < lt) {
-                            def dv:int (this.pushVertex(l -1 e edgeGap))
+                            def dummyExt:double edgeGap
+                            ; A return path is a column of its own, not a
+                            ; sixteen-pixel sliver beside the box it is
+                            ; avoiding. Wide enough that the node sitting
+                            ; on it stands clear of the column it is
+                            ; returning up; not so wide that a dummy in a
+                            ; busy layer (a state machine's return past
+                            ; the next state) pushes the chain apart.
+                            if (this.verticalFlow()) {
+                                if (itemAt edgeReversed e) {
+                                    def fromN:FlowNode (graph.nodeAt(from))
+                                    def toN:FlowNode (graph.nodeAt(to))
+                                    def aw:double fromN.width
+                                    def bw:double toN.width
+                                    if (bw < aw) {
+                                        aw = bw
+                                    }
+                                    def need:double (aw * 0.3)
+                                    if (need < 32.0) {
+                                        need = 32.0
+                                    }
+                                    if (need > 48.0) {
+                                        need = 48.0
+                                    }
+                                    if (need > dummyExt) {
+                                        dummyExt = need
+                                    }
+                                }
+                            }
+                            def dv:int (this.pushVertex(l -1 e dummyExt))
                             if (first < 0) {
                                 first = dv
                             }
@@ -1270,6 +1299,8 @@ class LayeredLayout {
             def n:int 0
             def realTotal:double 0.0
             def realN:int 0
+            def backTotal:double 0.0
+            def backN:int 0
             def at:int -1
             if useIncoming {
                 at = (itemAt vInHead v)
@@ -1302,17 +1333,40 @@ class LayeredLayout {
                 if ((itemAt vNode other) >= 0) {
                     def attach:double (oc + (this.attachOffset(other via)))
                     if isDummy {
-                        def here:double (itemAt vCross v)
-                        def reach:double (((itemAt vExtent other) * 0.5) + nodeGap)
-                        if offsets {
-                            if ((this.looseEnd(other via)) == false) {
-                                reach = nodeGap
+                        if (this.verticalFlow()) {
+                            if (this.reversedDummy(v)) {
+                                ; A return lane stays where it was packed —
+                                ; on the left, clear of the column it is
+                                ; avoiding. Sliding it under the end box
+                                ; (the endOfEdge slack) put it on top of
+                                ; that column again.
+                                oc = (itemAt vCross v)
+                            } {
+                                def here:double (itemAt vCross v)
+                                def reach:double (((itemAt vExtent other) * 0.5) + nodeGap)
+                                if offsets {
+                                    if ((this.looseEnd(other via)) == false) {
+                                        reach = nodeGap
+                                    }
+                                }
+                                if (here < (attach - reach)) { here = (attach - reach) }
+                                if (here > (attach + reach)) { here = (attach + reach) }
+                                oc = here
+                                endOfEdge = true
                             }
+                        } {
+                            def here2:double (itemAt vCross v)
+                            def reach2:double (((itemAt vExtent other) * 0.5) + nodeGap)
+                            if offsets {
+                                if ((this.looseEnd(other via)) == false) {
+                                    reach2 = nodeGap
+                                }
+                            }
+                            if (here2 < (attach - reach2)) { here2 = (attach - reach2) }
+                            if (here2 > (attach + reach2)) { here2 = (attach + reach2) }
+                            oc = here2
+                            endOfEdge = true
                         }
-                        if (here < (attach - reach)) { here = (attach - reach) }
-                        if (here > (attach + reach)) { here = (attach + reach) }
-                        oc = here
-                        endOfEdge = true
                     } {
                         oc = (attach - mine)
                     }
@@ -1328,8 +1382,19 @@ class LayeredLayout {
                         ; an LR row of states is not this picture.
                         if (this.verticalFlow()) {
                             if (this.reversedDummy(other)) {
-                                realTotal = (realTotal + oc)
-                                realN = (realN + 1)
+                                ; Only the node the return BEGINS at sits
+                                ; on that column. Counting the dummy for
+                                ; the node it arrives at pulled that node
+                                ; off the chain and bent the edges that
+                                ; were already straight.
+                                def ev:int (itemAt vEdge other)
+                                def ed:FlowEdge (graph.edgeAt(ev))
+                                if (ed.sourceIndex == (itemAt vNode v)) {
+                                    backTotal = (backTotal + oc)
+                                    backN = (backN + 1)
+                                    realTotal = (realTotal + oc)
+                                    realN = (realN + 1)
+                                }
                             }
                         }
                     }
@@ -1338,9 +1403,14 @@ class LayeredLayout {
                 n = (n + 1)
             }
             if (isDummy == false) {
-                if (realN > 0) {
-                    total = realTotal
-                    n = realN
+                if (backN > 0) {
+                    total = backTotal
+                    n = backN
+                } {
+                    if (realN > 0) {
+                        total = realTotal
+                        n = realN
+                    }
                 }
             }
             if (n == 0) {
@@ -1374,6 +1444,34 @@ class LayeredLayout {
                 if prevDummy {
                     if isDummy {
                         apart = edgeGap
+                    }
+                }
+                ; A return column is a column: keep a full node gap from
+                ; the boxes it is avoiding, so freely placed children of
+                ; those boxes can hang on the open side rather than step
+                ; over the return. Dummy-to-dummy stays a lane's width.
+                if (this.verticalFlow()) {
+                    def backLane:boolean false
+                    if prevDummy {
+                        if (this.reversedDummy(prev)) {
+                            backLane = true
+                        }
+                    }
+                    if isDummy {
+                        if (this.reversedDummy(v)) {
+                            backLane = true
+                        }
+                    }
+                    if backLane {
+                        if prevDummy {
+                            if isDummy {
+                                apart = edgeGap
+                            } {
+                                apart = nodeGap
+                            }
+                        } {
+                            apart = nodeGap
+                        }
                     }
                 }
                 def gap:double ((((itemAt vExtent prev) + (itemAt vExtent v)) * 0.5) + apart)

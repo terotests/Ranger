@@ -6580,9 +6580,26 @@ class RangerFlowTest {
         def back:FlowEdge (RouteQuality.edgeBetween(g "M" "A"))
         def rx:double (g.endpointX(back true))
         c.ok(("the return sits on a lane left of the document (x=" + ((to_string rx) + " DOC.x=" + (to_string doc.x) + ")")) (rx < doc.x))
+        c.ok("and well clear of it, not hugging the box" ((doc.x - rx) >= 12.0))
         c.near("and arrives at the same x, so the line is straight" (g.endpointX(back false)) rx 1.0)
         c.eqInt("a straight lane is used rather than a detour" (RouteQuality.bends(g back)) 0)
         c.eqInt("and still nothing is drawn through a node" (EdgeOverlap.nodeCrossings(g)) 0)
+        c.ok("EVGMeasure is its own column, left of the document" ((m.centerX()) < doc.x))
+        c.ok("MACHINE hangs on the open side of the return column" ((machine.centerX()) > (m.centerX())))
+        def lw:double (EdgeLanes.labelWidth(back))
+        def lh:double 20.0
+        def rp:EdgePath (EdgeRouter.route(g back))
+        rp.flatten(8)
+        def lx:double (((rp.midX()) + back.labelDX) - (lw * 0.5))
+        def ly:double (((rp.midY()) + back.labelDY) - (lh * 0.5))
+        def lab:FlowRect (FlowRect.create(lx ly lw lh))
+        def docBox:FlowRect (doc.rect())
+        c.ok("the return label does not sit on the document" ((lab.overlapArea(docBox)) <= 0.5))
+        if (g.hasNode("sg-AUTHOR")) {
+            def frame:FlowNode (g.nodeById("sg-AUTHOR"))
+            def inner:FlowRect (EdgeLanes.innerOf(frame))
+            c.ok("and stays inside the subgraph, not under the left rail" (EdgeLanes.boxIn(lab inner)))
+        }
     }
 
     ; A box sitting only to one side of a column is not a wall. The return
@@ -6616,6 +6633,7 @@ class RangerFlowTest {
         EdgeLanes.assign(g)
         def rx:double (g.endpointX(eCA true))
         c.ok(("C→A leaves left of B (x=" + ((to_string rx) + " B.x=" + (to_string nb.x) + ")")) (rx < nb.x))
+        c.ok("and sits well away from B, not against its edge" ((nb.x - rx) >= 12.0))
         c.near("and arrives at the same x" (g.endpointX(eCA false)) rx 1.0)
         c.eqInt("so the line that can be straight is straight" (RouteQuality.bends(g eCA)) 0)
         c.eqInt("and does not go through B" (EdgeOverlap.nodeCrossings(g)) 0)
