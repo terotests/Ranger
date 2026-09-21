@@ -8,7 +8,8 @@ writer the `VirtualCompiler` bundle carries except LLVM (no lowering for shapes)
 Swift 3 (superseded by the Swift 6 writer). Same pipeline as `rgrc`, with examples from
 `tests/fixtures/`.
 
-The examples cover hello/infix/optionals, the `shape` / `case` / `group` closed variant
+The examples open on the shopping cart from the front page (`landing/examples/Cart.rgr`),
+then hello/infix/optionals, the `shape` / `case` / `group` closed variant
 families, and the `@process` runtime. A target that genuinely cannot build an example is
 disabled in the picker with the reason on hover, rather than dropping compiler errors in
 the output pane — Scala, for instance, cannot compile `RangerProcess.rgr`.
