@@ -21,7 +21,7 @@ that publishes the site, so the documentation cannot drift from the release.
 
 | Path | Content | In git |
 | --- | --- | --- |
-| `sources.json` | The files that declare operators, and the status of each: `stable` (documented) or `legacy` (listed on the not-covered page, no reference pages). A file in `lib/` with an `operators { }` block or an `operator type:` block must be listed. | yes |
+| `sources.json` | The files that declare operators, and the status of each: `stable` (documented) or `legacy` (listed on the not-covered page, no reference pages). A file in `lib/` with an `operators { }` block or an `operator type:` block must be listed. `classLibraries` names top-level `lib/*.rgr` files that hold classes only; they appear on the not-covered page. `tests/docs-usage.test.ts` fails when either list drifts from the tree. | yes |
 | `examples/` | Example programs. Each one compiles. A header `id:` binds it to operators; a header `topic:` binds it to a guide page. | yes |
 | `descriptions/` | One Markdown file per operator, with the prose. | yes |
 | `tools/` | The generator (stages A to D). | yes |

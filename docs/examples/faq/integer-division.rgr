@@ -1,0 +1,11 @@
+;; topic: faq/integer-division
+;; title: Integer division gives a double unless you use idiv
+
+class Main {
+    sfn main:void () {
+        def a 10
+        def b 3
+        print ("real " + (a / b))
+        print ("integer " + (idiv a b))
+    }
+}

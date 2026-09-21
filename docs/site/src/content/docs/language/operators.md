@@ -112,11 +112,11 @@ ceil  _:int (value:double) {
 }
 ```
 
-Python had no `ceil` template until this release, so it took the default one.
-The compilation reported success and the Python file held `Math.ceil(d)`, which
-Python cannot run. `ceil` now has a Python template, and the
-[coverage page](/Ranger/docs/reference/coverage/) states which operators are
-still in that state.
+A target that has no template of its own then receives that JavaScript in
+its output file, and the compilation reports success. Python wrote
+`Math.ceil(d)` this way in an earlier version. `ceil` now has a Python
+template. The [coverage page](/Ranger/docs/reference/coverage/) states which
+operators are still in that state.
 
 The mark ✱ therefore states the origin of the code. Compile the output of a new
 operator with the toolchain of the target before you depend on it.

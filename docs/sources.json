@@ -1,5 +1,42 @@
 {
-  "$comment": "Registry of the files that declare Ranger operators. docs/tools reads this file to build the operator reference. A file in the tree with an `operators { }` block or an `operator type:` block that is not listed here fails docs:coverage. `status` is `stable` (documented) or `legacy` (listed on the not-covered page, with no reference pages). Measure the usage before a change of status: a legacy file is one that no maintained program imports.",
+  "$comment": "Registry of the files that declare Ranger operators. docs/tools reads this file to build the operator reference. A file in the tree with an `operators { }` block or an `operator type:` block that is not listed here fails docs:coverage. `status` is `stable` (documented) or `legacy` (listed on the not-covered page, with no reference pages). Measure the usage before a change of status: a legacy file is one that no maintained program imports. `classLibraries` names top-level lib/*.rgr files that hold classes and functions only: they appear on the not-covered page because the generator has no operator to document. tests/docs-usage.test.ts fails when either list drifts from the tree.",
+  "classLibraries": [
+    {
+      "id": "isodate",
+      "file": "lib/IsoDateLib.rgr",
+      "title": "ISO calendar dates",
+      "import": "IsoDateLib.rgr",
+      "summary": "Portable calendar dates as ISO-8601 strings. The maintained path instead of lib/Time.rgr."
+    },
+    {
+      "id": "regex",
+      "file": "lib/RegexLib.rgr",
+      "title": "Regular expressions",
+      "import": "RegexLib.rgr",
+      "summary": "String-based regular expression search."
+    },
+    {
+      "id": "shell",
+      "file": "lib/Shell.rgr",
+      "title": "Shell",
+      "import": "Shell.rgr",
+      "summary": "Run a command-line program and read the result, with a dry-run mode."
+    },
+    {
+      "id": "rangerprocess",
+      "file": "lib/RangerProcess.rgr",
+      "title": "Process",
+      "import": "RangerProcess.rgr",
+      "summary": "The process runtime. The playground environment ships this file."
+    },
+    {
+      "id": "cmdparams",
+      "file": "lib/CmdParams.rgr",
+      "title": "Command-line parameters",
+      "import": "CmdParams.rgr",
+      "summary": "Read command-line flags and parameters. The compiler imports this file."
+    }
+  ],
   "sources": [
     {
       "id": "core",

@@ -36,14 +36,13 @@ of them is not known in advance. Use the operators that change the array.
 | `remove_index` | Remove the item at an index. |
 | `removeLast` | Remove the last item. |
 | `clear` | Remove every item. |
-| `insert` | Add an item at an index. Not Java, not C# and not Scala. |
+| `insert` | Add an item at an index. |
 
 <TargetOutput example={ex("faq/array-mutation")} targets={model.generated.targets} />
 
 The [array operators](/Ranger/docs/reference/operators/array/) page holds the
-complete set, and each entry states which targets it writes code for. Note the
-two names that do the same work: `remove_index` writes code for every target,
-and `remove` writes code for JavaScript only.
+complete set, and each entry states which targets it writes code for. `insert`
+and `remove` both write code for the command-line targets.
 
 ## How do I write "not"?
 
@@ -203,6 +202,11 @@ What still needs the parentheses, or a local:
 | `def n:T (h.nodeOf())` then `f(n.plain)` | `f((h.nodeOf()).plain)` | A parenthesised receiver followed by a field does not resolve in argument position. |
 | One statement per line | `{ def c:int 5 return c }` | Two statements on one line is a parse error. |
 
+A property read on a parenthesised receiver compiles in an infix operator:
+`((unwrap x).v == 1)` and `(1 + (f()).v)`. A method call on that receiver
+inside an infix expression still needs a local. A statement must not start
+with a parenthesised receiver.
+
 <TargetOutput example={ex("faq/lisp-form")} targets={model.generated.targets} />
 
 ## What does "Could not find suitable match for the operator node" mean?
@@ -231,6 +235,41 @@ reads a hash map, and only the body states the difference.
   import.
 - The [not covered page](/Ranger/docs/reference/not-covered/) names the library
   files that this documentation does not describe, and the reason for each.
+  That page also names class libraries such as `IsoDateLib.rgr` and
+  `Shell.rgr`, which declare no operators.
+
+## How do I divide two integers?
+
+The operator `/` on two integers gives a double. The operator `idiv` gives
+an integer and truncates toward zero.
+
+<TargetOutput example={ex("faq/integer-division")} targets={model.generated.targets} />
+
+## Why does the compiler say that a class does not have a method that I wrote?
+
+The compiler resolves some method names in another place. A class can define
+one of these names, and the class compiles. Each call to that method then
+fails with `Class X does not have method …`.
+
+| Do not use as a method name | A name that works |
+| --- | --- |
+| `contains` | `hasSub` |
+| `startsWith` | `beginsWith` |
+| `endsWith` | `finishesWith` |
+| `trim` | `trimWs` |
+| `first` | `lowest` |
+| `last` | `highest` |
+| `remove` | `removeNode` |
+| `insert` | `insertNode` |
+| `write` | `toText` |
+| `read` | `fromText` |
+| `normalize` | `collapse` |
+| `toString` | `asString` |
+| `has` | `mentions` |
+| `sqrt` | `squareRoot` |
+
+The list is the names that programs have hit. It is not a complete list of
+reserved names.
 
 ## What license does Ranger use?
 

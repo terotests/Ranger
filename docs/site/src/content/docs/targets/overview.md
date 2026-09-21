@@ -139,8 +139,9 @@ each target.
 
 ## Differences that a program must know
 
-- **Integer division.** `/` on two integers gives a double. Use `to_int` when
-  the program needs a whole number.
+- **Integer division.** `/` on two integers gives a double. Use `idiv` when
+  the program needs a whole number. `idiv` truncates toward zero.
+  `to_int` converts a double to an integer.
 - **`to_int` of a negative double.** The reference semantics is floor:
   `(to_int -1.5)` is `-2`. JavaScript, C++, Python, PHP, Rust and Go follow
   it; C#, Swift, Kotlin and Scala still truncate toward zero (`-1`), so the

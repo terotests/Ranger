@@ -15,6 +15,7 @@ import { CATEGORIES, CATEGORY_BY_ID, defaultTemplateIsJavaScript } from "./lib/m
 import { operatorFileName } from "./lib/opid.mjs";
 import { CONTENT, DATA, DESCRIPTIONS, ROOT, readJson } from "./lib/paths.mjs";
 import { blobUrl } from "./lib/source-url.mjs";
+import { importersOf, playgroundLibFiles } from "./lib/usage.mjs";
 
 const REPOSITORY = "https://github.com/terotests/Ranger";
 
@@ -437,6 +438,10 @@ function methodPage(source, methods, examples) {
  * reference page, because a page would state that the operators are part of the
  * maintained language. The measure of "legacy" is the import: no maintained
  * program imports the file.
+ *
+ * Class libraries have users and declare no operators. They share this page
+ * because the generator has no operator to document, not because they are
+ * unused.
  */
 function notCoveredPage(model) {
   const legacy = model.sources.filter((source) => source.status === "legacy");
@@ -449,13 +454,39 @@ function notCoveredPage(model) {
     );
   });
 
+  const shipped = new Set(playgroundLibFiles(ROOT));
+  const classRows = (model.classLibraries || []).map((library) => {
+    const basename = library.file.split("/").pop();
+    const users = importersOf(basename);
+    const playground = shipped.has(basename)
+      ? " The playground environment ships this file."
+      : "";
+    const countNote =
+      users.length === 0
+        ? "No file in the repository imports it."
+        : users.length === 1
+          ? "1 file in the repository imports it."
+          : `${users.length} files in the repository import it.`;
+    return (
+      `| [\`${library.file}\`](${blobUrl(REPOSITORY, library.file)}) | ` +
+      `\`${library.import}\` | ${countNote}${playground} | ${library.summary || ""} |`
+    );
+  });
+
   return [
     frontMatter({
       title: "Libraries that this documentation does not cover",
       description:
-        "The operator sources that stay in the repository but get no reference page, and the reason for each.",
+        "The operator sources and the class libraries that stay in the repository but get no reference page, and the reason for each.",
       sidebarOrder: 3,
     }),
+    "This page names two groups of library files that have no reference page.",
+    "The first group declares operators that no maintained program imports.",
+    "The second group holds classes and functions only, so the generator has",
+    "no operator to document.",
+    "",
+    "## Operator sources that no maintained program imports",
+    "",
     "The repository holds operator sources that no maintained program imports.",
     "They stay in the tree, and the compiler still reads them when a program",
     "imports them. This documentation does not give them a reference page: a",
@@ -474,12 +505,13 @@ function notCoveredPage(model) {
     "   it. Such a file stays in the documentation.",
     "",
     "A file that fails both parts is on the list below.",
+    "`tests/docs-usage.test.ts` repeats the measurement on every test run.",
     "",
     "| File | Template operators | Type methods | Why |",
     "| --- | --- | --- | --- |",
     ...rows,
     "",
-    "## What to do with these",
+    "### What to do with these",
     "",
     "- To read the operators, open the source file. Each file holds the",
     "  `operators { }` or `operator type:` blocks with the templates.",
@@ -495,6 +527,23 @@ function notCoveredPage(model) {
     "| `lib/WebServerLib.rgr` | The HTTP server operators of `compiler/Lang.rgr` |",
     "| `lib/Time.rgr` | `lib/IsoDateLib.rgr` for calendar work |",
     "| `lib/ImmutableVector.rgr` | The array and map operators of the core |",
+    "",
+    "## Libraries that declare no operators",
+    "",
+    "The generator reads `operators { }` blocks and `operator type:` blocks.",
+    "A file that holds only classes and functions is not in the operator",
+    "reference. Those files can have users. The table below names the",
+    "top-level files of that kind.",
+    "",
+    "The EVG layout engine and the image codecs are in `lib/evg` and",
+    "`lib/image`. The [Office documentation](/Ranger/office/reference/) describes EVG.",
+    "",
+    "| File | Import | Use in this repository | Summary |",
+    "| --- | --- | --- | --- |",
+    ...classRows,
+    "",
+    "To read the code, open the source file. To use one in a program, add the",
+    "import. The compiler accepts the file.",
     "",
   ].join("\n");
 }

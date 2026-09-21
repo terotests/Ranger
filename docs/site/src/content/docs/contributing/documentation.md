@@ -101,6 +101,13 @@ and the test `docs-tools.test.ts` fails when it does not.
 
 A `legacy` entry needs a `reason`, and the reason states the measurement.
 
+The test `tests/docs-usage.test.ts` repeats the measurement. It fails when a
+`legacy` file has an importer that is not itself legacy. It fails when a
+`stable` library has no importer and is not in the playground list. It also
+fails when a top-level `lib/*.rgr` file holds no operator block and is missing
+from `classLibraries` in `docs/sources.json`. Those class libraries appear on
+the [not covered page](/Ranger/docs/reference/not-covered/).
+
 The `CreateFile` list in `compiler/VirtualCompiler.rgr` is **not** a third
 signal. That function writes `compileEnv.js`, its only caller is a comment, and
 the playground reads `compileEnv.json` from the Node script instead.
