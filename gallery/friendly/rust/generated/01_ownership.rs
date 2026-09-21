@@ -72,10 +72,10 @@ impl Counter {
       value: 0,
     }
   }
-  fn reading(__self_rc : &Rc<RefCell<Counter>>) -> i64 {
+  fn reading(__self_rc: &Rc<RefCell<Counter>>) -> i64 {
     __self_rc.borrow().value
   }
-  fn add(__self_rc : &Rc<RefCell<Counter>>, amount: i64) {
+  fn add(__self_rc: &Rc<RefCell<Counter>>, amount: i64) {
     __self_rc.borrow_mut().value += amount;
   }
 }
@@ -93,11 +93,11 @@ impl TreeNode {
       parent: None,
     }
   }
-  fn adopt(__self_rc : &Rc<RefCell<TreeNode>>, mut c: Rc<RefCell<TreeNode>>) {
+  fn adopt(__self_rc: &Rc<RefCell<TreeNode>>, mut c: Rc<RefCell<TreeNode>>) {
     c.borrow_mut().parent = Some(Rc::downgrade(__self_rc));
     __self_rc.borrow_mut().kids.push(c.clone());
   }
-  fn child_count(__self_rc : &Rc<RefCell<TreeNode>>) -> i64 {
+  fn child_count(__self_rc: &Rc<RefCell<TreeNode>>) -> i64 {
     __self_rc.borrow().kids.len() as i64
   }
 }

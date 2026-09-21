@@ -2819,7 +2819,7 @@ class RangerRustClassWriter {
   ; A method of a shared class that uses `this` as a value needs the Rc that
   ; holds the receiver, and `&mut self` cannot reach it — the shared_from_this
   ; question in Rust form. Such a method takes a hidden first parameter
-  ; `__self_rc : &Rc<RefCell<T>>`, and every call site passes the receiver's
+  ; `__self_rc: &Rc<RefCell<T>>`, and every call site passes the receiver's
   ; Rc. The reference is safe next to the `&mut self` borrow because the
   ; callee only clones or downgrades the Rc; it never borrows the cell again.
   ; A lambda body is written inside the body of the method that declares it,
@@ -2869,7 +2869,7 @@ class RangerRustClassWriter {
         wr.out(", " false)
       }
       def sccName:string (this.rustSelfRcParamType(fnDesc ctx))
-      wr.out((("__self_rc : &Rc<RefCell<" + sccName) + ">>") false)
+      wr.out((("__self_rc: &Rc<RefCell<" + sccName) + ">>") false)
       wrote_selfrc = true
     }
     for pms arg:RangerAppParamDesc i {

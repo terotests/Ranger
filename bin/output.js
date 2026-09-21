@@ -34307,7 +34307,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                           wr.out(", ", false);
                                         }
                                         const sccName = this.rustSelfRcParamType(fnDesc, ctx);
-                                        wr.out(("__self_rc : &Rc<RefCell<" + sccName) + ">>", false);
+                                        wr.out(("__self_rc: &Rc<RefCell<" + sccName) + ">>", false);
                                         wrote_selfrc = true;
                                       }
                                       for ( let i = 0; i < pms.length; i++) {

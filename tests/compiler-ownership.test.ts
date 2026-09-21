@@ -131,7 +131,7 @@ describe("a local stored for the last time is moved, and built as a value", () =
 
   it("keeps the pushed class a value when the name does not outlive the push", () => {
     expect(out).toContain("ownership[rust] class Line -> value");
-    expect(rs.code).toContain("lines : Vec<Line>");
+    expect(rs.code).toContain("lines: Vec<Line>");
   });
 
   it("moves the local into the collection instead of copying it", () => {
@@ -142,8 +142,8 @@ describe("a local stored for the last time is moved, and built as a value", () =
   it("builds the finished value rather than default-constructing and writing", () => {
     // the run covers every field, so there is no `..Line::new()` base, and a
     // value that is the field's own name takes the shorthand form
-    expect(rs.code).toMatch(/let mut line : Line = Line \{\s*\n\s*name,\s*\n\s*cents,\s*\n\s*qty,\s*\n\s*\};/);
-    expect(rs.code).not.toContain("let mut line : Line = Line::new();");
+    expect(rs.code).toMatch(/let mut line: Line = Line \{\s*\n\s*name,\s*\n\s*cents,\s*\n\s*qty,\s*\n\s*\};/);
+    expect(rs.code).not.toContain("let mut line: Line = Line::new();");
   });
 
   it("still shares a class whose stored object is handed back out", () => {
@@ -249,7 +249,7 @@ describe("Ranger Compiler - Rust &T for proven-borrowed params (PLAN_RUST_OWNERS
   });
 
   it("passes a borrowed object parameter as &T", () => {
-    expect(result.code).toContain("fn sum_value(&self, a : &Node, b : &Node)");
+    expect(result.code).toContain("fn sum_value(&self, a: &Node, b: &Node)");
   });
 
   it("takes &x at the call site instead of a whole-struct clone", () => {
@@ -258,7 +258,7 @@ describe("Ranger Compiler - Rust &T for proven-borrowed params (PLAN_RUST_OWNERS
   });
 
   it("keeps a moved parameter owned", () => {
-    expect(result.code).toContain("fn add_token(&mut self, mut t : Node)");
+    expect(result.code).toContain("fn add_token(&mut self, mut t: Node)");
   });
 });
 
@@ -298,9 +298,9 @@ describe("Ranger Compiler - Rc<RefCell> for shared classes, the Rust default (PL
     // the docs use to define the object model, and it now compiles on Rust
     // and prints `a 1` like every other target.
     expect(flagged).toContain(
-      "let mut a : Rc<RefCell<Counter>> = Rc::new(RefCell::new(Counter::new()));"
+      "let mut a: Rc<RefCell<Counter>> = Rc::new(RefCell::new(Counter::new()));"
     );
-    expect(flagged).toContain("let mut b : Rc<RefCell<Counter>> = a.clone();");
+    expect(flagged).toContain("let mut b: Rc<RefCell<Counter>> = a.clone();");
     // The call hands the method the CELL, not a borrow of it. A `&self`
     // receiver would hold that borrow for the whole call, and anything the
     // body reached could come back to the same object — which is what made
@@ -309,7 +309,7 @@ describe("Ranger Compiler - Rc<RefCell> for shared classes, the Rust default (PL
     // class takes the handle instead and borrows one statement at a time.
     expect(flagged).toContain("Counter::add(&b, 1);");
     expect(flagged).toContain(
-      "fn add(__self_rc : &Rc<RefCell<Counter>>, amount : i64)"
+      "fn add(__self_rc: &Rc<RefCell<Counter>>, amount: i64)"
     );
     expect(flagged).toContain("__self_rc.borrow_mut().value += amount;");
   });
@@ -319,7 +319,7 @@ describe("Ranger Compiler - Rc<RefCell> for shared classes, the Rust default (PL
   });
 
   it("keeps the plain-struct model behind -rust-value-classes", () => {
-    expect(plain).toContain("let mut b : Counter = a;");
+    expect(plain).toContain("let mut b: Counter = a;");
     expect(plain).not.toContain("Rc<RefCell<Counter>>");
   });
 
@@ -368,7 +368,7 @@ describe("Ranger Compiler - Rc<RefCell> for shared classes, the Rust default (PL
     // INSTEAD of a receiver — see above — and the call site passes the
     // receiver's cell.
     expect(weakRs).toContain(
-      "fn adopt(__self_rc : &Rc<RefCell<Parent>>, mut c : Rc<RefCell<Child>>)"
+      "fn adopt(__self_rc: &Rc<RefCell<Parent>>, mut c: Rc<RefCell<Child>>)"
     );
     expect(weakRs).toContain("adopt(&p, c.clone())");
   });
@@ -379,7 +379,7 @@ describe("Ranger Compiler - Rc<RefCell> for shared classes, the Rust default (PL
   });
 
   it("gives a collection of a shared class Rc elements", () => {
-    expect(weakRs).toContain("kids : Vec<Rc<RefCell<Child>>>");
+    expect(weakRs).toContain("kids: Vec<Rc<RefCell<Child>>>");
   });
 
   it("upgrades a weak read to the Rc itself, with no extra cell", () => {
@@ -387,7 +387,7 @@ describe("Ranger Compiler - Rc<RefCell> for shared classes, the Rust default (PL
     // ES6 output — the weak back reference is alive and readable. The read
     // borrows shared, so two reads of one cell can overlap.
     expect(weakRs).toContain(
-      "let mut back : Rc<RefCell<Parent>> = c.borrow().parent.clone().unwrap().upgrade().unwrap();"
+      "let mut back: Rc<RefCell<Parent>> = c.borrow().parent.clone().unwrap().upgrade().unwrap();"
     );
   });
 
@@ -408,11 +408,11 @@ describe("Ranger Compiler - Rc<RefCell> for shared classes, the Rust default (PL
   });
 
   it("gives a strong optional field of a shared class the Rc form", () => {
-    expect(surfacesRs).toContain("current : Option<Rc<RefCell<Node>>>");
+    expect(surfacesRs).toContain("current: Option<Rc<RefCell<Node>>>");
   });
 
   it("takes a call result that is already an Rc without a second cell", () => {
-    expect(surfacesRs).toContain("let mut m : Rc<RefCell<Node>> = b.first_item();");
+    expect(surfacesRs).toContain("let mut m: Rc<RefCell<Node>> = b.first_item();");
   });
 
   it("borrows mut for a write and shared for a read of one cell", () => {

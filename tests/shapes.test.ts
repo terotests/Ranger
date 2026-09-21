@@ -107,7 +107,7 @@ describe("shapes (closed variant families)", () => {
       // union parameter of bb2fffe2, not the by-value `mut r` this pinned
       // when the group enum was introduced two days earlier.
       // identifiers are snake_case on this target (PLAN_RUST_SEMANTIC_IDIOMS L)
-      expect(result.code).toContain("fn identity_of(&self, r : &union_Value_Ref)");
+      expect(result.code).toContain("fn identity_of(&self, r: &union_Value_Ref)");
       expect(result.code).toContain("pub enum union_Value_Ref");
       // the group is a type, never a data struct of its own (ops class is ok)
       expect(result.code).not.toMatch(/struct Value_Ref\s*\{/);
@@ -1028,7 +1028,7 @@ describe("shapes (closed variant families)", () => {
       // the receiver is a parameter of the family, never a Rust `self` — and
       // a read-only one, so it borrows (bb2fffe2) rather than taking the
       // by-value `mut __self` this pinned when shape methods first landed
-      expect(result.code).toMatch(/fn describe\(__self : &union_Value/);
+      expect(result.code).toMatch(/fn describe\(__self: &union_Value/);
       // and a case value returned from a function of the family is wrapped
       expect(result.code).toMatch(/fn zero\(\) -> union_Value/);
       expect(result.code).toContain("union_Value::Value_Num(");
@@ -1068,7 +1068,7 @@ describe("shapes (closed variant families)", () => {
 
       expect(result.success, `Compile failed: ${result.error}`).toBe(true);
       // the field starts as the `None` variant, not as a bare Payload_None
-      expect(result.code).toContain("load:union_Payload::Payload_None(");
+      expect(result.code).toContain("load: union_Payload::Payload_None(");
       // and an assignment into the field wraps the member the same way
       expect(result.code).toMatch(
         /self\.load\s*=\s*union_Payload::Payload_(FnCore|ElemBox)\(/
