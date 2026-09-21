@@ -422,6 +422,27 @@ const PATTERNS = {
     },
   },
 
+  tabbar: {
+    summary: "A four-tab bottom nav — Home · Search · Alerts · You.",
+    props: {
+      tab: { type: "repeated", note: '--tab "Home|⌂|nav.home": label, glyph, id' },
+      active: { type: "string", note: "id or label of the selected tab" },
+    },
+    build(props) {
+      const tabs = asList(props.tab).map((spec) => {
+        const [label = "", glyph = "•", id = ""] = String(spec).split("|");
+        const selected = props.active && (id === props.active || label === props.active);
+        const item = n("div", "ui-tab-item", null, [
+          text("ui-tab-icon", glyph),
+          text(selected ? "ui-tab-label ui-tab-label-active" : "ui-tab-label", label),
+        ]);
+        if (id) item.id = id;
+        return item;
+      });
+      return n("div", "ui-tabbar", null, tabs);
+    },
+  },
+
   // The row of CTAs at the bottom of a screen. It is here because it is what
   // people were drawing by hand: two pills side by side, each a `div` with a
   // radius and a colour, neither of them pressable and neither restyleable.
@@ -602,6 +623,12 @@ function sampleProps(name) {
   }
   if (name === "appbar") return { title: "Network details", action: "✎" };
   if (name === "chips") return { chip: ["Forget|✕|net.forget", "Share|▦|net.share"] };
+  if (name === "tabbar") {
+    return {
+      tab: ["Home|⌂|nav.home", "Search|⌕|nav.search", "Alerts|⚑|nav.alerts", "You|☺|nav.you"],
+      active: "nav.home",
+    };
+  }
   if (name === "actions") return { button: ["Add to plan|primary|plan.add", "Update plan|secondary|plan.update"] };
   if (name === "field") return { label: "Email", placeholder: "name@example.com", help: "We only use it to sign you in." };
   return {};

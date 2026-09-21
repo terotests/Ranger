@@ -1076,6 +1076,9 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   if (!/flex\/grid/.test(brief) || !/page #/.test(brief) || !/16,80 170x120/.test(brief)) {
     throw new Error("picture brief must name flex/grid, palette roles and box geometry: " + brief);
   }
+  if (!/ui-card/.test(brief) || !/tabbar/.test(brief) || !/unnamed div/.test(brief)) {
+    throw new Error("picture brief must name kit pieces so Export can collapse: " + brief);
+  }
   const roles = paletteRoles([
     { hex: "#23252B", share: 0.48 },
     { hex: "#17181C", share: 0.31 },
@@ -1223,6 +1226,45 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   if (!inside.error || !/inside the first card/.test(inside.error)) {
     throw new Error("insert at 0/0 into a card must say insert at 0: " + JSON.stringify(inside));
   }
+  const soup = executeTool(ws, "write_file", {
+    path: "ops.json",
+    contents: JSON.stringify({
+      ops: [{
+        op: "insert",
+        at: "0",
+        node: {
+          tag: "div",
+          children: [
+            { tag: "span", text: "RECENT ACTIVITIES" },
+            { tag: "div", children: [{ tag: "span", text: "MORNING RUN" }] },
+          ],
+        },
+      }],
+    }),
+  });
+  if (!soup.error || !/ui-card/.test(soup.error) || !/rave\.Card/.test(soup.error)) {
+    throw new Error("unnamed insert tree must be refused as box soup: " + JSON.stringify(soup));
+  }
+  const kitInsert = executeTool(ws, "write_file", {
+    path: "ops.json",
+    contents: JSON.stringify({
+      ops: [{
+        op: "insert",
+        at: "0",
+        node: { tag: "div", props: { "class-name": "ui-card" }, children: [{ tag: "span", text: "TODAY'S SUMMARY" }] },
+      }],
+    }),
+  });
+  if (kitInsert.error) {
+    throw new Error("insert with ui-card must be allowed: " + JSON.stringify(kitInsert));
+  }
+  const cssOp = executeTool(ws, "write_file", {
+    path: "ops.json",
+    contents: '{"ops":[{"op":"set-css","value":".card { background-color: #22242A; border-radius: 12px }"}]}',
+  });
+  if (cssOp.error) {
+    throw new Error("set-css must be an allowed op: " + JSON.stringify(cssOp));
+  }
   fs.writeFileSync(path.join(ws, "add.json"), '{"ops":[]}\n');
   const past = Date.now() - 5_000;
   fs.utimesSync(path.join(ws, "add.json"), past / 1000, past / 1000);
@@ -1301,6 +1343,10 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
     "attachment.svg",
     "grid-template-columns",
     "HTML/CSS flex",
+    "rave.Card",
+    "set-css",
+    "ui-card",
+    "tabbar",
   ]) {
     if (!prompt.includes(need)) throw new Error("gemini system prompt missing " + need);
   }

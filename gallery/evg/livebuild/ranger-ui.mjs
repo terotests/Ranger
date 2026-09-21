@@ -24,10 +24,10 @@ const COMPONENT_ROOTS = [
   { test: /^ui-btn(?:\s|$)|^ui-button(?:\s|$)/, type: "rave.Button", library: LIBRARY, leaf: true },
   { test: /^ui-slider(?:\s|$)/, type: "rave.Slider", library: LIBRARY, leaf: true },
   { test: /^ui-input(?:\s|$)|^ui-field(?:\s|$)/, type: "rave.Input", library: LIBRARY, leaf: true },
-  { test: /^ui-chip(?:\s|$)/, type: "rave.Chip", library: LIBRARY, leaf: false },
-  { test: /^ui-appbar(?:\s|$)/, type: "rave.AppBar", library: LIBRARY, leaf: false },
-  { test: /^ui-card(?:\s|$)/, type: "rave.Card", library: LIBRARY, leaf: false },
-  { test: /^ui-row(?:\s|$)/, type: "SettingsRow", library: SETTINGS_LIB, leaf: false },
+  { test: /(?:^|\s)(?:ui-chip|chip)(?:\s|$)/, type: "rave.Chip", library: LIBRARY, leaf: false },
+  { test: /(?:^|\s)(?:ui-appbar|appbar)(?:\s|$)/, type: "rave.AppBar", library: LIBRARY, leaf: false },
+  { test: /(?:^|\s)(?:ui-card|card)(?:\s|$)/, type: "rave.Card", library: LIBRARY, leaf: false },
+  { test: /(?:^|\s)(?:ui-row|row)(?:\s|$)/, type: "SettingsRow", library: SETTINGS_LIB, leaf: false },
 ];
 
 const ROLE_TYPES = {
@@ -146,6 +146,46 @@ function matchComponent(node) {
   return null;
 }
 
+function isScreenChild(path, ctx) {
+  const root = (ctx && ctx.rootPath) || "0";
+  const prefix = `${root}/`;
+  if (!String(path || "").startsWith(prefix)) return false;
+  return !String(path).slice(prefix.length).includes("/");
+}
+
+function looksLikeTabbar(node) {
+  const cls = classList(node).join(" ");
+  if (/\bui-tabbar\b/.test(cls)) return true;
+  const props = (node && node.props) || {};
+  const pinned = props.position === "absolute" || props.bottom != null || /\btab/.test(cls);
+  if (!pinned) return false;
+  const kids = (node && node.children) || [];
+  if (kids.length < 3 || kids.length > 6) return false;
+  const labels = kids.map((c) => textOf(c).trim()).filter(Boolean);
+  if (labels.length !== kids.length) return false;
+  return labels.every((t) => t.length <= 16);
+}
+
+function childIsDiv(node) {
+  return ((node && node.children) || []).some((c) => c && (c.tag === "div" || (c.children && c.children.length)));
+}
+
+/**
+ * A titled panel under the screen with nested boxes, but no kit class —
+ * the tree Gemini draws by hand. Export still names it rave.Card.
+ */
+function inferSpec(node, path, ctx) {
+  const hit = matchComponent(node);
+  if (hit) return hit;
+  if (!node || path === ((ctx && ctx.rootPath) || "0")) return null;
+  if (!isScreenChild(path, ctx)) return null;
+  if (looksLikeTabbar(node)) return null;
+  if (childIsDiv(node) && (node.children || []).length >= 2 && textOf(node)) {
+    return { type: "rave.Card", library: LIBRARY, leaf: false, test: null, inferred: true };
+  }
+  return null;
+}
+
 function isPartNode(node) {
   return classList(node).some((c) => PART_CLASS_RE.test(c));
 }
@@ -251,28 +291,52 @@ function switchProps(node) {
 
 function rowProps(node) {
   const props = {};
-  const title = findByClass(node, /^ui-row-title$/);
-  const sub = findByClass(node, /^ui-row-sub$/);
-  const icon = findByClass(node, /^ui-row-icon$/);
-  const value = findByClass(node, /^ui-row-value$/);
+  const title = findByClass(node, /^ui-row-title$/) || findByClass(node, /^row-title$/);
+  const sub = findByClass(node, /^ui-row-sub$/) || findByClass(node, /^row-sub$/);
+  const icon = findByClass(node, /^ui-row-icon$/) || findByClass(node, /^row-icon$/);
+  const value = findByClass(node, /^ui-row-value$/) || findByClass(node, /^row-value$/);
   if (title && title.text) props.label = String(title.text);
   if (sub && sub.text) props.sub = String(sub.text);
   if (icon && icon.text) props.icon = String(icon.text);
   if (value && value.text) props.value = String(value.text);
+  if (!props.label) {
+    const spans = (node.children || []).filter((c) => c && (c.text || c.tag === "span"));
+    if (spans.length >= 1 && textOf(spans[0])) props.label = textOf(spans[0]);
+    if (spans.length >= 2 && textOf(spans[1]) && !props.value) props.value = textOf(spans[1]);
+  }
   return props;
+}
+
+function firstHeading(node) {
+  const title =
+    findByClass(node, /^ui-card-title$/) ||
+    findByClass(node, /^(row-title|section-h|nav-title)$/);
+  if (title && title.text) return String(title.text);
+  for (const c of (node && node.children) || []) {
+    if (c && c.text && String(c.text).trim()) return String(c.text).trim();
+    if (c && c.tag === "span") {
+      const t = textOf(c);
+      if (t) return t;
+    }
+  }
+  return "";
 }
 
 function cardProps(node) {
   const props = {};
-  const title = findByClass(node, /^ui-card-title$/);
-  if (title && title.text) props.title = String(title.text);
+  const heading = firstHeading(node);
+  if (heading) props.title = heading;
   return props;
 }
 
 function appbarProps(node) {
   const props = {};
-  const title = findByClass(node, /^ui-appbar-title$/);
+  const title = findByClass(node, /^ui-appbar-title$/) || findByClass(node, /^nav-title$/);
   if (title && title.text) props.title = String(title.text);
+  else {
+    const heading = firstHeading(node);
+    if (heading) props.title = heading;
+  }
   return props;
 }
 
@@ -282,7 +346,7 @@ function appbarProps(node) {
  */
 export function convertNode(node, path, ctx) {
   if (!node || typeof node !== "object") return null;
-  const spec = matchComponent(node);
+  const spec = inferSpec(node, path, ctx);
   const uid = uidOf(node, path);
   const isRoot = path === (ctx.rootPath || "0");
   const vis = visualProps(node);
@@ -306,6 +370,10 @@ export function convertNode(node, path, ctx) {
     }
     const sel = `.${klass.split(/\s+/)[0]}`;
     mergeRule(ctx.styles, sel, vis);
+  }
+
+  if (!spec && looksLikeTabbar(node) && isScreenChild(path, ctx) && !/\bui-tabbar\b/.test(klass)) {
+    klass = klass ? `${klass} ui-tabbar` : "ui-tabbar";
   }
 
   if (spec) {

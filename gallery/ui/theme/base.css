@@ -345,6 +345,19 @@
 .ui-chip-dot:hover { background-color: #e2e8f0; }
 .ui-chip-label { color: #334155; font-size: 12px; height: 16px; }
 
+/* Four-tab bottom nav. Author CSS may restyle .ui-tabbar; Export keeps the class. */
+.ui-tabbar {
+  display: flex; flex-direction: row; justify-content: space-around; align-items: center;
+  height: 56px; min-height: 56px;
+  border-radius: 16px;
+  background-color: #ffffff;
+  padding: 4px 8px;
+}
+.ui-tab-item { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.ui-tab-icon { height: 22px; font-size: 18px; color: #64748b; }
+.ui-tab-label { font-size: 11px; color: #64748b; font-weight: 500; height: 14px; }
+.ui-tab-label-active { color: #2563eb; font-weight: 700; }
+
 /* A labelled field, which is the form's row. */
 .ui-field { display: flex; flex-direction: column; gap: 6px; }
 .ui-field-label { color: #0f172a; font-size: 13px; height: 18px; }
@@ -362,6 +375,10 @@
 .theme-dark .ui-appbar-btn { color: #e2e8f0; }
 .theme-dark .ui-chip-dot { background-color: #1e293b; color: #e2e8f0; }
 .theme-dark .ui-chip-label { color: #cbd5e1; }
+.theme-dark .ui-tabbar { background-color: #111c31; }
+.theme-dark .ui-tab-icon,
+.theme-dark .ui-tab-label { color: #94a3b8; }
+.theme-dark .ui-tab-label-active { color: #93c5fd; }
 .theme-dark .ui-field-label { color: #e2e8f0; }
 .theme-dark .ui-field-help { color: #94a3b8; }
 

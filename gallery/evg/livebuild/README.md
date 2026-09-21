@@ -135,6 +135,11 @@ the palette and OCR on the **first turn** of a Follow-up (any UI).
 Later turns stay cheap; `image_info` / `ocr` / `read_file attachment.svg`
 send them again if the model asks. The brief says EVG is HTML flex/grid,
 names page/cards/accent hexes, and lists Erazer or SVG `x,y w×h` boxes.
+Pieces are `./evg-ui add card|appbar|chips|tabbar` — those write
+`ui-card` / `ui-appbar` / `ui-chip` / `ui-tabbar` so **Export** collapses
+to `rave.Card` / `rave.AppBar` / `rave.Chip` / `SettingsRow`. A hand
+`insert` of an unnamed `div` tree is refused (box soup). `set-css` is
+allowed and replaces the sheet.
 
 Each generateContent reply carries `usageMetadata`. The withgemini console
 prints that per turn and for the whole Follow-up — uncached input, cache
@@ -384,8 +389,12 @@ version 2). The clipboard is that file. Inside it, four things stay
 logically separate:
 
 - **`ui`** — the semantic component tree. A known switch is `rave.Switch`
-  with `props.checked`, not a track and a thumb. Unknown markup is
-  `evg.div` / `evg.span`. Appearance is not in the nodes.
+  with `props.checked`, not a track and a thumb. Kit pieces (`ui-card`,
+  `ui-row`, `ui-appbar`, `ui-chip`) and the author aliases (`card`,
+  `row`) collapse to `rave.Card` / `SettingsRow` / `rave.AppBar` /
+  `rave.Chip`. A titled panel of nested boxes under the screen still
+  becomes `rave.Card` so a hand-built tree is not a soup of `evg.div`.
+  Unknown markup is `evg.div` / `evg.span`. Appearance is not in the nodes.
 - **`css`** — real CSS, as a string. Author rules stay; kit-default
   `.ui-switch-track` rules do not (those belong to the library).
 - **`machine`** — the statechart, when the screen became an app.

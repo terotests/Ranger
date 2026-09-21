@@ -240,7 +240,7 @@ export const GEMINI_TOOLS = [
   {
     name: "write_file",
     description:
-      "Write a UTF-8 file in the workspace. Use this for ops.json, then run ./evg-agent patch doc.evg.json ops.json.",
+      "Write a UTF-8 file in the workspace. Use this for ops.json (set-prop / set-css / insert with class-name ui-card), then ./evg-agent patch doc.evg.json ops.json.",
     parameters: {
       type: "object",
       properties: {
@@ -298,14 +298,14 @@ A picture is a PHOTO of any UI, not the UI:
 
 The loop:
 1. outline
-2. ./evg-ui add card --title "…" --row "Title|Sub|value:42" --into doc.evg.json > add.json
-   then ./evg-agent patch doc.evg.json add.json
+2. ./evg-ui add card|appbar|chips|tabbar — those write ui-card / ui-appbar / ui-chip / ui-tabbar. Then ./evg-agent patch doc.evg.json add.json.
+   Export is ranger-ui: those classes become rave.Card / rave.AppBar / rave.Chip / SettingsRow. A hand insert node MUST have "class-name":"ui-card" (or ui-row / ui-appbar / ui-tabbar). Then set-css a sheet (.card, .row, .ui-tabbar) — set-css replaces the whole sheet, send it whole. Bare evg.div trees fail Export.
    spec is optional. Do not smoke-test with add button. Do not read AGENTS.md. No --help.
 3. ./evg-agent measure doc.evg.json --width=W --height=H
    W×H is what TASK.md said: phone 390×844, tablet 820×1180, desktop 1440×900. Not always 390.
    measure count:0 means no overflow, not an empty screen. An outline with 1 node is the empty seed.
 
-insert the first child at "0", not "0/0" — 0/0 does not exist on an empty root. insert with only "tag" is an empty box. A subtree is "node" (document shape), not "children" on the op. Prefer ./evg-ui: one add card is a whole measured piece. box-sizing is not patchable — one bad prop rejects the whole file.
+insert the first child at "0", not "0/0" — 0/0 does not exist on an empty root. insert with only "tag" is an empty box. A subtree is "node" (document shape), not "children" on the op. One add card is a whole measured piece with ui-card. box-sizing is not patchable — one bad prop rejects the whole file.
 
 EVG layout is HTML/CSS flex and grid: display:flex, flex-direction:column|row, gap, padding; or display:grid, grid-template-columns:1fr 1fr. Not left/top. Two cards side by side are one grid row. Erazer / SVG boxes are the photo geometry — map them to flex/grid. Use the brief hexes: set-prop background-color on the root (page) and each card. The seed rgb() is a placeholder.
 
@@ -344,7 +344,7 @@ export const PLAN_NUDGE =
 export const STALL_NUDGE =
   `Stop exploring. Next tool is ${ADD_CARD} then ./evg-agent patch doc.evg.json add.json. Not ocr, not image_info, not list, not TASK.md.`;
 export const PICTURE_STALL_NUDGE =
-  "You already saw the photo. Rebuild what you see — add the next named card, do not wipe. image_info if you need the pixels again.";
+  "You already saw the photo. Rebuild what you see — ./evg-ui add card (ui-card), do not wipe or insert unnamed divs. image_info if you need the pixels again.";
 export const SVG_BRIEF_CAP = 8_000;
 export const IMAGE_INLINE_MAX = 3_500_000;
 
@@ -1079,6 +1079,7 @@ export function collectPictureBrief(workspace, env = process.env) {
     "## PICTURE BRIEF",
     "A photo is attached (pixels + vectorized SVG). Rebuild what you see — any UI, not a guessed template.",
     "EVG is HTML flex/grid: display:flex + flex-direction:column|row + gap, or display:grid + grid-template-columns:1fr 1fr. Not left/top.",
+    "Pieces: ./evg-ui add card|appbar|chips|tabbar (ui-card / ui-appbar / ui-chip / ui-tabbar). Do not insert unnamed div trees — Export needs those classes for rave.Card.",
   ];
   let att = null;
   try {
@@ -1585,14 +1586,31 @@ export function evgRootOf(workspace) {
   return null;
 }
 
+/** Screen-level pieces Export collapses to rave.Card / AppBar / SettingsRow. */
+export const PIECE_CLASS_RE =
+  /\b(ui-card|ui-appbar|ui-row|ui-chip|ui-chiprow|ui-tabbar|ui-tab-item|ui-actions|ui-field|ui-switch|ui-btn|ui-button|ui-input|card|row|appbar|chip)\b/;
+
+export function nodePieceClass(node) {
+  if (!node || typeof node !== "object") return "";
+  const props = node.props && typeof node.props === "object" ? node.props : {};
+  return String(props["class-name"] || props.class || node["class-name"] || node.class || "");
+}
+
 function nodeLooksBuilt(el) {
   if (!el || typeof el !== "object") return false;
-  const props = el.props && typeof el.props === "object" ? el.props : {};
-  const cls = String(props["class-name"] || el["class-name"] || "");
-  if (/ui-card|ui-appbar|ui-row/.test(cls)) return true;
+  if (PIECE_CLASS_RE.test(nodePieceClass(el))) return true;
   if (String(el.textContent || "").trim()) return true;
   if (Array.isArray(el.children) && el.children.length) return true;
   return false;
+}
+
+/** A nested insert at the root with no kit class is the box-soup Export cannot collapse. */
+export function insertIsSoup(node, at) {
+  if (String(at || "") !== "0") return false;
+  if (!node || typeof node !== "object") return false;
+  const kids = Array.isArray(node.children) ? node.children : [];
+  if (!kids.length) return false;
+  return !PIECE_CLASS_RE.test(nodePieceClass(node));
 }
 
 export function summarizeOutline(raw) {
@@ -1656,7 +1674,7 @@ function hintPatchReject(line) {
     s += ' — empty root: insert at "0" (the parent), not "0/0". Or ./evg-ui add card --into doc.evg.json';
   }
   if (/unknown op/i.test(s)) {
-    s += ' — ops are set-prop, set-text, set-id, insert, remove. Not delete/help.';
+    s += ' — ops are set-prop, set-text, set-id, set-css, insert, remove. Not delete/help.';
   }
   return s;
 }
@@ -1681,12 +1699,15 @@ export function opsWriteError(rel, contents, workspace = "") {
     return "ops array is empty — add one set-prop (one CSS name: height, padding-top, gap)";
   }
   if (j && Array.isArray(j.ops)) {
-    const known = new Set(["set-prop", "set-text", "set-id", "insert", "remove", "move"]);
+    const known = new Set(["set-prop", "set-text", "set-id", "set-css", "insert", "remove", "move"]);
     const rootRemoves = [];
     for (const op of j.ops) {
       if (!op) continue;
       if (op.op && !known.has(op.op)) {
-        return `unknown op "${op.op}" — use set-prop, set-text, set-id, insert, remove. First child inserts at "0", not "0/0".`;
+        return `unknown op "${op.op}" — use set-prop, set-text, set-id, set-css, insert, remove. First child inserts at "0", not "0/0".`;
+      }
+      if (op.op === "set-css" && (op.value == null || String(op.value).trim() === "")) {
+        return 'set-css needs "value":".card { background-color: #22242A; border-radius: 12px }" — it replaces the whole sheet.';
       }
       if (op.op === "set-prop") {
         const prop = String(op.prop || "").trim();
@@ -1704,6 +1725,9 @@ export function opsWriteError(rel, contents, workspace = "") {
         ) {
           return `${prop} is not patchable — use padding-top / padding-left / background-color (one CSS name) or the whole file is rejected.`;
         }
+      }
+      if (op.op === "insert" && insertIsSoup(op.node, op.at)) {
+        return 'insert node needs class-name ui-card / ui-appbar / ui-row / ui-chip / ui-tabbar — or ./evg-ui add card. Bare div trees fail Export (no rave.Card).';
       }
       if (op.op === "insert" && String(op.at || "") === "0/0") {
         const root = workspace ? evgRootOf(workspace) : null;

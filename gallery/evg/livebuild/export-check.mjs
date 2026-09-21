@@ -182,6 +182,94 @@ if (!full.document.debug.outline.includes("0 Screen")) throw new Error("debug.ou
 if (!full.document.compiled.evg.root) throw new Error("compiled.evg missing the tree");
 console.log("  switch      rave.Switch + SettingsRow + Card, kit css stripped, {grid} bound");
 
+// --- author class "card"/"row" and a titled box soup collapse ----------------
+
+const authorDoc = {
+  evg: 1,
+  css: ".card { background-color: rgb(254,254,254); border-radius: 12px; }\n.row-title { color: rgb(0,0,0); }\n",
+  root: {
+    tag: "div",
+    props: { "class-name": "sky", width: "390px", height: "844px" },
+    children: [
+      {
+        tag: "div",
+        props: { "class-name": "card" },
+        children: [
+          {
+            tag: "div",
+            props: { "class-name": "row" },
+            children: [
+              { tag: "span", text: "Grid", props: { "class-name": "row-title" } },
+              { tag: "span", text: "On", props: { "class-name": "row-value" } },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+};
+const authorConv = convertDocument(authorDoc, { viewport: { width: 390, height: 844 } });
+const authorKinds = typesIn(authorConv.ui);
+if (!authorKinds.includes("rave.Card")) throw new Error("class card did not collapse: " + authorKinds.join(", "));
+if (!authorKinds.includes("SettingsRow")) throw new Error("class row did not collapse: " + authorKinds.join(", "));
+const authorCard = findType(authorConv.ui, "rave.Card")[0];
+if (!authorCard || (authorCard.props && authorCard.props.title !== "Grid")) {
+  // title comes from first heading inside; row-title "Grid" is fine
+  if (!authorCard) throw new Error("author card missing");
+}
+const authorRow = findType(authorConv.ui, "SettingsRow")[0];
+if (!authorRow || !authorRow.props || authorRow.props.label !== "Grid") {
+  throw new Error("row-title did not become SettingsRow.label: " + JSON.stringify(authorConv.ui, null, 2));
+}
+if (!authorConv.components["rave.Card"] || !authorConv.components.SettingsRow) {
+  throw new Error("components missed author card/row");
+}
+
+const soupDoc = {
+  evg: 1,
+  root: {
+    tag: "div",
+    props: { "background-color": "rgb(34,36,42)", width: "390px", height: "844px" },
+    children: [
+      {
+        tag: "div",
+        children: [
+          { tag: "span", text: "RECENT ACTIVITIES" },
+          {
+            tag: "div",
+            children: [
+              { tag: "span", text: "MORNING RUN" },
+              { tag: "span", text: "342 kcal" },
+            ],
+          },
+        ],
+      },
+      {
+        tag: "div",
+        props: { position: "absolute", bottom: "8px" },
+        children: [
+          { tag: "span", text: "Home" },
+          { tag: "span", text: "Search" },
+          { tag: "span", text: "Alerts" },
+          { tag: "span", text: "You" },
+        ],
+      },
+    ],
+  },
+};
+const soupConv = convertDocument(soupDoc, { viewport: { width: 390, height: 844 } });
+const soupKinds = typesIn(soupConv.ui);
+if (!soupKinds.includes("rave.Card")) {
+  throw new Error("titled box soup did not become rave.Card: " + soupKinds.join(", ") + "\n" + JSON.stringify(soupConv.ui, null, 2));
+}
+const soupCard = findType(soupConv.ui, "rave.Card")[0];
+if (!soupCard || !soupCard.props || soupCard.props.title !== "RECENT ACTIVITIES") {
+  throw new Error("inferred card title missing: " + JSON.stringify(soupConv.ui, null, 2));
+}
+const tab = (soupConv.ui.children || []).find((c) => c && /\bui-tabbar\b/.test(c.class || ""));
+if (!tab) throw new Error("pinned short labels did not become ui-tabbar: " + JSON.stringify(soupConv.ui, null, 2));
+console.log("  author/soup card/row aliases + inferred titled panel + tabbar class");
+
 // --- an app's machine and pages travel ---------------------------------------
 
 const withApp = fs.mkdtempSync(path.join(os.tmpdir(), "evg-export-app-"));

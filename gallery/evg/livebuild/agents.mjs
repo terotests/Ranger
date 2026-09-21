@@ -791,7 +791,7 @@ the gap. A whole settings card is one command:
   --row "Privacy|Use randomized MAC|chevron" --into doc.evg.json > add.json
 \`\`\`
 
-\`row\`, \`card\`, \`appbar\`, \`chips\` and \`field\` are the pieces;
+\`row\`, \`card\`, \`appbar\`, \`chips\`, \`tabbar\` and \`field\` are the pieces;
 \`./evg-ui list\` has them at the top and \`spec\` says what each takes.
 
 ### A control on a SCREEN is a picture. In an APP it can work.

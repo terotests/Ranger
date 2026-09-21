@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Gemini live-build writes kit pieces, not box soup.** Export is
+  ranger-ui: `ui-card` / `ui-appbar` / `ui-chip` / `ui-row` become
+  `rave.Card` / `rave.AppBar` / `rave.Chip` / `SettingsRow`. The host
+  refuses an `insert` of an unnamed `div` tree at the root, allows
+  `set-css`, and the picture brief names `./evg-ui add card|appbar|chips|tabbar`.
+  Author classes `card` / `row` collapse the same way; a titled nested
+  panel under the screen is inferred as `rave.Card`. `./evg-ui add tabbar`
+  is the four-tab bottom nav.
+
 ### Added
 
 - **`char_length`: how many characters, on all fourteen targets.** `strlen`
