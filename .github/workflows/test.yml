@@ -108,6 +108,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Fetch EVG Storm
+        uses: ./.github/actions/fetch-evg
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:

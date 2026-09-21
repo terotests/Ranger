@@ -1,0 +1,7 @@
+# EVG 3.0 Storm pin
+#
+# Gallery packages import this checkout as pkg:evg
+# (`"evg": { "path": "../../deps/evg/storm" }`).
+# Until Storm is on terotests/evg master, this is the Storm PR branch.
+# After merge, replace with a commit SHA on master.
+cursor/evg-storm-3-a5a9

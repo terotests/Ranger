@@ -257,3 +257,8 @@ compiler/bin/api.ts
 /*.zip
 /bin/test_*
 /rustc_errors.txt
+
+# EVG 3.0 Storm is fetched from terotests/evg (deps/evg.ref).
+# `/deps/evg` (no trailing slash) also covers a local symlink.
+/deps/evg
+/lib/evg/

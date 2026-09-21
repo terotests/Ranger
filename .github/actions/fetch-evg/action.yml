@@ -1,0 +1,24 @@
+name: Fetch EVG Storm
+description: Check out terotests/evg at the pinned ref and copy storm/ to lib/evg
+runs:
+  using: composite
+  steps:
+    - name: Read EVG pin
+      id: pin
+      shell: bash
+      run: |
+        ref=$(grep -v '^#' "${{ github.workspace }}/deps/evg.ref" | head -1 | tr -d '[:space:]')
+        echo "ref=$ref" >> "$GITHUB_OUTPUT"
+        echo "EVG pin: $ref"
+
+    - name: Checkout terotests/evg
+      uses: actions/checkout@v4
+      with:
+        repository: terotests/evg
+        ref: ${{ steps.pin.outputs.ref }}
+        path: deps/evg
+
+    - name: Materialize lib/evg
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      run: bash scripts/fetch-evg.sh --materialize-only

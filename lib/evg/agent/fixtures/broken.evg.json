@@ -1,7 +1,0 @@
-{"evg":1,"root":{"tag":"div","props":{"class-name":"page","width":"600px","height":"300px"},"children":[
-  {"tag":"div","props":{"class-name":"clipped","width":"200px","height":"80px","overflow":"hidden"},"children":[
-    {"tag":"div","props":{"class-name":"wide","width":"400px","height":"40px"}}
-  ]},
-  {"tag":"div","props":{"class-name":"stacked","width":"100px","height":"60px","margin-top":"-40px"}},
-  {"tag":"div","props":{"class-name":"far","width":"320px","height":"60px","position":"absolute","left":"500px","top":"260px"}}
-]}}
