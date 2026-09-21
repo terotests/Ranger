@@ -131,9 +131,10 @@ those and an empty outline says `add card`.
 edit — so a successful add answers with `patch add.json` and does
 not put the ops back in the prompt.
 A photo attach sends Gemini the **pixels**, the **vectorized SVG**,
-the palette and OCR (any UI, not only a KPI grid). Those ride on
-every generateContent; `image_info` / `ocr` / `read_file attachment.svg`
-send them again if the model asks.
+the palette and OCR on the **first turn** of a Follow-up (any UI).
+Later turns stay cheap; `image_info` / `ocr` / `read_file attachment.svg`
+send them again if the model asks. The brief says EVG is HTML flex/grid,
+names page/cards/accent hexes, and lists Erazer or SVG `x,y w×h` boxes.
 
 Each generateContent reply carries `usageMetadata`. The withgemini console
 prints that per turn and for the whole Follow-up — uncached input, cache

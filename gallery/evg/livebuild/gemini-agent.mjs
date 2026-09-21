@@ -292,24 +292,24 @@ export function geminiSystemPrompt() {
 Start with ./evg-agent outline doc.evg.json. The outline is the screen. Do not OCR or write ops before you have it. A Follow-up that says continue / jatka means keep patching this doc — do not start over.
 
 A picture is a PHOTO of any UI, not the UI:
-- The host already sends the pixels, the vectorized SVG, the palette and OCR. Rebuild what you see.
-- image_info → palette. Use those colours.
-- ocr is already in the brief. Ask again only if you need the words; a second psm will not become a spec.
-- read_file attachment.svg if you need the vector again. Do not read attachment.ops.json (path data for pasting).
-- ./evg-agent patch doc.evg.json attachment.ops.json PASTES the photo. "Make a dashboard like this" means rebuild with ./evg-ui, not paste the photo.
+- The first turn already has the pixels, the vectorized SVG, the palette and OCR. Rebuild what you see.
+- image_info / ocr / read_file attachment.svg send them again. Do not read attachment.ops.json (paste path data).
+- ./evg-agent patch doc.evg.json attachment.ops.json PASTES the photo. "Make a dashboard like this" means rebuild with ./evg-ui, not paste.
 
 The loop:
 1. outline
 2. ./evg-ui add card --title "…" --row "Title|Sub|value:42" --into doc.evg.json > add.json
    then ./evg-agent patch doc.evg.json add.json
-   spec is optional. Do not smoke-test with add button. Do not read AGENTS.md.
+   spec is optional. Do not smoke-test with add button. Do not read AGENTS.md. No --help.
 3. ./evg-agent measure doc.evg.json --width=W --height=H
    W×H is what TASK.md said: phone 390×844, tablet 820×1180, desktop 1440×900. Not always 390.
-   count:0 on the seed (one empty column) is not done — outline must name the cards.
+   measure count:0 means no overflow, not an empty screen. An outline with 1 node is the empty seed.
 
-insert with only "tag" is an empty box. A subtree is "node" (document shape), not "children" on the op — children there is ignored and outline will show empty divs. Prefer ./evg-ui: one add card is a whole measured piece.
+insert the first child at "0", not "0/0" — 0/0 does not exist on an empty root. insert with only "tag" is an empty box. A subtree is "node" (document shape), not "children" on the op. Prefer ./evg-ui: one add card is a whole measured piece. box-sizing is not patchable — one bad prop rejects the whole file.
 
-Never write_file doc.evg.json or layout.json. Never read_file a .evg.json — the tree is on disk; outline / measure / patch. A 13k document in the prompt is why a Follow-up burns millions of input tokens. measure count:0 with three empty nodes is not success — outline must name the cards you added.
+EVG layout is HTML/CSS flex and grid: display:flex, flex-direction:column|row, gap, padding; or display:grid, grid-template-columns:1fr 1fr. Not left/top. Two cards side by side are one grid row. Erazer / SVG boxes are the photo geometry — map them to flex/grid. Use the brief hexes: set-prop background-color on the root (page) and each card. The seed rgb() is a placeholder.
+
+Never write_file doc.evg.json or layout.json. Never read_file a .evg.json — the tree is on disk; outline / measure / patch. Do not remove the cards the outline already names — set-prop colours or add the next missing one.
 
 Several screens (Orders / Analytics / Settings) is an app, not hidden divs:
 1. set-id each tab: {"op":"set-id","at":"0/6/0","value":"nav.home"} — id is NOT a property (set-prop id is rejected).
@@ -318,9 +318,9 @@ Several screens (Orders / Analytics / Settings) is an app, not hidden divs:
 
 set-prop is one CSS name (height, padding-top, gap, background-color), not style= and not a shorthand blob. set-prop needs "prop" and "value" — {"op":"set-prop","at":"0","prop":"flex-direction","value":"column"}, not 0=column. A 1px overflow is one set-prop on the finding path, then measure — do not query every sibling. outline --at=PATH for one node; query/measure replies already include the match props and boxes [x,y,w,h]. ops.json is {"ops":[...]} — a bare op object or [] is "no ops in that file".
 
-After an empty outline the NEXT tool is ./evg-ui add card (not list, not read_file TASK.md). TASK.md is already this message. The photo and SVG are already in the ask. --into is the insert path — it does not edit the file. After add > add.json the next tool is ./evg-agent patch doc.evg.json add.json, not read_file add.json.
+After an empty outline the NEXT tool is ./evg-ui add card (not list, not read_file TASK.md). TASK.md is already this message. The photo is already in the first ask. --into is the insert path — it does not edit the file. After add > add.json the next tool is ./evg-agent patch doc.evg.json add.json, not read_file add.json.
 
-A picture in the ask can be any UI. The host sends the pixels, the vectorized SVG, the palette and OCR. Rebuild what you see — match that layout, not a generic settings list. Labels with spaces (Acme 360, not Acme360). If you need the photo or SVG again, call image_info, ocr, or read_file attachment.svg.
+A picture in the ask can be any UI. Rebuild what you see — match that layout, not a generic settings list. Labels with spaces (Acme 360, not Acme360). If you need the photo or SVG again, call image_info, ocr, or read_file attachment.svg.
 
 Labels: one span per phrase, spaces between words ("Acme 360", not "Acme360"). Do not insert the same text twice — two overlapping spans paint as Revenuee / monthlyy.
 
@@ -344,7 +344,7 @@ export const PLAN_NUDGE =
 export const STALL_NUDGE =
   `Stop exploring. Next tool is ${ADD_CARD} then ./evg-agent patch doc.evg.json add.json. Not ocr, not image_info, not list, not TASK.md.`;
 export const PICTURE_STALL_NUDGE =
-  "The photo and SVG are in the ask. Rebuild what you see. If you need them again, image_info or read_file attachment.svg.";
+  "You already saw the photo. Rebuild what you see — add the next named card, do not wipe. image_info if you need the pixels again.";
 export const SVG_BRIEF_CAP = 8_000;
 export const IMAGE_INLINE_MAX = 3_500_000;
 
@@ -726,10 +726,23 @@ export function saveOnce(workspace, patch) {
 }
 
 export function pendingOpsFile(workspace) {
+  let docMtime = 0;
+  try {
+    docMtime = fs.statSync(path.join(workspace, "doc.evg.json")).mtimeMs;
+  } catch {
+    docMtime = 0;
+  }
   try {
     for (const name of fs.readdirSync(workspace)) {
       if (name === "attachment.ops.json") continue;
-      if (/^(add|ops)[-_.a-z0-9]*\.json$/i.test(name) || /\.ops\.json$/i.test(name)) return name;
+      if (!(/^(add|ops)[-_.a-z0-9]*\.json$/i.test(name) || /\.ops\.json$/i.test(name))) continue;
+      let mtime = 0;
+      try {
+        mtime = fs.statSync(path.join(workspace, name)).mtimeMs;
+      } catch {
+        continue;
+      }
+      if (mtime > docMtime + 20) return name;
     }
   } catch {
     /* empty workspace */
@@ -912,6 +925,7 @@ function imageInfo(workspace, rel) {
         placed: j.placed,
         insertsAt: j.insertsAt,
         colors: j.colors.slice(0, 12),
+        roles: (paletteRoles(j.colors) || {}).line,
       };
     }
     return { path: requested, kind: "json", keys: Object.keys(j && typeof j === "object" ? j : {}).slice(0, 24) };
@@ -979,7 +993,76 @@ function runErazerOutline(workspace, imageRel, env = process.env) {
     .split(/\n/)
     .map((l) => l.replace(/\s+$/, ""))
     .filter((l) => ERAZER_ROLE.test(l.trim()));
-  return clip(lines.slice(0, 48).join("\n"), 2_000);
+  return clip(lines.slice(0, 48).join("\n"), 2_400);
+}
+
+/** Largest dark swatch is the page; the other top colour is cards. */
+export function paletteRoles(colors) {
+  const list = (Array.isArray(colors) ? colors : []).filter((c) => c && c.hex);
+  if (!list.length) return null;
+  const lum = (hex) => {
+    const h = String(hex || "").replace("#", "");
+    const n = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
+    if (n.length < 6) return 128;
+    const r = parseInt(n.slice(0, 2), 16);
+    const g = parseInt(n.slice(2, 4), 16);
+    const b = parseInt(n.slice(4, 6), 16);
+    return (r * 299 + g * 587 + b * 114) / 1000;
+  };
+  const sorted = [...list].sort((a, b) => (b.share || 0) - (a.share || 0));
+  const top = sorted.slice(0, 2);
+  const page = top.length === 2 && lum(top[1].hex) < lum(top[0].hex) ? top[1] : top[0];
+  const cards = top.find((c) => c !== page) || page;
+  const rest = sorted.filter((c) => c !== page && c !== cards);
+  const accents = rest.filter((c) => {
+    const L = lum(c.hex);
+    return L > 40 && L < 230;
+  });
+  const text = rest.filter((c) => !accents.includes(c));
+  const bits = [`page ${page.hex}`, `cards ${cards.hex}`];
+  if (accents.length) bits.push(`accent ${accents.map((c) => c.hex).join(" ")}`);
+  if (text.length) bits.push(`text ${text.map((c) => c.hex).join(" ")}`);
+  return { page: page.hex, cards: cards.hex, accents: accents.map((c) => c.hex), text: text.map((c) => c.hex), line: bits.join(" · ") };
+}
+
+export function picturePalette(workspace) {
+  try {
+    const j = JSON.parse(fs.readFileSync(path.join(workspace, "attachment.json"), "utf8"));
+    return paletteRoles(j.colors || []);
+  } catch {
+    return null;
+  }
+}
+
+/** Tracer SVG rects → Erazer-shaped "panel x,y w×h #hex" lines. */
+export function geometryFromSvg(svg) {
+  const out = [];
+  const re = /<rect\b([^>\/]*)/gi;
+  let m;
+  while ((m = re.exec(String(svg || "")))) {
+    const attrs = m[1];
+    const attr = (name) => {
+      const hit = new RegExp(`(?:^|\\s)${name}="([^"]+)"`, "i").exec(attrs);
+      return hit ? hit[1] : "";
+    };
+    const x = Number(attr("x") || 0);
+    const y = Number(attr("y") || 0);
+    const w = Number(attr("width") || 0);
+    const h = Number(attr("height") || 0);
+    if (!(w >= 8 && h >= 8)) continue;
+    out.push({ x, y, w, h, fill: attr("fill") });
+  }
+  return out;
+}
+
+export function formatGeometryLines(rects, cap = 20) {
+  return (rects || [])
+    .slice(0, cap)
+    .map((r) => {
+      const fill = r.fill && r.fill.startsWith("#") ? ` ${r.fill}` : "";
+      return `panel ${Math.round(r.x)},${Math.round(r.y)} ${Math.round(r.w)}x${Math.round(r.h)}${fill}`;
+    })
+    .join("\n");
 }
 
 function pictureImageName(workspace) {
@@ -994,7 +1077,8 @@ export function collectPictureBrief(workspace, env = process.env) {
   if (!hasPicture(workspace)) return "";
   const bits = [
     "## PICTURE BRIEF",
-    "A photo is attached (pixels + vectorized SVG). Rebuild what you see — any UI, not a guessed template. Use the palette. Labels with spaces.",
+    "A photo is attached (pixels + vectorized SVG). Rebuild what you see — any UI, not a guessed template.",
+    "EVG is HTML flex/grid: display:flex + flex-direction:column|row + gap, or display:grid + grid-template-columns:1fr 1fr. Not left/top.",
   ];
   let att = null;
   try {
@@ -1002,12 +1086,17 @@ export function collectPictureBrief(workspace, env = process.env) {
   } catch {
     att = null;
   }
+  const roles = paletteRoles(att && att.colors);
   if (att && (att.width || att.colors)) {
     const colors = (att.colors || [])
       .slice(0, 8)
       .map((c) => `${c.hex} ${Math.round((c.share || 0) * 100)}%`)
       .join(", ");
-    bits.push(`Size: ${att.width || "?"}×${att.height || "?"} · ${att.layers || "?"} layers. Palette: ${colors}.`);
+    bits.push(`Size: ${att.width || "?"}×${att.height || "?"} · ${att.layers || "?"} layers. Shares: ${colors}.`);
+  }
+  if (roles) {
+    bits.push(`Palette MUST be these hexes (seed rgb() is a placeholder): ${roles.line}.`);
+    bits.push(`First patch: {"ops":[{"op":"set-prop","at":"0","prop":"background-color","value":"${roles.page}"},{"op":"set-prop","at":"0","prop":"flex-direction","value":"column"}]}`);
   }
   const image = pictureImageName(workspace);
   const once = loadOnce(workspace);
@@ -1029,8 +1118,21 @@ export function collectPictureBrief(workspace, env = process.env) {
     if (erazer) saveOnce(workspace, { erazer });
   }
   if (erazer) {
-    bits.push("Erazer widgets (geometry):");
+    bits.push("Erazer widgets (role x,y w×h hex — map to flex/grid, do not paste left/top):");
     bits.push(erazer);
+  } else {
+    const svgPath = path.join(workspace, "attachment.svg");
+    if (fs.existsSync(svgPath)) {
+      try {
+        const boxes = formatGeometryLines(geometryFromSvg(fs.readFileSync(svgPath, "utf8")));
+        if (boxes) {
+          bits.push("Vector boxes (x,y w×h fill — map to flex/grid, do not paste left/top):");
+          bits.push(boxes);
+        }
+      } catch {
+        /* missing */
+      }
+    }
   }
   const svgPath = path.join(workspace, "attachment.svg");
   if (fs.existsSync(svgPath)) {
@@ -1086,7 +1188,28 @@ export function pictureMediaParts(workspace) {
   return parts;
 }
 
-export function contentsWithPicture(contents, workspace) {
+/** Last model turn asked for the photo / SVG again. */
+export function lastModelAskedForPicture(contents) {
+  for (let i = (contents || []).length - 1; i >= 0; i -= 1) {
+    const c = contents[i];
+    if (!c || c.role !== "model") continue;
+    for (const p of c.parts || []) {
+      if (p && p.functionCall && askedForPicture(p.functionCall.name, argsOf(p.functionCall))) return true;
+    }
+    return false;
+  }
+  return false;
+}
+
+export function shouldAttachPicture(contents, extra = {}) {
+  if (extra.attachPicture === true) return true;
+  if (extra.attachPicture === false) return false;
+  if (extra.sentPicture) return lastModelAskedForPicture(contents);
+  return true;
+}
+
+export function contentsWithPicture(contents, workspace, extra = {}) {
+  if (extra.attach === false) return contents;
   const media = pictureMediaParts(workspace);
   if (!media.length) return contents;
   const out = (Array.isArray(contents) ? contents : []).map((c) => ({
@@ -1185,6 +1308,9 @@ export function parseRun(command) {
       };
     }
   }
+  if (argv.some((a) => a === "--help" || a === "-h" || a === "-help")) {
+    return { error: "no --help. ./evg-ui add card --title … --into doc.evg.json then patch. insert first child at \"0\", not \"0/0\"." };
+  }
   if (bin === "./evg-ui") {
     const verb = argv[0] || "";
     if (!verb || verb.startsWith("-") || verb === "list" || verb === "spec" || verb === "shot" || verb === "check") {
@@ -1229,6 +1355,18 @@ export function executeTool(workspace, name, rawArgs, env = process.env) {
             ...result,
             hint: `${pending} is on disk — ./evg-agent patch doc.evg.json ${pending}. Do not read_file it.`,
           };
+        }
+        const lines = String(result.stdout || "")
+          .split(/\n/)
+          .filter((l) => /^\d/.test(l.trim()));
+        if (lines.length <= 1) {
+          const roles = picturePalette(workspace);
+          if (roles) {
+            return {
+              ...result,
+              hint: `empty seed. First set-prop 0 background-color ${roles.page} and flex-direction column, then ${ADD_CARD}`,
+            };
+          }
         }
       }
       return result;
@@ -1411,6 +1549,8 @@ export function summarizeRunReply(out, result) {
       const nodes = j.nodes != null ? j.nodes : j.layout && j.layout.nodes;
       if (j.count === 0 && nodes != null && Number(nodes) <= 2) {
         line += ` — empty seed. Next: ${ADD_CARD}`;
+      } else if (j.count === 0 && (j.bottomFree != null || (Array.isArray(j.boxes) && j.boxes.length))) {
+        line += " — no overflow. Keep the named cards; add the next missing one. Do not wipe.";
       }
       return clipOneLine(line, 520);
     }
@@ -1434,8 +1574,19 @@ export function summarizeOutline(raw) {
     .map((l) => l.trim())
     .filter((l) => /^\d/.test(l) && !l.startsWith("…"));
   if (!lines.length) return "";
-  const heads = lines.slice(0, 8).map((l) => clipOneLine(l, 88));
-  let line = `${lines.length} node${lines.length === 1 ? "" : "s"} — ${heads.join(" · ")}`;
+  const kids = lines.filter((l) => /^0\/\d+\s/.test(l));
+  const titles = [];
+  for (const l of lines) {
+    const m = /^(\d+(?:\/\d+){1,2})\s+.*?"([^"]+)"/.exec(l);
+    if (m) titles.push(`${m[1]} "${m[2]}"`);
+  }
+  let line = `${lines.length} node${lines.length === 1 ? "" : "s"}`;
+  if (kids.length) line += ` — ${kids.length} under 0`;
+  if (titles.length) line += ` — ${titles.slice(0, 10).join(" · ")}`;
+  else {
+    const heads = (kids.length ? kids : lines).slice(0, 8).map((l) => clipOneLine(l, 72));
+    line += ` — ${heads.join(" · ")}`;
+  }
   if (lines.length <= 1) {
     line += ` — empty seed, not done. Next: ${ADD_CARD} then ./evg-agent patch doc.evg.json add.json`;
   }
@@ -1469,6 +1620,15 @@ function hintPatchReject(line) {
     s +=
       ' — set-prop needs "prop":"flex-direction" and "value":"column" (one CSS name). Not set-prop 0=column.';
   }
+  if (/property "[^"]+" is not patchable/i.test(s)) {
+    s += " — the whole file was rejected. Drop that property and patch the rest.";
+  }
+  if (/no node at "0\/0"/i.test(s)) {
+    s += ' — empty root: insert at "0" (the parent), not "0/0". Or ./evg-ui add card --into doc.evg.json';
+  }
+  if (/unknown op/i.test(s)) {
+    s += ' — ops are set-prop, set-text, set-id, insert, remove. Not delete/help.';
+  }
   return s;
 }
 
@@ -1492,11 +1652,26 @@ export function opsWriteError(rel, contents) {
     return "ops array is empty — add one set-prop (one CSS name: height, padding-top, gap)";
   }
   if (j && Array.isArray(j.ops)) {
+    const known = new Set(["set-prop", "set-text", "set-id", "insert", "remove", "move"]);
+    const rootRemoves = [];
     for (const op of j.ops) {
-      if (!op || op.op !== "set-prop") continue;
-      if (!String(op.prop || "").trim()) {
-        return 'set-prop needs "prop":"flex-direction" (one CSS name) and "value":"column" — not value alone';
+      if (!op) continue;
+      if (op.op && !known.has(op.op)) {
+        return `unknown op "${op.op}" — use set-prop, set-text, set-id, insert, remove. First child inserts at "0", not "0/0".`;
       }
+      if (op.op === "set-prop") {
+        const prop = String(op.prop || "").trim();
+        if (!prop) {
+          return 'set-prop needs "prop":"flex-direction" (one CSS name) and "value":"column" — not value alone';
+        }
+        if (prop === "box-sizing" || prop === "overflow-x" || prop === "overflow-y") {
+          return `${prop} is not patchable — drop it or the whole file is rejected. height, padding, gap, background-color, flex-direction, overflow are fine.`;
+        }
+      }
+      if (op.op === "remove" && /^0\/\d+$/.test(String(op.at || ""))) rootRemoves.push(op.at);
+    }
+    if (rootRemoves.length >= 2) {
+      return "do not wipe the cards — remove one empty node, or set-prop the ones you have";
     }
   }
   return "";
@@ -1706,7 +1881,10 @@ export function requestBody(contents, env = process.env, extra = {}) {
   }
   const body = {
     systemInstruction: { parts: [{ text: geminiSystemPrompt() }] },
-    contents: contentsWithPicture(prepareContents(contents, env), extra.workspace),
+    contents:
+      extra.workspace && extra.attachPicture !== false && shouldAttachPicture(contents, extra)
+        ? contentsWithPicture(prepareContents(contents, env), extra.workspace)
+        : prepareContents(contents, env),
     tools: [{ functionDeclarations: GEMINI_TOOLS }],
     generationConfig: gen,
   };
@@ -1756,10 +1934,13 @@ export async function geminiLoop({
   let planNudges = 0;
   let stallNudges = 0;
   let forceTool = false;
+  let sentPicture = false;
 
   for (let i = 0; i < maxTurns; i += 1) {
     if (signal && signal.aborted) throw new Error("aborted");
-    const body = requestBody(contents, env, { forceTool, workspace });
+    const attachPicture = Boolean(brief) && shouldAttachPicture(contents, { sentPicture });
+    const body = requestBody(contents, env, { forceTool, workspace, attachPicture, sentPicture });
+    if (attachPicture) sentPicture = true;
     const sent = payloadStats(body);
     log(formatPayloadStats(sent));
     appendTrace(workspace, formatPayloadStats(sent));

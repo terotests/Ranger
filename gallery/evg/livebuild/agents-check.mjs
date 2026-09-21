@@ -21,6 +21,7 @@ import {
   geminiCostUsd,
   formatGeminiSpend,
   summarizeTool,
+  summarizeOutline,
   splitParts,
   GEMINI_TRACE,
   geminiSystemPrompt,
@@ -40,6 +41,11 @@ import {
   hasPicture,
   contentsWithPicture,
   stripInlineData,
+  paletteRoles,
+  geometryFromSvg,
+  formatGeometryLines,
+  shouldAttachPicture,
+  pendingOpsFile,
   ADD_CARD,
   OPS_WRITE_CAP,
   recentSightseeing,
@@ -1045,8 +1051,8 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   if (!STALL_NUDGE.includes("add card") || !ADD_CARD.includes("add card")) {
     throw new Error("stall nudge must name add card");
   }
-  if (!PICTURE_STALL_NUDGE.includes("SVG") || !/what you see/.test(PICTURE_STALL_NUDGE)) {
-    throw new Error("a picture stall must point at the photo and SVG: " + PICTURE_STALL_NUDGE);
+  if (!/photo/.test(PICTURE_STALL_NUDGE) || !/what you see/.test(PICTURE_STALL_NUDGE)) {
+    throw new Error("a picture stall must point at the photo: " + PICTURE_STALL_NUDGE);
   }
   const picWs = fs.mkdtempSync(path.join(os.tmpdir(), "evg-pic-"));
   fs.writeFileSync(
@@ -1058,11 +1064,29 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
       colors: [{ hex: "#F6F3EF", share: 0.62 }, { hex: "#FFFFFF", share: 0.2 }],
     }),
   );
-  fs.writeFileSync(path.join(picWs, "attachment.svg"), "<svg xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"10\" height=\"10\"/></svg>\n");
+  fs.writeFileSync(
+    path.join(picWs, "attachment.svg"),
+    '<svg xmlns="http://www.w3.org/2000/svg"><rect x="16" y="80" width="170" height="120" fill="#AAB4F9"/></svg>\n',
+  );
   if (!hasPicture(picWs)) throw new Error("attachment.json must count as a picture");
   const brief = collectPictureBrief(picWs, { ...process.env, TESSERACT_PATH: path.join(picWs, "no-tess") });
   if (!/PICTURE BRIEF/.test(brief) || !/#F6F3EF/.test(brief) || !/SVG/.test(brief)) {
     throw new Error("picture brief must carry palette and SVG: " + brief);
+  }
+  if (!/flex\/grid/.test(brief) || !/page #/.test(brief) || !/16,80 170x120/.test(brief)) {
+    throw new Error("picture brief must name flex/grid, palette roles and box geometry: " + brief);
+  }
+  const roles = paletteRoles([
+    { hex: "#23252B", share: 0.48 },
+    { hex: "#17181C", share: 0.31 },
+    { hex: "#AAB4F9", share: 0.09 },
+  ]);
+  if (!roles || roles.page !== "#17181C" || roles.cards !== "#23252B" || !roles.accents.includes("#AAB4F9")) {
+    throw new Error("dark UI: darker top swatch is the page: " + JSON.stringify(roles));
+  }
+  const boxes = formatGeometryLines(geometryFromSvg('<rect x="8" y="8" width="40" height="20" fill="#17181C"/>'));
+  if (!/8,8 40x20 #17181C/.test(boxes)) {
+    throw new Error("SVG rects must become boxes: " + boxes);
   }
   if (!fs.existsSync(path.join(picWs, "PICTURE.md"))) {
     throw new Error("collectPictureBrief should write PICTURE.md");
@@ -1090,6 +1114,81 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   }
   if (!stripped[0].parts.some((p) => /omitted from history/.test(p.text || ""))) {
     throw new Error("stripInlineData should leave a stub: " + JSON.stringify(stripped));
+  }
+  if (!shouldAttachPicture([{ role: "user", parts: [{ text: "go" }] }], {})) {
+    throw new Error("first Follow-up turn must attach the photo");
+  }
+  if (shouldAttachPicture([{ role: "user", parts: [{ text: "go" }] }, { role: "model", parts: [{ functionCall: { name: "run", args: {} } }] }], { sentPicture: true })) {
+    throw new Error("later turns must not re-attach unless asked");
+  }
+  if (!shouldAttachPicture([{ role: "model", parts: [{ functionCall: { name: "image_info", args: {} } }] }], { sentPicture: true })) {
+    throw new Error("image_info must re-attach the photo");
+  }
+  const namedOutline = summarizeOutline(`0 div
+0/0 div .ui-card
+0/0/0 span .ui-card-title "HEART RATE"
+0/0/1 div .ui-row
+0/1 div .ui-card
+0/1/0 span .ui-card-title "SLEEP QUALITY"
+0/2 div .ui-card
+0/2/0 span .ui-card-title "RECOVERY"`);
+  if (!/HEART RATE/.test(namedOutline) || !/SLEEP QUALITY/.test(namedOutline) || !/RECOVERY/.test(namedOutline)) {
+    throw new Error("outline must name each card: " + namedOutline);
+  }
+  if (!/3 under 0/.test(namedOutline)) {
+    throw new Error("outline should count top-level cards: " + namedOutline);
+  }
+  const okLayout = summarizeTool("run", { command: "./evg-agent measure --width=390 --height=844" }, {
+    ok: true,
+    status: 0,
+    stdout: JSON.stringify({ count: 0, bottomFree: 296 }),
+    stderr: "",
+  });
+  if (/empty seed/.test(okLayout.reply)) {
+    throw new Error("measure count:0 with cards is not an empty seed: " + okLayout.reply);
+  }
+  if (!/no overflow/.test(okLayout.reply)) {
+    throw new Error("measure count:0 should say no overflow: " + okLayout.reply);
+  }
+  const insertMiss = summarizeTool("run", { command: "./evg-agent patch doc.evg.json ops.json" }, {
+    ok: false,
+    status: 1,
+    stdout: JSON.stringify({ error: 'no node at "0/0" (1 nodes in this tree)' }),
+    stderr: "",
+  });
+  if (!/insert at "0"/.test(insertMiss.reply)) {
+    throw new Error("insert 0/0 on an empty root must hint at 0: " + insertMiss.reply);
+  }
+  if (!denyRun("./evg-ui add card --help") || !/--help/.test(denyRun("./evg-ui add card --help"))) {
+    throw new Error("--help must be refused: " + denyRun("./evg-ui add card --help"));
+  }
+  const boxSizing = executeTool(ws, "write_file", {
+    path: "ops.json",
+    contents: '{"ops":[{"op":"set-prop","at":"0","prop":"box-sizing","value":"border-box"}]}',
+  });
+  if (!boxSizing.error || !/box-sizing/.test(boxSizing.error)) {
+    throw new Error("box-sizing must be refused before patch: " + JSON.stringify(boxSizing));
+  }
+  const wipe = executeTool(ws, "write_file", {
+    path: "ops.json",
+    contents: '{"ops":[{"op":"remove","at":"0/0"},{"op":"remove","at":"0/1"},{"op":"remove","at":"0/2"}]}',
+  });
+  if (!wipe.error || !/wipe/.test(wipe.error)) {
+    throw new Error("wiping the cards must be refused: " + JSON.stringify(wipe));
+  }
+  const unknownOp = executeTool(ws, "write_file", {
+    path: "ops.json",
+    contents: '{"ops":[{"op":"delete","at":"0/5"}]}',
+  });
+  if (!unknownOp.error || !/unknown op/.test(unknownOp.error)) {
+    throw new Error("delete must be refused: " + JSON.stringify(unknownOp));
+  }
+  fs.writeFileSync(path.join(ws, "add.json"), '{"ops":[]}\n');
+  const past = Date.now() - 5_000;
+  fs.utimesSync(path.join(ws, "add.json"), past / 1000, past / 1000);
+  fs.writeFileSync(path.join(ws, "doc.evg.json"), '{"root":{"tag":"div","children":[]}}\n');
+  if (pendingOpsFile(ws) === "add.json") {
+    throw new Error("already-patched add.json must not stay pending");
   }
   const wrapHint = executeTool(ws, "write_file", {
     path: "ops.json",
@@ -1160,6 +1259,8 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
     "not read_file",
     "vectorized SVG",
     "attachment.svg",
+    "grid-template-columns",
+    "HTML/CSS flex",
   ]) {
     if (!prompt.includes(need)) throw new Error("gemini system prompt missing " + need);
   }
@@ -1372,6 +1473,9 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
       };
     }
     const hist = body.contents || [];
+    if (hist.some((c) => (c.parts || []).some((p) => p && p.inlineData))) {
+      throw new Error("later turns must not re-send the photo unless asked");
+    }
     const modelTurn = hist.find((c) => c.role === "model");
     const sig = ((modelTurn && modelTurn.parts) || []).find((p) => p.thoughtSignature);
     if (!sig || sig.thoughtSignature !== "sig-keep") {

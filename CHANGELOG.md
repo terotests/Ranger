@@ -91,8 +91,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `patch` — `--into` does not edit the file, and `read_file add.json`
   is refused so the 3k ops stay off the prompt.
   A photo attach sends the pixels, the vectorized SVG, the palette
-  and OCR — any UI, not a guessed settings list. The model can ask
-  for the photo or SVG again (`image_info`, `ocr`, `attachment.svg`).
+  and OCR on the first turn of a Follow-up (any UI). Later turns stay
+  cheap; `image_info` / `ocr` / `attachment.svg` send them again.
+  The brief names HTML flex/grid, page/cards/accent hexes, and Erazer
+  or SVG `x,y w×h` boxes so the rebuild is not a guessed settings list.
   `npm run livebuild:withgemini` checks the key and opens the
   page with Gemini selected. The orchestrator suite drives the loop against
   a fake fetch, so CI never spends Google credits.

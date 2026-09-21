@@ -659,8 +659,10 @@ That is a screenshot on the page. It is not a dashboard made of cards.
 
 To **rebuild a UI like the picture** ("make a dashboard like this"):
 the host sends the pixels, the vectorized SVG, the palette and OCR.
-Rebuild what you see — the picture can be any UI. Ask again with
-\`image_info\`, \`ocr\` or \`read_file attachment.svg\` if you need them.
+EVG is HTML flex/grid (\`display:flex\`, \`grid-template-columns:1fr 1fr\`),
+not left/top. Erazer / SVG boxes give x,y,w×h — map them to rows.
+set-prop the palette hexes; the seed rgb() is a placeholder. Ask again
+with \`image_info\`, \`ocr\` or \`read_file attachment.svg\` if you need them.
 Do not apply \`${ATTACH_BASE}.ops.json\` as the whole screen.
 
 Re-trace at another size only if you are placing the photo:
