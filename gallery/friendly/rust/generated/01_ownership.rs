@@ -1,12 +1,5 @@
-#![allow(unused_parens)]
-#![allow(unused_mut)]
-#![allow(unused_variables)]
-#![allow(unused_assignments)]
 #![allow(dead_code)]
-// The clippy allows below cover shapes that mirror the Ranger source
-// itself, which the transpiler must not rewrite or rename.
-#![allow(clippy::collapsible_if)]
-#![allow(clippy::ptr_arg)]
+#![allow(unused_mut)]
 
 use std::rc::Rc;
 use std::rc::Weak;
@@ -30,7 +23,7 @@ struct Point {
 }
 impl Point {
   pub fn new(x: i64, y: i64) -> Self {
-    let mut me = Point {
+    let mut me = Self {
       x: 0,
       y: 0,
     };
@@ -44,7 +37,7 @@ struct PointOps {
 }
 impl PointOps {
   pub fn new() -> Self {
-    PointOps {
+    Self {
     }
   }
   fn manhattan(&self, p: &Point) -> i64 {
@@ -68,7 +61,7 @@ struct Counter {
 }
 impl Counter {
   pub fn new() -> Self {
-    Counter {
+    Self {
       value: 0,
     }
   }
@@ -87,7 +80,7 @@ struct TreeNode {
 }
 impl TreeNode {
   pub fn new() -> Self {
-    TreeNode {
+    Self {
       name: "",
       kids: Vec::new(),
       parent: None,
@@ -106,7 +99,7 @@ struct OwnershipMain {
 }
 impl OwnershipMain {
   pub fn new() -> Self {
-    OwnershipMain {
+    Self {
     }
   }
 }

@@ -17,7 +17,7 @@ public class Stack_int {
     if ( n == 0 ) {
       return found;
     }
-    found = items.get((n - 1));
+    found = items.get(n - 1);
     return found;
   }
 }

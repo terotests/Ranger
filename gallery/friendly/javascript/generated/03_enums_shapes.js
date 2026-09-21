@@ -99,8 +99,8 @@ class EnumsMain  {
 function __js_main() {
   const app = new EnumsMain();
   console.log("color " + app.colorName(1));
-  console.log(app.describe((new Message_Ping())));
-  console.log(app.describe((new Message_Text("hi"))));
-  console.log(app.describe((new Message_Move(2, 3))));
+  console.log(app.describe(new Message_Ping()));
+  console.log(app.describe(new Message_Text("hi")));
+  console.log(app.describe(new Message_Move(2, 3)));
 }
 __js_main();

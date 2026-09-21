@@ -24,7 +24,7 @@ public class AbsentMain {
     } else {
       System.out.println(String.valueOf( "int zero: present" ) );
     }
-    System.out.println(String.valueOf( "int zero ?? " + String.valueOf(((n != null ) ? n : 99) ) ) );
+    System.out.println(String.valueOf( "int zero ?? " + String.valueOf((n != null ) ? n : 99 ) ) );
   }
   
   public String report( final String label , final String s ) {

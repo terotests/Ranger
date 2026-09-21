@@ -1,12 +1,4 @@
-#![allow(unused_parens)]
-#![allow(unused_mut)]
-#![allow(unused_variables)]
-#![allow(unused_assignments)]
 #![allow(dead_code)]
-// The clippy allows below cover shapes that mirror the Ranger source
-// itself, which the transpiler must not rewrite or rename.
-#![allow(clippy::collapsible_if)]
-#![allow(clippy::ptr_arg)]
 
 use std::rc::Rc;
 use std::cell::RefCell;
@@ -29,7 +21,7 @@ struct Point {
 }
 impl Point {
   pub fn new() -> Self {
-    Point {
+    Self {
       x: 0,
       y: 0,
     }
@@ -40,7 +32,7 @@ struct OptionalParams {
 }
 impl OptionalParams {
   pub fn new() -> Self {
-    OptionalParams {
+    Self {
     }
   }
   fn shown(maybe: Option<String>) -> String {

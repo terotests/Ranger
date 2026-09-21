@@ -100,7 +100,7 @@ int  Stack_int::size() {
   if ( n == 0 ) {
     return found;
   }
-  found  = items.at((n - 1));
+  found  = items.at(n - 1);
   return found;
 }
 Stack_string::Stack_string( ) {
@@ -117,6 +117,6 @@ int  Stack_string::size() {
   if ( n == 0 ) {
     return found;
   }
-  found  = items.at((n - 1));
+  found  = items.at(n - 1);
   return found;
 }

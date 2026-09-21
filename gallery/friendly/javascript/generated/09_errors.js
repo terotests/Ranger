@@ -78,6 +78,6 @@ class ErrorsMain  {
 function __js_main() {
   const g = new Guard();
   console.log(g.describe(g.check(3)));
-  console.log(g.describe(g.check((0 - 1))));
+  console.log(g.describe(g.check(0 - 1)));
 }
 __js_main();

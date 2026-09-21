@@ -1,12 +1,5 @@
-#![allow(unused_parens)]
-#![allow(unused_mut)]
-#![allow(unused_variables)]
-#![allow(unused_assignments)]
 #![allow(dead_code)]
-// The clippy allows below cover shapes that mirror the Ranger source
-// itself, which the transpiler must not rewrite or rename.
-#![allow(clippy::collapsible_if)]
-#![allow(clippy::ptr_arg)]
+#![allow(unused_mut)]
 
 
 
@@ -18,8 +11,8 @@ struct Request {
 }
 impl Request {
   pub fn new(host: String, path: String, port: i64) -> Self {
-    let mut me = Request {
-      host: "".to_string(),
+    let mut me = Self {
+      host: String::new(),
       path: "/".to_string(),
       port: 80,
     };
@@ -34,7 +27,7 @@ struct RequestBuild {
 }
 impl RequestBuild {
   pub fn new() -> Self {
-    RequestBuild {
+    Self {
     }
   }
   fn with_host(&self, r: &Request, h: &str) -> Request {
@@ -58,8 +51,8 @@ struct MutRequest {
 }
 impl MutRequest {
   pub fn new() -> Self {
-    MutRequest {
-      host: "".to_string(),
+    Self {
+      host: String::new(),
       path: "/".to_string(),
       port: 80,
     }
@@ -85,7 +78,7 @@ struct BuilderMain {
 }
 impl BuilderMain {
   pub fn new() -> Self {
-    BuilderMain {
+    Self {
     }
   }
 }
@@ -96,7 +89,7 @@ fn main() {
 }
 fn __rg_main_body() {
   let mut b: RequestBuild = RequestBuild::new();
-  let mut start: Request = Request::new("".to_string(), "/".to_string(), 80);
+  let mut start: Request = Request::new(String::new(), "/".to_string(), 80);
   let mut step1: Request = b.with_host(&start, "localhost");
   let mut step2: Request = b.with_port(&step1, 8080);
   let mut done: Request = b.with_path(&step2, "/api");

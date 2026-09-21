@@ -111,7 +111,7 @@ void main(List<String> args) {
   __g_args = args;
   EnumsMain app =  EnumsMain();
   print( "color " + app.colorName(Color.Green) );
-  print( app.describe(( Message_Ping())) );
-  print( app.describe(( Message_Text("hi"))) );
-  print( app.describe(( Message_Move(2, 3))) );
+  print( app.describe( Message_Ping()) );
+  print( app.describe( Message_Text("hi")) );
+  print( app.describe( Message_Move(2, 3)) );
 }

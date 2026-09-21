@@ -1812,6 +1812,10 @@ extension RangerRustClassWriter {
       } {
         ; Non-optional assignment
         wr.out(" = " false)
+        ; where the value starts, so the parentheses an operator template puts
+        ; around its whole result can come off: `x = (a + b);` is rustc's
+        ; unused_parens, and `=` already delimits what follows
+        def asgMark@(units):int (wr.lineMark())
         ; PLAN_SHAPES S5: the slot is a Rust enum, so a member value is wrapped
         ; in its variant here, exactly as a call argument is
         if (preeval_rhs == false) {
@@ -1884,6 +1888,7 @@ extension RangerRustClassWriter {
         if rhs_is_optional {
           wr.out(".unwrap()" false)
         }
+        wr.stripLineMarkParens(asgMark)
         wr.out(";" true)
       }
       ctx.unsetInExpr()
@@ -2779,13 +2784,46 @@ extension RangerRustClassWriter {
         }
       }
     }
-    ; a method call ON the name: the callee may want `&mut self`, and this
-    ; writer cannot see which from here
+    ; a method call ON the name. `rust_mut_self` is settled for every class
+    ; before the first line is written, so the question the comment here used
+    ; to call unanswerable -- does the callee want `&mut self`? -- is a
+    ; lookup. A `&self` method is reached through a `&T` binding by
+    ; auto-deref, which is what makes `for line in &self.lines` legal where
+    ; the body calls `line.total()`. A method carrying the hidden __self_rc
+    ; handle needs the Rc and cannot.
     if (body.hasFnCall) {
       def fc:CodeNode (body.getFirst())
       if ((array_length fc.ns) >= 2) {
         if ((itemAt fc.ns 0) == itemName) {
-          return false
+          if ((array_length fc.ns) != 2) {
+            return false
+          }
+          def orcCl@(optional):RangerAppClassDesc (ctx.findClass(clName))
+          if (null? orcCl) {
+            return false
+          }
+          def orcClD:RangerAppClassDesc (unwrap orcCl)
+          def orcM@(optional):RangerAppFunctionDesc (orcClD.findMethod((itemAt fc.ns 1)))
+          if (null? orcM) {
+            return false
+          }
+          def orcMD:RangerAppFunctionDesc (unwrap orcM)
+          if orcMD.rust_mut_self {
+            return false
+          }
+          if (this.rustNeedsSelfRc(orcMD ctx)) {
+            return false
+          }
+          ; the arguments are still the body's to answer for; the receiver
+          ; path itself is not a field read and must not reach the test below
+          for body.children orcCh:CodeNode orcCi {
+            if (orcCi > 0) {
+              if ((this.rustForBodyOnlyReadsCopyFields(orcCh itemName clName ctx)) == false) {
+                return false
+              }
+            }
+          }
+          return true
         }
       }
     }
@@ -3050,9 +3088,12 @@ extension RangerRustClassWriter {
     ; It is the writer's own name, so the raw vref is the right thing here —
     ; unlike the BOUND names, which the walker renames.
     def nName:string ("__n_" + idxName)
-    wr.out(("let " + nName + " = (") false)
+    ; no parentheses: `as` binds tighter than anything that could follow, and
+    ; a `let` value is a delimited position -- the pair was rustc's
+    ; unused_parens on every index loop in the file
+    wr.out(("let " + nName + " = ") false)
     this.rustWriteOperand(coll ctx wr)
-    wr.out(".len() as i64);" true)
+    wr.out(".len() as i64;" true)
     wr.out("for " false)
     this.rustWriteOperand(idx ctx wr)
     wr.out((" in 0.." + nName) false)

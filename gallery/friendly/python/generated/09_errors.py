@@ -64,6 +64,6 @@ class ErrorsMain:
 def main():
   g = Guard()
   print(g.describe(g.check(3)))
-  print(g.describe(g.check((0 - 1))))
+  print(g.describe(g.check(0 - 1)))
 if __name__ == "__main__":
   main()

@@ -1272,6 +1272,101 @@ class CodeWriter {
         columnNumber = lineLen
     }
 
+    ; Where the current line ends right now, for a caller that is about to
+    ; write an expression and wants to know afterwards how it came out.
+    ; The number is an index into currentLine in this target's own unit,
+    ; handed straight back to lineMarkIsParenGroup, so it never crosses a
+    ; unit boundary. docs/plans/PLAN_STRING_INDEXING.md 3.3.
+    fn lineMark@(units):int () {
+        return (strlen currentLine)
+    }
+
+    ; Is everything written since `mark` one parenthesised group -- `(a + b)`
+    ; and not `(a) + (b)`, `(a) * 2` or a line that has moved on? Quotes are
+    ; honoured, so a paren inside a string literal does not count.
+    fn lineMarkIsParenGroup:boolean (mark@(units):int) {
+        def n:int (strlen currentLine)
+        ; at least one character between the two, so `()` -- the unit value --
+        ; is not mistaken for a wrapper and emptied
+        if ((mark + 3) > n) {
+            return false
+        }
+        if ((charAt currentLine mark) != 40) {
+            return false
+        }
+        if ((charAt currentLine (n - 1)) != 41) {
+            return false
+        }
+        def depth:int 0
+        def inStr:boolean false
+        def inChr:boolean false
+        def esc:boolean false
+        def i:int mark
+        while (i < n) {
+            def c:int (charAt currentLine i)
+            if esc {
+                esc = false
+            } {
+                if (c == 92) {
+                    esc = true
+                } {
+                    if inStr {
+                        if (c == 34) {
+                            inStr = false
+                        }
+                    } {
+                        if inChr {
+                            if (c == 39) {
+                                inChr = false
+                            }
+                        } {
+                            if (c == 34) {
+                                inStr = true
+                            } {
+                                if (c == 39) {
+                                    inChr = true
+                                } {
+                                    if (c == 40) {
+                                        depth = depth + 1
+                                    }
+                                    if (c == 41) {
+                                        depth = depth - 1
+                                        ; back to nothing before the end: the
+                                        ; group closed early, so the tail is
+                                        ; not one group
+                                        if (depth == 0) {
+                                            if (i < (n - 1)) {
+                                                return false
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            i = i + 1
+        }
+        return (depth == 0)
+    }
+
+    ; Drop that group. The caller asks for this where the position already
+    ; delimits the expression -- the value of a `let`, the right side of an
+    ; assignment, a call argument -- which is exactly where rustc's
+    ; unused_parens fires.
+    fn stripLineMarkParens:boolean (mark@(units):int) {
+        if ((this.lineMarkIsParenGroup(mark)) == false) {
+            return false
+        }
+        def n:int (strlen currentLine)
+        def head:string (substring currentLine 0 mark)
+        def body:string (substring currentLine (mark + 1) (n - 1))
+        currentLine = head + body
+        this.syncColumnFromCurrentLine()
+        return true
+    }
+
     fn writeSlice:void (str:string newLine:boolean) {
         this.addIndent()
         this.syncColumnFromCurrentLine()

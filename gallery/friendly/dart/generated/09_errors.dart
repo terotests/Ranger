@@ -85,5 +85,5 @@ void main(List<String> args) {
   __g_args = args;
   Guard g =  Guard();
   print( g.describe(g.check(3)) );
-  print( g.describe(g.check((0 - 1))) );
+  print( g.describe(g.check(0 - 1)) );
 }

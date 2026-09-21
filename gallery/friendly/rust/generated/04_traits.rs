@@ -1,12 +1,4 @@
-#![allow(unused_parens)]
-#![allow(unused_mut)]
-#![allow(unused_variables)]
-#![allow(unused_assignments)]
 #![allow(dead_code)]
-// The clippy allows below cover shapes that mirror the Ranger source
-// itself, which the transpiler must not rewrite or rename.
-#![allow(clippy::collapsible_if)]
-#![allow(clippy::ptr_arg)]
 
 
 
@@ -17,7 +9,7 @@ struct User {
 }
 impl User {
   pub fn new() -> Self {
-    User {
+    Self {
       age: 0,
       name: "",
     }
@@ -35,7 +27,7 @@ struct Bot {
 }
 impl Bot {
   pub fn new() -> Self {
-    Bot {
+    Self {
       name: "",
     }
   }
@@ -51,7 +43,7 @@ struct TraitsMain {
 }
 impl TraitsMain {
   pub fn new() -> Self {
-    TraitsMain {
+    Self {
     }
   }
   fn show(mut who: &mut User) -> String {

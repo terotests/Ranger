@@ -105,6 +105,14 @@ class RangerRustClassWriter {
   ; ask what shape the caller is expecting
   def rustFnReturnNameNode@(optional):CodeNode
   def fileHeaderWritten:boolean false
+  ; Which `#![allow(...)]` lines the file has asked for. The block lives in
+  ; the "file_attributes" slice, which sits ahead of everything else and stays
+  ; open for the whole file, so a line can be added the moment the writer
+  ; emits a shape that needs it -- and never if it does not. An allow written
+  ; for every file whether or not it applies is a pragma that hides the
+  ; backend's own regressions; this way rustc and clippy report them.
+  def rustAllowSeen:[string:boolean]
+  def rustClippyNoteWritten:boolean false
   ; every identifier name in the program, for the snake_case collision guard.
   ; adjustType is called from 40-odd places with no ctx to hand, so the SET is
   ; what gets parked here — filled once by the header pass, which has one.
@@ -252,6 +260,9 @@ class RangerRustClassWriter {
     def sn:string (this.rustSnakeCase(tn))
     if (sn != tn) {
       if (has rustIdentNames sn) {
+        ; the snake_case spelling is already some other name in this program,
+        ; so the original stays. rustNeedsNonSnakeCase asks the same question
+        ; of the whole name set, once, for the header.
         return (this.adjustReserved(tn))
       }
     }
@@ -323,7 +334,13 @@ class RangerRustClassWriter {
       }
       case RangerNodeType.String {
         def s:string (this.EncodeString(node ctx wr))
-        wr.out(((("\"" + s) + "\"") + ".to_string()") false)
+        ; an empty owned String is `String::new()`: same type, no allocation
+        ; from a literal, and what a Rust programmer writes
+        if ((strlen s) == 0) {
+          wr.out("String::new()" false)
+        } {
+          wr.out(((("\"" + s) + "\"") + ".to_string()") false)
+        }
       }
       case RangerNodeType.Integer {
         wr.out(("" + node.int_value) false)
@@ -2208,6 +2225,133 @@ class RangerRustClassWriter {
     return true
   }
 
+  ; Does the body go on writing to this local after the fold? The fold
+  ; absorbs the run of field assignments that directly follows the `new`,
+  ; and a body can write more further down -- in a branch, or after an
+  ; intervening statement. Those keep the `mut`; the ones that do not are
+  ; finished the moment they are bound.
+  ; Ask for `#![allow(name)]`, once per file. Writing into the slice is what
+  ; puts the line at the top; the call can come from anywhere.
+  ; Does any name in this program keep its camelCase spelling? adjustType
+  ; renames to snake_case unless the snake_case form is already some OTHER
+  ; name here, in which case the original stays and rustc's non_snake_case
+  ; fires on it. The whole name set answers the same question at once.
+  fn rustNeedsNonSnakeCase:boolean () {
+    for rustIdentNames nsV:boolean nsName:string {
+      def nsSn:string (this.rustSnakeCase(nsName))
+      if (nsSn != nsName) {
+        if (has rustIdentNames nsSn) {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
+  fn rustNeedAllow:void (name:string wr:CodeWriter) {
+    if (has rustAllowSeen name) {
+      return
+    }
+    if ((wr.hasTag("file_attributes")) == false) {
+      return
+    }
+    set rustAllowSeen name true
+    def naW:CodeWriter (wr.getTag("file_attributes"))
+    naW.out((("#![allow(" + name) + ")]") true)
+  }
+
+
+  ; The same for a clippy lint, with the note that says why any of them are
+  ; here written before the first one.
+  fn rustNeedClippyAllow:void (name:string wr:CodeWriter) {
+    def ncKey:string ("clippy::" + name)
+    if (has rustAllowSeen ncKey) {
+      return
+    }
+    if ((wr.hasTag("file_attributes")) == false) {
+      return
+    }
+    set rustAllowSeen ncKey true
+    def ncW:CodeWriter (wr.getTag("file_attributes"))
+    if (rustClippyNoteWritten == false) {
+      rustClippyNoteWritten = true
+      ncW.out("// The clippy allows below cover shapes that mirror the Ranger source" true)
+      ncW.out("// itself, which the transpiler must not rewrite or rename." true)
+    }
+    ncW.out((("#![allow(clippy::" + name) + ")]") true)
+  }
+
+  ; Is there a use of this local reached THROUGH its name -- `hit.ok = false`,
+  ; `c.add(...)`, `decl.types.push(...)` -- at a line beyond `minLine`? Pass a
+  ; negative minLine to ask about the whole method body.
+  fn rustLocalPathUseAfter:boolean (srcName:string cName:string minLine:int ctx:RangerAppWriterContext) {
+    def puM@(optional):RangerAppFunctionDesc (ctx.getCurrentMethod())
+    if (null? puM) {
+      return true
+    }
+    def puFn:RangerAppFunctionDesc (unwrap puM)
+    def puBodyO@(optional):CodeNode puFn.fnBody
+    if (null? puBodyO) {
+      return true
+    }
+    def puBody:CodeNode (unwrap puBodyO)
+    def puFound:boolean false
+    puBody.forTree({
+      if ((array_length item.ns) >= 2) {
+        ; the tree carries the source name, the `let` is written with the
+        ; compiled one -- they differ wherever a local was renamed away from
+        ; a collision (`g` -> `g_1`), so both have to match
+        def puHead:string (itemAt item.ns 0)
+        if ((puHead == srcName) || (puHead == cName)) {
+          if ((item.getLine()) > minLine) {
+            puFound = true
+          }
+        }
+      }
+    })
+    return puFound
+  }
+
+  fn rustFoldedLocalIsWrittenAgain:boolean (srcName:string cName:string node:CodeNode ctx:RangerAppWriterContext) {
+    def flM@(optional):RangerAppFunctionDesc (ctx.getCurrentMethod())
+    if (null? flM) {
+      return true
+    }
+    def flFn:RangerAppFunctionDesc (unwrap flM)
+    def flBodyO@(optional):CodeNode flFn.fnBody
+    if (null? flBodyO) {
+      return true
+    }
+    def flBody:CodeNode (unwrap flBodyO)
+    def flFound:boolean false
+    ; the absorbed assignments are still in the tree -- the fold marks them
+    ; rather than removing them -- so the line to compare against is the last
+    ; one the literal took, not the `def` itself
+    def flFoldLine:int (node.getLine())
+    for node.rg_init_values flV:CodeNode flVi {
+      def flVLine:int (flV.getLine())
+      if (flVLine > flFoldLine) {
+        flFoldLine = flVLine
+      }
+    }
+    flBody.forTree({
+      ; a write reached THROUGH the name -- `hit.ok = false`,
+      ; `decl.param_types.push(...)` -- anywhere below the fold itself
+      if ((array_length item.ns) >= 2) {
+        ; the tree carries the source name, the `let` is written with the
+        ; compiled one -- they differ wherever a local was renamed away from
+        ; a collision (`g` -> `g_1`), so both have to match
+        def flHead:string (itemAt item.ns 0)
+        if ((flHead == srcName) || (flHead == cName)) {
+          if ((item.getLine()) > flFoldLine) {
+            flFound = true
+          }
+        }
+      }
+    })
+    return flFound
+  }
+
   fn rustWriteFoldedInit:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def nn:CodeNode (itemAt node.children 1)
     def p:RangerAppParamDesc nn.paramDesc
@@ -2215,7 +2359,17 @@ class RangerRustClassWriter {
     def clNode:CodeNode (value.getSecond())
     def clName:string clNode.vref
     def cl:RangerAppClassDesc (ctx.findClass(clName))
-    wr.out((("let mut " + (this.adjustType(p.compiledName))) + ": " + clName + " = " + clName + " {") true)
+    ; `let`, not `let mut`, when the fold really did finish the value. The
+    ; literal absorbs the run of field assignments that follows the `new`, so
+    ; the local is complete the moment it is bound -- the `mut` was left over
+    ; from the form this replaced, and `#![allow(unused_mut)]` was hiding it.
+    ; A body that writes to the local further down, in a branch or after an
+    ; intervening statement, still needs it.
+    def foldMut:string "let "
+    if (this.rustFoldedLocalIsWrittenAgain(p.name p.compiledName node ctx)) {
+      foldMut = "let mut "
+    }
+    wr.out(((foldMut + (this.adjustType(p.compiledName))) + ": " + clName + " = " + clName + " {") true)
     wr.indent(1)
     def cnt:int (array_length node.rg_init_fields)
     def i:int 0
@@ -2375,6 +2529,15 @@ class RangerRustClassWriter {
       ; assigned in ways set_cnt does not see. `#![allow(unused_mut)]` is
       ; what covers the remainder, and it is the honest place for it.
       if (needs_mut || is_object) {
+        ; `mut` with no assignment behind it is a guess: an object reached
+        ; through a &mut self method, a collection pushed to. The guess is
+        ; right often enough to keep, and where it is wrong rustc says so --
+        ; which is why the allow is asked for here and not in the header.
+        if (p.set_cnt == 0) {
+          if ((this.rustLocalPathUseAfter(p.name p.compiledName (0 - 1) ctx)) == false) {
+            this.rustNeedAllow("unused_mut" wr)
+          }
+        }
         wr.out(((("let mut " + unused_pfx) + (this.adjustType(p.compiledName))) + ": ") false)
       } {
         wr.out(((("let " + unused_pfx) + (this.adjustType(p.compiledName))) + ": ") false)
@@ -2472,8 +2635,14 @@ class RangerRustClassWriter {
         }
       }
       
+      ; where the initializer starts on the line, so the outer parentheses an
+      ; operator template puts around its whole result can come off again:
+      ; `let n: i64 = (xs.len() as i64);` is rustc's unused_parens, and the
+      ; position already delimits the expression
+      def initMark@(units):int (0 - 1)
       if ((array_length node.children) > 2) {
         wr.out(" = " false)
+        initMark = (wr.lineMark())
 
         def value:CodeNode (node.getThird())
         ; An initializer that is already Rc<RefCell<T>> shares the object:
@@ -2775,6 +2944,9 @@ class RangerRustClassWriter {
         if (nameN.hasFlag("optional")) {
           wr.out(" = None" false)
         }
+      }
+      if (initMark >= 0) {
+        wr.stripLineMarkParens(initMark)
       }
       wr.out(";" false)
       if ((p.ref_cnt == 0) && (p.is_class_variable == true)) {

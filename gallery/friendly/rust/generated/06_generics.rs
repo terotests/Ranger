@@ -1,12 +1,4 @@
-#![allow(unused_parens)]
-#![allow(unused_mut)]
-#![allow(unused_variables)]
-#![allow(unused_assignments)]
 #![allow(dead_code)]
-// The clippy allows below cover shapes that mirror the Ranger source
-// itself, which the transpiler must not rewrite or rename.
-#![allow(clippy::collapsible_if)]
-#![allow(clippy::ptr_arg)]
 
 
 
@@ -15,7 +7,7 @@ struct GenericsMain {
 }
 impl GenericsMain {
   pub fn new() -> Self {
-    GenericsMain {
+    Self {
     }
   }
 }
@@ -44,7 +36,7 @@ struct Stack_int {
 }
 impl Stack_int {
   pub fn new() -> Self {
-    Stack_int {
+    Self {
       items: Vec::new(),
     }
   }
@@ -70,7 +62,7 @@ struct Stack_string {
 }
 impl Stack_string {
   pub fn new() -> Self {
-    Stack_string {
+    Self {
       items: Vec::new(),
     }
   }

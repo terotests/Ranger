@@ -289,9 +289,305 @@ extension RangerRustClassWriter {
   ; The header used to carry every allow for every file, the way a program
   ; that imports nothing still got every `use` line. It is built from what
   ; the program contains now, like the `Rc` and `Weak` lines below it.
+  ; Does this class reach the file at all? The header predicates below ask
+  ; what the OUTPUT contains, so they have to skip what the writing loop
+  ; skips -- an operator class, a generic template, a system class from the
+  ; standard library. `Vector.set` has an unused parameter and is never
+  ; written, and it alone was asking every file for `unused_variables`.
+  fn rustClassIsEmitted:boolean (cl:RangerAppClassDesc) {
+    if cl.is_operator_class {
+      return false
+    }
+    if cl.is_trait {
+      return false
+    }
+    if cl.is_system {
+      return false
+    }
+    if cl.is_generic_instance {
+      return false
+    }
+    if cl.is_system_union {
+      return false
+    }
+    if cl.is_union {
+      return false
+    }
+    return true
+  }
+
+  ; An `if` with no `else` -- children are [op cond then], and an else adds a
+  ; fourth.
+  fn rustIfWithoutElse:boolean (n:CodeNode) {
+    if ((array_length n.children) != 3) {
+      return false
+    }
+    def ifH:CodeNode (n.getFirst())
+    return (ifH.vref == "if")
+  }
+
+  ; clippy's collapsible_if: an `if` whose whole body is one `if`, neither
+  ; carrying an else. The Rust output mirrors the Ranger source here, so the
+  ; source is where the shape is visible.
+  fn rustFnBodyHasCollapsibleIf:boolean (m:RangerAppFunctionDesc) {
+    def cbO@(optional):CodeNode m.fnBody
+    if (null? cbO) {
+      return false
+    }
+    def cb:CodeNode (unwrap cbO)
+    def cbFound:boolean false
+    cb.forTree({
+      if (this.rustIfWithoutElse(item)) {
+        def ciThen:CodeNode (itemAt item.children 2)
+        if ((array_length ciThen.children) == 1) {
+          def ciInner:CodeNode (itemAt ciThen.children 0)
+          if (this.rustIfWithoutElse(ciInner)) {
+            cbFound = true
+          }
+        }
+      }
+    })
+    return cbFound
+  }
+
+  fn rustNeedsCollapsibleIf:boolean (ctx:RangerAppWriterContext) {
+    def ciRoot:RangerAppWriterContext (ctx.getRoot())
+    for ciRoot.definedClasses ciCl:RangerAppClassDesc ciCi {
+      if ((this.rustClassIsEmitted(ciCl)) == false) {
+        continue
+      }
+      for ciCl.methods ciM:RangerAppFunctionDesc ciMi {
+        if (this.rustFnBodyHasCollapsibleIf(ciM)) {
+          return true
+        }
+      }
+      for ciCl.static_methods ciS:RangerAppFunctionDesc ciSi {
+        if (this.rustFnBodyHasCollapsibleIf(ciS)) {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
+  ; clippy's ptr_arg fires on `&Vec<T>`. A borrowed array of SCALARS is
+  ; written as a slice already, and a borrowed string as `&str`; what is
+  ; left is a borrowed collection of class values.
+  fn rustParamIsVecRef:boolean (pa:RangerAppParamDesc) {
+    if (pa.rust_borrow_type != 1) {
+      return false
+    }
+    def paNNO@(optional):CodeNode pa.nameNode
+    if (null? paNNO) {
+      return false
+    }
+    def paNN:CodeNode (unwrap paNNO)
+    if ((strlen paNN.key_type) > 0) {
+      return false
+    }
+    if ((strlen paNN.array_type) == 0) {
+      return false
+    }
+    def paEl:string paNN.array_type
+    if (((((paEl == "int") || (paEl == "double")) || (paEl == "boolean")) || (paEl == "string")) || (paEl == "char")) {
+      return false
+    }
+    if (TTypeRegistry.isIntAlias(paEl)) {
+      return false
+    }
+    if (TTypeRegistry.isFloatAlias(paEl)) {
+      return false
+    }
+    return true
+  }
+
+  fn rustNeedsPtrArg:boolean (ctx:RangerAppWriterContext) {
+    def paRoot:RangerAppWriterContext (ctx.getRoot())
+    for paRoot.definedClasses paCl:RangerAppClassDesc paCi {
+      if ((this.rustClassIsEmitted(paCl)) == false) {
+        continue
+      }
+      for paCl.methods paM:RangerAppFunctionDesc paMi {
+        for paM.params paP:RangerAppParamDesc paPi {
+          if (this.rustParamIsVecRef(paP)) {
+            return true
+          }
+        }
+      }
+      for paCl.static_methods paS:RangerAppFunctionDesc paSi {
+        for paS.params paSP:RangerAppParamDesc paSPi {
+          if (this.rustParamIsVecRef(paSP)) {
+            return true
+          }
+        }
+      }
+    }
+    return false
+  }
+
+  ; rustc's unused_assignments: a value stored and never read again. Two
+  ; shapes reach the output. One is a local the writer initializes itself --
+  ; an optional gets `= None`, a collection `= Vec::new()` -- and the body
+  ; then assigns before reading. The other is a store with no read after it
+  ; anywhere, which is a dead store in the Ranger source and mirrored here.
+  ; Neither is guessed at: the body is walked and the lines compared, so a
+  ; program with neither shape asks for no allow.
+  fn rustFnHasDeadStore:boolean (m:RangerAppFunctionDesc ctx:RangerAppWriterContext) {
+    def dsBodyO@(optional):CodeNode m.fnBody
+    if (null? dsBodyO) {
+      return false
+    }
+    def dsBody:CodeNode (unwrap dsBodyO)
+    def dsSynth:[string:boolean]
+    def dsDefLine:[string:int]
+    def dsLastWrite:[string:int]
+    def dsLastRead:[string:int]
+    dsBody.forTree({
+      if ((array_length item.children) >= 2) {
+        def dsH:CodeNode (item.getFirst())
+        ; `def x` -- with no initializer, the writer supplies one
+        if (dsH.vref == "def") {
+          def dsNameN:CodeNode (itemAt item.children 1)
+          def dsNm:string dsNameN.vref
+          if ((strlen dsNm) > 0) {
+            set dsDefLine dsNm (item.getLine())
+            if ((array_length item.children) <= 2) {
+              def dsIsSynth:boolean false
+              if (dsNameN.hasFlag("optional")) {
+                dsIsSynth = true
+              }
+              if ((dsNameN.value_type == RangerNodeType.Array) || (dsNameN.value_type == RangerNodeType.Hash)) {
+                dsIsSynth = true
+              }
+              if dsIsSynth {
+                set dsSynth dsNm true
+              }
+            }
+          }
+        }
+        ; `x = …` -- a write to a bare name, not through a path
+        if ((dsH.vref == "=") && ((array_length item.children) >= 3)) {
+          def dsLhs:CodeNode (itemAt item.children 1)
+          if ((array_length dsLhs.ns) == 1) {
+            def dsWn:string (itemAt dsLhs.ns 0)
+            set dsLastWrite dsWn (item.getLine())
+          }
+        }
+      }
+      ; every other mention of a name is a read, including the one on the
+      ; right of the assignment above
+      if ((item.expression) == false) {
+        if ((array_length item.ns) > 0) {
+          def dsRn:string (itemAt item.ns 0)
+          def dsRl:int (item.getLine())
+          def dsIsLhs:boolean false
+          def dsPO@(optional):CodeNode item.parent
+          if (!null? dsPO) {
+            def dsP:CodeNode (unwrap dsPO)
+            if ((array_length dsP.children) >= 3) {
+              def dsPh:CodeNode (dsP.getFirst())
+              if (dsPh.vref == "=") {
+                if ((itemAt dsP.children 1) == item) {
+                  dsIsLhs = true
+                }
+              }
+            }
+          }
+          if (dsIsLhs == false) {
+            def dsPrevR:int (0 - 1)
+            if (has dsLastRead dsRn) {
+              dsPrevR = (unwrap (get dsLastRead dsRn))
+            }
+            if (dsRl > dsPrevR) {
+              set dsLastRead dsRn dsRl
+            }
+          }
+        }
+      }
+    })
+    def dsFound:boolean false
+    for dsLastWrite dsWl:int dsWName:string {
+      def dsDl:int (0 - 1)
+      if (has dsDefLine dsWName) {
+        dsDl = (unwrap (get dsDefLine dsWName))
+      }
+      if (dsDl < 0) {
+        continue
+      }
+      if (has dsSynth dsWName) {
+        if (dsWl > dsDl) {
+          dsFound = true
+        }
+      }
+      def dsRl2:int (0 - 1)
+      if (has dsLastRead dsWName) {
+        dsRl2 = (unwrap (get dsLastRead dsWName))
+      }
+      if (dsWl > dsRl2) {
+        dsFound = true
+      }
+    }
+    return dsFound
+  }
+
+  fn rustNeedsUnusedAssignments:boolean (ctx:RangerAppWriterContext) {
+    def uaRoot:RangerAppWriterContext (ctx.getRoot())
+    for uaRoot.definedClasses uaCl:RangerAppClassDesc uaCi {
+      if ((this.rustClassIsEmitted(uaCl)) == false) {
+        continue
+      }
+      for uaCl.methods uaM:RangerAppFunctionDesc uaMi {
+        if (this.rustFnHasDeadStore(uaM ctx)) {
+          return true
+        }
+      }
+      for uaCl.static_methods uaS:RangerAppFunctionDesc uaSi {
+        if (this.rustFnHasDeadStore(uaS ctx)) {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
+  ; rustc's unused_variables. An unused LOCAL is commented out or given an
+  ; underscore name by the def writer, so what is left is a parameter the
+  ; body never reads -- a signature the source declares and the backend
+  ; must not rename.
+  fn rustNeedsUnusedVariables:boolean (ctx:RangerAppWriterContext) {
+    def uvRoot:RangerAppWriterContext (ctx.getRoot())
+    for uvRoot.definedClasses uvCl:RangerAppClassDesc uvCi {
+      if ((this.rustClassIsEmitted(uvCl)) == false) {
+        continue
+      }
+      for uvCl.methods uvM:RangerAppFunctionDesc uvMi {
+        if (uvM.is_lambda == false) {
+          for uvM.params uvP:RangerAppParamDesc uvPi {
+            if (uvP.ref_cnt == 0) {
+              return true
+            }
+          }
+        }
+      }
+      for uvCl.static_methods uvS:RangerAppFunctionDesc uvSi {
+        if (uvS.is_lambda == false) {
+          for uvS.params uvSP:RangerAppParamDesc uvSPi {
+            if (uvSP.ref_cnt == 0) {
+              return true
+            }
+          }
+        }
+      }
+    }
+    return false
+  }
+
   fn rustNeedsTooManyArgs:boolean (ctx:RangerAppWriterContext) {
     def tmaRoot:RangerAppWriterContext (ctx.getRoot())
     for tmaRoot.definedClasses tmaCl:RangerAppClassDesc tmaCi {
+      if ((this.rustClassIsEmitted(tmaCl)) == false) {
+        continue
+      }
       for tmaCl.methods tmaM:RangerAppFunctionDesc tmaMi {
         if (tmaM.is_lambda == false) {
           if ((array_length tmaM.params) >= 7) {
@@ -1166,35 +1462,47 @@ extension RangerRustClassWriter {
       rustEnums.compute(ctx)
       def needsMap:boolean ((helperNeeds == 1) || (helperNeeds == 3))
       def needsStrIndex:boolean ((helperNeeds == 2) || (helperNeeds == 3))
-      header.out("#![allow(unused_parens)]" true)
-      header.out("#![allow(unused_mut)]" true)
-      header.out("#![allow(unused_variables)]" true)
-      header.out("#![allow(unused_assignments)]" true)
-      ; PLAN_RUST_SEMANTIC_IDIOMS L: gone. Identifiers are snake_case now, and
-      ; the 81 000-line Rust rendering of this compiler draws zero naming
-      ; warnings with the allow taken away. Type names keep their spelling,
-      ; which is what Rust wants of them.
-      header.out("#![allow(dead_code)]" true)
-      ; The clippy allows cover shapes that mirror the Ranger source itself --
-      ; nested ifs, function arity, borrowed collection parameters -- which
-      ; the transpiler must not rewrite or rename.
+      ; Every allow is asked for, none is written for good measure. The lines
+      ; go into the "file_attributes" slice, which sits ahead of this one and
+      ; stays open for the whole file, so the ones that depend on what the
+      ; writer emits (unused_mut, unused_parens, unused_assignments) are added
+      ; from the emission site itself, long after this point.
+      ;
+      ; The reason is that an allow nobody needs hides this backend's own
+      ; regressions: with the header quiet, rustc and clippy report a stray
+      ; `mut` or a redundant paren the generator starts emitting, instead of
+      ; the pragma swallowing it. `dead_code` is the one exception -- a
+      ; program's public surface is dead code in a single-file rendering of
+      ; it, which says nothing about the generator.
+      ;
+      ; PLAN_RUST_SEMANTIC_IDIOMS L: no non_snake_case allow. Identifiers are
+      ; snake_case now, and the 81 000-line Rust rendering of this compiler
+      ; draws zero naming warnings without it. Type names keep their
+      ; spelling, which is what Rust wants of them.
       ;
       ; `manual_clamp` and `upper_case_acronyms` used to be here too. Measured
       ; with clippy over everything this compiler generates -- the twelve
-      ; gallery/friendly studies and its own 81 000-line Rust rendering, each
-      ; with the header stripped -- neither fires anywhere, so neither is
-      ; written any more. `collapsible_if` and `ptr_arg` fire once each, in
-      ; the compiler's own rendering and nowhere else; they stay until they
-      ; have a predicate of their own.
-      header.out("// The clippy allows below cover shapes that mirror the Ranger source" true)
-      header.out("// itself, which the transpiler must not rewrite or rename." true)
-      header.out("#![allow(clippy::collapsible_if)]" true)
-      if (this.rustNeedsTooManyArgs(ctx)) {
-        header.out("#![allow(clippy::too_many_arguments)]" true)
+      ; gallery/friendly studies and its own Rust rendering, each with the
+      ; header stripped -- neither fires anywhere, so neither is written.
+      this.rustNeedAllow("dead_code" wr)
+      if (this.rustNeedsUnusedVariables(ctx)) {
+        this.rustNeedAllow("unused_variables" wr)
       }
-      ; ptr_arg still fires on borrowed COLLECTION params (&Vec<T> of
-      ; non-scalar elements); borrowed strings are &str already
-      header.out("#![allow(clippy::ptr_arg)]" true)
+      if (this.rustNeedsUnusedAssignments(ctx)) {
+        this.rustNeedAllow("unused_assignments" wr)
+      }
+      if (this.rustNeedsNonSnakeCase()) {
+        this.rustNeedAllow("non_snake_case" wr)
+      }
+      if (this.rustNeedsCollapsibleIf(ctx)) {
+        this.rustNeedClippyAllow("collapsible_if" wr)
+      }
+      if (this.rustNeedsTooManyArgs(ctx)) {
+        this.rustNeedClippyAllow("too_many_arguments" wr)
+      }
+      if (this.rustNeedsPtrArg(ctx)) {
+        this.rustNeedClippyAllow("ptr_arg" wr)
+      }
       header.out("" true)
       def needsRc:boolean (this.rustNeedsRcHeader(ctx))
       if needsRc {
@@ -1832,10 +2140,13 @@ extension RangerRustClassWriter {
         }
       }
     }
+    ; `Self { … }`, not `Cart { … }`: this literal is inside `impl Cart`,
+    ; where the two name one type, and Self is what the `-> Self` above it
+    ; already promised
     if ctor_needs_me {
-      wr.out((("let mut me = " + cl.name) + " {") true)
+      wr.out("let mut me = Self {" true)
     } {
-      wr.out((cl.name + " {") true)
+      wr.out("Self {" true)
     }
     wr.indent(1)
     ; the literal has to name every field the struct declares, inherited ones

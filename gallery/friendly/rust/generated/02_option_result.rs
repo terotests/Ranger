@@ -1,12 +1,5 @@
-#![allow(unused_parens)]
-#![allow(unused_mut)]
-#![allow(unused_variables)]
-#![allow(unused_assignments)]
 #![allow(dead_code)]
-// The clippy allows below cover shapes that mirror the Ranger source
-// itself, which the transpiler must not rewrite or rename.
-#![allow(clippy::collapsible_if)]
-#![allow(clippy::ptr_arg)]
+#![allow(unused_mut)]
 
 use std::rc::Rc;
 use std::cell::RefCell;
@@ -43,7 +36,7 @@ struct ParseOutcome_Ok {
 }
 impl ParseOutcome_Ok {
   pub fn new(value: i64) -> Self {
-    let mut me = ParseOutcome_Ok {
+    let mut me = Self {
       value: 0,
     };
     me.value = value;
@@ -56,8 +49,8 @@ struct ParseOutcome_Err {
 }
 impl ParseOutcome_Err {
   pub fn new(message: String) -> Self {
-    let mut me = ParseOutcome_Err {
-      message: "".to_string(),
+    let mut me = Self {
+      message: String::new(),
     };
     me.message = message.clone();
     me
@@ -68,7 +61,7 @@ struct ParseOutcome__ops {
 }
 impl ParseOutcome__ops {
   pub fn new() -> Self {
-    ParseOutcome__ops {
+    Self {
     }
   }
   pub fn equals(a: &union_ParseOutcome, b: &union_ParseOutcome) -> bool {
@@ -104,7 +97,7 @@ struct Lookup {
 }
 impl Lookup {
   pub fn new() -> Self {
-    Lookup {
+    Self {
     }
   }
   fn find_name(names: &[String], key: &str) -> Option<String> {
@@ -145,7 +138,7 @@ struct OptionResultMain {
 }
 impl OptionResultMain {
   pub fn new() -> Self {
-    OptionResultMain {
+    Self {
     }
   }
 }
