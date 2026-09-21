@@ -261,7 +261,7 @@ export const GEMINI_TOOLS = [
 export function geminiSystemPrompt() {
   return `You edit the live document in this folder. TASK.md is the ask (it names the size). AGENTS.md is the guide.
 
-Start with ./evg-agent outline doc.evg.json. The outline is the screen. Do not OCR or write ops before you have it.
+Start with ./evg-agent outline doc.evg.json. The outline is the screen. Do not OCR or write ops before you have it. A Follow-up that says continue / jatka means keep patching this doc — do not start over.
 
 A picture is a PHOTO of a UI, not the UI:
 - image_info → palette. Use those colours.
@@ -282,7 +282,35 @@ insert with only "tag" is an empty box. A subtree is "node" (document shape), no
 
 Never write_file doc.evg.json or layout.json. measure count:0 with three empty nodes is not success — outline must name the cards you added.
 
+Labels: one span per phrase, spaces between words ("Acme 360", not "Acme360"). Do not insert the same text twice — two overlapping spans paint as Revenuee / monthlyy.
+
+A thought is not a patch. If you still have a header, KPI row, or body column to add, call a tool in that turn. Stopping after "Section 3 will be…" leaves a half screen. Header plus four KPI cards is not the dashboard — keep adding until outline names the remaining cards (products, opportunities, feed).
+
 Do not git, evg_agent.js, --help, /tmp, python, sips. When the outline matches the ask, stop.`;
+}
+
+/**
+ * Gemini 3 often writes the next section in a thought and then emits no
+ * functionCall. The loop used to treat that as "done", which is how a
+ * tablet dashboard stopped after the header and four KPI cards.
+ */
+export const MAX_PLAN_NUDGES = 2;
+export const PLAN_NUDGE =
+  "You described the next piece but did not call a tool. A plan is not a patch. write_file ops.json (or ./evg-ui add) and ./evg-agent patch now. Do not stop until outline names those cards.";
+
+const PLAN_FUTURE =
+  /\b(let's|i(?:'| wi)ll (?:now |then )?(?:add|insert|build|write|patch|keep|get|construct|create)|next(?:\s+i|'ll|\s+step)|then (?:i(?:'| wi)ll|let's)|write(?:_file)? ops|ops\.json|remaining (?:cards?|columns?)|keep (?:building|going|adding)|time to (?:build|add|insert)|i(?: am|'m) going to|jatka)\b/i;
+const PLAN_DONE =
+  /\b(done|finished|complete|matches the ask|nothing (?:left|more) to (?:add|do)|outline now names)\b/i;
+
+export function looksLikeUnfinishedPlan(text, thought = "") {
+  const s = `${text}\n${thought}`.replace(/\s+/g, " ").trim();
+  if (s.length < 24) return false;
+  if (!PLAN_FUTURE.test(s)) return false;
+  if (PLAN_DONE.test(s) && !/\b(remaining|keep (?:building|adding)|i(?:'| wi)ll (?:add|insert|build)|let's)\b/i.test(s)) {
+    return false;
+  }
+  return true;
 }
 
 function clip(text, cap = TOOL_OUT_CAP) {
@@ -914,6 +942,7 @@ export async function geminiLoop({
   const maxTurns = geminiMaxTurns(env);
   const started = Date.now();
   let turns = 0;
+  let planNudges = 0;
 
   for (let i = 0; i < maxTurns; i += 1) {
     if (signal && signal.aborted) throw new Error("aborted");
@@ -954,6 +983,15 @@ export async function geminiLoop({
       onEvent({ type: "assistant", message: { content: [{ text }] } });
     }
     if (!calls.length) {
+      if (planNudges < MAX_PLAN_NUDGES && looksLikeUnfinishedPlan(text, thought)) {
+        planNudges += 1;
+        log(`nudge: plan without a tool (${planNudges}/${MAX_PLAN_NUDGES})`);
+        appendTrace(workspace, `nudge: ${PLAN_NUDGE}`);
+        onEvent({ type: "assistant", message: { content: [{ text: PLAN_NUDGE }] } });
+        contents.push({ role: "user", parts: [{ text: PLAN_NUDGE }] });
+        saveHistory(workspace, contents, { model, followUp });
+        continue;
+      }
       const result = resultEvent(spend, { turns, started, model, env });
       onEvent(result);
       return { ok: true, turns, followUp, model, usage: spend, costUsd: result.total_cost_usd };

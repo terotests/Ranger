@@ -24,6 +24,8 @@ import {
   splitParts,
   GEMINI_TRACE,
   geminiSystemPrompt,
+  looksLikeUnfinishedPlan,
+  PLAN_NUDGE,
 } from "./gemini-agent.mjs";
 import http from "node:http";
 
@@ -143,6 +145,9 @@ if (readSessionDoc() !== kept) throw new Error("follow-up prepareSession wiped t
 const taskMd = fs.readFileSync(path.join(sessionDir(), "TASK.md"), "utf8");
 if (!/Follow-up/.test(taskMd) || !/nodes/.test(taskMd)) {
   throw new Error("follow-up TASK.md did not describe the live phone");
+}
+if (!/plan without a tool/.test(taskMd)) {
+  throw new Error("follow-up TASK.md must say a plan is not a finish: " + taskMd.slice(0, 400));
 }
 const recipeFollow = [];
 await runTask({
@@ -353,7 +358,16 @@ if (fs.existsSync(path.join(root, "lib/evg/bin/evg_agent.js"))) {
   // The section that was missing, and the reason an agent asked for four tabs
   // went looking inside the compiled tool for a `goto`. A document has no
   // navigation; the guide has to say so, and say what does.
-  for (const need of ["This document is one screen", "presses Run", "set-id", "nav.", "set-css", "evg-surface-effect"]) {
+  for (const need of [
+    "This document is one screen",
+    "presses Run",
+    "set-id",
+    "nav.",
+    "set-css",
+    "evg-surface-effect",
+    "half a dashboard",
+    "Revenuee",
+  ]) {
     if (!plain.includes(need)) throw new Error(`a document workspace is never told about ${need}`);
   }
   console.log("  no app yet  a document says it is one screen, and names the way to more");
@@ -824,8 +838,36 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
     throw new Error("a failed ./evg-ui must show stderr, not just exit 1: " + JSON.stringify(boom));
   }
   const prompt = geminiSystemPrompt();
-  for (const need of ["ocr attachment.png at most ONCE", '"node"', "820×1180", "./evg-ui", "Do not read AGENTS.md"]) {
+  for (const need of [
+    "ocr attachment.png at most ONCE",
+    '"node"',
+    "820×1180",
+    "./evg-ui",
+    "Do not read AGENTS.md",
+    "A thought is not a patch",
+    "Acme 360",
+    "Revenuee",
+    "jatka",
+  ]) {
     if (!prompt.includes(need)) throw new Error("gemini system prompt missing " + need);
+  }
+  if (!looksLikeUnfinishedPlan("", "Now, let's get Section 3 built. This is the main 2-column layout.")) {
+    throw new Error("a Section-3 thought with no tool must look unfinished");
+  }
+  if (!looksLikeUnfinishedPlan("I will add the products card next and write ops.json.")) {
+    throw new Error("an I'll-add spoken plan must look unfinished");
+  }
+  if (looksLikeUnfinishedPlan("Gold.")) {
+    throw new Error("a short finish must not look like a plan");
+  }
+  if (looksLikeUnfinishedPlan("The stamp is there.")) {
+    throw new Error("a short completion must not look like a plan");
+  }
+  if (looksLikeUnfinishedPlan("The outline matches the ask. Done.")) {
+    throw new Error("an explicit finish must not look like a plan");
+  }
+  if (!PLAN_NUDGE.includes("plan is not a patch")) {
+    throw new Error("PLAN_NUDGE must name the failure: " + PLAN_NUDGE);
   }
   fs.writeFileSync(
     path.join(ws, "attachment.json"),
@@ -1083,6 +1125,94 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
     }
     if (n !== 3) throw new Error("expected 3 API calls under a cap of 3, got " + n);
     console.log("  gemini cap  EVG_GEMINI_MAX_TURNS=3 stops the loop");
+  }
+
+  {
+    const planWs = fs.mkdtempSync(path.join(os.tmpdir(), "evg-gemini-plan-"));
+    fs.writeFileSync(path.join(planWs, "TASK.md"), "Finish the tablet dashboard.\n");
+    let n = 0;
+    const planFetch = async (_url, opts) => {
+      const body = JSON.parse(opts.body);
+      n += 1;
+      if (n === 1) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () =>
+            JSON.stringify({
+              candidates: [
+                {
+                  content: {
+                    role: "model",
+                    parts: [
+                      {
+                        text: "Now, let's get Section 3 built. Left column products, right column feed.",
+                        thought: true,
+                      },
+                    ],
+                  },
+                  finishReason: "STOP",
+                },
+              ],
+              usageMetadata: { promptTokenCount: 20, candidatesTokenCount: 8, thoughtsTokenCount: 8 },
+            }),
+        };
+      }
+      if (n === 2) {
+        const last = body.contents[body.contents.length - 1];
+        const asked = (((last && last.parts) || [])[0] || {}).text || "";
+        if (!/plan is not a patch/.test(asked)) {
+          throw new Error("the host did not nudge a plan-only turn: " + asked);
+        }
+        return {
+          ok: true,
+          status: 200,
+          text: async () =>
+            JSON.stringify({
+              candidates: [
+                {
+                  content: {
+                    role: "model",
+                    parts: [
+                      {
+                        functionCall: { name: "write_file", args: { path: "body.txt", contents: "products\n" } },
+                      },
+                    ],
+                  },
+                  finishReason: "STOP",
+                },
+              ],
+              usageMetadata: { promptTokenCount: 24, candidatesTokenCount: 6 },
+            }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            candidates: [{ content: { role: "model", parts: [{ text: "The outline names the products card." }] }, finishReason: "STOP" }],
+            usageMetadata: { promptTokenCount: 28, candidatesTokenCount: 4 },
+          }),
+      };
+    };
+    const planEvents = [];
+    const planned = await geminiLoop({
+      workspace: planWs,
+      onEvent: (e) => planEvents.push(e),
+      fetchImpl: planFetch,
+      env: { ...process.env, GEMINI_API_KEY: "test-livebuild-key" },
+    });
+    if (!planned.ok) throw new Error("plan-nudge loop did not finish ok");
+    if (n !== 3) throw new Error("expected outline-plan → nudge → tool → done (3 API calls), got " + n);
+    if (!fs.existsSync(path.join(planWs, "body.txt"))) {
+      throw new Error("the nudge did not produce the follow-up tool call");
+    }
+    if (!planEvents.some((e) => e.type === "assistant" && /plan is not a patch/.test(JSON.stringify(e)))) {
+      throw new Error("the page should see the host nudge");
+    }
+    fs.rmSync(planWs, { recursive: true, force: true });
+    console.log("  gemini plan  a Section-3 thought without a tool is nudged, not finished");
   }
 
   const session = resetSession("dashboard");

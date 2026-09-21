@@ -109,6 +109,9 @@ the key is set; withgemini only forces it on. Follow-up replays the Gemini
 conversation held in the session. Start-over chips drop it. One Follow-up
 stops after `EVG_GEMINI_MAX_TURNS` model rounds (64 unless you raise it) —
 that is the message `Gemini hit EVG_GEMINI_MAX_TURNS (N) without finishing`.
+A thought that lists the next cards with no `functionCall` is not treated
+as done: the host nudges once or twice (`A plan is not a patch`) so a
+tablet dashboard cannot stop after the header and four KPI cards.
 
 Each generateContent reply carries `usageMetadata`. The withgemini console
 prints that per turn and for the whole Follow-up — uncached input, cache

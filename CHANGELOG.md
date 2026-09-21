@@ -61,7 +61,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   TASK.md named. `read_file` will not open `attachment.ops.json` / `.svg`
   or `AGENTS.md` (21k into the prompt). `./evg-ui` rebuilds a stale
   `ui_host.cjs` that is missing `plainTreeJson` / `addButton`, and a
-  failed run prints stderr instead of `exit 1`.
+  failed run prints stderr instead of `exit 1`. A thought that plans
+  the next section with no tool call is nudged (`A plan is not a
+  patch`) instead of ending the Follow-up — that is how a tablet
+  dashboard stopped after the header and four KPI cards. The prompt
+  also asks for spaces between words and one span per label, so
+  overlapping duplicates do not paint as `Revenuee`.
   `npm run livebuild:withgemini` checks the key and opens the
   page with Gemini selected. The orchestrator suite drives the loop against
   a fake fetch, so CI never spends Google credits.

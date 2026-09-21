@@ -1014,6 +1014,12 @@ Prefer \`./evg-ui add card\` for anything with rows. One command is a
 whole measured piece; an 18k hand-written tree is how \`children\` gets
 ignored.
 
+A turn that only describes the next section is not a finish. Call
+\`patch\` in that turn. Header plus four KPI cards is half a dashboard
+if the ask named more. One \`text\` per label, with spaces
+("Acme 360"); two overlapping spans with the same words paint as
+Revenuee.
+
 A rejected op fails the whole batch and changes nothing, so a batch is
 safe to attempt: you never have to work out what half-applied.
 
@@ -1424,7 +1430,8 @@ function countNodes(node) {
 function walkOutline(node, path, lines, cap) {
   if (!node || typeof node !== "object" || lines.length >= cap) return;
   const tag = node.tag || "?";
-  const text = node.text ? JSON.stringify(String(node.text).slice(0, 40)) : "";
+  const raw = node.text ? String(node.text) : "";
+  const text = raw ? JSON.stringify(raw.length > 48 ? `${raw.slice(0, 48)}…` : raw) : "";
   const cls = node.props && node.props.class ? "." + node.props.class : "";
   lines.push(`${path} ${tag}${cls} ${text}`.trim());
   const ch = node.children || [];
@@ -1439,14 +1446,26 @@ function followUpTask(task, docText) {
   try {
     const j = JSON.parse(docText);
     n = countNodes(j.root);
-    walkOutline(j.root, "0", lines, 16);
+    walkOutline(j.root, "0", lines, 40);
   } catch {
     /* invalid json still gets the instruction */
   }
   const stats = n
     ? `doc.evg.json is the live phone (${n} nodes). Edit that file in place. Do not replace it with a blank page.`
     : "doc.evg.json is the live phone. Edit that file in place. Do not replace it with a blank page.";
-  return ["# Follow-up", "", task, "", stats, "", "Current outline:", ...lines.map((l) => "- " + l), ""].join("\n");
+  return [
+    "# Follow-up",
+    "",
+    task,
+    "",
+    stats,
+    "",
+    "The outline is already on the phone. Continue it — do not start over. A plan without a tool call is not a finish.",
+    "",
+    "Current outline:",
+    ...lines.map((l) => "- " + l),
+    "",
+  ].join("\n");
 }
 
 export function prepareSession(task, { git = false, kind = "dashboard" } = {}) {
