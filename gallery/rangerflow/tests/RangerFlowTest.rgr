@@ -171,6 +171,7 @@ class RangerFlowTest {
         RangerFlowTest.testMermaidSubgraphEnds(c)
         RangerFlowTest.testCompoundLayout(c)
         RangerFlowTest.testReturnPathOrder(c)
+        RangerFlowTest.testStraightLaneFirst(c)
         RangerFlowTest.testMermaidKanban(c)
         RangerFlowTest.testMermaidQuadrant(c)
         RangerFlowTest.testMermaidPie(c)
@@ -6576,6 +6577,78 @@ class RangerFlowTest {
         def machine:FlowNode (g.nodeById("MACHINE"))
         def pages:FlowNode (g.nodeById("PAGES"))
         c.ok("the two copies of the document run left to right as written" (machine.x < pages.x))
+        def back:FlowEdge (RouteQuality.edgeBetween(g "M" "A"))
+        def rx:double (g.endpointX(back true))
+        c.ok(("the return sits on a lane left of the document (x=" + ((to_string rx) + " DOC.x=" + (to_string doc.x) + ")")) (rx < doc.x))
+        c.near("and arrives at the same x, so the line is straight" (g.endpointX(back false)) rx 1.0)
+        c.eqInt("a straight lane is used rather than a detour" (RouteQuality.bends(g back)) 0)
+        c.eqInt("and still nothing is drawn through a node" (EdgeOverlap.nodeCrossings(g)) 0)
+    }
+
+    ; A box sitting only to one side of a column is not a wall. The return
+    ; from C to A can go straight up on the left of B; routing around B was
+    ; a detour past an empty lane.
+    sfn testStraightLaneFirst:void (c:Checker) {
+        c.section("a free straight lane is used before a detour")
+        def g (new FlowGraph)
+        def na:FlowNode (g.node("A" "A" 0.0 0.0))
+        def nb:FlowNode (g.node("B" "B" 40.0 100.0))
+        def nc:FlowNode (g.node("C" "C" 0.0 200.0))
+        na.width = 120.0
+        na.height = 50.0
+        nb.width = 120.0
+        nb.height = 50.0
+        nc.width = 120.0
+        nc.height = 50.0
+        def eAB:FlowEdge (g.connect("A" "B"))
+        def eBC:FlowEdge (g.connect("B" "C"))
+        def eCA:FlowEdge (g.connect("C" "A"))
+        eAB.edgeType = "smoothstep"
+        eBC.edgeType = "smoothstep"
+        eCA.edgeType = "smoothstep"
+        eAB.sourceHandle = 2
+        eAB.targetHandle = 0
+        eBC.sourceHandle = 2
+        eBC.targetHandle = 0
+        eCA.sourceHandle = 0
+        eCA.targetHandle = 2
+        g.reindex()
+        EdgeLanes.assign(g)
+        def rx:double (g.endpointX(eCA true))
+        c.ok(("C→A leaves left of B (x=" + ((to_string rx) + " B.x=" + (to_string nb.x) + ")")) (rx < nb.x))
+        c.near("and arrives at the same x" (g.endpointX(eCA false)) rx 1.0)
+        c.eqInt("so the line that can be straight is straight" (RouteQuality.bends(g eCA)) 0)
+        c.eqInt("and does not go through B" (EdgeOverlap.nodeCrossings(g)) 0)
+
+        ; The same stack with B covering the whole column: there is no
+        ; straight lane, and the line still must not punch through B.
+        def g2 (new FlowGraph)
+        def a2:FlowNode (g2.node("A" "A" 0.0 0.0))
+        def b2:FlowNode (g2.node("B" "B" 0.0 100.0))
+        def c2:FlowNode (g2.node("C" "C" 0.0 200.0))
+        a2.width = 120.0
+        a2.height = 50.0
+        b2.width = 120.0
+        b2.height = 50.0
+        c2.width = 120.0
+        c2.height = 50.0
+        def fAB:FlowEdge (g2.connect("A" "B"))
+        def fBC:FlowEdge (g2.connect("B" "C"))
+        def fCA:FlowEdge (g2.connect("C" "A"))
+        fAB.edgeType = "smoothstep"
+        fBC.edgeType = "smoothstep"
+        fCA.edgeType = "smoothstep"
+        fAB.sourceHandle = 2
+        fAB.targetHandle = 0
+        fBC.sourceHandle = 2
+        fBC.targetHandle = 0
+        fCA.sourceHandle = 0
+        fCA.targetHandle = 2
+        g2.reindex()
+        EdgeLanes.assign(g2)
+        OrthoRouter.repairAll(g2)
+        c.eqInt("a blocked column is still gone round, not through" (EdgeOverlap.nodeCrossings(g2)) 0)
+        c.ok("and the return then has to bend" ((RouteQuality.bends(g2 fCA)) > 0))
     }
 
     sfn testMermaidSubgraphEnds:void (c:Checker) {
