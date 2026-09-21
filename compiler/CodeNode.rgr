@@ -23,7 +23,11 @@ class SourceCode {
         }
         return ""
     }                
-    fn getLine:int (sp:int) {
+    ; `sp` is a position the parser produced by indexing `code`, so these
+    ; three walk the same units it counted in. That is deliberate: the answer
+    ; has to line up with `sp`, not with a count of characters, and `@(units)`
+    ; says so out loud. docs/plans/PLAN_STRING_INDEXING.md 3.3.
+    fn getLine@(units):int (sp:int) {
         def cnt:int 0
         for lines str:string i {
             cnt = (+ cnt (+ (strlen str) 1)))
@@ -33,7 +37,7 @@ class SourceCode {
         }
         return -1
     } 
-    fn getColumnStr:string (sp:int) {
+    fn getColumnStr@(units):string (sp:int) {
         def cnt:int 0
         def last_col:int 0
         for lines str:string i {
@@ -51,7 +55,7 @@ class SourceCode {
         }
         return ""
     } 
-    fn getColumn:int (sp:int) {
+    fn getColumn@(units):int (sp:int) {
         def cnt:int 0
         def last_col:int 0
         for lines str:string i {
@@ -295,7 +299,10 @@ class CodeNode {
     return res
   }
 
-  static fn vref1:CodeNode (name:string) {
+  ; The SourceCode is built FROM `name`, so `(strlen name)` is the end
+  ; offset of that text inside it -- a position in whatever unit this target
+  ; indexes in, which is the unit everything reading the node will use.
+  static fn vref1@(units):CodeNode (name:string) {
     def code (new SourceCode( name))
     def newNode@(lives):CodeNode (new CodeNode (code 0 (strlen name)))
     newNode.vref = name
@@ -305,7 +312,7 @@ class CodeNode {
     return newNode
   }
 
-  static fn vref2:CodeNode (name:string typeName:string) {
+  static fn vref2@(units):CodeNode (name:string typeName:string) {
     def code (new SourceCode( name))
     def newNode@(lives):CodeNode (new CodeNode (code 0 (strlen name)))
     newNode.vref = name

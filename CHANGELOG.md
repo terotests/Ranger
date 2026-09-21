@@ -7,17 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`char_length`: how many characters, on all fourteen targets.** `strlen`
+  counts the target's own unit — UTF-16 code units on JavaScript, Java,
+  Kotlin, C#, Scala and Swift, UTF-8 bytes on Rust, Go, C++ and PHP, code
+  points on Python. That is the right number for a scan and the wrong one for
+  anything a person sees: a column, a width, a padding count. `char_length`
+  is the count that does not move: `len(s)` on Python, `chars().count()` on
+  Rust, `utf8.RuneCountInString` on Go, `codePointCount` on the JVM,
+  `runes.length` on Dart, `mb_strlen` on PHP, `unicodeScalars.count` on
+  Swift, and a non-continuation-byte or non-low-surrogate count where the
+  standard library has nothing. It is the length of `(to_chars s)` without
+  building the array, and for ASCII it is `strlen`.
+
 ### Changed
 
-- **`-strict-strings` prints the string index sites that could be text.**
-  A `charAt` or `substring` on a `string` is an index in the target's own
-  unit, which is right for a scanner over ASCII structure and wrong for text
-  a human wrote. The flag walks every method body and reports the sites whose
-  subject it cannot prove is an ASCII literal — file, line, operator, subject,
-  then a per-file count. On the compiler's own sources: 322 of 342 sites, in
-  45 files, `CodeWriter.rgr` first with 44. What it proves is narrow on
-  purpose, so the list is an upper bound; the point is that it is a list.
-  It changes no output.
+- **`-strict-strings` asks whether the unit is observable, and the compiler
+  now reports zero.** The first version listed every index whose subject was
+  not an ASCII literal — 322 sites, which named the language rather than the
+  defect. A scan is not a defect: `while (i < (strlen s)) { charAt s i }`
+  reads the same characters on a byte target and a UTF-16 one; only the
+  numbers differ, and the program never sees them.
+
+  The flag now reports the three ways a number escapes — a `strlen` that
+  indexes nothing, a `to_chars` offset handed to `charAt`, a `charcode` on
+  something that is not an ASCII literal — and proves the rest quiet: an
+  emptiness test, a length that indexes some string, a length that bounds an
+  index, two counts of the same string compared with each other. A length
+  against a constant or against another string's length is a **note**, not a
+  finding. `strlen` is covered, which it was not before, and that is where
+  the real defects were.
+
+  Four of them, all a count of characters someone sees: the CLI progress bar
+  padded to a different column depending on which build of the compiler wrote
+  it; `formatSource` wrapped the same file in different places, because a
+  comment holding an em dash was one column wide under Node and three in the
+  Rust and Go self-hosts; `columnNumber`, which goes into errors and into the
+  source map; and `(cc N)`, which burns a character code into generated
+  source and so must not depend on its host. Three escapers now `switch` on
+  the one-character slice instead of on `charcode` of it.
+
+  Where provenance crosses a function boundary — a scan position kept in a
+  field, a length arriving as a parameter — the source says so with
+  `@(units)` on the `def` or on the function, so the claim is visible where
+  it is made. `tests/strict-strings.test.ts` keeps the count at zero.
+
+### Fixed
+
+- **A Rust `switch` over strings broke on a quote, a backslash or a
+  newline.** A `match` arm is a pattern, so the Rust writer wrote the case
+  literal with `(str N)` — the text and nothing else, because the
+  `.to_string()` a literal gets in expression position is not something a
+  pattern takes. Unescaped, `case "\""` came out as `"""` and rustc read
+  three tokens where one was meant; `case "\n"` put a real newline inside
+  the pattern. `(estr N)` is the same accessor with the target's own string
+  escaping applied and still no quotes of its own, and the Rust `case`
+  template uses it. Found by moving three escapers onto a string `switch`.
 
 - **The Rust rendering of the compiler compiles the compiler.** It had type-
   checked with zero rustc errors for years and aborted on the first file it

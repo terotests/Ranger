@@ -5382,8 +5382,10 @@ def r_div_f64(a, b):
 
         ; A case over a string needs its own entry for Rust only: a match arm is
         ; a pattern, and the Rust writer gives a string literal in expression
-        ; position a `.to_string()`, which a pattern does not take. `(str 1)`
-        ; writes the text of the literal and nothing else. Every other target
+        ; position a `.to_string()`, which a pattern does not take. `(estr 1)`
+        ; writes the text of the literal, escaped and unquoted -- escaped
+        ; because a pattern holding a raw quote, backslash or newline ends
+        ; early, which is how `case "\""` became `"""`. Every other target
         ; keeps the spelling of the case above.
         case        cmdCase:void          (  condition:string case_block:block )  {
             templates {
@@ -5397,7 +5399,7 @@ def r_div_f64(a, b):
                 es6 ( nl "case " (e 1)" : " nl I (java_case 2) nl i )
                 cpp ( nl "case " (e 1)" : " nl I "{" nl I (block 2) nl "break;" i nl "}" i )
                 python ( nl "case " (e 1) ":" nl I "pass" nl (block 2) nl i )
-                rust ( nl "\"" (str 1) "\" => {" nl I (block 2) nl i "}" nl )
+                rust ( nl "\"" (estr 1) "\" => {" nl I (block 2) nl i "}" nl )
                 * ( nl "case " (e 1)" : " nl I (block 2) nl "break;" i )
             }
         }
@@ -6533,6 +6535,111 @@ static std::vector<int> r_to_chars(const std::string & s) {
         i += n;
     }
     return out;
+}
+")
+                )
+            }
+        }
+
+        ; How many CHARACTERS are in this string -- the same number on every
+        ; target, whatever unit that target happens to index in.
+        ;
+        ; `strlen` counts the target's own unit: UTF-16 code units on
+        ; JavaScript, Java, Kotlin, C#, Scala, Dart and Swift 6, UTF-8 bytes
+        ; on Rust, Go, C++ and PHP, code points on Python.
+        ; That is the right number for a scan -- `while (i < (strlen s))` with
+        ; `charAt s i` reads the same string either way -- and the wrong one
+        ; for anything a person sees: a column, a width, a padding count, a
+        ; truncation point. Those differ per target the moment the text stops
+        ; being ASCII, and they differ silently.
+        ;
+        ; `char_length` is the count that does not: Unicode code points, the
+        ; length of `(to_chars s)` without building the array.
+        ;
+        ;   def w:int (char_length line)     ; a column
+        ;   def n:int (strlen line)          ; a scan bound
+        ;
+        ; For ASCII the two are equal, so the cost of choosing the honest one
+        ; is nothing on the input that dominates.
+        ; docs/plans/PLAN_STRING_INDEXING.md 3.3.
+        char_length   cmdCharLength:int   ( text:string ) {
+            templates {
+                ranger ( "(char_length " (e 1) ")" )
+                ; a Python str IS a sequence of code points
+                python ( "len(" (e 1) ")" )
+                ; a Rust char IS a code point
+                rust ( "(" (e 1) ".chars().count() as i64)" )
+                ; a Go rune IS a code point
+                go ( "int64(utf8.RuneCountInString(" (e 1) "))" (imp "unicode/utf8") )
+                dart ( (e 1) ".runes.length" )
+                swift3 ( (e 1) ".unicodeScalars.count" )
+                swift6 ( (e 1) ".unicodeScalars.count" )
+                php ( "mb_strlen(" (e 1) ", 'UTF-8')" )
+                ; the JVM stores UTF-16: codePointCount folds each surrogate
+                ; pair back into the one code point it encodes. The helper is
+                ; there so the argument is evaluated once
+                java7 ( "rg_char_length(" (e 1) ")"
+(create_polyfill "
+static int rg_char_length(String s) {
+  return s.codePointCount(0, s.length());
+}
+")
+                )
+                kotlin ( "rg_char_length(" (e 1) ")"
+(create_polyfill "
+fun rg_char_length(s: String): Int {
+  return s.codePointCount(0, s.length)
+}
+")
+                )
+                scala ( "rg_char_length(" (e 1) ")"
+(create_polyfill "
+def rg_char_length(s: String): Int = s.codePointCount(0, s.length)
+")
+                )
+                ; .NET is UTF-16 as well, but EnumerateRunes is too new for
+                ; every runtime this targets -- counting everything that is
+                ; not the low half of a pair is the same answer
+                csharp ( "RgCharLength.Of(" (e 1) ")"
+(polyfill "after_imports" "
+static class RgCharLength {
+  public static int Of(string s) {
+    int n = 0;
+    for (int i = 0; i < s.Length; i++) {
+      if (char.IsLowSurrogate(s[i])) { continue; }
+      n++;
+    }
+    return n;
+  }
+}
+")
+                )
+                ; a std::string is UTF-8 bytes: every byte that is not a
+                ; continuation byte starts a new code point
+                cpp ( "r_char_length(" (e 1) ")" (imp "<string>")
+(create_polyfill "
+static int r_char_length(const std::string & s) {
+    int n = 0;
+    for (size_t i = 0; i < s.size(); i++) {
+        if (((unsigned char)s[i] & 0xC0) != 0x80) { n++; }
+    }
+    return n;
+}
+")
+                )
+                ; a JavaScript string is UTF-16: skip the low half of every
+                ; surrogate pair. Array.from(s).length is the same number and
+                ; allocates the array this exists to avoid
+                es6 ( "r_char_length(" (e 1) ")"
+(create_polyfill "
+function r_char_length(s) {
+    let n = 0;
+    for (let i = 0; i < s.length; i++) {
+        const c = s.charCodeAt(i);
+        if (c >= 0xDC00 && c <= 0xDFFF) { continue; }
+        n++;
+    }
+    return n;
 }
 ")
                 )

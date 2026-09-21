@@ -18,10 +18,11 @@
 ;   code      <n> …     (charAt s i) for every i
 ;   slice     <text>    (substring s 1 2)
 ;   chars     <n>       (array_length (to_chars s))
+;   charlen   <n>       (char_length s)
 ;   charcodes <n> …     every code point of s
 ;
 ; The first three are the target's own unit and disagree between targets.
-; The last two are `to_chars`, which is code points everywhere, and every
+; The last three are the portable view — code points everywhere — and every
 ; target has to give the same answer for them.
 ;
 ; A target whose `len`, `code` and `slice` disagree with each other is a bug
@@ -52,6 +53,10 @@ class StringUnits {
         def cs:[int] (to_chars s)
         def cn:int (array_length cs)
         print ((label + " chars ") + (to_string cn))
+        ; ...and the same number without building the array. `char_length`
+        ; has to equal `(array_length (to_chars s))` on every target, or one
+        ; of the two is lying about what a character is.
+        print ((label + " charlen ") + (to_string (char_length s)))
         def cc:string ""
         def k:int 0
         while (k < cn) {

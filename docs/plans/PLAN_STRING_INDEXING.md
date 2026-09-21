@@ -384,7 +384,7 @@ this stage could use.*
 renderings of the compiler producing byte-identical output to the node build,
 and the §1.3 benchmark linear.*
 
-### Stage 5 — the pass that turns the migration into a list — **the pass is done**
+### Stage 5 — the pass that turns the migration into a list — **done, and the list is empty**
 
 Not all 2 648 sites: the ones that can see non-ASCII. Found by tooling, not by
 reading — §3.3.
@@ -412,14 +412,93 @@ strict-strings: 322 of 342 string index sites are not an ASCII literal, in 45 fi
   …
 ```
 
-That is the migration, in the order to do it. Most of those 322 are scanners
-over ASCII structure and are correct as they stand; the flag does not claim
-otherwise, it names them so the judgement can be made once per site instead of
-never.
+That was the first shape of the flag, and 322 was the wrong number to publish:
+it counted every site whose subject was not a literal, which is nearly all of
+them, and so it named the language rather than the defect.
+
+#### Stage 6 — the question the flag should have been asking
+
+The unit is not the problem. A scan that takes its bound from `strlen s` and
+reads `charAt s i` lands on the same characters on a byte target and a UTF-16
+one; only the numbers differ, and the program never sees them. The problem is
+where a number **escapes** — where a count is shown to a person as a column, a
+width or a padding, or where a code-point offset is handed to an operator that
+indexes in the target's own unit.
+
+So the flag now asks that instead. It reports:
+
+* a `strlen` whose value indexes nothing — a count of characters;
+* a `to_chars`/`char_length` offset used as a `charAt` or `substring` index;
+* a `charcode` on something that is not an ASCII literal.
+
+and it proves the rest quiet: an ASCII literal, `(strlen s) == 0` and its
+spellings, a length that indexes *some* string (`(substring path 0 (strlen
+prefix))` matches the same prefix everywhere), a length that bounds a variable
+used as an index, and two counts of the same string compared with each other.
+A length against a constant, or against *another* string's length, is listed
+separately as a **note**: the answer there does move with the target, but it
+is a guard on structure rather than a count of text.
+
+`strlen` is included, which the first version was not — and it is where the
+real defects were.
+
+**`char_length`** is the operator that made the fixes possible: the count of
+Unicode code points, on all fourteen targets, without building the `to_chars`
+array. `len(s)` on Python, `s.chars().count()` on Rust,
+`utf8.RuneCountInString` on Go, `codePointCount` on the JVM, `s.runes.length`
+on Dart, `mb_strlen` on PHP, `unicodeScalars.count` on Swift, and a
+non-continuation-byte or non-low-surrogate count where the standard library
+has nothing.
+
+What the pass cannot follow is provenance across a function boundary: a scan
+position kept in a field, or a length arriving as a parameter. Those are
+marked in the source, where a reader can see the claim:
+
+```ranger
+def srcLen@(units):int (strlen src)    ; a position, checked
+fn getColumn@(units):int (sp:int) {    ; ...or a whole function
+```
+
+#### What it found
+
+Four genuine defects, all of them a count of characters that a person sees:
+
+| site | was | is |
+| --- | --- | --- |
+| `CLIProgress.padRight` / `padLeft` | `strlen` | `char_length` — the progress line padded to a different column depending on which build of the compiler wrote it |
+| `RangerSourceFormat.formatSource` | `strlen` | `char_length` — the same file wrapped in different places; a comment holding an em dash was one column wide under Node and three in the Rust and Go self-hosts |
+| `CodeWriter.syncColumnFromCurrentLine` | `strlen` | `char_length` — `columnNumber` goes into errors and into the source map |
+| `LiveCompiler` `(cc N)` and `LowIRExpr` `ccode` | `charcode` | `to_chars` — a character code burnt into generated source, so it must not depend on which host compiled it |
+
+Three places asked the question of a code unit where the text was the better
+subject: `RangerDocCommentWriter.xmlEscape`,
+`RangerApiArtifactWriter.jsonEscape` and `SourceMapBuilder.jsonEscape` now
+`switch` on the one-character slice rather than on `charcode` of it.
+`CodeWriter.line_end` compares the line's tail against the separator instead
+of comparing two code units. One dead `strlen` in `RangerLispParser.joo` was
+deleted.
+
+A fifth defect fell out of that: a Rust `match` arm is a pattern, and the
+writer wrote the case literal unescaped, so the new `case "\""` came out as
+`"""` and rustc read three tokens where one was meant. `(estr N)` is the
+template accessor that escapes without quoting, and the Rust `case` template
+uses it now. The Rust rendering of the compiler had never contained a string
+`switch` with a quote in it, so nothing had asked.
+
+```
+$ node bin/output.js -es6 -strict-strings ./compiler/Compiler.rgr …
+strict-strings: 0 of 1726 string index sites read a unit the program can observe, in 0 files
+
+  32 more are a length against a constant or against another length:
+  a guard on structure rather than a count of text.
+
+  1694 sites are self-consistent and not listed.
+```
 
 *Gate for the pass: it changes no output — it is a report. Gate for the
-migration itself: `gallery/friendly`'s cross-target diff, extended with a
-study whose input is not ASCII.*
+migration: the flag at zero on the compiler's own sources, `npm test` at its
+known baseline, every self-host check green, and `gallery/friendly`'s
+cross-target diff.*
 
 ### 3.3 Finding the call sites that matter
 

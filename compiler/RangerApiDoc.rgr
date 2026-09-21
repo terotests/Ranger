@@ -572,15 +572,17 @@ class RangerDocCommentWriter {
     def n:int (strlen value)
     while (i < n) {
       def piece:string (substring value i (i + 1))
-      def ch:int (charcode piece)
-      switch ch {
-        case 38 {
+      ; Switch on the piece, not on its first code unit. Both read the same
+      ; on a slice of ASCII structure, and only this one keeps saying so when
+      ; the slice is part of a character the target counts in several units.
+      switch piece {
+        case "&" {
           out = out + "&amp;"
         }
-        case 60 {
+        case "<" {
           out = out + "&lt;"
         }
-        case 62 {
+        case ">" {
           out = out + "&gt;"
         }
         default {
@@ -1594,21 +1596,21 @@ class RangerApiArtifactWriter {
     def n:int (strlen value)
     while (i < n) {
       def piece:string (substring value i (i + 1))
-      def ch:int (charcode piece)
-      switch ch {
-        case 34 {
+      ; ...and the same here: the piece is the thing being matched.
+      switch piece {
+        case "\"" {
           out = out + "\\\""
         }
-        case 92 {
+        case "\\" {
           out = out + "\\\\"
         }
-        case 10 {
+        case "\n" {
           out = out + "\\n"
         }
-        case 13 {
+        case "\r" {
           out = out + "\\r"
         }
-        case 9 {
+        case "\t" {
           out = out + "\\t"
         }
         default {

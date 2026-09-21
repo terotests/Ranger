@@ -1648,8 +1648,12 @@ extension LowIRBuilderPass {
         def ccNode (node.getSecond())
         if (ccNode.value_type == RangerNodeType.String) {
           def ccLit:string ccNode.string_value
-          if ((strlen ccLit) > 0) {
-            def ccVal:int (charcode ccLit)
+          ; the same constant the text targets get from `(cc 1)`, and for
+          ; the same reason: a code point, so every host of this compiler
+          ; emits the same number
+          def ccChars:[int] (to_chars ccLit)
+          if ((array_length ccChars) > 0) {
+            def ccVal:int (itemAt ccChars 0)
             return (lctx.builder.emitConst("i32" ("" + ccVal)))
           }
           return (lctx.builder.emitConst("i32" "0"))

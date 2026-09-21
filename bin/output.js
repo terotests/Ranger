@@ -1363,15 +1363,14 @@ class RangerDocCommentWriter  {
     const n = value.length;
     while (i < n) {
       const piece = value.substring(i, (i + 1) );
-      const ch = piece.charCodeAt(0);
-      switch (ch ) { 
-        case 38 : 
+      switch (piece ) { 
+        case "&" : 
           out = out + "&amp;";
           break;
-        case 60 : 
+        case "<" : 
           out = out + "&lt;";
           break;
-        case 62 : 
+        case ">" : 
           out = out + "&gt;";
           break;
         default: 
@@ -2310,21 +2309,20 @@ class RangerApiArtifactWriter  {
     const n = value.length;
     while (i < n) {
       const piece = value.substring(i, (i + 1) );
-      const ch = piece.charCodeAt(0);
-      switch (ch ) { 
-        case 34 : 
+      switch (piece ) { 
+        case "\"" : 
           out = out + "\\\"";
           break;
-        case 92 : 
+        case "\\" : 
           out = out + "\\\\";
           break;
-        case 10 : 
+        case "\n" : 
           out = out + "\\n";
           break;
-        case 13 : 
+        case "\r" : 
           out = out + "\\r";
           break;
-        case 9 : 
+        case "\t" : 
           out = out + "\\t";
           break;
         default: 
@@ -8414,25 +8412,25 @@ class SourceMapBuilder  {
     let out = "";
     let i = 0;
     while (i < value.length) {
-      const ch = value.substring(i, (i + 1) ).charCodeAt(0);
-      switch (ch ) { 
-        case 34 : 
+      const piece = value.substring(i, (i + 1) );
+      switch (piece ) { 
+        case "\"" : 
           out = out + "\\\"";
           break;
-        case 92 : 
+        case "\\" : 
           out = out + "\\\\";
           break;
-        case 10 : 
+        case "\n" : 
           out = out + "\\n";
           break;
-        case 13 : 
+        case "\r" : 
           out = out + "\\r";
           break;
-        case 9 : 
+        case "\t" : 
           out = out + "\\t";
           break;
         default: 
-          out = out + value.substring(i, (i + 1) );
+          out = out + piece;
           break;
       };
       i = i + 1;
@@ -9154,7 +9152,7 @@ RangerSourceFormat.formatSource = function(text, ext, width) {
   let out = [];
   for ( const line of lines) {
     let keep = true;
-    const __len = line.length;
+    const __len = r_char_length(line);
     if ( __len > w ) {
       let skip = RangerSourceFormat.isCommentOrEmpty(line);
       if ( skip == false ) {
@@ -9592,27 +9590,37 @@ class CodeWriter  {
     if ( str.length == 0 ) {
       return;
     }
-    if ( this.currentLine.length > 0 ) {
-      if ( str.charCodeAt(0) != this.currentLine.charCodeAt((this.currentLine.length - 1) ) ) {
+    const clLen = this.currentLine.length;
+    if ( clLen > 0 ) {
+      const sLen = str.length;
+      let tail = "";
+      if ( clLen >= sLen ) {
+        tail = this.currentLine.substring((clLen - sLen), clLen );
+      }
+      if ( tail != str ) {
         this.out(str, false);
       }
     }
   };
   advanceColumnForString (str) {
+    const n = str.length;
+    let lastNl = -1;
     let i = 0;
-    while (i < str.length) {
-      const ch = str.charCodeAt(i );
-      if ( ch == 10 ) {
+    while (i < n) {
+      if ( str.charCodeAt(i ) == 10 ) {
         this.lineNumber = this.lineNumber + 1;
-        this.columnNumber = 0;
-      } else {
-        this.columnNumber = this.columnNumber + 1;
+        lastNl = i;
       }
       i = i + 1;
     };
+    if ( lastNl < 0 ) {
+      this.columnNumber = this.columnNumber + r_char_length(str);
+    } else {
+      this.columnNumber = r_char_length(str.substring((lastNl + 1), n ));
+    }
   };
   syncColumnFromCurrentLine () {
-    const lineLen = this.currentLine.length;
+    const lineLen = r_char_length(this.currentLine);
     this.columnNumber = lineLen;
   };
   writeSlice (str, newLine) {
@@ -9719,7 +9727,6 @@ class RangerLispParser  {
     this.paren_cnt = 1;
   }
   joo (cm) {
-    const ll = cm.code.length;
   };
   parse_raw_annotation () {
     let sp = this.i;
@@ -14050,7 +14057,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
     parse (src) {
       this.text = src;
       this.i = 0;
-      this.n = src.length;
+      const srcLen = src.length;
+      this.n = srcLen;
       this.ok = true;
       this.skipWs();
       return this.val();
@@ -65109,8 +65117,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                             const ccNode = node.getSecond();
                                                             if ( ccNode.value_type == 4 ) {
                                                               const ccLit = ccNode.string_value;
-                                                              if ( ccLit.length > 0 ) {
-                                                                const ccVal = ccLit.charCodeAt(0);
+                                                              const ccChars = Array.from(ccLit, (rg_c) => rg_c.codePointAt(0));
+                                                              if ( ccChars.length > 0 ) {
+                                                                const ccVal = ccChars[0];
                                                                 return lctx.builder.emitConst("i32", ("" + ccVal));
                                                               }
                                                               return lctx.builder.emitConst("i32", "0");
@@ -76026,16 +76035,31 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                                 );
                                                               }
                                                               break;
-                                                            case "block" : 
+                                                            case "estr" : 
                                                               const idx_2 = cmdArg.int_value;
                                                               if ( node.children.length > idx_2 ) {
-                                                                const arg_2 = node.children[idx_2];
+                                                                let arg_2 = node.children[idx_2];
+                                                                while (arg_2.expression && arg_2.children.length == 1) {
+                                                                  arg_2 = arg_2.getFirst();
+                                                                };
+                                                                wr.outMapped(
+                                                                  this.langWriter.EncodeString(arg_2, ctx, wr),
+                                                                  arg_2,
+                                                                  false,
+                                                                  ""
+                                                                );
+                                                              }
+                                                              break;
+                                                            case "block" : 
+                                                              const idx_3 = cmdArg.int_value;
+                                                              if ( node.children.length > idx_3 ) {
+                                                                const arg_3 = node.children[idx_3];
                                                                 const sCtx = ctx.fork();
                                                                 sCtx.restartExpressionLevel();
                                                                 const lineBefore = wr.lineNumber;
                                                                 const colBefore = wr.currentLine.length;
                                                                 this.WalkNode(
-                                                                  arg_2,
+                                                                  arg_3,
                                                                   sCtx,
                                                                   wr
                                                                 );
@@ -76063,45 +76087,49 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                               ctx.defineVariable(p_1.name, p_1);
                                                               break;
                                                             case "cc" : 
-                                                              const idx_3 = cmdArg.int_value;
-                                                              if ( node.children.length > idx_3 ) {
-                                                                const arg_3 = node.children[idx_3];
-                                                                const cc = arg_3.string_value.charCodeAt(0);
-                                                                wr.out("" + cc, false);
-                                                              }
-                                                              break;
-                                                            case "optional_option" : 
                                                               const idx_4 = cmdArg.int_value;
                                                               if ( node.children.length > idx_4 ) {
                                                                 const arg_4 = node.children[idx_4];
-                                                                if ( ctx.hasCompilerSetting(arg_4.string_value) ) {
-                                                                  const setting = ctx.getCompilerSetting(arg_4.string_value);
+                                                                const ccChars = Array.from(arg_4.string_value, (rg_c) => rg_c.codePointAt(0));
+                                                                let ccVal = 0;
+                                                                if ( ccChars.length > 0 ) {
+                                                                  ccVal = ccChars[0];
+                                                                }
+                                                                wr.out("" + ccVal, false);
+                                                              }
+                                                              break;
+                                                            case "optional_option" : 
+                                                              const idx_5 = cmdArg.int_value;
+                                                              if ( node.children.length > idx_5 ) {
+                                                                const arg_5 = node.children[idx_5];
+                                                                if ( ctx.hasCompilerSetting(arg_5.string_value) ) {
+                                                                  const setting = ctx.getCompilerSetting(arg_5.string_value);
                                                                   wr.out(setting, false);
                                                                 }
                                                               }
                                                               break;
                                                             case "required_option" : 
-                                                              const idx_5 = cmdArg.int_value;
-                                                              if ( node.children.length > idx_5 ) {
-                                                                const arg_5 = node.children[idx_5];
-                                                                if ( ctx.hasCompilerSetting(arg_5.string_value) ) {
-                                                                  const setting_1 = ctx.getCompilerSetting(arg_5.string_value);
+                                                              const idx_6 = cmdArg.int_value;
+                                                              if ( node.children.length > idx_6 ) {
+                                                                const arg_6 = node.children[idx_6];
+                                                                if ( ctx.hasCompilerSetting(arg_6.string_value) ) {
+                                                                  const setting_1 = ctx.getCompilerSetting(arg_6.string_value);
                                                                   wr.out(setting_1, false);
                                                                 } else {
-                                                                  ctx.addError(node, ("This source code requires compiler option -" + arg_5.string_value) + "=<> to be set ");
+                                                                  ctx.addError(node, ("This source code requires compiler option -" + arg_6.string_value) + "=<> to be set ");
                                                                 }
                                                               }
                                                               break;
                                                             case "java_case" : 
-                                                              const idx_6 = cmdArg.int_value;
-                                                              if ( node.children.length > idx_6 ) {
-                                                                const arg_6 = node.children[idx_6];
+                                                              const idx_7 = cmdArg.int_value;
+                                                              if ( node.children.length > idx_7 ) {
+                                                                const arg_7 = node.children[idx_7];
                                                                 this.WalkNode(
-                                                                  arg_6,
+                                                                  arg_7,
                                                                   ctx,
                                                                   wr
                                                                 );
-                                                                if ( arg_6.didReturnAtIndex < 0 ) {
+                                                                if ( arg_7.didReturnAtIndex < 0 ) {
                                                                   wr.newline();
                                                                   wr.out("break;", true);
                                                                 }
@@ -76115,12 +76143,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                               }
                                                               break;
                                                             case "lambda" : 
-                                                              const idx_7 = cmdArg.int_value;
-                                                              if ( node.children.length > idx_7 ) {
-                                                                const arg_7 = node.children[idx_7];
+                                                              const idx_8 = cmdArg.int_value;
+                                                              if ( node.children.length > idx_8 ) {
+                                                                const arg_8 = node.children[idx_8];
                                                                 ctx.setInExpr();
                                                                 this.WalkNode(
-                                                                  arg_7,
+                                                                  arg_8,
                                                                   ctx,
                                                                   wr
                                                                 );
@@ -76128,16 +76156,16 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                               }
                                                               break;
                                                             case "e" : 
-                                                              const idx_8 = cmdArg.int_value;
-                                                              if ( node.children.length > idx_8 ) {
-                                                                const arg_8 = node.children[idx_8];
-                                                                if ( arg_8.rust_use_tmpvar.length > 0 ) {
-                                                                  wr.out(arg_8.rust_use_tmpvar, false);
-                                                                  arg_8.rust_use_tmpvar = "";
+                                                              const idx_9 = cmdArg.int_value;
+                                                              if ( node.children.length > idx_9 ) {
+                                                                const arg_9 = node.children[idx_9];
+                                                                if ( arg_9.rust_use_tmpvar.length > 0 ) {
+                                                                  wr.out(arg_9.rust_use_tmpvar, false);
+                                                                  arg_9.rust_use_tmpvar = "";
                                                                   return;
                                                                 }
                                                                 let mutTarget = false;
-                                                                if ( idx_8 == 1 ) {
+                                                                if ( idx_9 == 1 ) {
                                                                   if ( node.children.length > 0 ) {
                                                                     const opN = node.getFirst();
                                                                     if ( this.isMutatingOpName(opN.vref) ) {
@@ -76150,7 +76178,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                                   ctx.setInLhs();
                                                                 }
                                                                 this.WalkNode(
-                                                                  arg_8,
+                                                                  arg_9,
                                                                   ctx,
                                                                   wr
                                                                 );
@@ -76161,38 +76189,14 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                               }
                                                               break;
                                                             case "idx" : 
-                                                              const idx_9 = cmdArg.int_value;
-                                                              if ( node.children.length > idx_9 ) {
-                                                                let arg_9 = node.children[idx_9];
-                                                                if ( arg_9.rust_use_tmpvar.length > 0 ) {
-                                                                  wr.out(("(" + arg_9.rust_use_tmpvar) + ") as usize", false);
-                                                                  arg_9.rust_use_tmpvar = "";
-                                                                  return;
-                                                                }
-                                                                while (arg_9.expression && arg_9.children.length == 1) {
-                                                                  arg_9 = arg_9.getFirst();
-                                                                };
-                                                                if ( arg_9.value_type == 3 ) {
-                                                                  wr.out("" + arg_9.int_value, false);
-                                                                } else {
-                                                                  wr.out("(", false);
-                                                                  ctx.setInExpr();
-                                                                  wr.suppress_expr_parens = true;
-                                                                  this.WalkNode(
-                                                                    arg_9,
-                                                                    ctx,
-                                                                    wr
-                                                                  );
-                                                                  wr.suppress_expr_parens = false;
-                                                                  ctx.unsetInExpr();
-                                                                  wr.out(") as usize", false);
-                                                                }
-                                                              }
-                                                              break;
-                                                            case "u8v" : 
                                                               const idx_10 = cmdArg.int_value;
                                                               if ( node.children.length > idx_10 ) {
                                                                 let arg_10 = node.children[idx_10];
+                                                                if ( arg_10.rust_use_tmpvar.length > 0 ) {
+                                                                  wr.out(("(" + arg_10.rust_use_tmpvar) + ") as usize", false);
+                                                                  arg_10.rust_use_tmpvar = "";
+                                                                  return;
+                                                                }
                                                                 while (arg_10.expression && arg_10.children.length == 1) {
                                                                   arg_10 = arg_10.getFirst();
                                                                 };
@@ -76209,17 +76213,41 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                                   );
                                                                   wr.suppress_expr_parens = false;
                                                                   ctx.unsetInExpr();
+                                                                  wr.out(") as usize", false);
+                                                                }
+                                                              }
+                                                              break;
+                                                            case "u8v" : 
+                                                              const idx_11 = cmdArg.int_value;
+                                                              if ( node.children.length > idx_11 ) {
+                                                                let arg_11 = node.children[idx_11];
+                                                                while (arg_11.expression && arg_11.children.length == 1) {
+                                                                  arg_11 = arg_11.getFirst();
+                                                                };
+                                                                if ( arg_11.value_type == 3 ) {
+                                                                  wr.out("" + arg_11.int_value, false);
+                                                                } else {
+                                                                  wr.out("(", false);
+                                                                  ctx.setInExpr();
+                                                                  wr.suppress_expr_parens = true;
+                                                                  this.WalkNode(
+                                                                    arg_11,
+                                                                    ctx,
+                                                                    wr
+                                                                  );
+                                                                  wr.suppress_expr_parens = false;
+                                                                  ctx.unsetInExpr();
                                                                   wr.out(") as u8", false);
                                                                 }
                                                               }
                                                               break;
                                                             case "cloneif" : 
-                                                              const idx_11 = cmdArg.int_value;
-                                                              if ( node.children.length > idx_11 ) {
-                                                                const arg_11 = node.children[idx_11];
+                                                              const idx_12 = cmdArg.int_value;
+                                                              if ( node.children.length > idx_12 ) {
+                                                                const arg_12 = node.children[idx_12];
                                                                 let tn = "";
-                                                                if ( arg_11.hasParamDesc ) {
-                                                                  const cip = arg_11.paramDesc;
+                                                                if ( arg_12.hasParamDesc ) {
+                                                                  const cip = arg_12.paramDesc;
                                                                   const cipNN = cip.nameNode;
                                                                   if ( (typeof(cipNN) !== "undefined" && cipNN != null )  ) {
                                                                     const cipN = cipNN;
@@ -76229,9 +76257,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                                     }
                                                                   }
                                                                 } else {
-                                                                  tn = arg_11.type_name;
-                                                                  if ( arg_11.array_type.length > 0 ) {
-                                                                    tn = arg_11.array_type;
+                                                                  tn = arg_12.type_name;
+                                                                  if ( arg_12.array_type.length > 0 ) {
+                                                                    tn = arg_12.array_type;
                                                                   }
                                                                 }
                                                                 let isCopyScalar = false;
@@ -76259,22 +76287,22 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                               }
                                                               break;
                                                             case "ckey" : 
-                                                              const idx_12 = cmdArg.int_value;
-                                                              if ( node.children.length > idx_12 ) {
-                                                                let arg_12 = node.children[idx_12];
-                                                                while (arg_12.expression && arg_12.children.length == 1) {
-                                                                  arg_12 = arg_12.getFirst();
+                                                              const idx_13 = cmdArg.int_value;
+                                                              if ( node.children.length > idx_13 ) {
+                                                                let arg_13 = node.children[idx_13];
+                                                                while (arg_13.expression && arg_13.children.length == 1) {
+                                                                  arg_13 = arg_13.getFirst();
                                                                 };
-                                                                if ( arg_12.value_type == 4 ) {
+                                                                if ( arg_13.value_type == 4 ) {
                                                                   wr.out(("\"" + this.langWriter.EncodeString(
-                                                                    arg_12,
+                                                                    arg_13,
                                                                     ctx,
                                                                     wr
                                                                   )) + "\"", false);
                                                                 } else {
                                                                   ctx.setInExpr();
                                                                   this.WalkNode(
-                                                                    arg_12,
+                                                                    arg_13,
                                                                     ctx,
                                                                     wr
                                                                   );
@@ -76283,28 +76311,28 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                               }
                                                               break;
                                                             case "kref" : 
-                                                              const idx_13 = cmdArg.int_value;
-                                                              if ( node.children.length > idx_13 ) {
-                                                                let arg_13 = node.children[idx_13];
-                                                                while (arg_13.expression && arg_13.children.length == 1) {
-                                                                  arg_13 = arg_13.getFirst();
+                                                              const idx_14 = cmdArg.int_value;
+                                                              if ( node.children.length > idx_14 ) {
+                                                                let arg_14 = node.children[idx_14];
+                                                                while (arg_14.expression && arg_14.children.length == 1) {
+                                                                  arg_14 = arg_14.getFirst();
                                                                 };
                                                                 let krefDone = false;
-                                                                if ( arg_13.value_type == 4 ) {
+                                                                if ( arg_14.value_type == 4 ) {
                                                                   wr.out(("\"" + this.langWriter.EncodeString(
-                                                                    arg_13,
+                                                                    arg_14,
                                                                     ctx,
                                                                     wr
                                                                   )) + "\"", false);
                                                                   krefDone = true;
                                                                 }
                                                                 if ( krefDone == false ) {
-                                                                  if ( (arg_13.expression == false && arg_13.hasParamDesc) && arg_13.ns.length == 1 ) {
-                                                                    const kpd = arg_13.paramDesc;
+                                                                  if ( (arg_14.expression == false && arg_14.hasParamDesc) && arg_14.ns.length == 1 ) {
+                                                                    const kpd = arg_14.paramDesc;
                                                                     if ( kpd.rust_borrow_type > 0 ) {
                                                                       ctx.setInExpr();
                                                                       this.WalkNode(
-                                                                        arg_13,
+                                                                        arg_14,
                                                                         ctx,
                                                                         wr
                                                                       );
@@ -76315,18 +76343,18 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                                 }
                                                                 if ( krefDone == false ) {
                                                                   let ksd;
-                                                                  if ( arg_13.ns.length == 1 && arg_13.hasParamDesc ) {
-                                                                    ksd = arg_13.paramDesc;
+                                                                  if ( arg_14.ns.length == 1 && arg_14.hasParamDesc ) {
+                                                                    ksd = arg_14.paramDesc;
                                                                   }
-                                                                  if ( arg_13.ns.length > 1 && arg_13.nsp.length > 0 ) {
-                                                                    ksd = arg_13.nsp[(arg_13.nsp.length - 1)];
+                                                                  if ( arg_14.ns.length > 1 && arg_14.nsp.length > 0 ) {
+                                                                    ksd = arg_14.nsp[(arg_14.nsp.length - 1)];
                                                                   }
                                                                   if ( (typeof(ksd) !== "undefined" && ksd != null )  ) {
                                                                     const ksp = ksd;
                                                                     if ( ksp.rust_static_str ) {
                                                                       ctx.setInExpr();
                                                                       this.WalkNode(
-                                                                        arg_13,
+                                                                        arg_14,
                                                                         ctx,
                                                                         wr
                                                                       );
@@ -76339,7 +76367,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                                   wr.out("&", false);
                                                                   ctx.setInExpr();
                                                                   this.WalkNode(
-                                                                    arg_13,
+                                                                    arg_14,
                                                                     ctx,
                                                                     wr
                                                                   );
@@ -76348,16 +76376,16 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                               }
                                                               break;
                                                             case "mvarg" : 
-                                                              const idx_14 = cmdArg.int_value;
-                                                              if ( node.children.length > idx_14 ) {
-                                                                const arg_14 = node.children[idx_14];
-                                                                if ( arg_14.rust_use_tmpvar.length > 0 ) {
-                                                                  wr.out(arg_14.rust_use_tmpvar, false);
-                                                                  arg_14.rust_use_tmpvar = "";
+                                                              const idx_15 = cmdArg.int_value;
+                                                              if ( node.children.length > idx_15 ) {
+                                                                const arg_15 = node.children[idx_15];
+                                                                if ( arg_15.rust_use_tmpvar.length > 0 ) {
+                                                                  wr.out(arg_15.rust_use_tmpvar, false);
+                                                                  arg_15.rust_use_tmpvar = "";
                                                                   return;
                                                                 }
                                                                 let mvRcWrap = false;
-                                                                if ( arg_14.hasNewOper ) {
+                                                                if ( arg_15.hasNewOper ) {
                                                                   const mvCont = node.children[1];
                                                                   let mvElem = "";
                                                                   const mvNsp = mvCont.nsp.length;
@@ -76392,7 +76420,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                                 }
                                                                 ctx.setInExpr();
                                                                 this.WalkNode(
-                                                                  arg_14,
+                                                                  arg_15,
                                                                   ctx,
                                                                   wr
                                                                 );
@@ -76400,7 +76428,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                                 if ( mvRcWrap ) {
                                                                   wr.out("))", false);
                                                                 }
-                                                                let barg = arg_14;
+                                                                let barg = arg_15;
                                                                 while (barg.expression && barg.children.length == 1) {
                                                                   barg = barg.getFirst();
                                                                 };
@@ -76503,12 +76531,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                               }
                                                               break;
                                                             case "goset" : 
-                                                              const idx_15 = cmdArg.int_value;
-                                                              if ( node.children.length > idx_15 ) {
-                                                                const arg_15 = node.children[idx_15];
+                                                              const idx_16 = cmdArg.int_value;
+                                                              if ( node.children.length > idx_16 ) {
+                                                                const arg_16 = node.children[idx_16];
                                                                 ctx.setInExpr();
                                                                 this.langWriter.WriteSetterVRef(
-                                                                  arg_15,
+                                                                  arg_16,
                                                                   ctx,
                                                                   wr
                                                                 );
@@ -76516,53 +76544,53 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                               }
                                                               break;
                                                             case "pe" : 
-                                                              const idx_16 = cmdArg.int_value;
-                                                              if ( node.children.length > idx_16 ) {
-                                                                const arg_16 = node.children[idx_16];
+                                                              const idx_17 = cmdArg.int_value;
+                                                              if ( node.children.length > idx_17 ) {
+                                                                const arg_17 = node.children[idx_17];
                                                                 this.WalkNode(
-                                                                  arg_16,
+                                                                  arg_17,
                                                                   ctx,
                                                                   wr
                                                                 );
                                                               }
                                                               break;
                                                             case "ptr" : 
-                                                              const idx_17 = cmdArg.int_value;
-                                                              if ( node.children.length > idx_17 ) {
-                                                                const arg_17 = node.children[idx_17];
-                                                                if ( arg_17.hasParamDesc ) {
-                                                                  if ( arg_17.paramDesc.nameNode.isAPrimitiveType() == false ) {
+                                                              const idx_18 = cmdArg.int_value;
+                                                              if ( node.children.length > idx_18 ) {
+                                                                const arg_18 = node.children[idx_18];
+                                                                if ( arg_18.hasParamDesc ) {
+                                                                  if ( arg_18.paramDesc.nameNode.isAPrimitiveType() == false ) {
                                                                     wr.out("*", false);
                                                                   }
                                                                 } else {
-                                                                  if ( arg_17.isAPrimitiveType() == false ) {
+                                                                  if ( arg_18.isAPrimitiveType() == false ) {
                                                                     wr.out("*", false);
                                                                   }
                                                                 }
                                                               }
                                                               break;
                                                             case "ptrsrc" : 
-                                                              const idx_18 = cmdArg.int_value;
-                                                              if ( node.children.length > idx_18 ) {
-                                                                const arg_18 = node.children[idx_18];
-                                                                if ( arg_18.isPrimitiveType() == false && arg_18.isPrimitive() == false ) {
+                                                              const idx_19 = cmdArg.int_value;
+                                                              if ( node.children.length > idx_19 ) {
+                                                                const arg_19 = node.children[idx_19];
+                                                                if ( arg_19.isPrimitiveType() == false && arg_19.isPrimitive() == false ) {
                                                                   wr.out("&", false);
                                                                 }
                                                               }
                                                               break;
                                                             case "nameof" : 
-                                                              const idx_19 = cmdArg.int_value;
-                                                              if ( node.children.length > idx_19 ) {
-                                                                const arg_19 = node.children[idx_19];
-                                                                wr.out(arg_19.vref, false);
-                                                              }
-                                                              break;
-                                                            case "list" : 
                                                               const idx_20 = cmdArg.int_value;
                                                               if ( node.children.length > idx_20 ) {
                                                                 const arg_20 = node.children[idx_20];
-                                                                for ( let i = 0; i < arg_20.children.length; i++) {
-                                                                  var ch = arg_20.children[i];
+                                                                wr.out(arg_20.vref, false);
+                                                              }
+                                                              break;
+                                                            case "list" : 
+                                                              const idx_21 = cmdArg.int_value;
+                                                              if ( node.children.length > idx_21 ) {
+                                                                const arg_21 = node.children[idx_21];
+                                                                for ( let i = 0; i < arg_21.children.length; i++) {
+                                                                  var ch = arg_21.children[i];
                                                                   if ( i > 0 ) {
                                                                     wr.out(" ", false);
                                                                   }
@@ -76577,22 +76605,22 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                               }
                                                               break;
                                                             case "repeat" : 
-                                                              const idx_21 = cmdArg.int_value;
-                                                              this.repeat_index = idx_21;
-                                                              if ( node.children.length >= idx_21 ) {
+                                                              const idx_22 = cmdArg.int_value;
+                                                              this.repeat_index = idx_22;
+                                                              if ( node.children.length >= idx_22 ) {
                                                                 const cmdToRepeat = cmd.getThird();
-                                                                let i_1 = idx_21;
+                                                                let i_1 = idx_22;
                                                                 while (i_1 < node.children.length) {
-                                                                  if ( i_1 >= idx_21 ) {
-                                                                    for ( const cc_1 of cmdToRepeat.children) {
-                                                                      if ( cc_1.children.length > 0 ) {
-                                                                        const fc = cc_1.getFirst();
+                                                                  if ( i_1 >= idx_22 ) {
+                                                                    for ( const cc of cmdToRepeat.children) {
+                                                                      if ( cc.children.length > 0 ) {
+                                                                        const fc = cc.getFirst();
                                                                         if ( fc.vref == "e" ) {
-                                                                          const dc = cc_1.getSecond();
+                                                                          const dc = cc.getSecond();
                                                                           dc.int_value = i_1;
                                                                         }
                                                                         if ( fc.vref == "block" ) {
-                                                                          const dc_1 = cc_1.getSecond();
+                                                                          const dc_1 = cc.getSecond();
                                                                           dc_1.int_value = i_1;
                                                                         }
                                                                       }
@@ -76609,22 +76637,22 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                               }
                                                               break;
                                                             case "repeat_from" : 
-                                                              const idx_22 = cmdArg.int_value;
-                                                              this.repeat_index = idx_22;
-                                                              if ( node.children.length >= idx_22 ) {
+                                                              const idx_23 = cmdArg.int_value;
+                                                              this.repeat_index = idx_23;
+                                                              if ( node.children.length >= idx_23 ) {
                                                                 const cmdToRepeat_1 = cmd.getThird();
-                                                                let i_2 = idx_22;
+                                                                let i_2 = idx_23;
                                                                 while (i_2 < node.children.length) {
-                                                                  if ( i_2 >= idx_22 ) {
-                                                                    for ( const cc_2 of cmdToRepeat_1.children) {
-                                                                      if ( cc_2.children.length > 0 ) {
-                                                                        const fc_1 = cc_2.getFirst();
+                                                                  if ( i_2 >= idx_23 ) {
+                                                                    for ( const cc_1 of cmdToRepeat_1.children) {
+                                                                      if ( cc_1.children.length > 0 ) {
+                                                                        const fc_1 = cc_1.getFirst();
                                                                         if ( fc_1.vref == "e" ) {
-                                                                          const dc_2 = cc_2.getSecond();
+                                                                          const dc_2 = cc_1.getSecond();
                                                                           dc_2.int_value = i_2;
                                                                         }
                                                                         if ( fc_1.vref == "block" ) {
-                                                                          const dc_3 = cc_2.getSecond();
+                                                                          const dc_3 = cc_1.getSecond();
                                                                           dc_3.int_value = i_2;
                                                                         }
                                                                       }
@@ -76644,11 +76672,11 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                               }
                                                               break;
                                                             case "comma" : 
-                                                              const idx_23 = cmdArg.int_value;
-                                                              if ( node.children.length > idx_23 ) {
-                                                                const arg_21 = node.children[idx_23];
-                                                                for ( let i_3 = 0; i_3 < arg_21.children.length; i_3++) {
-                                                                  var ch_1 = arg_21.children[i_3];
+                                                              const idx_24 = cmdArg.int_value;
+                                                              if ( node.children.length > idx_24 ) {
+                                                                const arg_22 = node.children[idx_24];
+                                                                for ( let i_3 = 0; i_3 < arg_22.children.length; i_3++) {
+                                                                  var ch_1 = arg_22.children[i_3];
                                                                   if ( i_3 > 0 ) {
                                                                     wr.out(",", false);
                                                                   }
@@ -76663,29 +76691,29 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                               }
                                                               break;
                                                             case "swift_rc" : 
-                                                              const idx_24 = cmdArg.int_value;
+                                                              const idx_25 = cmdArg.int_value;
                                                               const blockIdx = 4;
-                                                              if ( node.children.length > idx_24 ) {
-                                                                const arg_22 = node.children[idx_24];
+                                                              if ( node.children.length > idx_25 ) {
+                                                                const arg_23 = node.children[idx_25];
                                                                 let isRead = true;
                                                                 if ( node.children.length > blockIdx ) {
                                                                   const blockNode = node.children[blockIdx];
-                                                                  if ( arg_22.vref.length > 0 ) {
-                                                                    isRead = this.treeReferencesVRef(blockNode, arg_22.vref);
+                                                                  if ( arg_23.vref.length > 0 ) {
+                                                                    isRead = this.treeReferencesVRef(blockNode, arg_23.vref);
                                                                   }
                                                                 } else {
-                                                                  if ( arg_22.hasParamDesc ) {
-                                                                    isRead = arg_22.paramDesc.ref_cnt != 0;
+                                                                  if ( arg_23.hasParamDesc ) {
+                                                                    isRead = arg_23.paramDesc.ref_cnt != 0;
                                                                   }
                                                                 }
                                                                 if ( isRead == false ) {
                                                                   wr.out("_", false);
                                                                 } else {
-                                                                  if ( arg_22.hasParamDesc ) {
-                                                                    const p_2 = ctx.getVariableDef(arg_22.vref);
+                                                                  if ( arg_23.hasParamDesc ) {
+                                                                    const p_2 = ctx.getVariableDef(arg_23.vref);
                                                                     wr.out(p_2.compiledName, false);
                                                                   } else {
-                                                                    wr.out(arg_22.vref, false);
+                                                                    wr.out(arg_23.vref, false);
                                                                   }
                                                                 }
                                                               }
@@ -76733,40 +76761,40 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                               }
                                                               break;
                                                             case "r_ktype" : 
-                                                              const idx_25 = cmdArg.int_value;
-                                                              if ( node.children.length > idx_25 ) {
-                                                                const arg_23 = node.children[idx_25];
-                                                                if ( arg_23.hasParamDesc ) {
-                                                                  const ss = this.langWriter.getObjectTypeString(arg_23.paramDesc.nameNode.key_type, ctx);
+                                                              const idx_26 = cmdArg.int_value;
+                                                              if ( node.children.length > idx_26 ) {
+                                                                const arg_24 = node.children[idx_26];
+                                                                if ( arg_24.hasParamDesc ) {
+                                                                  const ss = this.langWriter.getObjectTypeString(arg_24.paramDesc.nameNode.key_type, ctx);
                                                                   wr.out(ss, false);
                                                                 } else {
-                                                                  const ss_1 = this.langWriter.getObjectTypeString(arg_23.key_type, ctx);
+                                                                  const ss_1 = this.langWriter.getObjectTypeString(arg_24.key_type, ctx);
                                                                   wr.out(ss_1, false);
                                                                 }
                                                               }
                                                               break;
                                                             case "r_atype" : 
-                                                              const idx_26 = cmdArg.int_value;
-                                                              if ( node.children.length > idx_26 ) {
-                                                                const arg_24 = node.children[idx_26];
-                                                                if ( arg_24.hasParamDesc ) {
-                                                                  const ss_2 = this.langWriter.getObjectTypeString(arg_24.paramDesc.nameNode.array_type, ctx);
+                                                              const idx_27 = cmdArg.int_value;
+                                                              if ( node.children.length > idx_27 ) {
+                                                                const arg_25 = node.children[idx_27];
+                                                                if ( arg_25.hasParamDesc ) {
+                                                                  const ss_2 = this.langWriter.getObjectTypeString(arg_25.paramDesc.nameNode.array_type, ctx);
                                                                   wr.out(ss_2, false);
                                                                 } else {
-                                                                  const ss_3 = this.langWriter.getObjectTypeString(arg_24.array_type, ctx);
+                                                                  const ss_3 = this.langWriter.getObjectTypeString(arg_25.array_type, ctx);
                                                                   wr.out(ss_3, false);
                                                                 }
                                                               }
                                                               break;
                                                             case "r_atype_fname" : 
-                                                              const idx_27 = cmdArg.int_value;
-                                                              if ( node.children.length > idx_27 ) {
-                                                                const arg_25 = node.children[idx_27];
-                                                                if ( arg_25.hasParamDesc ) {
-                                                                  const ss_4 = this.langWriter.getObjectTypeString(arg_25.paramDesc.nameNode.array_type, ctx);
+                                                              const idx_28 = cmdArg.int_value;
+                                                              if ( node.children.length > idx_28 ) {
+                                                                const arg_26 = node.children[idx_28];
+                                                                if ( arg_26.hasParamDesc ) {
+                                                                  const ss_4 = this.langWriter.getObjectTypeString(arg_26.paramDesc.nameNode.array_type, ctx);
                                                                   wr.out(this.typeNameToIdentifier(ss_4), false);
                                                                 } else {
-                                                                  const ss_5 = this.langWriter.getObjectTypeString(arg_25.array_type, ctx);
+                                                                  const ss_5 = this.langWriter.getObjectTypeString(arg_26.array_type, ctx);
                                                                   wr.out(this.typeNameToIdentifier(ss_5), false);
                                                                 }
                                                               }
@@ -76779,18 +76807,18 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                               );
                                                               break;
                                                             case "arraytype" : 
-                                                              const idx_28 = cmdArg.int_value;
-                                                              if ( node.children.length > idx_28 ) {
-                                                                const arg_26 = node.children[idx_28];
-                                                                if ( arg_26.hasParamDesc ) {
+                                                              const idx_29 = cmdArg.int_value;
+                                                              if ( node.children.length > idx_29 ) {
+                                                                const arg_27 = node.children[idx_29];
+                                                                if ( arg_27.hasParamDesc ) {
                                                                   this.langWriter.writeArrayTypeDef(
-                                                                    arg_26.paramDesc.nameNode,
+                                                                    arg_27.paramDesc.nameNode,
                                                                     ctx,
                                                                     wr
                                                                   );
                                                                 } else {
                                                                   this.langWriter.writeArrayTypeDef(
-                                                                    arg_26,
+                                                                    arg_27,
                                                                     ctx,
                                                                     wr
                                                                   );
@@ -76816,18 +76844,18 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                               }
                                                               break;
                                                             case "rawtype" : 
-                                                              const idx_29 = cmdArg.int_value;
-                                                              if ( node.children.length > idx_29 ) {
-                                                                const arg_27 = node.children[idx_29];
-                                                                if ( arg_27.hasParamDesc ) {
+                                                              const idx_30 = cmdArg.int_value;
+                                                              if ( node.children.length > idx_30 ) {
+                                                                const arg_28 = node.children[idx_30];
+                                                                if ( arg_28.hasParamDesc ) {
                                                                   this.langWriter.writeRawTypeDef(
-                                                                    arg_27.paramDesc.nameNode,
+                                                                    arg_28.paramDesc.nameNode,
                                                                     ctx,
                                                                     wr
                                                                   );
                                                                 } else {
                                                                   this.langWriter.writeRawTypeDef(
-                                                                    arg_27,
+                                                                    arg_28,
                                                                     ctx,
                                                                     wr
                                                                   );
@@ -76876,19 +76904,19 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                               );
                                                               break;
                                                             case "typeof" : 
-                                                              const idx_30 = cmdArg.int_value;
-                                                              if ( node.children.length >= idx_30 ) {
-                                                                const arg_28 = node.children[idx_30];
+                                                              const idx_31 = cmdArg.int_value;
+                                                              if ( node.children.length >= idx_31 ) {
+                                                                const arg_29 = node.children[idx_31];
                                                                 ctx.setInExpr();
-                                                                if ( arg_28.hasParamDesc ) {
+                                                                if ( arg_29.hasParamDesc ) {
                                                                   this.writeTypeDef(
-                                                                    arg_28.paramDesc.nameNode,
+                                                                    arg_29.paramDesc.nameNode,
                                                                     ctx,
                                                                     wr
                                                                   );
                                                                 } else {
                                                                   this.writeTypeDef(
-                                                                    arg_28,
+                                                                    arg_29,
                                                                     ctx,
                                                                     wr
                                                                   );
@@ -76917,12 +76945,12 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                               }
                                                               break;
                                                             case "atype" : 
-                                                              const idx_31 = cmdArg.int_value;
-                                                              if ( node.children.length >= idx_31 ) {
-                                                                const arg_29 = node.children[idx_31];
+                                                              const idx_32 = cmdArg.int_value;
+                                                              if ( node.children.length >= idx_32 ) {
+                                                                const arg_30 = node.children[idx_32];
                                                                 let tn_1 = "";
                                                                 const p_4 = this.findParamDesc(
-                                                                  arg_29,
+                                                                  arg_30,
                                                                   ctx,
                                                                   wr
                                                                 );
@@ -76935,10 +76963,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                                   }
                                                                 }
                                                                 if ( tn_1.length == 0 ) {
-                                                                  tn_1 = arg_29.eval_array_type;
+                                                                  tn_1 = arg_30.eval_array_type;
                                                                 }
                                                                 if ( tn_1.length == 0 ) {
-                                                                  tn_1 = arg_29.array_type;
+                                                                  tn_1 = arg_30.array_type;
                                                                 }
                                                                 wr.out(this.langWriter.getObjectTypeString(tn_1, ctx), false);
                                                               }
@@ -77215,7 +77243,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                       };
                                                       padRight (text, width) {
                                                         let result = text;
-                                                        let __len = text.length;
+                                                        let __len = r_char_length(text);
                                                         while (__len < width) {
                                                           result = result + " ";
                                                           __len = __len + 1;
@@ -77224,7 +77252,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                       };
                                                       padLeft (text, width) {
                                                         let result = text;
-                                                        let __len = text.length;
+                                                        let __len = r_char_length(text);
                                                         while (__len < width) {
                                                           result = " " + result;
                                                           __len = __len + 1;
@@ -79873,7 +79901,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                       parse (src) {
                                                         this.text = src;
                                                         this.i = 0;
-                                                        this.n = src.length;
+                                                        const srcLen = src.length;
+                                                        this.n = srcLen;
                                                         this.ok = true;
                                                         this.err = "";
                                                         this.skip();
@@ -81106,6 +81135,9 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                         this.debug = false;
                                                         this.strictStringsTotal = 0;
                                                         this.strictStringsRisky = 0;
+                                                        this.strictStringsSafe = 0;
+                                                        this.strictStringsGuards = 0;
+                                                        this.strictStringsNotes = [];
                                                         this.strictStringsFiles = {};
                                                         this.strictStringsFileOrder = [];
                                                         this.mutatingOps = {};
@@ -84023,20 +84055,391 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                                   if ( name == "charcode" ) {
                                                                     return "charcode";
                                                                   }
+                                                                  if ( name == "strlen" ) {
+                                                                    return "strlen";
+                                                                  }
                                                                   return "";
                                                                 };
-                                                                strictStringsWalk (node, fnName) {
+                                                                ssSubjectName (n) {
+                                                                  if ( n.ns.length > 0 ) {
+                                                                    return n.ns.join(".");
+                                                                  }
+                                                                  return n.vref;
+                                                                };
+                                                                ssUnwrap (n) {
+                                                                  let ssCur = n;
+                                                                  while (ssCur.children.length == 1) {
+                                                                    ssCur = ssCur.getFirst();
+                                                                  };
+                                                                  return ssCur;
+                                                                };
+                                                                ssIsIntLiteral (n) {
+                                                                  const ssI = this.ssUnwrap(n);
+                                                                  if ( ssI.children.length > 0 ) {
+                                                                    return false;
+                                                                  }
+                                                                  return ssI.value_type == 3;
+                                                                };
+                                                                ssIsZeroLiteral (n) {
+                                                                  const ssZ = this.ssUnwrap(n);
+                                                                  if ( ssZ.children.length > 0 ) {
+                                                                    return false;
+                                                                  }
+                                                                  if ( ssZ.value_type != 3 ) {
+                                                                    return false;
+                                                                  }
+                                                                  return ssZ.int_value == 0;
+                                                                };
+                                                                ssIsCodePointLabel (lbl) {
+                                                                  if ( lbl.length < 7 ) {
+                                                                    return false;
+                                                                  }
+                                                                  return lbl.substring(0, 7 ) == "#chars:";
+                                                                };
+                                                                ssMergeTaint (a, b) {
+                                                                  if ( a == b ) {
+                                                                    return a;
+                                                                  }
+                                                                  if ( a == "#lit" ) {
+                                                                    return b;
+                                                                  }
+                                                                  if ( b == "#lit" ) {
+                                                                    return a;
+                                                                  }
+                                                                  return "#?";
+                                                                };
+                                                                ssIsCountOp (name) {
+                                                                  if ( name == "strlen" ) {
+                                                                    return true;
+                                                                  }
+                                                                  if ( name == "indexOf" ) {
+                                                                    return true;
+                                                                  }
+                                                                  if ( name == "lastIndexOf" ) {
+                                                                    return true;
+                                                                  }
+                                                                  return false;
+                                                                };
+                                                                ssIsArith (name) {
+                                                                  if ( name == "+" ) {
+                                                                    return true;
+                                                                  }
+                                                                  if ( name == "idiv" ) {
+                                                                    return true;
+                                                                  }
+                                                                  if ( name == "/" ) {
+                                                                    return true;
+                                                                  }
+                                                                  if ( name == "-" ) {
+                                                                    return true;
+                                                                  }
+                                                                  if ( name == "*" ) {
+                                                                    return true;
+                                                                  }
+                                                                  if ( name == "min" ) {
+                                                                    return true;
+                                                                  }
+                                                                  if ( name == "max" ) {
+                                                                    return true;
+                                                                  }
+                                                                  return false;
+                                                                };
+                                                                ssIsCompare (name) {
+                                                                  if ( name == "<" ) {
+                                                                    return true;
+                                                                  }
+                                                                  if ( name == "<=" ) {
+                                                                    return true;
+                                                                  }
+                                                                  if ( name == ">" ) {
+                                                                    return true;
+                                                                  }
+                                                                  if ( name == ">=" ) {
+                                                                    return true;
+                                                                  }
+                                                                  if ( name == "==" ) {
+                                                                    return true;
+                                                                  }
+                                                                  if ( name == "!=" ) {
+                                                                    return true;
+                                                                  }
+                                                                  return false;
+                                                                };
+                                                                ssTaintOf (nRaw, taint) {
+                                                                  const n = this.ssUnwrap(nRaw);
+                                                                  if ( n.children.length == 0 ) {
+                                                                    if ( n.value_type == 3 ) {
+                                                                      return "#lit";
+                                                                    }
+                                                                    const ssNm = this.ssSubjectName(n);
+                                                                    if ( ssNm.length > 0 ) {
+                                                                      if ( ( typeof(taint[ssNm] ) != "undefined" && Object.prototype.hasOwnProperty.call(taint, ssNm) ) ) {
+                                                                        return ( Object.prototype.hasOwnProperty.call(taint, ssNm) ? taint[ssNm] : undefined );
+                                                                      }
+                                                                    }
+                                                                    return "#?";
+                                                                  }
+                                                                  if ( n.children.length < 2 ) {
+                                                                    return "#?";
+                                                                  }
+                                                                  const ssOp = n.getFirst().vref;
+                                                                  if ( ssOp == "to_chars" || ssOp == "char_length" ) {
+                                                                    const ssCp = this.ssSubjectName(this.ssUnwrap(n.getSecond()));
+                                                                    if ( ssCp.length > 0 ) {
+                                                                      return "#chars:" + ssCp;
+                                                                    }
+                                                                    return "#chars:";
+                                                                  }
+                                                                  if ( ssOp == "array_length" ) {
+                                                                    return this.ssTaintOf(n.getSecond(), taint);
+                                                                  }
+                                                                  if ( this.ssIsCountOp(ssOp) ) {
+                                                                    const ssSubj = this.ssSubjectName(this.ssUnwrap(n.getSecond()));
+                                                                    if ( ssSubj.length > 0 ) {
+                                                                      return ssSubj;
+                                                                    }
+                                                                    return "#?";
+                                                                  }
+                                                                  if ( this.ssIsArith(ssOp) ) {
+                                                                    let ssAcc = "#lit";
+                                                                    let ssAi = 1;
+                                                                    while (ssAi < n.children.length) {
+                                                                      const ssPart = this.ssTaintOf(n.children[ssAi], taint);
+                                                                      ssAcc = this.ssMergeTaint(ssAcc, ssPart);
+                                                                      ssAi = ssAi + 1;
+                                                                    };
+                                                                    return ssAcc;
+                                                                  }
+                                                                  return "#?";
+                                                                };
+                                                                ssTieBound (vRaw, bound, taint) {
+                                                                  const v = this.ssUnwrap(vRaw);
+                                                                  if ( v.children.length > 0 ) {
+                                                                    return;
+                                                                  }
+                                                                  const ssNm = this.ssSubjectName(v);
+                                                                  if ( ssNm.length == 0 ) {
+                                                                    return;
+                                                                  }
+                                                                  const ssBt = this.ssTaintOf(bound, taint);
+                                                                  if ( ssBt == "#lit" ) {
+                                                                    return;
+                                                                  }
+                                                                  if ( ssBt == "#?" ) {
+                                                                    return;
+                                                                  }
+                                                                  let ssCur = "#?";
+                                                                  if ( ( typeof(taint[ssNm] ) != "undefined" && Object.prototype.hasOwnProperty.call(taint, ssNm) ) ) {
+                                                                    ssCur = ( Object.prototype.hasOwnProperty.call(taint, ssNm) ? taint[ssNm] : undefined );
+                                                                  }
+                                                                  if ( ssCur == "#lit" ) {
+                                                                    taint[ssNm] = ssBt;
+                                                                  }
+                                                                };
+                                                                ssTaintWalk (node, taint, indexed, zeroTested, litGuarded) {
+                                                                  if ( node.children.length >= 2 ) {
+                                                                    const ssFirst = node.getFirst();
+                                                                    const ssOp = ssFirst.vref;
+                                                                    if ( node.children.length >= 3 ) {
+                                                                      if ( ssOp == "def" || ssOp == "=" ) {
+                                                                        const ssLhs = node.getSecond();
+                                                                        const ssRhs = node.children[2];
+                                                                        const ssLnm = this.ssSubjectName(this.ssUnwrap(ssLhs));
+                                                                        const ssRlbl = this.ssTaintOf(ssRhs, taint);
+                                                                        if ( ssLnm.length > 0 ) {
+                                                                          taint[ssLnm] = ssRlbl;
+                                                                        }
+                                                                        if ( ssLhs.hasFlag("units") ) {
+                                                                          if ( ssRlbl != "#lit" && ssRlbl != "#?" ) {
+                                                                            indexed[ssRlbl] = true;
+                                                                          }
+                                                                        }
+                                                                      }
+                                                                      if ( this.ssIsCompare(ssOp) ) {
+                                                                        const ssL = node.getSecond();
+                                                                        const ssR = node.children[2];
+                                                                        this.ssTieBound(
+                                                                          ssL,
+                                                                          ssR,
+                                                                          taint
+                                                                        );
+                                                                        this.ssTieBound(
+                                                                          ssR,
+                                                                          ssL,
+                                                                          taint
+                                                                        );
+                                                                        this.ssNoteGuard(
+                                                                          ssL,
+                                                                          ssR,
+                                                                          taint,
+                                                                          zeroTested,
+                                                                          litGuarded
+                                                                        );
+                                                                        this.ssNoteGuard(
+                                                                          ssR,
+                                                                          ssL,
+                                                                          taint,
+                                                                          zeroTested,
+                                                                          litGuarded
+                                                                        );
+                                                                        const ssLl = this.ssTaintOf(ssL, taint);
+                                                                        const ssRl = this.ssTaintOf(ssR, taint);
+                                                                        const ssLreal = ssLl != "#lit" && ssLl != "#?";
+                                                                        const ssRreal = ssRl != "#lit" && ssRl != "#?";
+                                                                        if ( ssLreal && ssRreal ) {
+                                                                          if ( ssLl == ssRl ) {
+                                                                            zeroTested[ssLl] = true;
+                                                                          } else {
+                                                                            litGuarded[ssLl] = true;
+                                                                            litGuarded[ssRl] = true;
+                                                                          }
+                                                                        }
+                                                                      }
+                                                                    }
+                                                                    const ssIk = this.strictStringsOpKind(ssOp);
+                                                                    if ( ssIk == "charAt" || ssIk == "substring" ) {
+                                                                      let ssAi = 2;
+                                                                      while (ssAi < node.children.length) {
+                                                                        const ssLbl = this.ssTaintOf(node.children[ssAi], taint);
+                                                                        if ( ssLbl != "#lit" && ssLbl != "#?" ) {
+                                                                          indexed[ssLbl] = true;
+                                                                        }
+                                                                        ssAi = ssAi + 1;
+                                                                      };
+                                                                    }
+                                                                  }
+                                                                  for ( const ssCh of node.children) {
+                                                                    this.ssTaintWalk(
+                                                                      ssCh,
+                                                                      taint,
+                                                                      indexed,
+                                                                      zeroTested,
+                                                                      litGuarded
+                                                                    );
+                                                                  }
+                                                                };
+                                                                ssCollectVars (n, out) {
+                                                                  if ( n.children.length == 0 ) {
+                                                                    const ssVn = this.ssSubjectName(n);
+                                                                    if ( ssVn.length > 0 ) {
+                                                                      out[ssVn] = true;
+                                                                    }
+                                                                    return;
+                                                                  }
+                                                                  for ( const ssC of n.children) {
+                                                                    this.ssCollectVars(ssC, out);
+                                                                  }
+                                                                };
+                                                                ssRefsAny (n, names) {
+                                                                  if ( n.children.length == 0 ) {
+                                                                    const ssRn = this.ssSubjectName(n);
+                                                                    if ( ssRn.length > 0 ) {
+                                                                      if ( ( typeof(names[ssRn] ) != "undefined" && Object.prototype.hasOwnProperty.call(names, ssRn) ) ) {
+                                                                        return true;
+                                                                      }
+                                                                    }
+                                                                    return false;
+                                                                  }
+                                                                  for ( const ssC of n.children) {
+                                                                    if ( this.ssRefsAny(ssC, names) ) {
+                                                                      return true;
+                                                                    }
+                                                                  }
+                                                                  return false;
+                                                                };
+                                                                ssCollectLabels (n, taint, out) {
+                                                                  const ssL = this.ssTaintOf(n, taint);
+                                                                  if ( ssL != "#lit" && ssL != "#?" ) {
+                                                                    out[ssL] = true;
+                                                                  }
+                                                                  for ( const ssC of n.children) {
+                                                                    this.ssCollectLabels(
+                                                                      ssC,
+                                                                      taint,
+                                                                      out
+                                                                    );
+                                                                  }
+                                                                };
+                                                                ssIndexVarWalk (node, idxVars) {
+                                                                  if ( node.children.length >= 2 ) {
+                                                                    const ssF = node.getFirst();
+                                                                    const ssK = this.strictStringsOpKind(ssF.vref);
+                                                                    if ( ssK == "charAt" || ssK == "substring" ) {
+                                                                      let ssAi = 2;
+                                                                      while (ssAi < node.children.length) {
+                                                                        this.ssCollectVars(node.children[ssAi], idxVars);
+                                                                        ssAi = ssAi + 1;
+                                                                      };
+                                                                    }
+                                                                  }
+                                                                  for ( const ssCh of node.children) {
+                                                                    this.ssIndexVarWalk(ssCh, idxVars);
+                                                                  }
+                                                                };
+                                                                ssBoundWalk (node, taint, idxVars, indexed) {
+                                                                  if ( node.children.length >= 3 ) {
+                                                                    const ssF = node.getFirst();
+                                                                    if ( this.ssIsCompare(ssF.vref) ) {
+                                                                      const ssL = node.getSecond();
+                                                                      const ssR = node.children[2];
+                                                                      if ( this.ssRefsAny(ssL, idxVars) ) {
+                                                                        this.ssCollectLabels(
+                                                                          ssR,
+                                                                          taint,
+                                                                          indexed
+                                                                        );
+                                                                      }
+                                                                      if ( this.ssRefsAny(ssR, idxVars) ) {
+                                                                        this.ssCollectLabels(
+                                                                          ssL,
+                                                                          taint,
+                                                                          indexed
+                                                                        );
+                                                                      }
+                                                                    }
+                                                                  }
+                                                                  for ( const ssCh of node.children) {
+                                                                    this.ssBoundWalk(
+                                                                      ssCh,
+                                                                      taint,
+                                                                      idxVars,
+                                                                      indexed
+                                                                    );
+                                                                  }
+                                                                };
+                                                                ssNoteGuard (v, lit, taint, zeroTested, litGuarded) {
+                                                                  if ( this.ssIsIntLiteral(lit) == false ) {
+                                                                    return;
+                                                                  }
+                                                                  const ssLbl = this.ssTaintOf(v, taint);
+                                                                  if ( ssLbl == "#lit" || ssLbl == "#?" ) {
+                                                                    return;
+                                                                  }
+                                                                  if ( this.ssIsZeroLiteral(lit) ) {
+                                                                    zeroTested[ssLbl] = true;
+                                                                  } else {
+                                                                    litGuarded[ssLbl] = true;
+                                                                  }
+                                                                };
+                                                                ssReportWalk (node, fnName, taint, indexed, zeroTested, litGuarded, sizeTest, fnUnits) {
                                                                   if ( node.children.length >= 2 ) {
                                                                     const ssFc = node.getFirst();
                                                                     const ssKind = this.strictStringsOpKind(ssFc.vref);
                                                                     if ( ssKind.length > 0 ) {
-                                                                      const ssSub = node.getSecond();
+                                                                      const ssSubRaw = node.getSecond();
+                                                                      const ssSub = this.ssUnwrap(ssSubRaw);
                                                                       let ssIsString = false;
+                                                                      if ( ssSubRaw.eval_type == 4 ) {
+                                                                        ssIsString = true;
+                                                                      }
                                                                       if ( ssSub.eval_type == 4 ) {
                                                                         ssIsString = true;
                                                                       }
                                                                       if ( ssSub.value_type == 4 ) {
                                                                         ssIsString = true;
+                                                                      }
+                                                                      if ( ssSubRaw.eval_type == 15 ) {
+                                                                        ssIsString = false;
                                                                       }
                                                                       if ( ssSub.eval_type == 15 ) {
                                                                         ssIsString = false;
@@ -84044,6 +84447,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                                       if ( ssIsString ) {
                                                                         this.strictStringsTotal = this.strictStringsTotal + 1;
                                                                         let ssProved = false;
+                                                                        let ssGuard = false;
+                                                                        let ssReason = "";
                                                                         if ( ssSub.value_type == 4 ) {
                                                                           if ( ssSub.children.length == 0 ) {
                                                                             if ( this.stringIsAsciiOnly(ssSub.string_value) ) {
@@ -84051,28 +84456,112 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                                             }
                                                                           }
                                                                         }
+                                                                        const ssSubj = this.ssSubjectName(ssSub);
                                                                         if ( ssProved == false ) {
-                                                                          this.strictStringsRisky = this.strictStringsRisky + 1;
+                                                                          if ( ssKind == "strlen" ) {
+                                                                            if ( sizeTest ) {
+                                                                              ssProved = true;
+                                                                            }
+                                                                            if ( fnUnits ) {
+                                                                              ssProved = true;
+                                                                            }
+                                                                            if ( ssSubj.length > 0 ) {
+                                                                              if ( ( typeof(indexed[ssSubj] ) != "undefined" && Object.prototype.hasOwnProperty.call(indexed, ssSubj) ) ) {
+                                                                                ssProved = true;
+                                                                              }
+                                                                              if ( ( typeof(zeroTested[ssSubj] ) != "undefined" && Object.prototype.hasOwnProperty.call(zeroTested, ssSubj) ) ) {
+                                                                                ssProved = true;
+                                                                              }
+                                                                              if ( ssProved == false ) {
+                                                                                if ( ( typeof(litGuarded[ssSubj] ) != "undefined" && Object.prototype.hasOwnProperty.call(litGuarded, ssSubj) ) ) {
+                                                                                  ssGuard = true;
+                                                                                }
+                                                                              }
+                                                                            }
+                                                                            if ( ssProved == false ) {
+                                                                              ssReason = "a length that indexes nothing, so it is a count of characters";
+                                                                              if ( ssGuard ) {
+                                                                                ssReason = "a length compared against a constant: a size guard, not a count";
+                                                                              }
+                                                                            }
+                                                                          } else {
+                                                                            if ( ssKind == "charcode" ) {
+                                                                              ssReason = "the first unit of text that is not an ASCII literal";
+                                                                            } else {
+                                                                              let ssBad = "";
+                                                                              let ssArgi = 2;
+                                                                              while (ssArgi < node.children.length) {
+                                                                                const ssAt = this.ssTaintOf(node.children[ssArgi], taint);
+                                                                                if ( this.ssIsCodePointLabel(ssAt) ) {
+                                                                                  if ( ssBad.length == 0 ) {
+                                                                                    ssBad = ssAt;
+                                                                                  }
+                                                                                }
+                                                                                ssArgi = ssArgi + 1;
+                                                                              };
+                                                                              if ( ssBad.length == 0 ) {
+                                                                                ssProved = true;
+                                                                              } else {
+                                                                                ssReason = ("a code-point offset used where " + ssSubj) + " is indexed in the target's own unit";
+                                                                              }
+                                                                            }
+                                                                          }
+                                                                        }
+                                                                        if ( ssProved ) {
+                                                                          this.strictStringsSafe = this.strictStringsSafe + 1;
+                                                                        } else {
                                                                           const ssFile = ssFc.getFilename();
                                                                           const ssLine = ssFc.getLine() + 1;
-                                                                          let ssSubj = ssSub.vref;
-                                                                          if ( ssSubj.length == 0 ) {
-                                                                            ssSubj = "<expr>";
+                                                                          let ssShow = ssSubj;
+                                                                          if ( ssShow.length == 0 ) {
+                                                                            ssShow = "<expr>";
                                                                           }
-                                                                          console.log((((((((("strict-strings " + ssFile) + ":") + (ssLine.toString())) + " ") + ssKind) + "(") + ssSubj) + ") in ") + fnName);
-                                                                          if ( ( typeof(this.strictStringsFiles[ssFile] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.strictStringsFiles, ssFile) ) ) {
-                                                                            const ssPrev = ( Object.prototype.hasOwnProperty.call(this.strictStringsFiles, ssFile) ? this.strictStringsFiles[ssFile] : undefined );
-                                                                            this.strictStringsFiles[ssFile] = ssPrev + 1;
+                                                                          let ssTag = "strict-strings ";
+                                                                          if ( ssGuard ) {
+                                                                            ssTag = "strict-strings note ";
+                                                                          }
+                                                                          const ssMsg = (((((((((ssTag + ssFile) + ":") + (ssLine.toString())) + " ") + ssKind) + "(") + ssShow) + ") in ") + fnName) + " -- ";
+                                                                          if ( ssGuard ) {
+                                                                            this.strictStringsGuards = this.strictStringsGuards + 1;
+                                                                            this.strictStringsNotes.push(ssMsg + ssReason);
                                                                           } else {
-                                                                            this.strictStringsFiles[ssFile] = 1;
-                                                                            this.strictStringsFileOrder.push(ssFile);
+                                                                            this.strictStringsRisky = this.strictStringsRisky + 1;
+                                                                            console.log(ssMsg + ssReason);
+                                                                            if ( ( typeof(this.strictStringsFiles[ssFile] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.strictStringsFiles, ssFile) ) ) {
+                                                                              const ssPrev = ( Object.prototype.hasOwnProperty.call(this.strictStringsFiles, ssFile) ? this.strictStringsFiles[ssFile] : undefined );
+                                                                              this.strictStringsFiles[ssFile] = ssPrev + 1;
+                                                                            } else {
+                                                                              this.strictStringsFiles[ssFile] = 1;
+                                                                              this.strictStringsFileOrder.push(ssFile);
+                                                                            }
                                                                           }
                                                                         }
                                                                       }
                                                                     }
                                                                   }
+                                                                  let ssCmpZero = false;
+                                                                  if ( node.children.length == 1 ) {
+                                                                    ssCmpZero = sizeTest;
+                                                                  }
+                                                                  if ( node.children.length >= 3 ) {
+                                                                    const ssCop = node.getFirst().vref;
+                                                                    if ( this.ssIsCompare(ssCop) ) {
+                                                                      if ( this.ssIsZeroLiteral(node.getSecond()) || this.ssIsZeroLiteral(node.children[2]) ) {
+                                                                        ssCmpZero = true;
+                                                                      }
+                                                                    }
+                                                                  }
                                                                   for ( const ssCh of node.children) {
-                                                                    this.strictStringsWalk(ssCh, fnName);
+                                                                    this.ssReportWalk(
+                                                                      ssCh,
+                                                                      fnName,
+                                                                      taint,
+                                                                      indexed,
+                                                                      zeroTested,
+                                                                      litGuarded,
+                                                                      ssCmpZero,
+                                                                      fnUnits
+                                                                    );
                                                                   }
                                                                 };
                                                                 strictStringsScanFns (fns, clName) {
@@ -84084,7 +84573,42 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                                     if ( typeof(ssBodyO) === "undefined" ) {
                                                                       continue;
                                                                     }
-                                                                    this.strictStringsWalk(ssBodyO, (clName + ".") + ssM.name);
+                                                                    const ssBody = ssBodyO;
+                                                                    let ssFnUnits = false;
+                                                                    const ssNameNodeO = ssM.nameNode;
+                                                                    if ( (typeof(ssNameNodeO) !== "undefined" && ssNameNodeO != null )  ) {
+                                                                      const ssNameNode = ssNameNodeO;
+                                                                      ssFnUnits = ssNameNode.hasFlag("units");
+                                                                    }
+                                                                    let ssTaint = {};
+                                                                    let ssIndexed = {};
+                                                                    let ssZeroTested = {};
+                                                                    let ssLitGuarded = {};
+                                                                    let ssIdxVars = {};
+                                                                    this.ssTaintWalk(
+                                                                      ssBody,
+                                                                      ssTaint,
+                                                                      ssIndexed,
+                                                                      ssZeroTested,
+                                                                      ssLitGuarded
+                                                                    );
+                                                                    this.ssIndexVarWalk(ssBody, ssIdxVars);
+                                                                    this.ssBoundWalk(
+                                                                      ssBody,
+                                                                      ssTaint,
+                                                                      ssIdxVars,
+                                                                      ssIndexed
+                                                                    );
+                                                                    this.ssReportWalk(
+                                                                      ssBody,
+                                                                      (clName + ".") + ssM.name,
+                                                                      ssTaint,
+                                                                      ssIndexed,
+                                                                      ssZeroTested,
+                                                                      ssLitGuarded,
+                                                                      false,
+                                                                      ssFnUnits
+                                                                    );
                                                                   }
                                                                 };
                                                                 analyzeStringIndexing () {
@@ -84102,15 +84626,31 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                                       this.strictStringsScanFns(ssCl.static_methods, ssCl.name);
                                                                     } };
                                                                     console.log("");
-                                                                    console.log(((((("strict-strings: " + (this.strictStringsRisky.toString())) + " of ") + (this.strictStringsTotal.toString())) + " string index sites are not an ASCII literal, in ") + (this.strictStringsFileOrder.length.toString())) + " files");
+                                                                    console.log(((((("strict-strings: " + (this.strictStringsRisky.toString())) + " of ") + (this.strictStringsTotal.toString())) + " string index sites read a unit the program can observe, in ") + (this.strictStringsFileOrder.length.toString())) + " files");
                                                                     for ( const ssF of this.strictStringsFileOrder) {
                                                                       const ssCnt = ( Object.prototype.hasOwnProperty.call(this.strictStringsFiles, ssF) ? this.strictStringsFiles[ssF] : undefined );
                                                                       console.log((("  " + (ssCnt.toString())) + "  ") + ssF);
                                                                     }
+                                                                    if ( this.strictStringsNotes.length > 0 ) {
+                                                                      console.log("");
+                                                                      for ( const ssN of this.strictStringsNotes) {
+                                                                        console.log(ssN);
+                                                                      }
+                                                                    }
                                                                     console.log("");
-                                                                    console.log("  A site is only proved safe when its subject is an ASCII string");
-                                                                    console.log("  literal, so this is an upper bound. `to_chars` is the portable");
-                                                                    console.log("  view; docs/plans/PLAN_STRING_INDEXING.md has the rest.");
+                                                                    console.log(("  " + (this.strictStringsGuards.toString())) + " more are a length against a constant or against another length:");
+                                                                    console.log("  a guard on structure rather than a count of text. Listed as notes");
+                                                                    console.log("  above, because the number still differs per target.");
+                                                                    console.log("");
+                                                                    console.log(("  " + (this.strictStringsSafe.toString())) + " sites are self-consistent and not listed: an ASCII literal, an");
+                                                                    console.log("  emptiness test, a length that indexes some string, an index that");
+                                                                    console.log("  bounds a scan, or a site marked @(units) by hand.");
+                                                                    console.log("");
+                                                                    console.log("  `char_length` is the portable count and `to_chars` the portable");
+                                                                    console.log("  index. What this cannot follow is provenance across a function");
+                                                                    console.log("  boundary: a position held in a field or passed in as a parameter");
+                                                                    console.log("  is where `@(units)` is for.");
+                                                                    console.log("  docs/plans/PLAN_STRING_INDEXING.md 3.3 has the rest.");
                                                                   };
                                                                   computeTraitReentrancy () {
                                                                     if ( typeof(this.ctx) === "undefined" ) {
@@ -87458,6 +87998,17 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                                                                   wr
                                                                                                 );
                                                                                               };
+
+function r_char_length(s) {
+    let n = 0;
+    for (let i = 0; i < s.length; i++) {
+        const c = s.charCodeAt(i);
+        if (c >= 0xDC00 && c <= 0xDFFF) { continue; }
+        n++;
+    }
+    return n;
+}
+
 
 // A charbuffer is UTF-8 bytes on every target, so it is a Uint8Array here
 // rather than the string it used to be. One encoder and one decoder for the

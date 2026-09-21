@@ -247,11 +247,32 @@ actually does, and `tests/string-units.test.ts` pins it. Write ASCII-only
 scans with `charAt`, use `to_chars` for text that may not be ASCII, and see
 `docs/plans/PLAN_STRING_INDEXING.md` for the rest.
 
-`-strict-strings` lists the index sites in a program whose subject is not an
-ASCII literal, with file, line and a per-file count — the ones worth reading
-once to decide whether they walk structure or text.
+`-strict-strings` lists the sites where the unit is *observable* — where the
+answer, not just the number, changes with the target. It proves the rest
+quiet: an ASCII literal, `(strlen s) == 0`, a length that indexes some
+string, an index that bounds a scan. What is left is a length nothing
+indexes with (a column, a width, a padding count) or a code-point offset
+handed to `charAt`. A length compared against a constant or against another
+length is listed separately as a note. The compiler itself reports zero.
 
-Two explicit conversions DO mean the same thing everywhere. `to_chars` is
+Where the provenance crosses a function boundary — a scan position held in a
+field, a length handed in as a parameter — the pass cannot follow it. Say so
+in the source and it stops asking:
+
+```ranger
+def srcLen@(units):int (strlen src)   ; a position, checked
+fn getColumn@(units):int (sp:int) {   ; ...or a whole function
+```
+
+Three explicit conversions DO mean the same thing everywhere. `char_length`
+is the count of characters — code points — for anything a person sees:
+
+```ranger
+def w:int (char_length line)         ; a column: same number everywhere
+def n:int (strlen line)              ; a scan bound: the target's own unit
+```
+
+`to_chars` is
 the portable indexable view — Unicode code points, built once in O(n) and
 read in O(1) — and is what text a human wrote should be walked with:
 

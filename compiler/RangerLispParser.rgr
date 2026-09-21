@@ -90,7 +90,6 @@ class RangerLispParser {
   }
   
   fn joo:void ( cm@(lives):SourceCode) {
-    def ll:int ( strlen cm.code)
   }
     
   fn parse_raw_annotation:CodeNode () {

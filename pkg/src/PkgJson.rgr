@@ -24,7 +24,11 @@ class PkgJson {
     fn parse:PkgVal (src:string) {
         text = src
         i = 0
-        n = (strlen src)
+        ; the bound of the scan the other methods run over `text`, in the
+        ; same units their `charAt` reads: a position, not a count of
+        ; characters. docs/plans/PLAN_STRING_INDEXING.md 3.3.
+        def srcLen@(units):int (strlen src)
+        n = srcLen
         ok = true
         err = ""
         this.skip()

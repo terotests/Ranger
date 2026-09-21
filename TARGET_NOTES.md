@@ -1246,6 +1246,34 @@ in two families: C++, PHP, Rust and Go index the UTF-8 byte, and JavaScript,
 Python, Java, C# and Kotlin index the UTF-16 code unit (Python the code
 point, which is the same thing below U+10000).
 
+### A column is not a length — `char_length`, and the four places that got it wrong
+
+Every target is internally consistent, and they disagree with each other. That
+is fine for a scan, which reads the same characters either way, and wrong the
+moment a number is shown to somebody. `char_length` is the count that does not
+move: Unicode code points on all fourteen targets, the length of `(to_chars s)`
+without building the array, and exactly `strlen` for ASCII.
+
+`-strict-strings` found four places in the compiler where `strlen` was standing
+in for it, each one visible in the output rather than in a crash:
+
+- the CLI progress bar padded to a different column depending on which build of
+  the compiler drew it;
+- `formatSource` wrapped the same file in different places — a comment holding
+  an em dash is one column wide under Node and three in the Rust and Go
+  self-hosts, so the formatter's own output was not reproducible;
+- `columnNumber`, which goes into error messages and into the source map;
+- `(cc N)`, which burns a character code into generated source: `charcode`
+  there answered 8212 under Node and 226 natively, so the self-hosts would
+  stop producing byte-identical output for any template with a non-ASCII
+  literal.
+
+The flag reports zero on the compiler now, and `tests/strict-strings.test.ts`
+keeps it there. Where the pass cannot follow a position across a function
+boundary — held in a field, or arriving as a parameter — the source says
+`@(units)` on the `def` or on the function, so the claim sits next to the code
+making it.
+
 ### A compiler whose own strings are bytes wrote every literal twice encoded
 
 Found by building the C++ self-host and running it: it emitted `"a-em-dash-b"`

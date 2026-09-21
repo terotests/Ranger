@@ -45,6 +45,9 @@ interface Units {
   bmpCharCodes: string;
   astralChars: number;
   astralCharCodes: string;
+  /** `char_length` — the same count without building the array. */
+  bmpCharLen: number;
+  astralCharLen: number;
 }
 
 function parse(stdout: string): Units {
@@ -63,6 +66,8 @@ function parse(stdout: string): Units {
     bmpCharCodes: line("bmp charcodes"),
     astralChars: Number(line("astral chars")),
     astralCharCodes: line("astral charcodes"),
+    bmpCharLen: Number(line("bmp charlen")),
+    astralCharLen: Number(line("astral charlen")),
   };
 }
 
@@ -218,6 +223,17 @@ describe("to_chars means one thing everywhere", () => {
       expect(u.bmpCharCodes).toBe(CHARS.bmpCharCodes);
       expect(u.astralChars).toBe(CHARS.astralChars);
       expect(u.astralCharCodes).toBe(CHARS.astralCharCodes);
+    });
+
+    it(`${target} counts the same characters without the array`, (ctx) => {
+      const u = measure(target);
+      if (!u) return ctx.skip();
+      // `char_length` exists so a column or a width can be asked for
+      // without allocating `to_chars`. It is only useful if it is the same
+      // number, including above the BMP where `strlen` is 4, 3 or 6.
+      expect(u.bmpCharLen).toBe(u.bmpChars);
+      expect(u.astralCharLen).toBe(u.astralChars);
+      expect(u.astralCharLen).toBe(CHARS.astralChars);
     });
   }
 

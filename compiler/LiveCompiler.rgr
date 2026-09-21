@@ -881,6 +881,23 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
             wr.outMapped(arg.string_value arg false "")
           }
         }
+        ; `(estr N)` is `(str N)` with the target's own string escaping
+        ; applied and still no quotes of its own: for a position that is a
+        ; PATTERN rather than an expression. A Rust match arm cannot take the
+        ; `.to_string()` a literal gets in expression position, and a raw
+        ; quote, backslash or newline in the literal ends the pattern early --
+        ; `switch piece { case "\"" ... }` wrote `"""` and rustc read three
+        ; tokens where one was meant.
+        case "estr" {
+          def idx:int cmdArg.int_value
+          if ((array_length node.children) > idx) {
+            def arg:CodeNode (itemAt node.children idx)
+            while (arg.expression && ((array_length arg.children) == 1)) {
+              arg = (arg.getFirst())
+            }
+            wr.outMapped((langWriter.EncodeString(arg ctx wr)) arg false "")
+          }
+        }
         case "block" {
           def idx:int cmdArg.int_value
           if ((array_length node.children) > idx) {
@@ -922,8 +939,18 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
           def idx:int cmdArg.int_value
           if ((array_length node.children) > idx) {
             def arg:CodeNode (itemAt node.children idx)
-            def cc:char (charcode arg.string_value)
-            wr.out(("" + (to_int cc)) false)
+            ; `(cc N)` burns a character code into the generated source, so
+            ; the number must not depend on which build of this compiler
+            ; wrote it: `charcode` here would answer 8212 for an em dash
+            ; under Node and 226 in the Rust and Go self-hosts, and the two
+            ; outputs would stop being byte-identical. `to_chars` is the code
+            ; point on every host.
+            def ccChars:[int] (to_chars arg.string_value)
+            def ccVal:int 0
+            if ((array_length ccChars) > 0) {
+              ccVal = (itemAt ccChars 0)
+            }
+            wr.out(("" + ccVal) false)
           }
         }
         case "optional_option" {
