@@ -194,15 +194,23 @@ describe("Generic classes (monomorphised)", () => {
           expect(normalize(out)).toBe(c.expected);
         });
 
+        // Native toolchains share the default 30s vitest budget with es6/python.
+        // `generic_class`'s rustc -O leg timed out on CI at that budget;
+        // compiler-ownership already gives rustc 120s without -O. This suite
+        // compares printed output, so the C++ and Rust builds stay unoptimized
+        // like each other. `go run` had a 300s execSync timeout that still
+        // lost to the 30s testTimeout — the budget is on the `it` now.
+        const nativeMs = 120000;
+
         it.skipIf(!have("go"))("go", () => {
           const file = compileTo(c, "go", "go");
           const out = execSync(`go run "${file}"`, {
             encoding: "utf-8",
             cwd: ROOT,
-            timeout: 300000,
+            timeout: nativeMs,
           });
           expect(normalize(out)).toBe(c.expected);
-        });
+        }, nativeMs);
 
         it.skipIf(!have("python3"))("python", () => {
           const file = compileTo(c, "python", "py");
@@ -219,20 +227,26 @@ describe("Generic classes (monomorphised)", () => {
         it.skipIf(!have("g++"))("cpp", () => {
           const file = compileTo(c, "cpp", "cpp");
           const bin = path.join(OUT, `${c.name}_cpp.bin`);
-          execSync(`g++ -std=c++17 -o "${bin}" "${file}"`, { stdio: "pipe" });
+          execSync(`g++ -std=c++17 -o "${bin}" "${file}"`, {
+            stdio: "pipe",
+            timeout: nativeMs,
+          });
           const out = execSync(`"${bin}"`, { encoding: "utf-8" });
           expect(normalize(out)).toBe(c.expected);
-        });
+        }, nativeMs);
 
         // The codegen assertion above still covers Rust when the RUN is
         // skipped; `skipRun` names a target defect, never a missing feature.
         it.skipIf(!have("rustc") || !!skipped("rust"))("rust", () => {
           const file = compileTo(c, "rust", "rs");
           const bin = path.join(OUT, `${c.name}_rust.bin`);
-          execSync(`rustc -O -o "${bin}" "${file}"`, { stdio: "pipe" });
+          execSync(`rustc -o "${bin}" "${file}"`, {
+            stdio: "pipe",
+            timeout: nativeMs,
+          });
           const out = execSync(`"${bin}"`, { encoding: "utf-8" });
           expect(normalize(out)).toBe(c.expected);
-        });
+        }, nativeMs);
 
         // LLVM runs every line that does not hold a nested array. The array
         // one is left out on purpose and NOT because generics broke it:
@@ -254,7 +268,7 @@ describe("Generic classes (monomorphised)", () => {
               "runtime",
               "ranger_mem.c"
             )}" -o "${bin}" -Wno-override-module`,
-            { stdio: "pipe" }
+            { stdio: "pipe", timeout: nativeMs }
           );
           const got = normalize(execSync(`"${bin}"`, { encoding: "utf-8" })).split(
             "\n"
@@ -273,7 +287,7 @@ describe("Generic classes (monomorphised)", () => {
               `llvm lost the nested-array line entirely: wanted "${head} …"`
             ).toBe(true);
           }
-        });
+        }, nativeMs);
       });
     });
   }
