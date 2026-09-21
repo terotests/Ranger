@@ -12,6 +12,9 @@ export const PAGES_ORIGIN = "https://terotests.github.io";
 export const PAGES_PATH = "/Ranger/rangerflow";
 export const DEFAULT_HEIGHT_PX = 650;
 export const DOC_KEY = "rf";
+export const EMBED_SIZE_TYPE = "rangerflow:embed-size";
+export const PLACEHOLDER_APP_ID =
+  "ari:cloud:ecosystem::app/00000000-0000-4000-8000-000000000000";
 
 /** URL patterns the Forge macro registers for paste-to-embed. Hash is not
  *  part of a matcher: Confluence matches the URL and hands the whole paste,
@@ -115,4 +118,26 @@ export function matchesAutoConvert(raw) {
   u.hash = "";
   const withoutHash = u.toString().replace(/#$/, "");
   return AUTO_CONVERT_PATTERNS.some((p) => patternToRegExp(p).test(withoutHash));
+}
+
+/** Origins allowed to tell the macro how tall the diagram is. */
+export function isTrustedEmbedOrigin(origin) {
+  let u;
+  try {
+    u = new URL(String(origin));
+  } catch {
+    return false;
+  }
+  if (u.protocol === "https:" && u.hostname === "terotests.github.io") return true;
+  if ((u.protocol === "http:" || u.protocol === "https:") &&
+      (u.hostname === "localhost" || u.hostname === "127.0.0.1")) return true;
+  return false;
+}
+
+export function clampEmbedHeight(height) {
+  const n = Math.round(Number(height));
+  if (!Number.isFinite(n)) return DEFAULT_HEIGHT_PX;
+  if (n < 280) return 280;
+  if (n > 1400) return 1400;
+  return n;
 }

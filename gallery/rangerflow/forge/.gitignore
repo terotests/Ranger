@@ -1,2 +1,24 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# Built and generated locally — not committed. From this directory:
+#   npm install
+#   npm run build
+#   npm run login && npm run register && npm run deploy && npm run install:confluence
+
+# npm
 node_modules/
+npm-debug.log*
+yarn-error.log
+
+# Custom UI bundle: `npm run build` writes @forge/bridge into this file.
 static/rangerflow/macro.js
+static/rangerflow/macro.js.map
+
+# Forge CLI working copy
+.forge/
+forge-environment.json
+*.tgz
+
+# Editor / OS
+.DS_Store
+*.log
