@@ -1,12 +1,6 @@
-#![allow(unused_parens)]
-#![allow(unused_mut)]
-#![allow(unused_variables)]
-#![allow(unused_assignments)]
 #![allow(dead_code)]
-// The clippy allows below cover shapes that mirror the Ranger source
-// itself, which the transpiler must not rewrite or rename.
-#![allow(clippy::collapsible_if)]
-#![allow(clippy::ptr_arg)]
+#![allow(unused_assignments)]
+#![allow(unused_mut)]
 
 use std::rc::Rc;
 use std::cell::RefCell;
@@ -29,7 +23,7 @@ struct Point {
 }
 impl Point {
   pub fn new() -> Self {
-    Point {
+    Self {
       x: 0,
       y: 0,
     }
@@ -40,7 +34,7 @@ struct OptionalParams {
 }
 impl OptionalParams {
   pub fn new() -> Self {
-    OptionalParams {
+    Self {
     }
   }
   fn shown(maybe: Option<String>) -> String {
@@ -56,7 +50,7 @@ impl OptionalParams {
     let r: i64 = a.unwrap();
     r
   }
-  fn shown_point(&self, mut p: Option<Rc<RefCell<Point>>>) -> i64 {
+  fn shown_point(&self, p: Option<Rc<RefCell<Point>>>) -> i64 {
     if  p.is_none() {
       return 0;
     }
@@ -70,7 +64,7 @@ fn main() {
   __rg_main_thread.join().expect("main thread panicked");
 }
 fn __rg_main_body() {
-  let mut app: OptionalParams = OptionalParams::new();
+  let app: OptionalParams = OptionalParams::new();
   let mut hit: Option<String> = None;
   hit = Some("ada".to_string());
   println!("name {}", OptionalParams::shown(hit.clone()));

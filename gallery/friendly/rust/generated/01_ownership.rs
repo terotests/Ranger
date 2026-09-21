@@ -1,12 +1,5 @@
-#![allow(unused_parens)]
-#![allow(unused_mut)]
-#![allow(unused_variables)]
-#![allow(unused_assignments)]
 #![allow(dead_code)]
-// The clippy allows below cover shapes that mirror the Ranger source
-// itself, which the transpiler must not rewrite or rename.
-#![allow(clippy::collapsible_if)]
-#![allow(clippy::ptr_arg)]
+#![allow(unused_mut)]
 
 use std::rc::Rc;
 use std::rc::Weak;
@@ -30,7 +23,7 @@ struct Point {
 }
 impl Point {
   pub fn new(x: i64, y: i64) -> Self {
-    let mut me = Point {
+    let mut me = Self {
       x: 0,
       y: 0,
     };
@@ -44,7 +37,7 @@ struct PointOps {
 }
 impl PointOps {
   pub fn new() -> Self {
-    PointOps {
+    Self {
     }
   }
   fn manhattan(&self, p: &Point) -> i64 {
@@ -68,7 +61,7 @@ struct Counter {
 }
 impl Counter {
   pub fn new() -> Self {
-    Counter {
+    Self {
       value: 0,
     }
   }
@@ -87,13 +80,13 @@ struct TreeNode {
 }
 impl TreeNode {
   pub fn new() -> Self {
-    TreeNode {
+    Self {
       name: "",
       kids: Vec::new(),
       parent: None,
     }
   }
-  fn adopt(__self_rc: &Rc<RefCell<TreeNode>>, mut c: Rc<RefCell<TreeNode>>) {
+  fn adopt(__self_rc: &Rc<RefCell<TreeNode>>, c: Rc<RefCell<TreeNode>>) {
     c.borrow_mut().parent = Some(Rc::downgrade(__self_rc));
     __self_rc.borrow_mut().kids.push(c.clone());
   }
@@ -106,7 +99,7 @@ struct OwnershipMain {
 }
 impl OwnershipMain {
   pub fn new() -> Self {
-    OwnershipMain {
+    Self {
     }
   }
 }
@@ -116,10 +109,10 @@ fn main() {
   __rg_main_thread.join().expect("main thread panicked");
 }
 fn __rg_main_body() {
-  let mut ops: PointOps = PointOps::new();
-  let mut origin: Point = Point::new(3, 4);
+  let ops: PointOps = PointOps::new();
+  let origin: Point = Point::new(3, 4);
   println!("manhattan {}", ops.manhattan(&origin));
-  let mut summed: Point = ops.add_points(&origin, &origin);
+  let summed: Point = ops.add_points(&origin, &origin);
   println!("sum.x {}", summed.x);
   let mut left: Rc<RefCell<Counter>> = Rc::new(RefCell::new(Counter::new()));
   let mut alias: Rc<RefCell<Counter>> = left.clone();

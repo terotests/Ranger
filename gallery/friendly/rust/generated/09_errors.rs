@@ -1,12 +1,5 @@
-#![allow(unused_parens)]
-#![allow(unused_mut)]
-#![allow(unused_variables)]
-#![allow(unused_assignments)]
 #![allow(dead_code)]
-// The clippy allows below cover shapes that mirror the Ranger source
-// itself, which the transpiler must not rewrite or rename.
-#![allow(clippy::collapsible_if)]
-#![allow(clippy::ptr_arg)]
+#![allow(unused_assignments)]
 
 use std::rc::Rc;
 use std::cell::RefCell;
@@ -43,7 +36,7 @@ struct Guarded_Ok {
 }
 impl Guarded_Ok {
   pub fn new(value: i64) -> Self {
-    let mut me = Guarded_Ok {
+    let mut me = Self {
       value: 0,
     };
     me.value = value;
@@ -56,8 +49,8 @@ struct Guarded_Err {
 }
 impl Guarded_Err {
   pub fn new(message: String) -> Self {
-    let mut me = Guarded_Err {
-      message: "".to_string(),
+    let mut me = Self {
+      message: String::new(),
     };
     me.message = message.clone();
     me
@@ -68,7 +61,7 @@ struct Guarded__ops {
 }
 impl Guarded__ops {
   pub fn new() -> Self {
-    Guarded__ops {
+    Self {
     }
   }
   pub fn equals(a: &union_Guarded, b: &union_Guarded) -> bool {
@@ -104,7 +97,7 @@ struct Guard {
 }
 impl Guard {
   pub fn new() -> Self {
-    Guard {
+    Self {
     }
   }
   fn check(value: i64) -> union_Guarded {
@@ -131,7 +124,7 @@ struct ErrorsMain {
 }
 impl ErrorsMain {
   pub fn new() -> Self {
-    ErrorsMain {
+    Self {
     }
   }
 }
@@ -141,7 +134,7 @@ fn main() {
   __rg_main_thread.join().expect("main thread panicked");
 }
 fn __rg_main_body() {
-  let mut g: Guard = Guard::new();
+  let g: Guard = Guard::new();
   println!("{}", g.describe(&Guard::check(3)));
   println!("{}", g.describe(&Guard::check(0 - 1)));
 }

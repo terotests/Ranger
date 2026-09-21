@@ -1,12 +1,4 @@
-#![allow(unused_parens)]
-#![allow(unused_mut)]
-#![allow(unused_variables)]
-#![allow(unused_assignments)]
 #![allow(dead_code)]
-// The clippy allows below cover shapes that mirror the Ranger source
-// itself, which the transpiler must not rewrite or rename.
-#![allow(clippy::collapsible_if)]
-#![allow(clippy::ptr_arg)]
 
 use std::rc::Rc;
 use std::cell::RefCell;
@@ -36,7 +28,7 @@ struct User {
 }
 impl User {
   pub fn new() -> Self {
-    User {
+    Self {
       uname: "",
     }
   }
@@ -65,7 +57,7 @@ struct Bot {
 }
 impl Bot {
   pub fn new() -> Self {
-    Bot {
+    Self {
       id: 0,
     }
   }
@@ -85,10 +77,10 @@ struct TraitsMain {
 }
 impl TraitsMain {
   pub fn new() -> Self {
-    TraitsMain {
+    Self {
     }
   }
-  fn show(mut n: Rc<RefCell<dyn NamedTrait>>) -> String {
+  fn show(n: Rc<RefCell<dyn NamedTrait>>) -> String {
     return n.borrow().label().clone();
   }
 }
@@ -98,9 +90,9 @@ fn main() {
   __rg_main_thread.join().expect("main thread panicked");
 }
 fn __rg_main_body() {
-  let mut app: TraitsMain = TraitsMain::new();
-  let mut u: User = User::new();
-  let mut b: Bot = Bot::new();
+  let app: TraitsMain = TraitsMain::new();
+  let u: User = User::new();
+  let b: Bot = Bot::new();
   println!("user {}", TraitsMain::show(Rc::new(RefCell::new(u)).clone()));
   println!("bot {}", TraitsMain::show(Rc::new(RefCell::new(b)).clone()));
   println!("weight {}", User::weight());

@@ -6,9 +6,9 @@ public class EnumsMain {
     RgArgs.args = args;
     final EnumsMain app = new EnumsMain();
     System.out.println(String.valueOf( "color " + app.colorName(Color.Green) ) );
-    System.out.println(String.valueOf( app.describe((new Message_Ping())) ) );
-    System.out.println(String.valueOf( app.describe((new Message_Text("hi"))) ) );
-    System.out.println(String.valueOf( app.describe((new Message_Move(2, 3))) ) );
+    System.out.println(String.valueOf( app.describe(new Message_Ping()) ) );
+    System.out.println(String.valueOf( app.describe(new Message_Text("hi")) ) );
+    System.out.println(String.valueOf( app.describe(new Message_Move(2, 3)) ) );
   }
   
   public String colorName( final Color c ) {

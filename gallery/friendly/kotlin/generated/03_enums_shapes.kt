@@ -121,7 +121,7 @@ fun main(args : Array<String>) {
   __g_args = args
   val app : EnumsMain  =  EnumsMain();
   println( "color " + app.colorName(Color.Green) )
-  println( app.describe(( Message_Ping())) )
-  println( app.describe(( Message_Text("hi"))) )
-  println( app.describe(( Message_Move(2, 3))) )
+  println( app.describe( Message_Ping()) )
+  println( app.describe( Message_Text("hi")) )
+  println( app.describe( Message_Move(2, 3)) )
 }

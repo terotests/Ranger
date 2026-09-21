@@ -6,6 +6,6 @@ public class ErrorsMain {
     RgArgs.args = args;
     final Guard g = new Guard();
     System.out.println(String.valueOf( g.describe(g.check(3)) ) );
-    System.out.println(String.valueOf( g.describe(g.check((0 - 1))) ) );
+    System.out.println(String.valueOf( g.describe(g.check(0 - 1)) ) );
   }
 }

@@ -95,5 +95,5 @@ fun main(args : Array<String>) {
   __g_args = args
   val g : Guard  =  Guard();
   println( g.describe(g.check(3)) )
-  println( g.describe(g.check((0 - 1))) )
+  println( g.describe(g.check(0 - 1)) )
 }

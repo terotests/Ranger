@@ -9,7 +9,7 @@ public class GenericsMain {
     ints.put(8);
     System.out.println(String.valueOf( "int-size " + String.valueOf(ints.size() ) ) );
     final Integer top = ints.peek();
-    System.out.println(String.valueOf( "int-top " + String.valueOf(((top != null ) ? top : 0) ) ) );
+    System.out.println(String.valueOf( "int-top " + String.valueOf((top != null ) ? top : 0 ) ) );
     final Stack_string words = new Stack_string();
     words.put("ada");
     words.put("grace");

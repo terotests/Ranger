@@ -70,6 +70,6 @@ class ErrorsMain  {
   static void Main( string [] args ) {
     Guard g = new Guard();
     Console.WriteLine(g.describe(g.check(3)));
-    Console.WriteLine(g.describe(g.check((0 - 1))));
+    Console.WriteLine(g.describe(g.check(0 - 1)));
   }
 }

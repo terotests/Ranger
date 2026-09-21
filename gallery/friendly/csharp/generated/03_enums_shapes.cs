@@ -71,9 +71,9 @@ class EnumsMain  {
   static void Main( string [] args ) {
     EnumsMain app = new EnumsMain();
     Console.WriteLine("color " + app.colorName(Color.Green));
-    Console.WriteLine(app.describe((new Message_Ping())));
-    Console.WriteLine(app.describe((new Message_Text("hi"))));
-    Console.WriteLine(app.describe((new Message_Move(2, 3))));
+    Console.WriteLine(app.describe(new Message_Ping()));
+    Console.WriteLine(app.describe(new Message_Text("hi")));
+    Console.WriteLine(app.describe(new Message_Move(2, 3)));
   }
   public String colorName( Color c ) {
     if ( c == Color.Red ) {

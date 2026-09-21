@@ -104,6 +104,6 @@ final class ErrorsMain : Hashable  {
 func __main__swift() {
   let g : Guard = Guard()
   print(g.describe(g : g.check(value : 3)))
-  print(g.describe(g : g.check(value : (0 - 1))))
+  print(g.describe(g : g.check(value : 0 - 1)))
 }
 __main__swift()

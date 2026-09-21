@@ -105,6 +105,14 @@ class RangerRustClassWriter {
   ; ask what shape the caller is expecting
   def rustFnReturnNameNode@(optional):CodeNode
   def fileHeaderWritten:boolean false
+  ; Which `#![allow(...)]` lines the file has asked for. The block lives in
+  ; the "file_attributes" slice, which sits ahead of everything else and stays
+  ; open for the whole file, so a line can be added the moment the writer
+  ; emits a shape that needs it -- and never if it does not. An allow written
+  ; for every file whether or not it applies is a pragma that hides the
+  ; backend's own regressions; this way rustc and clippy report them.
+  def rustAllowSeen:[string:boolean]
+  def rustClippyNoteWritten:boolean false
   ; every identifier name in the program, for the snake_case collision guard.
   ; adjustType is called from 40-odd places with no ctx to hand, so the SET is
   ; what gets parked here — filled once by the header pass, which has one.
@@ -252,6 +260,9 @@ class RangerRustClassWriter {
     def sn:string (this.rustSnakeCase(tn))
     if (sn != tn) {
       if (has rustIdentNames sn) {
+        ; the snake_case spelling is already some other name in this program,
+        ; so the original stays. rustNeedsNonSnakeCase asks the same question
+        ; of the whole name set, once, for the header.
         return (this.adjustReserved(tn))
       }
     }
@@ -323,7 +334,13 @@ class RangerRustClassWriter {
       }
       case RangerNodeType.String {
         def s:string (this.EncodeString(node ctx wr))
-        wr.out(((("\"" + s) + "\"") + ".to_string()") false)
+        ; an empty owned String is `String::new()`: same type, no allocation
+        ; from a literal, and what a Rust programmer writes
+        if ((strlen s) == 0) {
+          wr.out("String::new()" false)
+        } {
+          wr.out(((("\"" + s) + "\"") + ".to_string()") false)
+        }
       }
       case RangerNodeType.Integer {
         wr.out(("" + node.int_value) false)
@@ -604,7 +621,10 @@ class RangerRustClassWriter {
         wr.out(", " false)
       }
       ; the body calls `&mut self` methods on the element as freely as any
-      ; other name, so the binding is mutable; an unused `mut` is a warning
+      ; other name, so the binding is mutable. Whether it had to be is not
+      ; answerable from here -- a lambda parameter carries no descriptor --
+      ; so the header is asked for `unused_mut` on its behalf.
+      this.rustNeedAllow("unused_mut" wr)
       wr.out(("mut " + (this.adjustType(arg.vref))) false)
     }
     wr.out("| {" true)
@@ -2208,6 +2228,249 @@ class RangerRustClassWriter {
     return true
   }
 
+  ; Does the body go on writing to this local after the fold? The fold
+  ; absorbs the run of field assignments that directly follows the `new`,
+  ; and a body can write more further down -- in a branch, or after an
+  ; intervening statement. Those keep the `mut`; the ones that do not are
+  ; finished the moment they are bound.
+  ; Ask for `#![allow(name)]`, once per file. Writing into the slice is what
+  ; puts the line at the top; the call can come from anywhere.
+  ; Does any name in this program keep its camelCase spelling? adjustType
+  ; renames to snake_case unless the snake_case form is already some OTHER
+  ; name here, in which case the original stays and rustc's non_snake_case
+  ; fires on it. The whole name set answers the same question at once.
+  fn rustNeedsNonSnakeCase:boolean () {
+    for rustIdentNames nsV:boolean nsName:string {
+      if ((strlen nsName) == 0) {
+        continue
+      }
+      def nsSn:string (this.rustSnakeCase(nsName))
+      ; a TYPE name keeps its spelling on this target whatever the set says,
+      ; so a generic parameter `S` beside a local `s` is not a collision --
+      ; it was every study in the gallery asking for the allow
+      def nsLead@(units):int (charAt nsName 0)
+      if ((nsLead < 65) || (nsLead > 90)) {
+        if (nsSn != nsName) {
+          if (has rustIdentNames nsSn) {
+            return true
+          }
+        }
+      }
+    }
+    return false
+  }
+
+  fn rustNeedAllow:void (name:string wr:CodeWriter) {
+    if (has rustAllowSeen name) {
+      return
+    }
+    if ((wr.hasTag("file_attributes")) == false) {
+      return
+    }
+    set rustAllowSeen name true
+    def naW:CodeWriter (wr.getTag("file_attributes"))
+    naW.out((("#![allow(" + name) + ")]") true)
+  }
+
+
+  ; The same for a clippy lint, with the note that says why any of them are
+  ; here written before the first one.
+  fn rustNeedClippyAllow:void (name:string wr:CodeWriter) {
+    def ncKey:string ("clippy::" + name)
+    if (has rustAllowSeen ncKey) {
+      return
+    }
+    if ((wr.hasTag("file_attributes")) == false) {
+      return
+    }
+    set rustAllowSeen ncKey true
+    def ncW:CodeWriter (wr.getTag("file_attributes"))
+    if (rustClippyNoteWritten == false) {
+      rustClippyNoteWritten = true
+      ncW.out("// The clippy allows below cover shapes that mirror the Ranger source" true)
+      ncW.out("// itself, which the transpiler must not rewrite or rename." true)
+    }
+    ncW.out((("#![allow(clippy::" + name) + ")]") true)
+  }
+
+  ; Is there a use of this local reached THROUGH its name -- `hit.ok = false`,
+  ; `c.add(...)`, `decl.types.push(...)` -- at a line beyond `minLine`? Pass a
+  ; negative minLine to ask about the whole method body.
+  fn rustNmIsName:boolean (seg:string a:string b:string) {
+    return ((seg == a) || (seg == b))
+  }
+
+  ; Does this local have to be `mut`? `set_cnt` answers for a name that is
+  ; assigned; everything else is reached THROUGH the name, and the four ways
+  ; that can mutate are here. A local that none of them touches binds `let`,
+  ; and rustc says so when this is wrong -- which is the point: the header
+  ; asks for `unused_mut` only where the answer could not be had.
+  fn rustLocalNeedsMut:boolean (srcName:string cName:string typeName:string ctx:RangerAppWriterContext) {
+    def nmM@(optional):RangerAppFunctionDesc (ctx.getCurrentMethod())
+    if (null? nmM) {
+      return true
+    }
+    def nmFn:RangerAppFunctionDesc (unwrap nmM)
+    def nmBO@(optional):CodeNode nmFn.fnBody
+    if (null? nmBO) {
+      return true
+    }
+    def nmBody:CodeNode (unwrap nmBO)
+    def nmNeeds:boolean false
+    nmBody.forTree({
+      if ((array_length item.children) >= 2) {
+        def nmH:CodeNode (item.getFirst())
+        ; `name.field = …`
+        if ((nmH.vref == "=") && ((array_length item.children) >= 3)) {
+          def nmL:CodeNode (itemAt item.children 1)
+          if ((array_length nmL.ns) >= 2) {
+            if (this.rustNmIsName((itemAt nmL.ns 0) srcName cName)) {
+              nmNeeds = true
+            }
+          }
+        }
+        ; `push name v`, `set name k v`, `buffer_set name …` -- an operator
+        ; that writes through its first operand
+        if (this.rustIsMutatingOpName(nmH.vref)) {
+          def nmT:CodeNode (itemAt item.children 1)
+          if ((array_length nmT.ns) >= 1) {
+            if (this.rustNmIsName((itemAt nmT.ns 0) srcName cName)) {
+              nmNeeds = true
+            }
+          }
+        }
+      }
+      if (item.hasFnCall) {
+        def nmFc:CodeNode (item.getFirst())
+        def nmSegs:int (array_length nmFc.ns)
+        ; `name.m(…)` -- mut exactly when `m` is emitted `&mut self`.
+        ; rust_mut_self is settled for every class before the first line is
+        ; written. A longer path, or a class or method that will not resolve,
+        ; keeps the mut.
+        if (nmSegs >= 2) {
+          if (this.rustNmIsName((itemAt nmFc.ns 0) srcName cName)) {
+            if (nmSegs != 2) {
+              nmNeeds = true
+            } {
+              def nmClO@(optional):RangerAppClassDesc (ctx.findClass(typeName))
+              if (null? nmClO) {
+                nmNeeds = true
+              } {
+                def nmCl:RangerAppClassDesc (unwrap nmClO)
+                def nmMd@(optional):RangerAppFunctionDesc (nmCl.findMethod((itemAt nmFc.ns 1)))
+                if (null? nmMd) {
+                  nmNeeds = true
+                } {
+                  def nmMdD:RangerAppFunctionDesc (unwrap nmMd)
+                  if nmMdD.rust_mut_self {
+                    nmNeeds = true
+                  }
+                }
+              }
+            }
+          }
+        }
+        ; `f(name)` where the callee takes that parameter by `&mut`
+        if ((array_length item.children) > 1) {
+          def nmArgs:CodeNode (item.getSecond())
+          def nmFd@(optional):RangerAppFunctionDesc item.fnDesc
+          for nmArgs.children nmA:CodeNode nmAi {
+            def nmAr:CodeNode nmA
+            while (nmAr.expression && ((array_length nmAr.children) == 1)) {
+              nmAr = (nmAr.getFirst())
+            }
+            if ((array_length nmAr.ns) == 1) {
+              if (this.rustNmIsName((itemAt nmAr.ns 0) srcName cName)) {
+                if (null? nmFd) {
+                  nmNeeds = true
+                } {
+                  def nmFdD:RangerAppFunctionDesc (unwrap nmFd)
+                  if ((array_length nmFdD.params) > nmAi) {
+                    def nmP:RangerAppParamDesc (itemAt nmFdD.params nmAi)
+                    if (nmP.rust_borrow_type == 2) {
+                      nmNeeds = true
+                    }
+                  } {
+                    nmNeeds = true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    })
+    return nmNeeds
+  }
+
+  fn rustLocalPathUseAfter:boolean (srcName:string cName:string minLine:int ctx:RangerAppWriterContext) {
+    def puM@(optional):RangerAppFunctionDesc (ctx.getCurrentMethod())
+    if (null? puM) {
+      return true
+    }
+    def puFn:RangerAppFunctionDesc (unwrap puM)
+    def puBodyO@(optional):CodeNode puFn.fnBody
+    if (null? puBodyO) {
+      return true
+    }
+    def puBody:CodeNode (unwrap puBodyO)
+    def puFound:boolean false
+    puBody.forTree({
+      if ((array_length item.ns) >= 2) {
+        ; the tree carries the source name, the `let` is written with the
+        ; compiled one -- they differ wherever a local was renamed away from
+        ; a collision (`g` -> `g_1`), so both have to match
+        def puHead:string (itemAt item.ns 0)
+        if ((puHead == srcName) || (puHead == cName)) {
+          if ((item.getLine()) > minLine) {
+            puFound = true
+          }
+        }
+      }
+    })
+    return puFound
+  }
+
+  fn rustFoldedLocalIsWrittenAgain:boolean (srcName:string cName:string node:CodeNode ctx:RangerAppWriterContext) {
+    def flM@(optional):RangerAppFunctionDesc (ctx.getCurrentMethod())
+    if (null? flM) {
+      return true
+    }
+    def flFn:RangerAppFunctionDesc (unwrap flM)
+    def flBodyO@(optional):CodeNode flFn.fnBody
+    if (null? flBodyO) {
+      return true
+    }
+    def flBody:CodeNode (unwrap flBodyO)
+    def flFound:boolean false
+    ; the absorbed assignments are still in the tree -- the fold marks them
+    ; rather than removing them -- so the line to compare against is the last
+    ; one the literal took, not the `def` itself
+    def flFoldLine:int (node.getLine())
+    for node.rg_init_values flV:CodeNode flVi {
+      def flVLine:int (flV.getLine())
+      if (flVLine > flFoldLine) {
+        flFoldLine = flVLine
+      }
+    }
+    flBody.forTree({
+      ; a write reached THROUGH the name -- `hit.ok = false`,
+      ; `decl.param_types.push(...)` -- anywhere below the fold itself
+      if ((array_length item.ns) >= 2) {
+        ; the tree carries the source name, the `let` is written with the
+        ; compiled one -- they differ wherever a local was renamed away from
+        ; a collision (`g` -> `g_1`), so both have to match
+        def flHead:string (itemAt item.ns 0)
+        if ((flHead == srcName) || (flHead == cName)) {
+          if ((item.getLine()) > flFoldLine) {
+            flFound = true
+          }
+        }
+      }
+    })
+    return flFound
+  }
+
   fn rustWriteFoldedInit:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def nn:CodeNode (itemAt node.children 1)
     def p:RangerAppParamDesc nn.paramDesc
@@ -2215,7 +2478,17 @@ class RangerRustClassWriter {
     def clNode:CodeNode (value.getSecond())
     def clName:string clNode.vref
     def cl:RangerAppClassDesc (ctx.findClass(clName))
-    wr.out((("let mut " + (this.adjustType(p.compiledName))) + ": " + clName + " = " + clName + " {") true)
+    ; `let`, not `let mut`, when the fold really did finish the value. The
+    ; literal absorbs the run of field assignments that follows the `new`, so
+    ; the local is complete the moment it is bound -- the `mut` was left over
+    ; from the form this replaced, and `#![allow(unused_mut)]` was hiding it.
+    ; A body that writes to the local further down, in a branch or after an
+    ; intervening statement, still needs it.
+    def foldMut:string "let "
+    if (this.rustFoldedLocalIsWrittenAgain(p.name p.compiledName node ctx)) {
+      foldMut = "let mut "
+    }
+    wr.out(((foldMut + (this.adjustType(p.compiledName))) + ": " + clName + " = " + clName + " {") true)
     wr.indent(1)
     def cnt:int (array_length node.rg_init_fields)
     def i:int 0
@@ -2374,7 +2647,42 @@ class RangerRustClassWriter {
       ; reached through a method that mutates, or through a collection, is
       ; assigned in ways set_cnt does not see. `#![allow(unused_mut)]` is
       ; what covers the remainder, and it is the honest place for it.
-      if (needs_mut || is_object) {
+      ; `set_cnt` is the assignment count; everything else that can mutate
+      ; reaches through the name, and rustLocalNeedsMut is what asks. It used
+      ; to be `needs_mut || is_object` -- every object and every collection
+      ; local `mut` whatever the body did with it, and `#![allow(unused_mut)]`
+      ; covering the rest.
+      ;
+      ; It answers for an OBJECT local only. A collection or a buffer is
+      ; handed to a callee as `&mut` far more often than the call site can
+      ; see -- `this.markAsyncFrom(item visited)` resolves to no fnDesc here
+      ; -- and dropping the mut on those was measured at 43 rustc errors,
+      ; every one an E0596 on a map or an array. Those keep the blanket mut
+      ; and the header asks for `unused_mut` on their behalf.
+      def wantMut:boolean ((p.set_cnt > 0) || p.is_class_variable)
+      def mutIsProven:boolean true
+      if (wantMut == false) {
+        if ((map_or_hash || is_buffer) || local_needs_rc_wrap) {
+          wantMut = true
+          mutIsProven = false
+        } {
+          if is_object {
+            def nmClChk@(optional):RangerAppClassDesc (ctx.findClass(nn.type_name))
+            if (null? nmClChk) {
+              wantMut = true
+              mutIsProven = false
+            } {
+              wantMut = (this.rustLocalNeedsMut(p.name p.compiledName nn.type_name ctx))
+            }
+          }
+        }
+      }
+      if wantMut {
+        if (mutIsProven == false) {
+          this.rustNeedAllow("unused_mut" wr)
+        }
+      }
+      if wantMut {
         wr.out(((("let mut " + unused_pfx) + (this.adjustType(p.compiledName))) + ": ") false)
       } {
         wr.out(((("let " + unused_pfx) + (this.adjustType(p.compiledName))) + ": ") false)
@@ -2472,8 +2780,14 @@ class RangerRustClassWriter {
         }
       }
       
+      ; where the initializer starts on the line, so the outer parentheses an
+      ; operator template puts around its whole result can come off again:
+      ; `let n: i64 = (xs.len() as i64);` is rustc's unused_parens, and the
+      ; position already delimits the expression
+      def initMark@(units):int (0 - 1)
       if ((array_length node.children) > 2) {
         wr.out(" = " false)
+        initMark = (wr.lineMark())
 
         def value:CodeNode (node.getThird())
         ; An initializer that is already Rc<RefCell<T>> shares the object:
@@ -2776,6 +3090,9 @@ class RangerRustClassWriter {
           wr.out(" = None" false)
         }
       }
+      if (initMark >= 0) {
+        wr.stripLineMarkParens(initMark)
+      }
       wr.out(";" false)
       if ((p.ref_cnt == 0) && (p.is_class_variable == true)) {
         wr.out("     // note: unused" false)
@@ -2885,7 +3202,26 @@ class RangerRustClassWriter {
       def is_object:boolean ((v_type == RangerNodeType.Object) || (v_type == RangerNodeType.Array) || (v_type == RangerNodeType.Hash) || (v_type == RangerNodeType.IntBuffer) || (v_type == RangerNodeType.DoubleBuffer) || (v_type == RangerNodeType.CharBuffer) || (v_type == RangerNodeType.Buffer))
       ; Use compiledName to include any name transformations (e.g. len -> __len)
       def paramName:string (this.adjustType(arg.compiledName))
-      def rust_mut_pfx:string "mut "
+      ; a `mut` BINDING is needed only when the body reassigns the parameter
+      ; itself. `fn show(mut who: &mut User)` writes through the reference,
+      ; which the `&mut` covers; the binding never moves, and the `mut` was
+      ; rustc's unused_mut on every such signature.
+      def rust_mut_pfx:string ""
+      if (arg.set_cnt > 0) {
+        rust_mut_pfx = "mut "
+      }
+      ; …and a parameter that arrives BY mutable reference keeps it: the body
+      ; may pass it on as `&mut name`, which reborrows through the binding
+      ; and so needs the binding mutable. Dropping it there was measured at
+      ; 11 rustc errors, every one an E0596 on a `&mut` parameter handed to
+      ; another call. Whether this particular one is passed on is not
+      ; answerable from a signature, so the header is asked instead.
+      if (rust_mut_pfx == "") {
+        if ((arg.rust_borrow_type == 2) || arg.needs_cpp_reference) {
+          rust_mut_pfx = "mut "
+          this.rustNeedAllow("unused_mut" wr)
+        }
+      }
       if rust_in_trait_decl {
         rust_mut_pfx = ""
       }

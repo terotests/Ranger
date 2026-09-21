@@ -1,12 +1,5 @@
-#![allow(unused_parens)]
-#![allow(unused_mut)]
-#![allow(unused_variables)]
-#![allow(unused_assignments)]
 #![allow(dead_code)]
-// The clippy allows below cover shapes that mirror the Ranger source
-// itself, which the transpiler must not rewrite or rename.
-#![allow(clippy::collapsible_if)]
-#![allow(clippy::ptr_arg)]
+#![allow(unused_mut)]
 
 
 
@@ -15,7 +8,7 @@ struct TextTools {
 }
 impl TextTools {
   pub fn new() -> Self {
-    TextTools {
+    Self {
     }
   }
   fn greet(name: &str) -> String {
@@ -30,7 +23,7 @@ impl TextTools {
   }
   fn first_char(s: &str) -> String {
     if  (s.len() as i64) == 0 {
-      return "".to_string().clone();
+      return String::new().clone();
     }
     rg_substring(&s, 0, 1).clone()
   }
@@ -43,7 +36,7 @@ struct SliceMain {
 }
 impl SliceMain {
   pub fn new() -> Self {
-    SliceMain {
+    Self {
     }
   }
 }
@@ -53,7 +46,7 @@ fn main() {
   __rg_main_thread.join().expect("main thread panicked");
 }
 fn __rg_main_body() {
-  let mut t: TextTools = TextTools::new();
+  let t: TextTools = TextTools::new();
   println!("{}", TextTools::greet("ada"));
   let mut xs: Vec<i64> = vec![1, 2, 3];
   println!("twice {}", t.twice(&xs));

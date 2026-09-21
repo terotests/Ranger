@@ -697,6 +697,62 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
     return res
   }
 
+  ; Is template item `idx` an `(e N)` operand sitting in a slot the surrounding
+  ; text already delimits -- between `(` or `,` on one side and `,` or `)` on
+  ; the other? `rg_substring(` (e 1) `, ` (e 2) `, ` (e 3) `)` is the shape: an
+  ; argument, where the operand's own pair of parentheses is rustc's
+  ; unused_parens and nothing else. An operand with an operator on either side
+  ; -- `"(" (e 1) " + " (e 2) ")"` -- is NOT delimited, and its pair is what
+  ; makes the precedence right, so it is left alone.
+  fn tmplDelimitedSlot:boolean (cmdList:CodeNode idx:int) {
+    def dsN:int (array_length cmdList.children)
+    if (idx <= 0) {
+      return false
+    }
+    if ((idx + 1) >= dsN) {
+      return false
+    }
+    def dsItem:CodeNode (itemAt cmdList.children idx)
+    if ((dsItem.expression) == false) {
+      return false
+    }
+    if ((array_length dsItem.children) < 2) {
+      return false
+    }
+    def dsHead:CodeNode (dsItem.getFirst())
+    if (dsHead.vref != "e") {
+      return false
+    }
+    def dsPrev:CodeNode (itemAt cmdList.children (idx - 1))
+    def dsNext:CodeNode (itemAt cmdList.children (idx + 1))
+    if (dsPrev.value_type != RangerNodeType.String) {
+      return false
+    }
+    if (dsNext.value_type != RangerNodeType.String) {
+      return false
+    }
+    def dsPs:string (trim dsPrev.string_value)
+    def dsNs:string (trim dsNext.string_value)
+    if ((strlen dsPs) == 0) {
+      return false
+    }
+    if ((strlen dsNs) == 0) {
+      return false
+    }
+    ; the two sides are read for one ASCII character each, at an index the
+    ; same string's own length gave -- no unit crosses a boundary here.
+    ; docs/plans/PLAN_STRING_INDEXING.md 3.3.
+    def dsPc@(units):int (charAt dsPs ((strlen dsPs) - 1))
+    def dsNc@(units):int (charAt dsNs 0)
+    if ((dsPc != 40) && (dsPc != 44)) {
+      return false
+    }
+    if ((dsNc != 41) && (dsNc != 44)) {
+      return false
+    }
+    return true
+  }
+
   fn walkCommandList:void (cmd:CodeNode node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def paren_suppressed:boolean wr.suppress_expr_parens
     wr.suppress_expr_parens = false
@@ -774,7 +830,12 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       wr.current_op_no_parens = true
       wr.parent_binding = cmdlMyBp
       for cmd.children c:CodeNode i {
+        def dsBufPrev:boolean body.suppress_expr_parens
+        if (this.tmplDelimitedSlot(cmd i)) {
+          body.suppress_expr_parens = true
+        }
         this.walkCommand(c node ctx body)
+        body.suppress_expr_parens = dsBufPrev
       }
       wr.suppress_expr_parens = body.suppress_expr_parens
       wr.in_format_args = body.in_format_args
@@ -794,7 +855,12 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       wr.current_op_no_parens = (paren_suppressed || cmdl_wraps)
       wr.parent_binding = cmdlMyBp
       for cmd.children c:CodeNode i {
+        def dsPrevSup:boolean wr.suppress_expr_parens
+        if (this.tmplDelimitedSlot(cmd i)) {
+          wr.suppress_expr_parens = true
+        }
         this.walkCommand(c node ctx wr)
+        wr.suppress_expr_parens = dsPrevSup
       }
       wr.parent_binding = prev_bind
       wr.current_op_no_parens = prev_op_np

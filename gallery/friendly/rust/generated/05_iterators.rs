@@ -1,12 +1,5 @@
-#![allow(unused_parens)]
-#![allow(unused_mut)]
-#![allow(unused_variables)]
-#![allow(unused_assignments)]
 #![allow(dead_code)]
-// The clippy allows below cover shapes that mirror the Ranger source
-// itself, which the transpiler must not rewrite or rename.
-#![allow(clippy::collapsible_if)]
-#![allow(clippy::ptr_arg)]
+#![allow(unused_mut)]
 
 
 
@@ -15,7 +8,7 @@ struct Stats {
 }
 impl Stats {
   pub fn new() -> Self {
-    Stats {
+    Self {
     }
   }
   fn total(xs: &[i64]) -> i64 {
@@ -55,7 +48,7 @@ struct IterMain {
 }
 impl IterMain {
   pub fn new() -> Self {
-    IterMain {
+    Self {
     }
   }
 }
@@ -65,7 +58,7 @@ fn main() {
   __rg_main_thread.join().expect("main thread panicked");
 }
 fn __rg_main_body() {
-  let mut s: Stats = Stats::new();
+  let s: Stats = Stats::new();
   let mut xs: Vec<i64> = vec![1, 2, 3, 4];
   println!("sum {}", Stats::total(&xs));
   println!("evens {}", Stats::even_count(&xs));

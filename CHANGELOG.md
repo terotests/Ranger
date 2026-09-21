@@ -23,6 +23,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The Rust header is built from what the file contains.** Every output used
+  to open with the same block — `#![allow(unused_parens)]`,
+  `unused_mut`, `unused_variables`, `unused_assignments`, `dead_code` and
+  three clippy lines — whether or not the file held the shape. An allow
+  nobody needs hides the backend's own regressions: a stray `mut` or a
+  redundant paren the generator starts emitting is swallowed by the pragma
+  instead of being reported. Each line is asked for now: `unused_mut` by the
+  one `let mut` the writer could not prove, the rest by predicates over the
+  program (a parameter the body never reads, a dead store, a name whose
+  snake_case spelling is already another name here, an `if` inside an `if`,
+  seven parameters, a borrowed `Vec`). Across the twelve `friendly` studies
+  the header matches what each file needs exactly, and no study asks for a
+  line it does not need. Only `dead_code` is unconditional — a
+  program's public surface is dead code in a single-file rendering of it,
+  which says nothing about the generator. The predicates skip what the
+  class-writing loop skips: `Vector.set` has an unused parameter and is never
+  emitted, and it alone was asking every file for `unused_variables`.
+
+- **`unused_parens` is not asked for either, because the parentheses are
+  gone.** A `let` value, an assignment's right side and a template's argument
+  slot all delimit the expression, so the pair an operator template puts
+  around its whole result comes off there: `let n: i64 = (xs.len() as i64);`
+  and `rg_substring(&s, i, (i + 1))` were the two shapes, 996 rustc warnings
+  between them. An operand with an operator on either side keeps its pair —
+  that is what makes the precedence right. The template-slot rule is
+  target-neutral, so `g.check(0 - 1)` is what every target emits now.
+
+- **`mut` is asked of the body rather than of the type.** An object local
+  used to be `mut` whatever was done with it, and so did a collection, a
+  buffer and every parameter binding. An object local now takes `mut` only
+  when the body assigns it, writes through it, calls a method emitted
+  `&mut self` on it, or hands it where the callee takes `&mut`; a parameter
+  takes it only when the body reassigns the parameter itself. Collections and
+  `&mut` parameters keep the blanket `mut` and ask for the allow — dropping
+  it on those was measured at 43 and 11 rustc errors, every one an E0596
+  where a call site writes `&mut name` and the callee is invisible from
+  there.
+
+- **Three Rust shapes from the same reading.** A folded object literal binds
+  `let line: CartLine = …` rather than `let mut`, unless the body writes
+  through the name after the fold — and the local is renamed where it
+  collided (`g` → `g_1`), so the scan matches the source name and the
+  compiled one. A `for` body that only calls `&self` methods on the element
+  binds `&T`: `for line in &self.lines`, not `.iter().cloned()`; the answer
+  is `rust_mut_self`, which is settled for every class before the first line
+  is written. And a constructor names `Self { … }` and gives an empty owned
+  String `String::new()`.
+
+  Measured on the Rust rendering of this compiler: **2 148 warnings → 321**,
+  with 0 rustc errors, and the rendering still compiles the compiler to
+  output byte-identical to `bin/output.js`. What is left was never covered by
+  any of these allows. A shopping-cart program of the kind the playground
+  compiles now carries `#![allow(dead_code)]` alone and draws no rustc
+  warning at all; `tests/codegen-rust.test.ts` keeps it that way.
+
 - **The front-page hero copy is the shorter two columns.** Silver Bullet:
   Ranger is a little heavier to get started with, and a golden test when
   you have more than one language to target. Stay DRY: AI makes generating

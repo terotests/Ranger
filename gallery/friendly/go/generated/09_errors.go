@@ -124,5 +124,5 @@ func CreateNew_ErrorsMain() *ErrorsMain {
 func main() {
   var g *Guard= CreateNew_Guard(); _ = g
   fmt.Println( g.describe(g.check(int64(3))) )
-  fmt.Println( g.describe(g.check((int64(0) - int64(1)))) )
+  fmt.Println( g.describe(g.check(int64(0) - int64(1))) )
 }

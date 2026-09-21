@@ -1,12 +1,5 @@
-#![allow(unused_parens)]
-#![allow(unused_mut)]
-#![allow(unused_variables)]
-#![allow(unused_assignments)]
 #![allow(dead_code)]
-// The clippy allows below cover shapes that mirror the Ranger source
-// itself, which the transpiler must not rewrite or rename.
-#![allow(clippy::collapsible_if)]
-#![allow(clippy::ptr_arg)]
+#![allow(unused_assignments)]
 
 use std::rc::Rc;
 use std::cell::RefCell;
@@ -52,7 +45,7 @@ struct Message_Ping {
 }
 impl Message_Ping {
   pub fn new() -> Self {
-    Message_Ping {
+    Self {
     }
   }
 }
@@ -62,8 +55,8 @@ struct Message_Text {
 }
 impl Message_Text {
   pub fn new(body: String) -> Self {
-    let mut me = Message_Text {
-      body: "".to_string(),
+    let mut me = Self {
+      body: String::new(),
     };
     me.body = body.clone();
     me
@@ -76,7 +69,7 @@ struct Message_Move {
 }
 impl Message_Move {
   pub fn new(dx: i64, dy: i64) -> Self {
-    let mut me = Message_Move {
+    let mut me = Self {
       dx: 0,
       dy: 0,
     };
@@ -90,7 +83,7 @@ struct Message__ops {
 }
 impl Message__ops {
   pub fn new() -> Self {
-    Message__ops {
+    Self {
     }
   }
   pub fn equals(a: &union_Message, b: &union_Message) -> bool {
@@ -135,7 +128,7 @@ struct EnumsMain {
 }
 impl EnumsMain {
   pub fn new() -> Self {
-    EnumsMain {
+    Self {
     }
   }
   fn color_name(c: Color) -> String {
@@ -169,7 +162,7 @@ fn main() {
   __rg_main_thread.join().expect("main thread panicked");
 }
 fn __rg_main_body() {
-  let mut app: EnumsMain = EnumsMain::new();
+  let app: EnumsMain = EnumsMain::new();
   println!("color {}", EnumsMain::color_name(Color::Green));
   println!("{}", app.describe(&union_Message::Message_Ping(Message_Ping::new())));
   println!("{}", app.describe(&union_Message::Message_Text(Message_Text::new("hi".to_string()))));
