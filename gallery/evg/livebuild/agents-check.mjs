@@ -986,6 +986,10 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   if (!taskRead.error || !/already the ask/.test(taskRead.error)) {
     throw new Error("read_file TASK.md must be refused: " + JSON.stringify(taskRead));
   }
+  const addRead = executeTool(ws, "read_file", { path: "add.json" });
+  if (!addRead.error || !/patch/.test(addRead.error)) {
+    throw new Error("read_file add.json must be refused: " + JSON.stringify(addRead));
+  }
   if (!isSightseeingCall("ocr", {}) || !isSightseeingCall("run", { command: "./evg-agent outline doc.evg.json" })) {
     throw new Error("ocr and outline must count as sightseeing");
   }

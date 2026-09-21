@@ -423,7 +423,8 @@ export function compactToolResult(name, rawArgs, result) {
         stdout: clip(stdout, TOOL_RESULT_CAP),
         nodes: lines.length,
       };
-      if (lines.length <= 1) {
+      if (result.hint) out.hint = result.hint;
+      else if (lines.length <= 1) {
         out.hint = `empty seed — not done. Next: ${ADD_CARD} then ./evg-agent patch doc.evg.json add.json`;
       }
       if (stderr) out.stderr = clip(stderr, 400);
@@ -684,11 +685,23 @@ export function saveOnce(workspace, patch) {
   return next;
 }
 
+export function pendingOpsFile(workspace) {
+  try {
+    for (const name of fs.readdirSync(workspace)) {
+      if (name === "attachment.ops.json") continue;
+      if (/^(add|ops)[-_.a-z0-9]*\.json$/i.test(name) || /\.ops\.json$/i.test(name)) return name;
+    }
+  } catch {
+    /* empty workspace */
+  }
+  return "";
+}
+
 export function isSightseeingCall(name, rawArgs) {
   if (name === "ocr" || name === "image_info" || name === "list_dir") return true;
   if (name === "read_file") {
     const p = String((rawArgs && rawArgs.path) || "");
-    return /TASK\.md|attachment\.(json|png|jpe?g|webp)|AGENTS\.md/i.test(p);
+    return /TASK\.md|attachment\.(json|png|jpe?g|webp)|AGENTS\.md|add\.json|ops.*\.json/i.test(p);
   }
   if (name === "run") {
     const c = String((rawArgs && rawArgs.command) || "");
@@ -720,6 +733,9 @@ export function denyRead(rel) {
   }
   if (name === "attachment.ops.json" || name === "attachment.svg") {
     return "that file is path data for the photo — image_info has the palette; paste with ./evg-agent patch doc.evg.json attachment.ops.json; to rebuild a UI like it, ocr once and ./evg-ui";
+  }
+  if (/^(add|ops)[-_.a-z0-9]*\.json$/i.test(name) || /\.ops\.json$/i.test(name)) {
+    return `${name} is ops — ./evg-agent patch doc.evg.json ${name}. Do not read it.`;
   }
   if (name === "AGENTS.md") {
     return "the loop is already in the system prompt — outline the screen, then ./evg-ui add card. Do not load the whole guide.";
@@ -1001,7 +1017,17 @@ export function executeTool(workspace, name, rawArgs, env = process.env) {
       if (!command) return { error: "run needs a command" };
       const blocked = denyRun(command);
       if (blocked) return { error: blocked };
-      return spawnRun(workspace, command, env);
+      const result = spawnRun(workspace, command, env);
+      if (/\boutline\b/.test(command) && result && result.ok) {
+        const pending = pendingOpsFile(workspace);
+        if (pending) {
+          return {
+            ...result,
+            hint: `${pending} is on disk — ./evg-agent patch doc.evg.json ${pending}. Do not read_file it.`,
+          };
+        }
+      }
+      return result;
     }
     if (name === "read_file") {
       const blocked = denyRead(args.path);
@@ -1017,6 +1043,13 @@ export function executeTool(workspace, name, rawArgs, env = process.env) {
           path: rel,
           bytes: raw.length,
           hint: "document is on disk — ./evg-agent outline and patch. Do not put the tree in the prompt.",
+        };
+      }
+      if (/"op"\s*:/.test(raw) && raw.length > 400) {
+        return {
+          path: rel,
+          bytes: raw.length,
+          hint: `ops file — ./evg-agent patch doc.evg.json ${rel}. Do not put the ops in the prompt.`,
         };
       }
       return { path: rel, contents: clip(raw, 8_000) };
@@ -1289,6 +1322,9 @@ export function summarizeTool(name, rawArgs, result) {
   else if (name === "run") {
     const out = `${result && result.stdout ? result.stdout : ""}\n${result && result.stderr ? result.stderr : ""}`;
     reply = summarizeRunReply(out, result);
+    if (result && result.hint && !/patch/.test(reply)) {
+      reply = clipOneLine(`${reply} — ${result.hint}`, 520);
+    }
   } else if (name === "read_file" && result) {
     if (result.hint) reply = `${result.bytes || 0} bytes — ${clipOneLine(result.hint, 160)}`;
     else if (result.contents != null) reply = `read ${String(result.contents).length.toLocaleString("en-US")} chars`;
