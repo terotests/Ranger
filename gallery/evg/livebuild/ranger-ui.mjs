@@ -25,8 +25,14 @@ const COMPONENT_ROOTS = [
   { test: /^ui-slider(?:\s|$)/, type: "rave.Slider", library: LIBRARY, leaf: true },
   { test: /^ui-input(?:\s|$)|^ui-field(?:\s|$)/, type: "rave.Input", library: LIBRARY, leaf: true },
   { test: /(?:^|\s)(?:ui-chip|chip)(?:\s|$)/, type: "rave.Chip", library: LIBRARY, leaf: false },
+  { test: /(?:^|\s)ui-pills(?:\s|$)/, type: "rave.Pills", library: LIBRARY, leaf: false },
+  { test: /(?:^|\s)ui-pill(?:\s|$)/, type: "rave.Chip", library: LIBRARY, leaf: false },
   { test: /(?:^|\s)(?:ui-appbar|appbar)(?:\s|$)/, type: "rave.AppBar", library: LIBRARY, leaf: false },
   { test: /(?:^|\s)(?:ui-card|card)(?:\s|$)/, type: "rave.Card", library: LIBRARY, leaf: false },
+  { test: /(?:^|\s)ui-tiles(?:\s|$)/, type: "rave.Tiles", library: LIBRARY, leaf: false },
+  { test: /(?:^|\s)ui-tile(?:\s|$)/, type: "rave.Tile", library: LIBRARY, leaf: false },
+  { test: /(?:^|\s)ui-bars(?:\s|$)/, type: "rave.Bars", library: LIBRARY, leaf: false },
+  { test: /(?:^|\s)ui-banner(?:\s|$)/, type: "rave.Banner", library: LIBRARY, leaf: false },
   { test: /(?:^|\s)(?:ui-row|row)(?:\s|$)/, type: "SettingsRow", library: SETTINGS_LIB, leaf: false },
 ];
 
@@ -38,10 +44,10 @@ const ROLE_TYPES = {
 };
 
 const KIT_CLASS_RE =
-  /^(ui-switch|ui-checkbox|ui-btn|ui-button|ui-slider|ui-input|ui-field|ui-chip|ui-appbar|ui-card|ui-row|ui-radio|ui-tabs|ui-avatar|ui-sep|ui-toast|ui-dialog|ui-tooltip|ui-progress|ui-select|ui-combobox|ui-breadcrumb|ui-accordion|ui-collapsible|ui-toggle|ui-popover|ui-table|ui-grid|ui-menu|ui-dropdown)/;
+  /^(ui-switch|ui-checkbox|ui-btn|ui-button|ui-slider|ui-input|ui-field|ui-chip|ui-appbar|ui-card|ui-row|ui-pill|ui-tile|ui-bar|ui-banner|ui-radio|ui-tabs|ui-avatar|ui-sep|ui-toast|ui-dialog|ui-tooltip|ui-progress|ui-select|ui-combobox|ui-breadcrumb|ui-accordion|ui-collapsible|ui-toggle|ui-popover|ui-table|ui-grid|ui-menu|ui-dropdown)/;
 
 const PART_CLASS_RE =
-  /^(ui-switch-|ui-checkbox-|ui-row-(?:title|sub|text|icon|value|chevron|line)|ui-card-title|ui-appbar-|ui-chip-(?:dot|label))/;
+  /^(ui-switch-|ui-checkbox-|ui-row-(?:title|sub|text|icon|value|chevron|line)|ui-card-title|ui-appbar-|ui-chip-(?:dot|label)|ui-tile-(?:icon|label|value|sub)|ui-bars-(?:title|badge|value|head|row)|ui-bar(?:-col|-label)?$|ui-banner-(?:icon|eyebrow|title|sub))/;
 
 const VISUAL = new Set([
   "background-color",
@@ -329,6 +335,48 @@ function cardProps(node) {
   return props;
 }
 
+function namedText(node, re) {
+  const hit = findByClass(node, re);
+  return hit && hit.text ? String(hit.text) : "";
+}
+
+function tileProps(node) {
+  const props = {};
+  const label = namedText(node, /^ui-tile-label$/);
+  const value = namedText(node, /^ui-tile-value$/);
+  const sub = namedText(node, /^ui-tile-sub$/);
+  const icon = namedText(node, /^ui-tile-icon$/);
+  if (label) props.label = label;
+  if (value) props.value = value;
+  if (sub) props.sub = sub;
+  if (icon) props.icon = icon;
+  return props;
+}
+
+function bannerProps(node) {
+  const props = {};
+  const eyebrow = namedText(node, /^ui-banner-eyebrow$/);
+  const title = namedText(node, /^ui-banner-title$/);
+  const sub = namedText(node, /^ui-banner-sub$/);
+  const icon = namedText(node, /^ui-banner-icon$/);
+  if (eyebrow) props.eyebrow = eyebrow;
+  if (title) props.title = title;
+  if (sub) props.sub = sub;
+  if (icon) props.icon = icon;
+  return props;
+}
+
+function barsProps(node) {
+  const props = {};
+  const title = namedText(node, /^ui-bars-title$/);
+  const value = namedText(node, /^ui-bars-value$/);
+  const badge = namedText(node, /^ui-bars-badge$/);
+  if (title) props.title = title;
+  if (value) props.value = value;
+  if (badge) props.badge = badge;
+  return props;
+}
+
 function appbarProps(node) {
   const props = {};
   const title = findByClass(node, /^ui-appbar-title$/) || findByClass(node, /^nav-title$/);
@@ -385,6 +433,9 @@ export function convertNode(node, path, ctx) {
     if (spec.type === "rave.Switch" || spec.type === "rave.Checkbox") props = switchProps(node);
     else if (spec.type === "SettingsRow") props = rowProps(node);
     else if (spec.type === "rave.Card") props = cardProps(node);
+    else if (spec.type === "rave.Tile") props = tileProps(node);
+    else if (spec.type === "rave.Banner") props = bannerProps(node);
+    else if (spec.type === "rave.Bars") props = barsProps(node);
     else if (spec.type === "rave.AppBar") props = appbarProps(node);
     else if (spec.type === "rave.Button" || spec.type === "rave.Chip") {
       const t = textOf(node);

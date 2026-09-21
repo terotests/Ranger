@@ -270,6 +270,67 @@ const tab = (soupConv.ui.children || []).find((c) => c && /\bui-tabbar\b/.test(c
 if (!tab) throw new Error("pinned short labels did not become ui-tabbar: " + JSON.stringify(soupConv.ui, null, 2));
 console.log("  author/soup card/row aliases + inferred titled panel + tabbar class");
 
+const dashPieces = {
+  evg: 1,
+  root: {
+    tag: "div",
+    children: [
+      {
+        tag: "div",
+        props: { "class-name": "ui-tiles" },
+        children: [
+          {
+            tag: "div",
+            props: { "class-name": "ui-tile" },
+            children: [
+              { tag: "span", text: "Sleep Average", props: { "class-name": "ui-tile-label" } },
+              { tag: "span", text: "7h 38m", props: { "class-name": "ui-tile-value" } },
+            ],
+          },
+        ],
+      },
+      {
+        tag: "div",
+        props: { "class-name": "ui-bars" },
+        children: [
+          { tag: "span", text: "Steps & Calories Trend", props: { "class-name": "ui-bars-title" } },
+          { tag: "span", text: "Avg 9,240 steps/day", props: { "class-name": "ui-bars-value" } },
+        ],
+      },
+      {
+        tag: "div",
+        props: { "class-name": "ui-banner" },
+        children: [
+          { tag: "span", text: "Milestone Unlocked", props: { "class-name": "ui-banner-eyebrow" } },
+          { tag: "span", text: "100k Steps in 10 Days", props: { "class-name": "ui-banner-title" } },
+        ],
+      },
+      {
+        tag: "div",
+        props: { "class-name": "ui-pills" },
+        children: [
+          { tag: "div", props: { "class-name": "ui-pill ui-pill-active" }, text: "Week" },
+          { tag: "div", props: { "class-name": "ui-pill" }, text: "Day" },
+        ],
+      },
+    ],
+  },
+};
+const dashConv = convertDocument(dashPieces, { viewport: { width: 390, height: 844 } });
+const dashKinds = typesIn(dashConv.ui);
+for (const need of ["rave.Tiles", "rave.Tile", "rave.Bars", "rave.Banner", "rave.Pills", "rave.Chip"]) {
+  if (!dashKinds.includes(need)) throw new Error("dashboard piece did not collapse to " + need + ": " + dashKinds.join(", "));
+}
+const tile = findType(dashConv.ui, "rave.Tile")[0];
+if (!tile || !tile.props || tile.props.value !== "7h 38m") {
+  throw new Error("tile value missing: " + JSON.stringify(dashConv.ui, null, 2));
+}
+const banner = findType(dashConv.ui, "rave.Banner")[0];
+if (!banner || !banner.props || banner.props.title !== "100k Steps in 10 Days") {
+  throw new Error("banner title missing: " + JSON.stringify(banner));
+}
+console.log("  dashboard   tiles/bars/banner/pills collapse to named types");
+
 // --- an app's machine and pages travel ---------------------------------------
 
 const withApp = fs.mkdtempSync(path.join(os.tmpdir(), "evg-export-app-"));

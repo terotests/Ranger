@@ -30,6 +30,10 @@ export const GEMINI_HISTORY = ".gemini-history.json";
 export const GEMINI_ONCE = ".gemini-once.json";
 export const ADD_CARD =
   './evg-ui add card --title "…" --row "Title|Sub|value:42" --into doc.evg.json > add.json';
+export const ADD_APPBAR =
+  './evg-ui add appbar --title "Progress" --into doc.evg.json > add.json';
+export const ADD_TILES =
+  './evg-ui add tiles --tile "Sleep Average|7h 38m|Quality 84%|☾" --into doc.evg.json > add.json';
 
 /** Compact ranger-ui the model should copy (change the words to the photo). */
 export const EXAMPLE_RANGER_UI = {
@@ -37,49 +41,54 @@ export const EXAMPLE_RANGER_UI = {
   version: 2,
   components: {
     "rave.AppBar": { library: "@rave/core", version: "2" },
-    "rave.Card": { library: "@rave/core", version: "2" },
+    "rave.Pills": { library: "@rave/core", version: "2" },
     "rave.Chip": { library: "@rave/core", version: "2" },
+    "rave.Bars": { library: "@rave/core", version: "2" },
+    "rave.Tiles": { library: "@rave/core", version: "2" },
+    "rave.Tile": { library: "@rave/core", version: "2" },
+    "rave.Banner": { library: "@rave/core", version: "2" },
     SettingsRow: { library: "@rave/settings", version: "1" },
   },
   ui: {
     type: "Screen",
     class: "sky",
     children: [
-      { type: "rave.AppBar", props: { title: "Home" } },
+      { type: "rave.AppBar", props: { title: "Progress" } },
       {
-        type: "rave.Card",
+        type: "rave.Pills",
         children: [
-          { type: "rave.Chip", props: { label: "Analytics" } },
-          { type: "rave.Chip", props: { label: "Customers" } },
-          { type: "rave.Chip", props: { label: "Orders" } },
-          { type: "rave.Chip", props: { label: "Tasks" } },
+          { type: "rave.Chip", props: { label: "Day" } },
+          { type: "rave.Chip", props: { label: "Week" } },
+          { type: "rave.Chip", props: { label: "Month" } },
+          { type: "rave.Chip", props: { label: "Year" } },
+        ],
+      },
+      { type: "rave.Bars", props: { title: "Steps & Calories Trend", value: "Avg 9,240 steps/day", badge: "+12% vs last week" } },
+      {
+        type: "rave.Tiles",
+        children: [
+          { type: "rave.Tile", props: { label: "Sleep Average", value: "7h 38m", sub: "Quality 84%" } },
+          { type: "rave.Tile", props: { label: "Resting HR", value: "64 BPM", sub: "−3 BPM optimal" } },
+          { type: "rave.Tile", props: { label: "Hydration", value: "2.3 L/d", sub: "92% of target" } },
+          { type: "rave.Tile", props: { label: "Net Burn", value: "2,350 kcal", sub: "kcal / day" } },
         ],
       },
       {
-        type: "rave.Card",
-        props: { title: "Overview" },
-        children: [
-          { type: "SettingsRow", props: { label: "Total Revenue", sub: "Monthly earnings", value: "$32,575" } },
-          { type: "SettingsRow", props: { label: "Orders", sub: "Completed this month", value: "$20,590" } },
-          { type: "SettingsRow", props: { label: "Sales Target", sub: "82% of goal", value: "$17,105" } },
-        ],
-      },
-      {
-        type: "rave.Card",
-        props: { title: "Recent Orders" },
-        children: [
-          { type: "SettingsRow", props: { label: "Daniel Wellington Classic", sub: "Watch · Delivered", value: "$189" } },
-          { type: "SettingsRow", props: { label: "Skater Dress", sub: "Clothing · In Transit", value: "$65" } },
-        ],
+        type: "rave.Banner",
+        props: {
+          eyebrow: "Milestone Unlocked",
+          title: "100k Steps in 10 Days",
+          sub: "You're in the top 5% of active users this month!",
+        },
       },
       {
         type: "evg.div",
         class: "ui-tabbar",
         children: [
-          { type: "evg.div", id: "nav.home", class: "ui-tab-item", children: [{ type: "evg.span", class: "ui-tab-label active", text: "Home" }] },
-          { type: "evg.div", id: "nav.orders", class: "ui-tab-item", children: [{ type: "evg.span", class: "ui-tab-label", text: "Orders" }] },
-          { type: "evg.div", id: "nav.analytics", class: "ui-tab-item", children: [{ type: "evg.span", class: "ui-tab-label", text: "Analytics" }] },
-          { type: "evg.div", id: "nav.settings", class: "ui-tab-item", children: [{ type: "evg.span", class: "ui-tab-label", text: "Settings" }] },
+          { type: "evg.div", id: "nav.today", class: "ui-tab-item", children: [{ type: "evg.span", class: "ui-tab-label", text: "Today" }] },
+          { type: "evg.div", id: "nav.activity", class: "ui-tab-item", children: [{ type: "evg.span", class: "ui-tab-label", text: "Activity" }] },
+          { type: "evg.div", id: "nav.analytics", class: "ui-tab-item", children: [{ type: "evg.span", class: "ui-tab-label active", text: "Progress" }] },
+          { type: "evg.div", id: "nav.profile", class: "ui-tab-item", children: [{ type: "evg.span", class: "ui-tab-label", text: "Goals" }] },
         ],
       },
     ],
@@ -87,21 +96,25 @@ export const EXAMPLE_RANGER_UI = {
 };
 
 export const EXAMPLE_ADD_RECIPE = [
-  './evg-ui add appbar --title "Home" --into doc.evg.json > add.json',
+  './evg-ui add appbar --title "Progress" --into doc.evg.json > add.json',
   "./evg-agent patch doc.evg.json add.json",
-  './evg-ui add chips --chip "Analytics|•|" --chip "Customers|•|" --chip "Orders|•|" --chip "Tasks|•|" --into doc.evg.json > add.json',
+  './evg-ui add pills --pill "Day" --pill "Week" --pill "Month" --pill "Year" --active Week --into doc.evg.json > add.json',
   "./evg-agent patch doc.evg.json add.json",
-  './evg-ui add card --title "Overview" --row "Total Revenue|Monthly earnings|value:$32,575" --row "Orders|Completed this month|value:$20,590" --row "Sales Target|82% of goal|value:$17,105" --into doc.evg.json > add.json',
+  './evg-ui add bars --title "Steps & Calories Trend" --value "Avg 9,240 steps/day" --badge "+12% vs last week" --bar "M|55|#805754" --bar "T|78|#EF9587" --bar "W|62|#524247" --bar "T|90|#AAB4F8" --bar "F|96|#AAB4F8" --bar "S|80|#F0D77B" --bar "S|84|#EF9587" --into doc.evg.json > add.json',
   "./evg-agent patch doc.evg.json add.json",
-  './evg-ui add tabbar --tab "Home|⌂|nav.home" --tab "Orders|☰|nav.orders" --tab "Analytics|◈|nav.analytics" --tab "Settings|⚙|nav.settings" --active nav.home --into doc.evg.json > add.json',
+  './evg-ui add tiles --tile "Sleep Average|7h 38m|Quality 84%|☾" --tile "Resting HR|64 BPM|−3 BPM|♡" --tile "Hydration|2.3 L/d|92% of target|💧" --tile "Net Burn|2,350 kcal|kcal / day|⚡" --into doc.evg.json > add.json',
+  "./evg-agent patch doc.evg.json add.json",
+  './evg-ui add banner --eyebrow "Milestone Unlocked" --title "100k Steps in 10 Days" --sub "You\'re in the top 5% of active users this month!" --icon "🏆" --into doc.evg.json > add.json',
+  "./evg-agent patch doc.evg.json add.json",
+  './evg-ui add tabbar --tab "Today|⌂|nav.today" --tab "Activity|⚡|nav.activity" --tab "Progress|◈|nav.analytics" --tab "Goals|◎|nav.profile" --active nav.analytics --into doc.evg.json > add.json',
   "./evg-agent patch doc.evg.json add.json",
 ].join("\n");
 
 export function exampleUiBlock() {
   return [
-    "EXAMPLE_UI — Export must look like this JSON (change the words to the photo/ask, keep rave.AppBar / rave.Card / rave.Chip / SettingsRow / ui-tabbar):",
+    "EXAMPLE_UI — match the photo LAYOUT, not a settings list. A Wi-Fi / settings photo is add card --row (SettingsRow). A dashboard is pills + bars + tiles + banner — do not flatten a chart or a 2×2 into SettingsRow.",
     JSON.stringify(EXAMPLE_RANGER_UI),
-    "Build it with these commands (add, then patch, then the next). Never add card without --row:",
+    "Build it with these commands (add, then patch, then the next). Never add card without --row. Never turn a dashboard into SettingsRows:",
     EXAMPLE_ADD_RECIPE,
   ].join("\n");
 }
@@ -271,21 +284,108 @@ function spawnRun(workspace, command, env = process.env) {
   };
 }
 
+function classTokens(cls) {
+  return String(cls || "").split(/\s+/).filter(Boolean);
+}
+
+function nodeHasClass(node, name) {
+  return classTokens(nodePieceClass(node)).includes(name);
+}
+
+function hexLum(hex) {
+  const h = String(hex || "").replace("#", "");
+  const n = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
+  if (n.length < 6) return 128;
+  const r = parseInt(n.slice(0, 2), 16);
+  const g = parseInt(n.slice(2, 4), 16);
+  const b = parseInt(n.slice(4, 6), 16);
+  return (r * 299 + g * 587 + b * 114) / 1000;
+}
+
+/** Paint kit pieces with the photo palette so add-then-patch is already themed. */
+export function paintAddOps(text, workspace) {
+  const roles = picturePalette(workspace);
+  if (!roles) return String(text || "");
+  let j;
+  try {
+    j = JSON.parse(String(text || ""));
+  } catch {
+    return String(text || "");
+  }
+  const ops = j && Array.isArray(j.ops) ? j.ops : null;
+  if (!ops) return String(text || "");
+  const accents = Array.isArray(roles.accents) ? roles.accents : [];
+  const pageDark = hexLum(roles.page) < 90;
+  const fg = (roles.text && roles.text[0]) || (pageDark ? "#F5F3EF" : "");
+  const muted = (accents.length ? accents[accents.length - 1] : "") || (pageDark ? "#8B8E96" : "");
+  let accentI = 0;
+  let changed = false;
+  const setProp = (node, key, value) => {
+    if (!node || !value) return;
+    if (!node.props || typeof node.props !== "object") node.props = {};
+    if (node.props[key]) return;
+    node.props[key] = value;
+    changed = true;
+  };
+  const paint = (node) => {
+    if (!node || typeof node !== "object") return;
+    if (nodeHasClass(node, "ui-card") || nodeHasClass(node, "ui-tiles") || nodeHasClass(node, "ui-tile") || nodeHasClass(node, "ui-bars") || nodeHasClass(node, "ui-tabbar")) {
+      setProp(node, "background-color", roles.cards);
+    }
+    if (nodeHasClass(node, "ui-banner")) setProp(node, "background-color", accents[0] || roles.cards);
+    if (nodeHasClass(node, "ui-pill-active")) setProp(node, "background-color", accents[0] || roles.cards);
+    if (nodeHasClass(node, "ui-bar") && accents.length) {
+      setProp(node, "background-color", accents[accentI++ % accents.length]);
+    }
+    if (fg) {
+      for (const name of ["ui-tile-value", "ui-bars-value", "ui-appbar-title", "ui-tile-label", "ui-bars-title", "ui-banner-title", "ui-row-title", "ui-card-title"]) {
+        if (nodeHasClass(node, name)) setProp(node, "color", fg);
+      }
+    }
+    if (muted) {
+      for (const name of ["ui-tile-sub", "ui-bars-badge", "ui-banner-sub", "ui-banner-eyebrow", "ui-row-sub"]) {
+        if (nodeHasClass(node, name)) setProp(node, "color", muted);
+      }
+      if (nodeHasClass(node, "ui-pill") && !nodeHasClass(node, "ui-pill-active")) setProp(node, "color", muted);
+    }
+    for (const kid of node.children || []) paint(kid);
+  };
+  for (const op of ops) {
+    if (op && op.op === "insert" && op.node) paint(op.node);
+  }
+  if (j.tree) paint(j.tree);
+  if (!changed) return String(text || "");
+  return JSON.stringify(j, null, 2) + "\n";
+}
+
 /** add prints ops; --into is the insert path, not an edit. Keep the ops on disk. */
 function evgUiAddFollowup(workspace, parsed, stdout, ok) {
   if (!ok || !parsed || parsed.bin !== "./evg-ui" || parsed.argv[0] !== "add") return null;
   if (!/"op"\s*:/.test(String(stdout || ""))) return null;
   const dest = parsed.stdoutTo || "add.json";
-  if (!parsed.stdoutTo) {
-    try {
-      fs.writeFileSync(resolveInWorkspace(workspace, dest), stdout);
-    } catch {
-      return null;
+  const file = resolveInWorkspace(workspace, dest);
+  let text = String(stdout || "");
+  try {
+    if (parsed.stdoutTo) text = fs.readFileSync(file, "utf8");
+  } catch {
+    /* use stdout */
+  }
+  const painted = paintAddOps(text, workspace);
+  try {
+    fs.writeFileSync(file, painted);
+  } catch {
+    if (!parsed.stdoutTo) {
+      try {
+        fs.writeFileSync(file, text);
+      } catch {
+        return null;
+      }
     }
   }
+  const themed = painted !== text;
   return {
     wrote: dest,
-    stdout: `wrote ${dest} (${String(stdout).length} bytes). Next: ./evg-agent patch doc.evg.json ${dest}. --into is the insert path, not an edit. Do not read_file ${dest}.`,
+    stdout: `wrote ${dest} (${painted.length} bytes). Next: ./evg-agent patch doc.evg.json ${dest}. --into is the insert path, not an edit. Do not read_file ${dest}.${themed ? " Palette from the photo was painted on the piece." : ""}`,
   };
 }
 
@@ -370,7 +470,7 @@ export function geminiSystemPrompt() {
 
 ${exampleUiBlock()}
 
-ONE outline, then add FILLED pieces like EXAMPLE_UI — change the words to the photo/ask. An add card without --row is an empty box; do not query it. A Follow-up that says continue / jatka means keep patching this doc — do not start over.
+ONE outline, then add FILLED pieces like EXAMPLE_UI — change the words to the photo/ask. Match the layout you see. An add card without --row is an empty box; do not query it. A Follow-up that says continue / jatka means keep patching this doc — do not start over.
 
 A picture is a PHOTO of any UI, not the UI:
 - The first turn already has the pixels, the vectorized SVG, the palette and OCR. Rebuild what you see.
@@ -379,8 +479,9 @@ A picture is a PHOTO of any UI, not the UI:
 
 The loop:
 1. outline
-2. ./evg-ui add card|appbar|chips|tabbar — those write ui-card / ui-appbar / ui-chip / ui-tabbar. Then ./evg-agent patch doc.evg.json add.json.
-   Export is ranger-ui: those classes become rave.Card / rave.AppBar / rave.Chip / SettingsRow. A hand insert node MUST have "class-name":"ui-card" (or ui-row / ui-appbar / ui-tabbar). Then set-css a sheet (.card, .row, .ui-tabbar) — set-css replaces the whole sheet, send it whole. Bare evg.div trees fail Export.
+2. ./evg-ui add appbar|pills|bars|tiles|banner|card|chips|tabbar — then ./evg-agent patch doc.evg.json add.json.
+   A 2×2 of metrics is add tiles. A bar chart is add bars. A highlight is add banner. Day/Week is add pills. add card --row is SettingsRow — only a settings list. Do not flatten a dashboard into rows.
+   Export is ranger-ui: those classes become rave.AppBar / rave.Pills / rave.Bars / rave.Tile / rave.Banner / rave.Card / SettingsRow. A hand insert node MUST have a kit class-name (ui-card / ui-tile / ui-bars / ui-banner / ui-pills / ui-appbar / ui-tabbar). Then set-css a sheet — set-css replaces the whole sheet, send it whole. Bare evg.div trees fail Export.
    spec is optional. Do not smoke-test with add button. Do not read AGENTS.md. No --help.
 3. ./evg-agent measure doc.evg.json --width=W --height=H
    W×H is what TASK.md said: phone 390×844, tablet 820×1180, desktop 1440×900. Not always 390.
@@ -399,7 +500,7 @@ Several screens (Orders / Analytics / Settings) is an app, not hidden divs:
 
 set-prop is one CSS name (height, padding-top, gap, background-color), not style= and not a shorthand blob. set-prop needs "prop" and "value" — {"op":"set-prop","at":"0","prop":"flex-direction","value":"column"}, not 0=column. A 1px overflow is one set-prop on the finding path, then measure — do not query every sibling. outline --at=PATH for one node; query/measure replies already include the match props and boxes [x,y,w,h]. ops.json is {"ops":[...]} — a bare op object or [] is "no ops in that file".
 
-After an empty outline the NEXT tool is ./evg-ui add card (not list, not read_file TASK.md). TASK.md is already this message. The photo is already in the first ask. --into is the insert path — it does not edit the file. After add > add.json the next tool is ./evg-agent patch doc.evg.json add.json, not read_file add.json.
+After an empty outline the NEXT tool is ./evg-ui add appbar (or pills / tiles / bars matching the photo), not list, not read_file TASK.md. add card is only a settings list. TASK.md is already this message. The photo is already in the first ask. --into is the insert path — it does not edit the file. After add > add.json the next tool is ./evg-agent patch doc.evg.json add.json, not read_file add.json. The host paints the photo palette onto the new piece — do not flatten it into SettingsRows to "use the kit".
 
 A picture in the ask can be any UI. Rebuild what you see — match that layout, not a generic settings list. Labels with spaces (Acme 360, not Acme360). If you need the photo or SVG again, call image_info, ocr, or read_file attachment.svg.
 
@@ -425,7 +526,7 @@ export const PLAN_NUDGE =
 export const STALL_NUDGE =
   `Stop exploring. Next tool is ${ADD_CARD} then ./evg-agent patch doc.evg.json add.json. Not ocr, not image_info, not list, not TASK.md.`;
 export const PICTURE_STALL_NUDGE =
-  "You already saw the photo. Copy EXAMPLE_UI types (rave.AppBar, rave.Card, SettingsRow, ui-tabbar) and change the words. NEXT: a FILLED ./evg-ui add card --title … --row … then patch. Not outline, not query, not svg.";
+  "You already saw the photo. Copy EXAMPLE_UI types for the LAYOUT you see. A chart is add bars, a 2×2 is add tiles, a highlight is add banner, Day/Week is add pills. add card --row is ONLY a settings list — do not flatten a dashboard into SettingsRow. NEXT: one FILLED ./evg-ui add … then patch. Not outline, not query, not svg.";
 export const SVG_BRIEF_CAP = 64_000;
 export const FILE_READ_CAP = 64_000;
 export const IMAGE_INLINE_MAX = 3_500_000;
@@ -547,7 +648,7 @@ export function compactToolResult(name, rawArgs, result) {
       };
       if (result.hint) out.hint = result.hint;
       else if (lines.length <= 1) {
-        out.hint = `empty seed — not done. Next: ${ADD_CARD} then ./evg-agent patch doc.evg.json add.json`;
+        out.hint = `empty seed — not done. Next: ${ADD_APPBAR} then patch. A dashboard then add pills|bars|tiles|banner — not a card of SettingsRows.`;
       }
       if (stderr) out.stderr = clip(stderr, 400);
       return out;
@@ -874,7 +975,7 @@ export function isLoopCall(name, rawArgs) {
 export function denyExplore(workspace, name, rawArgs) {
   if (!workspace || !hasPicture(workspace) || !isLoopCall(name, rawArgs)) return "";
   if (exploreStreakOf(workspace) < EXPLORE_STREAK_CAP) return "";
-  return `already looked. NEXT is a FILLED piece like EXAMPLE_UI: ${ADD_CARD} then patch. Not outline, not query, not image_info, not svg.`;
+  return "already looked. NEXT is a FILLED piece like EXAMPLE_UI: add pills, add bars, add tiles or add banner — not a card of SettingsRows. Then patch. Not outline, not query, not image_info, not svg.";
 }
 
 function insertLooksEmptyPiece(node) {
@@ -1224,8 +1325,9 @@ export function collectPictureBrief(workspace, env = process.env) {
     "## PICTURE BRIEF",
     "A photo is attached (pixels + vectorized SVG). Rebuild what you see — any UI, not a guessed template.",
     "EVG is HTML flex/grid: display:flex + flex-direction:column|row + gap, or display:grid + grid-template-columns:1fr 1fr. Not left/top.",
-    "Pieces: ./evg-ui add card|appbar|chips|tabbar (ui-card / ui-appbar / ui-chip / ui-tabbar). Do not insert unnamed div trees — Export needs those classes for rave.Card.",
-    "Copy EXAMPLE_UI from the system prompt (rave.AppBar, rave.Card, rave.Chip, SettingsRow, ui-tabbar). Change the words to this photo. ONE outline, then add FILLED cards (--title and --row). Empty ui-card is a failed turn.",
+    "Pieces: ./evg-ui add appbar|pills|bars|tiles|banner|card|chips|tabbar (ui-card / ui-tile / ui-bars / ui-banner / ui-tabbar). Do not insert unnamed div trees — Export needs those classes for rave.Card / rave.Tile.",
+    "A 2×2 of metrics is add tiles. A bar chart is add bars. A highlight is add banner. Day/Week is add pills. add card --row is a settings list (SettingsRow) — do not flatten a dashboard into rows.",
+    "Copy EXAMPLE_UI from the system prompt (rave.AppBar, rave.Pills, rave.Bars, rave.Tile, rave.Banner, SettingsRow only for lists). Change the words to this photo. ONE outline, then add FILLED pieces. Empty ui-card is a failed turn.",
   ];
   let att = null;
   try {
@@ -1484,6 +1586,18 @@ export function parseRun(command) {
     }
     if (what === "tabbar" && !/--tab\b/.test(joined)) {
       return { error: 'add tabbar needs --tab "Home|⌂|nav.home".' };
+    }
+    if (what === "pills" && !/--pill\b/.test(joined)) {
+      return { error: 'add pills needs --pill "Day" --pill "Week" --active Week.' };
+    }
+    if (what === "tiles" && !/--tile\b/.test(joined)) {
+      return { error: 'add tiles needs --tile "Sleep Average|7h 38m|Quality 84%|☾".' };
+    }
+    if (what === "bars" && !/--bar\b/.test(joined)) {
+      return { error: 'add bars needs --bar "M|62|#805754" and --title / --value.' };
+    }
+    if (what === "banner" && !/--title\b/.test(joined)) {
+      return { error: 'add banner needs --title "100k Steps in 10 Days".' };
     }
   }
   if (stdoutTo) {
@@ -1766,7 +1880,7 @@ export function evgRootOf(workspace) {
 
 /** Screen-level pieces Export collapses to rave.Card / AppBar / SettingsRow. */
 export const PIECE_CLASS_RE =
-  /\b(ui-card|ui-appbar|ui-row|ui-chip|ui-chiprow|ui-tabbar|ui-tab-item|ui-actions|ui-field|ui-switch|ui-btn|ui-button|ui-input|card|row|appbar|chip)\b/;
+  /\b(ui-card|ui-appbar|ui-row|ui-chip|ui-chiprow|ui-tabbar|ui-tab-item|ui-actions|ui-field|ui-switch|ui-btn|ui-button|ui-input|ui-pills|ui-pill|ui-tiles|ui-tile|ui-bars|ui-banner|card|row|appbar|chip)\b/;
 
 export function nodePieceClass(node) {
   if (!node || typeof node !== "object") return "";
@@ -1813,7 +1927,7 @@ export function summarizeOutline(raw) {
     line += ` — ${heads.join(" · ")}`;
   }
   if (lines.length <= 1) {
-    line += ` — empty seed, not done. Next: ${ADD_CARD} then ./evg-agent patch doc.evg.json add.json`;
+    line += ` — empty seed, not done. Next: ${ADD_APPBAR} then patch. A dashboard then add pills|bars|tiles|banner — not a card of SettingsRows.`;
   } else if (lines.some((l) => /\.ui-card\b/.test(l) && !/"/.test(l))) {
     line += ` — empty card. Next: ${ADD_CARD}`;
   }
@@ -1907,7 +2021,7 @@ export function opsWriteError(rel, contents, workspace = "") {
         }
       }
       if (op.op === "insert" && insertIsSoup(op.node, op.at)) {
-        return 'insert node needs class-name ui-card / ui-appbar / ui-row / ui-chip / ui-tabbar — or ./evg-ui add card. Bare div trees fail Export (no rave.Card).';
+        return 'insert node needs class-name ui-card / ui-tile / ui-bars / ui-banner / ui-pills / ui-appbar / ui-tabbar — or ./evg-ui add tiles|bars|banner. Bare div trees fail Export (no rave.Card).';
       }
       if (op.op === "insert" && String(op.at || "") === "0/0") {
         const root = workspace ? evgRootOf(workspace) : null;

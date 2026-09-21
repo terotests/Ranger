@@ -47,6 +47,8 @@ import {
   shouldAttachPicture,
   pendingOpsFile,
   ADD_CARD,
+  ADD_APPBAR,
+  paintAddOps,
   OPS_WRITE_CAP,
   recentSightseeing,
   isSightseeingCall,
@@ -374,7 +376,19 @@ if (fs.existsSync(path.join(root, "lib/evg/bin/evg_agent.js"))) {
     throw new Error("the card did not land with its rules");
   }
   fs.rmSync(cardOps, { force: true });
-  console.log("  kit         ./evg-ui in the workspace: a control and a whole card both apply");
+  const tiled = spawnSync(
+    shim,
+    ["add", "tiles", "--tile", "Sleep Average|7h 38m|Quality 84%|☾", "--tile", "Resting HR|64 BPM|Optimal|♡", "--into", doc],
+    { encoding: "utf8", timeout: 120000 },
+  );
+  const tileBatch = JSON.parse(tiled.stdout || "{}");
+  if (!tileBatch.classes || !tileBatch.classes.includes("ui-tile-value")) {
+    throw new Error("tiles came back without metric parts: " + (tiled.stderr || tiled.stdout));
+  }
+  if (!/\.ui-tile\b/.test(tileBatch.css || "")) {
+    throw new Error("tiles must ship their CSS: " + tileBatch.css);
+  }
+  console.log("  kit         ./evg-ui in the workspace: a control, a card, and tiles all apply");
 }
 
 // An app workspace gets a different guide, and the tool to work it with. What
@@ -975,6 +989,21 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   if (!denyRun("./evg-ui add card --title T --into doc.evg.json") || !/--row/.test(denyRun("./evg-ui add card --title T --into doc.evg.json"))) {
     throw new Error("add card without --row must be refused: " + denyRun("./evg-ui add card --title T --into doc.evg.json"));
   }
+  if (denyRun('./evg-ui add tiles --tile "Sleep Average|7h 38m|Quality 84%|☾" --into doc.evg.json > add.json')) {
+    throw new Error("add tiles must stay allowed: " + denyRun('./evg-ui add tiles --tile "Sleep Average|7h 38m|Quality 84%|☾" --into doc.evg.json > add.json'));
+  }
+  if (!denyRun("./evg-ui add tiles --into doc.evg.json") || !/--tile/.test(denyRun("./evg-ui add tiles --into doc.evg.json"))) {
+    throw new Error("add tiles without --tile must be refused: " + denyRun("./evg-ui add tiles --into doc.evg.json"));
+  }
+  if (denyRun('./evg-ui add bars --title T --value V --bar "M|62|#805754" --into doc.evg.json > add.json')) {
+    throw new Error("add bars must stay allowed");
+  }
+  if (denyRun('./evg-ui add banner --title "100k Steps" --into doc.evg.json > add.json')) {
+    throw new Error("add banner must stay allowed");
+  }
+  if (denyRun('./evg-ui add pills --pill Day --pill Week --active Week --into doc.evg.json > add.json')) {
+    throw new Error("add pills must stay allowed");
+  }
   const emptyProp = summarizeTool("run", { command: "./evg-agent patch doc.evg.json ops.json" }, {
     ok: false,
     status: 1,
@@ -1001,8 +1030,8 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
     stdout: "0                     div  display=flex  width=390px  height=844px\n",
     stderr: "",
   });
-  if (!/empty seed/.test(emptySeed.reply) || !/add card/.test(emptySeed.reply)) {
-    throw new Error("an empty outline must say add card: " + JSON.stringify(emptySeed));
+  if (!/empty seed/.test(emptySeed.reply) || !/add appbar/.test(emptySeed.reply)) {
+    throw new Error("an empty outline must say add appbar: " + JSON.stringify(emptySeed));
   }
   const taskRead = executeTool(ws, "read_file", { path: "TASK.md" });
   if (!taskRead.error || !/already the ask/.test(taskRead.error)) {
@@ -1096,6 +1125,9 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   if (!/EXAMPLE_UI/.test(brief) || !/SettingsRow/.test(brief) || !/FILLED/.test(brief)) {
     throw new Error("picture brief must point at EXAMPLE_UI: " + brief);
   }
+  if (!/add tiles/.test(brief) || !/add bars/.test(brief) || !/do not flatten/.test(brief)) {
+    throw new Error("picture brief must name tiles/bars and refuse SettingsRow flatten: " + brief);
+  }
   const roles = paletteRoles([
     { hex: "#23252B", share: 0.48 },
     { hex: "#17181C", share: 0.31 },
@@ -1104,6 +1136,37 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   if (!roles || roles.page !== "#17181C" || roles.cards !== "#23252B" || !roles.accents.includes("#AAB4F9")) {
     throw new Error("dark UI: darker top swatch is the page: " + JSON.stringify(roles));
   }
+  const darkWs = fs.mkdtempSync(path.join(os.tmpdir(), "evg-paint-"));
+  fs.writeFileSync(
+    path.join(darkWs, "attachment.json"),
+    JSON.stringify({
+      colors: [
+        { hex: "#23252B", share: 0.48 },
+        { hex: "#17181C", share: 0.31 },
+        { hex: "#AAB4F9", share: 0.09 },
+        { hex: "#EF9587", share: 0.06 },
+      ],
+    }),
+  );
+  const painted = paintAddOps(
+    JSON.stringify({
+      ops: [{
+        op: "insert",
+        at: "0",
+        node: {
+          tag: "div",
+          props: { "class-name": "ui-tiles" },
+          children: [{ tag: "div", props: { "class-name": "ui-tile" }, children: [{ tag: "span", props: { "class-name": "ui-tile-value" }, text: "7h 38m" }] }],
+        },
+      }],
+    }),
+    darkWs,
+  );
+  if (!painted.includes("#23252B") || !painted.includes("7h 38m")) {
+    throw new Error("add tiles must pick up the photo card colour: " + painted);
+  }
+  fs.rmSync(darkWs, { recursive: true, force: true });
+  if (!ADD_APPBAR.includes("add appbar")) throw new Error("ADD_APPBAR must name add appbar");
   const boxes = formatGeometryLines(geometryFromSvg('<rect x="8" y="8" width="40" height="20" fill="#17181C"/>'));
   if (!/8,8 40x20 #17181C/.test(boxes)) {
     throw new Error("SVG rects must become boxes: " + boxes);
@@ -1111,8 +1174,8 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   if (!fs.existsSync(path.join(picWs, "PICTURE.md"))) {
     throw new Error("collectPictureBrief should write PICTURE.md");
   }
-  if (EXAMPLE_RANGER_UI.ui.children[0].type !== "rave.AppBar" || !exampleUiBlock().includes("Total Revenue")) {
-    throw new Error("EXAMPLE_UI must be an AppBar + Card + SettingsRow screen");
+  if (EXAMPLE_RANGER_UI.ui.children[0].type !== "rave.AppBar" || !exampleUiBlock().includes("rave.Tile") || !/do not flatten/.test(exampleUiBlock())) {
+    throw new Error("EXAMPLE_UI must be an AppBar + tiles/bars/banner screen, not a SettingsRow list");
   }
   fs.writeFileSync(path.join(picWs, ".gemini-once.json"), JSON.stringify({ exploreStreak: 2 }) + "\n");
   const blockedOutline = denyExplore(picWs, "run", { command: "./evg-agent outline doc.evg.json" });
@@ -1387,7 +1450,7 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
     "one CSS name",
     "do not query every sibling",
     '{"ops":[...]}',
-    "NEXT tool is ./evg-ui add card",
+    "NEXT tool is ./evg-ui add",
     "TASK.md is already this message",
     "not read_file",
     "vectorized SVG",
@@ -1401,7 +1464,10 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
     "EXAMPLE_UI",
     "rave.AppBar",
     "SettingsRow",
-    "Total Revenue",
+    "do not flatten",
+    "add tiles",
+    "rave.Tile",
+    "rave.Banner",
   ]) {
     if (!prompt.includes(need)) throw new Error("gemini system prompt missing " + need);
   }

@@ -139,14 +139,18 @@ the palette and OCR on the **first turn** of a Follow-up (any UI).
 Later turns stay cheap; `image_info` / `ocr` / `read_file attachment.svg`
 send them again if the model asks. The brief says EVG is HTML flex/grid,
 names page/cards/accent hexes, and lists Erazer or SVG `x,y w×h` boxes.
-Pieces are `./evg-ui add card|appbar|chips|tabbar` — those write
-`ui-card` / `ui-appbar` / `ui-chip` / `ui-tabbar` so **Export** collapses
-to `rave.Card` / `rave.AppBar` / `rave.Chip` / `SettingsRow`. A hand
-`insert` of an unnamed `div` tree is refused (box soup). `set-css` is
-allowed and replaces the sheet. The system prompt starts with a compact
-**EXAMPLE_UI** (AppBar, chips, Overview card, tabbar) and the `./evg-ui`
-recipe that builds it — Gemini copies those types and changes the words
-to the photo. An `add card` without `--row` is refused. After two
+Pieces are `./evg-ui add appbar|pills|bars|tiles|banner|card|chips|tabbar`
+— those write `ui-appbar` / `ui-pills` / `ui-bars` / `ui-tile` /
+`ui-banner` / `ui-card` so **Export** collapses to `rave.AppBar` /
+`rave.Pills` / `rave.Bars` / `rave.Tile` / `rave.Banner` / `rave.Card` /
+`SettingsRow`. A dashboard photo must stay tiles + bars + banner, not a
+flattened SettingsRow list. After `add` the host paints the photo
+palette onto the new piece. A hand `insert` of an unnamed `div` tree is
+refused (box soup). `set-css` is allowed and replaces the sheet. The
+system prompt starts with a compact **EXAMPLE_UI** (AppBar, pills, bars,
+tiles, banner, tabbar) and the `./evg-ui` recipe that builds it — Gemini
+copies those types and changes the words to the photo. An `add card`
+without `--row` is refused (`card` is a settings list only). After two
 outline/query/svg looks on a picture Follow-up the host refuses the
 third and names the filled add.
 
@@ -286,9 +290,9 @@ workspace now carries the door to them as `./evg-ui`:
 ```
 
 It also answers with the whole PIECE rather than the part — `row`, `card`,
-`appbar`, `chips`, `field` — because a row is the unit a screen is built in,
-and an agent handed only the switch draws the other four parts by hand every
-time:
+`appbar`, `chips`, `pills`, `tiles`, `bars`, `banner`, `field` — because a
+row is the unit a settings screen is built in, and a dashboard is tiles /
+bars / a banner, not thirty SettingsRows:
 
 ```sh
 ./evg-ui add card --row "Share network|Others can connect|switch:on" \

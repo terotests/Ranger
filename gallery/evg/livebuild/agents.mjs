@@ -791,8 +791,10 @@ the gap. A whole settings card is one command:
   --row "Privacy|Use randomized MAC|chevron" --into doc.evg.json > add.json
 \`\`\`
 
-\`row\`, \`card\`, \`appbar\`, \`chips\`, \`tabbar\` and \`field\` are the pieces;
+\`row\`, \`card\`, \`appbar\`, \`chips\`, \`tabbar\`, \`pills\`, \`tiles\`, \`bars\`, \`banner\` and \`field\` are the pieces;
 \`./evg-ui list\` has them at the top and \`spec\` says what each takes.
+A dashboard (chart, 2×2 metrics, highlight) is \`add bars\` / \`add tiles\` / \`add banner\` / \`add pills\`.
+\`add card --row\` is a settings list of SettingsRows — do not flatten a dashboard into rows.
 
 ### A control on a SCREEN is a picture. In an APP it can work.
 
@@ -1014,9 +1016,10 @@ show three nodes after you thought you built a dashboard:
   "children":[{"tag":"span","text":"Hi"}]}}
 \`\`\`
 
-Prefer \`./evg-ui add card\` for anything with rows. One command is a
-whole measured piece; an 18k hand-written tree is how \`children\` gets
-ignored.
+Prefer \`./evg-ui add tiles\` / \`bars\` / \`banner\` / \`pills\` when the
+photo is a dashboard. \`add card\` is a settings list of rows. One
+command is a whole measured piece; an 18k hand-written tree is how
+\`children\` gets ignored.
 
 A turn that only describes the next section is not a finish. Call
 \`patch\` in that turn. One card per \`write_file\` (under 2000 bytes) —
