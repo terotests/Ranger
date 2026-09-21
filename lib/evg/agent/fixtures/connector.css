@@ -1,0 +1,63 @@
+/* Two cards and an arrow between them. Nothing here says where the arrow is —
+   only which two boxes it joins and what it looks like. */
+
+.page {
+  width: 100%;
+  height: 100%;
+  background-color: #f8fafc;
+  padding-left: 24px;
+  padding-right: 24px;
+  padding-top: 24px;
+
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 56px;
+}
+
+/* One column on a narrow page. The arrow is not mentioned. */
+@media (max-width: 560px) {
+  .page {
+    grid-template-columns: 1fr;
+    gap: 40px;
+  }
+}
+
+.card {
+  height: 120px;
+  background-color: #ffffff;
+  border-radius: 12px;
+  padding-left: 18px;
+  padding-top: 16px;
+  flex-direction: column;
+}
+
+.label { font-size: 13px; color: #64748b; }
+.value { font-size: 30px; color: #0f172a; padding-top: 6px; }
+
+.flow {
+  from: --orders;
+  to: --revenue;
+  stroke: #f59e0b;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  arrow-end: triangle;
+  arrow-size: 11;
+}
+
+/* A count badge on the Orders card's top-right corner: one edge of this box
+   against one edge of that one. */
+.badge {
+  position-anchor: --orders;
+  left: calc(anchor(right) - 14px);
+  top: calc(anchor(top) - 10px);
+
+  width: 28px;
+  height: 28px;
+  border-radius: 14px;
+  background-color: #dc2626;
+  padding-left: 8px;
+  padding-top: 5px;
+}
+
+.badge-text { font-size: 14px; color: #ffffff; }

@@ -7,10 +7,10 @@
       "path": "../evg_window"
     },
     "evg": {
-      "path": "../../deps/evg/storm"
+      "path": "../../lib/evg"
     },
     "image": {
-      "path": "../../deps/evg/image"
+      "path": "../../lib/image"
     }
   }
 }

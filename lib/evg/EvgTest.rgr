@@ -1,0 +1,91 @@
+; SPDX-License-Identifier: MIT
+
+; ==============================================================================
+; EvgTest — the small assertion harness the EVG suites under lib/ use.
+; ==============================================================================
+; The same shape as the gallery's RgTest: each check prints "  PASS <name>" /
+; "  FAIL <name>", and summary() prints a grep-able "ALL PASS" (or
+; "SOME FAILED") plus a "passed=X failed=Y" line. It lives here so that
+; nothing under lib/evg imports gallery/ — lib is MIT and the gallery is not.
+; ==============================================================================
+
+class EvgTest {
+    def passed:int 0
+    def failed:int 0
+    def suite:string ""
+
+    sfn forSuite:EvgTest (name:string) {
+        def t:EvgTest (new EvgTest)
+        t.suite = name
+        print ("### " + name)
+        return t
+    }
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            this.passed = (this.passed + 1)
+            print ("  PASS " + name)
+        } {
+            this.failed = (this.failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn no:void (name:string cond:boolean) {
+        this.ok(name (cond == false))
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        if (got == want) {
+            this.passed = (this.passed + 1)
+            print ("  PASS " + name)
+        } {
+            this.failed = (this.failed + 1)
+            print ("  FAIL " + name + " got=" + (to_string got) + " want=" + (to_string want))
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        if (got == want) {
+            this.passed = (this.passed + 1)
+            print ("  PASS " + name)
+        } {
+            this.failed = (this.failed + 1)
+            print ("  FAIL " + name + " got=" + got + " want=" + want)
+        }
+    }
+
+    fn eqBool:void (name:string got:boolean want:boolean) {
+        if (got == want) {
+            this.passed = (this.passed + 1)
+            print ("  PASS " + name)
+        } {
+            this.failed = (this.failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn near:void (name:string got:double want:double) {
+        def d:double (got - want)
+        if (d < 0.0) {
+            d = (0.0 - d)
+        }
+        if (d < 0.000001) {
+            this.passed = (this.passed + 1)
+            print ("  PASS " + name)
+        } {
+            this.failed = (this.failed + 1)
+            print ("  FAIL " + name + " got=" + (to_string got) + " want=" + (to_string want))
+        }
+    }
+
+    fn summary:void () {
+        print "== summary =="
+        print ("passed=" + (to_string this.passed) + " failed=" + (to_string this.failed))
+        if (this.failed == 0) {
+            print "ALL PASS"
+        } {
+            print "SOME FAILED"
+        }
+    }
+}

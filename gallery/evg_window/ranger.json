@@ -4,7 +4,7 @@
   "entry": "EVGWindow.rgr",
   "license": "AGPL-3.0-or-later",
   "dependencies": {
-    "evg": { "path": "../../deps/evg/storm" },
-    "image": { "path": "../../deps/evg/image" }
+    "evg": { "path": "../../lib/evg" },
+    "image": { "path": "../../lib/image" }
   }
 }

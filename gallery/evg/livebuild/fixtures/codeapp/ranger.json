@@ -4,7 +4,7 @@
   "entry": "App.rgr",
   "license": "AGPL-3.0-or-later",
   "dependencies": {
-    "evg": { "path": "../../../../../deps/evg/storm" },
+    "evg": { "path": "../../../../../lib/evg" },
     "evg-livebuild": { "path": "../.." }
   }
 }

@@ -136,7 +136,7 @@ on:
       - "compiler/**"
       - "lib/**"
       - "docs/**"
-      - "deps/evg.ref"
+      - "lib/evg/**"
       - "gallery/erazer/**"
       - "gallery/vela/**"
       # The RealTrainer page at /realtrainer/ is built from these, and from
@@ -217,9 +217,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Fetch EVG Storm
-        uses: ./.github/actions/fetch-evg
 
       - name: Setup Node.js
         uses: actions/setup-node@v4

@@ -1,0 +1,1369 @@
+; SPDX-License-Identifier: MIT
+
+; ==============================================================================
+; EVGToolbar.rgr — a strip of buttons, for any EVG app.
+; ==============================================================================
+;
+; This was the spreadsheet's toolbar and nothing else could have it. Word had
+; no toolbar at all — no bold, no font, no size, no colour — and the only way
+; to give it one was to write a second one, which is how two toolbars start
+; drifting: a fix to the wrapping here, an icon added there, and a year later
+; the two applications look like they were made by different people.
+;
+; So the parts that are not about spreadsheets live here:
+;
+;   ToolIcon    the icon numbers, so a bold button is the same shape wherever
+;               it is drawn
+;   ToolItem    what a button IS — the command it runs, how it looks, and the
+;               geometry the layout gave it
+;   EVGToolbar  the strip: adding, measuring, wrapping, hit testing, hover
+;
+; What stays with each application is the only thing that differs: which
+; buttons, in which order, and what "pressed" means for a toggle. A spreadsheet
+; asks the cell under the caret; a document asks the run under the caret;
+; neither question belongs in here. `ToolItem.pressed` is the answer, set by
+; the owner before the strip is painted.
+;
+; Every entry names a COMMAND — the same string the keyboard and a remote host
+; use — so a button cannot do something the command surface cannot, and adding
+; a command to the table is how a button gets its behaviour.
+;
+; The layout is measured, not assumed: labels are as wide as their text, groups
+; are separated, and the strip is as many rows as the buttons need at the width
+; it is given. Anything that would not fit is simply not drawn — a toolbar that
+; runs off the edge of its own strip is the bug this started as.
+; ==============================================================================
+
+Import "EVGColor.rgr"
+Import "EVGDisplayList.rgr"
+Import "EVGA11yTree.rgr"
+Import "EVGStyleSheet.rgr"
+
+; The palette the strip draws itself with. An application hands one over rather
+; than the toolbar reaching into a theme it cannot know about.
+class EVGToolbarTheme {
+    def bg:EVGColor (EVGColor.rgb(236 240 246))
+    def line:EVGColor (EVGColor.rgb(210 216 224))
+    def ink:EVGColor (EVGColor.rgb(30 36 48))
+    def dim:EVGColor (EVGColor.rgb(80 92 110))
+    ; THE LINE AN ICON IS DRAWN IN, which is not the colour a word is written
+    ; in even though it was for years. Every toolbar worth copying draws its
+    ; glyphs a step lighter than its text — the Radix reference this gallery
+    ; measures against uses a muted purple against near-black type, and the
+    ; dashboard uses `#52525b` against `#27272a`. Defaulted to `ink` so the
+    ; spreadsheet and the document are exactly where they were.
+    def glyphInk:EVGColor (EVGColor.rgb(30 36 48))
+    ; The body of a filled icon shape — a row bar, a column bar, a cell block.
+    ;
+    ; This exists because `line` was being used for it, and `line` is the
+    ; HAIRLINE colour: 210,216,224 on a 236,240,246 strip is four steps of
+    ; grey. Every icon that drew a solid shape in it — insert row, insert
+    ; column, delete row, no-border — came out as a pale smudge you had to
+    ; know was there. A fill needs a fill's contrast.
+    def glyph:EVGColor (EVGColor.rgb(140 152 170))
+    ; The pill under the pointer. This was 232,236,242 on a 236,240,246
+    ; strip — FOUR steps of grey, which is the same mistake `glyph` above is
+    ; there to explain, and the reason the strip was reported as having no
+    ; hover at all. A hover has to be seen without being looked for.
+    def hotBg:EVGColor (EVGColor.rgb(218 225 236))
+    def pressedBg:EVGColor (EVGColor.rgba(50 120 220 0.22))
+    def accent:EVGColor (EVGColor.rgb(40 100 210))
+    def warn:EVGColor (EVGColor.rgb(214 69 65))
+    ; A link is its own colour everywhere it is drawn, and a toolbar icon that
+    ; means "hyperlink" is drawn in it too.
+    def link:EVGColor (EVGColor.rgb(21 78 172))
+    ; The panel a dropdown's list is drawn on.
+    def tipBg:EVGColor (EVGColor.rgb(255 255 255))
+    ; The tooltip chip, which is NOT the same thing and used to borrow the
+    ; panel's white and an accent border. A white chip on a white page is a
+    ; rectangle you have to find; every toolbar worth copying draws this dark
+    ; and reversed out, which reads as a label about something rather than
+    ; another piece of the page.
+    def tooltipBg:EVGColor (EVGColor.rgb(38 43 54))
+    def tooltipInk:EVGColor (EVGColor.rgb(246 248 251))
+
+    Constructor () {
+    }
+}
+
+class ToolIcon {
+    sfn none:int ()        { return 0 }
+    sfn undo:int ()        { return 1 }
+    sfn redo:int ()        { return 2 }
+    sfn bold:int ()        { return 3 }
+    sfn italic:int ()      { return 4 }
+    sfn underline:int ()   { return 5 }
+    sfn strike:int ()      { return 6 }
+    sfn alignLeft:int ()   { return 7 }
+    sfn alignCenter:int () { return 8 }
+    sfn alignRight:int ()  { return 9 }
+    sfn valignTop:int ()   { return 10 }
+    sfn valignMid:int ()   { return 11 }
+    sfn valignBot:int ()   { return 12 }
+    ; `wrap` belongs to the text renderer; this one is `wrapCell`.
+    sfn wrapCell:int ()    { return 13 }
+    sfn merge:int ()       { return 14 }
+    sfn borderAll:int ()   { return 15 }
+    sfn borderOut:int ()   { return 16 }
+    sfn borderNone:int ()  { return 17 }
+    sfn fill:int ()        { return 18 }
+    sfn textColor:int ()   { return 19 }
+    sfn currency:int ()    { return 20 }
+    sfn percent:int ()     { return 21 }
+    sfn comma:int ()       { return 22 }
+    sfn decMore:int ()     { return 23 }
+    sfn decLess:int ()     { return 24 }
+    sfn sizeUp:int ()      { return 25 }
+    sfn sizeDown:int ()    { return 26 }
+    sfn paint:int ()       { return 27 }
+    sfn clearFmt:int ()    { return 28 }
+    sfn freeze:int ()      { return 29 }
+    ; `filter` is taken by the compiler too.
+    sfn funnel:int ()      { return 30 }
+    sfn sortAsc:int ()     { return 31 }
+    sfn sortDesc:int ()    { return 32 }
+    sfn insertRow:int ()   { return 33 }
+    sfn insertCol:int ()   { return 34 }
+    sfn deleteRow:int ()   { return 35 }
+    sfn chart:int ()       { return 36 }
+    sfn link:int ()        { return 37 }
+    sfn comment:int ()     { return 38 }
+    ; `find` is a name the compiler keeps for itself, hence `search`.
+    sfn search:int ()      { return 39 }
+    sfn cond:int ()        { return 40 }
+    sfn validate:int ()    { return 41 }
+    sfn save:int ()        { return 42 }
+    sfn openFile:int ()    { return 43 }
+    sfn newFile:int ()     { return 44 }
+    sfn report:int ()      { return 45 }
+    ; The border gallery, as opposed to the three one-click border words.
+    sfn borderMore:int ()  { return 46 }
+    ; The database group. A shortcut is not a discoverable feature, and in a
+    ; browser it is not even a reliable one: Ctrl+D is the bookmark and Ctrl+Q
+    ; quits. A button on the strip works everywhere the grid is drawn.
+    sfn database:int ()    { return 47 }
+    sfn sqlBox:int ()      { return 48 }
+    ; A show, as a triangle pointing right — the one icon a presentation tool
+    ; cannot do without.
+    sfn play:int ()        { return 49 }
+
+    ; Lists: a dotted one, a numbered one, and the two that move an item in
+    ; and out of its parent.
+    sfn bulletList:int ()  { return 50 }
+    sfn numberList:int ()  { return 51 }
+    sfn indentMore:int ()  { return 52 }
+    sfn indentLess:int ()  { return 53 }
+
+    ; --- navigation, and the verbs a document or a deck has ------------------
+    ;
+    ; These exist because the two newer editors were borrowing the
+    ; spreadsheet's icons for commands that have nothing to do with them, and
+    ; a borrowed icon is not a neutral choice — it is a WRONG picture, which
+    ; is worse than a dull one. "Next slide" was drawn as redo. "Previous
+    ; page" was drawn as undo, on a bar that also has undo. "Insert an
+    ; ellipse" was drawn as conditional formatting, in red and green.
+    ;
+    ; Five pairs were outright collisions — two different commands with one
+    ; picture on the same strip: edit-mode and copy and format-copy all drew
+    ; the paint roller; lock and group both drew the freeze cross; delete
+    ; shape and delete slide both drew the delete-row bar.
+    sfn navFirst:int ()    { return 54 }
+    sfn navPrev:int ()     { return 55 }
+    sfn navNext:int ()     { return 56 }
+    sfn navLast:int ()     { return 57 }
+    ; A pointer: "you are editing this now", as against reading it.
+    sfn editMode:int ()    { return 58 }
+    sfn copy:int ()        { return 59 }
+    sfn paste:int ()       { return 60 }
+    sfn shapeRect:int ()   { return 61 }
+    sfn shapeEllipse:int (){ return 62 }
+    sfn textBox:int ()     { return 63 }
+    sfn picture:int ()     { return 64 }
+    sfn lock:int ()        { return 65 }
+    sfn flipH:int ()       { return 66 }
+    sfn flipV:int ()       { return 67 }
+    sfn duplicate:int ()   { return 68 }
+    sfn trash:int ()       { return 69 }
+    sfn bringFront:int ()  { return 70 }
+    sfn sendBack:int ()    { return 71 }
+    sfn group:int ()       { return 72 }
+    sfn ungroup:int ()     { return 73 }
+    sfn palette:int ()     { return 74 }
+    sfn slideAdd:int ()    { return 75 }
+    sfn slideCopy:int ()   { return 76 }
+    sfn slideDel:int ()    { return 77 }
+    ; The other half of the format painter: pick it up, put it on. These were
+    ; the paint roller and the all-borders grid, and the grid was ALSO the box
+    ; tool two buttons away.
+    sfn formatPaste:int () { return 78 }
+    ; The switch that turns the interface around. Drawn as a paragraph of
+    ; ragged lines with an arrow under it pointing LEFT — the direction the
+    ; text will run once it is pressed, which is the only thing about this
+    ; button a reader needs to guess.
+    sfn textRtl:int ()     { return 79 }
+    ; The printer. Every office suite puts one on the strip and it is the one
+    ; picture nobody has to be taught.
+    sfn printDoc:int ()    { return 80 }
+    ; The chevron a dropdown draws beside its own picture.
+    sfn caret:int ()       { return 81 }
+    ; The shape gallery: a square, a circle and a triangle, which is what
+    ; every office suite puts on the button that opens one. It had been
+    ; borrowing `merge`, two arrows pointing at each other, and a reader who
+    ; cannot guess what a button does clicks it to find out — which is exactly
+    ; how this one got reported as a broken insert.
+    sfn shapes:int ()      { return 82 }
+    ; Scissors. Copy and paste had pictures and cut did not, which is the one
+    ; of the three nobody can substitute a word for.
+    sfn cut:int ()         { return 83 }
+    ; Justified text: four full-width lines. The other three alignments have
+    ; had a picture since the beginning and this one had none, so it could not
+    ; be offered.
+    sfn textJustify:int () { return 84 }
+    ; Lining OBJECTS up against an edge, which is not the same thing as
+    ; aligning text and had been borrowing its picture. Two boxes and the rule
+    ; they are pushed against; the text ones stay four lines of type.
+    sfn arrangeLeft:int () { return 85 }
+    sfn arrangeCenter:int () { return 86 }
+    sfn arrangeRight:int () { return 87 }
+    ; The structure of one page rather than a list of words: a rule down the
+    ; side and rows hanging off it, two of them indented under the first.
+    ; It is next to the bulleted list on the strip and must not be mistaken
+    ; for it — that one makes text into a list, this one shows what is on the
+    ; slide.
+    sfn outlineList:int () { return 88 }
+}
+
+class ToolItem {
+    ; The command this runs, and the argument it runs it with.
+    def command:string ""
+    def arg:string ""
+    def label:string ""
+    def icon:int 0
+    ; A toggle draws itself pressed when its style question answers yes. The
+    ; question is `toggleOp` / `toggleArg`, asked of the cell the caret is on.
+    def toggle:boolean false
+    def toggleOp:string ""
+    def toggleArg:string ""
+    ; Laid-out geometry, filled by `layout`.
+    def x:int 0
+    def y:int 0
+    def w:int 0
+    def h:int 0
+    ; A separator is drawn as a rule and cannot be clicked.
+    def isSeparator:boolean false
+    ; Whether a toggle is currently on. The strip does not know how to answer
+    ; that — a spreadsheet asks the cell under the caret and a document asks
+    ; the run under it — so the owner sets it before the strip is painted.
+    def pressed:boolean false
+    ; Wider than an icon: font / size dropdowns show a readable label.
+    def textW:int 0
+    ; Draw the name beside the picture, not only in the tooltip.
+    ;
+    ; The commands a beginner reaches for first — paste, copy, print — are
+    ; worth the width: a picture has to be learnt and a word does not, and a
+    ; strip where the four or five most-used buttons say what they are is a
+    ; strip somebody can use on the first day. The rest stay icon-only,
+    ; because a band where EVERYTHING is labelled is as unreadable as one
+    ; where nothing is.
+    def showLabel:boolean false
+    ; What the caption measures at, filled in by the view — the strip has no
+    ; measurer of its own. See ToolTab.measuredW, same arrangement.
+    def labelW:int 0
+    ; A button that opens a list under itself instead of running something.
+    ; Its own `command` is empty: pressing it opens the list.
+    def isMenu:boolean false
+    ; For an entry IN such a list, the index of the button that owns it, or
+    ; -1. An entry takes no room on the strip while its list is shut, which
+    ; is the whole point — five border commands in one slot.
+    def menuOwner:int -1
+    ; Scratch: where this item was before the array was last rebuilt. Only
+    ; `tagPositions` and `reindex` touch it — see `addUnderMenu`.
+    def wasAt:int -1
+    ; A button drawn big, with its name UNDER the picture rather than beside
+    ; it. For the one or two commands on a page that are the reason the page
+    ; exists — Insert's text box is what somebody opens Insert to do. A strip
+    ; where every command is the same size says every command is equally
+    ; likely, and none of them ever is.
+    def isLarge:boolean false
+
+    Constructor () {
+    }
+}
+
+; One named page of the strip.
+;
+; A spreadsheet has upwards of fifty commands and a deck not many fewer, and a
+; single strip of them is a wall: everything is present, nothing is findable,
+; and the buttons a beginner wants are the ones that wrapped onto the second
+; row or fell off the end. Grouping them under names — File, Home, Insert,
+; Layout — is what every office suite settled on, LibreOffice's tabbed
+; notebookbar included, and it is not decoration: it turns "which of these
+; fifty pictures is it" into "which of five words is it", and a word can be
+; read.
+;
+; A tab owns a RANGE of the item list rather than its own list. The items stay
+; in one array in the order they were added, so everything that walks them —
+; the painter, the click, the accessibility tree — keeps working on a strip
+; with tabs and on one without.
+class ToolTab {
+    def name:string ""
+    ; The half-open range of `items` this tab owns.
+    def first:int 0
+    def count:int 0
+    ; Laid-out geometry of the tab's own label, filled by `layout`.
+    def x:int 0
+    def y:int 0
+    def w:int 0
+    def h:int 0
+    ; What the label measures at, when somebody with a measurer has said. The
+    ; strip itself has none — it computes geometry from numbers the owner
+    ; hands it, which is the same reason `addText` takes a width — so the
+    ; view measures the names and writes them here before the layout runs,
+    ; and the estimate below is what a host without a view falls back to.
+    def measuredW:int 0
+
+    Constructor () {
+    }
+}
+
+class EVGToolbar {
+    def items:[ToolItem]
+    ; The named pages, in the order they are shown. Empty means an untabbed
+    ; strip, which is what every caller had before tabs existed and still
+    ; works unchanged.
+    def tabs:[ToolTab]
+    def activeTab:int 0
+    ; The height of the row of names above the buttons.
+    def tabH:int 28
+    ; One row is 30 tall; the strip is as many rows as the buttons need at the
+    ; width it is given. A spreadsheet has more buttons than a narrow window
+    ; has room for, and dropping the last six of them — which is what a single
+    ; fixed row does — loses exactly the ones a beginner is looking for.
+    ; A desktop icon set draws its glyphs on a 24-pixel grid in a button of
+    ; about 30 — LibreOffice, Breeze, every system tray. This strip drew 16
+    ; pixels of glyph in 26, which is why the icons read as small even before
+    ; anything about their shapes is discussed. The button grew with them so
+    ; the strip does not get denser, only more legible.
+    ; Tall enough for a 24-pixel glyph with room around it. The row was 34,
+    ; which left 28 for the button and forced the glyph down to 20.
+    def rowH:int 40
+    def rows:int 1
+    def height:int 36
+    def pad:int 5
+    def iconW:int 34
+    ; A row with a large button in it is this tall instead of `rowH`; the
+    ; ordinary chips centre themselves in it.
+    def largeH:int 54
+    ; --- the strip's metrics, from a stylesheet -------------------------------
+    ;
+    ; The seven numbers above are what a strip on a desktop is. They are wrong
+    ; on a phone — a 30-pixel chip is a comfortable mouse target and a poor
+    ; finger one, and WCAG 2.2 asks for 44 — and they were wrong in a way that
+    ; could only be fixed by an `if` in whatever code laid the strip out, once
+    ; per caller.
+    ;
+    ; So they come from a stylesheet instead, and a stylesheet has `@media`.
+    ; The strip is not a tree of elements and this does not make it one: it
+    ; reads a fixed handful of classes, each standing for one metric, and
+    ; anything it does not find keeps the value it already had. That is enough
+    ; for the responsive part — the metrics ARE the layout — without a toolbar
+    ; that has to grow a box model.
+    ;
+    ;   .toolbar        { height: 34px; padding: 5px }   row height, edge pad
+    ;   .toolbar-tabs   { height: 28px }
+    ;   .toolbar-button { width: 30px; height: 54px }    chip width, large row
+    ;
+    ; The sheet's viewport must already be set; this asks it nothing about the
+    ; window, because a toolbar has no window either.
+    fn applyStyle:void (sheet:EVGStyleSheet) {
+        def strip (EVGElement.createDiv())
+        strip.className = "toolbar"
+        sheet.applyTree(strip "")
+        if (strip.height.isPixels()) {
+            def h:int (to_int strip.height.pixels)
+            if (h > 0) {
+                rowH = h
+            }
+        }
+        if (strip.box.paddingLeft.isPixels()) {
+            def p:int (to_int strip.box.paddingLeft.pixels)
+            if (p >= 0) {
+                pad = p
+            }
+        }
+        def tabsEl (EVGElement.createDiv())
+        tabsEl.className = "toolbar-tabs"
+        sheet.applyTree(tabsEl "")
+        if (tabsEl.height.isPixels()) {
+            def th:int (to_int tabsEl.height.pixels)
+            if (th > 0) {
+                tabH = th
+            }
+        }
+        def btn (EVGElement.createDiv())
+        btn.className = "toolbar-button"
+        sheet.applyTree(btn "")
+        if (btn.width.isPixels()) {
+            def bw:int (to_int btn.width.pixels)
+            if (bw > 0) {
+                iconW = bw
+            }
+        }
+        if (btn.height.isPixels()) {
+            def bh:int (to_int btn.height.pixels)
+            if (bh > 0) {
+                largeH = bh
+            }
+        }
+        ; A row can never be shorter than the chips standing in it.
+        if (largeH < rowH) {
+            largeH = rowH
+        }
+        if ((array_length items) > 0) {
+            this.layout(lastX 0 lastW)
+        }
+    }
+
+    ; Lay the strip out right to left.
+    ;
+    ; This is the same switch `direction: rtl` is in EVGLayout, for the part
+    ; of the interface that does not go through it: a toolbar computes its own
+    ; geometry because it is a single row of chips, not a flex tree. The
+    ; mirroring is the same reflection, for the same reason — everything that
+    ; reads a button's position, the painter, the click and the accessibility
+    ; tree, reads `x` and `w` off the item, so turning those around turns all
+    ; three around together and none of them has to know.
+    def rtl:boolean false
+    ; Which dropdown is showing its list, or -1.
+    def openMenu:int -1
+    ; Which item the pointer is over, or -1. Only chrome, but it is the
+    ; difference between a strip of shapes and something that looks clickable.
+    def hot:int -1
+    ; Where the strip was last laid out. The overlay is drawn in a second
+    ; pass, after the app has drawn everything else, and it has to be able to
+    ; keep a tooltip inside the window without being told twice.
+    def lastX:int 0
+    def lastW:int 0
+
+    Constructor () {
+    }
+
+    Constructor () {
+    }
+
+    fn add:ToolItem (command:string arg:string label:string icon:int) {
+        def t (new ToolItem)
+        t.command = command
+        t.arg = arg
+        t.label = label
+        t.icon = icon
+        push items t
+        return t
+    }
+
+    fn addToggle:ToolItem (command:string arg:string label:string icon:int op:string opArg:string) {
+        def t:ToolItem (this.add(command arg label icon))
+        t.toggle = true
+        t.toggleOp = op
+        t.toggleArg = opArg
+        return t
+    }
+
+    fn addText:ToolItem (command:string arg:string label:string width:int) {
+        def t:ToolItem (this.add(command arg label (ToolIcon.none())))
+        t.textW = width
+        return t
+    }
+
+    fn addSeparator:void () {
+        def t (new ToolItem)
+        t.isSeparator = true
+        push items t
+    }
+
+    ; Start a named page. Everything added after this belongs to it, until the
+    ; next one — which is why a strip is still built as one list of `add`
+    ; calls, with the tabs marked off inside it rather than built separately.
+    ; A button drawn big, with its name under the picture.
+    fn addLarge:ToolItem (command:string arg:string label:string icon:int) {
+        def t:ToolItem (this.add(command arg label icon))
+        t.isLarge = true
+        t.showLabel = true
+        return t
+    }
+
+    ; Is there a big button on the page being shown? The row has to be tall
+    ; enough for it, and the answer decides the height of the whole band.
+    fn hasLargeShowing:boolean () {
+        def i:int 0
+        while (i < (array_length items)) {
+            def t:ToolItem (itemAt items i)
+            if t.isLarge {
+                if (t.menuOwner < 0) {
+                    if (this.itemOnActiveTab(i)) {
+                        return true
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    ; A button that says what it is. The picture and the word, side by side.
+    fn addLabeled:ToolItem (command:string arg:string label:string icon:int) {
+        def t:ToolItem (this.add(command arg label icon))
+        t.showLabel = true
+        return t
+    }
+
+    ; A button that opens a list under itself. Everything added with
+    ; `addUnder` after it belongs to that list until the next one.
+    fn addDropdown:ToolItem (label:string icon:int) {
+        def t:ToolItem (this.add("" "" label icon))
+        t.isMenu = true
+        t.showLabel = true
+        return t
+    }
+
+    ; An entry in the last dropdown's list. It takes no room on the strip
+    ; while the list is shut.
+    fn addUnder:ToolItem (command:string arg:string label:string icon:int) {
+        def owner:int (this.lastMenuIndex())
+        def t:ToolItem (this.add(command arg label icon))
+        t.menuOwner = owner
+        t.showLabel = true
+        return t
+    }
+
+    ; Where a dropdown with this label is, or -1. `addUnder` fills the list
+    ; that was declared LAST, which is only any use while the strip is being
+    ; built; an owner filling a menu in later — the font chooser, whose
+    ; entries are the faces the page loaded and whatever the open deck is set
+    ; in — has to be able to name the one it means.
+    fn indexOfLabel:int (label:string) {
+        def i:int 0
+        while (i < (array_length items)) {
+            def t:ToolItem (itemAt items i)
+            if t.isMenu {
+                if (t.label == label) {
+                    return i
+                }
+            }
+            i = (i + 1)
+        }
+        return (0 - 1)
+    }
+
+    ; Empty a dropdown's list, keeping the button, and add an entry to the end
+    ; of one. For a menu whose entries are not known when the strip is built.
+    ;
+    ; WHY BOTH GO THROUGH `reindex`. An entry names its menu by that menu's
+    ; INDEX in this array, so inserting or removing anything moves owners that
+    ; had nothing to do with the change. Adjusting them by hand means getting
+    ; "how many of the things that went were in front of me" right for every
+    ; item, which is the kind of arithmetic that is wrong once and then wrong
+    ; forever. So each item is tagged with where it used to be, the array is
+    ; rebuilt, and every owner is looked up in that tag — no counting.
+    fn clearUnderMenu:void (owner:int) {
+        this.tagPositions()
+        def keep:[ToolItem]
+        def i:int 0
+        while (i < (array_length items)) {
+            def t:ToolItem (itemAt items i)
+            if (t.menuOwner != owner) {
+                push keep t
+            }
+            i = (i + 1)
+        }
+        ; A list being emptied cannot stay open over it.
+        if (openMenu == owner) {
+            openMenu = -1
+        }
+        this.reindex(keep)
+    }
+
+    fn addUnderMenu:ToolItem (owner:int command:string arg:string label:string icon:int) {
+        this.tagPositions()
+        def t (new ToolItem)
+        t.command = command
+        t.arg = arg
+        t.label = label
+        t.icon = icon
+        t.showLabel = true
+        ; Tagged with the owner's OLD position, which `reindex` then turns
+        ; into wherever the owner ends up.
+        t.wasAt = -1
+        t.menuOwner = owner
+        ; Just past the last entry this menu already has, so entries come out
+        ; in the order they were added.
+        def at:int (owner + 1)
+        def k:int (owner + 1)
+        while (k < (array_length items)) {
+            def other:ToolItem (itemAt items k)
+            if (other.menuOwner == owner) {
+                at = (k + 1)
+            }
+            k = (k + 1)
+        }
+        def out:[ToolItem]
+        def m:int 0
+        while (m < (array_length items)) {
+            if (m == at) {
+                push out t
+            }
+            push out (itemAt items m)
+            m = (m + 1)
+        }
+        if (at >= (array_length items)) {
+            push out t
+        }
+        ; The TABS have to move too. Each owns a half-open range of `items`,
+        ; and an entry inserted into the middle of the array pushes every
+        ; item after it along by one: the tab the owner is on has one more
+        ; item, and every tab after it starts one later. Without this the
+        ; ranges stayed where they were, so the last button on the owner's
+        ; page fell off it and the next page began one button early — the
+        ; strip's font chooser fills itself this way at start-up, and Home's
+        ; last button was never drawn on any page that had one.
+        def ti:int 0
+        while (ti < (array_length tabs)) {
+            def tab:ToolTab (itemAt tabs ti)
+            if (at <= tab.first) {
+                ; Not the owner's tab: an insertion at a later tab's first
+                ; index belongs to the tab BEFORE it (the owner is there), so
+                ; that tab moves along rather than growing.
+                if (owner < tab.first) {
+                    tab.first = (tab.first + 1)
+                } {
+                    tab.count = (tab.count + 1)
+                }
+            } {
+                if (at < (tab.first + tab.count)) {
+                    tab.count = (tab.count + 1)
+                } {
+                    ; `at` is exactly the end of this tab's range: the entry
+                    ; joins it when its owner is on it.
+                    if ((at == (tab.first + tab.count)) && (owner >= tab.first) && (owner < (tab.first + tab.count))) {
+                        tab.count = (tab.count + 1)
+                    }
+                }
+            }
+            ti = (ti + 1)
+        }
+        this.reindex(out)
+        return t
+    }
+
+    ; Remember where every item is now, so an owner can be found again after
+    ; the array has been rebuilt. -1 marks an item that was not in it.
+    fn tagPositions:void () {
+        def i:int 0
+        while (i < (array_length items)) {
+            def t:ToolItem (itemAt items i)
+            t.wasAt = i
+            i = (i + 1)
+        }
+    }
+
+    ; Adopt a rebuilt array and point every entry back at its own menu.
+    fn reindex:void (next:[ToolItem]) {
+        def i:int 0
+        while (i < (array_length next)) {
+            def t:ToolItem (itemAt next i)
+            if (t.menuOwner >= 0) {
+                def found:int -1
+                def j:int 0
+                while (j < (array_length next)) {
+                    def other:ToolItem (itemAt next j)
+                    if (other.wasAt == t.menuOwner) {
+                        found = j
+                    }
+                    j = (j + 1)
+                }
+                t.menuOwner = found
+            }
+            i = (i + 1)
+        }
+        ; …and the open menu, which is an index into the same array.
+        if (openMenu >= 0) {
+            def wasOpen:int openMenu
+            openMenu = -1
+            def k:int 0
+            while (k < (array_length next)) {
+                ; Bound to a local first: `(itemAt …).field` does not resolve.
+                def item:ToolItem (itemAt next k)
+                if (item.wasAt == wasOpen) {
+                    openMenu = k
+                }
+                k = (k + 1)
+            }
+        }
+        items = next
+    }
+
+    fn lastMenuIndex:int () {
+        def i:int ((array_length items) - 1)
+        while (i >= 0) {
+            def t:ToolItem (itemAt items i)
+            if t.isMenu {
+                return i
+            }
+            i = (i - 1)
+        }
+        return -1
+    }
+
+    ; A press on item `i`, as far as the STRIP is concerned. Answers true when
+    ; the strip dealt with it itself — opening or shutting a list — and false
+    ; when the owner should run the command. Keeping this here rather than in
+    ; three apps is what stops the three from drifting on what a dropdown does.
+    fn pressItem:boolean (i:int) {
+        if (i < 0) {
+            return false
+        }
+        if (i >= (array_length items)) {
+            return false
+        }
+        def t:ToolItem (itemAt items i)
+        if t.isMenu {
+            if (openMenu == i) {
+                openMenu = -1
+            } {
+                openMenu = i
+            }
+            return true
+        }
+        ; Choosing from a list shuts it. The command still runs — the caller
+        ; is told false so that it does.
+        if (t.menuOwner >= 0) {
+            openMenu = -1
+        } {
+            openMenu = -1
+        }
+        return false
+    }
+
+    fn closeMenu:void () {
+        openMenu = -1
+    }
+
+    fn addTab:ToolTab (name:string) {
+        this.closeTab()
+        def t (new ToolTab)
+        t.name = name
+        t.first = (array_length items)
+        t.count = 0
+        push tabs t
+        return t
+    }
+
+    ; Give the last tab the items added since it was opened. Called by
+    ; `addTab` and again by `layout`, so a caller never has to close the last
+    ; one by hand — forgetting to would silently hide every button on it.
+    fn closeTab:void () {
+        def n:int (array_length tabs)
+        if (n == 0) {
+            return
+        }
+        def last:ToolTab (itemAt tabs (n - 1))
+        last.count = ((array_length items) - last.first)
+    }
+
+    fn hasTabs:boolean () {
+        return ((array_length tabs) > 0)
+    }
+
+    fn tabCount:int () {
+        return (array_length tabs)
+    }
+
+    fn tabAt:ToolTab (i:int) {
+        return (itemAt tabs i)
+    }
+
+    ; How wide a tab's label sits. The measured width when the view has said,
+    ; and an estimate when nothing has — a strip with no measurer behind it
+    ; still has to lay out, because that is how the tests and the a11y tree
+    ; drive it.
+    fn tabLabelW:int (t:ToolTab) {
+        if (t.measuredW > 0) {
+            return (t.measuredW + 22)
+        }
+        return ((strlen t.name) * 8 + 22)
+    }
+
+    ; Which tab the pointer is over, or -1. Separate from `hit` because a tab
+    ; and a button do different things and a caller has to be able to tell
+    ; them apart before deciding which.
+    fn hitTab:int (px:int py:int) {
+        def i:int 0
+        while (i < (array_length tabs)) {
+            def t:ToolTab (itemAt tabs i)
+            if (t.w > 0) {
+                if (px >= t.x) {
+                    if (px < (t.x + t.w)) {
+                        if (py >= t.y) {
+                            if (py < (t.y + t.h)) {
+                                return i
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; Show a page. Out-of-range is ignored rather than clamped: a caller
+    ; asking for a tab that is not there has a bug, and moving them to a
+    ; neighbouring page hides it.
+    ; Which page a command's button sits on, or -1 when nothing on the strip
+    ; runs it.
+    fn tabOwning:int (command:string) {
+        def at:int (this.indexOfCommand(command))
+        if (at < 0) {
+            return -1
+        }
+        def i:int 0
+        def n:int (array_length tabs)
+        while (i < n) {
+            def t:ToolTab (itemAt tabs i)
+            if (at >= t.first) {
+                if (at < (t.first + t.count)) {
+                    return i
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn indexOfCommand:int (command:string) {
+        def i:int 0
+        def n:int (array_length items)
+        while (i < n) {
+            def t:ToolItem (itemAt items i)
+            if (t.command == command) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; Bring the page a command lives on to the front. A command run from a
+    ; link, a keyboard shortcut or a script leaves the strip showing the
+    ; button that would have run it — otherwise the window changes and the
+    ; toolbar goes on describing something else.
+    fn showTabFor:boolean (command:string) {
+        return (this.selectTab((this.tabOwning(command))))
+    }
+
+    fn selectTab:boolean (i:int) {
+        if (i < 0) {
+            return false
+        }
+        if (i >= (array_length tabs)) {
+            return false
+        }
+        if (i == activeTab) {
+            return false
+        }
+        activeTab = i
+        hot = -1
+        ; A list belonging to the page being left has no business staying
+        ; open over the page being arrived at.
+        openMenu = -1
+        return true
+    }
+
+    fn tabNamed:int (name:string) {
+        def i:int 0
+        while (i < (array_length tabs)) {
+            def t:ToolTab (itemAt tabs i)
+            if (t.name == name) {
+                return i
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    ; Is this item on the page being shown? An untabbed strip shows all of
+    ; them, which is what makes tabs an addition rather than a change.
+    fn itemOnActiveTab:boolean (i:int) {
+        if ((array_length tabs) == 0) {
+            return true
+        }
+        if (activeTab < 0) {
+            return false
+        }
+        if (activeTab >= (array_length tabs)) {
+            return false
+        }
+        def t:ToolTab (itemAt tabs activeTab)
+        if (i < t.first) {
+            return false
+        }
+        return (i < (t.first + t.count))
+    }
+
+    fn layout:void (x0:int y0:int width:int) {
+        lastX = x0
+        lastW = width
+        this.closeTab()
+        def buttonsY:int y0
+        if (this.hasTabs()) {
+            this.layoutTabs(x0 y0 width)
+            buttonsY = (y0 + tabH)
+        }
+        def right:int ((x0 + width) - pad)
+        def cx:int (x0 + pad)
+        ; The row is as tall as the tallest thing on it.
+        def useRowH:int rowH
+        if (this.hasLargeShowing()) {
+            useRowH = largeH
+        }
+        def row:int 0
+        def i:int 0
+        while (i < (array_length items)) {
+            def t:ToolItem (itemAt items i)
+            ; Items on a page that is not showing get NO rectangle. That is
+            ; what keeps the painter, the click and the accessibility tree
+            ; from having to know about tabs at all: they already skip an item
+            ; with no width, because that is how a button that did not fit has
+            ; always been marked.
+            if ((this.itemOnActiveTab(i)) == false) {
+                t.x = 0
+                t.y = 0
+                t.w = 0
+                t.h = 0
+                i = (i + 1)
+                continue
+            }
+            ; An entry in a dropdown's list takes no room on the strip. It is
+            ; laid out under its owner afterwards, and only while the list is
+            ; showing.
+            if (t.menuOwner >= 0) {
+                t.x = 0
+                t.y = 0
+                t.w = 0
+                t.h = 0
+                i = (i + 1)
+                continue
+            }
+            def w:int iconW
+            if t.isSeparator {
+                w = 9
+            }
+            if (t.textW > 0) {
+                w = t.textW
+            }
+            if t.showLabel {
+                w = ((iconW + (this.labelWidth(t))) + 6)
+            }
+            ; A big button is as wide as its own name and no wider — the word
+            ; sits under the picture rather than beside it.
+            if t.isLarge {
+                w = ((this.labelWidth(t)) + 12)
+                if (w < (iconW + 16)) {
+                    w = (iconW + 16)
+                }
+            }
+            if t.isMenu {
+                ; Room for the chevron that says there is a list under it.
+                w = (w + 12)
+            }
+            if ((cx + w) > right) {
+                ; Wrap. A separator never starts a row — it would be a rule
+                ; hanging in space.
+                row = (row + 1)
+                cx = (x0 + pad)
+                if t.isSeparator {
+                    t.x = 0
+                    t.y = 0
+                    t.w = 0
+                    t.h = 0
+                    i = (i + 1)
+                    continue
+                }
+            }
+            t.x = cx
+            t.y = ((buttonsY + (row * useRowH)) + 3)
+            t.w = w
+            t.h = (useRowH - 6)
+            if (t.isLarge == false) {
+                ; An ordinary chip keeps its own height and sits in the middle
+                ; of a tall row, rather than stretching to fill it.
+                t.h = (rowH - 6)
+                t.y = (t.y + (idiv (useRowH - rowH) 2))
+            }
+            cx = (cx + w)
+            if (t.isSeparator == false) {
+                cx = (cx + 2)
+            }
+            i = (i + 1)
+        }
+        rows = (row + 1)
+        height = (rows * useRowH)
+        if (this.hasTabs()) {
+            height = (height + tabH)
+        }
+        this.layoutMenu()
+        if rtl {
+            this.mirrorRows(x0 width)
+            this.mirrorTabs(x0 width)
+        }
+    }
+
+    ; What a caption measures at: what the view said, or an estimate for a
+    ; strip with nothing measuring behind it.
+    fn labelWidth:int (t:ToolItem) {
+        if (t.labelW > 0) {
+            return t.labelW
+        }
+        return ((strlen t.label) * 7)
+    }
+
+    ; The open dropdown's entries, in a column under the button that owns
+    ; them. Laid out after the strip so they sit ON TOP of it — a list that
+    ; is laid out among the buttons is a list that pushes them around every
+    ; time it opens.
+    fn layoutMenu:void () {
+        if (openMenu < 0) {
+            return
+        }
+        if (openMenu >= (array_length items)) {
+            openMenu = -1
+            return
+        }
+        def owner:ToolItem (itemAt items openMenu)
+        if (owner.w <= 0) {
+            ; Its own button did not fit, or is on a page that is not
+            ; showing. A list hanging off nothing is worse than no list.
+            openMenu = -1
+            return
+        }
+        ; As wide as the widest entry, so the words do not wrap.
+        def wide:int 0
+        def i:int 0
+        while (i < (array_length items)) {
+            def t:ToolItem (itemAt items i)
+            if (t.menuOwner == openMenu) {
+                def w:int ((iconW + (this.labelWidth(t))) + 12)
+                if (w > wide) {
+                    wide = w
+                }
+            }
+            i = (i + 1)
+        }
+        if (wide < owner.w) {
+            wide = owner.w
+        }
+        def y:int (owner.y + owner.h)
+        def j:int 0
+        while (j < (array_length items)) {
+            def e:ToolItem (itemAt items j)
+            if (e.menuOwner == openMenu) {
+                e.x = owner.x
+                e.y = y
+                e.w = wide
+                e.h = 26
+                y = (y + 26)
+            }
+            j = (j + 1)
+        }
+    }
+
+    ; The rectangle the open list covers, as x,y,w,h — for the painter to put
+    ; a panel behind it. Empty when nothing is open.
+    fn menuBox:[int] () {
+        def out:[int]
+        if (openMenu < 0) {
+            return out
+        }
+        def x0:int 0
+        def y0:int 0
+        def x1:int 0
+        def y1:int 0
+        def any:boolean false
+        def i:int 0
+        while (i < (array_length items)) {
+            def t:ToolItem (itemAt items i)
+            if (t.menuOwner == openMenu) {
+                if (t.w > 0) {
+                    if (any == false) {
+                        x0 = t.x
+                        y0 = t.y
+                        x1 = (t.x + t.w)
+                        y1 = (t.y + t.h)
+                        any = true
+                    } {
+                        if ((t.x + t.w) > x1) {
+                            x1 = (t.x + t.w)
+                        }
+                        if ((t.y + t.h) > y1) {
+                            y1 = (t.y + t.h)
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if (any == false) {
+            return out
+        }
+        push out x0
+        push out y0
+        push out (x1 - x0)
+        push out (y1 - y0)
+        return out
+    }
+
+    ; The row of names. One line, left to right, in the order they were added
+    ; — a tab strip that wraps is a tab strip nobody can find anything on, so
+    ; names that do not fit are given no rectangle and are not drawn, the same
+    ; way a button that does not fit is not.
+    fn layoutTabs:void (x0:int y0:int width:int) {
+        def right:int ((x0 + width) - pad)
+        def cx:int (x0 + pad)
+        def i:int 0
+        while (i < (array_length tabs)) {
+            def t:ToolTab (itemAt tabs i)
+            def w:int (this.tabLabelW(t))
+            if ((cx + w) > right) {
+                t.x = 0
+                t.y = 0
+                t.w = 0
+                t.h = 0
+            } {
+                t.x = cx
+                t.y = (y0 + 2)
+                t.w = w
+                t.h = (tabH - 2)
+                cx = (cx + w)
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; The tab row turns around with the rest of the strip, about the strip
+    ; rather than about the names' own extent — see `mirrorRows`, which had
+    ; exactly that bug.
+    fn mirrorTabs:void (x0:int width:int) {
+        def span:int ((x0 + x0) + width)
+        def i:int 0
+        while (i < (array_length tabs)) {
+            def t:ToolTab (itemAt tabs i)
+            if (t.w > 0) {
+                t.x = (span - (t.x + t.w))
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; Reflect every placed button about THE STRIP, so the row begins at the
+    ; right-hand edge — where a right-to-left reader's eye and hand start, and
+    ; where the first word of every line in the document below it begins.
+    ;
+    ; About the strip, and not about the extent the buttons happen to occupy.
+    ; That was the first version of this and it was wrong in a way the tests
+    ; did not catch and a screenshot did immediately: reflecting a row about
+    ; its own ends reverses the ORDER of the buttons and leaves the block of
+    ; them exactly where it was, still packed against the left edge with the
+    ; empty space still on the right. Every button had moved and the strip had
+    ; not.
+    ;
+    ; Reflecting about the strip is also what a wrapped row wants. A short
+    ; last row lands against the right edge, which is where a row starts here,
+    ; the same way a short last line of a right-to-left paragraph does.
+    ;
+    ; `pad` is preserved at both ends because it is inside the reflection: a
+    ; row running from x0+pad to some x lands with its far end at
+    ; x0+width-pad.
+    ;
+    ; Buttons that did not fit were given no rectangle and are left alone —
+    ; reflecting a zero-width item at zero would put a phantom click target at
+    ; the far edge.
+    fn mirrorRows:void (x0:int width:int) {
+        def span:int ((x0 + x0) + width)
+        def i:int 0
+        while (i < (array_length items)) {
+            def t:ToolItem (itemAt items i)
+            if (t.w > 0) {
+                t.x = (span - (t.x + t.w))
+            }
+            i = (i + 1)
+        }
+    }
+
+
+
+    ; --- what the strip MEANS -------------------------------------------------
+    ; The same buttons, for something that cannot see them. A screen reader gets
+    ; a toolbar with named buttons instead of a band of coloured rectangles, and
+    ; the geometry is the one `layout` settled — read, not recomputed, so the
+    ; rectangle a reader routes the mouse to is the rectangle that was painted.
+    fn a11y:void (t:EVGA11yTree parentId:string idPrefix:string bx:int by:int bw:int bh:int) {
+        def barId:string (idPrefix + "/toolbar")
+        def bar:EVGA11yNode (t.node(barId parentId (EVGA11yRole.toolbar())))
+        bar.name = "Toolbar"
+        t.place(bar bx by bw bh)
+        ; The pages, when there are any. A reader who cannot see the strip
+        ; needs to know that most of it is somewhere else — a tab list says
+        ; that in one word, where a flat list of the twelve buttons that
+        ; happen to be showing says the program has twelve commands.
+        if (this.hasTabs()) {
+            def listId:string (barId + "/tabs")
+            def list:EVGA11yNode (t.node(listId barId (EVGA11yRole.tabList())))
+            list.name = "Toolbar pages"
+            t.place(list bx by bw tabH)
+            def ti:int 0
+            while (ti < (array_length tabs)) {
+                def tb:ToolTab (itemAt tabs ti)
+                if (tb.w > 0) {
+                    def tn:EVGA11yNode (t.node(((listId + "/") + tb.name) listId (EVGA11yRole.tab())))
+                    tn.name = tb.name
+                    t.place(tn tb.x tb.y tb.w tb.h)
+                    tn.selected = (ti == activeTab)
+                }
+                ti = (ti + 1)
+            }
+        }
+        def i:int 0
+        while (i < (array_length items)) {
+            def it:ToolItem (itemAt items i)
+            ; A separator is a rule, and an item that did not fit was given no
+            ; rectangle. Neither is something to announce.
+            def skip:boolean it.isSeparator
+            if (it.w <= 0) {
+                skip = true
+            }
+            if (it.h <= 0) {
+                skip = true
+            }
+            if (skip == false) {
+                def label:string it.label
+                if ((strlen label) == 0) {
+                    label = it.command
+                }
+                def nid:string (barId + "/" + it.command)
+                if ((strlen it.arg) > 0) {
+                    nid = (nid + ":" + it.arg)
+                }
+                def n:EVGA11yNode (t.button(nid barId label))
+                t.place(n it.x it.y it.w it.h)
+                ; A toggle is a pressed button, not a checkbox: the host writes
+                ; aria-pressed for a button role and aria-checked for the rest.
+                if it.toggle {
+                    if it.pressed {
+                        n.checked = (EVGA11yTri.yes())
+                    } {
+                        n.checked = (EVGA11yTri.no())
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+    }
+
+    ; The first icon this strip uses for two different commands, or 0.
+    ;
+    ; Two buttons with one picture is not a style problem, it is a strip you
+    ; cannot read: the deck's had five such pairs — edit-mode, copy and
+    ; format-copy all drew the paint roller; lock and group both drew the
+    ; freeze cross; delete-shape and delete-slide both drew the delete-row
+    ; bar. Nobody noticed because nothing was looking. Now the app tests are.
+    ;
+    ; Text buttons are exempt: a font picker and a size picker both show a
+    ; value and neither has an icon at all.
+    fn duplicateIcon:int () {
+        def i:int 0
+        while (i < (array_length items)) {
+            def a:ToolItem (itemAt items i)
+            if (a.isSeparator == false) {
+                if (a.icon > 0) {
+                    ; Only ICON-ONLY buttons can be confused for one another:
+                    ; a button that draws its name beside the picture is read
+                    ; by the word. `textW` says the caption has been measured,
+                    ; which only happens once a view with a measurer has laid
+                    ; the strip out — headless it stays 0 for everything, so a
+                    ; dropdown and its own entries looked like two unlabelled
+                    ; buttons sharing a picture and this answered yes for a
+                    ; strip that reads perfectly well. `showLabel` is the same
+                    ; fact stated when the button is BUILT, so the check now
+                    ; gives one answer on screen and off it.
+                    if ((a.textW == 0) && (a.showLabel == false)) {
+                        def j:int (i + 1)
+                        while (j < (array_length items)) {
+                            def b:ToolItem (itemAt items j)
+                            if (b.isSeparator == false) {
+                                if ((b.textW == 0) && (b.showLabel == false)) {
+                                    if (b.icon == a.icon) {
+                                        if (b.command != a.command) {
+                                            return a.icon
+                                        }
+                                    }
+                                }
+                            }
+                            j = (j + 1)
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return 0
+    }
+
+    fn heightFor:int (width:int) {
+        this.layout(0 0 width)
+        return height
+    }
+
+    fn count:int () {
+        return (array_length items)
+    }
+
+    fn at:ToolItem (i:int) {
+        if (i < 0) {
+            return (new ToolItem)
+        }
+        if (i >= (array_length items)) {
+            return (new ToolItem)
+        }
+        return (itemAt items i)
+    }
+
+    fn hit:int (px:int py:int) {
+        def i:int 0
+        while (i < (array_length items)) {
+            def t:ToolItem (itemAt items i)
+            if (t.isSeparator == false) {
+                if (t.w > 0) {
+                    if (px >= t.x) {
+                        if (px < (t.x + t.w)) {
+                            if (py >= t.y) {
+                                if (py < (t.y + t.h)) {
+                                    return i
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        return -1
+    }
+
+    fn hotLabel:string () {
+        if (hot < 0) {
+            return ""
+        }
+        def t:ToolItem (this.at(hot))
+        return t.label
+    }
+}

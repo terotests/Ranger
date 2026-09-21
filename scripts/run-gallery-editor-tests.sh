@@ -135,15 +135,65 @@ SUITES=(
   # UTF-16 unit and landed inside surrogate pairs until this existed.
   office:caret:editors:test
   ui:test
-  # Engine unit tests (layout, CSS, display list, JS host checks that do not
-  # need this repository) run in terotests/evg (`npm run storm:test`). Ranger
-  # still gates the AGPL window layer and the UI/conformance checks that need
-  # Chromium and the pages here.
+  evg:trace:test
   # The toolbar's model, its metrics, and every outline in the icon catalogue.
+  # The catalogue check is the one that earns its place: it walks all four
+  # layers of all eighty icons and asserts each parses and stays on the
+  # 24-grid, and it failed the first time it was run.
   evg:toolbar:test
-  # The camera against the coordinates it replaces. Needs this repository's
-  # Chromium helper, so it stays here.
+  evg:overlay:test
+  evg:fixed:test
+  # An absolute box under a `display: grid` parent, which was dropped — and
+  # the connectors that make an arrow between two cards survive a reflow.
+  evg:connector:test
+  # Surfaces: the anchor named rather than guessed from a sibling, an ordered
+  # fallback list, fit-viewport, and the presentation a menu switches to when
+  # the page is a phone.
+  evg:popover:test
+  evg:style:test
+  # `@vars` and `var()`: the palette a theme replaces instead of ninety rules.
+  # Two of its checks are not about colour — that a name nobody defined is
+  # REPORTED rather than painted, and that resolution happens once per plan and
+  # not once per element, which is the whole reason the feature is free.
+  evg:stylevar:test
+  evg:timing:test
+  evg:box:test
+  # Does a command survive being written down? Every picture test reads the
+  # command objects, so a field the serializer forgot was invisible: the
+  # pictures came out right and the browser drew something else. Never wired
+  # into CI until `letter-spacing` was added to the same two bridges.
+  evg:json:test
+  evg:viewport:test
+  evg:reconcile:test
+  evg:component:test
+  evg:stylecache:test
+  evg:invalidate:test
+  evg:adopt:check
+  # Pan, pinch and the wheel, against a canvas that is not one: the two-finger
+  # pinch is the gesture no headless driver will send, and the anchor — the
+  # point under the fingers staying put — is the whole of what it feels like.
+  evg:gestures:check
+  # A thick polyline used to come apart at every corner — two quads meeting
+  # at an angle cover the inside of the turn twice and the outside not at
+  # all. The corners and the ends are measured here by area, because that is
+  # the kind of wrong that is invisible to a test that counts commands.
+  evg:stroke:check
+  # The camera against the coordinates it replaces: the same picture drawn
+  # once with the view multiplied into the list and once with it on the
+  # shader, read back as pixels. A radius that did not scale, a border that
+  # stayed one pixel, a scissor left where the camera moved away from — each
+  # is a plausible drawing that is wrong and none changes a command count.
   evg:view:check
+  # And the arithmetic in front of it: keep the frame in hand or walk the
+  # board again. No browser and no GPU — a policy that keeps a frame it
+  # should have rebuilt shows stale pixels, which is the failure nobody
+  # notices in a profile.
+  evg:view:policy
+  # A scroll moves the painter's kept frame with a uniform rather than
+  # rebuilding it, so a draw that forgets the uniform paints where the frame
+  # was BUILT. Needs a GPU to see and there is no oracle for it; this reads
+  # the painter as text.
+  evg:shift:check
   evg:scroll:check
   evg:tags:check
   evg:textbox:check
@@ -155,9 +205,17 @@ SUITES=(
   evg:color:check
   # How wide text is, which is where a caret gets drawn.
   evg:advance:check
+  # The keyboard as an EVG feature rather than an app's: Tab in tree order,
+  # the arrows by the boxes, what cannot be focused, a dialog the walk cannot
+  # leave, and the rule that the pointer moves the focus without drawing a
+  # ring round it. Every drawn UI needs this and none of them has tab stops
+  # of its own.
+  evg:focus:test
   # The accessibility tree the mirror is built from — roles, names, states,
-  # the lint that refuses a focusable with no name.
+  # the lint that refuses a focusable with no name — and, beside it, the
+  # fourteen ways the mirror's own DOM must not paint or make a phone zoom.
   evg:a11y:test
+  evg:a11y:paint
   ui:sortable:motion
   ui:table:check
   ui:virtual:check

@@ -17,13 +17,13 @@ Source files use the **`.rgr`** extension (not `.clj`). Entry point: `sfn main:v
 
 ## Licenses
 
-- Ranger-authored code outside `gallery/`: **MIT** unless a file says otherwise (`LICENSE-MIT`). That includes `lib/image` (JPEG / PNG codecs). **EVG 3.0 Storm lives in [terotests/evg](https://github.com/terotests/evg)** (`storm/`). Gallery packages import it as `pkg:evg` from `deps/evg/storm` after `scripts/fetch-evg.sh` / `npm run evg:fetch`. Engine unit tests run in the EVG repo. See [`deps/README.md`](deps/README.md).
+- Ranger-authored code outside `gallery/`: **MIT** unless a file says otherwise (`LICENSE-MIT`). That includes `lib/evg` (the EVG layout engine) and `lib/image` (JPEG / PNG codecs); both moved out of `gallery/` and to MIT in September 2026. **Canonical EVG 3.0 Storm sources live in [terotests/evg](https://github.com/terotests/evg)** (`storm/`); `lib/evg` here is a vendor copy so gallery CI still compiles offline. See [`lib/evg/CANONICAL.md`](lib/evg/CANONICAL.md).
 - Ranger-authored code under `gallery/`: **AGPL-3.0-or-later** unless a file says otherwise (`gallery/LICENSE`, `LICENSE-AGPL-3.0`).
 - Third-party files keep their own licenses. Do not treat a path as a relicensing of vendor code.
 - Generated output follows the source license, not the compiler. Compiled gallery programs stay AGPL. Runtime helpers the compiler writes are MIT.
 - Root [`LICENSE`](LICENSE) is the mixed-license overview, not a single license text.
-- Gallery may import `lib/` and `compiler/`. **Never** import `gallery/` from `lib/` or `compiler/`. Storm (`pkg:evg`) imports `pkg:image`, nothing from the gallery; the pieces that need the gallery's rasteriser and fonts (`EVGWindow`, `EVGTextFit`, `EVGContextMeasurer`, the ruler and toolbar views) are the AGPL package `gallery/evg_window`.
-- Gallery code imports EVG as a package: `Import "pkg:evg/EVGElement.rgr"` with `"evg": { "path": "../../deps/evg/storm" }` in that package's `ranger.json` (same for `pkg:image/…` from `deps/evg/image` when the package also uses Storm, and `pkg:evg_window/…`). Do not write `../../lib/evg/…`. Outside this monorepo, depend on `terotests/evg` with `"subdir": "storm"`.
+- Gallery may import `lib/` and `compiler/`. **Never** import `gallery/` from `lib/` or `compiler/`. `lib/evg` imports `pkg:image`, nothing from the gallery; the pieces that need the gallery's rasteriser and fonts (`EVGWindow`, `EVGTextFit`, `EVGContextMeasurer`, the ruler and toolbar views) are the AGPL package `gallery/evg_window`.
+- Gallery code imports EVG as a package: `Import "pkg:evg/EVGElement.rgr"` with `"evg": { "path": "../../lib/evg" }` in that package's `ranger.json` (same for `pkg:image/…` and `pkg:evg_window/…`). Do not write `../../lib/evg/…`. Outside this monorepo, depend on `terotests/evg` with `"subdir": "storm"`.
 - Details: [`LICENSING.md`](LICENSING.md).
 
 ## Git & pull-request workflow

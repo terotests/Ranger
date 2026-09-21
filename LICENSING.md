@@ -4,7 +4,7 @@ This repository uses two licenses.
 
 | Path | License | SPDX |
 | --- | --- | --- |
-| Ranger-authored code outside `gallery/` — the compiler, the runtime, `lib/` including `lib/image` | MIT, unless a file or subdirectory says otherwise | `MIT` |
+| Ranger-authored code outside `gallery/` — the compiler, the runtime, `lib/` including `lib/evg` and `lib/image` | MIT, unless a file or subdirectory says otherwise | `MIT` |
 | Ranger-authored code under `gallery/` | GNU Affero General Public License v3.0 or later, unless a file or subdirectory says otherwise | `AGPL-3.0-or-later` |
 
 The root [`LICENSE`](LICENSE) file is the overview, not a single license
@@ -31,9 +31,10 @@ text. GitHub may not show a single license badge; that is intentional.
   std primitives                 PDF / layout tools
   parser basics                  advanced editors
   generic utilities              Rave / Vela charts
-  package client                 evg_window (toolbar, ruler,
-  EVG (terotests/evg)              software rasteriser)
-  image codecs (lib/image)
+  package client                 evg_window (dialogs, toolbar, ruler
+  EVG layout engine  (lib/evg vendor copy;
+                      canonical: terotests/evg)     over the software rasteriser)
+  image codecs       (lib/image)
   examples/
 ```
 
@@ -53,21 +54,20 @@ published format and a generic utility, and the pack format needs it.
 that program. Compiling with Ranger does not put the AGPL on your source, any
 more than compiling with GCC or Clang does.
 
-**EVG, the layout engine, is MIT too.** It is the CSS-shaped box
+**EVG, the layout engine, is MIT too.** `lib/evg` is the CSS-shaped box
 model, flex, grid, the stylesheet, text measurement, transitions, hit
 testing, the accessibility tree and the display list — the thing every
 program with a screen or a page draws through. A program that has a
 screen is still *your* program. EVG is therefore platform, with the
-compiler, not application IP: it moved from `gallery/evg` to MIT in
-September 2026 and then out of this repository into
-[terotests/evg](https://github.com/terotests/evg). Layout engines are
-permissively licensed as a rule (Skia, Yoga, Taffy, the Flutter engine);
-the competitive work sits above them. So does Ranger's.
+compiler, not application IP: it moved from `gallery/evg` to `lib/evg`
+and from AGPL to MIT in September 2026. Layout engines are permissively
+licensed as a rule (Skia, Yoga, Taffy, the Flutter engine); the
+competitive work sits above them. So does Ranger's.
 
-Gallery packages import Storm as `pkg:evg` from `deps/evg/storm` after
-`scripts/fetch-evg.sh`. Engine unit tests run in the EVG repo. See
-[`deps/README.md`](deps/README.md). `lib/evg` on disk is a fetched copy
-of `storm/` so `/lib/evg/gl/…` URLs keep working; it is not committed.
+The **canonical sources** for EVG 3.0 Storm (and the Thunderstruck 2.x
+TypeScript / NPM module) are [terotests/evg](https://github.com/terotests/evg).
+`lib/evg` in this repository is a vendor copy so gallery packages keep
+a path dependency. See [`lib/evg/CANONICAL.md`](lib/evg/CANONICAL.md).
 
 `lib/image` — the JPEG and PNG decoders, the PNG encoder, the raster and
 byte buffers EVG and the PDF tools share — moved with it, on the same
@@ -107,7 +107,7 @@ ship a proprietary product
 
 ```text
 Ranger compiler
-+ terotests/evg (layout, display list)
++ lib/evg (layout, display list)
 + your own painter
 + your own application
 ```
@@ -163,7 +163,7 @@ code. They use the MIT license.
 Ranger compiler       MIT
 Ranger runtime        MIT
 generated helpers     MIT
-terotests/evg, lib/image    MIT
+lib/evg, lib/image    MIT
 
 Gallery source        AGPL
 ```
@@ -213,7 +213,7 @@ compiler/           MIT
 lib/                MIT
 lib/zip/            MIT   package "zip"
 lib/image/          MIT   package "image"   → pkg:zip
-deps/evg/storm/     MIT   package "evg"     → pkg:image  (fetched; terotests/evg)
+lib/evg/            MIT   package "evg"     → pkg:image
 examples/           MIT
         ↑
         │ imports  (Import "pkg:evg/…", Import "pkg:image/…")
@@ -228,10 +228,9 @@ gallery/docx_viewer/ AGPL
 `gallery/` may import `lib/` and `compiler/`. `lib/` and `compiler/` never
 import `gallery/`. Every gallery package that draws through EVG carries a
 `ranger.json` naming `evg` (and `image`, `evg_window` where used) as a
-path dependency on `deps/evg/storm` and imports them as `pkg:evg/…`; the
-relative `../evg/…` spelling is gone, so the engine can be fetched on its
-own with `rgrc install` and the same source compiles inside and outside
-this tree.
+path dependency and imports them as `pkg:evg/…`; the relative
+`../evg/…` spelling is gone, so the engine can be fetched on its own with
+`rgrc install` and the same source compiles inside and outside this tree.
 
 Generic building blocks stay on the MIT side even when gallery programs use
 them. Examples: math helpers, XML, JSON, image decoders, and other files
@@ -250,9 +249,9 @@ human author appears in `git shortlog` for `gallery/`. Third-party
 trees are listed below and keep the license their authors gave them.
 
 The same holds for the move of EVG and the image codecs to MIT: every
-file under the former `lib/evg` tree and `lib/image` is Ranger-authored by
-the same copyright holder, which is what made the change possible. Storm
-now lives in terotests/evg. Their SPDX headers read `MIT`.
+file under `lib/evg` and `lib/image` is Ranger-authored by the same
+copyright holder, which is what made the change possible. Their SPDX
+headers now read `MIT`.
 
 ## Third-party material
 
@@ -298,8 +297,7 @@ code under `gallery/` is AGPL-3.0-or-later unless a file says otherwise.
 
 EVG was under `gallery/evg` and AGPL-3.0-or-later from the split until
 September 2026. Copies from that period stay under the AGPL they
-stated; from this tree forward EVG (terotests/evg) and `lib/image` are
-MIT. The
+stated; from this tree forward `lib/evg` and `lib/image` are MIT. The
 window layer that was part of `gallery/evg` — `EVGWindow`, `EVGTextFit`,
 `EVGContextMeasurer`, `EVGRulerView`, `EVGToolbarView` and their tests —
 is `gallery/evg_window` and remains AGPL.

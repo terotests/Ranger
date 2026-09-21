@@ -1,0 +1,399 @@
+; SPDX-License-Identifier: MIT
+
+; ==============================================================================
+; EVGFocusTest — Tab is an order, an arrow is a direction
+; ==============================================================================
+;
+; The two rules `EVGFocus` exists to keep apart:
+;
+;   TAB IS TREE ORDER.    The order the page was written in, wrapping at both
+;                         ends, which is what a browser does and what the a11y
+;                         mirror publishes.
+;
+;   AN ARROW IS SPATIAL.  Tree order is wrong for a grid — the thing under a
+;                         button is not the thing after it — so the arrows go
+;                         by the boxes. The layout under test is a three by
+;                         three grid written ROW BY ROW, so "down" and "next"
+;                         disagree on every cell, which is the only way to
+;                         tell the two rules apart.
+;
+; And the things that stop a ring pointing at nothing: a disabled control, a
+; hidden subtree, a zero-sized box and an element with no id are not focusable,
+; and a focus whose element has gone is dropped on the next settle.
+; ==============================================================================
+
+Import "EVGElement.rgr"
+Import "EVGFocus.rgr"
+
+class FocusCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ((("       got '" + got) + "' want '") + want + "'")
+        }
+        this.ok(name good)
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print (("       got " + (to_string got)) + " want " + (to_string want))
+        }
+        this.ok(name good)
+    }
+}
+
+class EVGFocusTest {
+
+    sfn box:EVGElement (id:string x:double y:double w:double h:double) {
+        def el (new EVGElement())
+        el.id = id
+        el.a11yFocusable = true
+        el.calculatedX = x
+        el.calculatedY = y
+        el.calculatedWidth = w
+        el.calculatedHeight = h
+        return el
+    }
+
+    ; Three by three, a hundred pixels apart, written ROW BY ROW:
+    ;
+    ;     a  b  c
+    ;     d  e  f
+    ;     g  h  i
+    ;
+    ; so tree order runs across and the arrows have to disagree with it.
+    sfn grid:EVGElement () {
+        def root (new EVGElement())
+        def names:[string]
+        push names "a"
+        push names "b"
+        push names "c"
+        push names "d"
+        push names "e"
+        push names "f"
+        push names "g"
+        push names "h"
+        push names "i"
+        def i:int 0
+        while (i < 9) {
+            def col:int (i % 3)
+            def row:int (to_int ((int2double i) / 3.0))
+            def x:double ((int2double col) * 100.0)
+            def y:double ((int2double row) * 100.0)
+            root.addChild((EVGFocusTest.box((itemAt names i) x y 80.0 60.0)))
+            i = (i + 1)
+        }
+        return root
+    }
+
+    sfn testTreeOrder:void (c:FocusCheck) {
+        print "--- Tab is the order the page was written in ---"
+        def root:EVGElement (EVGFocusTest.grid())
+        def f (new EVGFocus())
+        f.scan(root)
+        c.eqInt("nine focusable" (f.count()) 9)
+        c.eqStr("the first is the first" (f.idAt(0)) "a")
+
+        ; Entering from nothing: forwards starts at the first, backwards at
+        ; the last, as a browser enters a page from either end.
+        c.eqStr("Tab from nothing" (f.key(root "Tab" false)) "a")
+        c.eqStr("then the next" (f.key(root "Tab" false)) "b")
+        c.eqStr("and the next" (f.key(root "Tab" false)) "c")
+        ; ACROSS THE ROW, not down the column: this is the whole difference.
+        c.eqStr("past the end of the row it keeps going" (f.key(root "Tab" false)) "d")
+        c.eqStr("Shift+Tab goes back" (f.key(root "Tab" true)) "c")
+
+        f.clear()
+        c.eqStr("Shift+Tab from nothing takes the last" (f.key(root "Tab" true)) "i")
+        c.eqStr("and wraps round the end" (f.key(root "Tab" false)) "a")
+        c.eqStr("and round the start" (f.key(root "Tab" true)) "i")
+
+        c.eqStr("Home is the first" (f.key(root "Home" false)) "a")
+        c.eqStr("End is the last" (f.key(root "End" false)) "i")
+    }
+
+    sfn testDirections:void (c:FocusCheck) {
+        print "--- an arrow is a direction, not a step ---"
+        def root:EVGElement (EVGFocusTest.grid())
+        def f (new EVGFocus())
+        f.place(root "e")
+
+        ; The four neighbours of the middle. Tree order would answer "d" and
+        ; "f" for up and down, which is exactly the bug this is here to stop.
+        c.eqStr("down is below" (f.key(root "ArrowDown" false)) "h")
+        f.place(root "e")
+        c.eqStr("up is above" (f.key(root "ArrowUp" false)) "b")
+        f.place(root "e")
+        c.eqStr("right is beside" (f.key(root "ArrowRight" false)) "f")
+        f.place(root "e")
+        c.eqStr("left is the other side" (f.key(root "ArrowLeft" false)) "d")
+
+        ; Directly below beats further along: `h` is under `e`, `g` and `i`
+        ; are the same distance down and one column out.
+        f.place(root "b")
+        c.eqStr("straight down beats diagonal" (f.key(root "ArrowDown" false)) "e")
+
+        ; NOTHING THAT WAY IS NOWHERE, not a wrap: an arrow off the edge of a
+        ; screen must not jump to the far side, because the eye does not.
+        f.place(root "a")
+        c.eqStr("up from the top row is nothing" (f.key(root "ArrowUp" false)) "")
+        c.eqStr("and the focus did not move" f.focusId "a")
+        f.place(root "c")
+        c.eqStr("right from the last column is nothing" (f.key(root "ArrowRight" false)) "")
+
+        ; An arrow with nothing focused enters, like Tab.
+        f.clear()
+        c.eqStr("an arrow from nothing enters" (f.key(root "ArrowDown" false)) "a")
+    }
+
+    ; A page with a dialog over it: the grid, and a box holding two buttons
+    ; that says it is modal.
+    sfn withDialog:EVGElement (modal:boolean) {
+        def page:EVGElement (EVGFocusTest.grid())
+        def sheet (new EVGElement())
+        sheet.id = "sheet"
+        sheet.a11yModal = modal
+        sheet.addChild((EVGFocusTest.box("ok" 400.0 400.0 80.0 60.0)))
+        sheet.addChild((EVGFocusTest.box("cancel" 500.0 400.0 80.0 60.0)))
+        page.addChild(sheet)
+        return page
+    }
+
+    sfn testModalTraps:void (c:FocusCheck) {
+        print "--- a dialog traps the keyboard ---"
+        ; The same tree twice: once where the sheet says it is modal and once
+        ; where it does not. Only the declaration differs, which is the claim.
+        def loose:EVGElement (EVGFocusTest.withDialog(false))
+        def f (new EVGFocus())
+        f.scan(loose)
+        c.eqInt("without the declaration everything is reachable" (f.count()) 11)
+        c.ok("and nothing is trapped" ((f.isTrapped()) == false))
+
+        def page:EVGElement (EVGFocusTest.withDialog(true))
+        def g (new EVGFocus())
+        g.scan(page)
+        c.eqInt("with it, only the dialog's own" (g.count()) 2)
+        c.ok("and it says where" ((g.trapId()) == "sheet"))
+        c.eqStr("the first is the dialog's first" (g.idAt(0)) "ok")
+
+        ; ROUND AND ROUND. Tab past the last is the first again, not the page
+        ; behind — walking out is the whole bug.
+        c.eqStr("Tab enters the dialog" (g.key(page "Tab" false)) "ok")
+        c.eqStr("then its other button" (g.key(page "Tab" false)) "cancel")
+        c.eqStr("and wraps back inside it" (g.key(page "Tab" false)) "ok")
+        c.eqStr("Shift+Tab wraps the other way" (g.key(page "Tab" true)) "cancel")
+        c.eqStr("End is the dialog's last" (g.key(page "End" false)) "cancel")
+        c.eqStr("Home is the dialog's first" (g.key(page "Home" false)) "ok")
+        ; An arrow cannot leave either: the grid is above and to the left of
+        ; the sheet, so "up" would land in it if the page were in the walk.
+        c.eqStr("up from the dialog is nothing" (g.key(page "ArrowUp" false)) "")
+        c.eqStr("and the ring is still in it" g.focusId "ok")
+
+        ; A page element cannot be focused BY HAND either, or a press behind
+        ; the dialog would put the ring where the keys cannot follow.
+        c.ok("the page behind cannot be focused" ((g.place(page "e")) == false))
+        c.ok("but the dialog's own can" (g.place(page "cancel")))
+    }
+
+    sfn testTrapLifts:void (c:FocusCheck) {
+        print "--- and lets go when the dialog does ---"
+        ; The sheet is the page's last child — `withDialog` puts it there —
+        ; so it is held rather than searched for.
+        def page:EVGElement (EVGFocusTest.withDialog(true))
+        def sheet:EVGElement (page.getChild(((page.getChildCount()) - 1)))
+        def f (new EVGFocus())
+        f.place(page "cancel")
+        c.eqStr("focused inside it" f.focusId "cancel")
+
+        ; The dialog closes. Nothing is told to lift the trap: the tree stops
+        ; saying it is modal and the walk is the whole page again.
+        sheet.a11yModal = false
+        f.scan(page)
+        c.ok("nothing is trapped now" ((f.isTrapped()) == false))
+        c.eqInt("and the page is reachable" (f.count()) 11)
+
+        ; A dialog that is drawn but hidden does not trap: the mirror hides
+        ; the page behind a dialog that is UP, and a hidden one is not.
+        sheet.a11yModal = true
+        sheet.a11yHidden = true
+        f.scan(page)
+        c.ok("a hidden dialog does not trap" ((f.isTrapped()) == false))
+        sheet.a11yHidden = false
+        sheet.display = "none"
+        f.scan(page)
+        c.ok("nor one folded away by the stylesheet" ((f.isTrapped()) == false))
+    }
+
+    sfn testInnermostTraps:void (c:FocusCheck) {
+        print "--- a dialog over a dialog is the one that traps ---"
+        ; The review sheet over the add sheet: overlays are appended, so the
+        ; later one is the one on top.
+        def page:EVGElement (EVGFocusTest.withDialog(true))
+        def second (new EVGElement())
+        second.id = "review"
+        second.a11yModal = true
+        second.addChild((EVGFocusTest.box("add" 600.0 600.0 80.0 60.0)))
+        page.addChild(second)
+
+        def f (new EVGFocus())
+        f.scan(page)
+        c.ok("the later one traps" ((f.trapId()) == "review"))
+        c.eqInt("and only its own is reachable" (f.count()) 1)
+        c.ok("the sheet under it is not" ((f.place(page "ok")) == false))
+
+        ; …and a dialog INSIDE a dialog, which is the other way it nests.
+        def inner (new EVGElement())
+        inner.id = "confirm"
+        inner.a11yModal = true
+        inner.addChild((EVGFocusTest.box("yes" 620.0 620.0 60.0 40.0)))
+        second.addChild(inner)
+        f.scan(page)
+        c.ok("a nested one wins over the one holding it" ((f.trapId()) == "confirm"))
+        c.eqStr("and it is what a key moves to" (f.key(page "Tab" false)) "yes")
+    }
+
+    sfn testWhatCannotBeFocused:void (c:FocusCheck) {
+        print "--- what a ring must never point at ---"
+        def root (new EVGElement())
+        root.addChild((EVGFocusTest.box("one" 0.0 0.0 80.0 60.0)))
+
+        def off:EVGElement (EVGFocusTest.box("off" 0.0 100.0 80.0 60.0))
+        off.a11yDisabled = true
+        root.addChild(off)
+
+        def gone:EVGElement (EVGFocusTest.box("gone" 0.0 200.0 80.0 60.0))
+        gone.a11yHidden = true
+        root.addChild(gone)
+
+        ; A hidden BRANCH, not only a hidden leaf: the children of a
+        ; `display: none` box are not on the screen either.
+        def branch (new EVGElement())
+        branch.display = "none"
+        branch.addChild((EVGFocusTest.box("inside" 0.0 300.0 80.0 60.0)))
+        root.addChild(branch)
+
+        ; No id: a focus nobody can press is a focus that goes nowhere.
+        def nameless:EVGElement (EVGFocusTest.box("" 0.0 400.0 80.0 60.0))
+        root.addChild(nameless)
+
+        ; Laid out to nothing.
+        root.addChild((EVGFocusTest.box("empty" 0.0 500.0 0.0 0.0)))
+
+        ; And an element that simply does not say it takes the keyboard.
+        def plain:EVGElement (EVGFocusTest.box("plain" 0.0 600.0 80.0 60.0))
+        plain.a11yFocusable = false
+        root.addChild(plain)
+
+        def f (new EVGFocus())
+        f.scan(root)
+        c.eqInt("only the one that can be" (f.count()) 1)
+        c.eqStr("and it is that one" (f.idAt(0)) "one")
+        c.ok("a disabled control cannot be placed on" ((f.place(root "off")) == false))
+        c.ok("nor a hidden one" ((f.place(root "gone")) == false))
+        c.ok("nor one inside a hidden branch" ((f.place(root "inside")) == false))
+    }
+
+    sfn testSurvivesARebuild:void (c:FocusCheck) {
+        print "--- a focus outlives a rebuild, or is dropped ---"
+        ; The tree is rebuilt every frame in these apps, so the focus is kept
+        ; by ID and not by position. Same id in a different place: kept.
+        def first:EVGElement (EVGFocusTest.grid())
+        def f (new EVGFocus())
+        f.place(first "e")
+
+        def second (new EVGElement())
+        second.addChild((EVGFocusTest.box("z" 0.0 0.0 80.0 60.0)))
+        second.addChild((EVGFocusTest.box("e" 300.0 300.0 80.0 60.0)))
+        f.settle(second)
+        c.eqStr("moved, and still focused" f.focusId "e")
+        ; Tab from it is the tree order of the NEW tree.
+        c.eqStr("and the order is the new one" (f.key(second "Tab" false)) "z")
+
+        ; Gone: the ring goes with it.
+        def third (new EVGElement())
+        third.addChild((EVGFocusTest.box("z" 0.0 0.0 80.0 60.0)))
+        f.place(second "e")
+        f.settle(third)
+        c.eqStr("an element that has gone takes the focus with it" f.focusId "")
+    }
+
+    sfn testNothingToFocus:void (c:FocusCheck) {
+        print "--- a screen with nothing on it ---"
+        def root (new EVGElement())
+        def f (new EVGFocus())
+        c.eqStr("Tab does nothing" (f.key(root "Tab" false)) "")
+        c.eqStr("and so does an arrow" (f.key(root "ArrowDown" false)) "")
+        ; A key that is not one of these is not taken, so the host can let it
+        ; through — refusing a key you did nothing with is how a page stops
+        ; scrolling.
+        def grid:EVGElement (EVGFocusTest.grid())
+        c.eqStr("a key it does not know is not taken" (f.key(grid "PageDown" false)) "")
+        c.eqStr("and Enter is the host's" (f.key(grid "Enter" false)) "")
+    }
+
+    sfn testPointerAndKeyboardShareIt:void (c:FocusCheck) {
+        print "--- the pointer moves the focus, the keyboard draws it ---"
+        ; ONE FOCUS, TWO WAYS IN. A click that left the focus alone meant Tab
+        ; carried on from wherever the keys had last been, which is somewhere
+        ; else on the screen — so the pointer moves it too. What the pointer
+        ; does not do is draw a ring: the person can see what they clicked,
+        ; and a ring round every button the mouse touches is not what a focus
+        ; ring is for. Same rule as `:focus-visible`.
+        def grid:EVGElement (EVGFocusTest.grid())
+        def f (new EVGFocus())
+        c.ok("a click takes the focus" (f.pointAt(grid "e")))
+        c.eqStr("and it is where the click was" f.focusId "e")
+        c.eqStr("with nothing to draw" (f.ringId()) "")
+        ; …and the keys carry on from there rather than from the beginning.
+        c.eqStr("Tab goes on from what was clicked" (f.key(grid "Tab" false)) "f")
+        c.eqStr("and now there is a ring" (f.ringId()) "f")
+        ; A click after a key puts the ring away again.
+        c.ok("a click again" (f.pointAt(grid "a")))
+        c.eqStr("and the ring is gone" (f.ringId()) "")
+        c.eqStr("though the focus is not" f.focusId "a")
+        ; Something nothing focusable carries leaves the focus where it was.
+        c.ok("a click on nothing is refused" ((f.pointAt(grid "nope")) == false))
+        c.eqStr("and the focus stays" f.focusId "a")
+        ; A reader that moves its own cursor is not a pointer: `place` shows
+        ; the ring, because there the person cannot see where it went.
+        c.ok("a reader's cursor lands" (f.place(grid "i")))
+        c.eqStr("and is drawn" (f.ringId()) "i")
+        f.clear()
+        c.eqStr("clearing takes both" ((f.ringId()) + f.focusId) "")
+    }
+
+    sfn main:void () {
+        def c (new FocusCheck())
+        print "=== EVG: the keyboard ==="
+        EVGFocusTest.testTreeOrder(c)
+        EVGFocusTest.testDirections(c)
+        EVGFocusTest.testModalTraps(c)
+        EVGFocusTest.testTrapLifts(c)
+        EVGFocusTest.testInnermostTraps(c)
+        EVGFocusTest.testWhatCannotBeFocused(c)
+        EVGFocusTest.testSurvivesARebuild(c)
+        EVGFocusTest.testNothingToFocus(c)
+        EVGFocusTest.testPointerAndKeyboardShareIt(c)
+        print ""
+        print (("passed=" + (to_string c.passed)) + " failed=" + (to_string c.failed))
+        if (c.failed > 0) {
+            print "FAILURES"
+        } {
+            print "ALL PASS"
+        }
+    }
+}

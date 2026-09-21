@@ -4,10 +4,10 @@
   "license": "AGPL-3.0-or-later",
   "dependencies": {
     "image": {
-      "path": "../../deps/evg/image"
+      "path": "../../lib/image"
     },
     "evg": {
-      "path": "../../deps/evg/storm"
+      "path": "../../lib/evg"
     },
     "evg_window": {
       "path": "../evg_window"

@@ -1,0 +1,253 @@
+; SPDX-License-Identifier: MIT
+
+; ==============================================================================
+; EVGEffectTest — an effect that belongs to an ELEMENT, declared in the sheet
+; ==============================================================================
+;
+; What `evg-surface-effect` used to mean: one post-process over the whole
+; document, whose parameters were fields on EVGElement (`evg-ripple-speed` and
+; thirteen siblings), and whose drops were pushed in by hand from the page's
+; own `pointerdown` — every press, anywhere, rippled everything. Nothing in
+; the document said WHICH box reacts or WHAT starts it, because there was
+; nowhere to say it.
+;
+; What it means now, without disturbing any of that:
+;
+;   evg-surface-effect: starfield   WHAT runs. A string. The engine does not
+;                                   know what a starfield is and never will —
+;                                   the renderer's plugin does.
+;   evg-effect-on: press drag       WHAT STARTS IT. The host's driver reads
+;                                   this; `always` is a thing that runs on its
+;                                   own clock.
+;   evg-fx-density: 2.6             PARAMETERS, under names this file has
+;                                   never heard of, carried through untouched.
+;
+; and WHERE is the element's own border box, because the layout already knows
+; it. That is the whole of the change: three properties and a box, so that
+; which element has the effect is a question the document answers.
+;
+; Everything below runs without a GPU. What the shader does with an instance
+; is the painter's business; that the document produces the right instance is
+; this file's.
+; ==============================================================================
+
+Import "EVGElement.rgr"
+Import "EVGStyleSheet.rgr"
+Import "EVGLayout.rgr"
+Import "EVGDisplayList.rgr"
+
+class FxCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn has:void (name:string hay:string needle:string) {
+        def good:boolean ((indexOf hay needle) >= 0)
+        if (good == false) {
+            print ("       looked for " + needle)
+            print ("       in         " + hay)
+        }
+        this.ok(name good)
+    }
+
+    fn hasNot:void (name:string hay:string needle:string) {
+        def good:boolean ((indexOf hay needle) < 0)
+        if (good == false) {
+            print ("       did not want " + needle)
+            print ("       in           " + hay)
+        }
+        this.ok(name good)
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got " + (to_string got) + " want " + (to_string want))
+        }
+        this.ok(name good)
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got '" + got + "' want '" + want + "'")
+        }
+        this.ok(name good)
+    }
+}
+
+class EVGEffectTest {
+
+    ; A page with one card in it, styled by a sheet. The sheet is the point:
+    ; an effect nobody can declare in CSS is an effect the application owns,
+    ; which is what this replaces.
+    sfn page:EVGElement (css:string) {
+        def root (new EVGElement())
+        root.setAttribute("width" "400px")
+        root.setAttribute("height" "300px")
+        def card (EVGElement.createDiv())
+        card.id = "sky"
+        card.className = "card"
+        card.setAttribute("width" "200px")
+        card.setAttribute("height" "120px")
+        root.addChild(card)
+        if ((strlen css) > 0) {
+            def sheet (new EVGStyleSheet())
+            sheet.parse(css)
+            sheet.setViewport(400.0 300.0 false)
+            sheet.applyTree(root "")
+        }
+        return root
+    }
+
+    sfn listOf:EVGDisplayList (root:EVGElement) {
+        def lay (new EVGLayout())
+        lay.setPageSize(400.0 300.0)
+        lay.layout(root)
+        def dl (new EVGDisplayList())
+        dl.setTextEngine((lay.getTextEngine()))
+        dl.build(root)
+        return dl
+    }
+
+    sfn jsonOf:string (root:EVGElement) {
+        def dl:EVGDisplayList (EVGEffectTest.listOf(root))
+        return (dl.toJson())
+    }
+
+    ; --- the declaration ------------------------------------------------------
+
+    sfn testDeclared:void (c:FxCheck) {
+        print "-- the sheet says which element has the effect"
+        def css:string (".card { evg-surface-effect: starfield;"
+            + " evg-effect-on: always;"
+            + " evg-fx-density: 2.6;"
+            + " evg-fx-drift: 0.4 }")
+        def root:EVGElement (EVGEffectTest.page(css))
+        def dl:EVGDisplayList (EVGEffectTest.listOf(root))
+        c.eqInt("one instance, for the one element that asked" (array_length dl.fxIds) 1)
+        c.eqStr("named by the element's own id" (itemAt dl.fxIds 0) "sky")
+        c.eqStr("carrying the kind verbatim" (itemAt dl.fxKinds 0) "starfield")
+        c.eqStr("and the trigger" (itemAt dl.fxTriggers 0) "always")
+
+        ; THE BOX IS THE LAYOUT'S, not a rectangle somebody typed. This is the
+        ; difference between an effect on an element and an effect on a page
+        ; that happens to have an element on it.
+        c.ok("the box is the card's own width" ((itemAt dl.fxW 0) == 200.0))
+        c.ok("and its height" ((itemAt dl.fxH 0) == 120.0))
+
+        def js:string (dl.toJson())
+        c.has("the JSON carries the instance" js "\"kind\":\"starfield\"")
+        c.has("with its box" js "\"box\":[0.00,0.00,200.00,120.00]")
+        c.has("a parameter this engine has never heard of" js "\"density\":2.60")
+        c.has("and another" js "\"drift\":0.40")
+    }
+
+    ; --- the link into paint order --------------------------------------------
+
+    sfn testPaintOrder:void (c:FxCheck) {
+        print "-- the effect is anchored where the element paints"
+        ; No background: the card draws nothing of its own, and the effect
+        ; still needs a place in the command stream, because paint order is
+        ; the only thing that says whether a starfield is behind the text on
+        ; the card or over it.
+        def css:string ".card { evg-surface-effect: starfield }"
+        def root:EVGElement (EVGEffectTest.page(css))
+        def js:string (EVGEffectTest.jsonOf(root))
+        c.has("a carrier rectangle names the instance" js "\"efx\":\"sky\"")
+
+        ; And with a background, it rides that rectangle rather than adding a
+        ; second one.
+        def css2:string ".card { background-color: rgb(10,12,30); evg-surface-effect: starfield }"
+        def root2:EVGElement (EVGEffectTest.page(css2))
+        def dl2:EVGDisplayList (EVGEffectTest.listOf(root2))
+        def named:int 0
+        def i:int 0
+        while (i < (array_length dl2.cmds)) {
+            def cmd:EVGDrawCmd (itemAt dl2.cmds i)
+            if ((strlen cmd.effectId) > 0) {
+                named = (named + 1)
+            }
+            i = (i + 1)
+        }
+        c.eqInt("one rectangle carries it, not two" named 1)
+    }
+
+    ; --- the ripple, through the general channel ------------------------------
+
+    sfn testRippleParams:void (c:FxCheck) {
+        print "-- an element-scoped ripple keeps its own property names"
+        ; `evg-ripple-speed` predates all of this. An element-scoped ripple
+        ; reads the same numbers as generic parameters, so a page that already
+        ; styles a ripple does not learn a second spelling.
+        def css:string (".card { evg-surface-effect: ripple;"
+            + " evg-effect-on: press drag;"
+            + " evg-ripple-speed: 300;"
+            + " evg-fx-strength: 11 }")
+        def root:EVGElement (EVGEffectTest.page(css))
+        def js:string (EVGEffectTest.jsonOf(root))
+        c.has("the ripple's own property arrives as a parameter" js "\"speed\":300.00")
+        c.has("the defaults come with it" js "\"gloss\":120.00")
+        c.has("what the page wrote under evg-fx- wins" js "\"strength\":11.00")
+        c.has("and the trigger is a list" js "\"on\":\"press drag\"")
+    }
+
+    ; --- a page with no effect on it ------------------------------------------
+
+    sfn testSilence:void (c:FxCheck) {
+        print "-- a page with no effect writes nothing new"
+        def root:EVGElement (EVGEffectTest.page(".card { background-color: rgb(1,2,3) }"))
+        def js:string (EVGEffectTest.jsonOf(root))
+        c.hasNot("no effects array" js "\"effects\":")
+        c.hasNot("and no fx on any command" js "\"efx\":")
+    }
+
+    ; --- the old whole-surface effect is untouched ----------------------------
+
+    sfn testLegacy:void (c:FxCheck) {
+        print "-- and the original whole-surface effect still works"
+        def root:EVGElement (EVGEffectTest.page(""))
+        root.setAttribute("evg-surface-effect" "ripple")
+        def xs:[double]
+        def ys:[double]
+        def ages:[double]
+        push xs 40.0
+        push ys 60.0
+        push ages 0.25
+        root.rippleXs = xs
+        root.rippleYs = ys
+        root.rippleAges = ages
+        def js:string (EVGEffectTest.jsonOf(root))
+        c.has("the document-wide effect is written as it always was" js "\"effect\":{\"kind\":\"ripple\"")
+        c.has("with the application's drops on it" js "[40.00,60.00,0.25]")
+        ; It is ALSO an instance now — the root is an element like any other,
+        ; and a host that reads instances sees it without the page changing.
+        c.has("and it is an instance too" js "\"kind\":\"ripple\"")
+    }
+
+    sfn main:void () {
+        def c (new FxCheck())
+        print "=== EVG element-scoped surface effects ==="
+        EVGEffectTest.testDeclared(c)
+        EVGEffectTest.testPaintOrder(c)
+        EVGEffectTest.testRippleParams(c)
+        EVGEffectTest.testSilence(c)
+        EVGEffectTest.testLegacy(c)
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed > 0) {
+            print "FAILURES"
+        } {
+            print "ALL PASS"
+        }
+    }
+}
