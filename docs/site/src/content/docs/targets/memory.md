@@ -62,10 +62,9 @@ ownership[infer] fn attach:
   param 'child' -> moved (parent.left)
 ```
 
-The numbers are large. The compilation of
-`gallery/pdf_writer/src/tools/jpeg_scaler.rgr` analyses 110 functions and
-decides all 256 parameters: 254 `borrowed`, and 2 buffers that the decoder
-stores into a member.
+A compilation of `gallery/pdf_writer/src/tools/jpeg_scaler.rgr` analyses 114
+functions and decides all 261 parameters: 257 `borrowed`, and 4 `moved`. It
+prints no `unknown` warning.
 
 The pass ends with a class-level verdict: a class some object of which is
 ever aliased and held — stored into an object graph, aliased and then
@@ -73,11 +72,20 @@ mutated through a name, or the target of a `weak` field — needs reference
 semantics on a target whose objects are values. The flag prints this too:
 
 ```text
-ownership[rust] class Counter -> Rc<RefCell> (aliased and mutated in main)
+ownership[rust] class BufferChunk -> Rc<RefCell> (stored in allocateNewChunk)
 ownership[rust] class Color -> value
 ```
 
-On `jpeg_scaler.rgr`, 21 classes of 22 stay `value`.
+On `jpeg_scaler.rgr`, 16 classes of 22 stay `value`. Six classes become
+`Rc<RefCell<T>>`: a linked buffer node, a Huffman table, a JPEG component, a
+quantization table, a coefficient buffer and an EXIF tag.
+
+A last store of a fresh local is a move, not a share. If the function builds
+an object, writes its fields, and then stores it once, and no use of the
+name follows, the class stays `value`. The Rust writer then drops the
+`.clone()` on that store. A `def` plus the field writes after it can be one
+initialization; the Rust writer folds that run into a struct literal. The
+C++ writer and the Swift writer do not read those two marks yet.
 
 ## What the C++ writer does with the result
 
@@ -113,15 +121,8 @@ an override must have the same signature. The inference runs per function, so a
 base could say `borrowed` where the override says `moved`. That would turn an
 override into an overload without a message.
 
-| `jpeg_scaler.rgr`, C++ output | Before | Now |
-| --- | --- | --- |
-| `std::shared_ptr<T>` object parameters by value | 64 | 0 |
-| `const std::shared_ptr<T>&` object parameters | 0 | 64 |
-| `const std::string&` / `const std::vector<T>&` parameters | 102 | 102 |
-
-The same program, built with `g++ -std=c++17` and run five times to scale a
-photograph to 600 pixels of width, takes 4.4 seconds before the change and 3.9
-seconds after it. The two builds write the same file, byte for byte.
+On `jpeg_scaler.rgr` the C++ output uses `const std::shared_ptr<T>&` for the
+object parameters that the pass marks `borrowed`.
 
 ### `enable_shared_from_this` only where the output needs it
 
@@ -133,10 +134,8 @@ a subclass can call through it. Every other class does without.
 The base is not free: it puts a `std::weak_ptr` into every object of the class,
 so a program with many small objects pays two pointers each.
 
-| File | Classes with the base, before | Now | Calls to `shared_from_this()` |
-| --- | --- | --- | --- |
-| `jpeg_scaler.rgr` | 22 | 0 | 0 |
-| `gallery/js_parser/js_ast.rgr` | 41 | 0 | 0 |
+`jpeg_scaler.rgr` and `gallery/js_parser/js_ast.rgr` emit the base on no class.
+Neither program uses `this` as a value.
 
 ### `weak` fields hold no count
 
@@ -194,10 +193,9 @@ fn sumValue(mut a : Node, mut b : Node)      fn sumValue(a : &Node, b : &Node)
 bag.sumValue(root.clone(), child.clone());   bag.sumValue(&root, &child);
 ```
 
-On `jpeg_scaler.rgr` the removed clones are the ones inside the pixel loops
-— `setPixel(x, y, c.clone())` becomes `setPixel(x, y, &c)` — and the binary
-writes the same file, byte for byte. A `moved` or `shared` parameter keeps
-the owned mode.
+On `jpeg_scaler.rgr` the removed clones include the ones inside the pixel
+loops — `setPixel(x, y, c.clone())` becomes `setPixel(x, y, &c)`. A `moved`
+or `shared` parameter keeps the owned mode.
 
 ### A shared class becomes `Rc<RefCell<T>>` — the default
 
@@ -226,10 +224,7 @@ below.
 Every produced-or-consumed surface follows the class: a shared class in a
 return type hands out the `Rc`, a strong optional field is
 `Option<Rc<RefCell<T>>>`, and an element read out of a shared collection is
-the `Rc` itself. The model passed its conformance gate — the largest program
-in the repository compiles, runs, and writes output byte-identical to the
-ES6 and C++ targets — which is why it graduated from an experimental flag to
-the default.
+the `Rc` itself.
 
 ## What the Swift writer does
 
@@ -243,8 +238,7 @@ method. A class that no class in the compilation extends is therefore `final`.
 final class HuffmanTable : Hashable {
 ```
 
-Both gallery programs above hold no inheritance, so every class of each is
-`final`: 22 of 22 in `jpeg_scaler.rgr`, 41 of 41 in `js_ast.rgr`.
+A program with no inheritance gets `final` on every class.
 
 ### `weak var`
 
@@ -309,6 +303,19 @@ The parent and child program compiles with `rustc`, runs, and reads the
 parent's name back through the child's weak field — the same output as the
 JavaScript build.
 
+## What the pass does not decide yet
+
+These forms still produce a summary that is too optimistic, or a mark that no
+writer reads:
+
+- An argument passed to a **lambda** the function received (`cb(v)`) stays
+  `borrowed` even when the lambda stores it. The C++ output stays correct,
+  because a lambda takes its arguments by value.
+- A two-step escape through a local collection (`push tmp p` then
+  `this.items = tmp`) is not counted as a store of `p`.
+- The last-store move and the init fold are marks on the tree. Only the Rust
+  writer reads them.
+
 ## What this means for a program
 
 - **`weak` works on C++, on Swift, and on Rust.** Use it for a back
@@ -322,5 +329,5 @@ JavaScript build.
 - **`-strict-ownership` is a reading tool.** It states where the compiler
   believes each argument goes, and which classes share objects. Use it to
   check that a function you believe to be pure holds only `borrowed`
-  parameters, and to see which classes the Rust flag would make
+  parameters, and to see which classes the Rust writer makes
   `Rc<RefCell<T>>`.

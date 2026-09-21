@@ -13,9 +13,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { CATEGORIES, CATEGORY_BY_ID, defaultTemplateIsJavaScript } from "./lib/model.mjs";
 import { operatorFileName } from "./lib/opid.mjs";
-import { CONTENT, DATA, DESCRIPTIONS, ROOT, readJson } from "./lib/paths.mjs";
+import { CONTENT, DATA, DESCRIPTIONS, readJson } from "./lib/paths.mjs";
 import { blobUrl } from "./lib/source-url.mjs";
-import { importersOf, playgroundLibFiles } from "./lib/usage.mjs";
 
 const REPOSITORY = "https://github.com/terotests/Ranger";
 
@@ -174,7 +173,7 @@ function main() {
   });
 
   // One page per library that the documentation covers. A legacy source has
-  // no page: it is listed on the not-covered page instead, with the reason.
+  // no page: no maintained program imports it.
   const libraries = model.sources.filter(
     (s) => s.id !== "core" && s.id !== "stdops" && s.status !== "legacy",
   );
@@ -353,9 +352,7 @@ function main() {
   writePage(path.join(referenceDir, "coverage.mdx"), coveragePage(model, examples, targets));
   written += 1;
 
-  // The sources that the documentation does not cover.
-  writePage(path.join(referenceDir, "not-covered.mdx"), notCoveredPage(model));
-  written += 1;
+  fs.rmSync(path.join(referenceDir, "not-covered.mdx"), { force: true });
 
   process.stderr.write(`docs: ${written} reference pages written\n`);
 }
@@ -430,124 +427,6 @@ function methodPage(source, methods, examples) {
   return body.join("\n");
 }
 
-/**
- * The sources that the reference does not document.
- *
- * A legacy file stays in the tree and it stays in docs/sources.json, so the
- * registry check keeps working and a reader can find the file. It gets no
- * reference page, because a page would state that the operators are part of the
- * maintained language. The measure of "legacy" is the import: no maintained
- * program imports the file.
- *
- * Class libraries have users and declare no operators. They share this page
- * because the generator has no operator to document, not because they are
- * unused.
- */
-function notCoveredPage(model) {
-  const legacy = model.sources.filter((source) => source.status === "legacy");
-  const rows = legacy.map((source) => {
-    const operators = model.operators.filter((o) => o.source === source.id).length;
-    const methods = (model.methods || []).filter((m) => m.source === source.id).length;
-    return (
-      `| [\`${source.file}\`](${blobUrl(REPOSITORY, source.file)}) | ` +
-      `${operators} | ${methods} | ${source.reason || ""} |`
-    );
-  });
-
-  const shipped = new Set(playgroundLibFiles(ROOT));
-  const classRows = (model.classLibraries || []).map((library) => {
-    const basename = library.file.split("/").pop();
-    const users = importersOf(basename);
-    const playground = shipped.has(basename)
-      ? " The playground environment ships this file."
-      : "";
-    const countNote =
-      users.length === 0
-        ? "No file in the repository imports it."
-        : users.length === 1
-          ? "1 file in the repository imports it."
-          : `${users.length} files in the repository import it.`;
-    return (
-      `| [\`${library.file}\`](${blobUrl(REPOSITORY, library.file)}) | ` +
-      `\`${library.import}\` | ${countNote}${playground} | ${library.summary || ""} |`
-    );
-  });
-
-  return [
-    frontMatter({
-      title: "Libraries that this documentation does not cover",
-      description:
-        "The operator sources and the class libraries that stay in the repository but get no reference page, and the reason for each.",
-      sidebarOrder: 3,
-    }),
-    "This page names two groups of library files that have no reference page.",
-    "The first group declares operators that no maintained program imports.",
-    "The second group holds classes and functions only, so the generator has",
-    "no operator to document.",
-    "",
-    "## Operator sources that no maintained program imports",
-    "",
-    "The repository holds operator sources that no maintained program imports.",
-    "They stay in the tree, and the compiler still reads them when a program",
-    "imports them. This documentation does not give them a reference page: a",
-    "page would state that the operators are a part of the maintained language,",
-    "and the measurement below does not support that.",
-    "",
-    "The measurement has two parts:",
-    "",
-    "1. **The `Import` statement.** An operator of a library is available only",
-    "   after a program imports the file, so a file that no program imports has",
-    "   no user in this repository.",
-    "2. **The playground environment.** The list in",
-    "   `playground/scripts/build-compiler-env.mjs` states which library files",
-    "   the browser compiler ships. A file on that list is available to every",
-    "   program in the playground, also when no file in the repository imports",
-    "   it. Such a file stays in the documentation.",
-    "",
-    "A file that fails both parts is on the list below.",
-    "`tests/docs-usage.test.ts` repeats the measurement on every test run.",
-    "",
-    "| File | Template operators | Type methods | Why |",
-    "| --- | --- | --- | --- |",
-    ...rows,
-    "",
-    "### What to do with these",
-    "",
-    "- To read the operators, open the source file. Each file holds the",
-    "  `operators { }` or `operator type:` blocks with the templates.",
-    "- To use one in a program, add the import. The compiler accepts the file;",
-    "  it is not removed and it is not disabled.",
-    "- To make one part of the documentation again, change `status` to `stable`",
-    "  in `docs/sources.json` and add an example. Measure the use first.",
-    "",
-    "The maintained equivalents:",
-    "",
-    "| Instead of | Use |",
-    "| --- | --- |",
-    "| `lib/WebServerLib.rgr` | The HTTP server operators of `compiler/Lang.rgr` |",
-    "| `lib/Time.rgr` | `lib/IsoDateLib.rgr` for calendar work |",
-    "| `lib/ImmutableVector.rgr` | The array and map operators of the core |",
-    "",
-    "## Libraries that declare no operators",
-    "",
-    "The generator reads `operators { }` blocks and `operator type:` blocks.",
-    "A file that holds only classes and functions is not in the operator",
-    "reference. Those files can have users. The table below names the",
-    "top-level files of that kind.",
-    "",
-    "The EVG layout engine and the image codecs are in `lib/evg` and",
-    "`lib/image`. The [Office documentation](/Ranger/office/reference/) describes EVG.",
-    "",
-    "| File | Import | Use in this repository | Summary |",
-    "| --- | --- | --- | --- |",
-    ...classRows,
-    "",
-    "To read the code, open the source file. To use one in a program, add the",
-    "import. The compiler accepts the file.",
-    "",
-  ].join("\n");
-}
-
 function coveragePage(model, examples, targets) {
   const documented = new Set(examples.flatMap((e) => e.ids));
   const rows = model.sources
@@ -605,10 +484,9 @@ function coveragePage(model, examples, targets) {
     "| --- | --- | --- | --- | --- |",
     ...rows,
     "",
-    `${legacyCount} more operator sources are in the repository and are not in the`,
-    "table above. The",
-    "[not covered page](/Ranger/docs/reference/not-covered/) names them and gives",
-    "the reason for each.",
+    `${legacyCount} more operator sources stay in \`lib/\` and have no page.`,
+    "No maintained program imports them. The generator skips them so a page",
+    "does not present them as part of the maintained language.",
     "",
     "## Templates per target",
     "",

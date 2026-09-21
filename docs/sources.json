@@ -1,5 +1,5 @@
 {
-  "$comment": "Registry of the files that declare Ranger operators. docs/tools reads this file to build the operator reference. A file in the tree with an `operators { }` block or an `operator type:` block that is not listed here fails docs:coverage. `status` is `stable` (documented) or `legacy` (listed on the not-covered page, with no reference pages). Measure the usage before a change of status: a legacy file is one that no maintained program imports. `classLibraries` names top-level lib/*.rgr files that hold classes and functions only: they appear on the not-covered page because the generator has no operator to document. tests/docs-usage.test.ts fails when either list drifts from the tree.",
+  "$comment": "Registry of the files that declare Ranger operators. docs/tools reads this file to build the operator reference. A file in the tree with an `operators { }` block or an `operator type:` block that is not listed here fails docs:coverage. `status` is `stable` (documented) or `legacy` (no reference pages). Measure the usage before a change of status: a legacy file is one that no maintained program imports. `classLibraries` names top-level lib/*.rgr files that hold classes and functions only. tests/docs-usage.test.ts fails when either list drifts from the tree.",
   "classLibraries": [
     {
       "id": "isodate",

@@ -1,5 +1,5 @@
 /**
- * The not-covered page is only as current as docs/sources.json. These tests
+ * The operator registry is only as current as docs/sources.json. These tests
  * measure the Import statements in the tree, so a status that no longer
  * matches the tree fails the suite.
  */

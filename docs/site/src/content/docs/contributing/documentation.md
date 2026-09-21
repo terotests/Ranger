@@ -78,7 +78,7 @@ operators and the registry has no entry for it.
 | Status | Effect |
 | --- | --- |
 | `stable` | The source gets reference pages and a place in the navigation. |
-| `legacy` | The source gets no page. The [not covered page](/Ranger/docs/reference/not-covered/) names it, with the `reason` field. |
+| `legacy` | The source gets no page. |
 
 Measure before a change of status. The measurement has two parts, and a file is
 `legacy` only when it fails both.
@@ -105,8 +105,8 @@ The test `tests/docs-usage.test.ts` repeats the measurement. It fails when a
 `legacy` file has an importer that is not itself legacy. It fails when a
 `stable` library has no importer and is not in the playground list. It also
 fails when a top-level `lib/*.rgr` file holds no operator block and is missing
-from `classLibraries` in `docs/sources.json`. Those class libraries appear on
-the [not covered page](/Ranger/docs/reference/not-covered/).
+from `classLibraries` in `docs/sources.json`. Those entries keep the registry
+complete. They get no generated page, because they declare no operators.
 
 The `CreateFile` list in `compiler/VirtualCompiler.rgr` is **not** a third
 signal. That function writes `compileEnv.js`, its only caller is a comment, and

@@ -123,7 +123,6 @@ export default defineConfig({
           items: [
             { label: "Macros", slug: "reference/macros" },
             { label: "Coverage", slug: "reference/coverage" },
-            { label: "Not covered", slug: "reference/not-covered" },
           ],
         },
         {

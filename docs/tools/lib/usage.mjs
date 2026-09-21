@@ -1,9 +1,8 @@
 /**
  * Measure which Ranger files import a library.
  *
- * The not-covered page and tests/docs-usage.test.ts both use this, so a
- * `legacy` / `stable` status in docs/sources.json cannot drift from the tree
- * without a failing test.
+ * tests/docs-usage.test.ts uses this so a `legacy` / `stable` status in
+ * docs/sources.json cannot drift from the tree without a failing test.
  */
 import fs from "node:fs";
 import path from "node:path";

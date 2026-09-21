@@ -15,71 +15,58 @@ The option `-l=<target>` selects the target language.
 | JavaScript | `-l=es6` | `.js` | The playground and the compiler itself use this target. |
 | TypeScript | `-l=es6 -typescript` | `.ts` | The JavaScript writer with type annotations. A TypeScript program uses the JavaScript template of an operator, so its operator support is the support of JavaScript. |
 | Go | `-l=go` | `.go` | An optional value compiles to a structure with a `has_value` field. |
-| Rust | `-l=rust` | `.rs` | A class becomes a plain `struct`, so two names do not share one object, and the writer adds `.clone()` where the value would move. Inheritance is not in the layout. Test the output. |
-| Python | `-l=python` | `.py` | |
+| Rust | `-l=rust` | `.rs` | A class the compiler finds shared becomes `Rc<RefCell<T>>`. Every other class stays a plain `struct`. |
+| Python | `-l=python` | `.py` | Signatures carry type annotations. |
 | Java | `-l=java7` | `.java` | One file per class. |
 | Kotlin | `-l=kotlin` | `.kt` | |
 | Dart | `-l=dart` | `.dart` | Flutter-ready packages via `-pubspec` (optional `-flutter`). Shared logic for Flutter apps, not full widget trees. |
 | Swift | `-l=swift6` | `.swift` | `-l=swift3` writes the older dialect. |
-| C# | `-l=csharp` | `.cs` | Verified on the TypeScript engine with Mono `mcs` (8/8 vs Node). |
+| C# | `-l=csharp` | `.cs` | |
 | C++ | `-l=cpp` | `.cpp` | Some operators add a polyfill function. |
 | PHP | `-l=php` | `.php` | The main routine is at the top level of the file. |
 | Scala | `-l=scala` | `.scala` | The main routine compiles to `object AppMain extends App`. |
 
-## Maturity
+## What the tests prove
 
-The targets are not equal. The table below states what the test suite and the
-large gallery programs currently prove. The
+The targets are not equal. The
 [coverage page](/Ranger/docs/reference/coverage/) counts operator templates; a
 high count does not mean a large program has run on that target.
 
-| Target | Ranger accepts | Builds with a toolchain | Matches a Node reference |
-| --- | --- | --- | --- |
-| JavaScript | yes | yes (`node`) | baseline |
-| Go | yes | yes | TS engine 8/8; syntax app |
-| Kotlin | yes | yes (`kotlinc`) | TS engine 8/8 |
-| Python | yes | yes (`python3`) | TS engine 8/8 |
-| C# | yes | yes (Mono `mcs` in CI; .NET also) | TS engine 8/8 |
-| Rust | yes | yes (`rustc`) | jpeg scaler; TS engine path |
-| C++ | yes | yes (`g++`) | jpeg scaler; TS engine path |
-| Dart | yes | yes (`dart`, when on `PATH`) | TS engine (same Node answers); `gallery/ts_parser` AST = JS |
-| Swift 6 | yes | when `swiftc` is present | TS engine builds and matches Node (~39k lines) when `swiftc` is on `PATH` |
-| Java, PHP, Scala | yes, with more gaps | varies | syntax-app matrix; no large-engine golden |
+The directory
+[`gallery/friendly`](https://github.com/terotests/Ranger/blob/master/gallery/friendly/README.md)
+is the current measurement. It compiles twelve small programs to each target
+language. A run diffs the printed output of each program across the targets
+that execute.
 
-`npm run test:tsengine` compiles the TypeScript engine in
-`gallery/game_engine/v2/interp` to Go, Kotlin, Python, C#, Swift 6 and Dart, and
-builds and runs each of those when the matching toolchain is installed.
-`npm run test:dart` and `npm run test:dart:tsparser` still exercise the smaller
-Dart golden.
+Eight targets run those twelve programs and give the same answers:
+JavaScript, Python, Go, C++, Rust, Kotlin, Java and C#. PHP has no study
+folder yet. It ran the same programs and agreed with JavaScript. Dart, Swift
+and Scala: the compiler writes the files. A job does not always have `dart`,
+`swiftc` or `scalac`.
+
+The same directory holds a timed run of five kernels, and a reading of how
+close each generated file is to the idiom of the target. Those numbers change
+with the compiler. Read them in the repository.
+
+`npm run test:tsengine` still compiles the TypeScript engine in
+`gallery/game_engine/v2/interp` to several targets when those toolchains are
+installed.
 
 Each [operator page](/Ranger/docs/reference/operators/statements/) lists every
-command-line target in the support row, including Dart. A mark ✔ is an own
-template; ✱ is the default `*` template; ✕ means the operator has no template
-for that target.
+command-line target in the support row. A mark ✔ is an own template; ✱ is the
+default `*` template; ✕ means the operator has no template for that target.
 
-## The state of a shape on each target language
+## Shapes
 
-A [shape](/Ranger/docs/language/shapes/) is a closed family of cases with one
-target-independent semantic model. Backends may use a native form — a typed
-union with a discriminant, a native enum, a tagged struct, an interface, or a
-variant with scalar cases stored by value — rather than only a portable
-class-per-case union. The table states the result of one program that tests
-each case and each group. The program compares the answer of the operator
-`case` against the answer of the operator `is`.
+A [shape](/Ranger/docs/language/shapes/) is a closed family of cases. The
+compiler writes a native form where the target has one: a typed union, a
+native enum, a tagged struct, an interface, or a variant with scalar cases
+stored by value.
 
-| Target | The program runs | The known limit |
-| --- | --- | --- |
-| JavaScript | yes | none |
-| Python | yes | none |
-| Go | yes | none |
-| Kotlin | yes | none |
-| Java | yes | none |
-| C++ | yes | Scalar value cases ride inside the variant by value. |
-| Rust | yes | A case value is not wrapped into the union. See the note below. |
-| PHP | yes | none for a shape |
-| Swift | not in this container | `swiftc` is not installed here, so `tests/is-operator.test.ts` reads the output of the writer instead. The TypeScript engine builds and matches Node where `swiftc` is present. |
-| Dart, C#, Scala | not tested | No toolchain in the test container. |
-| llvm | no | The writer has no template for `case`, so it compiles no shape. |
+The operator `is` accepts a group on each target language. The compiler
+writes one test for each case of the group. The operator `case` does not
+accept a group, because it must bind a narrowed value, and no target has a
+type for the group on every writer. Use `is` for the test of a group.
 
 **The limit of the Rust target.** A value of a case type does not become a
 value of the union type at an argument. The program below does not compile,
@@ -98,12 +85,9 @@ def v:Value n
 p.add(v)
 ```
 
-This limit is the reason for 8 of the 11 shape tests that fail today.
-
-**A group.** The operator `is` accepts a group on each target language. The
-compiler writes one test for each case of the group. The operator `case` does
-not accept a group, because it must bind a narrowed value, and no target has a
-type for the group on every writer. Use `is` for the test of a group.
+The tests `tests/shapes.test.ts` and `tests/is-operator.test.ts` compile and
+run the fixtures on the toolchains that the job has. The llvm writer has no
+template for `case`, so it compiles no shape.
 
 ## Other targets in the language file
 
@@ -139,6 +123,11 @@ each target.
 
 ## Differences that a program must know
 
+- **Integer width.** Ranger has one integer type. JavaScript, Python, PHP, Go
+  and Rust give a 64 bit integer. C++, C#, Java and Kotlin give a 32 bit
+  integer. `(100000 * 100000)` is `10000000000` on the first group and
+  `1410065408` on the second. On C++ the overflow is undefined behaviour.
+  Use `int64` when the program must cross 2³¹ on every target.
 - **Integer division.** `/` on two integers gives a double. Use `idiv` when
   the program needs a whole number. `idiv` truncates toward zero.
   `to_int` converts a double to an integer.
