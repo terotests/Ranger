@@ -901,11 +901,13 @@ function main() {
         const view = viewportOf(url);
         const events = frameDocument(file, view);
         const measure = events.find((e) => e && e.t === "measure") || null;
+        const ask = (url.searchParams.get("ask") || "").trim().slice(0, 500);
+        const prompt = ask || lastPrompt;
         const made = exportSession({
           dir: sessionDir(),
-          prompt: lastPrompt,
+          prompt,
           kind: lastKind,
-          name: lastPrompt || lastKind || "screen",
+          name: prompt || lastKind || "screen",
           viewport: view || { width: 390, height: 844 },
           measure,
         });

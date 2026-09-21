@@ -583,7 +583,8 @@ $("export").addEventListener("click", async () => {
   $("exportSheet").classList.add("on");
   try {
     const v = viewport();
-    exportPayload = await (await fetch(`/export?w=${v.w}&h=${v.h}`)).json();
+    const ask = encodeURIComponent(($("prompt").value || "").trim());
+    exportPayload = await (await fetch(`/export?w=${v.w}&h=${v.h}${ask ? `&ask=${ask}` : ""}`)).json();
     if (exportPayload.error) throw new Error(exportPayload.error);
     paintExport();
   } catch (e) {

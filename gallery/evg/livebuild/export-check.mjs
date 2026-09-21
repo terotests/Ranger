@@ -142,6 +142,12 @@ if (first.viewport.width !== 390 || first.viewport.height !== 844) {
 }
 console.log(`  http        seed brief ${first.nodes} nodes, ${first.bytes} bytes, no example app`);
 
+const typed = await ask("/export?ask=" + encodeURIComponent("four-tab bottom nav"));
+if (!typed.markdown.includes("four-tab bottom nav")) {
+  throw new Error("the typed ask did not reach the brief");
+}
+console.log("  ask         the box on the page is what the next agent is told");
+
 const session = path.join(os.tmpdir(), "evg-live-session");
 const docPath = path.join(session, "doc.evg.json");
 const doc = JSON.parse(fs.readFileSync(docPath, "utf8"));
