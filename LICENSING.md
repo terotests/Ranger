@@ -32,7 +32,8 @@ text. GitHub may not show a single license badge; that is intentional.
   parser basics                  advanced editors
   generic utilities              Rave / Vela charts
   package client                 evg_window (dialogs, toolbar, ruler
-  EVG layout engine  (lib/evg)     over the software rasteriser)
+  EVG layout engine  (lib/evg vendor copy;
+                      canonical: terotests/evg)     over the software rasteriser)
   image codecs       (lib/image)
   examples/
 ```
@@ -62,6 +63,11 @@ compiler, not application IP: it moved from `gallery/evg` to `lib/evg`
 and from AGPL to MIT in September 2026. Layout engines are permissively
 licensed as a rule (Skia, Yoga, Taffy, the Flutter engine); the
 competitive work sits above them. So does Ranger's.
+
+The **canonical sources** for EVG 3.0 Storm (and the Thunderstruck 2.x
+TypeScript / NPM module) are [terotests/evg](https://github.com/terotests/evg).
+`lib/evg` in this repository is a vendor copy so gallery packages keep
+a path dependency. See [`lib/evg/CANONICAL.md`](lib/evg/CANONICAL.md).
 
 `lib/image` — the JPEG and PNG decoders, the PNG encoder, the raster and
 byte buffers EVG and the PDF tools share — moved with it, on the same
