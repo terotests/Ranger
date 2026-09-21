@@ -145,7 +145,10 @@ Pieces are `./evg-ui add appbar|pills|bars|tiles|banner|card|chips|tabbar`
 `rave.Pills` / `rave.Bars` / `rave.Tile` / `rave.Banner` / `rave.Card` /
 `SettingsRow`. A dashboard photo must stay tiles + bars + banner, not a
 flattened SettingsRow list. After `add` the host paints the photo
-palette onto the new piece. A hand `insert` of an unnamed `div` tree is
+palette onto the new piece and **removes leftover SettingsRow cards**
+(and the old icon-chip row) in the same patch. A `write_file` that
+drops those leftovers while pills/tiles/bars stay is allowed;
+wiping the whole screen is not. A hand `insert` of an unnamed `div` tree is
 refused (box soup). `set-css` is allowed and replaces the sheet. The
 system prompt starts with a compact **EXAMPLE_UI** (AppBar, pills, bars,
 tiles, banner, tabbar) and the `./evg-ui` recipe that builds it — Gemini

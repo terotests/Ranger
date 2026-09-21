@@ -49,6 +49,8 @@ import {
   ADD_CARD,
   ADD_APPBAR,
   paintAddOps,
+  attachLeftoverRemoves,
+  leftoverSettingsAts,
   OPS_WRITE_CAP,
   recentSightseeing,
   isSightseeingCall,
@@ -1333,6 +1335,50 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   if (!lastCard.error || !/wipe/.test(lastCard.error)) {
     throw new Error("removing the last named card must be refused: " + JSON.stringify(lastCard));
   }
+  fs.writeFileSync(
+    path.join(ws, "doc.evg.json"),
+    JSON.stringify({
+      evg: 1,
+      root: {
+        tag: "div",
+        children: [
+          { tag: "div", props: { "class-name": "ui-card" }, children: [{ tag: "span", text: "Daily Average" }] },
+          { tag: "div", props: { "class-name": "ui-card" }, children: [{ tag: "span", text: "Vitals" }] },
+          { tag: "div", props: { "class-name": "ui-chiprow" }, children: [{ tag: "div", props: { "class-name": "ui-chip" } }] },
+          { tag: "div", props: { "class-name": "ui-bars" }, children: [{ tag: "span", text: "Steps" }] },
+        ],
+      },
+    }),
+  );
+  const dropOld = executeTool(ws, "write_file", {
+    path: "ops.json",
+    contents: '{"ops":[{"op":"remove","at":"0/2"},{"op":"remove","at":"0/1"},{"op":"remove","at":"0/0"}]}',
+  });
+  if (dropOld.error) {
+    throw new Error("removing leftover SettingsRows while bars stay must be allowed: " + JSON.stringify(dropOld));
+  }
+  const attached = attachLeftoverRemoves(
+    JSON.stringify({
+      ops: [{ op: "insert", at: "0", index: 9999, node: { tag: "div", props: { "class-name": "ui-tiles" }, children: [] } }],
+    }),
+    ws,
+    "tiles",
+  );
+  if (!/"remove"/.test(attached) || !attached.includes("0/2") || !attached.includes("0/1")) {
+    throw new Error("add tiles must queue leftover removes: " + attached);
+  }
+  if (leftoverSettingsAts(JSON.parse(fs.readFileSync(path.join(ws, "doc.evg.json"), "utf8")).root).length !== 3) {
+    throw new Error("leftoverSettingsAts should see two cards and the chiprow");
+  }
+  const leftoverOutline = summarizeOutline(`0 div
+0/0 div .ui-card
+0/0/0 span .ui-card-title "Daily Average"
+0/1 div .ui-chiprow
+0/2 div .ui-bars
+0/2/0 span .ui-bars-title "Steps & Calories Trend"`);
+  if (!/leftover/.test(leftoverOutline) || !/0\/0/.test(leftoverOutline) || !/0\/1/.test(leftoverOutline)) {
+    throw new Error("outline must name leftover settings cards: " + leftoverOutline);
+  }
   const inside = executeTool(ws, "write_file", {
     path: "ops_header.json",
     contents: '{"ops":[{"op":"insert","at":"0/0","node":{"tag":"div"}}]}',
@@ -1468,6 +1514,8 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
     "add tiles",
     "rave.Tile",
     "rave.Banner",
+    "Leftover SettingsRow",
+    "highest index first",
   ]) {
     if (!prompt.includes(need)) throw new Error("gemini system prompt missing " + need);
   }

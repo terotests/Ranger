@@ -370,7 +370,8 @@ function evgUiAddFollowup(workspace, parsed, stdout, ok) {
   } catch {
     /* use stdout */
   }
-  const painted = paintAddOps(text, workspace);
+  const kind = parsed.argv[1] || "";
+  const painted = attachLeftoverRemoves(paintAddOps(text, workspace), workspace, kind);
   try {
     fs.writeFileSync(file, painted);
   } catch {
@@ -383,9 +384,11 @@ function evgUiAddFollowup(workspace, parsed, stdout, ok) {
     }
   }
   const themed = painted !== text;
+  const leftover = leftoverSettingsAts(evgRootOf(workspace));
+  const cleared = leftover.length && /"op"\s*:\s*"remove"/.test(painted);
   return {
     wrote: dest,
-    stdout: `wrote ${dest} (${painted.length} bytes). Next: ./evg-agent patch doc.evg.json ${dest}. --into is the insert path, not an edit. Do not read_file ${dest}.${themed ? " Palette from the photo was painted on the piece." : ""}`,
+    stdout: `wrote ${dest} (${painted.length} bytes). Next: ./evg-agent patch doc.evg.json ${dest}. --into is the insert path, not an edit. Do not read_file ${dest}.${themed ? " Palette from the photo was painted on the piece." : ""}${cleared ? ` Leftover SettingsRow cards ${leftover.join(" ")} will be removed on patch (highest index first).` : ""}`,
   };
 }
 
@@ -491,7 +494,7 @@ insert the first child at "0", not "0/0" — 0/0 does not exist on an empty root
 
 EVG layout is HTML/CSS flex and grid: display:flex, flex-direction:column|row, gap, padding; or display:grid, grid-template-columns:1fr 1fr. Not left/top. Two cards side by side are one grid row. Erazer / SVG boxes are the photo geometry — map them to flex/grid. Use the brief hexes: set-prop background-color on the root (page) and each card. The seed rgb() is a placeholder.
 
-Never write_file doc.evg.json or layout.json. Never read_file a .evg.json — the tree is on disk; outline / measure / patch. Do not remove the cards the outline already names — set-prop colours or add the next missing one. insert at "0" adds a sibling under the root; insert at "0/0" goes inside the first card. padding is padding-top / padding-left (not padding). image_info is the palette already in the brief — do not keep calling it.
+Never write_file doc.evg.json or layout.json. Never read_file a .evg.json — the tree is on disk; outline / measure / patch. Do not wipe pills / tiles / bars / banner / tabbar. Leftover SettingsRow cards and the old icon-chip row from a wrong first pass: remove them ALL in one ops.json (highest index first) — that is not wiping the screen. Do not leave both a settings list and a dashboard. insert at "0" adds a sibling under the root; insert at "0/0" goes inside the first card. padding is padding-top / padding-left (not padding). image_info is the palette already in the brief — do not keep calling it.
 
 Several screens (Orders / Analytics / Settings) is an app, not hidden divs:
 1. set-id each tab: {"op":"set-id","at":"0/6/0","value":"nav.home"} — id is NOT a property (set-prop id is rejected).
@@ -1327,6 +1330,7 @@ export function collectPictureBrief(workspace, env = process.env) {
     "EVG is HTML flex/grid: display:flex + flex-direction:column|row + gap, or display:grid + grid-template-columns:1fr 1fr. Not left/top.",
     "Pieces: ./evg-ui add appbar|pills|bars|tiles|banner|card|chips|tabbar (ui-card / ui-tile / ui-bars / ui-banner / ui-tabbar). Do not insert unnamed div trees — Export needs those classes for rave.Card / rave.Tile.",
     "A 2×2 of metrics is add tiles. A bar chart is add bars. A highlight is add banner. Day/Week is add pills. add card --row is a settings list (SettingsRow) — do not flatten a dashboard into rows.",
+    "If the outline still names leftover SettingsRow / ui-card / ui-chiprow after pills/tiles/bars, remove those paths in one ops.json (highest index first). Adding pills/tiles/bars/banner also drops them on patch. Do not leave both.",
     "Copy EXAMPLE_UI from the system prompt (rave.AppBar, rave.Pills, rave.Bars, rave.Tile, rave.Banner, SettingsRow only for lists). Change the words to this photo. ONE outline, then add FILLED pieces. Empty ui-card is a failed turn.",
   ];
   let att = null;
@@ -1843,7 +1847,7 @@ export function summarizeRunReply(out, result) {
       if (j.count === 0 && nodes != null && Number(nodes) <= 2) {
         line += ` — empty seed. Next: ${ADD_CARD}`;
       } else if (j.count === 0 && (j.bottomFree != null || (Array.isArray(j.boxes) && j.boxes.length))) {
-        line += " — no overflow. Keep the named cards; add the next missing one. Do not wipe.";
+        line += " — no overflow. Keep pills/tiles/bars/banner. Leftover SettingsRow cards: remove them (highest index first). Do not wipe the dashboard.";
       }
       return clipOneLine(line, 520);
     }
@@ -1896,6 +1900,57 @@ function nodeLooksBuilt(el) {
   return false;
 }
 
+export const DASH_KEEPER_RE = /\b(ui-appbar|ui-pills|ui-tiles|ui-tile|ui-bars|ui-banner|ui-tabbar)\b/;
+
+export function nodeIsDashboardKeeper(node) {
+  return DASH_KEEPER_RE.test(nodePieceClass(node));
+}
+
+/** add card / old chiprow leftovers that a dashboard rebuild must drop. */
+export function nodeIsSettingsLeftover(node) {
+  if (!node || typeof node !== "object") return false;
+  if (nodeIsDashboardKeeper(node)) return false;
+  const cls = nodePieceClass(node);
+  return /\bui-chiprow\b/.test(cls) || /\bui-card\b/.test(cls);
+}
+
+export function leftoverSettingsAts(root) {
+  const kids = root && Array.isArray(root.children) ? root.children : [];
+  const out = [];
+  kids.forEach((k, i) => {
+    if (nodeIsSettingsLeftover(k)) out.push(`0/${i}`);
+  });
+  return out;
+}
+
+function insertAddsKeeper(op) {
+  return !!(op && op.op === "insert" && (nodeIsDashboardKeeper(op.node) || (op.node && DASH_KEEPER_RE.test(nodePieceClass(op.node)))));
+}
+
+/** When adding pills/tiles/bars/banner, drop leftover SettingsRow cards in the same batch. */
+export function attachLeftoverRemoves(text, workspace, kind) {
+  if (!/^(pills|tiles|bars|banner)$/.test(String(kind || ""))) return String(text || "");
+  const ats = leftoverSettingsAts(evgRootOf(workspace));
+  if (!ats.length) return String(text || "");
+  let j;
+  try {
+    j = JSON.parse(String(text || ""));
+  } catch {
+    return String(text || "");
+  }
+  if (!j || !Array.isArray(j.ops)) return String(text || "");
+  const have = new Set(j.ops.filter((o) => o && o.op === "remove").map((o) => String(o.at || "")));
+  const removes = ats
+    .filter((at) => !have.has(at))
+    .sort((a, b) => Number(b.split("/")[1]) - Number(a.split("/")[1]))
+    .map((at) => ({ op: "remove", at }));
+  if (!removes.length) return String(text || "");
+  const insertAt = j.ops.findIndex((o) => o && o.op === "insert");
+  if (insertAt < 0) j.ops.push(...removes);
+  else j.ops.splice(insertAt, 0, ...removes);
+  return JSON.stringify(j, null, 2) + "\n";
+}
+
 /** A nested insert at the root with no kit class is the box-soup Export cannot collapse. */
 export function insertIsSoup(node, at) {
   if (String(at || "") !== "0") return false;
@@ -1930,6 +1985,13 @@ export function summarizeOutline(raw) {
     line += ` — empty seed, not done. Next: ${ADD_APPBAR} then patch. A dashboard then add pills|bars|tiles|banner — not a card of SettingsRows.`;
   } else if (lines.some((l) => /\.ui-card\b/.test(l) && !/"/.test(l))) {
     line += ` — empty card. Next: ${ADD_CARD}`;
+  }
+  const top = lines.filter((l) => /^0\/\d+\s/.test(l));
+  const leftover = top.filter((l) => /\.ui-card\b|\.ui-chiprow\b/.test(l) && !/\.ui-(pills|tiles|bars|banner)\b/.test(l));
+  const dash = top.filter((l) => /\.ui-(pills|tiles|bars|banner|tabbar)\b/.test(l));
+  if (leftover.length && dash.length) {
+    const ats = leftover.map((l) => l.split(/\s+/)[0]).join(" ");
+    line += ` — leftover settings cards ${ats}. Remove them in one ops.json (highest index first). Do not leave both.`;
   }
   return clipOneLine(line, 520);
 }
@@ -2032,18 +2094,30 @@ export function opsWriteError(rel, contents, workspace = "") {
       }
       if (op.op === "remove" && /^0\/\d+$/.test(String(op.at || ""))) rootRemoves.push(op.at);
     }
-    if (rootRemoves.length >= 2) {
-      return "do not wipe the cards — remove one empty node, or set-prop the ones you have";
+    const root = workspace ? evgRootOf(workspace) : null;
+    const kids = root && Array.isArray(root.children) ? root.children : [];
+    const leftoverSet = new Set(leftoverSettingsAts(root));
+    const keeperAts = kids.map((k, i) => (nodeIsDashboardKeeper(k) ? `0/${i}` : "")).filter(Boolean);
+    const keepersAfter = keeperAts.filter((at) => !rootRemoves.includes(at));
+    const insertingKeeper = j.ops.some(insertAddsKeeper);
+    const onlyLeftovers = rootRemoves.length > 0 && rootRemoves.every((at) => leftoverSet.has(at));
+    const keepersRemoved = rootRemoves.filter((at) => keeperAts.includes(at));
+    if (keepersRemoved.length && keepersAfter.length === 0 && !insertingKeeper) {
+      return "do not wipe the dashboard pieces — remove leftover SettingsRow cards, not pills/tiles/bars/banner.";
     }
-    if (workspace && rootRemoves.length) {
-      const root = evgRootOf(workspace);
-      const kids = root && Array.isArray(root.children) ? root.children : [];
-      const built = kids
-        .map((k, i) => ({ at: `0/${i}`, built: nodeLooksBuilt(k) }))
-        .filter((k) => k.built);
+    if (onlyLeftovers) {
+      const built = kids.map((k, i) => ({ at: `0/${i}`, built: nodeLooksBuilt(k) })).filter((k) => k.built);
       const left = built.filter((k) => !rootRemoves.includes(k.at));
-      if (built.length && left.length === 0) {
-        return "do not wipe the cards you just added — set-prop colours or add the next one. remove is for one empty box, not the screen.";
+      if (built.length && left.length === 0 && !insertingKeeper) {
+        return "do not wipe the whole screen — add pills/tiles/bars first, then remove leftover SettingsRow cards.";
+      }
+    } else if (rootRemoves.length >= 2) {
+      return "do not wipe the cards — remove leftover SettingsRow cards, or one empty node.";
+    } else if (workspace && rootRemoves.length) {
+      const built = kids.map((k, i) => ({ at: `0/${i}`, built: nodeLooksBuilt(k) })).filter((k) => k.built);
+      const left = built.filter((k) => !rootRemoves.includes(k.at));
+      if (built.length && left.length === 0 && !insertingKeeper) {
+        return "do not wipe the cards you just added — set-prop colours or add the next one. remove is for leftover SettingsRows or one empty box, not the screen.";
       }
     }
   }
