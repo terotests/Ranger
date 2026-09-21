@@ -25,6 +25,15 @@
 ;   3. order within layers   barycentre sweeps, which is the crossing reduction
 ;   4. assign coordinates    pack each layer, centre it on its neighbours
 ;
+    ; The seed for (3) is the order the chart was written in. Under TB/BT a
+    ; dummy that stands for a reversed (back) edge starts on the LEFT of its
+    ; layer — the start of the cross axis. A return path that begins on the
+    ; right of the column it is returning up crosses the boxes on the way;
+    ; the same path on the left does not. Mermaid's TB default is that
+    ; convention: top to bottom, left to right, the feedback on the left.
+    ; Under LR/RL the dummies still follow the nodes, which is the picture
+    ; a row of states has always been.
+;
 ; Long edges get the real treatment: an edge spanning more than one layer is
 ; replaced, for the duration of the layout, by a chain of DUMMY vertices — one
 ; in each layer it crosses. That is Sugiyama's trick and it buys two things at
@@ -664,7 +673,36 @@ class LayeredLayout {
                         def first:int -1
                         def l:int (lf + 1)
                         while (l < lt) {
-                            def dv:int (this.pushVertex(l -1 e edgeGap))
+                            def dummyExt:double edgeGap
+                            ; A return path is a column of its own, not a
+                            ; sixteen-pixel sliver beside the box it is
+                            ; avoiding. Wide enough that the node sitting
+                            ; on it stands clear of the column it is
+                            ; returning up; not so wide that a dummy in a
+                            ; busy layer (a state machine's return past
+                            ; the next state) pushes the chain apart.
+                            if (this.verticalFlow()) {
+                                if (itemAt edgeReversed e) {
+                                    def fromN:FlowNode (graph.nodeAt(from))
+                                    def toN:FlowNode (graph.nodeAt(to))
+                                    def aw:double fromN.width
+                                    def bw:double toN.width
+                                    if (bw < aw) {
+                                        aw = bw
+                                    }
+                                    def need:double (aw * 0.3)
+                                    if (need < 32.0) {
+                                        need = 32.0
+                                    }
+                                    if (need > 48.0) {
+                                        need = 48.0
+                                    }
+                                    if (need > dummyExt) {
+                                        dummyExt = need
+                                    }
+                                }
+                            }
+                            def dv:int (this.pushVertex(l -1 e dummyExt))
                             if (first < 0) {
                                 first = dv
                             }
@@ -708,6 +746,100 @@ class LayeredLayout {
         return (array_length vLayer)
     }
 
+    ; A dummy that holds a reversed edge's lane through this layer. Those are
+    ; the return paths: they start on the left so they do not cross the column
+    ; they are returning up. Forward long-edge dummies stay on the right of
+    ; the nodes, which is where they have always been.
+    fn reversedDummy:boolean (v:int) {
+        if ((itemAt vNode v) >= 0) {
+            return false
+        }
+        def e:int (itemAt vEdge v)
+        return (this.reversedEdge(e))
+    }
+
+    fn reversedEdge:boolean (e:int) {
+        if (e < 0) {
+            return false
+        }
+        if (e >= (array_length edgeReversed)) {
+            return false
+        }
+        return (itemAt edgeReversed e)
+    }
+
+    ; A TB/BT column: the return belongs on the left. An LR/RL row keeps
+    ; dummies after the nodes — a return on the top of a row of states is
+    ; a different picture, and not what this change is for.
+    fn verticalFlow:boolean () {
+        if (direction == "LR") {
+            return false
+        }
+        if (direction == "RL") {
+            return false
+        }
+        return true
+    }
+
+    ; Per layer, under TB/BT: return-path dummies, then real nodes in graph
+    ; order, then the dummies of forward long edges. Barycentre keeps this
+    ; where the keys tie, which they do for a cycle A→B→C→A: B and the dummy
+    ; of the reversed C→A both look at the same neighbour, so the dummy stays
+    ; left and C stands under it rather than to the right of B. Under LR/RL
+    ; the nodes come first, then every dummy, as they always did.
+    fn seedVertexOrder:void () {
+        def vertical:boolean (this.verticalFlow())
+        def lc:int (this.layerCount())
+        def total:int (this.vertexCount())
+        def l:int 0
+        while (l < lc) {
+            def backs:[int]
+            def nodes:[int]
+            def rest:[int]
+            def v:int 0
+            while (v < total) {
+                if ((itemAt vLayer v) == l) {
+                    if ((itemAt vNode v) >= 0) {
+                        push nodes v
+                    } {
+                        if vertical {
+                            if (this.reversedDummy(v)) {
+                                push backs v
+                            } {
+                                push rest v
+                            }
+                        } {
+                            push rest v
+                        }
+                    }
+                }
+                v = (v + 1)
+            }
+            def order:int 0
+            if vertical {
+                def a:int 0
+                while (a < (array_length backs)) {
+                    set_at vOrder (itemAt backs a) order
+                    order = (order + 1)
+                    a = (a + 1)
+                }
+            }
+            def b:int 0
+            while (b < (array_length nodes)) {
+                set_at vOrder (itemAt nodes b) order
+                order = (order + 1)
+                b = (b + 1)
+            }
+            def c:int 0
+            while (c < (array_length rest)) {
+                set_at vOrder (itemAt rest c) order
+                order = (order + 1)
+                c = (c + 1)
+            }
+            l = (l + 1)
+        }
+    }
+
     ; Barycentre ordering, now over the vertices rather than the nodes: sort
     ; each layer by the mean position of what it is joined to in the layer
     ; before (then after, alternating). It is the cheapest crossing reduction
@@ -715,21 +847,8 @@ class LayeredLayout {
     ; Running it over the dummies too is the whole point of having them — a
     ; long edge is now something the sweep can move out of the way.
     fn orderVertices:void () {
-        def total:int (this.vertexCount())
+        this.seedVertexOrder()
         def lc:int (this.layerCount())
-        def counters:[int]
-        def i:int 0
-        while (i < lc) {
-            push counters 0
-            i = (i + 1)
-        }
-        def v:int 0
-        while (v < total) {
-            def l:int (itemAt vLayer v)
-            set_at vOrder v (itemAt counters l)
-            set_at counters l ((itemAt counters l) + 1)
-            v = (v + 1)
-        }
         def sweep:int 0
         while (sweep < sweeps) {
             def down:boolean true
@@ -773,8 +892,7 @@ class LayeredLayout {
     }
 
     fn sortLayer:void (layer:int useIncoming:boolean) {
-        def members:[int]
-        def keys:[double]
+        def raw:[int]
         def aside:[int]
         def v:int 0
         while (v < (this.vertexCount())) {
@@ -787,11 +905,23 @@ class LayeredLayout {
                     }
                 }
                 if take {
-                    push members v
-                    push keys (this.barycentre(v useIncoming))
+                    push raw v
                 }
             }
             v = (v + 1)
+        }
+        ; Start from the order the last sweep (or the seed) left, not from
+        ; vertex insertion order. Dummies are created after the nodes, so
+        ; walking the vertex list would put every return path on the right
+        ; of the column it is returning up, and a stable sort on equal
+        ; barycentres would keep it there — undoing the seed and any sweep
+        ; that had already moved it.
+        def members:[int] (this.byOrder(raw))
+        def keys:[double]
+        def ki:int 0
+        while (ki < (array_length members)) {
+            push keys (this.barycentre((itemAt members ki) useIncoming))
+            ki = (ki + 1)
         }
         ; The ones stepping aside go last, in the order they had.
         def sideSorted:[int] (this.byOrder(aside))
@@ -1025,8 +1155,9 @@ class LayeredLayout {
     ; ignores the long edges merely passing through: under its parent, not
     ; halfway between its parent and a line from somewhere else on its way
     ; to somewhere else — so a chain of nodes hangs straight down from
-    ; where it starts. A vertex with nothing on that side wants to stay
-    ; where it is, lightly.
+    ; where it starts. A reversed long edge is that node's own return path,
+    ; not a passer-by, so the node stands toward it. A vertex with nothing
+    ; on that side wants to stay where it is, lightly.
     fn balanceLayers:void () {
         def lc:int (this.layerCount())
         if (lc == 0) {
@@ -1168,6 +1299,8 @@ class LayeredLayout {
             def n:int 0
             def realTotal:double 0.0
             def realN:int 0
+            def backTotal:double 0.0
+            def backN:int 0
             def at:int -1
             if useIncoming {
                 at = (itemAt vInHead v)
@@ -1200,17 +1333,40 @@ class LayeredLayout {
                 if ((itemAt vNode other) >= 0) {
                     def attach:double (oc + (this.attachOffset(other via)))
                     if isDummy {
-                        def here:double (itemAt vCross v)
-                        def reach:double (((itemAt vExtent other) * 0.5) + nodeGap)
-                        if offsets {
-                            if ((this.looseEnd(other via)) == false) {
-                                reach = nodeGap
+                        if (this.verticalFlow()) {
+                            if (this.reversedDummy(v)) {
+                                ; A return lane stays where it was packed —
+                                ; on the left, clear of the column it is
+                                ; avoiding. Sliding it under the end box
+                                ; (the endOfEdge slack) put it on top of
+                                ; that column again.
+                                oc = (itemAt vCross v)
+                            } {
+                                def here:double (itemAt vCross v)
+                                def reach:double (((itemAt vExtent other) * 0.5) + nodeGap)
+                                if offsets {
+                                    if ((this.looseEnd(other via)) == false) {
+                                        reach = nodeGap
+                                    }
+                                }
+                                if (here < (attach - reach)) { here = (attach - reach) }
+                                if (here > (attach + reach)) { here = (attach + reach) }
+                                oc = here
+                                endOfEdge = true
                             }
+                        } {
+                            def here2:double (itemAt vCross v)
+                            def reach2:double (((itemAt vExtent other) * 0.5) + nodeGap)
+                            if offsets {
+                                if ((this.looseEnd(other via)) == false) {
+                                    reach2 = nodeGap
+                                }
+                            }
+                            if (here2 < (attach - reach2)) { here2 = (attach - reach2) }
+                            if (here2 > (attach + reach2)) { here2 = (attach + reach2) }
+                            oc = here2
+                            endOfEdge = true
                         }
-                        if (here < (attach - reach)) { here = (attach - reach) }
-                        if (here > (attach + reach)) { here = (attach + reach) }
-                        oc = here
-                        endOfEdge = true
                     } {
                         oc = (attach - mine)
                     }
@@ -1219,15 +1375,42 @@ class LayeredLayout {
                 } {
                     if (isDummy == false) {
                         oc = (oc - mine)
+                        ; A return path ends here: count it with the real
+                        ; neighbours so the node sits on that side rather
+                        ; than on the parent and leaving the path to go
+                        ; around the far side of the column. TB/BT only —
+                        ; an LR row of states is not this picture.
+                        if (this.verticalFlow()) {
+                            if (this.reversedDummy(other)) {
+                                ; Only the node the return BEGINS at sits
+                                ; on that column. Counting the dummy for
+                                ; the node it arrives at pulled that node
+                                ; off the chain and bent the edges that
+                                ; were already straight.
+                                def ev:int (itemAt vEdge other)
+                                def ed:FlowEdge (graph.edgeAt(ev))
+                                if (ed.sourceIndex == (itemAt vNode v)) {
+                                    backTotal = (backTotal + oc)
+                                    backN = (backN + 1)
+                                    realTotal = (realTotal + oc)
+                                    realN = (realN + 1)
+                                }
+                            }
+                        }
                     }
                 }
                 total = (total + oc)
                 n = (n + 1)
             }
             if (isDummy == false) {
-                if (realN > 0) {
-                    total = realTotal
-                    n = realN
+                if (backN > 0) {
+                    total = backTotal
+                    n = backN
+                } {
+                    if (realN > 0) {
+                        total = realTotal
+                        n = realN
+                    }
                 }
             }
             if (n == 0) {
@@ -1261,6 +1444,34 @@ class LayeredLayout {
                 if prevDummy {
                     if isDummy {
                         apart = edgeGap
+                    }
+                }
+                ; A return column is a column: keep a full node gap from
+                ; the boxes it is avoiding, so freely placed children of
+                ; those boxes can hang on the open side rather than step
+                ; over the return. Dummy-to-dummy stays a lane's width.
+                if (this.verticalFlow()) {
+                    def backLane:boolean false
+                    if prevDummy {
+                        if (this.reversedDummy(prev)) {
+                            backLane = true
+                        }
+                    }
+                    if isDummy {
+                        if (this.reversedDummy(v)) {
+                            backLane = true
+                        }
+                    }
+                    if backLane {
+                        if prevDummy {
+                            if isDummy {
+                                apart = edgeGap
+                            } {
+                                apart = nodeGap
+                            }
+                        } {
+                            apart = nodeGap
+                        }
                     }
                 }
                 def gap:double ((((itemAt vExtent prev) + (itemAt vExtent v)) * 0.5) + apart)
