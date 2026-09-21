@@ -141,8 +141,11 @@ describe("a local stored for the last time is moved, and built as a value", () =
 
   it("builds the finished value rather than default-constructing and writing", () => {
     // the run covers every field, so there is no `..Line::new()` base, and a
-    // value that is the field's own name takes the shorthand form
-    expect(rs.code).toMatch(/let mut line: Line = Line \{\s*\n\s*name,\s*\n\s*cents,\s*\n\s*qty,\s*\n\s*\};/);
+    // value that is the field's own name takes the shorthand form.
+    // `let`, not `let mut`: the fold absorbed every write, and nothing
+    // reaches the local through its name afterwards.
+    expect(rs.code).toMatch(/let line: Line = Line \{\s*\n\s*name,\s*\n\s*cents,\s*\n\s*qty,\s*\n\s*\};/);
+    expect(rs.code).not.toContain("let mut line: Line");
     expect(rs.code).not.toContain("let mut line: Line = Line::new();");
   });
 
