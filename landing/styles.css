@@ -715,6 +715,23 @@ code:not(pre code) {
 .warning { margin-top: 44px; border: 1px solid var(--line-2); border-left: 3px solid var(--gold); padding: 24px 26px; }
 .warning p:not(.label) { color: var(--dim); font-size: 15.5px; max-width: 84ch; margin: 0; }
 
+/* ------------------------------------------------------------- history -- */
+
+#history { scroll-margin-top: 64px; }
+.history .display { margin-bottom: 28px; }
+.history p:not(.label) {
+  max-width: 72ch;
+  color: var(--dim);
+  font-size: clamp(16px, 1.4vw, 18px);
+  line-height: 1.7;
+}
+.history .lead {
+  color: var(--paper);
+  font-size: clamp(17px, 1.55vw, 20px);
+  line-height: 1.55;
+  margin-bottom: 22px;
+}
+
 
 /* -------------------------------------------------------------- foot ---- */
 

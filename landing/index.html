@@ -25,6 +25,7 @@
     <a href="#native">Native</a>
     <a href="#source">One source</a>
     <a href="#targets">Targets</a>
+    <a href="#history">History</a>
     <a href="playground/">Playground</a>
   </nav>
   <div class="nav__cta">
@@ -1034,6 +1035,68 @@ scripts/add-gallery.sh evg</code></pre>
   </div>
 </section>
 
+<!-- ====================================================================== -->
+<!-- History                                                                -->
+<!-- ====================================================================== -->
+<section class="section section--dark" id="history">
+  <div class="wrap history">
+    <p class="label reveal">History</p>
+    <h2 class="display display--md reveal">The same algorithms, without rewriting them</h2>
+    <p class="lead lead--wide reveal">
+      Development of Ranger began around 2017, when I wanted to write the same
+      kinds of algorithms for Swift, Java, and JavaScript without maintaining
+      separate implementations for each platform. At the time, there was no
+      language that quite matched what I was looking for. Haxe was interesting,
+      but even small programs could bring along a relatively large amount of
+      generated runtime code — five lines of Haxe could easily turn into more
+      than twenty lines of JavaScript. For small, portable algorithm libraries,
+      that felt heavier than necessary.
+    </p>
+    <p class="reveal">
+      I decided to experiment with a small Lisp-based language that would
+      transpile directly to the target languages I cared about. The original
+      goal was fairly narrow: make it easy to move simple algorithms, such as
+      matrix and mathematical libraries, between platforms while keeping the
+      generated code straightforward. Lisp was a convenient foundation for
+      building the compiler, but its syntax was not particularly pleasant for
+      all of these use cases. Ranger therefore gradually extended it with
+      features such as block syntax and infix operators, making ordinary
+      control flow and mathematical expressions more natural to write.
+    </p>
+    <p class="reveal">
+      For a long time, the main targets were Java, Swift, and JavaScript.
+      Experimental support for C++, Rust, Scala, PHP, and Go was also present
+      from relatively early on. Eventually the project became mostly dormant
+      as I moved into consulting work and had less time to develop the
+      language.
+    </p>
+    <p class="reveal">
+      That changed toward the end of 2025. Generative AI models — and in
+      particular Opus&nbsp;4.5 — unexpectedly became good enough at
+      understanding both Ranger and its compiler codebase to make working on
+      the project practical again in my spare time. AI did not create the
+      original need for Ranger, but it gave the project a new purpose: code
+      can now be produced extremely quickly, while validating the same ideas
+      across multiple languages and platforms is still a separate problem.
+    </p>
+    <p class="reveal">
+      Since then, Ranger development has become active again. I have been using
+      small projects as practical test cases for both the language and its
+      generated code, covering things such as rendering, a JavaScript engine,
+      parsers, Markdown reading and previewing, charts, diagram editors, Figma
+      rendering, Raspberry Pi games, and numerous UI experiments across
+      different platforms. Together these experiments have produced and
+      validated millions of lines of generated code.
+    </p>
+    <p class="reveal">
+      Today, I write nearly everything using a combination of AI and Ranger.
+      It lets me take an idea, generate an implementation quickly, and run
+      essentially the same tests on Web, Swift, and Kotlin targets — and, when
+      needed, on other platforms as well.
+    </p>
+  </div>
+</section>
+
 </main>
 
 <footer class="foot">
@@ -1049,6 +1112,7 @@ scripts/add-gallery.sh evg</code></pre>
     </div>
     <nav class="foot__links" aria-label="Footer">
       <a href="docs/">Documentation</a>
+      <a href="#history">History</a>
       <a href="playground/">Playground</a>
       <a href="evg/">EVG showcase</a>
       <a href="https://github.com/terotests/Ranger">GitHub</a>
