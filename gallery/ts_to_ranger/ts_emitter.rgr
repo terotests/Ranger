@@ -1140,6 +1140,7 @@ class TSEmitter {
     ; Imported game_helpers.tsx bridge fns — inlined as GameEventNative literals.
     fn isBridgeHelper:boolean (name:string) {
         if (name == "soundEvent") { return true }
+        if (name == "voiceEvent") { return true }
         if (name == "musicEvent") { return true }
         if (name == "musicScoreEvent") { return true }
         if (name == "stopMusicEvent") { return true }
@@ -1157,6 +1158,19 @@ class TSEmitter {
             if ((array_length node.children) > 0) {
                 def id:string (this.emitExpr((itemAt node.children 0) "string"))
                 this.emitLine((tmp + ".id = ") + id)
+            }
+            return tmp
+        }
+        ; the same shape as soundEvent, for the predefined vocal effects in
+        ; game_vocal_fx.rgr. It was the one helper of the six ylos2 imports
+        ; that was missing here, so the emitter left `this.voiceEvent(...)`
+        ; in the generated Ranger and the compile failed with "function
+        ; variable not found voiceEvent".
+        if (name == "voiceEvent") {
+            this.emitLine((tmp + ".kind = \"playVoice\""))
+            if ((array_length node.children) > 0) {
+                def vid:string (this.emitExpr((itemAt node.children 0) "string"))
+                this.emitLine((tmp + ".id = ") + vid)
             }
             return tmp
         }

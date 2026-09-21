@@ -84,7 +84,7 @@ describe("Ranger engine", () => {
 
   it("runs a program from Ranger source with no target file in between", async () => {
     const engine = await load("demo.rgr");
-    expect(engine.runMain("Demo"), engine.errorText).toBe(true);
+    expect(await engine.runMain("Demo"), engine.errorText).toBe(true);
     expect(engine.vm.output).toEqual([
       "fib(20)     = 6765",
       "sumTo(100)  = 5050",
@@ -96,10 +96,10 @@ describe("Ranger engine", () => {
 
   it("calls single functions and returns numbers and strings", async () => {
     const engine = await load("demo.rgr");
-    expect(engine.callNum("Demo.fib", [15])).toBe(610);
-    expect(engine.callNum("Demo.sumTo", [10])).toBe(55);
-    expect(engine.callNum("Demo.arraySum", [4])).toBe(12);
-    expect(engine.callText("Demo.counterDemo", [])).toBe("counter = 42");
+    expect(await engine.callNum("Demo.fib", [15])).toBe(610);
+    expect(await engine.callNum("Demo.sumTo", [10])).toBe(55);
+    expect(await engine.callNum("Demo.arraySum", [4])).toBe(12);
+    expect(await engine.callText("Demo.counterDemo", [])).toBe("counter = 42");
   });
 
   it("keeps objects, fields and instance methods working", async () => {
@@ -107,7 +107,7 @@ describe("Ranger engine", () => {
     // counterDemo constructs a Counter, calls add twice and reads a field
     // through a method, so a right answer here covers NEWOBJ, SETFN, GETFN
     // and MCALL together with the class's declared string default.
-    expect(engine.callText("Demo.counterDemo", [])).toBe("counter = 42");
+    expect(await engine.callText("Demo.counterDemo", [])).toBe("counter = 42");
     expect(tierOf(engine, "Counter.add")).toBe("bytecode");
   });
 
@@ -115,8 +115,8 @@ describe("Ranger engine", () => {
     const interp = await load("bench.rgr");
     const jit = await load("bench.rgr", 2);
 
-    const a = interp.callNum("Bench.fib", [18]);
-    const b = jit.callNum("Bench.fib", [18]);
+    const a = await interp.callNum("Bench.fib", [18]);
+    const b = await jit.callNum("Bench.fib", [18]);
     expect(b).toBe(a);
     expect(a).toBe(2584);
 
@@ -130,9 +130,9 @@ describe("Ranger engine", () => {
     const interp = await load("bench.rgr");
     const jit = await load("bench.rgr", 1);
     for (const n of [7, 27, 97, 871]) {
-      const viaBytecode = interp.callNum("Bench.collatzSteps", [n]);
-      jit.callNum("Bench.collatzSteps", [n]);
-      const viaJit = jit.callNum("Bench.collatzSteps", [n]);
+      const viaBytecode = await interp.callNum("Bench.collatzSteps", [n]);
+      await jit.callNum("Bench.collatzSteps", [n]);
+      const viaJit = await jit.callNum("Bench.collatzSteps", [n]);
       expect(viaJit, `collatzSteps(${n})`).toBe(viaBytecode);
     }
     expect(tierOf(jit, "Bench.collatzSteps")).toBe("jit");
@@ -146,16 +146,16 @@ describe("Ranger engine", () => {
     ];
     for (const [a, b] of pairs) {
       const expected = Math.trunc(a / b) * 1000 + (a % b);
-      expect(interp.callNum("Bench.signedMath", [a, b]), `bytecode ${a} ${b}`).toBe(expected);
-      jit.callNum("Bench.signedMath", [a, b]);
-      expect(jit.callNum("Bench.signedMath", [a, b]), `jit ${a} ${b}`).toBe(expected);
+      expect(await interp.callNum("Bench.signedMath", [a, b]), `bytecode ${a} ${b}`).toBe(expected);
+      await jit.callNum("Bench.signedMath", [a, b]);
+      expect(await jit.callNum("Bench.signedMath", [a, b]), `jit ${a} ${b}`).toBe(expected);
     }
   });
 
   it("generates JavaScript whose registers are plain locals", async () => {
     const jit = await load("bench.rgr", 1);
-    jit.callNum("Bench.fib", [10]);
-    jit.callNum("Bench.fib", [10]);
+    await jit.callNum("Bench.fib", [10]);
+    await jit.callNum("Bench.fib", [10]);
     const fib = jit.module.functions.find((f: any) => f.name === "Bench.fib");
     // Parameters are parameters, registers are locals, and the body returns a
     // value rather than parking one on the VM.
@@ -169,25 +169,25 @@ describe("Ranger engine", () => {
     // another compiled function through vm.callFunction measured ~11x on this
     // shape, against ~1.3x for the dispatch loop itself.
     const jit = await load("bench.rgr", 1);
-    jit.callNum("Bench.fib", [10]);
-    jit.callNum("Bench.fib", [10]);
+    await jit.callNum("Bench.fib", [10]);
+    await jit.callNum("Bench.fib", [10]);
     const fib = jit.module.functions.find((f: any) => f.name === "Bench.fib");
     expect(fib.jitSource).toContain("direct(vm, n");
     expect(fib.jitSource).not.toContain("vm.callFunction");
-    expect(jit.callNum("Bench.fib", [20])).toBe(6765);
+    expect(await jit.callNum("Bench.fib", [20])).toBe(6765);
   });
 
   it("links a call to another function once that one is compiled too", async () => {
     const jit = await load("bench.rgr", 1);
     // loopChunks calls loopSum; both get hot, and the call site upgrades
     // itself from the argument-buffer path to a direct call.
-    for (let i = 0; i < 4; i++) jit.callNum("Bench.loopChunks", [2, 100]);
+    for (let i = 0; i < 4; i++) await jit.callNum("Bench.loopChunks", [2, 100]);
     const chunks = jit.module.functions.find((f: any) => f.name === "Bench.loopChunks");
     expect(tierOf(jit, "Bench.loopSum")).toBe("jit");
     expect(chunks.jitSource).toContain("hd.direct");
-    expect(jit.callNum("Bench.loopChunks", [2, 100])).toBe(
+    expect(await jit.callNum("Bench.loopChunks", [2, 100])).toBe(
       // same answer as the interpreter gives
-      (await load("bench.rgr")).callNum("Bench.loopChunks", [2, 100]),
+      await (await load("bench.rgr")).callNum("Bench.loopChunks", [2, 100]),
     );
   });
 
@@ -196,8 +196,8 @@ describe("Ranger engine", () => {
     expect(tierOf(engine, "Partial.tally")).toBe("unsupported");
     const tally = engine.module.functions.find((f: any) => f.name === "Partial.tally");
     expect(tally.bailReason.length).toBeGreaterThan(0);
-    expect(engine.callNum("Partial.triple", [14])).toBe(42);
-    expect(engine.runMain("Partial"), engine.errorText).toBe(true);
+    expect(await engine.callNum("Partial.triple", [14])).toBe(42);
+    expect(await engine.runMain("Partial"), engine.errorText).toBe(true);
     expect(engine.vm.output).toEqual(["triple(14) = 42"]);
   });
 
@@ -244,7 +244,7 @@ describe("Ranger engine", () => {
         .split("\n");
 
       const engine = await load(program);
-      expect(engine.runMain(entry), engine.errorText).toBe(true);
+      expect(await engine.runMain(entry), engine.errorText).toBe(true);
       expect(engine.vm.output).toEqual(compiled);
     }, 60000);
   }
@@ -255,8 +255,8 @@ describe("Ranger engine", () => {
     // defaulting to void, the call compiled to "call and drop the result" and
     // the destination register kept whatever happened to be in it.
     const engine = await load("forward.rgr");
-    expect(engine.callNum("Front.total", [5])).toBe(11);
-    expect(engine.callText("Front.label", [5])).toBe("total = 11");
+    expect(await engine.callNum("Front.total", [5])).toBe(11);
+    expect(await engine.callText("Front.label", [5])).toBe("total = 11");
   });
 
   it("builds a runtime half that carries none of the compiler", () => {

@@ -14,8 +14,16 @@ const emitterJs = path.resolve(
   "../bin/ts_emitter_main.js"
 );
 
-const broken = `const buf = (function(){ var b = require('fs').readFileSync(dir + '/' + base); var ab = new ArrayBuffer(b.length); var v = new Uint8Array(ab); for(var i=0;i<b.length;i++)v[i]=b[i]; ab._view = new DataView(ab); return ab; })();
-  const src = (function(b){ var v = new Uint8Array(b); return String.fromCharCode.apply(null, v); })(buf);`;
+// Matched as a shape rather than as an exact string: the `buffer_to_string`
+// codegen has been rewritten more than once (a per-byte loop, then a chunked
+// `fromCharCode.apply` for large files), and each time this script stopped
+// matching and failed the build with "expected byte-read pattern not found"
+// — which is a worse failure than the one it exists to prevent, because it
+// stops the emitter being rebuilt at all. The two statements it replaces are
+// the `const buf = …readFileSync(dir + '/' + base)…` binding and the
+// `const src = …(buf);` that follows it.
+const broken =
+  /const buf = \(function\(\)\{[^\n]*readFileSync\(dir \+ '\/' \+ base\)[^\n]*\}\)\(\);\n\s*const src = \(function\(b\)\{[^\n]*\}\)\(buf\);/;
 
 const fixed = `const src = require('fs').readFileSync(dir + '/' + base, 'utf8');`;
 
@@ -23,7 +31,7 @@ let s = fs.readFileSync(emitterJs, "utf8");
 if (s.includes(fixed)) {
   process.exit(0);
 }
-if (!s.includes(broken)) {
+if (!broken.test(s)) {
   console.error("patch-emitter-utf8: expected byte-read pattern not found in ts_emitter_main.js");
   process.exit(1);
 }

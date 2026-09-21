@@ -38635,8 +38635,10 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                         }
                                       }
                                       if ( node.expression && node.children.length == 1 ) {
-                                        out.push(node);
-                                        return;
+                                        if ( cur.value_type != 4 ) {
+                                          out.push(node);
+                                          return;
+                                        }
                                       }
                                       out.push(cur);
                                     };
@@ -84784,7 +84786,8 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                                           }
                                                                           for ( const m of cl.methods) {
                                                                             if ( m.is_lambda == false ) {
-                                                                              if ( m.is_static == false && inTraitFamily == false ) {
+                                                                              const isEntry = m.name == "main" && m.params.length == 0;
+                                                                              if ( (m.is_static == false && inTraitFamily == false) && isEntry == false ) {
                                                                                 m.rust_needs_self_rc = true;
                                                                               } else {
                                                                                 if ( this.fnUsesThisValue(m) ) {

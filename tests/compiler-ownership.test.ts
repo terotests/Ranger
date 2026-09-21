@@ -301,7 +301,17 @@ describe("Ranger Compiler - Rc<RefCell> for shared classes, the Rust default (PL
       "let mut a : Rc<RefCell<Counter>> = Rc::new(RefCell::new(Counter::new()));"
     );
     expect(flagged).toContain("let mut b : Rc<RefCell<Counter>> = a.clone();");
-    expect(flagged).toContain("b.borrow_mut().add(1);");
+    // The call hands the method the CELL, not a borrow of it. A `&self`
+    // receiver would hold that borrow for the whole call, and anything the
+    // body reached could come back to the same object — which is what made
+    // the Rust self-host panic on the first file it was ever given
+    // (docs/plans/PLAN_RUST_REENTRANCY.md). Every instance method of a shared
+    // class takes the handle instead and borrows one statement at a time.
+    expect(flagged).toContain("Counter::add(&b, 1);");
+    expect(flagged).toContain(
+      "fn add(__self_rc : &Rc<RefCell<Counter>>, amount : i64)"
+    );
+    expect(flagged).toContain("__self_rc.borrow_mut().value += amount;");
   });
 
   it("is the default: a bare -l=rust build equals the flag-on build", () => {
@@ -313,6 +323,36 @@ describe("Ranger Compiler - Rc<RefCell> for shared classes, the Rust default (PL
     expect(plain).not.toContain("Rc<RefCell<Counter>>");
   });
 
+  // ...and it has to COMPILE. Every assertion above is a substring, and a
+  // substring test cannot see a signature and a call site that disagree: the
+  // free `fn main` was given the hidden __self_rc while the crate entry
+  // called it with none, so this file failed with E0061 while the shape
+  // assertions all passed. rustc is the only check that catches that.
+  const HAS_RUSTC = (() => {
+    try {
+      execSync("rustc --version", { stdio: "pipe" });
+      return true;
+    } catch {
+      return false;
+    }
+  })();
+
+  it.skipIf(!HAS_RUSTC)("and the shared-object program compiles and runs", () => {
+    const rs = path.join(ROOT_DIR, outDir, "shared_counter.rs");
+    const bin = path.join(ROOT_DIR, outDir, "shared_counter_bin");
+    execSync(`rustc --edition 2021 -o "${bin}" "${rs}"`, { stdio: "pipe" });
+    // the program the docs are written around prints `a 1` on every target
+    expect(execSync(bin, { encoding: "utf-8" }).trim()).toBe("a 1");
+  }, 120000);
+
+  it.skipIf(!HAS_RUSTC)("and so does the weak back-reference program", () => {
+    const rs = path.join(ROOT_DIR, outDir, "shared_weak.rs");
+    execSync(
+      `rustc --edition 2021 --emit=metadata --crate-type bin -o /dev/null "${rs}"`,
+      { stdio: "pipe" }
+    );
+  }, 120000);
+
   execSync(
     `node "${OUTPUT_JS}" -l=rust -rust-shared-classes "./${FIXTURES}/ownership_shared_weak.rgr" -d="${outDir}" -o="shared_weak.rs"`,
     { cwd: ROOT_DIR, env, timeout: 30000, stdio: ["pipe", "pipe", "pipe"] }
@@ -323,11 +363,12 @@ describe("Ranger Compiler - Rc<RefCell> for shared classes, the Rust default (PL
   );
 
   it("passes the receiver's Rc to a method that uses `this` as a value", () => {
-    // `c.parent = this` needs the Rc that holds the receiver; &mut self
-    // cannot reach it, so the method takes a hidden __self_rc parameter and
-    // the call site passes the receiver's Rc alongside.
+    // `c.parent = this` needs the Rc that holds the receiver, and a `&mut
+    // self` receiver cannot reach it. The method takes the hidden __self_rc
+    // INSTEAD of a receiver — see above — and the call site passes the
+    // receiver's cell.
     expect(weakRs).toContain(
-      "fn adopt(&mut self, __self_rc : &Rc<RefCell<Parent>>, mut c : Rc<RefCell<Child>>)"
+      "fn adopt(__self_rc : &Rc<RefCell<Parent>>, mut c : Rc<RefCell<Child>>)"
     );
     expect(weakRs).toContain("adopt(&p, c.clone())");
   });

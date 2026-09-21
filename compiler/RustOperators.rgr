@@ -194,8 +194,15 @@ extension RangerRustClassWriter {
     ; scope. A name that resolves to a variable has a desc; one that does
     ; not is the operator, and it keeps its wrapper so WalkNode expands it.
     if (node.expression && ((array_length node.children) == 1)) {
-      push out node
-      return
+      ; ...but a LITERAL in that shape is just a parenthesised value, and
+      ; keeping its wrapper hides its type from `rustFmtInline`, which then
+      ; writes `println!("{}{}", "numbers ".to_string(), n)` where the
+      ; literal belongs in the format string. Only a bare name can be the
+      ; operator this guard is for.
+      if (cur.value_type != RangerNodeType.String) {
+        push out node
+        return
+      }
     }
     push out cur
   }
