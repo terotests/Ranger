@@ -5,7 +5,8 @@ description: How to add an example, a description or a new operator source to th
 
 The operator reference is generated. Do not edit a page under
 `reference/operators/` or `reference/libraries/`: the next build removes the
-change. Edit the input of the generator instead.
+change. Edit the input of the generator instead. Type methods of a library are
+on the same page as its template operators.
 
 ## The input files
 

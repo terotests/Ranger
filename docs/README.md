@@ -54,8 +54,9 @@ compiler is not built.
 | Template operator | `operators { }` / `commands { }` blocks. One emission string per target. | Manual. A target with no template and no `*` fallback writes no code. |
 | Type method | `operator type:<T> <scope> { fn … }` blocks. Ordinary Ranger code. | Every target that compiles the library. |
 
-The reference covers both. A type method has a page under
-`reference/methods/`, states its target scope and shows its Ranger body.
+The reference covers both. A type method is on the library page of its source
+under `reference/libraries/`. The entry states its target scope and shows its
+Ranger body.
 
 ## How the model is read
 

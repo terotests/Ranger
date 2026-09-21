@@ -39,10 +39,8 @@ def large (numbers.filter({ return (item > 3) }))   ; a type method
 
 The [operator reference](/Ranger/docs/reference/operators/statements/) holds the
 core template operators. The
-[library operators](/Ranger/docs/reference/libraries/json/) hold the library
-template operators, and the
-[type methods](/Ranger/docs/reference/methods/stdlib/) hold the second
-mechanism.
+[library pages](/Ranger/docs/reference/libraries/stdlib/) hold the library
+template operators and the type methods of the same file.
 
 ## A definition
 

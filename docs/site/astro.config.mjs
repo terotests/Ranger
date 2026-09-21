@@ -37,6 +37,12 @@ export default defineConfig({
   site: "https://terotests.github.io",
   base: "/Ranger/docs/",
   trailingSlash: "always",
+  // Type methods used to have their own pages. They now live on the library
+  // page of the same source, so the old addresses move there.
+  redirects: {
+    "/reference/methods/stdlib": "/reference/libraries/stdlib",
+    "/reference/methods/json": "/reference/libraries/json",
+  },
   integrations: [
     starlight({
       // Document <title> suffix (and og:site_name). The header still says
@@ -113,10 +119,6 @@ export default defineConfig({
         {
           label: "Library operators",
           items: [{ autogenerate: { directory: "reference/libraries" } }],
-        },
-        {
-          label: "Type methods",
-          items: [{ autogenerate: { directory: "reference/methods" } }],
         },
         {
           label: "Reference data",
