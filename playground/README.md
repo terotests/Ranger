@@ -15,6 +15,10 @@ the output pane — Scala, for instance, cannot compile `RangerProcess.rgr`.
 
 The picker state is in the URL: `?example=shape-value&lang=rust`.
 
+The compiler bundle (`ranger-compiler.js`) is rebuilt from this commit on every
+Pages deploy. The tagline version is `package.json`'s, not a number kept in the
+HTML.
+
 ## Local development
 
 From the repository root:

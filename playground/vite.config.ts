@@ -1,4 +1,12 @@
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
+
+const playgroundDir = path.dirname(fileURLToPath(import.meta.url));
+const rangerVersion = JSON.parse(
+  fs.readFileSync(path.join(playgroundDir, "..", "package.json"), "utf8"),
+).version as string;
 
 /**
  * GitHub project site: https://terotests.github.io/Ranger/playground/
@@ -9,6 +17,9 @@ import { defineConfig } from "vite";
  */
 export default defineConfig({
   base: "/Ranger/playground/",
+  define: {
+    __RANGER_VERSION__: JSON.stringify(rangerVersion),
+  },
   build: {
     outDir: "dist",
     emptyOutDir: true,

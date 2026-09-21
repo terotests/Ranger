@@ -3,6 +3,7 @@
 import type { InputEnvInstance, RangerAppWriterContext } from "./ranger/types.js";
 
 declare global {
+  const __RANGER_VERSION__: string;
   const InputEnv: {
     new (): InputEnvInstance;
     fromDictionary(dict: import("./ranger/types.js").CompileEnvDict): Promise<InputEnvInstance>;

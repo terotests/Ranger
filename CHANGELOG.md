@@ -23,6 +23,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The playground tagline is the compiler version, not 3.0.5.** It was
+  hardcoded when the Vite playground landed in May. The in-browser compiler
+  itself is rebuilt from this commit on every Pages deploy; only the label
+  had stayed behind. The `#![allow(…)]` block at the top of Rust output is
+  current 3.5.1, not leftover JavaScript.
+
 - **Front-page bench re-run: Go is 236 ms, third after C++ and Rust.**
   Re-running after the string-index fix (C++ 136, Rust 170, Go 236, Java
   351, JavaScript 508, Python 971). PHP, C# and Kotlin were not on this
