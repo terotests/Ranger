@@ -1188,7 +1188,11 @@ npm run evg:trace:web:serve        # the live bitmap tracer
 npm run erazer:web:serve           # bitmap UI screenshot → EVG layout
 npm run livebuild:serve            # seed a phone; Follow up streams display lists over SSE
 npm run livebuild:withcursor       # same page, local Cursor Agent CLI (agent login)
+<<<<<<< HEAD
 # Export copies one .ranger.json (ui + css + machine) onto the clipboard.
+=======
+npm run livebuild:withgemini       # same page, Gemini Flash via GEMINI_API_KEY
+>>>>>>> 8389f8248 (Gemini Flash as a live-build agent)
 
 # one document, three targets
 npm run evgpdf:test             # -> PDF

@@ -2,10 +2,10 @@
 /**
  * Local agent orchestrator for EVG live-build.
  *
- * The page is this process. Codex / Claude Code / Cursor / Ollama are
- * *adapters*: a CLI (or a local HTTP model) that runs on this machine.
- * Inference for Codex, Claude and Cursor is in the cloud; Ollama's is on
- * localhost. The recipe adapter does not call a model at all.
+ * The page is this process. Codex / Claude Code / Cursor / Ollama / Gemini
+ * are *adapters*: a CLI, a local HTTP model, or (Gemini) a direct REST
+ * call. Inference for Codex, Claude, Cursor and Gemini is in the cloud;
+ * Ollama's is on localhost. The recipe adapter does not call a model at all.
  *
  *   interface Agent { run(task): stream of NDJSON events }
  *
@@ -19,12 +19,18 @@ import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { parseRestyle, restyleEnv } from "./restyle.mjs";
+import {
+  GEMINI_HISTORY,
+  geminiKey,
+  geminiModel,
+} from "./gemini-agent.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const root = path.resolve(here, "../../..");
 const liveBin = path.join(root, "gallery/evg/bin/evg_livebuild.js");
 const mockBin = path.join(here, "mock-agent.mjs");
 const selfBin = path.join(here, "self-agent.mjs");
+const geminiBin = path.join(here, "gemini-agent.mjs");
 
 function which(cmd) {
   const r = spawnSync("which", [cmd], { encoding: "utf8" });
@@ -116,13 +122,15 @@ export function listAgents() {
   const codex = which("codex");
   const claude = which("claude");
   const ollama = ollamaUp();
+  const gemini = geminiKey();
+  const geminiId = gemini ? geminiModel() : "gemini-2.5-flash";
   return [
     {
       id: "recipe",
       label: "Recipe",
       available: true,
       where: "this process — no network",
-      hint: "Scripted. Restyles colour, type size, and radius. New widgets need Codex/Claude/Ollama.",
+      hint: "Scripted. Restyles colour, type size, and radius. New widgets need Codex/Claude/Gemini/Ollama.",
     },
     {
       id: "mock",
@@ -163,6 +171,15 @@ export function listAgents() {
       bin: claude || "",
       where: "local CLI — Anthropic inference",
       hint: claude ? "claude -p in a bounded workspace" : "claude is not on PATH",
+    },
+    {
+      id: "gemini",
+      label: "Gemini",
+      available: Boolean(gemini),
+      where: "Google API — Gemini Flash",
+      hint: gemini
+        ? `${geminiId} via GEMINI_API_KEY, tools in the workspace, history kept for Follow-up`
+        : "set GEMINI_API_KEY (Google AI Studio) to call Gemini Flash over the network",
     },
     {
       id: "ollama",
@@ -1324,6 +1341,11 @@ export function resetSession(kind = "dashboard") {
   } catch {
     /* first */
   }
+  try {
+    fs.unlinkSync(path.join(dir, GEMINI_HISTORY));
+  } catch {
+    /* first */
+  }
   installEvgAgent(dir);
   fs.writeFileSync(
     path.join(dir, "AGENTS.md"),
@@ -1461,6 +1483,15 @@ function spawnAgentProcess(id, bin, workspace, task, followUp = false) {
       stdio: ["ignore", "pipe", "pipe"],
     });
   }
+  if (id === "gemini") {
+    // Direct Google API. The workspace holds doc.evg.json, the tools, and
+    // `.gemini-history.json` so a Follow-up is the next turn, not a new chat.
+    return spawn(process.execPath, [geminiBin, workspace], {
+      cwd: workspace,
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  }
   throw new Error(`no spawn for ${id}`);
 }
 
@@ -1480,9 +1511,10 @@ function spawnAgentProcess(id, bin, workspace, task, followUp = false) {
 // ends, which is the next tool call, the end of the turn, or the end of the
 // stream.
 // The agent CLIs whose stdout is the `stream-json` event stream rather than
-// plain text. They share the shape, so one parser reads both — and both end a
-// run with the usage that `t:"usage"` carries to the page.
-const STREAM_JSON = new Set(["cursor", "claude"]);
+// plain text — and Gemini, which emits the same shape from the REST loop.
+// One parser reads them, and they end a run with the usage that `t:"usage"`
+// carries to the page.
+const STREAM_JSON = new Set(["cursor", "claude", "gemini"]);
 
 function makeCursorFeed(onLine) {
   let said = ""; // the thought so far, including the tail not yet emitted
@@ -1759,6 +1791,9 @@ export async function runWorkspaceAgent({ id, kind, prompt, seed, session = fals
       const text = String(chunk).trim();
       if (text) process.stderr.write(`[${id}] ${text}\n`);
       if (id === "cursor" && /not authenticated|invalid api key|agent login/i.test(text)) {
+        onLine(ndjson({ t: "error", text }));
+      }
+      if (id === "gemini" && /GEMINI_API_KEY|API_KEY|PERMISSION_DENIED|invalid api key|HTTP 40/i.test(text)) {
         onLine(ndjson({ t: "error", text }));
       }
     });

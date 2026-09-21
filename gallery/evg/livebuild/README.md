@@ -38,6 +38,7 @@ this machine. Which *model* they call is a separate question:
                          ├── Cursor   local CLI, your Cursor subscription
                          ├── Codex    local CLI, OpenAI inference
                          ├── Claude   local CLI, Anthropic inference
+                         ├── Gemini   Google API, GEMINI_API_KEY, Flash
                          └── Ollama   local model, no cloud
 ```
 
@@ -47,9 +48,14 @@ is the Cursor cloud agent in the same container: it edits `doc.evg.json`
 with `EVGPatch` while the host streams frames. **Cursor** is the local
 Agent CLI (`agent` / `cursor-agent`) on your machine — the same
 subscription as the editor. Pick Codex or Claude when those CLIs are on
-`PATH`; they get a temp workspace (`doc.evg.json` + `AGENTS.md`). Inference
-for Cursor, Codex and Claude is in the cloud — the agent program is local,
-the weights are not. Ollama is the fully-offline slot (`localhost:11434`).
+`PATH`; they get a temp workspace (`doc.evg.json` + `AGENTS.md`). **Gemini**
+is the one that does not spawn a vendor CLI: if `GEMINI_API_KEY` is set
+(Google AI Studio; `GOOGLE_API_KEY` is also accepted) the page POSTs to
+Gemini Flash itself, runs `./evg-agent` in the workspace, and keeps the
+conversation in `.gemini-history.json` so Follow-up is the next turn.
+Inference for Cursor, Codex, Claude and Gemini is in the cloud — the agent
+program is local, the weights are not. Ollama is the fully-offline slot
+(`localhost:11434`).
 
 Matching a free-text prompt to a recipe is keyword-based when the
 adapter is `recipe`. The other adapters receive the prompt as the task.
@@ -84,6 +90,21 @@ the live-build program, and starts the page with Cursor selected. The phone
 already has a dashboard. **Follow up** edits that same `doc.evg.json`
 (Cursor `--continue` in the same workspace). Start-over chips
 (Dashboard / Empty / …) are what wipe it.
+
+To drive it with **Gemini Flash** over the network (no Cursor CLI):
+
+```sh
+export GEMINI_API_KEY=…              # https://aistudio.google.com/apikey
+# export EVG_GEMINI_MODEL=gemini-2.5-flash   # default; any Flash id
+npm run livebuild:withgemini
+# open http://127.0.0.1:8765/?agent=gemini
+```
+
+`GEMINI_API_KEY` is enough — that is the Google AI Studio / Gemini Developer
+API key, not Vertex. `GOOGLE_API_KEY` is accepted if `GEMINI_API_KEY` is
+empty. The chip is also in the Agent row on `npm run livebuild:serve` whenever
+the key is set; withgemini only forces it on. Follow-up replays the Gemini
+conversation held in the session. Start-over chips drop it.
 
 Without a browser:
 
@@ -466,10 +487,12 @@ one, so the UI can say "+12" without walking the list.
 | `EvgLiveBuildMain.rgr` | `run` / `kinds` CLI |
 | `EvgLiveBuildTest.rgr` | the three recipes, in process |
 | `serve.mjs` | HTTP + SSE |
-| `agents.mjs` | `Agent` interface: recipe, mock, self, Cursor, Codex, Claude, Ollama |
+| `agents.mjs` | `Agent` interface: recipe, mock, self, Cursor, Codex, Claude, Gemini, Ollama |
 | `mock-agent.mjs` | a local CLI that writes `doc.evg.json` — no model |
 | `self-agent.mjs` | stays open while this cloud agent patches the tree |
+| `gemini-agent.mjs` | Google Gemini Flash: REST + workspace tools + conversation history |
 | `withcursor.mjs` | `npm run livebuild:withcursor` — local Agent CLI + login check |
+| `withgemini.mjs` | `npm run livebuild:withgemini` — `GEMINI_API_KEY` check, Gemini selected |
 | `/attach` in `serve.mjs` | a picture in, traced; `lib/evg/tools/evg_image_tool.rgr` does the tracing |
 | `restyle.mjs` | recipe follow-ups: colour / size / radius from the ask |
 | `agents-check.mjs` | orchestrator: recipe, mock workspace, self slot |

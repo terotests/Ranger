@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   standard library has nothing. It is the length of `(to_chars s)` without
   building the array, and for ASCII it is `strlen`.
 
+<<<<<<< HEAD
 - **EVG live build exports one Ranger UI JSON document.** Save keeps a
   design on this machine. **Export** copies a single `.ranger.json`
   (`format: ranger-ui`, version 2): a semantic `ui` tree, a CSS string,
@@ -28,6 +29,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `rave.Switch` / `SettingsRow` rather than a track and a thumb.
   Compact is the clipboard; Full adds `compiled.evg` and layout debug.
   `npm run livebuild:export`.
+=======
+- **Gemini Flash as a live-build agent.** `npm run livebuild:withcursor` still
+  spawns the local Cursor Agent CLI. A new chip, **Gemini**, talks to Google
+  instead: if `GEMINI_API_KEY` is set (Google AI Studio;
+  `GOOGLE_API_KEY` is also accepted) the page POSTs to Gemini Flash itself
+  and runs `./evg-agent` in the workspace, rather than delegating to
+  `agent -p`. Conversation history lives in `.gemini-history.json` so Follow
+  up is the next turn; a start-over chip drops it. `EVG_GEMINI_MODEL`
+  selects the Flash id (`gemini-2.5-flash` by default).
+  `npm run livebuild:withgemini` checks the key and opens the page with Gemini
+  selected. The orchestrator suite drives the loop against a fake fetch, so
+  CI never spends Google credits.
+>>>>>>> 8389f8248 (Gemini Flash as a live-build agent)
 
 ### Changed
 

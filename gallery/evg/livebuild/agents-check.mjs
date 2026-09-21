@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * The orchestrator, without Codex or Claude on PATH: recipe still streams,
- * mock CLI writes a workspace, frames come off the watched file.
+ * mock CLI writes a workspace, frames come off the watched file. Gemini is
+ * a REST slot — the suite fakes Google rather than spending credits.
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -9,6 +10,13 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { listAgents, runTask, root, findCursorAgent, cursorSpawnArgs, frameFixture, resetSession, readSessionDoc, prepareSession, sessionDir, makeCursorFeed, deviceLine, attachmentOf, clearAttachment, ATTACH_BASE } from "./agents.mjs";
+import {
+  geminiLoop,
+  executeTool,
+  loadHistory,
+  GEMINI_HISTORY,
+} from "./gemini-agent.mjs";
+import http from "node:http";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const bin = path.join(root, "gallery/evg/bin/evg_livebuild.js");
@@ -60,10 +68,15 @@ const recipe = agents.find((a) => a.id === "recipe");
 const mock = agents.find((a) => a.id === "mock");
 const self = agents.find((a) => a.id === "self");
 const cursor = agents.find((a) => a.id === "cursor");
+const gemini = agents.find((a) => a.id === "gemini");
 if (!recipe?.available) throw new Error("recipe must always be available");
 if (!mock?.available) throw new Error("mock must always be available");
 if (!self?.available) throw new Error("self must always be available");
 if (!cursor) throw new Error("cursor slot missing from listAgents");
+if (!gemini) throw new Error("gemini slot missing from listAgents");
+if (!/GEMINI_API_KEY/.test(gemini.hint || "")) {
+  throw new Error("gemini hint must mention GEMINI_API_KEY");
+}
 const cursorBin = findCursorAgent();
 if (Boolean(cursorBin) !== Boolean(cursor.available)) {
   throw new Error("cursor available flag does not match findCursorAgent()");
@@ -591,9 +604,279 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   console.log("  reset       an empty project: blank canvas, and the old app thrown away");
 }
 
+// GEMINI FLASH OVER THE NETWORK.
+//
+// Not the Cursor `agent` CLI: this adapter POSTs to Google's generateContent
+// and runs the workspace tools itself. The checks never hit Google — a fake
+// fetch / a loopback HTTP server stand in — so a clone without credits still
+// proves the loop, the history, and the UI slot.
+{
+  const savedG = process.env.GEMINI_API_KEY;
+  const savedO = process.env.GOOGLE_API_KEY;
+  const restoreKeys = () => {
+    if (savedG === undefined) delete process.env.GEMINI_API_KEY;
+    else process.env.GEMINI_API_KEY = savedG;
+    if (savedO === undefined) delete process.env.GOOGLE_API_KEY;
+    else process.env.GOOGLE_API_KEY = savedO;
+  };
+
+  delete process.env.GEMINI_API_KEY;
+  delete process.env.GOOGLE_API_KEY;
+  try {
+    const off = listAgents().find((a) => a.id === "gemini");
+    if (!off) throw new Error("gemini slot missing");
+    if (off.available) throw new Error("gemini must be off without GEMINI_API_KEY");
+    if (!/aistudio|GEMINI_API_KEY/i.test(off.hint || "")) {
+      throw new Error("gemini-off hint must name the key: " + off.hint);
+    }
+    const blocked = [];
+    await runTask({
+      agent: "gemini",
+      kind: "dashboard",
+      prompt: "should not call Google",
+      onLine: (line) => blocked.push(JSON.parse(line)),
+    });
+    const err = blocked.find((e) => e.t === "error");
+    if (!err || !/GEMINI_API_KEY|not available/i.test(err.text || "")) {
+      throw new Error("unavailable gemini should name the key, got " + JSON.stringify(blocked));
+    }
+  } finally {
+    restoreKeys();
+  }
+
+  process.env.GEMINI_API_KEY = "test-livebuild-key";
+  delete process.env.GOOGLE_API_KEY;
+  try {
+    const on = listAgents().find((a) => a.id === "gemini");
+    if (!on.available) throw new Error("gemini must be available when GEMINI_API_KEY is set");
+    if (!/via GEMINI_API_KEY/.test(on.hint || "")) {
+      throw new Error("available gemini should name the key: " + on.hint);
+    }
+  } finally {
+    restoreKeys();
+  }
+
+  const checkOff = spawnSync(process.execPath, [path.join(here, "withgemini.mjs"), "--check"], {
+    encoding: "utf8",
+    env: { ...process.env, GEMINI_API_KEY: "", GOOGLE_API_KEY: "" },
+    timeout: 8000,
+  });
+  if (checkOff.status !== 0) throw new Error("withgemini --check off exited " + checkOff.status);
+  if (!/gemini API off/.test(checkOff.stdout || "")) {
+    throw new Error("withgemini --check should say gemini API off when the key is missing");
+  }
+  const checkOn = spawnSync(process.execPath, [path.join(here, "withgemini.mjs"), "--check"], {
+    encoding: "utf8",
+    env: { ...process.env, GEMINI_API_KEY: "test-livebuild-key", GOOGLE_API_KEY: "" },
+    timeout: 8000,
+  });
+  if (checkOn.status !== 0) throw new Error("withgemini --check on exited " + checkOn.status);
+  if (!/gemini API ready/.test(checkOn.stdout || "")) {
+    throw new Error("withgemini --check did not say ready: " + (checkOn.stdout || checkOn.stderr));
+  }
+  console.log("  withgemini  " + String(checkOn.stdout || "").trim());
+
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), "evg-gemini-"));
+  fs.writeFileSync(path.join(ws, "TASK.md"), "Stamp the workspace.\n");
+  fs.writeFileSync(path.join(ws, "doc.evg.json"), '{"root":{"tag":"div","children":[]}}\n');
+  const escaped = executeTool(ws, "read_file", { path: "../etc/passwd" });
+  if (!escaped.error || !/leaves the workspace/.test(escaped.error)) {
+    throw new Error("read_file must refuse a path that leaves the workspace: " + JSON.stringify(escaped));
+  }
+
+  const requests = [];
+  let calls = 0;
+  const fetchImpl = async (url, opts) => {
+    const body = JSON.parse(opts.body);
+    requests.push({ url, key: opts.headers["x-goog-api-key"], body });
+    calls += 1;
+    if (calls === 1) {
+      if (!/generateContent/.test(url)) throw new Error("expected generateContent, got " + url);
+      if (opts.headers["x-goog-api-key"] !== "test-livebuild-key") {
+        throw new Error("API key was not sent as x-goog-api-key");
+      }
+      const decls = (((body.tools || [])[0] || {}).functionDeclarations || []).map((t) => t.name);
+      for (const need of ["run", "read_file", "write_file"]) {
+        if (!decls.includes(need)) throw new Error("Gemini tools missing " + need);
+      }
+      return {
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            candidates: [
+              {
+                content: {
+                  role: "model",
+                  parts: [
+                    { text: "I will stamp the folder." },
+                    {
+                      functionCall: { name: "run", args: { command: "echo gemini-ok > stamp.txt" } },
+                      thoughtSignature: "sig-keep",
+                    },
+                  ],
+                },
+                finishReason: "STOP",
+              },
+            ],
+            usageMetadata: { promptTokenCount: 80, candidatesTokenCount: 12, cachedContentTokenCount: 5 },
+          }),
+      };
+    }
+    const hist = body.contents || [];
+    const modelTurn = hist.find((c) => c.role === "model");
+    const sig = ((modelTurn && modelTurn.parts) || []).find((p) => p.thoughtSignature);
+    if (!sig || sig.thoughtSignature !== "sig-keep") {
+      throw new Error("thought signature was not returned to Gemini: " + JSON.stringify(modelTurn));
+    }
+    const tool = hist.find((c) => (c.parts || []).some((p) => p.functionResponse));
+    if (!tool) throw new Error("functionResponse was not sent back");
+    return {
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({
+          candidates: [
+            {
+              content: { role: "model", parts: [{ text: "The stamp is there." }] },
+              finishReason: "STOP",
+            },
+          ],
+          usageMetadata: { promptTokenCount: 90, candidatesTokenCount: 6 },
+        }),
+    };
+  };
+
+  const events = [];
+  const looped = await geminiLoop({
+    workspace: ws,
+    onEvent: (e) => events.push(e),
+    fetchImpl,
+    env: { ...process.env, GEMINI_API_KEY: "test-livebuild-key", GOOGLE_API_KEY: "", EVG_GEMINI_MODEL: "gemini-2.5-flash" },
+  });
+  if (!looped.ok) throw new Error("geminiLoop did not finish ok");
+  if (!fs.existsSync(path.join(ws, "stamp.txt"))) throw new Error("Gemini run tool did not execute");
+  const stamp = fs.readFileSync(path.join(ws, "stamp.txt"), "utf8");
+  if (!/gemini-ok/.test(stamp)) throw new Error("stamp.txt was wrong: " + stamp);
+  if (!events.some((e) => e.type === "assistant")) throw new Error("no assistant events");
+  if (!events.some((e) => e.type === "tool_call")) throw new Error("no tool_call events");
+  const spend = events.find((e) => e.type === "result");
+  if (!spend || spend.usage.output_tokens !== 18) {
+    throw new Error("usage did not add both turns: " + JSON.stringify(spend));
+  }
+  if (!spend.modelUsage["gemini-2.5-flash"]) throw new Error("result did not name the model");
+  const hist = loadHistory(ws);
+  if (hist.length < 4) throw new Error("history too short to continue a Follow-up: " + hist.length);
+  fs.writeFileSync(path.join(ws, "TASK.md"), "Now make the title gold.\n");
+  let followCalls = 0;
+  const followFetch = async (url, opts) => {
+    const body = JSON.parse(opts.body);
+    followCalls += 1;
+    if (followCalls === 1) {
+      if ((body.contents || []).length < 5) {
+        throw new Error("Follow-up did not replay history: " + (body.contents || []).length);
+      }
+      const last = body.contents[body.contents.length - 1];
+      const text = (((last.parts || [])[0] || {}).text) || "";
+      if (!/title gold/.test(text)) throw new Error("Follow-up task missing: " + text);
+      return {
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            candidates: [{ content: { role: "model", parts: [{ text: "Gold." }] }, finishReason: "STOP" }],
+            usageMetadata: { promptTokenCount: 40, candidatesTokenCount: 2 },
+          }),
+      };
+    }
+    throw new Error("Follow-up made a second API call");
+  };
+  await geminiLoop({
+    workspace: ws,
+    onEvent: () => {},
+    fetchImpl: followFetch,
+    env: { ...process.env, GEMINI_API_KEY: "test-livebuild-key" },
+  });
+  console.log("  gemini loop tool + history, thought signature kept, Follow-up continues");
+
+  const session = resetSession("dashboard");
+  fs.writeFileSync(path.join(session, GEMINI_HISTORY), JSON.stringify({ contents: [{ role: "user", parts: [{ text: "old" }] }] }));
+  resetSession("dashboard");
+  if (fs.existsSync(path.join(session, GEMINI_HISTORY))) {
+    throw new Error("start-over left Gemini history behind");
+  }
+  console.log("  gemini hist start-over wipes the conversation");
+
+  const geminiHttp = await new Promise((resolve) => {
+    const server = http.createServer(async (req, res) => {
+      const chunks = [];
+      for await (const c of req) chunks.push(c);
+      const body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
+      const n = (body.contents || []).filter((c) => c.role === "model").length;
+      const payload =
+        n === 0
+          ? {
+              candidates: [
+                {
+                  content: {
+                    role: "model",
+                    parts: [{ text: "Looking at the phone." }, { functionCall: { name: "run", args: { command: "echo wired > gemini-wired.txt" } } }],
+                  },
+                  finishReason: "STOP",
+                },
+              ],
+              usageMetadata: { promptTokenCount: 11, candidatesTokenCount: 3 },
+            }
+          : {
+              candidates: [{ content: { role: "model", parts: [{ text: "Wired through the orchestrator." }] }, finishReason: "STOP" }],
+              usageMetadata: { promptTokenCount: 12, candidatesTokenCount: 4 },
+            };
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify(payload));
+    });
+    server.listen(0, "127.0.0.1", () => {
+      const { port } = server.address();
+      resolve({ server, base: `http://127.0.0.1:${port}/v1beta` });
+    });
+  });
+  const prevBase = process.env.GEMINI_API_BASE;
+  const prevModel = process.env.EVG_GEMINI_MODEL;
+  process.env.GEMINI_API_KEY = "test-livebuild-key";
+  process.env.GOOGLE_API_KEY = "";
+  process.env.GEMINI_API_BASE = geminiHttp.base;
+  process.env.EVG_GEMINI_MODEL = "gemini-2.5-flash";
+  try {
+    resetSession("dashboard");
+    const seen = [];
+    await runTask({
+      agent: "gemini",
+      kind: "dashboard",
+      prompt: "prove the orchestrator spawns Gemini",
+      session: true,
+      onLine: (line) => seen.push(JSON.parse(line)),
+    });
+    const wired = path.join(sessionDir(), "gemini-wired.txt");
+    if (!fs.existsSync(wired)) throw new Error("spawned Gemini never ran the tool");
+    if (!seen.some((e) => e.t === "session" && e.agent === "gemini")) {
+      throw new Error("session did not name gemini");
+    }
+    if (!seen.some((e) => e.t === "usage")) throw new Error("spawned Gemini reported no usage");
+    const done = seen.filter((e) => e.t === "done").at(-1);
+    if (!done?.ok) throw new Error("spawned Gemini done.ok is false: " + JSON.stringify(done));
+    console.log("  gemini run  orchestrator spawn, usage on the page, tool hit the workspace");
+  } finally {
+    geminiHttp.server.close();
+    restoreKeys();
+    if (prevBase === undefined) delete process.env.GEMINI_API_BASE;
+    else process.env.GEMINI_API_BASE = prevBase;
+    if (prevModel === undefined) delete process.env.EVG_GEMINI_MODEL;
+    else process.env.EVG_GEMINI_MODEL = prevModel;
+  }
+}
+
 const missing = agents.filter((a) => !a.available).map((a) => a.id);
 if (missing.length) {
   console.log("  skipped     " + missing.join(", ") + " (not on this machine)");
 }
 
-console.log("ALL PASS — local orchestrator, recipe + mock + self + Cursor slot");
+console.log("ALL PASS — local orchestrator, recipe + mock + self + Cursor slot + Gemini slot");
