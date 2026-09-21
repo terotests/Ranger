@@ -4389,7 +4389,15 @@ class StaticAnalyzer {
           ; object, which is what the walkers here do all day. Carrying the
           ; handle instead lets the writer drop the receiver and borrow one
           ; statement at a time.
-          if ((m.is_static == false) && (inTraitFamily == false)) {
+          ; ...except the program's entry point. A free `fn main` is attached
+          ; to a class as an ordinary method, and the Rust writer makes it the
+          ; crate entry with `Class::main();` -- no receiver, because there is
+          ; no object yet. Handing it the hidden handle gave it a parameter
+          ; nothing supplies, and the file failed with E0061: this function
+          ; takes 1 argument but 0 arguments were supplied. That was true of
+          ; the shared-object example the docs are written around.
+          def isEntry:boolean ((m.name == "main") && ((array_length m.params) == 0))
+          if (((m.is_static == false) && (inTraitFamily == false)) && (isEntry == false)) {
             m.rust_needs_self_rc = true
           } {
             if (this.fnUsesThisValue(m)) {

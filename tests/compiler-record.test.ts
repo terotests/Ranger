@@ -53,7 +53,7 @@ describe("record types (Track 2.1)", () => {
  *
  * A target language without keyword arguments must drop the marker. When it
  * does not, the marker reaches the signature as a parameter with a name and no
- * type — `pub fn new(xpos : , xpos : i64, …)` on Rust,
+ * type — `pub fn new(xpos: , xpos: i64, …)` on Rust,
  * `Point::Point( xpos , int xpos , … )` on C++ — and the output does not
  * compile. These tests hold the shape of the signature per target.
  */
@@ -67,7 +67,7 @@ describe("record constructor signatures per target", () => {
     expected: RegExp;
   }> = [
     { lang: "cpp", file: "record_basic.cpp", expected: /Point\(\s*int xpos\s*,\s*int ypos\s*\)/ },
-    { lang: "rust", file: "record_basic.rs", expected: /pub fn new\(xpos : i64, ypos : i64\)/ },
+    { lang: "rust", file: "record_basic.rs", expected: /pub fn new\(xpos: i64, ypos: i64\)/ },
     { lang: "swift6", file: "record_basic.swift", expected: /init\(xpos : Int, ypos : Int\s*\)/ },
     { lang: "go", file: "record_basic.go", expected: /func CreateNew_Point\(xpos int64, ypos int64\)/ },
     { lang: "python", file: "record_basic.py", expected: /def __init__\(self, xpos: int, ypos: int\) -> None:/ },

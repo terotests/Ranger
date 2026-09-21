@@ -4607,7 +4607,10 @@ inline std::string r_double_to_string(double v) {
                 llvm ( "(idiv " (e 1) " " (e 2) ")" )
                 es6 ( "((" (e 1) " / " (e 2) ") | 0)" )
                 go ( (e 1) " / " (e 2) )
-                rust ( "((" (e 1) ") / (" (e 2) "))" )
+                ; (custom _): the template's own pair plus the one each
+                ; operand writes for itself gave `(((sum * pct)) / (100))`.
+                ; RustOperators writes it as `sum * pct / 100`.
+                rust ( (custom _) )
                 kotlin ( (e 1) " / " (e 2) )
                 dart ( "((" (e 1) ") ~/ (" (e 2) "))" )
                 python ( "((" (e 1) ") // (" (e 2) "))" )

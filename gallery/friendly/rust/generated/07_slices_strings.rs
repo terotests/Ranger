@@ -4,52 +4,46 @@
 #![allow(unused_assignments)]
 #![allow(dead_code)]
 // The clippy allows below cover shapes that mirror the Ranger source
-// itself - statement-level clamp chains, nested ifs, function arity and
-// type names - which the transpiler must not rewrite or rename.
-#![allow(clippy::manual_clamp)]
+// itself, which the transpiler must not rewrite or rename.
 #![allow(clippy::collapsible_if)]
-#![allow(clippy::too_many_arguments)]
-#![allow(clippy::upper_case_acronyms)]
 #![allow(clippy::ptr_arg)]
 
 
 
 #[derive(Clone)]
-struct TextTools { 
+struct TextTools {
 }
-impl TextTools { 
-  
-  pub fn new() ->  TextTools {
-    TextTools { 
+impl TextTools {
+  pub fn new() -> Self {
+    TextTools {
     }
   }
-  fn greet(name : &str) -> String {
-    format!("{}{}", "hello ".to_string(), name).clone()
+  fn greet(name: &str) -> String {
+    format!("hello {}", name).clone()
   }
-  fn total(xs : &[i64]) -> i64 {
-    let mut acc : i64 = 0;
+  fn total(xs: &[i64]) -> i64 {
+    let mut acc: i64 = 0;
     for v in xs.iter().copied() {
       acc += v;
     }
     acc
   }
-  fn first_char(s : &str) -> String {
+  fn first_char(s: &str) -> String {
     if  (s.len() as i64) == 0 {
       return "".to_string().clone();
     }
     rg_substring(&s, 0, 1).clone()
   }
-  fn twice(&self, xs : &[i64]) -> i64 {
+  fn twice(&self, xs: &[i64]) -> i64 {
     TextTools::total(xs) + TextTools::total(xs)
   }
 }
 #[derive(Clone)]
-struct SliceMain { 
+struct SliceMain {
 }
-impl SliceMain { 
-  
-  pub fn new() ->  SliceMain {
-    SliceMain { 
+impl SliceMain {
+  pub fn new() -> Self {
+    SliceMain {
     }
   }
 }
@@ -59,11 +53,11 @@ fn main() {
   __rg_main_thread.join().expect("main thread panicked");
 }
 fn __rg_main_body() {
-  let mut t : TextTools = TextTools::new();
+  let mut t: TextTools = TextTools::new();
   println!("{}", TextTools::greet("ada"));
-  let mut xs : Vec<i64> = vec![1, 2, 3];
-  println!("{}{}", "twice ".to_string(), t.twice(&xs));
-  println!("{}{}", "first ".to_string(), TextTools::first_char("grace"));
+  let mut xs: Vec<i64> = vec![1, 2, 3];
+  println!("twice {}", t.twice(&xs));
+  println!("first {}", TextTools::first_char("grace"));
 }
 
 // A Ranger string index is the TARGET'S OWN unit, and on Rust that unit is

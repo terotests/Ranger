@@ -4,12 +4,8 @@
 #![allow(unused_assignments)]
 #![allow(dead_code)]
 // The clippy allows below cover shapes that mirror the Ranger source
-// itself - statement-level clamp chains, nested ifs, function arity and
-// type names - which the transpiler must not rewrite or rename.
-#![allow(clippy::manual_clamp)]
+// itself, which the transpiler must not rewrite or rename.
 #![allow(clippy::collapsible_if)]
-#![allow(clippy::too_many_arguments)]
-#![allow(clippy::upper_case_acronyms)]
 #![allow(clippy::ptr_arg)]
 
 use std::rc::Rc;
@@ -28,16 +24,15 @@ impl<T: ?Sized> RgIdentical for Rc<RefCell<T>> {
 }
 
 #[derive(Clone)]
-struct Point { 
-  x : i64, 
-  y : i64, 
+struct Point {
+  x: i64,
+  y: i64,
 }
-impl Point { 
-  
-  pub fn new(x : i64, y : i64) ->  Point {
-    let mut me = Point { 
-      x:0, 
-      y:0, 
+impl Point {
+  pub fn new(x: i64, y: i64) -> Self {
+    let mut me = Point {
+      x: 0,
+      y: 0,
     };
     me.x = x;
     me.y = y;
@@ -45,77 +40,73 @@ impl Point {
   }
 }
 #[derive(Clone)]
-struct PointOps { 
+struct PointOps {
 }
-impl PointOps { 
-  
-  pub fn new() ->  PointOps {
-    PointOps { 
+impl PointOps {
+  pub fn new() -> Self {
+    PointOps {
     }
   }
-  fn manhattan(&self, p : &Point) -> i64 {
-    let mut ax : i64 = p.x;
+  fn manhattan(&self, p: &Point) -> i64 {
+    let mut ax: i64 = p.x;
     if  ax < 0 {
       ax = 0 - ax;
     }
-    let mut ay : i64 = p.y;
+    let mut ay: i64 = p.y;
     if  ay < 0 {
       ay = 0 - ay;
     }
     ax + ay
   }
-  fn add_points(&self, a : &Point, b : &Point) -> Point {
+  fn add_points(&self, a: &Point, b: &Point) -> Point {
     Point::new(a.x + b.x, a.y + b.y).clone()
   }
 }
 #[derive(Clone)]
-struct Counter { 
-  value : i64, 
+struct Counter {
+  value: i64,
 }
-impl Counter { 
-  
-  pub fn new() ->  Counter {
-    Counter { 
-      value:0, 
+impl Counter {
+  pub fn new() -> Self {
+    Counter {
+      value: 0,
     }
   }
-  fn reading(__self_rc : &Rc<RefCell<Counter>>) -> i64 {
+  fn reading(__self_rc: &Rc<RefCell<Counter>>) -> i64 {
     __self_rc.borrow().value
   }
-  fn add(__self_rc : &Rc<RefCell<Counter>>, amount : i64) {
+  fn add(__self_rc: &Rc<RefCell<Counter>>, amount: i64) {
     __self_rc.borrow_mut().value += amount;
   }
 }
 #[derive(Clone)]
-struct TreeNode { 
-  name : &'static str, 
-  kids : Vec<Rc<RefCell<TreeNode>>>, 
-  parent : Option<Weak<RefCell<TreeNode>>>, 
+struct TreeNode {
+  name: &'static str,
+  kids: Vec<Rc<RefCell<TreeNode>>>,
+  parent: Option<Weak<RefCell<TreeNode>>>,
 }
-impl TreeNode { 
-  
-  pub fn new() ->  TreeNode {
-    TreeNode { 
-      name:"", 
-      kids: Vec::new(), 
-      parent: None, 
+impl TreeNode {
+  pub fn new() -> Self {
+    TreeNode {
+      name: "",
+      kids: Vec::new(),
+      parent: None,
     }
   }
-  fn adopt(__self_rc : &Rc<RefCell<TreeNode>>, mut c : Rc<RefCell<TreeNode>>) {
+  fn adopt(__self_rc: &Rc<RefCell<TreeNode>>, mut c: Rc<RefCell<TreeNode>>) {
     c.borrow_mut().parent = Some(Rc::downgrade(__self_rc));
     __self_rc.borrow_mut().kids.push(c.clone());
   }
-  fn child_count(__self_rc : &Rc<RefCell<TreeNode>>) -> i64 {
+  fn child_count(__self_rc: &Rc<RefCell<TreeNode>>) -> i64 {
     __self_rc.borrow().kids.len() as i64
   }
 }
 #[derive(Clone)]
-struct OwnershipMain { 
+struct OwnershipMain {
 }
-impl OwnershipMain { 
-  
-  pub fn new() ->  OwnershipMain {
-    OwnershipMain { 
+impl OwnershipMain {
+  pub fn new() -> Self {
+    OwnershipMain {
     }
   }
 }
@@ -125,25 +116,25 @@ fn main() {
   __rg_main_thread.join().expect("main thread panicked");
 }
 fn __rg_main_body() {
-  let mut ops : PointOps = PointOps::new();
-  let mut origin : Point = Point::new(3, 4);
-  println!("{}{}", "manhattan ".to_string(), ops.manhattan(&origin));
-  let mut summed : Point = ops.add_points(&origin, &origin);
-  println!("{}{}", "sum.x ".to_string(), summed.x);
-  let mut left : Rc<RefCell<Counter>> = Rc::new(RefCell::new(Counter::new()));
-  let mut alias : Rc<RefCell<Counter>> = left.clone();
+  let mut ops: PointOps = PointOps::new();
+  let mut origin: Point = Point::new(3, 4);
+  println!("manhattan {}", ops.manhattan(&origin));
+  let mut summed: Point = ops.add_points(&origin, &origin);
+  println!("sum.x {}", summed.x);
+  let mut left: Rc<RefCell<Counter>> = Rc::new(RefCell::new(Counter::new()));
+  let mut alias: Rc<RefCell<Counter>> = left.clone();
   Counter::add(&alias, 1);
-  println!("{}{}", "shared ".to_string(), Counter::reading(&left));
-  let mut root : Rc<RefCell<TreeNode>> = Rc::new(RefCell::new(TreeNode::new()));
+  println!("shared {}", Counter::reading(&left));
+  let mut root: Rc<RefCell<TreeNode>> = Rc::new(RefCell::new(TreeNode::new()));
   root.borrow_mut().name = "root";
-  let mut leaf : Rc<RefCell<TreeNode>> = Rc::new(RefCell::new(TreeNode::new()));
+  let mut leaf: Rc<RefCell<TreeNode>> = Rc::new(RefCell::new(TreeNode::new()));
   leaf.borrow_mut().name = "leaf";
   TreeNode::adopt(&root, leaf.clone());
-  println!("{}{}", "kids ".to_string(), TreeNode::child_count(&root));
+  println!("kids {}", TreeNode::child_count(&root));
   if  leaf.borrow().parent.as_ref().and_then(|__w| __w.upgrade()).is_none() {
     println!("parent missing");
   } else {
-    let mut back : Rc<RefCell<TreeNode>> = leaf.borrow().parent.clone().unwrap().upgrade().unwrap();
-    println!("{}{}", "parent ".to_string(), back.borrow().name);
+    let mut back: Rc<RefCell<TreeNode>> = leaf.borrow().parent.clone().unwrap().upgrade().unwrap();
+    println!("parent {}", back.borrow().name);
   }
 }

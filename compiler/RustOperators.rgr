@@ -47,6 +47,27 @@ extension RangerRustClassWriter {
     ctx.unsetInExpr()
   }
 
+  ; The LEFT operand of an integer division keeps its parentheses only when
+  ; it needs them. A `*` or another integer division does not: the two have
+  ; the same precedence in Rust and both associate left, so `(a * b) / c` and
+  ; `a * b / c` are the same expression. The RIGHT operand always keeps them
+  ; -- `a / (b * c)` is not `a / b * c`.
+  fn rustWriteIDivLeft:void (o:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def oo:CodeNode (this.rustUnwrapParens(o))
+    if ((array_length oo.children) == 3) {
+      def opN:CodeNode (oo.getFirst())
+      if ((opN.vref == "*") || (opN.vref == "idiv")) {
+        ctx.setInExpr()
+        wr.suppress_expr_parens = true
+        this.WalkNode(oo ctx wr)
+        wr.suppress_expr_parens = false
+        ctx.unsetInExpr()
+        return
+      }
+    }
+    this.rustWriteBitOperand(o ctx wr)
+  }
+
   fn rustArgIsAlreadyRef:boolean (nVal:CodeNode) {
     ; a static-string read is a &str value already — a & on it would pass
     ; &&str and hold a borrow of the receiver through the call (E0502)
@@ -194,8 +215,15 @@ extension RangerRustClassWriter {
     ; scope. A name that resolves to a variable has a desc; one that does
     ; not is the operator, and it keeps its wrapper so WalkNode expands it.
     if (node.expression && ((array_length node.children) == 1)) {
-      push out node
-      return
+      ; ...but a LITERAL in that shape is just a parenthesised value, and
+      ; keeping its wrapper hides its type from `rustFmtInline`, which then
+      ; writes `println!("{}{}", "numbers ".to_string(), n)` where the
+      ; literal belongs in the format string. Only a bare name can be the
+      ; operator this guard is for.
+      if (cur.value_type != RangerNodeType.String) {
+        push out node
+        return
+      }
     }
     push out cur
   }
@@ -676,6 +704,17 @@ extension RangerRustClassWriter {
     if (cmd == "to_int") {
       this.rustWriteBitOperand((node.getSecond()) ctx wr)
       wr.out(".floor() as i64" false)
+      return
+    }
+
+    ; integer division on two i64s IS `/` in Rust, so the only question is
+    ; parentheses. `((a) / (b))` from the template, with the pair each
+    ; operand wrote for itself, made `sum - (((sum * pct)) / (100))` out of
+    ; one division.
+    if (cmd == "idiv") {
+      this.rustWriteIDivLeft((node.getSecond()) ctx wr)
+      wr.out(" / " false)
+      this.rustWriteBitOperand((node.getThird()) ctx wr)
       return
     }
 
@@ -2943,6 +2982,40 @@ extension RangerRustClassWriter {
       ; renaming lives in the walker. `let mut fn = …` does not parse.
       this.rustWriteOperand(item ctx wr)
       wr.out(" in " false)
+      ; a body that only reads Copy fields off the element binds `&T` and
+      ; clones nothing; anything else keeps the owned element
+      def onlyReadsCopy:boolean false
+      if (itemIsCopy == false) {
+        if (this.rustForBodyOnlyReadsCopyFields(body itemName (this.rustForItemClassName(item ctx)) ctx)) {
+          onlyReadsCopy = true
+        }
+      }
+      ; ...and that arm is written `for line in &self.lines`, not
+      ; `for line in self.lines.iter()`. The two are the same loop; the first
+      ; is the one a Rust programmer writes, and it is the only arm that can
+      ; take it -- `.copied()` and `.cloned()` are method chains and keep the
+      ; receiver form.
+      ;
+      ; Only over a PLAIN Vec, though. A collection of a SHARED class is a
+      ; `RefCell<Vec<...>>` field, so reading it writes `.borrow()` and hands
+      ; back a `Ref`. `.iter()` reaches the Vec through Deref; `&` does not,
+      ; and `for v in &self.variables.borrow()` asks for
+      ; `&Ref<'_, Vec<T>>` to be an iterator, which rustc says it is not
+      ; (E0277). A hoisted collection keeps `.iter()` as well -- the local
+      ; holds whatever the clone gave it.
+      def useAmp:boolean onlyReadsCopy
+      if useAmp {
+        if hoistColl {
+          useAmp = false
+        } {
+          if (this.rustClassIsShared((this.rustForItemClassName(item ctx)) ctx)) {
+            useAmp = false
+          }
+        }
+      }
+      if useAmp {
+        wr.out("&" false)
+      }
       if hoistColl {
         wr.out(itName false)
       } {
@@ -2951,12 +3024,14 @@ extension RangerRustClassWriter {
       if itemIsCopy {
         wr.out(".iter().copied() {" true)
       } {
-        ; a body that only reads Copy fields off the element binds `&T` and
-        ; clones nothing; anything else keeps the owned element
-        if (this.rustForBodyOnlyReadsCopyFields(body itemName (this.rustForItemClassName(item ctx)) ctx)) {
-          wr.out(".iter() {" true)
+        if useAmp {
+          wr.out(" {" true)
         } {
-          wr.out(".iter().cloned() {" true)
+          if onlyReadsCopy {
+            wr.out(".iter() {" true)
+          } {
+            wr.out(".iter().cloned() {" true)
+          }
         }
       }
       wr.indent(1)

@@ -63,14 +63,24 @@ const FORBIDDEN: Array<[fragment: string, why: string]> = [
 ];
 
 /**
- * The one dependency outside the interpreter that IS allowed: the shared
- * TypeScript/JSX parser. It is a language front end rather than a domain, and
- * whether to vendor it into v2 or accept it as a shared gallery dependency is
- * an open decision (v2/TODO.md § "Import isolation", where it is also
- * allowlisted for the boundary gate). Listed explicitly so the answer is a
- * choice rather than a drift.
+ * The dependencies outside the interpreter that ARE allowed. Neither is a
+ * domain; both are language-level, which is the line this file draws.
+ *
+ * `ts_parser/` is the shared TypeScript/JSX front end. Whether to vendor it
+ * into v2 or accept it as a shared gallery dependency is an open decision
+ * (v2/TODO.md § "Import isolation", where it is also allowlisted for the
+ * boundary gate).
+ *
+ * `lib/core/` is Ranger's own core library, and the engine needs it to be an
+ * ECMAScript evaluator at all: `RgNum` supplies `exp`, `log` and `pow`, which
+ * Ranger has no operators for, and `RgText` answers what a `string` is made of
+ * on the target this was compiled for — which `String.fromCodePoint` and the
+ * UTF-8 width of a code point both depend on. A host cannot supply those
+ * through `EvalNativeBridge`; they are arithmetic and text, not environment.
+ *
+ * Listed explicitly so each answer is a choice rather than a drift.
  */
-const ALLOWED_OUTSIDE = ["ts_parser/"];
+const ALLOWED_OUTSIDE = ["ts_parser/", "lib/core/"];
 
 describe("engine dependency surface", () => {
   for (const file of ENGINE_FILES) {

@@ -191,9 +191,9 @@ extension RangerRustClassWriter {
     if node.hasParamDesc {
       def nn:CodeNode (itemAt node.children 1)
       def p:RangerAppParamDesc (unwrap nn.paramDesc)
-      wr.out((((this.rustPubPrefix(ctx)) + (this.adjustType(p.compiledName))) + " : ") false)
+      wr.out((((this.rustPubPrefix(ctx)) + (this.adjustType(p.compiledName))) + ": ") false)
       this.writeStructFieldType(p ctx wr)
-      wr.out(", " true)
+      wr.out("," true)
     }
   }
 
@@ -279,6 +279,37 @@ extension RangerRustClassWriter {
   ; family -- `Rc<RefCell<dyn Trait>>` is what a parent-typed handle is.
   ; Anything else is plain structs, and rustc's unused_imports warning was the
   ; only thing reading those lines.
+  ; Does any function here take enough parameters for clippy's
+  ; too_many_arguments? The threshold is 7, counting the receiver: the one
+  ; function in this compiler that trips it is `createStaticMethod`, which
+  ; declares 7 and carries the hidden `__self_rc` on top. Seven declared is
+  ; the test, which errs on the side of keeping the allow for a static that
+  ; has no receiver to add.
+  ;
+  ; The header used to carry every allow for every file, the way a program
+  ; that imports nothing still got every `use` line. It is built from what
+  ; the program contains now, like the `Rc` and `Weak` lines below it.
+  fn rustNeedsTooManyArgs:boolean (ctx:RangerAppWriterContext) {
+    def tmaRoot:RangerAppWriterContext (ctx.getRoot())
+    for tmaRoot.definedClasses tmaCl:RangerAppClassDesc tmaCi {
+      for tmaCl.methods tmaM:RangerAppFunctionDesc tmaMi {
+        if (tmaM.is_lambda == false) {
+          if ((array_length tmaM.params) >= 7) {
+            return true
+          }
+        }
+      }
+      for tmaCl.static_methods tmaS:RangerAppFunctionDesc tmaSi {
+        if (tmaS.is_lambda == false) {
+          if ((array_length tmaS.params) >= 7) {
+            return true
+          }
+        }
+      }
+    }
+    return false
+  }
+
   fn rustNeedsRcHeader:boolean (ctx:RangerAppWriterContext) {
     def root:RangerAppWriterContext (ctx.getRoot())
     if ((array_length (this.sealableUnionNames(ctx))) > 0) {
@@ -871,7 +902,7 @@ extension RangerRustClassWriter {
             wr.out(", " false)
           }
           sgWritten = sgWritten + 1
-          wr.out(((this.adjustType(arg.name)) + " : ") false)
+          wr.out(((this.adjustType(arg.name)) + ": ") false)
           def sgNameN:CodeNode (unwrap arg.nameNode)
           this.writeTypeDef(sgNameN ctx wr)
         }
@@ -1144,13 +1175,23 @@ extension RangerRustClassWriter {
       ; warnings with the allow taken away. Type names keep their spelling,
       ; which is what Rust wants of them.
       header.out("#![allow(dead_code)]" true)
+      ; The clippy allows cover shapes that mirror the Ranger source itself --
+      ; nested ifs, function arity, borrowed collection parameters -- which
+      ; the transpiler must not rewrite or rename.
+      ;
+      ; `manual_clamp` and `upper_case_acronyms` used to be here too. Measured
+      ; with clippy over everything this compiler generates -- the twelve
+      ; gallery/friendly studies and its own 81 000-line Rust rendering, each
+      ; with the header stripped -- neither fires anywhere, so neither is
+      ; written any more. `collapsible_if` and `ptr_arg` fire once each, in
+      ; the compiler's own rendering and nowhere else; they stay until they
+      ; have a predicate of their own.
       header.out("// The clippy allows below cover shapes that mirror the Ranger source" true)
-      header.out("// itself - statement-level clamp chains, nested ifs, function arity and" true)
-      header.out("// type names - which the transpiler must not rewrite or rename." true)
-      header.out("#![allow(clippy::manual_clamp)]" true)
+      header.out("// itself, which the transpiler must not rewrite or rename." true)
       header.out("#![allow(clippy::collapsible_if)]" true)
-      header.out("#![allow(clippy::too_many_arguments)]" true)
-      header.out("#![allow(clippy::upper_case_acronyms)]" true)
+      if (this.rustNeedsTooManyArgs(ctx)) {
+        header.out("#![allow(clippy::too_many_arguments)]" true)
+      }
       ; ptr_arg still fires on borrowed COLLECTION params (&Vec<T> of
       ; non-scalar elements); borrowed strings are &str already
       header.out("#![allow(clippy::ptr_arg)]" true)
@@ -1716,7 +1757,7 @@ extension RangerRustClassWriter {
         wr.out("#[derive(Clone)]" true)
       }
     }
-    wr.out((((this.rustPubPrefix(ctx)) + "struct ") + cl.name + " { ") true)
+    wr.out((((this.rustPubPrefix(ctx)) + "struct ") + cl.name + " {") true)
     wr.indent(1)
     for allStructVars pvar:RangerAppParamDesc i {
       def pnode:CodeNode (unwrap pvar.node)
@@ -1724,10 +1765,12 @@ extension RangerRustClassWriter {
     }
     wr.indent(-1)
     wr.out("}" true)
-    wr.out((("impl " + cl.name) + " { ") true)
+    wr.out((("impl " + cl.name) + " {") true)
     wr.indent(1)
     thisName = "me"
-    wr.out("" true)
+    ; ...and no indented blank line between the `impl` and its first method:
+    ; `wr.out("" true)` here wrote one made of the current indent, which is
+    ; trailing whitespace on a line nobody asked for.
     wr.out("pub fn new(" false)
     if cl.has_constructor {
       def constr@(optional):RangerAppFunctionDesc cl.constructor_fn
@@ -1744,7 +1787,7 @@ extension RangerRustClassWriter {
             wr.out(", " false)
           }
           written = written + 1
-          wr.out(((this.adjustType(arg.name)) + " : ") false)
+          wr.out(((this.adjustType(arg.name)) + ": ") false)
           def nameN:CodeNode (unwrap arg.nameNode)
           ; A parameter of a shared class carries the Rc, exactly as an
           ; ordinary method parameter does. Without this the constructor of
@@ -1767,7 +1810,10 @@ extension RangerRustClassWriter {
         }
       }
     }
-    wr.out(((") ->  " + cl.name) + " {") true)
+    ; `-> Self`, not `-> Cart`: inside `impl Cart` the two are the same type
+    ; and `Self` is what rustfmt and every hand-written constructor use. The
+    ; doubled space after the arrow went with it.
+    wr.out(") -> Self {" true)
     wr.indent(1)
     wr.newline()
     ; without a constructor body the struct literal IS the tail expression;
@@ -1787,9 +1833,9 @@ extension RangerRustClassWriter {
       }
     }
     if ctor_needs_me {
-      wr.out((("let mut me = " + cl.name) + " { ") true)
+      wr.out((("let mut me = " + cl.name) + " {") true)
     } {
-      wr.out((cl.name + " { ") true)
+      wr.out((cl.name + " {") true)
     }
     wr.indent(1)
     ; the literal has to name every field the struct declares, inherited ones
@@ -1800,7 +1846,7 @@ extension RangerRustClassWriter {
         def node:CodeNode (unwrap nn)
         if ((array_length node.children) > 2) {
           def valueNode:CodeNode (itemAt node.children 2)
-          wr.out(((this.adjustType(pvar.compiledName)) + ":") false)
+          wr.out(((this.adjustType(pvar.compiledName)) + ": ") false)
           if pvar.rust_interior_cell {
             if (this.rustCellIsCopy(pvar)) {
               wr.out("std::cell::Cell::new(" false)
@@ -1870,14 +1916,14 @@ extension RangerRustClassWriter {
               wr.out(".to_string())" false)
             }
           }
-          wr.out(", " true)
+          wr.out("," true)
         } {
           ; Initialize array fields with Vec::new()
           if (pvar.isArray()) {
             if pvar.rust_interior_cell {
-              wr.out(((this.adjustType(pvar.compiledName)) + ": RefCell::new(Vec::new()), ") true)
+              wr.out(((this.adjustType(pvar.compiledName)) + ": RefCell::new(Vec::new()),") true)
             } {
-              wr.out(((this.adjustType(pvar.compiledName)) + ": Vec::new(), ") true)
+              wr.out(((this.adjustType(pvar.compiledName)) + ": Vec::new(),") true)
             }
           } {
             ; A hash field is a HashMap, never an Option: without this branch
@@ -1885,17 +1931,17 @@ extension RangerRustClassWriter {
             ; rejected the struct literal.
             if (pvar.isHash()) {
               if pvar.rust_interior_cell {
-                wr.out(((this.adjustType(pvar.compiledName)) + ": RefCell::new(HashMap::default()), ") true)
+                wr.out(((this.adjustType(pvar.compiledName)) + ": RefCell::new(HashMap::default()),") true)
               } {
-                wr.out(((this.adjustType(pvar.compiledName)) + ": HashMap::default(), ") true)
+                wr.out(((this.adjustType(pvar.compiledName)) + ": HashMap::default(),") true)
               }
             } {
               ; Initialize optional fields with None
               if pvar.is_optional {
                 if pvar.rust_interior_cell {
-                  wr.out(((this.adjustType(pvar.compiledName)) + ": RefCell::new(None), ") true)
+                  wr.out(((this.adjustType(pvar.compiledName)) + ": RefCell::new(None),") true)
                 } {
-                  wr.out(((this.adjustType(pvar.compiledName)) + ": None, ") true)
+                  wr.out(((this.adjustType(pvar.compiledName)) + ": None,") true)
                 }
               }
             }

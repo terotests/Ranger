@@ -4,12 +4,8 @@
 #![allow(unused_assignments)]
 #![allow(dead_code)]
 // The clippy allows below cover shapes that mirror the Ranger source
-// itself - statement-level clamp chains, nested ifs, function arity and
-// type names - which the transpiler must not rewrite or rename.
-#![allow(clippy::manual_clamp)]
+// itself, which the transpiler must not rewrite or rename.
 #![allow(clippy::collapsible_if)]
-#![allow(clippy::too_many_arguments)]
-#![allow(clippy::upper_case_acronyms)]
 #![allow(clippy::ptr_arg)]
 
 use std::rc::Rc;
@@ -42,43 +38,40 @@ impl RgIdentical for union_Guarded {
 
 
 #[derive(Clone, PartialEq)]
-struct Guarded_Ok { 
-  value : i64, 
+struct Guarded_Ok {
+  value: i64,
 }
-impl Guarded_Ok { 
-  
-  pub fn new(value : i64) ->  Guarded_Ok {
-    let mut me = Guarded_Ok { 
-      value:0, 
+impl Guarded_Ok {
+  pub fn new(value: i64) -> Self {
+    let mut me = Guarded_Ok {
+      value: 0,
     };
     me.value = value;
     me
   }
 }
 #[derive(Clone, PartialEq)]
-struct Guarded_Err { 
-  message : String, 
+struct Guarded_Err {
+  message: String,
 }
-impl Guarded_Err { 
-  
-  pub fn new(message : String) ->  Guarded_Err {
-    let mut me = Guarded_Err { 
-      message:"".to_string(), 
+impl Guarded_Err {
+  pub fn new(message: String) -> Self {
+    let mut me = Guarded_Err {
+      message: "".to_string(),
     };
     me.message = message.clone();
     me
   }
 }
 #[derive(Clone)]
-struct Guarded__ops { 
+struct Guarded__ops {
 }
-impl Guarded__ops { 
-  
-  pub fn new() ->  Guarded__ops {
-    Guarded__ops { 
+impl Guarded__ops {
+  pub fn new() -> Self {
+    Guarded__ops {
     }
   }
-  pub fn equals(a : &union_Guarded, b : &union_Guarded) -> bool {
+  pub fn equals(a: &union_Guarded, b: &union_Guarded) -> bool {
     if let union_Guarded::Guarded_Ok(__ea0) = &a { /* union case */
       if let union_Guarded::Guarded_Ok(__eb0) = &b { /* union case */
         if  __ea0.value != __eb0.value {
@@ -99,7 +92,7 @@ impl Guarded__ops {
     }
     false
   }
-  pub fn not_equals(a : &union_Guarded, b : &union_Guarded) -> bool {
+  pub fn not_equals(a: &union_Guarded, b: &union_Guarded) -> bool {
     if  Guarded__ops::equals(a, b) {
       return false;
     }
@@ -107,40 +100,38 @@ impl Guarded__ops {
   }
 }
 #[derive(Clone)]
-struct Guard { 
+struct Guard {
 }
-impl Guard { 
-  
-  pub fn new() ->  Guard {
-    Guard { 
+impl Guard {
+  pub fn new() -> Self {
+    Guard {
     }
   }
-  fn check(value : i64) -> union_Guarded {
+  fn check(value: i64) -> union_Guarded {
     if  value < 0 {
       return union_Guarded::Guarded_Err(Guarded_Err::new("negative".to_string()));
     }
     union_Guarded::Guarded_Ok(Guarded_Ok::new(value))
   }
-  fn describe(&self, g : &union_Guarded) -> String {
-    let mut out : String = "?".to_string();
+  fn describe(&self, g: &union_Guarded) -> String {
+    let mut out: String = "?".to_string();
     match &g {
       union_Guarded::Guarded_Ok(o) => {
-        out = format!("{}{}", "ok:".to_string(), o.value);
+        out = format!("ok:{}", o.value);
       }
       union_Guarded::Guarded_Err(e) => {
-        out = format!("{}{}", "err:".to_string(), e.message);
+        out = format!("err:{}", e.message);
       }
     }
     out.clone()
   }
 }
 #[derive(Clone)]
-struct ErrorsMain { 
+struct ErrorsMain {
 }
-impl ErrorsMain { 
-  
-  pub fn new() ->  ErrorsMain {
-    ErrorsMain { 
+impl ErrorsMain {
+  pub fn new() -> Self {
+    ErrorsMain {
     }
   }
 }
@@ -150,7 +141,7 @@ fn main() {
   __rg_main_thread.join().expect("main thread panicked");
 }
 fn __rg_main_body() {
-  let mut g : Guard = Guard::new();
+  let mut g: Guard = Guard::new();
   println!("{}", g.describe(&Guard::check(3)));
   println!("{}", g.describe(&Guard::check(0 - 1)));
 }

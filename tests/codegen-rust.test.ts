@@ -21,7 +21,7 @@ describe("Rust Code Generation", () => {
     });
 
     it("gives a field-assigning method &mut self", () => {
-      expect(result.code).toContain("fn bump(&mut self, amount : i64)");
+      expect(result.code).toContain("fn bump(&mut self, amount: i64)");
     });
 
     it("detects mutation through push into a member collection", () => {
@@ -29,7 +29,7 @@ describe("Rust Code Generation", () => {
       // method would take &self and rustc would reject the push. The string
       // parameter itself is read-only from the caller's view, so it borrows
       // (&str) and the push stores an owned copy.
-      expect(result.code).toContain("fn tag(&mut self, s : &str)");
+      expect(result.code).toContain("fn tag(&mut self, s: &str)");
     });
 
     it("emits no unit return type and no trailing comma", () => {
@@ -131,10 +131,17 @@ describe("Rust Code Generation", () => {
       expect(result.code).not.toContain('!= "".to_string()');
     });
 
-    it("keeps the documented allows only", () => {
-      expect(result.code).toContain("#![allow(clippy::manual_clamp)]");
+    it("keeps the documented allows only, and only the ones it needs", () => {
+      // The scaler has a function with enough parameters to reach clippy's
+      // threshold, so it gets that one.
       expect(result.code).toContain("#![allow(clippy::too_many_arguments)]");
       expect(result.code).not.toContain("#![allow(clippy::all)]");
+      // ...and never these two. Measured with clippy over everything this
+      // compiler generates — the twelve gallery/friendly studies and its own
+      // 81 000-line Rust rendering, each with the header stripped — neither
+      // fires anywhere, so neither is written.
+      expect(result.code).not.toContain("#![allow(clippy::manual_clamp)]");
+      expect(result.code).not.toContain("#![allow(clippy::upper_case_acronyms)]");
     });
   });
 
@@ -143,12 +150,12 @@ describe("Rust Code Generation", () => {
 
     it("passes a borrowed int array as &[i64]", () => {
       expect(result.success, `Failed: ${result.error}`).toBe(true);
-      expect(result.code).toContain("data : &[i64]");
-      expect(result.code).not.toContain("data : &Vec<i64>");
+      expect(result.code).toContain("data: &[i64]");
+      expect(result.code).not.toContain("data: &Vec<i64>");
     });
 
     it("passes a borrowed buffer as &[u8]", () => {
-      expect(result.code).toContain("buf : &[u8]");
+      expect(result.code).toContain("buf: &[u8]");
     });
   });
 
