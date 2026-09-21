@@ -227,12 +227,16 @@ reads a hash map, and only the body states the difference.
 
 ## Which operators can I use?
 
+`compiler/Lang.rgr` is the language definition. Ranger has no separate
+standard library.
+
 - The [operator reference](/Ranger/docs/reference/operators/statements/) holds
-  the operators that every program can use.
-- The [standard library](/Ranger/docs/reference/libraries/stdlib/) holds the
-  collection operations: `map`, `filter`, `reduce`, `any`, `all`, `slice`.
-- The [other libraries](/Ranger/docs/reference/libraries/json/) need an
-  import too.
+  the operators of `Lang.rgr`. Every program can use them.
+- A program can import more operator files. The
+  [collections file](/Ranger/docs/reference/libraries/stdlib/) adds `map`,
+  `filter`, `reduce`, `any`, `all` and `slice`.
+- [JSON](/Ranger/docs/reference/libraries/json/) and the other imported files
+  work the same way.
 
 ## How do I divide two integers?
 

@@ -31,16 +31,50 @@ def large (numbers.filter({ return (item > 3) }))   ; a type method
 
 ## Where the operators are
 
-| Source | Availability |
+`compiler/Lang.rgr` is the language definition. It holds the operators that
+every program can use. Ranger has no separate standard library.
+
+The compiler reads `Lang.rgr` when it compiles a program. The file is not
+inside `bin/output.js`. A new operator in `Lang.rgr` is available on the next
+compile of the program.
+
+A program can add more operators in two places: in `Lang.rgr`, and in a file
+that the program imports.
+
+| Source | When the compiler reads it |
 | --- | --- |
-| `compiler/Lang.rgr` | Always. The core of the language. |
-| `lib/stdops.rgr` | Always. The compiler loads it with the core. |
-| The other files in `lib/` | After an `Import` statement in the program. |
+| `compiler/Lang.rgr` | Always. A copy in the working directory overrides the copy next to the compiler. |
+| `lib/stdops.rgr` | Always. The compiler loads it with `Lang.rgr`. |
+| An imported file | After `Import` in the program. `lib/stdlib.rgr`, `lib/JSON.rgr` and the other files in `lib/` are this kind of file. |
 
 The [operator reference](/Ranger/docs/reference/operators/statements/) holds the
-core template operators. The
-[library pages](/Ranger/docs/reference/libraries/stdlib/) hold the library
-template operators and the type methods of the same file.
+operators of `Lang.rgr`. The
+[imported operator pages](/Ranger/docs/reference/libraries/stdlib/) hold the
+extra operators of one imported file.
+
+## How to add an operator
+
+Write an `operators { }` block or an `operator type:` block in `Lang.rgr` or in
+a file that the program imports:
+
+```lisp
+operators {
+    twice _:int (value:int) {
+        templates {
+            * ( (e 1) " + " (e 1) )
+        }
+    }
+}
+```
+
+The compiler reads that block when it compiles the program.
+
+An operator in a compiler source other than `Lang.rgr` is part of the compiler
+program. That change needs a new compiler:
+
+```sh
+npm run compile
+```
 
 ## A definition
 

@@ -59,10 +59,10 @@
     {
       "id": "stdlib",
       "file": "lib/stdlib.rgr",
-      "title": "Standard library",
+      "title": "Collections",
       "always": false,
       "import": "stdlib.rgr",
-      "summary": "The collection methods of arrays, maps and vectors \u2014 map, filter, reduce, any, all, slice \u2014 and the case and cast operators for union type values.",
+      "summary": "An imported operator file. Collection methods of arrays, maps and vectors: map, filter, reduce, any, all, slice. Also the case and cast operators for union type values.",
       "status": "stable"
     },
     {
