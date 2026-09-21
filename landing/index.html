@@ -25,8 +25,6 @@
     <a href="#native">Native</a>
     <a href="#source">One source</a>
     <a href="#targets">Targets</a>
-    <a href="#platforms">Platforms</a>
-    <a href="#gallery">Gallery</a>
     <a href="playground/">Playground</a>
   </nav>
   <div class="nav__cta">
@@ -289,66 +287,49 @@ Pricing.kt</code></pre>
         <tbody>
           <tr>
             <th scope="row">C++</th>
-            <td class="bench__n">13</td><td class="bench__n">18</td><td class="bench__n">4</td>
-            <td class="bench__n">147</td><td class="bench__n">83</td>
-            <td class="bench__n bench__total">265</td>
+            <td class="bench__n">11</td><td class="bench__n">11</td><td class="bench__n">2</td>
+            <td class="bench__n">74</td><td class="bench__n">38</td>
+            <td class="bench__n bench__total">136</td>
           </tr>
           <tr>
             <th scope="row">Rust</th>
-            <td class="bench__n">15</td><td class="bench__n">21</td><td class="bench__n">6</td>
-            <td class="bench__n">268</td><td class="bench__n">87</td>
-            <td class="bench__n bench__total">397</td>
-          </tr>
-          <tr>
-            <th scope="row">Kotlin</th>
-            <td class="bench__n">20</td><td class="bench__n">124</td><td class="bench__n">54</td>
-            <td class="bench__n">246</td><td class="bench__n">41</td>
-            <td class="bench__n bench__total">485</td>
-          </tr>
-          <tr>
-            <th scope="row">C#</th>
-            <td class="bench__n">35</td><td class="bench__n">51</td><td class="bench__n">14</td>
-            <td class="bench__n">483</td><td class="bench__n">101</td>
-            <td class="bench__n bench__total">684</td>
+            <td class="bench__n">13</td><td class="bench__n">11</td><td class="bench__n">3</td>
+            <td class="bench__n">101</td><td class="bench__n">42</td>
+            <td class="bench__n bench__total">170</td>
           </tr>
           <tr>
             <th scope="row">Go</th>
-            <td class="bench__n">14</td><td class="bench__n">185</td><td class="bench__n">4</td>
-            <td class="bench__n">325</td><td class="bench__n">166</td>
-            <td class="bench__n bench__total">694</td>
+            <td class="bench__n">12</td><td class="bench__n">34</td><td class="bench__n">4</td>
+            <td class="bench__n">125</td><td class="bench__n">61</td>
+            <td class="bench__n bench__total">236</td>
           </tr>
           <tr>
             <th scope="row">Java</th>
-            <td class="bench__n">114</td><td class="bench__n">119</td><td class="bench__n">36</td>
-            <td class="bench__n">367</td><td class="bench__n">117</td>
-            <td class="bench__n bench__total">753</td>
-          </tr>
-          <tr>
-            <th scope="row">PHP</th>
-            <td class="bench__n">136</td><td class="bench__n">159</td><td class="bench__n">12</td>
-            <td class="bench__n">114</td><td class="bench__n">365</td>
-            <td class="bench__n bench__total">786</td>
+            <td class="bench__n">53</td><td class="bench__n">60</td><td class="bench__n">12</td>
+            <td class="bench__n">189</td><td class="bench__n">37</td>
+            <td class="bench__n bench__total">351</td>
           </tr>
           <tr>
             <th scope="row">JavaScript</th>
-            <td class="bench__n">18</td><td class="bench__n">157</td><td class="bench__n">9</td>
-            <td class="bench__n">629</td><td class="bench__n">227</td>
-            <td class="bench__n bench__total">1&nbsp;040</td>
+            <td class="bench__n">14</td><td class="bench__n">82</td><td class="bench__n">4</td>
+            <td class="bench__n">263</td><td class="bench__n">145</td>
+            <td class="bench__n bench__total">508</td>
           </tr>
           <tr>
             <th scope="row">Python</th>
-            <td class="bench__n">577</td><td class="bench__n">433</td><td class="bench__n">46</td>
-            <td class="bench__n">582</td><td class="bench__n">969</td>
-            <td class="bench__n bench__total">2&nbsp;607</td>
+            <td class="bench__n">245</td><td class="bench__n">166</td><td class="bench__n">13</td>
+            <td class="bench__n">181</td><td class="bench__n">366</td>
+            <td class="bench__n bench__total">971</td>
           </tr>
         </tbody>
       </table>
     </div>
 
     <p class="reveal">
-      All nine printed the same five checksums. A Ranger map is a plain object
-      on JavaScript, which is why its maps column is the slowest in the table
-      where PHP's is the fastest.
+      All six printed the same five checksums. A Ranger map is a plain object
+      on JavaScript, which is why its maps column is the slowest in the table.
+      PHP, C# and Kotlin are not in this run: there is no <code>php</code>,
+      <code>mcs</code> or <code>kotlinc</code> on this machine.
     </p>
     <p class="reveal">
       <strong>Idiomatic.</strong> The score below is the third question only,
@@ -618,7 +599,7 @@ Pricing.kt</code></pre>
           <div>
             <p class="label">What works well</p>
             <ul class="quality__list">
-            <li>Fastest of every target measured: 265&nbsp;ms against JavaScript's 1&nbsp;040.</li>
+            <li>Fastest of every target measured: 136&nbsp;ms against JavaScript's 508.</li>
             <li>A <code>record</code> the sharing analysis proves nothing aliases is a value, so <code>manhattan(const Point&amp; p)</code> is the signature.</li>
             <li>A Ranger <code>Enum</code> is an <code>enum class</code>, and a <code>shape</code> is a <code>std::variant</code>.</li>
             <li>A loop whose body ignores its index is <code>for (const T&amp; v : xs)</code>.</li>
@@ -821,7 +802,7 @@ Pricing.kt</code></pre>
             <li>A behaviour-only <code>trait</code> used as a type becomes an <code>interface</code>.</li>
             <li>A loop whose body ignores its index is <code>for _, v := range xs</code>.</li>
             <li>Sharing is <code>*T</code>, which is what Go would use.</li>
-            <li>Fast on arithmetic and strings; a string index is the byte a Go string is made of, so a scan is linear.</li>
+            <li>Third of the six that ran here, next to Rust. A string index is the byte a Go string is made of, so a scan is linear.</li>
             </ul>
           </div>
           <div>
@@ -876,102 +857,6 @@ Pricing.kt</code></pre>
   </div>
 </section>
 
-<section class="section" id="platforms">
-  <div class="wrap">
-    <p class="label reveal">Platforms</p>
-    <h2 class="display display--lg reveal">From a watch to a Raspberry Pi<br>to a browser tab.</h2>
-    <p class="lead lead--wide reveal">
-      Getting a program to run somewhere takes more than a target language: a build, a
-      host, and a way to talk to the screen and the filesystem. That plumbing is in the
-      repository, written in Ranger, for each of these.
-    </p>
-
-    <div class="plats">
-      <article class="plat reveal">
-        <p class="label">01 — Apple</p>
-        <h3>iOS, iPadOS, watchOS</h3>
-        <p>
-          Swift out, and the build itself is a Ranger program. <code>lib/apple/</code>
-          invokes <code>xcrun</code>, <code>swiftc</code>, <code>plutil</code>,
-          <code>codesign</code> and <code>simctl</code> directly, straight to an installed,
-          running app — <strong>without generating an <code>.xcodeproj</code> or invoking
-          <code>xcodebuild</code></strong>. 151 checks assert the plan it produces, which program
-          with which arguments in which order, and they run on JavaScript, Python, Go,
-          Rust, C++, Java and PHP, on any machine, with no Mac in sight. On a Mac, one
-          command puts the app on the simulator; another puts it on the phone on the
-          cable, finding the device, the signing identity and the provisioning profile
-          rather than asking you to type them.
-        </p>
-      </article>
-
-      <article class="plat reveal">
-        <p class="label">02 — Android</p>
-        <h3>Kotlin and android.graphics</h3>
-        <p>
-          Kotlin with <code>@JvmField</code>, <code>MutableList</code> and the collection
-          types the JVM expects, using the platform's own types directly. The PowerPoint
-          stack is the demonstration: the same Ranger source drawn with
-          <code>android.graphics</code> on the device and with Java2D on any JVM, so the
-          port can be checked on a build server without a phone. The port itself is a
-          facade, one walk over the display list, and two implementations of an
-          eight-method surface.
-        </p>
-      </article>
-
-      <article class="plat reveal">
-        <p class="label">03 — Web</p>
-        <h3>Node.js and the browser</h3>
-        <p>
-          ES2015 or TypeScript, ESM or CommonJS, with source maps and a
-          <code>package.json</code> when you ask for one. Node is the compiler's own
-          official host — the playground on this site <em>is</em> the compiler, compiled to
-          JavaScript and running in your tab, which is also the shortest description of
-          what self-hosting buys you.
-        </p>
-      </article>
-
-      <article class="plat reveal">
-        <p class="label">04 — Desktop</p>
-        <h3>SDL2, GLES2 and native binaries</h3>
-        <p>
-          The game engine's C++ path opens an SDL2 window with a GLES2 present path,
-          gamepad input through SDL GameController, and the engine's own audio synth. The
-          same catalogue of games runs unchanged in a browser tab over a virtual
-          filesystem. Headless builds take a frame count and
-          <code>SDL_VIDEODRIVER=dummy</code>, so the window is optional and the same build
-          runs headlessly in CI.
-        </p>
-      </article>
-
-      <article class="plat reveal">
-        <p class="label">05 — Single board</p>
-        <h3>Raspberry Pi</h3>
-        <p>
-          A deploy script rsyncs the repository to a Pi 5, compiles the SDL2 + GLES2 host
-          on the device — wasm3 included, so WASM games load from committed modules with no
-          Rust toolchain on the board — and wires an autostart. Or you take the offline
-          aarch64 bundle, which is a terminal build that needs no SDL at all. Develop on
-          the desktop and run the same logic on the hardware — which is what the engine was
-          built for.
-        </p>
-      </article>
-
-      <article class="plat reveal">
-        <p class="label">06 — Servers and tools</p>
-        <h3>Go, Rust, C++, LLVM</h3>
-        <p>
-          Go and Rust for services, C++ for the fast path, LLVM for a lower-level native
-          compilation path that skips the C++ source step. One compiler primitive runs other programs —
-          <code>run_process_result</code>, which answers exit code, stdout and stderr,
-          takes a working directory and extra environment entries, and passes its arguments
-          as a <em>vector</em> so nothing inside one is ever re-read by a shell. It has a
-          back end on thirteen targets, and the library over it records a dry run instead of
-          executing, which is what makes a build driver testable.
-        </p>
-      </article>
-    </div>
-  </div>
-</section>
 
 <!-- ====================================================================== -->
 <!-- EVG                                                                    -->
@@ -1032,103 +917,6 @@ Pricing.kt</code></pre>
       <img src="assets/shots/evg-css.jpg" alt="An EVG dashboard beside the CSS that laid it out, with the live inspector open." loading="lazy" width="1280" height="720">
       <figcaption>The inspector: the live tree, the rules that matched, and the box that resulted — none of it DOM.</figcaption>
     </figure>
-  </div>
-</section>
-
-<!-- ====================================================================== -->
-<!-- Gallery                                                                -->
-<!-- ====================================================================== -->
-<section class="section section--dark" id="gallery">
-  <div class="wrap">
-    <p class="label reveal">Gallery</p>
-    <h2 class="display display--lg reveal">OK, Show me the code.</h2>
-    <p class="lead lead--wide reveal">
-      Every demo below is compiled from this repository's sources on every push, so what is
-      deployed is what the commit produces. No server does any of the work — the parsing,
-      the layout and the drawing all happen in the tab.
-    </p>
-
-    <div class="gal">
-      <a class="gal__item gal__item--wide reveal" href="figma/">
-        <figure>
-          <img src="assets/shots/figma.jpg" alt="A Figma export open in the Ranger Fig reader: three phone screens on a board beside a layer tree." loading="lazy" width="1440" height="900">
-          <figcaption>
-            <p class="label">figma/</p>
-            <h3>The Figma reader</h3>
-            <p>A real <code>.fig</code> export — ZIP → kiwi → node tree — parsed and drawn
-               by EVG, with the layer tree and the design panel beside it. Drop in another
-               file and it reads that one.</p>
-          </figcaption>
-        </figure>
-      </a>
-
-      <a class="gal__item reveal" href="rangerflow/">
-        <figure>
-          <img src="assets/shots/rangerflow.jpg" alt="RangerFlow drawing a database schema as an entity-relationship diagram." loading="lazy" width="1280" height="800">
-          <figcaption>
-            <p class="label">rangerflow/</p>
-            <h3>RangerFlow</h3>
-            <p>A <code>.sql</code> file turned into an ERD, UML, swimlanes — and a box you
-               paste Mermaid into. Its own reader, its own layered layout, drawn on the GPU.</p>
-          </figcaption>
-        </figure>
-      </a>
-
-      <a class="gal__item reveal" href="games/">
-        <figure>
-          <img src="assets/shots/game.jpg" alt="A pixel-art platformer running in the browser." loading="lazy" width="1280" height="640">
-          <figcaption>
-            <p class="label">games/</p>
-            <h3>The game engine</h3>
-            <p>One engine: in a tab over a virtual filesystem, on SDL2 with GLES2, or on a
-               Raspberry Pi. Edit a constant in the page and it hot-reloads.</p>
-          </figcaption>
-        </figure>
-      </a>
-
-      <a class="gal__item reveal" href="vela/">
-        <figure>
-          <img src="assets/shots/vela.jpg" alt="Six chart types rendered from Vega-Lite specifications." loading="lazy" width="900" height="1273">
-          <figcaption>
-            <p class="label">vela/</p>
-            <h3>Vela charts</h3>
-            <p>Paste a Vega or Vega-Lite specification. Compiler and renderer are both
-               Ranger, and the same chart comes out as SVG, WebGL, PNG and PDF — four back
-               ends over one scene.</p>
-          </figcaption>
-        </figure>
-      </a>
-
-      <a class="gal__item reveal" href="r5/">
-        <figure>
-          <img src="assets/shots/r5.jpg" alt="A markdown document beside its rendered page, with flowchart, sequence and class diagrams drawn on it." loading="lazy" width="1440" height="900">
-          <figcaption>
-            <p class="label">r5/ · markdown/</p>
-            <h3>The markdown reader</h3>
-            <p>A CommonMark parser written in Ranger, laid out by its own line breaker and
-               drawn on the GPU. <code>```mermaid</code> fences go through RangerFlow's reader
-               and land on the page as geometry rather than as pictures, and
-               <strong>Download PDF</strong> builds the file in the tab — sheets, page breaks,
-               embedded fonts, no server.</p>
-          </figcaption>
-        </figure>
-      </a>
-
-    </div>
-
-    <ul class="more reveal">
-      <li><a href="pptx/">PowerPoint</a><span>a deck parsed and drawn in the tab, open and ready to edit</span></li>
-      <li><a href="pptx-wasm/">…on WebAssembly</a><span>the same editor through C++ instead of JavaScript — two back ends, one page</span></li>
-      <li><a href="codegraph/">CodeGraph</a><span>the compiler's own front end walking <code>.rgr</code> files into a call graph</span></li>
-      <li><a href="markdown/">Markdown viewer</a><span>the same engine without the Ranger-written chrome around it</span></li>
-      <li><a href="rave/">Rave</a><span>routes, components and layers; design and run over one document</span></li>
-      <li><a href="rafi/">Rafi</a><span>the Fig reader with its chrome in Ranger, on one canvas</span></li>
-      <li><a href="firesim/">Firesim</a><span>Firestore and the Identity Toolkit, simulated, inside a tab</span></li>
-      <li><a href="ui/">UI kit</a><span>Radix-measured EVG controllers: dashboard, forms, calendar, menus — and Radix vs Ranger beside them</span></li>
-      <li><a href="evg/">EVG showcase</a><span>the layout engine's own pages, two themes, PDF and PNG and HTML from one source</span></li>
-      <li><a href="games/v2/">Game engine v2</a><span>the staged interpreter, 2D and live 3D guests</span></li>
-      <li><a href="https://github.com/terotests/Ranger/tree/master/gallery/datagrid">DataGrid</a><span>formulas, conditional formatting, charts and validation on the same engine</span></li>
-    </ul>
   </div>
 </section>
 
