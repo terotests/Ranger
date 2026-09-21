@@ -87,6 +87,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   OCR, `./evg-ui list`, `TASK.md`, empty `set-prop`). Those are
   now refused, an empty outline says `add card`, and four
   sightseeing tools in a row get a stall nudge.
+  `./evg-ui add` writes ops to `add.json` and answers with
+  `patch` — `--into` does not edit the file, and `read_file add.json`
+  is refused so the 3k ops stay off the prompt.
   `npm run livebuild:withgemini` checks the key and opens the
   page with Gemini selected. The orchestrator suite drives the loop against
   a fake fetch, so CI never spends Google credits.

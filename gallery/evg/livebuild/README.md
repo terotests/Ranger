@@ -127,6 +127,9 @@ sibling queries. Those replies now carry the match, the box, and
 turn — Gemini still wandered (second OCR, `./evg-ui list`,
 `read_file TASK.md`, `set-prop 0=column`) so the host now refuses
 those and an empty outline says `add card`.
+`./evg-ui add` prints ops — `--into` is the insert path, not an
+edit — so a successful add answers with `patch add.json` and does
+not put the ops back in the prompt.
 
 Each generateContent reply carries `usageMetadata`. The withgemini console
 prints that per turn and for the whole Follow-up — uncached input, cache
