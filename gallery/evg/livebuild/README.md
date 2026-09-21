@@ -96,6 +96,7 @@ To drive it with **Gemini Flash** over the network (no Cursor CLI):
 ```sh
 export GEMINI_API_KEY=…              # https://aistudio.google.com/apikey
 # export EVG_GEMINI_MODEL=gemini-3.8-flash   # default; any Flash id
+# export EVG_GEMINI_MAX_TURNS=64             # generateContent rounds per Follow-up
 npm run livebuild:withgemini
 # open http://127.0.0.1:8765/?agent=gemini
 ```
@@ -104,7 +105,9 @@ npm run livebuild:withgemini
 API key, not Vertex. `GOOGLE_API_KEY` is accepted if `GEMINI_API_KEY` is
 empty. The chip is also in the Agent row on `npm run livebuild:serve` whenever
 the key is set; withgemini only forces it on. Follow-up replays the Gemini
-conversation held in the session. Start-over chips drop it.
+conversation held in the session. Start-over chips drop it. One Follow-up
+stops after `EVG_GEMINI_MAX_TURNS` model rounds (64 unless you raise it) —
+that is the message `Gemini hit EVG_GEMINI_MAX_TURNS (N) without finishing`.
 
 Without a browser:
 

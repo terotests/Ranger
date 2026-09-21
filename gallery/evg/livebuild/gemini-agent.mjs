@@ -10,6 +10,7 @@
  *   GEMINI_API_KEY from Google AI Studio is enough.
  *   GOOGLE_API_KEY is accepted if GEMINI_API_KEY is empty.
  *   EVG_GEMINI_MODEL selects the Flash id (default gemini-3.8-flash).
+ *   EVG_GEMINI_MAX_TURNS is generateContent rounds per Follow-up (default 64).
  *
  * Stdout is the same `stream-json` shape Cursor already emits, so the
  * page's thinking panel and spend line work without a second parser.
@@ -24,7 +25,7 @@ export const DEFAULT_GEMINI_MODEL = "gemini-3.8-flash";
 export const DEFAULT_GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta";
 
 const TOOL_OUT_CAP = 24_000;
-const DEFAULT_MAX_TURNS = 24;
+export const DEFAULT_MAX_TURNS = 64;
 const DEFAULT_HISTORY_CHARS = 350_000;
 const RUN_TIMEOUT_MS = 90_000;
 
@@ -34,6 +35,11 @@ export function geminiKey(env = process.env) {
 
 export function geminiModel(env = process.env) {
   return String(env.EVG_GEMINI_MODEL || DEFAULT_GEMINI_MODEL).trim() || DEFAULT_GEMINI_MODEL;
+}
+
+export function geminiMaxTurns(env = process.env) {
+  const n = Number(env.EVG_GEMINI_MAX_TURNS || DEFAULT_MAX_TURNS);
+  return Math.max(1, Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_MAX_TURNS);
 }
 
 export function geminiBase(env = process.env) {
@@ -318,7 +324,7 @@ export async function geminiLoop({
   );
 
   const spend = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
-  const maxTurns = Math.max(1, Number(env.EVG_GEMINI_MAX_TURNS || DEFAULT_MAX_TURNS) || DEFAULT_MAX_TURNS);
+  const maxTurns = geminiMaxTurns(env);
   const started = Date.now();
   let turns = 0;
 

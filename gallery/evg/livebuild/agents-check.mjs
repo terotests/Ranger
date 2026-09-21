@@ -799,6 +799,48 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   });
   console.log("  gemini loop tool + history, thought signature kept, Follow-up continues");
 
+  {
+    const capWs = fs.mkdtempSync(path.join(os.tmpdir(), "evg-gemini-cap-"));
+    fs.writeFileSync(path.join(capWs, "TASK.md"), "never finish\n");
+    let n = 0;
+    const alwaysTool = async () => {
+      n += 1;
+      return {
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            candidates: [
+              {
+                content: {
+                  role: "model",
+                  parts: [{ functionCall: { name: "run", args: { command: "true" } } }],
+                },
+                finishReason: "STOP",
+              },
+            ],
+            usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1 },
+          }),
+      };
+    };
+    let hit = "";
+    try {
+      await geminiLoop({
+        workspace: capWs,
+        onEvent: () => {},
+        fetchImpl: alwaysTool,
+        env: { ...process.env, GEMINI_API_KEY: "test-livebuild-key", EVG_GEMINI_MAX_TURNS: "3" },
+      });
+    } catch (e) {
+      hit = String(e.message || e);
+    }
+    if (!/EVG_GEMINI_MAX_TURNS \(3\)/.test(hit)) {
+      throw new Error("the turn cap was not honoured: " + hit);
+    }
+    if (n !== 3) throw new Error("expected 3 API calls under a cap of 3, got " + n);
+    console.log("  gemini cap  EVG_GEMINI_MAX_TURNS=3 stops the loop");
+  }
+
   const session = resetSession("dashboard");
   fs.writeFileSync(path.join(session, GEMINI_HISTORY), JSON.stringify({ contents: [{ role: "user", parts: [{ text: "old" }] }] }));
   resetSession("dashboard");
