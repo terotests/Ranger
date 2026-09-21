@@ -31,31 +31,31 @@ def large (numbers.filter({ return (item > 3) }))   ; a type method
 
 ## Where the operators are
 
-`compiler/Lang.rgr` is the language definition. It holds the operators that
-every program can use. Ranger has no separate standard library.
+`compiler/Lang.rgr` is the language definition. It is the base of the operator
+set. Ranger has no separate standard library.
 
-The compiler reads `Lang.rgr` when it compiles a program. The file is not
-inside `bin/output.js`. A new operator in `Lang.rgr` is available on the next
-compile of the program.
+You can declare more library operators for the compiler in `Lang.rgr` and in
+imported files.
 
-A program can add more operators in two places: in `Lang.rgr`, and in a file
-that the program imports.
-
-| Source | When the compiler reads it |
+| Source | Role |
 | --- | --- |
-| `compiler/Lang.rgr` | Always. A copy in the working directory overrides the copy next to the compiler. |
-| `lib/stdops.rgr` | Always. The compiler loads it with `Lang.rgr`. |
-| An imported file | After `Import` in the program. `lib/stdlib.rgr`, `lib/JSON.rgr` and the other files in `lib/` are this kind of file. |
+| `compiler/Lang.rgr` | The language definition. Every program uses it. |
+| `lib/stdops.rgr` | Loaded with `Lang.rgr`. Macros and the `ret` operator. |
+| An imported file | Extra library operators after `Import`. `lib/stdlib.rgr` and `lib/JSON.rgr` are examples. |
 
-The [operator reference](/Ranger/docs/reference/operators/statements/) holds the
-operators of `Lang.rgr`. The
-[imported operator pages](/Ranger/docs/reference/libraries/stdlib/) hold the
-extra operators of one imported file.
+The [operator reference](/Ranger/docs/reference/operators/statements/) lists
+`Lang.rgr`. The [library operator pages](/Ranger/docs/reference/libraries/stdlib/)
+list imported files.
 
-## How to add an operator
+## Custom operators
 
-Write an `operators { }` block or an `operator type:` block in `Lang.rgr` or in
-a file that the program imports:
+A custom operator needs a new compiler. Compile the compiler again:
+
+```sh
+npm run compile
+```
+
+Declare the operator in `Lang.rgr` or in a file that the program imports:
 
 ```lisp
 operators {
@@ -65,15 +65,6 @@ operators {
         }
     }
 }
-```
-
-The compiler reads that block when it compiles the program.
-
-An operator in a compiler source other than `Lang.rgr` is part of the compiler
-program. That change needs a new compiler:
-
-```sh
-npm run compile
 ```
 
 ## A definition

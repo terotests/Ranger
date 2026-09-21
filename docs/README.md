@@ -50,8 +50,8 @@ compiler is not built.
 ## The two operator mechanisms
 
 Ranger has no separate standard library. `compiler/Lang.rgr` is the language
-definition. Extra operators can go in `Lang.rgr` or in an imported file. A
-block in a compiler source other than `Lang.rgr` needs `npm run compile`.
+definition. Extra library operators go in `Lang.rgr` or in an imported file.
+A custom operator needs `npm run compile`.
 
 | Mechanism | Where | Portability |
 | --- | --- | --- |
