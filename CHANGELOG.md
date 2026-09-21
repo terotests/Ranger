@@ -16,7 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `set-css`, and the picture brief names `./evg-ui add card|appbar|chips|tabbar`.
   Author classes `card` / `row` collapse the same way; a titled nested
   panel under the screen is inferred as `rave.Card`. `./evg-ui add tabbar`
-  is the four-tab bottom nav.
+  is the four-tab bottom nav. The system prompt now starts with a compact
+  **EXAMPLE_UI** JSON (AppBar, chips, Overview / Recent Orders,
+  `ui-tabbar`) plus the add/patch recipe. `add card` without `--row` is
+  refused. A picture Follow-up that outlines/queries/reads the SVG twice
+  is stopped on the third look.
 
 ### Added
 

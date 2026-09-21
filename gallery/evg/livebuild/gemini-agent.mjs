@@ -30,6 +30,83 @@ export const GEMINI_HISTORY = ".gemini-history.json";
 export const GEMINI_ONCE = ".gemini-once.json";
 export const ADD_CARD =
   './evg-ui add card --title "…" --row "Title|Sub|value:42" --into doc.evg.json > add.json';
+
+/** Compact ranger-ui the model should copy (change the words to the photo). */
+export const EXAMPLE_RANGER_UI = {
+  format: "ranger-ui",
+  version: 2,
+  components: {
+    "rave.AppBar": { library: "@rave/core", version: "2" },
+    "rave.Card": { library: "@rave/core", version: "2" },
+    "rave.Chip": { library: "@rave/core", version: "2" },
+    SettingsRow: { library: "@rave/settings", version: "1" },
+  },
+  ui: {
+    type: "Screen",
+    class: "sky",
+    children: [
+      { type: "rave.AppBar", props: { title: "Home" } },
+      {
+        type: "rave.Card",
+        children: [
+          { type: "rave.Chip", props: { label: "Analytics" } },
+          { type: "rave.Chip", props: { label: "Customers" } },
+          { type: "rave.Chip", props: { label: "Orders" } },
+          { type: "rave.Chip", props: { label: "Tasks" } },
+        ],
+      },
+      {
+        type: "rave.Card",
+        props: { title: "Overview" },
+        children: [
+          { type: "SettingsRow", props: { label: "Total Revenue", sub: "Monthly earnings", value: "$32,575" } },
+          { type: "SettingsRow", props: { label: "Orders", sub: "Completed this month", value: "$20,590" } },
+          { type: "SettingsRow", props: { label: "Sales Target", sub: "82% of goal", value: "$17,105" } },
+        ],
+      },
+      {
+        type: "rave.Card",
+        props: { title: "Recent Orders" },
+        children: [
+          { type: "SettingsRow", props: { label: "Daniel Wellington Classic", sub: "Watch · Delivered", value: "$189" } },
+          { type: "SettingsRow", props: { label: "Skater Dress", sub: "Clothing · In Transit", value: "$65" } },
+        ],
+      },
+      {
+        type: "evg.div",
+        class: "ui-tabbar",
+        children: [
+          { type: "evg.div", id: "nav.home", class: "ui-tab-item", children: [{ type: "evg.span", class: "ui-tab-label active", text: "Home" }] },
+          { type: "evg.div", id: "nav.orders", class: "ui-tab-item", children: [{ type: "evg.span", class: "ui-tab-label", text: "Orders" }] },
+          { type: "evg.div", id: "nav.analytics", class: "ui-tab-item", children: [{ type: "evg.span", class: "ui-tab-label", text: "Analytics" }] },
+          { type: "evg.div", id: "nav.settings", class: "ui-tab-item", children: [{ type: "evg.span", class: "ui-tab-label", text: "Settings" }] },
+        ],
+      },
+    ],
+  },
+};
+
+export const EXAMPLE_ADD_RECIPE = [
+  './evg-ui add appbar --title "Home" --into doc.evg.json > add.json',
+  "./evg-agent patch doc.evg.json add.json",
+  './evg-ui add chips --chip "Analytics|•|" --chip "Customers|•|" --chip "Orders|•|" --chip "Tasks|•|" --into doc.evg.json > add.json',
+  "./evg-agent patch doc.evg.json add.json",
+  './evg-ui add card --title "Overview" --row "Total Revenue|Monthly earnings|value:$32,575" --row "Orders|Completed this month|value:$20,590" --row "Sales Target|82% of goal|value:$17,105" --into doc.evg.json > add.json',
+  "./evg-agent patch doc.evg.json add.json",
+  './evg-ui add tabbar --tab "Home|⌂|nav.home" --tab "Orders|☰|nav.orders" --tab "Analytics|◈|nav.analytics" --tab "Settings|⚙|nav.settings" --active nav.home --into doc.evg.json > add.json',
+  "./evg-agent patch doc.evg.json add.json",
+].join("\n");
+
+export function exampleUiBlock() {
+  return [
+    "EXAMPLE_UI — Export must look like this JSON (change the words to the photo/ask, keep rave.AppBar / rave.Card / rave.Chip / SettingsRow / ui-tabbar):",
+    JSON.stringify(EXAMPLE_RANGER_UI),
+    "Build it with these commands (add, then patch, then the next). Never add card without --row:",
+    EXAMPLE_ADD_RECIPE,
+  ].join("\n");
+}
+
+export const EXPLORE_STREAK_CAP = 2;
 export const DEFAULT_GEMINI_MODEL = "gemini-3.8-flash";
 export const DEFAULT_GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta";
 
@@ -289,7 +366,9 @@ export const GEMINI_TOOLS = [
 export function geminiSystemPrompt() {
   return `You edit the live document in this folder. TASK.md is the ask (it names the size). AGENTS.md is the guide.
 
-Start with ./evg-agent outline doc.evg.json. The outline is the screen. Do not OCR or write ops before you have it. A Follow-up that says continue / jatka means keep patching this doc — do not start over.
+${exampleUiBlock()}
+
+ONE outline, then add FILLED pieces like EXAMPLE_UI — change the words to the photo/ask. An add card without --row is an empty box; do not query it. A Follow-up that says continue / jatka means keep patching this doc — do not start over.
 
 A picture is a PHOTO of any UI, not the UI:
 - The first turn already has the pixels, the vectorized SVG, the palette and OCR. Rebuild what you see.
@@ -344,7 +423,7 @@ export const PLAN_NUDGE =
 export const STALL_NUDGE =
   `Stop exploring. Next tool is ${ADD_CARD} then ./evg-agent patch doc.evg.json add.json. Not ocr, not image_info, not list, not TASK.md.`;
 export const PICTURE_STALL_NUDGE =
-  "You already saw the photo. Rebuild what you see — ./evg-ui add card (ui-card), do not wipe or insert unnamed divs. image_info if you need the pixels again.";
+  "You already saw the photo. Copy EXAMPLE_UI types (rave.AppBar, rave.Card, SettingsRow, ui-tabbar) and change the words. NEXT: a FILLED ./evg-ui add card --title … --row … then patch. Not outline, not query, not svg.";
 export const SVG_BRIEF_CAP = 8_000;
 export const IMAGE_INLINE_MAX = 3_500_000;
 
@@ -751,10 +830,10 @@ export function pendingOpsFile(workspace) {
 }
 
 export function isSightseeingCall(name, rawArgs) {
-  if (name === "list_dir") return true;
+  if (name === "list_dir" || name === "image_info" || name === "ocr") return true;
   if (name === "read_file") {
     const p = String((rawArgs && rawArgs.path) || "");
-    return /TASK\.md|AGENTS\.md|add\.json|ops.*\.json/i.test(p);
+    return /TASK\.md|AGENTS\.md|add\.json|ops.*\.json|attachment\.(svg|png|jpg|jpeg|webp|json)/i.test(p);
   }
   if (name === "run") {
     const c = String((rawArgs && rawArgs.command) || "");
@@ -762,6 +841,69 @@ export function isSightseeingCall(name, rawArgs) {
     if (/\boutline\b/.test(c) || /\bquery\b/.test(c)) return true;
   }
   return false;
+}
+
+export function exploreStreakOf(workspace) {
+  return Number(loadOnce(workspace).exploreStreak) || 0;
+}
+
+export function bumpExplore(workspace, sightseeing) {
+  if (!workspace || !hasPicture(workspace)) return 0;
+  const streak = sightseeing ? exploreStreakOf(workspace) + 1 : 0;
+  saveOnce(workspace, { exploreStreak: streak });
+  return streak;
+}
+
+/** Outline/query/svg in a row — the picture-rebuild stall. Palette/OCR have their own once-guards. */
+export function isLoopCall(name, rawArgs) {
+  if (name === "list_dir") return true;
+  if (name === "read_file") {
+    const p = String((rawArgs && rawArgs.path) || "");
+    return /attachment\.(svg|png|jpg|jpeg|webp)|TASK\.md|AGENTS\.md/i.test(p);
+  }
+  if (name === "run") {
+    const c = String((rawArgs && rawArgs.command) || "");
+    return /\boutline\b/.test(c) || /\bquery\b/.test(c);
+  }
+  return false;
+}
+
+export function denyExplore(workspace, name, rawArgs) {
+  if (!workspace || !hasPicture(workspace) || !isLoopCall(name, rawArgs)) return "";
+  if (exploreStreakOf(workspace) < EXPLORE_STREAK_CAP) return "";
+  return `already looked. NEXT is a FILLED piece like EXAMPLE_UI: ${ADD_CARD} then patch. Not outline, not query, not image_info, not svg.`;
+}
+
+function insertLooksEmptyPiece(node) {
+  if (!node || typeof node !== "object") return false;
+  const kids = Array.isArray(node.children) ? node.children : [];
+  const cls = nodePieceClass(node);
+  if (/ui-card/.test(cls)) {
+    return !kids.some(
+      (k) =>
+        k &&
+        (k.text ||
+          (Array.isArray(k.children) && k.children.length) ||
+          /ui-row|ui-card-title/.test(nodePieceClass(k))),
+    );
+  }
+  if (/ui-appbar/.test(cls)) {
+    return !kids.some((k) => /ui-appbar-title/.test(nodePieceClass(k)) && (k.text || k.textContent));
+  }
+  return false;
+}
+
+export function pendingOpsHint(workspace, name) {
+  try {
+    const j = JSON.parse(fs.readFileSync(path.join(workspace, name), "utf8"));
+    const insert = (j.ops || []).find((o) => o && o.op === "insert");
+    if (insert && insertLooksEmptyPiece(insert.node)) {
+      return `${name} is an empty ${nodePieceClass(insert.node) || "box"} — do not patch it. ${ADD_CARD} with --row, then patch.`;
+    }
+  } catch {
+    /* parse */
+  }
+  return `${name} is on disk — ./evg-agent patch doc.evg.json ${name}. Do not read_file it.`;
 }
 
 export function recentSightseeing(contents, n = 4) {
@@ -1080,6 +1222,7 @@ export function collectPictureBrief(workspace, env = process.env) {
     "A photo is attached (pixels + vectorized SVG). Rebuild what you see — any UI, not a guessed template.",
     "EVG is HTML flex/grid: display:flex + flex-direction:column|row + gap, or display:grid + grid-template-columns:1fr 1fr. Not left/top.",
     "Pieces: ./evg-ui add card|appbar|chips|tabbar (ui-card / ui-appbar / ui-chip / ui-tabbar). Do not insert unnamed div trees — Export needs those classes for rave.Card.",
+    "Copy EXAMPLE_UI from the system prompt (rave.AppBar, rave.Card, rave.Chip, SettingsRow, ui-tabbar). Change the words to this photo. ONE outline, then add FILLED cards (--title and --row). Empty ui-card is a failed turn.",
   ];
   let att = null;
   try {
@@ -1322,6 +1465,23 @@ export function parseRun(command) {
     if (verb !== "add") {
       return { error: `./evg-ui only add — ${ADD_CARD}` };
     }
+    const what = argv[1] || "";
+    const joined = argv.join(" ");
+    if (what === "card" && !/--row\b/.test(joined)) {
+      return {
+        error:
+          'add card needs --row "Label|Sub|value:42" and --title. An empty ui-card is not a card — look at EXAMPLE_UI.',
+      };
+    }
+    if (what === "appbar" && !/--title\b/.test(joined)) {
+      return { error: 'add appbar needs --title "Home" (EXAMPLE_UI).' };
+    }
+    if (what === "chips" && !/--chip\b/.test(joined)) {
+      return { error: 'add chips needs --chip "Analytics|•|".' };
+    }
+    if (what === "tabbar" && !/--tab\b/.test(joined)) {
+      return { error: 'add tabbar needs --tab "Home|⌂|nav.home".' };
+    }
   }
   if (stdoutTo) {
     if (stdoutTo.startsWith("/") || stdoutTo.includes("..")) {
@@ -1343,18 +1503,21 @@ export function denyRun(command) {
 export function executeTool(workspace, name, rawArgs, env = process.env) {
   const args = argsOf({ args: rawArgs });
   try {
+    const exploring = denyExplore(workspace, name, args);
+    if (exploring) return { error: exploring };
     if (name === "run") {
       const command = String(args.command || "").trim();
       if (!command) return { error: "run needs a command" };
       const blocked = denyRun(command);
       if (blocked) return { error: blocked };
       const result = spawnRun(workspace, command, env);
+      bumpExplore(workspace, isLoopCall(name, args));
       if (/\boutline\b/.test(command) && result && result.ok) {
         const pending = pendingOpsFile(workspace);
         if (pending) {
           return {
             ...result,
-            hint: `${pending} is on disk — ./evg-agent patch doc.evg.json ${pending}. Do not read_file it.`,
+            hint: pendingOpsHint(workspace, pending),
           };
         }
         const lines = String(result.stdout || "")
@@ -1390,8 +1553,14 @@ export function executeTool(workspace, name, rawArgs, env = process.env) {
         };
       }
       if (/\.svg$/i.test(rel)) {
+        if (loadOnce(workspace).svgRead) {
+          return { error: `SVG already in the first ask / last read. NEXT: ${ADD_CARD} then patch. Not another svg.` };
+        }
+        saveOnce(workspace, { svgRead: true });
+        bumpExplore(workspace, true);
         return { path: rel, bytes: raw.length, contents: clip(raw, 16_000) };
       }
+      bumpExplore(workspace, isLoopCall(name, args));
       if (/\.evg\.json$/i.test(rel) && raw.length > 1_500) {
         return {
           path: rel,
@@ -1422,10 +1591,16 @@ export function executeTool(workspace, name, rawArgs, env = process.env) {
       const file = resolveInWorkspace(workspace, args.path);
       fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.writeFileSync(file, contents, "utf8");
+      bumpExplore(workspace, false);
       return { ok: true, path: String(args.path), bytes: contents.length };
     }
-    if (name === "list_dir") return listDir(workspace, args.path);
-    if (name === "image_info") return imageInfo(workspace, args.path);
+    if (name === "list_dir") {
+      bumpExplore(workspace, true);
+      return listDir(workspace, args.path);
+    }
+    if (name === "image_info") {
+      return imageInfo(workspace, args.path);
+    }
     if (name === "ocr") {
       const once = loadOnce(workspace);
       if (once.ocr && once.ocrText) {
@@ -1636,6 +1811,8 @@ export function summarizeOutline(raw) {
   }
   if (lines.length <= 1) {
     line += ` — empty seed, not done. Next: ${ADD_CARD} then ./evg-agent patch doc.evg.json add.json`;
+  } else if (lines.some((l) => /\.ui-card\b/.test(l) && !/"/.test(l))) {
+    line += ` — empty card. Next: ${ADD_CARD}`;
   }
   return clipOneLine(line, 520);
 }

@@ -50,6 +50,9 @@ import {
   OPS_WRITE_CAP,
   recentSightseeing,
   isSightseeingCall,
+  EXAMPLE_RANGER_UI,
+  exampleUiBlock,
+  denyExplore,
 } from "./gemini-agent.mjs";
 import http from "node:http";
 
@@ -961,8 +964,11 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   if (!denyRun("./evg-ui list") || !/add/.test(denyRun("./evg-ui list"))) {
     throw new Error("./evg-ui list must be denied: " + denyRun("./evg-ui list"));
   }
-  if (denyRun("./evg-ui add card --title T --into doc.evg.json > add.json")) {
-    throw new Error("add card must stay allowed: " + denyRun("./evg-ui add card --title T --into doc.evg.json > add.json"));
+  if (denyRun("./evg-ui add card --title T --row \"A|B|value:1\" --into doc.evg.json > add.json")) {
+    throw new Error("add card must stay allowed: " + denyRun("./evg-ui add card --title T --row \"A|B|value:1\" --into doc.evg.json > add.json"));
+  }
+  if (!denyRun("./evg-ui add card --title T --into doc.evg.json") || !/--row/.test(denyRun("./evg-ui add card --title T --into doc.evg.json"))) {
+    throw new Error("add card without --row must be refused: " + denyRun("./evg-ui add card --title T --into doc.evg.json"));
   }
   const emptyProp = summarizeTool("run", { command: "./evg-agent patch doc.evg.json ops.json" }, {
     ok: false,
@@ -1006,7 +1012,7 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
     "#!/bin/sh\nprintf '{\"ops\":[{\"op\":\"set-text\",\"at\":\"0\",\"value\":\"n\"}]}\\n'\n",
     { mode: 0o755 },
   );
-  const added = executeTool(ws, "run", { command: "./evg-ui add card --title T --into doc.evg.json > add-card.json" }, {
+  const added = executeTool(ws, "run", { command: "./evg-ui add card --title T --row \"A|B|value:1\" --into doc.evg.json > add-card.json" }, {
     ...process.env,
     EVG_GEMINI_SANDBOX: "host",
   });
@@ -1020,7 +1026,7 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   if (!fs.existsSync(path.join(ws, "add-card.json")) || !/"op"/.test(fs.readFileSync(path.join(ws, "add-card.json"), "utf8"))) {
     throw new Error("add must still write the ops file");
   }
-  const addedBare = executeTool(ws, "run", { command: "./evg-ui add card --title T --into doc.evg.json" }, {
+  const addedBare = executeTool(ws, "run", { command: "./evg-ui add card --title T --row \"A|B|value:1\" --into doc.evg.json" }, {
     ...process.env,
     EVG_GEMINI_SANDBOX: "host",
   });
@@ -1030,13 +1036,16 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   if (!fs.existsSync(path.join(ws, "add.json"))) {
     throw new Error("bare add should write add.json for the next patch");
   }
-  if (isSightseeingCall("ocr", {}) || isSightseeingCall("image_info", {})) {
-    throw new Error("asking for the photo again is not sightseeing");
+  if (!isSightseeingCall("ocr", {}) || !isSightseeingCall("image_info", {})) {
+    throw new Error("repeat photo tools must count as sightseeing");
+  }
+  if (!isSightseeingCall("read_file", { path: "attachment.svg" })) {
+    throw new Error("attachment.svg must count as sightseeing");
   }
   if (!isSightseeingCall("run", { command: "./evg-agent outline doc.evg.json" })) {
     throw new Error("outline must still count as sightseeing");
   }
-  if (isSightseeingCall("run", { command: "./evg-ui add card --title T --into doc.evg.json" })) {
+  if (isSightseeingCall("run", { command: "./evg-ui add card --title T --row \"A|B|value:1\" --into doc.evg.json" })) {
     throw new Error("add card must not count as sightseeing");
   }
   const stallHist = [
@@ -1051,8 +1060,8 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   if (!STALL_NUDGE.includes("add card") || !ADD_CARD.includes("add card")) {
     throw new Error("stall nudge must name add card");
   }
-  if (!/photo/.test(PICTURE_STALL_NUDGE) || !/what you see/.test(PICTURE_STALL_NUDGE)) {
-    throw new Error("a picture stall must point at the photo: " + PICTURE_STALL_NUDGE);
+  if (!/photo/.test(PICTURE_STALL_NUDGE) || !/EXAMPLE_UI/.test(PICTURE_STALL_NUDGE) || !/FILLED/.test(PICTURE_STALL_NUDGE)) {
+    throw new Error("a picture stall must point at EXAMPLE_UI: " + PICTURE_STALL_NUDGE);
   }
   const picWs = fs.mkdtempSync(path.join(os.tmpdir(), "evg-pic-"));
   fs.writeFileSync(
@@ -1079,6 +1088,9 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   if (!/ui-card/.test(brief) || !/tabbar/.test(brief) || !/unnamed div/.test(brief)) {
     throw new Error("picture brief must name kit pieces so Export can collapse: " + brief);
   }
+  if (!/EXAMPLE_UI/.test(brief) || !/SettingsRow/.test(brief) || !/FILLED/.test(brief)) {
+    throw new Error("picture brief must point at EXAMPLE_UI: " + brief);
+  }
   const roles = paletteRoles([
     { hex: "#23252B", share: 0.48 },
     { hex: "#17181C", share: 0.31 },
@@ -1093,6 +1105,31 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   }
   if (!fs.existsSync(path.join(picWs, "PICTURE.md"))) {
     throw new Error("collectPictureBrief should write PICTURE.md");
+  }
+  if (EXAMPLE_RANGER_UI.ui.children[0].type !== "rave.AppBar" || !exampleUiBlock().includes("Total Revenue")) {
+    throw new Error("EXAMPLE_UI must be an AppBar + Card + SettingsRow screen");
+  }
+  fs.writeFileSync(path.join(picWs, ".gemini-once.json"), JSON.stringify({ exploreStreak: 2 }) + "\n");
+  const blockedOutline = denyExplore(picWs, "run", { command: "./evg-agent outline doc.evg.json" });
+  if (!blockedOutline || !/EXAMPLE_UI/.test(blockedOutline) || !/FILLED/.test(blockedOutline)) {
+    throw new Error("a third explore on a picture must name EXAMPLE_UI: " + blockedOutline);
+  }
+  if (denyExplore(picWs, "run", { command: "./evg-ui add card --title T --row \"A|B|value:1\" --into doc.evg.json" })) {
+    throw new Error("add card must not hit the explore cap");
+  }
+  fs.writeFileSync(path.join(picWs, ".gemini-once.json"), JSON.stringify({ exploreStreak: 0 }) + "\n");
+  const svgOnce = executeTool(picWs, "read_file", { path: "attachment.svg" });
+  if (svgOnce.error) throw new Error("first svg read should work: " + JSON.stringify(svgOnce));
+  const svgTwice = executeTool(picWs, "read_file", { path: "attachment.svg" });
+  if (!svgTwice.error || !/already/.test(svgTwice.error)) {
+    throw new Error("second svg read must be refused: " + JSON.stringify(svgTwice));
+  }
+  const emptyCardOutline = summarizeOutline(`0                     div
+0/0                   div .ui-appbar
+0/1                   div .ui-card
+`);
+  if (!/empty card/.test(emptyCardOutline) || !/add card/.test(emptyCardOutline)) {
+    throw new Error("an empty ui-card outline must say add --row: " + emptyCardOutline);
   }
   const tiny = Buffer.alloc(24);
   tiny[0] = 0x89;
@@ -1347,6 +1384,10 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
     "set-css",
     "ui-card",
     "tabbar",
+    "EXAMPLE_UI",
+    "rave.AppBar",
+    "SettingsRow",
+    "Total Revenue",
   ]) {
     if (!prompt.includes(need)) throw new Error("gemini system prompt missing " + need);
   }

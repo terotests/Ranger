@@ -139,7 +139,12 @@ Pieces are `./evg-ui add card|appbar|chips|tabbar` — those write
 `ui-card` / `ui-appbar` / `ui-chip` / `ui-tabbar` so **Export** collapses
 to `rave.Card` / `rave.AppBar` / `rave.Chip` / `SettingsRow`. A hand
 `insert` of an unnamed `div` tree is refused (box soup). `set-css` is
-allowed and replaces the sheet.
+allowed and replaces the sheet. The system prompt starts with a compact
+**EXAMPLE_UI** (AppBar, chips, Overview card, tabbar) and the `./evg-ui`
+recipe that builds it — Gemini copies those types and changes the words
+to the photo. An `add card` without `--row` is refused. After two
+outline/query/svg looks on a picture Follow-up the host refuses the
+third and names the filled add.
 
 Each generateContent reply carries `usageMetadata`. The withgemini console
 prints that per turn and for the whole Follow-up — uncached input, cache
