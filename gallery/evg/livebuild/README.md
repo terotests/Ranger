@@ -112,9 +112,20 @@ that is the message `Gemini hit EVG_GEMINI_MAX_TURNS (N) without finishing`.
 
 `run` is not a host shell. Gemini proposes a line; this process splits it
 into argv and will only exec `./evg-agent`, `./evg-ui`, `./evg-app` or
-`./evg-image`. python / tesseract / `sips` / `/tmp` never start. Docker is
-opt-in (`EVG_GEMINI_SANDBOX=docker`): same argv, `node:22-bookworm-slim`,
-`--network none`, repo read-only.
+`./evg-image`. python / tesseract / `sips` / `/tmp` never start that way.
+The services Gemini actually needed are host tools instead — MCP-style,
+not a shell:
+
+| tool | what it is for |
+| --- | --- |
+| `list_dir` | files in the workspace (hidden names omitted) |
+| `image_info` | `attachment.json` palette, or width × height from an image header |
+| `ocr` | Tesseract on `attachment.png` (or another workspace image). `TESSERACT_PATH` if the binary is not on `PATH` |
+
+`read_file` will not open `.gemini-history.json` or compiled `evg_*.js`.
+Docker is opt-in (`EVG_GEMINI_SANDBOX=docker`): same four `run` binaries,
+`node:22-bookworm-slim`, `--network none`, repo read-only. `ocr` stays on
+the host — the slim image has no Tesseract.
 
 Without a browser:
 

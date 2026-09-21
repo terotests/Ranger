@@ -743,6 +743,101 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   }
   console.log("  gemini run  filtered argv, no shell; docker has no net, repo ro");
 
+  fs.mkdirSync(path.join(ws, "shots"));
+  fs.writeFileSync(path.join(ws, ".hidden"), "nope\n");
+  fs.writeFileSync(path.join(ws, GEMINI_HISTORY), JSON.stringify({ contents: [] }));
+  fs.writeFileSync(path.join(ws, "evg_agent.js"), "/* compiled */\n");
+  const listed = executeTool(ws, "list_dir", {});
+  const names = (listed.entries || []).map((e) => e.name);
+  if (names.includes(".hidden") || names.includes(GEMINI_HISTORY)) {
+    throw new Error("list_dir must omit hidden files: " + names.join(","));
+  }
+  if (!names.includes("doc.evg.json") || !names.includes("shots")) {
+    throw new Error("list_dir missed workspace files: " + names.join(","));
+  }
+  if ((listed.entries || []).find((e) => e.name === "shots")?.kind !== "dir") {
+    throw new Error("list_dir should mark shots as a dir");
+  }
+  const histRead = executeTool(ws, "read_file", { path: GEMINI_HISTORY });
+  if (!histRead.error || !/conversation log/.test(histRead.error)) {
+    throw new Error("read_file must refuse the conversation log: " + JSON.stringify(histRead));
+  }
+  const js = executeTool(ws, "read_file", { path: "evg_agent.js" });
+  if (!js.error || !/compiled tool/.test(js.error)) {
+    throw new Error("read_file must refuse compiled JS: " + JSON.stringify(js));
+  }
+  const histWrite = executeTool(ws, "write_file", { path: GEMINI_HISTORY, contents: "nope" });
+  if (!histWrite.error || !/conversation log/.test(histWrite.error)) {
+    throw new Error("write_file must refuse the conversation log: " + JSON.stringify(histWrite));
+  }
+  fs.writeFileSync(
+    path.join(ws, "attachment.json"),
+    JSON.stringify({
+      width: 320,
+      height: 221,
+      layers: 8,
+      colors: [{ hex: "#E3C8A6", share: 0.223 }],
+    }),
+  );
+  const palette = executeTool(ws, "image_info", {});
+  if (palette.kind !== "palette" || palette.colors?.[0]?.hex !== "#E3C8A6") {
+    throw new Error("image_info should return the traced palette: " + JSON.stringify(palette));
+  }
+  const png = Buffer.alloc(24);
+  png[0] = 0x89;
+  png[1] = 0x50;
+  png[2] = 0x4e;
+  png[3] = 0x47;
+  png[4] = 0x0d;
+  png[5] = 0x0a;
+  png[6] = 0x1a;
+  png[7] = 0x0a;
+  png.writeUInt32BE(13, 8);
+  png.write("IHDR", 12);
+  png.writeUInt32BE(390, 16);
+  png.writeUInt32BE(844, 20);
+  fs.writeFileSync(path.join(ws, "attachment.png"), png);
+  const size = executeTool(ws, "image_info", { path: "attachment.png" });
+  if (size.kind !== "png" || size.width !== 390 || size.height !== 844) {
+    throw new Error("image_info should read the PNG header: " + JSON.stringify(size));
+  }
+  const ocrLeave = executeTool(ws, "ocr", { path: "../etc/passwd" });
+  if (!ocrLeave.error || !/leaves the workspace/.test(ocrLeave.error)) {
+    throw new Error("ocr must stay in the workspace: " + JSON.stringify(ocrLeave));
+  }
+  const ocrJson = executeTool(ws, "ocr", { path: "attachment.json" });
+  if (!ocrJson.error || !/only reads images/.test(ocrJson.error)) {
+    throw new Error("ocr must refuse a JSON file: " + JSON.stringify(ocrJson));
+  }
+  const missingBin = executeTool(ws, "ocr", { path: "attachment.png" }, {
+    ...process.env,
+    TESSERACT_PATH: path.join(ws, "no-such-tesseract"),
+  });
+  if (!missingBin.error || !/not installed/.test(missingBin.error)) {
+    throw new Error("ocr should name a missing tesseract: " + JSON.stringify(missingBin));
+  }
+  const tess = path.join(ws, "fake-tesseract");
+  fs.writeFileSync(
+    tess,
+    "#!/usr/bin/env node\nprocess.stdout.write('Follow up\\nSettings\\n');\n",
+    { mode: 0o755 },
+  );
+  const ocred = executeTool(ws, "ocr", { path: "attachment.png", psm: 6 }, {
+    ...process.env,
+    TESSERACT_PATH: tess,
+  });
+  if (ocred.error || !/Follow up/.test(ocred.text || "")) {
+    throw new Error("ocr stub should return text: " + JSON.stringify(ocred));
+  }
+  if (ocred.path !== "attachment.png" || ocred.lang !== "eng") {
+    throw new Error("ocr should echo path and lang: " + JSON.stringify(ocred));
+  }
+  const ocrDefault = executeTool(ws, "ocr", {}, { ...process.env, TESSERACT_PATH: tess });
+  if (ocrDefault.path !== "attachment.png") {
+    throw new Error("ocr should default to attachment.png: " + JSON.stringify(ocrDefault));
+  }
+  console.log("  gemini host list_dir / image_info / ocr; archaeology reads refused");
+
   const requests = [];
   let calls = 0;
   const fetchImpl = async (url, opts) => {
@@ -755,7 +850,7 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
         throw new Error("API key was not sent as x-goog-api-key");
       }
       const decls = (((body.tools || [])[0] || {}).functionDeclarations || []).map((t) => t.name);
-      for (const need of ["run", "read_file", "write_file"]) {
+      for (const need of ["run", "read_file", "write_file", "list_dir", "image_info", "ocr"]) {
         if (!decls.includes(need)) throw new Error("Gemini tools missing " + need);
       }
       return {

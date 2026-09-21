@@ -1,6 +1,7 @@
 # Gemini's `run` tool. Node is here so the workspace shims
 # (./evg-agent, ./evg-ui, ./evg-app, ./evg-image) can start.
-# python3, tesseract, imagemagick, sips — not in this image, on purpose.
+# python3, imagemagick, sips — not in this image, on purpose.
+# Tesseract is a host tool (`ocr`), not something `run` execs in here.
 #
 #   docker build -t ranger-livebuild-gemini -f gallery/evg/livebuild/Dockerfile.gemini gallery/evg/livebuild
 #   export EVG_GEMINI_DOCKER_IMAGE=ranger-livebuild-gemini

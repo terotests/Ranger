@@ -13,6 +13,9 @@
  *   EVG_GEMINI_MAX_TURNS is generateContent rounds per Follow-up (default 64).
  *   EVG_GEMINI_SANDBOX=docker|host — `run` is argv against four tools,
  *   never a shell. Docker is opt-in.
+ *   Host tools (MCP-style, not a shell): list_dir, image_info, ocr.
+ *   ocr is Tesseract on a workspace image (TESSERACT_PATH). It never
+ *   goes through `run`.
  *
  * Stdout is the same `stream-json` shape Cursor already emits, so the
  * page's thinking panel and spend line work without a second parser.
@@ -215,6 +218,40 @@ export const GEMINI_TOOLS = [
       required: ["path", "contents"],
     },
   },
+  {
+    name: "list_dir",
+    description: "List files in a workspace folder. Default is the workspace root. Hidden files are omitted.",
+    parameters: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Relative directory, default ." },
+      },
+    },
+  },
+  {
+    name: "image_info",
+    description:
+      "What the host already knows about a picture: attachment.json palette after a trace, or the size of an image file. Use this instead of sampling pixels in Python.",
+    parameters: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Relative image or attachment.json. Default attachment.json." },
+      },
+    },
+  },
+  {
+    name: "ocr",
+    description:
+      "Read printed text out of a workspace image with Tesseract. Default path is attachment.png (or .jpg). Use this for a screenshot's labels — do not crop BMPs or call tesseract via run.",
+    parameters: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Relative png/jpg/webp/tif/bmp. Default attachment.png." },
+        psm: { type: "integer", description: "Tesseract page segmentation 0–13. Default 6 (block of text)." },
+        lang: { type: "string", description: "Tesseract language, default eng." },
+      },
+    },
+  },
 ];
 
 export function geminiSystemPrompt() {
@@ -228,9 +265,13 @@ The loop:
 3. ./evg-agent measure doc.evg.json --width=390 --height=844
 Fix findings. count:0 is the goal. After a save, layout.json has the same numbers.
 
-run may only invoke ./evg-agent, ./evg-ui, ./evg-app, ./evg-image — the host parses argv and refuses everything else. Use read_file and write_file for files. Do not python, tesseract, sips, git, or write /tmp. Do not OCR a screenshot — the document and measure are the picture.
+Host tools (call these — do not reinvent them with python or a shell):
+- run: ./evg-agent, ./evg-ui, ./evg-app, ./evg-image only
+- read_file / write_file / list_dir
+- image_info: the attached picture's palette (attachment.json)
+- ocr: Tesseract on attachment.png (or another workspace image)
 
-Stay in this folder. Edit the live document in place. Do not replace it with a blank page unless the task says to start over. When the screen is right, stop — do not keep calling tools.`;
+Do not git, do not read evg_agent.js, do not write /tmp, do not sips or hand-roll BMP crops. When the screen is right, stop.`;
 }
 
 function clip(text, cap = TOOL_OUT_CAP) {
@@ -261,6 +302,183 @@ export function argsOf(fc) {
 }
 
 export const RUN_BINS = ["./evg-agent", "./evg-ui", "./evg-app", "./evg-image"];
+export const IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".webp", ".tif", ".tiff", ".bmp", ".gif"]);
+const OCR_DEFAULTS = ["attachment.png", "attachment.jpg", "attachment.jpeg", "attachment.webp"];
+
+export function tesseractBin(env = process.env) {
+  return String(env.TESSERACT_PATH || env.EVG_TESSERACT || "tesseract").trim() || "tesseract";
+}
+
+/** Compiled tool sources and the conversation log are not part of the phone. */
+export function denyRead(rel) {
+  const name = path.basename(String(rel || ""));
+  if (name === GEMINI_HISTORY) return "read_file will not open the conversation log";
+  if (/^evg[_-].+\.js$/i.test(name)) {
+    return "read_file will not open compiled tool sources — call ./evg-agent, do not read the JS";
+  }
+  return "";
+}
+
+export function denyWrite(rel) {
+  const name = path.basename(String(rel || ""));
+  if (name === GEMINI_HISTORY) return "write_file will not overwrite the conversation log";
+  return "";
+}
+
+function defaultOcrPath(workspace) {
+  for (const name of OCR_DEFAULTS) {
+    if (fs.existsSync(path.join(workspace, name))) return name;
+  }
+  return OCR_DEFAULTS[0];
+}
+
+/**
+ * Width/height from a header. No decoder, no pixels — the thing Gemini
+ * tried to invent with Python + BMP crops.
+ */
+export function imageHeader(buf) {
+  const b = Buffer.isBuffer(buf) ? buf : Buffer.from(buf || []);
+  if (b.length >= 24 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) {
+    return { kind: "png", width: b.readUInt32BE(16), height: b.readUInt32BE(20) };
+  }
+  if (b.length >= 4 && b[0] === 0xff && b[1] === 0xd8) {
+    let i = 2;
+    while (i + 9 < b.length) {
+      if (b[i] !== 0xff) {
+        i += 1;
+        continue;
+      }
+      const marker = b[i + 1];
+      if (marker === 0xd8 || marker === 0xd9 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
+        i += 2;
+        continue;
+      }
+      if (i + 4 > b.length) break;
+      const len = b.readUInt16BE(i + 2);
+      if (
+        (marker >= 0xc0 && marker <= 0xc3) ||
+        (marker >= 0xc5 && marker <= 0xc7) ||
+        (marker >= 0xc9 && marker <= 0xcb) ||
+        (marker >= 0xcd && marker <= 0xcf)
+      ) {
+        return { kind: "jpeg", height: b.readUInt16BE(i + 5), width: b.readUInt16BE(i + 7) };
+      }
+      if (len < 2) break;
+      i += 2 + len;
+    }
+    return { error: "jpeg has no size marker" };
+  }
+  if (b.length >= 10 && b.toString("ascii", 0, 3) === "GIF") {
+    return { kind: "gif", width: b.readUInt16LE(6), height: b.readUInt16LE(8) };
+  }
+  if (b.length >= 26 && b[0] === 0x42 && b[1] === 0x4d) {
+    const h = b.readInt32LE(22);
+    return { kind: "bmp", width: b.readInt32LE(18), height: h < 0 ? -h : h };
+  }
+  if (b.length >= 30 && b.toString("ascii", 0, 4) === "RIFF" && b.toString("ascii", 8, 12) === "WEBP") {
+    const fourcc = b.toString("ascii", 12, 16);
+    if (fourcc === "VP8 ") {
+      return { kind: "webp", width: b.readUInt16LE(26) & 0x3fff, height: b.readUInt16LE(28) & 0x3fff };
+    }
+    if (fourcc === "VP8L" && b.length >= 25) {
+      const bits = b.readUInt32LE(21);
+      return { kind: "webp", width: (bits & 0x3fff) + 1, height: ((bits >> 14) & 0x3fff) + 1 };
+    }
+    if (fourcc === "VP8X") {
+      return {
+        kind: "webp",
+        width: 1 + b[24] + (b[25] << 8) + (b[26] << 16),
+        height: 1 + b[27] + (b[28] << 8) + (b[29] << 16),
+      };
+    }
+  }
+  return { error: "unrecognised image header" };
+}
+
+function listDir(workspace, rel) {
+  const requested = String(rel || "").trim() || ".";
+  const dir = resolveInWorkspace(workspace, requested);
+  if (!fs.existsSync(dir)) return { error: `not found: ${requested}` };
+  const st = fs.statSync(dir);
+  if (!st.isDirectory()) return { error: `not a directory: ${requested}` };
+  const entries = fs
+    .readdirSync(dir, { withFileTypes: true })
+    .filter((e) => !e.name.startsWith("."))
+    .map((e) => {
+      const item = { name: e.name, kind: e.isDirectory() ? "dir" : "file" };
+      if (e.isFile()) item.bytes = fs.statSync(path.join(dir, e.name)).size;
+      return item;
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+  return { path: requested, entries };
+}
+
+function imageInfo(workspace, rel) {
+  const requested = String(rel || "").trim() || "attachment.json";
+  const file = resolveInWorkspace(workspace, requested);
+  if (!fs.existsSync(file)) return { error: `not found: ${requested}` };
+  const st = fs.statSync(file);
+  if (!st.isFile()) return { error: `not a file: ${requested}` };
+  const ext = path.extname(file).toLowerCase();
+  if (ext === ".json") {
+    let j;
+    try {
+      j = JSON.parse(fs.readFileSync(file, "utf8"));
+    } catch (e) {
+      return { error: `not JSON: ${e.message}` };
+    }
+    if (j && Array.isArray(j.colors)) {
+      return {
+        path: requested,
+        kind: "palette",
+        width: j.width,
+        height: j.height,
+        layers: j.layers,
+        placed: j.placed,
+        insertsAt: j.insertsAt,
+        colors: j.colors.slice(0, 12),
+      };
+    }
+    return { path: requested, kind: "json", keys: Object.keys(j && typeof j === "object" ? j : {}).slice(0, 24) };
+  }
+  const header = imageHeader(fs.readFileSync(file));
+  if (header.error && header.width == null) return { error: header.error, path: requested };
+  return { path: requested, bytes: st.size, ...header };
+}
+
+function runOcr(workspace, args, env) {
+  const rel = String(args.path || "").trim() || defaultOcrPath(workspace);
+  const file = resolveInWorkspace(workspace, rel);
+  if (!fs.existsSync(file)) return { error: `not found: ${rel}` };
+  const st = fs.statSync(file);
+  if (!st.isFile()) return { error: `not a file: ${rel}` };
+  const ext = path.extname(file).toLowerCase();
+  if (!IMAGE_EXTS.has(ext)) {
+    return { error: `ocr only reads images (${[...IMAGE_EXTS].join(", ")}), not ${ext || "this file"}` };
+  }
+  let psm = Number(args.psm);
+  if (!Number.isFinite(psm)) psm = 6;
+  psm = Math.floor(psm);
+  if (psm < 0 || psm > 13) return { error: "psm must be 0–13" };
+  const lang = String(args.lang || "eng").trim() || "eng";
+  if (!/^[A-Za-z0-9_+-]+$/.test(lang)) return { error: "lang must be a tesseract language id" };
+  const bin = tesseractBin(env);
+  const r = spawnSync(bin, [file, "stdout", "--psm", String(psm), "-l", lang], {
+    encoding: "utf8",
+    timeout: 60_000,
+    maxBuffer: 2 * 1024 * 1024,
+    env: { ...env },
+  });
+  if (r.error && /ENOENT/.test(String(r.error))) {
+    return {
+      error: "tesseract is not installed. Set TESSERACT_PATH, or brew install tesseract (macOS) / apt install tesseract-ocr.",
+    };
+  }
+  if (r.status !== 0) {
+    return { error: clip(r.stderr || `tesseract exited ${r.status}`), path: rel, status: r.status };
+  }
+  return { path: rel, psm, lang, text: clip((r.stdout || "").trim(), 16_000) };
+}
 
 function tokenizeRun(raw) {
   const out = [];
@@ -347,6 +565,8 @@ export function executeTool(workspace, name, rawArgs, env = process.env) {
       return spawnRun(workspace, command, env);
     }
     if (name === "read_file") {
+      const blocked = denyRead(args.path);
+      if (blocked) return { error: blocked };
       const file = resolveInWorkspace(workspace, args.path);
       if (!fs.existsSync(file)) return { error: `not found: ${args.path}` };
       const st = fs.statSync(file);
@@ -354,11 +574,16 @@ export function executeTool(workspace, name, rawArgs, env = process.env) {
       return { path: String(args.path), contents: clip(fs.readFileSync(file, "utf8"), 80_000) };
     }
     if (name === "write_file") {
+      const blocked = denyWrite(args.path);
+      if (blocked) return { error: blocked };
       const file = resolveInWorkspace(workspace, args.path);
       fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.writeFileSync(file, String(args.contents ?? ""), "utf8");
       return { ok: true, path: String(args.path), bytes: String(args.contents ?? "").length };
     }
+    if (name === "list_dir") return listDir(workspace, args.path);
+    if (name === "image_info") return imageInfo(workspace, args.path);
+    if (name === "ocr") return runOcr(workspace, args, env);
     return { error: `unknown tool ${name}` };
   } catch (e) {
     return { error: String(e.message || e) };
@@ -576,7 +801,11 @@ export async function geminiLoop({
       const shown =
         name === "run"
           ? String(args.command || name)
-          : name === "read_file" || name === "write_file"
+          : name === "read_file" ||
+              name === "write_file" ||
+              name === "list_dir" ||
+              name === "image_info" ||
+              name === "ocr"
             ? `${name} ${args.path || ""}`.trim()
             : name;
       onEvent({
