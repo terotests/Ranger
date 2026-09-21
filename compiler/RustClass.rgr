@@ -1465,8 +1465,8 @@ extension RangerRustClassWriter {
       ; Every allow is asked for, none is written for good measure. The lines
       ; go into the "file_attributes" slice, which sits ahead of this one and
       ; stays open for the whole file, so the ones that depend on what the
-      ; writer emits (unused_mut, unused_parens, unused_assignments) are added
-      ; from the emission site itself, long after this point.
+      ; writer emits -- unused_mut -- is added from the emission site itself,
+      ; long after this point.
       ;
       ; The reason is that an allow nobody needs hides this backend's own
       ; regressions: with the header quiet, rustc and clippy report a stray
@@ -1475,10 +1475,17 @@ extension RangerRustClassWriter {
       ; program's public surface is dead code in a single-file rendering of
       ; it, which says nothing about the generator.
       ;
-      ; PLAN_RUST_SEMANTIC_IDIOMS L: no non_snake_case allow. Identifiers are
-      ; snake_case now, and the 81 000-line Rust rendering of this compiler
-      ; draws zero naming warnings without it. Type names keep their
-      ; spelling, which is what Rust wants of them.
+      ; There is no unused_parens: the parentheses that drew it are gone.
+      ; A `let` value, an assignment's right side and a template's argument
+      ; slot all delimit the expression, so the pair an operator template
+      ; puts around its whole result comes off there.
+      ;
+      ; PLAN_RUST_SEMANTIC_IDIOMS L: non_snake_case is not unconditional
+      ; either. Identifiers are snake_case, and a file draws no naming
+      ; warning unless adjustType had to KEEP a camelCase spelling because
+      ; the snake_case one was already another name in the program -- which
+      ; is what rustNeedsNonSnakeCase asks. Type names keep their spelling,
+      ; which is what Rust wants of them.
       ;
       ; `manual_clamp` and `upper_case_acronyms` used to be here too. Measured
       ; with clippy over everything this compiler generates -- the twelve
