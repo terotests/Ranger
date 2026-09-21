@@ -1789,8 +1789,11 @@ export async function runWorkspaceAgent({ id, kind, prompt, seed, session = fals
     });
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk) => {
-      const text = String(chunk).trim();
-      if (text) process.stderr.write(`[${id}] ${text}\n`);
+      const text = String(chunk);
+      for (const line of text.split(/\n/)) {
+        if (!line.trim()) continue;
+        process.stderr.write(`[${id}] ${line.trimEnd()}\n`);
+      }
       if (id === "cursor" && /not authenticated|invalid api key|agent login/i.test(text)) {
         onLine(ndjson({ t: "error", text }));
       }
