@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * The orchestrator, without Codex or Claude on PATH: recipe still streams,
- * mock CLI writes a workspace, frames come off the watched file.
+ * mock CLI writes a workspace, frames come off the watched file. Gemini is
+ * a REST slot — the suite fakes Google rather than spending credits.
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -9,6 +10,69 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { listAgents, runTask, root, findCursorAgent, cursorSpawnArgs, frameFixture, resetSession, readSessionDoc, prepareSession, sessionDir, makeCursorFeed, deviceLine, attachmentOf, clearAttachment, ATTACH_BASE } from "./agents.mjs";
+import {
+  geminiLoop,
+  executeTool,
+  loadHistory,
+  GEMINI_HISTORY,
+  denyRun,
+  dockerRunArgs,
+  parseRun,
+  geminiCostUsd,
+  formatGeminiSpend,
+  summarizeTool,
+  summarizeOutline,
+  splitParts,
+  GEMINI_TRACE,
+  geminiSystemPrompt,
+  looksLikeUnfinishedPlan,
+  needsToolNudge,
+  dropTrailingPlan,
+  slimModelThoughts,
+  compactHistory,
+  compactToolResult,
+  prepareContents,
+  payloadStats,
+  formatPayloadStats,
+  PLAN_NUDGE,
+  STALL_NUDGE,
+  PICTURE_STALL_NUDGE,
+  collectPictureBrief,
+  hasPicture,
+  contentsWithPicture,
+  stripInlineData,
+  paletteRoles,
+  geometryFromSvg,
+  formatGeometryLines,
+  shouldAttachPicture,
+  pendingOpsFile,
+  ADD_CARD,
+  ADD_APPBAR,
+  paintAddOps,
+  attachLeftoverRemoves,
+  leftoverSettingsAts,
+  layoutSuspicion,
+  gluedLabelHints,
+  parseErazerBoxes,
+  looksLikeBarBox,
+  barsOverflowHints,
+  colorPlacementHints,
+  photoBarSwatches,
+  photoFillRoles,
+  loadPhotoBoxes,
+  OPS_WRITE_CAP,
+  recentSightseeing,
+  isSightseeingCall,
+  EXAMPLE_RANGER_UI,
+  exampleUiBlock,
+  denyExplore,
+  SVG_BRIEF_CAP,
+  FILE_READ_CAP,
+  pictureMediaParts,
+  requestBody,
+  DEFAULT_GEMINI_MAX_OUTPUT,
+} from "./gemini-agent.mjs";
+import http from "node:http";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const bin = path.join(root, "gallery/evg/bin/evg_livebuild.js");
@@ -60,10 +124,15 @@ const recipe = agents.find((a) => a.id === "recipe");
 const mock = agents.find((a) => a.id === "mock");
 const self = agents.find((a) => a.id === "self");
 const cursor = agents.find((a) => a.id === "cursor");
+const gemini = agents.find((a) => a.id === "gemini");
 if (!recipe?.available) throw new Error("recipe must always be available");
 if (!mock?.available) throw new Error("mock must always be available");
 if (!self?.available) throw new Error("self must always be available");
 if (!cursor) throw new Error("cursor slot missing from listAgents");
+if (!gemini) throw new Error("gemini slot missing from listAgents");
+if (!/GEMINI_API_KEY/.test(gemini.hint || "")) {
+  throw new Error("gemini hint must mention GEMINI_API_KEY");
+}
 const cursorBin = findCursorAgent();
 if (Boolean(cursorBin) !== Boolean(cursor.available)) {
   throw new Error("cursor available flag does not match findCursorAgent()");
@@ -121,6 +190,9 @@ if (readSessionDoc() !== kept) throw new Error("follow-up prepareSession wiped t
 const taskMd = fs.readFileSync(path.join(sessionDir(), "TASK.md"), "utf8");
 if (!/Follow-up/.test(taskMd) || !/nodes/.test(taskMd)) {
   throw new Error("follow-up TASK.md did not describe the live phone");
+}
+if (!/plan without a tool/.test(taskMd)) {
+  throw new Error("follow-up TASK.md must say a plan is not a finish: " + taskMd.slice(0, 400));
 }
 const recipeFollow = [];
 await runTask({
@@ -232,6 +304,9 @@ if (fs.existsSync(path.join(root, "lib/evg/bin/evg_agent.js"))) {
     if (!guide.includes(need)) throw new Error(`the guide never mentions ${need}`);
   }
   if (guide.includes("<svg")) throw new Error("the guide is carrying path data — that is what the ops file is for");
+  if (!/photograph of a UI, not the UI/.test(guide) || !/rebuild a UI like the picture/.test(guide)) {
+    throw new Error("the guide must split paste-the-photo from rebuild-the-UI: " + guide.slice(guide.indexOf("A picture"), guide.indexOf("A picture") + 400));
+  }
   console.log("  picture     palette + ops in the guide, no coordinates");
   clearAttachment(dir);
 }
@@ -312,7 +387,19 @@ if (fs.existsSync(path.join(root, "lib/evg/bin/evg_agent.js"))) {
     throw new Error("the card did not land with its rules");
   }
   fs.rmSync(cardOps, { force: true });
-  console.log("  kit         ./evg-ui in the workspace: a control and a whole card both apply");
+  const tiled = spawnSync(
+    shim,
+    ["add", "tiles", "--tile", "Sleep Average|7h 38m|Quality 84%|☾", "--tile", "Resting HR|64 BPM|Optimal|♡", "--into", doc],
+    { encoding: "utf8", timeout: 120000 },
+  );
+  const tileBatch = JSON.parse(tiled.stdout || "{}");
+  if (!tileBatch.classes || !tileBatch.classes.includes("ui-tile-value")) {
+    throw new Error("tiles came back without metric parts: " + (tiled.stderr || tiled.stdout));
+  }
+  if (!/\.ui-tile\b/.test(tileBatch.css || "")) {
+    throw new Error("tiles must ship their CSS: " + tileBatch.css);
+  }
+  console.log("  kit         ./evg-ui in the workspace: a control, a card, and tiles all apply");
 }
 
 // An app workspace gets a different guide, and the tool to work it with. What
@@ -328,7 +415,16 @@ if (fs.existsSync(path.join(root, "lib/evg/bin/evg_agent.js"))) {
   // The section that was missing, and the reason an agent asked for four tabs
   // went looking inside the compiled tool for a `goto`. A document has no
   // navigation; the guide has to say so, and say what does.
-  for (const need of ["This document is one screen", "presses Run", "set-id", "nav.", "set-css", "evg-surface-effect"]) {
+  for (const need of [
+    "This document is one screen",
+    "presses Run",
+    "set-id",
+    "nav.",
+    "set-css",
+    "evg-surface-effect",
+    "half a dashboard",
+    "Revenuee",
+  ]) {
     if (!plain.includes(need)) throw new Error(`a document workspace is never told about ${need}`);
   }
   console.log("  no app yet  a document says it is one screen, and names the way to more");
@@ -591,9 +687,1668 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   console.log("  reset       an empty project: blank canvas, and the old app thrown away");
 }
 
+// GEMINI FLASH OVER THE NETWORK.
+//
+// Not the Cursor `agent` CLI: this adapter POSTs to Google's generateContent
+// and runs the workspace tools itself. The checks never hit Google — a fake
+// fetch / a loopback HTTP server stand in — so a clone without credits still
+// proves the loop, the history, and the UI slot.
+{
+  const savedG = process.env.GEMINI_API_KEY;
+  const savedO = process.env.GOOGLE_API_KEY;
+  const savedBox = process.env.EVG_GEMINI_SANDBOX;
+  process.env.EVG_GEMINI_SANDBOX = "host";
+  const restoreKeys = () => {
+    if (savedG === undefined) delete process.env.GEMINI_API_KEY;
+    else process.env.GEMINI_API_KEY = savedG;
+    if (savedO === undefined) delete process.env.GOOGLE_API_KEY;
+    else process.env.GOOGLE_API_KEY = savedO;
+  };
+  const restoreBox = () => {
+    if (savedBox === undefined) delete process.env.EVG_GEMINI_SANDBOX;
+    else process.env.EVG_GEMINI_SANDBOX = savedBox;
+  };
+
+  delete process.env.GEMINI_API_KEY;
+  delete process.env.GOOGLE_API_KEY;
+  try {
+    const off = listAgents().find((a) => a.id === "gemini");
+    if (!off) throw new Error("gemini slot missing");
+    if (off.available) throw new Error("gemini must be off without GEMINI_API_KEY");
+    if (!/aistudio|GEMINI_API_KEY/i.test(off.hint || "")) {
+      throw new Error("gemini-off hint must name the key: " + off.hint);
+    }
+    const blocked = [];
+    await runTask({
+      agent: "gemini",
+      kind: "dashboard",
+      prompt: "should not call Google",
+      onLine: (line) => blocked.push(JSON.parse(line)),
+    });
+    const err = blocked.find((e) => e.t === "error");
+    if (!err || !/GEMINI_API_KEY|not available/i.test(err.text || "")) {
+      throw new Error("unavailable gemini should name the key, got " + JSON.stringify(blocked));
+    }
+  } finally {
+    restoreKeys();
+  }
+
+  process.env.GEMINI_API_KEY = "test-livebuild-key";
+  delete process.env.GOOGLE_API_KEY;
+  try {
+    const on = listAgents().find((a) => a.id === "gemini");
+    if (!on.available) throw new Error("gemini must be available when GEMINI_API_KEY is set");
+    if (!/via GEMINI_API_KEY/.test(on.hint || "")) {
+      throw new Error("available gemini should name the key: " + on.hint);
+    }
+  } finally {
+    restoreKeys();
+  }
+
+  const checkOff = spawnSync(process.execPath, [path.join(here, "withgemini.mjs"), "--check"], {
+    encoding: "utf8",
+    env: { ...process.env, GEMINI_API_KEY: "", GOOGLE_API_KEY: "" },
+    timeout: 8000,
+  });
+  if (checkOff.status !== 0) throw new Error("withgemini --check off exited " + checkOff.status);
+  if (!/gemini API off/.test(checkOff.stdout || "")) {
+    throw new Error("withgemini --check should say gemini API off when the key is missing");
+  }
+  const checkOn = spawnSync(process.execPath, [path.join(here, "withgemini.mjs"), "--check"], {
+    encoding: "utf8",
+    env: { ...process.env, GEMINI_API_KEY: "test-livebuild-key", GOOGLE_API_KEY: "" },
+    timeout: 8000,
+  });
+  if (checkOn.status !== 0) throw new Error("withgemini --check on exited " + checkOn.status);
+  if (!/gemini API ready/.test(checkOn.stdout || "")) {
+    throw new Error("withgemini --check did not say ready: " + (checkOn.stdout || checkOn.stderr));
+  }
+  if (!/\$0\.75 fresh \/ \$0\.075 cache \/ \$3\.75 out per 1M/.test(checkOn.stderr || "")) {
+    throw new Error("withgemini --check should print Flash rates including cache: " + (checkOn.stderr || ""));
+  }
+  const million = geminiCostUsd({ input: 1_000_000, output: 1_000_000 });
+  if (Math.abs(million - 4.5) > 1e-9) {
+    throw new Error("1M fresh + 1M out should be $4.50 at Flash paid rates, got " + million);
+  }
+  const cachedOnly = geminiCostUsd({ input: 1_000_000, cacheRead: 1_000_000, output: 0 });
+  if (Math.abs(cachedOnly - 0.075) > 1e-9) {
+    throw new Error("1M cache-hit input should be $0.075, not full $0.75, got " + cachedOnly);
+  }
+  const mixed = geminiCostUsd({ input: 1_851_438, fresh: 202_521, cacheRead: 1_648_917, output: 17_223 });
+  if (mixed > 0.4 || mixed < 0.3) {
+    throw new Error("a 12-turn cache-heavy run should be about $0.34, got " + mixed);
+  }
+  const about = formatGeminiSpend({ input: 12400, output: 860 });
+  if (!/12,400 fresh/.test(about) || !/860 out/.test(about) || !/~\$/.test(about)) {
+    throw new Error("spend line should name tokens and dollars: " + about);
+  }
+  console.log("  withgemini  " + String(checkOn.stdout || "").trim());
+
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), "evg-gemini-"));
+  fs.writeFileSync(path.join(ws, "TASK.md"), "Stamp the workspace.\n");
+  fs.writeFileSync(path.join(ws, "doc.evg.json"), '{"root":{"tag":"div","children":[]}}\n');
+  const escaped = executeTool(ws, "read_file", { path: "../etc/passwd" });
+  if (!escaped.error || !/leaves the workspace/.test(escaped.error)) {
+    throw new Error("read_file must refuse a path that leaves the workspace: " + JSON.stringify(escaped));
+  }
+  for (const [cmd, why] of [
+    ["python3 -c 'open(\"/tmp/x\",\"w\")'", "python"],
+    ["tesseract ./r0.png stdout --psm 6", "tesseract"],
+    ["sips -s format png /tmp/right_0.bmp --out ./r0.png", "sips"],
+    ["echo hi > /tmp/x", "echo"],
+    ["./evg-agent outline doc.evg.json && python3 -c pass", "python after &&"],
+  ]) {
+    const blocked = denyRun(cmd);
+    if (!blocked) throw new Error("denyRun let through: " + cmd);
+    const ran = executeTool(ws, "run", { command: cmd });
+    if (!ran.error) throw new Error("run executed a host command: " + cmd);
+  }
+  if (denyRun("./evg-agent outline doc.evg.json")) {
+    throw new Error("denyRun blocked the tool it is for: " + denyRun("./evg-agent outline doc.evg.json"));
+  }
+  if (denyRun("./evg-ui add switch --into doc.evg.json > add.json")) {
+    throw new Error("denyRun blocked a relative redirect");
+  }
+  const parsed = parseRun("./evg-ui add switch --into doc.evg.json > add.json");
+  if (parsed.error || parsed.bin !== "./evg-ui" || parsed.stdoutTo !== "add.json") {
+    throw new Error("redirect should be argv + a file, not a shell: " + JSON.stringify(parsed));
+  }
+  fs.writeFileSync(path.join(ws, "evg-agent"), "#!/bin/sh\nprintf 'outlined\\n'\n", { mode: 0o755 });
+  const redirected = executeTool(ws, "run", { command: "./evg-agent outline doc.evg.json > out.txt" }, {
+    ...process.env,
+    EVG_GEMINI_SANDBOX: "host",
+  });
+  if (redirected.error) throw new Error("filtered ./evg-agent should run: " + redirected.error);
+  if (fs.readFileSync(path.join(ws, "out.txt"), "utf8") !== "outlined\n") {
+    throw new Error("redirect was not applied by the host: " + (redirected.stdout || ""));
+  }
+  const dargs = dockerRunArgs("/tmp/evg-ws", "./evg-agent outline doc.evg.json", {
+    EVG_GEMINI_DOCKER_IMAGE: "node:22-bookworm-slim",
+    EVG_GEMINI_REPO: "/opt/ranger",
+  });
+  const djoin = dargs.join(" ");
+  if (!dargs.includes("--network") || !djoin.includes("none")) {
+    throw new Error("the container must have no network: " + djoin);
+  }
+  if (!dargs.includes("--read-only")) throw new Error("the container rootfs must be read-only");
+  if (!djoin.includes("/opt/ranger:/opt/ranger:ro")) {
+    throw new Error("the repo must be read-only in the container: " + djoin);
+  }
+  if (dargs.includes("sh") && dargs.includes("-c")) {
+    throw new Error("docker must exec argv, not sh -c: " + djoin);
+  }
+  if (dargs.at(-3) !== "./evg-agent" || dargs.at(-1) !== "doc.evg.json") {
+    throw new Error("docker argv lost the command: " + djoin);
+  }
+  console.log("  gemini run  filtered argv, no shell; docker has no net, repo ro");
+
+  fs.mkdirSync(path.join(ws, "shots"));
+  fs.writeFileSync(path.join(ws, ".hidden"), "nope\n");
+  fs.writeFileSync(path.join(ws, GEMINI_HISTORY), JSON.stringify({ contents: [] }));
+  fs.writeFileSync(path.join(ws, "evg_agent.js"), "/* compiled */\n");
+  const listed = executeTool(ws, "list_dir", {});
+  const names = (listed.entries || []).map((e) => e.name);
+  if (names.includes(".hidden") || names.includes(GEMINI_HISTORY)) {
+    throw new Error("list_dir must omit hidden files: " + names.join(","));
+  }
+  if (!names.includes("doc.evg.json") || !names.includes("shots")) {
+    throw new Error("list_dir missed workspace files: " + names.join(","));
+  }
+  if ((listed.entries || []).find((e) => e.name === "shots")?.kind !== "dir") {
+    throw new Error("list_dir should mark shots as a dir");
+  }
+  const histRead = executeTool(ws, "read_file", { path: GEMINI_HISTORY });
+  if (!histRead.error || !/conversation log/.test(histRead.error)) {
+    throw new Error("read_file must refuse the conversation log: " + JSON.stringify(histRead));
+  }
+  const js = executeTool(ws, "read_file", { path: "evg_agent.js" });
+  if (!js.error || !/compiled tool/.test(js.error)) {
+    throw new Error("read_file must refuse compiled JS: " + JSON.stringify(js));
+  }
+  const histWrite = executeTool(ws, "write_file", { path: GEMINI_HISTORY, contents: "nope" });
+  if (!histWrite.error || !/conversation log/.test(histWrite.error)) {
+    throw new Error("write_file must refuse the conversation log: " + JSON.stringify(histWrite));
+  }
+  const replaceDoc = executeTool(ws, "write_file", { path: "doc.evg.json", contents: "{}" });
+  if (!replaceDoc.error || !/patch/.test(replaceDoc.error)) {
+    throw new Error("write_file must refuse a whole-document replace: " + JSON.stringify(replaceDoc));
+  }
+  const fakeLayout = executeTool(ws, "write_file", { path: "layout.json", contents: "{}" });
+  if (!fakeLayout.error || !/measure/.test(fakeLayout.error)) {
+    throw new Error("write_file must refuse layout.json: " + JSON.stringify(fakeLayout));
+  }
+  const opsRead = executeTool(ws, "read_file", { path: "attachment.ops.json" });
+  if (!opsRead.error || !/path data/.test(opsRead.error)) {
+    throw new Error("read_file must refuse attachment.ops.json: " + JSON.stringify(opsRead));
+  }
+  const guideRead = executeTool(ws, "read_file", { path: "AGENTS.md" });
+  if (!guideRead.error || !/system prompt/.test(guideRead.error)) {
+    throw new Error("read_file must refuse AGENTS.md: " + JSON.stringify(guideRead));
+  }
+  fs.writeFileSync(path.join(ws, "fat.evg.json"), `${"{\"tag\":\"div\"},".repeat(400)}\n`);
+  const fat = executeTool(ws, "read_file", { path: "fat.evg.json" });
+  if (fat.contents || !fat.hint || !/outline/.test(fat.hint) || !(fat.bytes > 1500)) {
+    throw new Error("read_file must not dump a fat .evg.json into the prompt: " + JSON.stringify(fat));
+  }
+  const boom = summarizeTool("run", { command: "./evg-ui add button --name test" }, {
+    ok: false,
+    status: 1,
+    stdout: "",
+    stderr: "TypeError: host.plainTreeJson is not a function\n",
+  });
+  if (!/plainTreeJson/.test(boom.reply)) {
+    throw new Error("a failed ./evg-ui must show stderr, not just exit 1: " + JSON.stringify(boom));
+  }
+  const checked = summarizeTool("run", { command: "./evg-app check app" }, {
+    ok: true,
+    status: 0,
+    stdout: JSON.stringify({
+      count: 7,
+      missing: ["nav.home", "nav.orders"],
+      findings: ["home and orders share a document"],
+      next: "give what should switch tabs those ids",
+    }),
+    stderr: "",
+  });
+  if (!/missing nav.home/.test(checked.reply) || !/share a document/.test(checked.reply)) {
+    throw new Error("evg-app check must show missing ids, not only count: " + JSON.stringify(checked));
+  }
+  const badId = summarizeTool("run", { command: "./evg-agent patch doc.evg.json ops.json" }, {
+    ok: false,
+    status: 1,
+    stdout: JSON.stringify({
+      ok: false,
+      applied: 0,
+      rejected: ['op 0 (set-prop 0/6/0 id=nav.home): property "id" is not patchable — nothing here can read it back, so the edit could not be undone'],
+    }),
+    stderr: "",
+  });
+  if (!/set-id/.test(badId.reply)) {
+    throw new Error("a rejected set-prop id must name set-id: " + JSON.stringify(badId));
+  }
+  const queried = summarizeTool("run", { command: "./evg-agent query doc.evg.json 0/5" }, {
+    ok: true,
+    status: 0,
+    stdout: JSON.stringify({
+      matches: [{
+        at: "0/5",
+        tag: "div",
+        props: { height: "50px", "padding-top": "8px", gap: "8px", "background-color": "rgb(22,27,34)" },
+        children: 4,
+      }],
+      count: 1,
+    }),
+    stderr: "",
+  });
+  if (!/0\/5/.test(queried.reply) || !/height=50px/.test(queried.reply) || !/children:4/.test(queried.reply)) {
+    throw new Error("query must show the match, not only count: " + JSON.stringify(queried));
+  }
+  const boxed = summarizeTool("run", { command: "./evg-agent measure doc.evg.json --boxes" }, {
+    ok: true,
+    status: 0,
+    stdout: JSON.stringify({
+      width: 390,
+      height: 844,
+      nodes: 20,
+      count: 1,
+      bottomFree: -1,
+      findings: ["0/5: bottom edge 844 is past the page height 844"],
+      boxes: [
+        { at: "0/0", x: 16, y: 16, w: 358, h: 80, gapNext: 8 },
+        { at: "0/5", x: 0, y: 795, w: 390, h: 50, gapNext: 0 },
+      ],
+    }),
+    stderr: "",
+  });
+  if (!/bottomFree:-1/.test(boxed.reply) || !/0\/5 \[0,795,390,50\]/.test(boxed.reply)) {
+    throw new Error("measure --boxes must name the box and bottomFree: " + JSON.stringify(boxed));
+  }
+  const badStyle = summarizeTool("run", { command: "./evg-agent patch doc.evg.json ops.json" }, {
+    ok: false,
+    status: 1,
+    stdout: JSON.stringify({
+      ok: false,
+      applied: 0,
+      rejected: ['op 0 (set-prop 0 style=display:flex): property "style" is not patchable — nothing here can read it back, so the edit could not be undone'],
+    }),
+    stderr: "",
+  });
+  if (!/padding-top/.test(badStyle.reply) || !/one CSS name/.test(badStyle.reply)) {
+    throw new Error("rejected style= must name a single CSS prop: " + JSON.stringify(badStyle));
+  }
+  const emptyOps = summarizeTool("run", { command: "./evg-agent patch doc.evg.json ops.json" }, {
+    ok: false,
+    status: 1,
+    stdout: JSON.stringify({ error: "no ops in that file" }),
+    stderr: "",
+  });
+  if (!/"ops"/.test(emptyOps.reply) || !/set-prop/.test(emptyOps.reply)) {
+    throw new Error("empty ops.json must say how to write one: " + JSON.stringify(emptyOps));
+  }
+  if (!denyRun("./evg-agent") || !/verb/.test(denyRun("./evg-agent"))) {
+    throw new Error("bare ./evg-agent must be denied: " + denyRun("./evg-agent"));
+  }
+  if (!denyRun("./evg-ui") || !/add/.test(denyRun("./evg-ui"))) {
+    throw new Error("bare ./evg-ui must be denied: " + denyRun("./evg-ui"));
+  }
+  if (!denyRun("./evg-ui list") || !/add/.test(denyRun("./evg-ui list"))) {
+    throw new Error("./evg-ui list must be denied: " + denyRun("./evg-ui list"));
+  }
+  if (denyRun("./evg-ui add card --title T --row \"A|B|value:1\" --into doc.evg.json > add.json")) {
+    throw new Error("add card must stay allowed: " + denyRun("./evg-ui add card --title T --row \"A|B|value:1\" --into doc.evg.json > add.json"));
+  }
+  if (!denyRun("./evg-ui add card --title T --into doc.evg.json") || !/--row/.test(denyRun("./evg-ui add card --title T --into doc.evg.json"))) {
+    throw new Error("add card without --row must be refused: " + denyRun("./evg-ui add card --title T --into doc.evg.json"));
+  }
+  if (denyRun('./evg-ui add tiles --tile "Sleep Average|7h 38m|Quality 84%|☾" --into doc.evg.json > add.json')) {
+    throw new Error("add tiles must stay allowed: " + denyRun('./evg-ui add tiles --tile "Sleep Average|7h 38m|Quality 84%|☾" --into doc.evg.json > add.json'));
+  }
+  if (!denyRun("./evg-ui add tiles --into doc.evg.json") || !/--tile/.test(denyRun("./evg-ui add tiles --into doc.evg.json"))) {
+    throw new Error("add tiles without --tile must be refused: " + denyRun("./evg-ui add tiles --into doc.evg.json"));
+  }
+  if (denyRun('./evg-ui add bars --title T --value V --bar "M|62|#805754" --into doc.evg.json > add.json')) {
+    throw new Error("add bars must stay allowed");
+  }
+  if (denyRun('./evg-ui add banner --title "100k Steps" --into doc.evg.json > add.json')) {
+    throw new Error("add banner must stay allowed");
+  }
+  if (denyRun('./evg-ui add pills --pill Day --pill Week --active Week --into doc.evg.json > add.json')) {
+    throw new Error("add pills must stay allowed");
+  }
+  const emptyProp = summarizeTool("run", { command: "./evg-agent patch doc.evg.json ops.json" }, {
+    ok: false,
+    status: 1,
+    stdout: JSON.stringify({
+      ok: false,
+      applied: 0,
+      rejected: ['op 0 (set-prop 0=column): property "" is not patchable — nothing here can read it back, so the edit could not be undone'],
+    }),
+    stderr: "",
+  });
+  if (!/flex-direction/.test(emptyProp.reply) || !/prop/.test(emptyProp.reply)) {
+    throw new Error("empty set-prop must name prop+value: " + JSON.stringify(emptyProp));
+  }
+  const missingProp = executeTool(ws, "write_file", {
+    path: "ops-noprop.json",
+    contents: '{"ops":[{"op":"set-prop","at":"0","value":"column"}]}',
+  });
+  if (!missingProp.error || !/prop/.test(missingProp.error)) {
+    throw new Error("write_file must refuse set-prop without prop: " + JSON.stringify(missingProp));
+  }
+  const emptySeed = summarizeTool("run", { command: "./evg-agent outline doc.evg.json" }, {
+    ok: true,
+    status: 0,
+    stdout: "0                     div  display=flex  width=390px  height=844px\n",
+    stderr: "",
+  });
+  if (!/empty seed/.test(emptySeed.reply) || !/add appbar/.test(emptySeed.reply)) {
+    throw new Error("an empty outline must say add appbar: " + JSON.stringify(emptySeed));
+  }
+  const taskRead = executeTool(ws, "read_file", { path: "TASK.md" });
+  if (!taskRead.error || !/already the ask/.test(taskRead.error)) {
+    throw new Error("read_file TASK.md must be refused: " + JSON.stringify(taskRead));
+  }
+  const addRead = executeTool(ws, "read_file", { path: "add.json" });
+  if (!addRead.error || !/patch/.test(addRead.error)) {
+    throw new Error("read_file add.json must be refused: " + JSON.stringify(addRead));
+  }
+  fs.writeFileSync(
+    path.join(ws, "evg-ui"),
+    "#!/bin/sh\nprintf '{\"ops\":[{\"op\":\"set-text\",\"at\":\"0\",\"value\":\"n\"}]}\\n'\n",
+    { mode: 0o755 },
+  );
+  const added = executeTool(ws, "run", { command: "./evg-ui add card --title T --row \"A|B|value:1\" --into doc.evg.json > add-card.json" }, {
+    ...process.env,
+    EVG_GEMINI_SANDBOX: "host",
+  });
+  if (added.error || !added.ok) throw new Error("add card should run: " + JSON.stringify(added));
+  if (/"op"\s*:/.test(String(added.stdout || ""))) {
+    throw new Error("redirected add must not replay the ops: " + added.stdout);
+  }
+  if (!/patch/.test(String(added.hint || added.stdout || ""))) {
+    throw new Error("add > add.json must say to patch: " + JSON.stringify(added));
+  }
+  if (!fs.existsSync(path.join(ws, "add-card.json")) || !/"op"/.test(fs.readFileSync(path.join(ws, "add-card.json"), "utf8"))) {
+    throw new Error("add must still write the ops file");
+  }
+  const addedBare = executeTool(ws, "run", { command: "./evg-ui add card --title T --row \"A|B|value:1\" --into doc.evg.json" }, {
+    ...process.env,
+    EVG_GEMINI_SANDBOX: "host",
+  });
+  if (/"op"\s*:/.test(String(addedBare.stdout || ""))) {
+    throw new Error("bare add must not dump ops into the prompt: " + addedBare.stdout);
+  }
+  if (!fs.existsSync(path.join(ws, "add.json"))) {
+    throw new Error("bare add should write add.json for the next patch");
+  }
+  if (!isSightseeingCall("ocr", {}) || !isSightseeingCall("image_info", {})) {
+    throw new Error("repeat photo tools must count as sightseeing");
+  }
+  if (!isSightseeingCall("read_file", { path: "attachment.svg" })) {
+    throw new Error("attachment.svg must count as sightseeing");
+  }
+  if (!isSightseeingCall("run", { command: "./evg-agent outline doc.evg.json" })) {
+    throw new Error("outline must still count as sightseeing");
+  }
+  if (isSightseeingCall("run", { command: "./evg-ui add card --title T --row \"A|B|value:1\" --into doc.evg.json" })) {
+    throw new Error("add card must not count as sightseeing");
+  }
+  const stallHist = [
+    { role: "model", parts: [{ functionCall: { name: "run", args: { command: "./evg-agent outline doc.evg.json" } } }] },
+    { role: "model", parts: [{ functionCall: { name: "run", args: { command: "./evg-agent query doc.evg.json 0" } } }] },
+    { role: "model", parts: [{ functionCall: { name: "list_dir", args: {} } }] },
+    { role: "model", parts: [{ functionCall: { name: "read_file", args: { path: "TASK.md" } } }] },
+  ];
+  if (!recentSightseeing(stallHist, 4)) {
+    throw new Error("four explore tools must look like a stall");
+  }
+  if (!STALL_NUDGE.includes("add card") || !ADD_CARD.includes("add card")) {
+    throw new Error("stall nudge must name add card");
+  }
+  if (!/photo/.test(PICTURE_STALL_NUDGE) || !/EXAMPLE_UI/.test(PICTURE_STALL_NUDGE) || !/FILLED/.test(PICTURE_STALL_NUDGE)) {
+    throw new Error("a picture stall must point at EXAMPLE_UI: " + PICTURE_STALL_NUDGE);
+  }
+  const picWs = fs.mkdtempSync(path.join(os.tmpdir(), "evg-pic-"));
+  fs.writeFileSync(
+    path.join(picWs, "attachment.json"),
+    JSON.stringify({
+      width: 474,
+      height: 1018,
+      layers: 12,
+      colors: [{ hex: "#F6F3EF", share: 0.62 }, { hex: "#FFFFFF", share: 0.2 }],
+    }),
+  );
+  fs.writeFileSync(
+    path.join(picWs, "attachment.svg"),
+    '<svg xmlns="http://www.w3.org/2000/svg"><rect x="16" y="80" width="170" height="120" fill="#AAB4F9"/></svg>\n',
+  );
+  if (!hasPicture(picWs)) throw new Error("attachment.json must count as a picture");
+  const brief = collectPictureBrief(picWs, { ...process.env, TESSERACT_PATH: path.join(picWs, "no-tess") });
+  if (!/PICTURE BRIEF/.test(brief) || !/#F6F3EF/.test(brief) || !/SVG/.test(brief)) {
+    throw new Error("picture brief must carry palette and SVG: " + brief);
+  }
+  if (!/flex\/grid/.test(brief) || !/page #/.test(brief) || !/16,80 170x120/.test(brief)) {
+    throw new Error("picture brief must name flex/grid, palette roles and box geometry: " + brief);
+  }
+  if (!/ui-card/.test(brief) || !/tabbar/.test(brief) || !/unnamed div/.test(brief)) {
+    throw new Error("picture brief must name kit pieces so Export can collapse: " + brief);
+  }
+  if (!/EXAMPLE_UI/.test(brief) || !/SettingsRow/.test(brief) || !/FILLED/.test(brief)) {
+    throw new Error("picture brief must point at EXAMPLE_UI: " + brief);
+  }
+  if (!/add tiles/.test(brief) || !/add bars/.test(brief) || !/do not flatten/.test(brief)) {
+    throw new Error("picture brief must name tiles/bars and refuse SettingsRow flatten: " + brief);
+  }
+  const roles = paletteRoles([
+    { hex: "#23252B", share: 0.48 },
+    { hex: "#17181C", share: 0.31 },
+    { hex: "#AAB4F9", share: 0.09 },
+  ]);
+  if (!roles || roles.page !== "#17181C" || roles.cards !== "#23252B" || !roles.accents.includes("#AAB4F9")) {
+    throw new Error("dark UI: darker top swatch is the page: " + JSON.stringify(roles));
+  }
+  const darkWs = fs.mkdtempSync(path.join(os.tmpdir(), "evg-paint-"));
+  fs.writeFileSync(
+    path.join(darkWs, "attachment.json"),
+    JSON.stringify({
+      colors: [
+        { hex: "#23252B", share: 0.48 },
+        { hex: "#17181C", share: 0.31 },
+        { hex: "#AAB4F9", share: 0.09 },
+        { hex: "#EF9587", share: 0.06 },
+      ],
+    }),
+  );
+  const painted = paintAddOps(
+    JSON.stringify({
+      ops: [{
+        op: "insert",
+        at: "0",
+        node: {
+          tag: "div",
+          props: { "class-name": "ui-tiles" },
+          children: [{ tag: "div", props: { "class-name": "ui-tile" }, children: [{ tag: "span", props: { "class-name": "ui-tile-value" }, text: "7h 38m" }] }],
+        },
+      }],
+    }),
+    darkWs,
+  );
+  if (!painted.includes("#23252B") || !painted.includes("7h 38m")) {
+    throw new Error("add tiles must pick up the photo card colour: " + painted);
+  }
+  fs.rmSync(darkWs, { recursive: true, force: true });
+  if (!ADD_APPBAR.includes("add appbar")) throw new Error("ADD_APPBAR must name add appbar");
+  const boxes = formatGeometryLines(geometryFromSvg('<rect x="8" y="8" width="40" height="20" fill="#17181C"/>'));
+  if (!/8,8 40x20 #17181C/.test(boxes)) {
+    throw new Error("SVG rects must become boxes: " + boxes);
+  }
+  if (!fs.existsSync(path.join(picWs, "PICTURE.md"))) {
+    throw new Error("collectPictureBrief should write PICTURE.md");
+  }
+  if (EXAMPLE_RANGER_UI.ui.children[0].type !== "rave.AppBar" || !exampleUiBlock().includes("rave.Tile") || !/do not flatten/.test(exampleUiBlock())) {
+    throw new Error("EXAMPLE_UI must be an AppBar + tiles/bars/banner screen, not a SettingsRow list");
+  }
+  if (!exampleUiBlock().includes("rave.TabBar") || !/add tabbar/.test(exampleUiBlock()) || !exampleUiBlock().includes('"bars":')) {
+    throw new Error("EXAMPLE_UI must name TabBar and keep Bars series data");
+  }
+  fs.writeFileSync(path.join(picWs, ".gemini-once.json"), JSON.stringify({ exploreStreak: 2 }) + "\n");
+  const blockedOutline = denyExplore(picWs, "run", { command: "./evg-agent outline doc.evg.json" });
+  if (!blockedOutline || !/EXAMPLE_UI/.test(blockedOutline) || !/FILLED/.test(blockedOutline)) {
+    throw new Error("a third explore on a picture must name EXAMPLE_UI: " + blockedOutline);
+  }
+  if (denyExplore(picWs, "run", { command: "./evg-ui add card --title T --row \"A|B|value:1\" --into doc.evg.json" })) {
+    throw new Error("add card must not hit the explore cap");
+  }
+  fs.writeFileSync(path.join(picWs, ".gemini-once.json"), JSON.stringify({ exploreStreak: 0 }) + "\n");
+  const svgOnce = executeTool(picWs, "read_file", { path: "attachment.svg" });
+  if (svgOnce.error) throw new Error("first svg read should work: " + JSON.stringify(svgOnce));
+  const svgTwice = executeTool(picWs, "read_file", { path: "attachment.svg" });
+  if (!svgTwice.error || !/already/.test(svgTwice.error)) {
+    throw new Error("second svg read must be refused: " + JSON.stringify(svgTwice));
+  }
+  const emptyCardOutline = summarizeOutline(`0                     div
+0/0                   div .ui-appbar
+0/1                   div .ui-card
+`);
+  if (!/empty card/.test(emptyCardOutline) || !/add card/.test(emptyCardOutline)) {
+    throw new Error("an empty ui-card outline must say add --row: " + emptyCardOutline);
+  }
+  const tiny = Buffer.alloc(24);
+  tiny[0] = 0x89;
+  tiny[1] = 0x50;
+  tiny[2] = 0x4e;
+  tiny[3] = 0x47;
+  tiny.writeUInt32BE(13, 8);
+  tiny.write("IHDR", 12);
+  tiny.writeUInt32BE(8, 16);
+  tiny.writeUInt32BE(8, 20);
+  fs.writeFileSync(path.join(picWs, "attachment.png"), tiny);
+  const withPic = contentsWithPicture([{ role: "user", parts: [{ text: "build this" }] }], picWs);
+  if (!withPic[0].parts.some((p) => p.inlineData && p.inlineData.mimeType === "image/png")) {
+    throw new Error("the photo must go to Gemini as inlineData: " + JSON.stringify(withPic));
+  }
+  if (!withPic[0].parts.some((p) => /Vectorized SVG/.test(p.text || ""))) {
+    throw new Error("the SVG must ride with the photo: " + JSON.stringify(withPic));
+  }
+  if (SVG_BRIEF_CAP < 64_000 || FILE_READ_CAP < 64_000) {
+    throw new Error("SVG/read caps must be 64k, not 8k: " + SVG_BRIEF_CAP + "/" + FILE_READ_CAP);
+  }
+  const fatSvg = `<svg xmlns="http://www.w3.org/2000/svg">${"<rect/>".repeat(2_500)}<!--TAIL20K--></svg>\n`;
+  fs.writeFileSync(path.join(picWs, "attachment.svg"), fatSvg);
+  const fatText = pictureMediaParts(picWs).map((p) => p.text || "").join("");
+  if (fatSvg.length < SVG_BRIEF_CAP && !/TAIL20K/.test(fatText)) {
+    throw new Error("a ~20k SVG must not be clipped at 8k: " + fatText.length);
+  }
+  const stripped = stripInlineData(withPic);
+  if (stripped[0].parts.some((p) => p.inlineData)) {
+    throw new Error("history must drop inline image bytes");
+  }
+  if (!stripped[0].parts.some((p) => /omitted from history/.test(p.text || ""))) {
+    throw new Error("stripInlineData should leave a stub: " + JSON.stringify(stripped));
+  }
+  if (!shouldAttachPicture([{ role: "user", parts: [{ text: "go" }] }], {})) {
+    throw new Error("first Follow-up turn must attach the photo");
+  }
+  if (shouldAttachPicture([{ role: "user", parts: [{ text: "go" }] }, { role: "model", parts: [{ functionCall: { name: "run", args: {} } }] }], { sentPicture: true })) {
+    throw new Error("later turns must not re-attach unless asked");
+  }
+  if (shouldAttachPicture([{ role: "model", parts: [{ functionCall: { name: "image_info", args: {} } }] }], { sentPicture: true })) {
+    throw new Error("image_info is the palette — do not re-send the photo");
+  }
+  if (!shouldAttachPicture([{ role: "model", parts: [{ functionCall: { name: "ocr", args: {} } }] }], { sentPicture: true })) {
+    throw new Error("ocr must re-attach the photo");
+  }
+  const namedOutline = summarizeOutline(`0 div
+0/0 div .ui-card
+0/0/0 span .ui-card-title "HEART RATE"
+0/0/1 div .ui-row
+0/1 div .ui-card
+0/1/0 span .ui-card-title "SLEEP QUALITY"
+0/2 div .ui-card
+0/2/0 span .ui-card-title "RECOVERY"`);
+  if (!/HEART RATE/.test(namedOutline) || !/SLEEP QUALITY/.test(namedOutline) || !/RECOVERY/.test(namedOutline)) {
+    throw new Error("outline must name each card: " + namedOutline);
+  }
+  if (!/3 under 0/.test(namedOutline)) {
+    throw new Error("outline should count top-level cards: " + namedOutline);
+  }
+  const okLayout = summarizeTool("run", { command: "./evg-agent measure --width=390 --height=844" }, {
+    ok: true,
+    status: 0,
+    stdout: JSON.stringify({ count: 0, bottomFree: 296 }),
+    stderr: "",
+  });
+  if (/empty seed/.test(okLayout.reply)) {
+    throw new Error("measure count:0 with cards is not an empty seed: " + okLayout.reply);
+  }
+  if (!/no overflow/.test(okLayout.reply)) {
+    throw new Error("measure count:0 should say no overflow: " + okLayout.reply);
+  }
+  const shady = summarizeTool("run", { command: "./evg-agent measure --width=390 --height=844" }, {
+    ok: true,
+    status: 0,
+    stdout: JSON.stringify({
+      count: 0,
+      bottomFree: 100,
+      nodes: 76,
+      align: [
+        "0/2/2/1 and 0/2/2/5: top edges 2px apart — align them or mean it",
+        "0/2/2/5 and 0/2/2/6: top edges 3px apart — align them or mean it",
+      ],
+      tight: ["0/5/0/0 → 0/5/0/1: 3 apart", "0/5/1/0 → 0/5/1/1: 3 apart"],
+    }),
+    stderr: "",
+  });
+  if (!/not done/.test(shady.reply) || !/0\/2\/2\/1/.test(shady.reply) || !/suspicious/.test(shady.reply)) {
+    throw new Error("measure must pass page-footer align to Gemini as not done: " + shady.reply);
+  }
+  if (/no overflow/.test(shady.reply) && !/not done/.test(shady.reply)) {
+    throw new Error("count:0 with align must not look finished: " + shady.reply);
+  }
+  const packedLayout = compactToolResult("run", { command: "./evg-agent patch doc.evg.json add.json" }, {
+    ok: true,
+    status: 0,
+    stdout: JSON.stringify({
+      ok: true,
+      applied: 1,
+      layout: {
+        count: 0,
+        nodes: 76,
+        bottomFree: 100,
+        align: ["0/2/2/1 and 0/2/2/5: top edges 2px apart — align them or mean it"],
+        tight: ["0/5/0/0 → 0/5/1/1: 3 apart"],
+      },
+    }),
+    stderr: "",
+  });
+  if (!packedLayout.hint || !/not done/.test(packedLayout.hint) || !/0\/2\/2\/1/.test(packedLayout.hint)) {
+    throw new Error("patch layout.align must become a hint: " + JSON.stringify(packedLayout));
+  }
+  if (layoutSuspicion({ count: 0, align: ["0/2/2/1 and 0/2/2/5: top edges 2px apart"] }).n !== 1) {
+    throw new Error("layoutSuspicion must count align as layout N");
+  }
+  const barsDoc = {
+    css: ".ui-bars-row { height: 88px; min-height: 88px; }",
+    root: {
+      tag: "div",
+      children: [
+        {
+          tag: "div",
+          props: { "class-name": "ui-bars" },
+          children: [
+            { tag: "span", text: "Steps & Calories Trend", props: { "class-name": "ui-bars-title" } },
+            { tag: "span", text: "Avg 9,240 steps/day", props: { "class-name": "ui-bars-value" } },
+            {
+              tag: "div",
+              props: { "class-name": "ui-bars-row" },
+              children: [
+                {
+                  tag: "div",
+                  props: { "class-name": "ui-bar-col" },
+                  children: [
+                    { tag: "div", props: { "class-name": "ui-bar", height: "77px", "background-color": "rgb(239,149,135)" } },
+                    { tag: "span", text: "F", props: { "class-name": "ui-bar-label" } },
+                  ],
+                },
+                {
+                  tag: "div",
+                  props: { "class-name": "ui-bar-col" },
+                  children: [
+                    { tag: "div", props: { "class-name": "ui-bar", height: "44px", "background-color": "rgb(128,87,84)" } },
+                    { tag: "span", text: "M", props: { "class-name": "ui-bar-label" } },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  };
+  const overflow = barsOverflowHints(barsDoc);
+  if (!overflow.length || !/cover the title/.test(overflow[0]) || !/77px/.test(overflow[0])) {
+    throw new Error("88px row + 77px fill must be bars-over-title: " + JSON.stringify(overflow));
+  }
+  const chartAlign = layoutSuspicion(
+    { count: 0, align: ["0/0/2/0 and 0/0/2/1: top edges 2px apart — align them or mean it"] },
+    { doc: barsDoc },
+  );
+  if (chartAlign.align.length) throw new Error("bar-column tops are the chart, not misalignment: " + JSON.stringify(chartAlign));
+  if (!chartAlign.n || !/cover the title/.test(chartAlign.line)) {
+    throw new Error("overflowing bars must still be not-done after dropping chart align: " + chartAlign.line);
+  }
+  const erazer = parseErazerBoxes("panel 40,260 28x70 #EF9587\npanel 16,80 358x40 #22242A\n");
+  if (erazer.length !== 2 || !looksLikeBarBox(erazer[0]) || looksLikeBarBox(erazer[1])) {
+    throw new Error("Erazer tall accent is a bar, wide card is not: " + JSON.stringify(erazer));
+  }
+  const placed = colorPlacementHints(
+    barsDoc,
+    [{ at: "0/0/2/0/0", x: 40, y: 180, w: 28, h: 77 }],
+    [{ x: 40, y: 260, w: 28, h: 70, fill: "#EF9587" }],
+  );
+  if (!placed.length || !/#EF9587/.test(placed[0]) || !/wrong place/.test(placed[0])) {
+    throw new Error("same hex at a different y must flag bars over the title: " + JSON.stringify(placed));
+  }
+  const colorWs = fs.mkdtempSync(path.join(os.tmpdir(), "evg-bars-"));
+  fs.writeFileSync(
+    path.join(colorWs, "attachment.json"),
+    JSON.stringify({
+      width: 390,
+      height: 844,
+      colors: [
+        { hex: "#23252B", share: 0.48 },
+        { hex: "#17181C", share: 0.31 },
+        { hex: "#AAB4F9", share: 0.09 },
+      ],
+    }),
+  );
+  fs.writeFileSync(
+    path.join(colorWs, "attachment.svg"),
+    '<svg xmlns="http://www.w3.org/2000/svg"><rect x="40" y="260" width="28" height="70" fill="#805754"/><rect x="80" y="240" width="28" height="90" fill="#EF9587"/></svg>\n',
+  );
+  const swatches = photoBarSwatches(colorWs);
+  if (swatches[0] !== "#805754" || swatches[1] !== "#EF9587") {
+    throw new Error("photo bar swatches must be left-to-right Erazer colours: " + JSON.stringify(swatches));
+  }
+  const paintedBars = paintAddOps(
+    JSON.stringify({
+      ops: [{
+        op: "insert",
+        at: "0",
+        node: {
+          tag: "div",
+          props: { "class-name": "ui-bars" },
+          children: [
+            { tag: "div", props: { "class-name": "ui-bar" } },
+            { tag: "div", props: { "class-name": "ui-bar" } },
+          ],
+        },
+      }],
+    }),
+    colorWs,
+  );
+  if (!paintedBars.includes("#805754") || !paintedBars.includes("#EF9587")) {
+    throw new Error("add bars must pick Erazer column colours, not a shuffled accent list: " + paintedBars);
+  }
+  const slabWs = fs.mkdtempSync(path.join(os.tmpdir(), "evg-slab-"));
+  fs.writeFileSync(
+    path.join(slabWs, "attachment.json"),
+    JSON.stringify({
+      width: 390,
+      height: 844,
+      colors: [
+        { hex: "#23252B", share: 0.48 },
+        { hex: "#17181C", share: 0.31 },
+        { hex: "#EF9587", share: 0.12 },
+        { hex: "#AAB4F8", share: 0.08 },
+      ],
+    }),
+  );
+  fs.writeFileSync(
+    path.join(slabWs, "attachment.svg"),
+    '<svg xmlns="http://www.w3.org/2000/svg"><rect x="16" y="520" width="320" height="72" fill="#AAB4F8"/><rect x="40" y="260" width="28" height="70" fill="#805754"/></svg>\n',
+  );
+  const fills = photoFillRoles(loadPhotoBoxes(slabWs), paletteRoles([
+    { hex: "#23252B", share: 0.48 },
+    { hex: "#17181C", share: 0.31 },
+    { hex: "#EF9587", share: 0.12 },
+    { hex: "#AAB4F8", share: 0.08 },
+  ]));
+  if (fills.highlights[0] !== "#AAB4F8" || fills.columns[0] !== "#805754") {
+    throw new Error("highlight is the wide slab, columns are the tall rects — not accents[0]: " + JSON.stringify(fills));
+  }
+  const paintedSlab = paintAddOps(
+    JSON.stringify({
+      ops: [{
+        op: "insert",
+        at: "0",
+        node: {
+          tag: "div",
+          children: [
+            { tag: "div", props: { "class-name": "ui-banner" } },
+            { tag: "div", props: { "class-name": "ui-pill ui-pill-active" } },
+            { tag: "div", props: { "class-name": "ui-bar" } },
+          ],
+        },
+      }],
+    }),
+    slabWs,
+  );
+  if (!/"background-color": "#AAB4F8"/.test(paintedSlab) || /ui-banner[\s\S]*#EF9587/.test(paintedSlab)) {
+    throw new Error("banner/pill must take the photo slab, not the first accent: " + paintedSlab);
+  }
+  if (!paintedSlab.includes("#805754")) {
+    throw new Error("column fill must still take the tall photo rect: " + paintedSlab);
+  }
+  fs.rmSync(slabWs, { recursive: true, force: true });
+  fs.rmSync(colorWs, { recursive: true, force: true });
+  const shadyBars = summarizeTool("run", { command: "./evg-agent measure --width=390 --height=844" }, {
+    ok: true,
+    status: 0,
+    stdout: JSON.stringify({ count: 0, bottomFree: 100, nodes: 76 }),
+    stderr: "",
+    layoutCtx: { doc: barsDoc },
+  });
+  if (!/cover the title/.test(shadyBars.reply) || !/Grow/.test(shadyBars.reply)) {
+    throw new Error("measure must tell Gemini the bars cover the title: " + shadyBars.reply);
+  }
+  if (!gluedLabelHints(`0/3/0 span "7h38m"\n0/3/1 span "64BPMM"`).includes("7h38m")) {
+    throw new Error("glued OCR labels must be flagged: " + gluedLabelHints(`0/3/0 span "7h38m"`));
+  }
+  const gluedOut = summarizeOutline(`0 div
+0/0 span .ui-appbar-title "Progress"
+0/3/0 span .ui-tile-value "7h38m"`);
+  if (!/7h38m/.test(gluedOut) || !/OCR/.test(gluedOut)) {
+    throw new Error("outline must flag glued OCR labels: " + gluedOut);
+  }
+  const insertMiss = summarizeTool("run", { command: "./evg-agent patch doc.evg.json ops.json" }, {
+    ok: false,
+    status: 1,
+    stdout: JSON.stringify({ error: 'no node at "0/0" (1 nodes in this tree)' }),
+    stderr: "",
+  });
+  if (!/insert at "0"/.test(insertMiss.reply)) {
+    throw new Error("insert 0/0 on an empty root must hint at 0: " + insertMiss.reply);
+  }
+  if (!denyRun("./evg-ui add card --help") || !/--help/.test(denyRun("./evg-ui add card --help"))) {
+    throw new Error("--help must be refused: " + denyRun("./evg-ui add card --help"));
+  }
+  const boxSizing = executeTool(ws, "write_file", {
+    path: "ops.json",
+    contents: '{"ops":[{"op":"set-prop","at":"0","prop":"box-sizing","value":"border-box"}]}',
+  });
+  if (!boxSizing.error || !/box-sizing/.test(boxSizing.error)) {
+    throw new Error("box-sizing must be refused before patch: " + JSON.stringify(boxSizing));
+  }
+  const padShort = executeTool(ws, "write_file", {
+    path: "ops.json",
+    contents: '{"ops":[{"op":"set-prop","at":"0","prop":"padding","value":"20px 16px"}]}',
+  });
+  if (!padShort.error || !/padding-top/.test(padShort.error)) {
+    throw new Error("padding shorthand must be refused: " + JSON.stringify(padShort));
+  }
+  const wipe = executeTool(ws, "write_file", {
+    path: "ops.json",
+    contents: '{"ops":[{"op":"remove","at":"0/0"},{"op":"remove","at":"0/1"},{"op":"remove","at":"0/2"}]}',
+  });
+  if (!wipe.error || !/wipe/.test(wipe.error)) {
+    throw new Error("wiping the cards must be refused: " + JSON.stringify(wipe));
+  }
+  const unknownOp = executeTool(ws, "write_file", {
+    path: "ops.json",
+    contents: '{"ops":[{"op":"delete","at":"0/5"}]}',
+  });
+  if (!unknownOp.error || !/unknown op/.test(unknownOp.error)) {
+    throw new Error("delete must be refused: " + JSON.stringify(unknownOp));
+  }
+  fs.writeFileSync(
+    path.join(ws, "doc.evg.json"),
+    JSON.stringify({
+      evg: 1,
+      root: {
+        tag: "div",
+        children: [
+          {
+            tag: "div",
+            props: { "class-name": "ui-card" },
+            children: [{ tag: "span", textContent: "TODAY'S SUMMARY" }],
+          },
+        ],
+      },
+    }),
+  );
+  const lastCard = executeTool(ws, "write_file", {
+    path: "ops.json",
+    contents: '{"ops":[{"op":"remove","at":"0/0"}]}',
+  });
+  if (!lastCard.error || !/wipe/.test(lastCard.error)) {
+    throw new Error("removing the last named card must be refused: " + JSON.stringify(lastCard));
+  }
+  fs.writeFileSync(
+    path.join(ws, "doc.evg.json"),
+    JSON.stringify({
+      evg: 1,
+      root: {
+        tag: "div",
+        children: [
+          { tag: "div", props: { "class-name": "ui-card" }, children: [{ tag: "span", text: "Daily Average" }] },
+          { tag: "div", props: { "class-name": "ui-card" }, children: [{ tag: "span", text: "Vitals" }] },
+          { tag: "div", props: { "class-name": "ui-chiprow" }, children: [{ tag: "div", props: { "class-name": "ui-chip" } }] },
+          { tag: "div", props: { "class-name": "ui-bars" }, children: [{ tag: "span", text: "Steps" }] },
+        ],
+      },
+    }),
+  );
+  const dropOld = executeTool(ws, "write_file", {
+    path: "ops.json",
+    contents: '{"ops":[{"op":"remove","at":"0/2"},{"op":"remove","at":"0/1"},{"op":"remove","at":"0/0"}]}',
+  });
+  if (dropOld.error) {
+    throw new Error("removing leftover SettingsRows while bars stay must be allowed: " + JSON.stringify(dropOld));
+  }
+  const attached = attachLeftoverRemoves(
+    JSON.stringify({
+      ops: [{ op: "insert", at: "0", index: 9999, node: { tag: "div", props: { "class-name": "ui-tiles" }, children: [] } }],
+    }),
+    ws,
+    "tiles",
+  );
+  if (!/"remove"/.test(attached) || !attached.includes("0/2") || !attached.includes("0/1")) {
+    throw new Error("add tiles must queue leftover removes: " + attached);
+  }
+  const attachedTab = attachLeftoverRemoves(
+    JSON.stringify({
+      ops: [{ op: "insert", at: "0", index: 9999, node: { tag: "div", props: { "class-name": "ui-tabbar" }, children: [] } }],
+    }),
+    ws,
+    "tabbar",
+  );
+  if (!/"remove"/.test(attachedTab) || !attachedTab.includes("0/0")) {
+    throw new Error("add tabbar must queue leftover removes: " + attachedTab);
+  }
+  if (leftoverSettingsAts(JSON.parse(fs.readFileSync(path.join(ws, "doc.evg.json"), "utf8")).root).length !== 3) {
+    throw new Error("leftoverSettingsAts should see two cards and the chiprow");
+  }
+  const leftoverOutline = summarizeOutline(`0 div
+0/0 div .ui-card
+0/0/0 span .ui-card-title "Daily Average"
+0/1 div .ui-chiprow
+0/2 div .ui-bars
+0/2/0 span .ui-bars-title "Steps & Calories Trend"`);
+  if (!/leftover/.test(leftoverOutline) || !/0\/0/.test(leftoverOutline) || !/0\/1/.test(leftoverOutline)) {
+    throw new Error("outline must name leftover settings cards: " + leftoverOutline);
+  }
+  const inside = executeTool(ws, "write_file", {
+    path: "ops_header.json",
+    contents: '{"ops":[{"op":"insert","at":"0/0","node":{"tag":"div"}}]}',
+  });
+  if (!inside.error || !/inside the first card/.test(inside.error)) {
+    throw new Error("insert at 0/0 into a card must say insert at 0: " + JSON.stringify(inside));
+  }
+  const soup = executeTool(ws, "write_file", {
+    path: "ops.json",
+    contents: JSON.stringify({
+      ops: [{
+        op: "insert",
+        at: "0",
+        node: {
+          tag: "div",
+          children: [
+            { tag: "span", text: "RECENT ACTIVITIES" },
+            { tag: "div", children: [{ tag: "span", text: "MORNING RUN" }] },
+          ],
+        },
+      }],
+    }),
+  });
+  if (!soup.error || !/ui-card/.test(soup.error) || !/rave\.Card/.test(soup.error)) {
+    throw new Error("unnamed insert tree must be refused as box soup: " + JSON.stringify(soup));
+  }
+  const kitInsert = executeTool(ws, "write_file", {
+    path: "ops.json",
+    contents: JSON.stringify({
+      ops: [{
+        op: "insert",
+        at: "0",
+        node: { tag: "div", props: { "class-name": "ui-card" }, children: [{ tag: "span", text: "TODAY'S SUMMARY" }] },
+      }],
+    }),
+  });
+  if (kitInsert.error) {
+    throw new Error("insert with ui-card must be allowed: " + JSON.stringify(kitInsert));
+  }
+  const cssOp = executeTool(ws, "write_file", {
+    path: "ops.json",
+    contents: '{"ops":[{"op":"set-css","value":".card { background-color: #22242A; border-radius: 12px }"}]}',
+  });
+  if (cssOp.error) {
+    throw new Error("set-css must be an allowed op: " + JSON.stringify(cssOp));
+  }
+  fs.writeFileSync(path.join(ws, "add.json"), '{"ops":[]}\n');
+  const past = Date.now() - 5_000;
+  fs.utimesSync(path.join(ws, "add.json"), past / 1000, past / 1000);
+  fs.writeFileSync(path.join(ws, "doc.evg.json"), '{"root":{"tag":"div","children":[]}}\n');
+  if (pendingOpsFile(ws) === "add.json") {
+    throw new Error("already-patched add.json must not stay pending");
+  }
+  const wrapHint = executeTool(ws, "write_file", {
+    path: "ops.json",
+    contents: '{"op":"set-prop","at":"0/5","prop":"height","value":"48px"}',
+  });
+  if (!wrapHint.error || !/ops array/.test(wrapHint.error)) {
+    throw new Error("write_file must refuse a bare op object: " + JSON.stringify(wrapHint));
+  }
+  const emptyArr = executeTool(ws, "write_file", { path: "ops.json", contents: '{"ops":[]}' });
+  if (!emptyArr.error || !/empty/.test(emptyArr.error)) {
+    throw new Error("write_file must refuse an empty ops array: " + JSON.stringify(emptyArr));
+  }
+  const compactBoxes = compactToolResult("run", { command: "./evg-agent measure --boxes" }, {
+    ok: true,
+    status: 0,
+    stdout: JSON.stringify({
+      count: 1,
+      bottomFree: -1,
+      findings: ["0/5: bottom edge 844 is past the page height 844"],
+      boxes: [
+        ...Array.from({ length: 40 }, (_, i) => ({
+          at: `0/${i === 5 ? 99 : i}`,
+          x: 0,
+          y: i * 20,
+          w: 390,
+          h: 18,
+          gapNext: 2,
+        })),
+        { at: "0/5", x: 0, y: 795, w: 390, h: 50, gapNext: 0 },
+      ],
+    }),
+    stderr: "",
+  });
+  const boxedJson = JSON.stringify(compactBoxes);
+  if (boxedJson.length > 2_500) {
+    throw new Error("compactToolResult must keep measure boxes small: " + boxedJson.length);
+  }
+  if (!boxedJson.includes('"at":"0/5"') || !/795/.test(boxedJson)) {
+    throw new Error("compactToolResult must keep the finding box, not clip it off the end: " + boxedJson);
+  }
+  if (!compactBoxes.boxes || compactBoxes.boxes[0].at !== "0/5") {
+    throw new Error("finding box should be first: " + boxedJson);
+  }
+  if (compactBoxes.boxes.length > 12) {
+    throw new Error("compactToolResult should cap boxes: " + compactBoxes.boxes.length);
+  }
+  const prompt = geminiSystemPrompt();
+  for (const need of [
+    "pixels, the vectorized SVG",
+    '"node"',
+    "820×1180",
+    "./evg-ui",
+    "Do not read AGENTS.md",
+    "A thought is not a patch",
+    "Acme 360",
+    "Revenuee",
+    "jatka",
+    "One card per write_file",
+    "2000 bytes",
+    "set-id",
+    "nav.home",
+    "Never read_file a .evg.json",
+    "one CSS name",
+    "do not query every sibling",
+    '{"ops":[...]}',
+    "NEXT tool is ./evg-ui add",
+    "TASK.md is already this message",
+    "not read_file",
+    "vectorized SVG",
+    "attachment.svg",
+    "grid-template-columns",
+    "HTML/CSS flex",
+    "rave.Card",
+    "set-css",
+    "ui-card",
+    "tabbar",
+    "EXAMPLE_UI",
+    "rave.AppBar",
+    "SettingsRow",
+    "do not flatten",
+    "add tiles",
+    "rave.Tile",
+    "rave.Banner",
+    "rave.TabBar",
+    "Leftover SettingsRow",
+    "highest index first",
+    "page footer",
+    "7h 38m",
+    "NOT done",
+    "bars cover the title",
+  ]) {
+    if (!prompt.includes(need)) throw new Error("gemini system prompt missing " + need);
+  }
+  if (!looksLikeUnfinishedPlan("", "Now, let's get Section 3 built. This is the main 2-column layout.")) {
+    throw new Error("a Section-3 thought with no tool must look unfinished");
+  }
+  if (!looksLikeUnfinishedPlan("I will add the products card next and write ops.json.")) {
+    throw new Error("an I'll-add spoken plan must look unfinished");
+  }
+  if (!looksLikeUnfinishedPlan("", "write_file NOW with the complete ops.json")) {
+    throw new Error("write_file NOW must look unfinished");
+  }
+  if (looksLikeUnfinishedPlan("Gold.")) {
+    throw new Error("a short finish must not look like a plan");
+  }
+  if (looksLikeUnfinishedPlan("The stamp is there.")) {
+    throw new Error("a short completion must not look like a plan");
+  }
+  if (looksLikeUnfinishedPlan("The outline matches the ask. Done.")) {
+    throw new Error("an explicit finish must not look like a plan");
+  }
+  if (!needsToolNudge({ finishReason: "MAX_TOKENS" })) {
+    throw new Error("MAX_TOKENS with no functionCall must nudge");
+  }
+  if (!needsToolNudge({ outputTokens: 8200, text: "…" })) {
+    throw new Error("an 8k candidate with no tool must nudge");
+  }
+  if (!PLAN_NUDGE.includes("plan is not a patch") || !/ONE card/.test(PLAN_NUDGE)) {
+    throw new Error("PLAN_NUDGE must name the failure: " + PLAN_NUDGE);
+  }
+  const essay = dropTrailingPlan([
+    { role: "user", parts: [{ text: "build it" }] },
+    { role: "model", parts: [{ text: "Now, let's get Section 3 built. Left column products.", thought: true }] },
+    { role: "user", parts: [{ text: PLAN_NUDGE }] },
+  ]);
+  if (essay.length !== 1 || essay[0].parts[0].text !== "build it") {
+    throw new Error("dropTrailingPlan should strip the essay and the nudge: " + JSON.stringify(essay));
+  }
+  const slimed = slimModelThoughts([
+    { role: "model", parts: [{ text: "x".repeat(2000), thought: true, thoughtSignature: "keep" }] },
+  ]);
+  if (slimed[0].parts[0].text.length > 700 || slimed[0].parts[0].thoughtSignature !== "keep") {
+    throw new Error("slimModelThoughts should clip thoughts and keep the signature: " + JSON.stringify(slimed));
+  }
+  const longHist = [
+    { role: "user", parts: [{ text: "build it" }] },
+    ...Array.from({ length: 20 }, (_, i) => ({
+      role: i % 2 ? "user" : "model",
+      parts: [
+        i % 2
+          ? { functionResponse: { name: "read_file", response: { contents: "x".repeat(8000) } } }
+          : { functionCall: { name: "read_file", args: { path: "doc.evg.json" } } },
+      ],
+    })),
+  ];
+  const folded = compactHistory(longHist, { keep: 6, cap: 24_000 });
+  if (folded.length > 10) throw new Error("compactHistory should fold old turns: " + folded.length);
+  if (!JSON.stringify(folded).includes("compacted")) {
+    throw new Error("compactHistory should leave a snapshot: " + JSON.stringify(folded[1]));
+  }
+  if (JSON.stringify(folded).length > 20_000) {
+    throw new Error("compacted history still huge: " + JSON.stringify(folded).length);
+  }
+  const packed = compactToolResult("read_file", { path: "doc.evg.json" }, { path: "doc.evg.json", contents: "y".repeat(8000) });
+  if (packed.contents || !packed.hint) {
+    throw new Error("compactToolResult must drop a fat read: " + JSON.stringify(packed));
+  }
+  const sent = payloadStats({
+    systemInstruction: { parts: [{ text: "sys" }] },
+    tools: [{ functionDeclarations: [{ name: "run" }] }],
+    contents: folded,
+  });
+  if (!/msgs/.test(formatPayloadStats(sent)) || sent.msgs !== folded.length) {
+    throw new Error("payloadStats should describe the request: " + JSON.stringify(sent));
+  }
+  const outBody = requestBody([{ role: "user", parts: [{ text: "x" }] }], {});
+  if (outBody.generationConfig.maxOutputTokens !== DEFAULT_GEMINI_MAX_OUTPUT || DEFAULT_GEMINI_MAX_OUTPUT < 65_536) {
+    throw new Error("Gemini maxOutputTokens should be 64k tokens: " + outBody.generationConfig.maxOutputTokens);
+  }
+  const outLow = requestBody([{ role: "user", parts: [{ text: "x" }] }], { EVG_GEMINI_MAX_OUTPUT: "2048" });
+  if (outLow.generationConfig.maxOutputTokens !== 2048) {
+    throw new Error("EVG_GEMINI_MAX_OUTPUT should win: " + outLow.generationConfig.maxOutputTokens);
+  }
+  const prepared = prepareContents(longHist, { EVG_GEMINI_HISTORY_KEEP: "6" });
+  if (prepared.length > 10) throw new Error("prepareContents should compact: " + prepared.length);
+  const hugeOps = executeTool(ws, "write_file", {
+    path: "ops.json",
+    contents: `{"ops":[${"{\"op\":\"set-text\",\"at\":\"0\",\"value\":\"n\"},".repeat(200)}]}`,
+  });
+  if (!hugeOps.error || !/one card/.test(hugeOps.error) || hugeOps.error.indexOf(String(OPS_WRITE_CAP)) < 0) {
+    throw new Error("write_file must refuse a whole-page ops.json: " + JSON.stringify(hugeOps));
+  }
+  fs.writeFileSync(
+    path.join(ws, "attachment.json"),
+    JSON.stringify({
+      width: 320,
+      height: 221,
+      layers: 8,
+      colors: [{ hex: "#E3C8A6", share: 0.223 }],
+    }),
+  );
+  const palette = executeTool(ws, "image_info", {});
+  if (palette.kind !== "palette" || palette.colors?.[0]?.hex !== "#E3C8A6") {
+    throw new Error("image_info should return the traced palette: " + JSON.stringify(palette));
+  }
+  const png = Buffer.alloc(24);
+  png[0] = 0x89;
+  png[1] = 0x50;
+  png[2] = 0x4e;
+  png[3] = 0x47;
+  png[4] = 0x0d;
+  png[5] = 0x0a;
+  png[6] = 0x1a;
+  png[7] = 0x0a;
+  png.writeUInt32BE(13, 8);
+  png.write("IHDR", 12);
+  png.writeUInt32BE(390, 16);
+  png.writeUInt32BE(844, 20);
+  fs.writeFileSync(path.join(ws, "attachment.png"), png);
+  const size = executeTool(ws, "image_info", { path: "attachment.png" });
+  if (size.kind !== "png" || size.width !== 390 || size.height !== 844) {
+    throw new Error("image_info should read the PNG header: " + JSON.stringify(size));
+  }
+  const ocrLeave = executeTool(ws, "ocr", { path: "../etc/passwd" });
+  if (!ocrLeave.error || !/leaves the workspace/.test(ocrLeave.error)) {
+    throw new Error("ocr must stay in the workspace: " + JSON.stringify(ocrLeave));
+  }
+  const ocrJson = executeTool(ws, "ocr", { path: "attachment.json" });
+  if (!ocrJson.error || !/only reads images/.test(ocrJson.error)) {
+    throw new Error("ocr must refuse a JSON file: " + JSON.stringify(ocrJson));
+  }
+  const missingBin = executeTool(ws, "ocr", { path: "attachment.png" }, {
+    ...process.env,
+    TESSERACT_PATH: path.join(ws, "no-such-tesseract"),
+  });
+  if (!missingBin.error || !/not installed/.test(missingBin.error)) {
+    throw new Error("ocr should name a missing tesseract: " + JSON.stringify(missingBin));
+  }
+  const tess = path.join(ws, "fake-tesseract");
+  fs.writeFileSync(
+    tess,
+    "#!/usr/bin/env node\nprocess.stdout.write('Follow up\\nSettings\\n');\n",
+    { mode: 0o755 },
+  );
+  const ocred = executeTool(ws, "ocr", { path: "attachment.png", psm: 6 }, {
+    ...process.env,
+    TESSERACT_PATH: tess,
+  });
+  if (ocred.error || !/Follow up/.test(ocred.text || "")) {
+    throw new Error("ocr stub should return text: " + JSON.stringify(ocred));
+  }
+  if (ocred.path !== "attachment.png" || ocred.lang !== "eng") {
+    throw new Error("ocr should echo path and lang: " + JSON.stringify(ocred));
+  }
+  const ocrDefault = executeTool(ws, "ocr", {}, { ...process.env, TESSERACT_PATH: tess });
+  if (ocrDefault.error || !/Follow up/.test(ocrDefault.text || "") || !ocrDefault.again) {
+    throw new Error("second ocr must return the same words: " + JSON.stringify(ocrDefault));
+  }
+  const imageAgain = executeTool(ws, "image_info", {});
+  if (imageAgain.error || imageAgain.kind !== "palette") {
+    throw new Error("second image_info must return the palette again: " + JSON.stringify(imageAgain));
+  }
+  fs.writeFileSync(path.join(ws, "attachment.svg"), "<svg xmlns=\"http://www.w3.org/2000/svg\"><g id=\"layer\"/></svg>\n");
+  const svgRead = executeTool(ws, "read_file", { path: "attachment.svg" });
+  if (svgRead.error || !/layer/.test(svgRead.contents || "")) {
+    throw new Error("attachment.svg must be readable: " + JSON.stringify(svgRead));
+  }
+  console.log("  gemini host list_dir / image_info / ocr; archaeology reads refused");
+
+  const requests = [];
+  let calls = 0;
+  const fetchImpl = async (url, opts) => {
+    const body = JSON.parse(opts.body);
+    requests.push({ url, key: opts.headers["x-goog-api-key"], body });
+    calls += 1;
+    if (calls === 1) {
+      if (!/generateContent/.test(url)) throw new Error("expected generateContent, got " + url);
+      if (opts.headers["x-goog-api-key"] !== "test-livebuild-key") {
+        throw new Error("API key was not sent as x-goog-api-key");
+      }
+      const decls = (((body.tools || [])[0] || {}).functionDeclarations || []).map((t) => t.name);
+      for (const need of ["run", "read_file", "write_file", "list_dir", "image_info", "ocr"]) {
+        if (!decls.includes(need)) throw new Error("Gemini tools missing " + need);
+      }
+      if (body.generationConfig?.thinkingConfig?.includeThoughts !== true) {
+        throw new Error("includeThoughts must be on so the console can show the thought");
+      }
+      const firstUser = (body.contents || []).find((c) => c.role === "user");
+      if (!firstUser || !(firstUser.parts || []).some((p) => p.inlineData && p.inlineData.mimeType === "image/png")) {
+        throw new Error("a picture workspace must send the photo as inlineData");
+      }
+      if (!(firstUser.parts || []).some((p) => /Vectorized SVG/.test(p.text || ""))) {
+        throw new Error("a picture workspace must send the SVG with the photo");
+      }
+      return {
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            candidates: [
+              {
+                content: {
+                  role: "model",
+                  parts: [
+                    { text: "Stamp a small file, do not rewrite the phone.", thought: true },
+                    { text: "I will stamp the folder." },
+                    {
+                      functionCall: { name: "write_file", args: { path: "stamp.txt", contents: "gemini-ok\n" } },
+                      thoughtSignature: "sig-keep",
+                    },
+                  ],
+                },
+                finishReason: "STOP",
+              },
+            ],
+            usageMetadata: { promptTokenCount: 80, candidatesTokenCount: 12, cachedContentTokenCount: 5 },
+          }),
+      };
+    }
+    const hist = body.contents || [];
+    if (hist.some((c) => (c.parts || []).some((p) => p && p.inlineData))) {
+      throw new Error("later turns must not re-send the photo unless asked");
+    }
+    const modelTurn = hist.find((c) => c.role === "model");
+    const sig = ((modelTurn && modelTurn.parts) || []).find((p) => p.thoughtSignature);
+    if (!sig || sig.thoughtSignature !== "sig-keep") {
+      throw new Error("thought signature was not returned to Gemini: " + JSON.stringify(modelTurn));
+    }
+    const tool = hist.find((c) => (c.parts || []).some((p) => p.functionResponse));
+    if (!tool) throw new Error("functionResponse was not sent back");
+    return {
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({
+          candidates: [
+            {
+              content: { role: "model", parts: [{ text: "The stamp is there." }] },
+              finishReason: "STOP",
+            },
+          ],
+          usageMetadata: { promptTokenCount: 90, candidatesTokenCount: 6 },
+        }),
+    };
+  };
+
+  const events = [];
+  const looped = await geminiLoop({
+    workspace: ws,
+    onEvent: (e) => events.push(e),
+    fetchImpl,
+    env: { ...process.env, GEMINI_API_KEY: "test-livebuild-key", GOOGLE_API_KEY: "", EVG_GEMINI_MODEL: "gemini-3.8-flash" },
+  });
+  if (!looped.ok) throw new Error("geminiLoop did not finish ok");
+  if (!fs.existsSync(path.join(ws, "stamp.txt"))) throw new Error("Gemini run tool did not execute");
+  const stamp = fs.readFileSync(path.join(ws, "stamp.txt"), "utf8");
+  if (!/gemini-ok/.test(stamp)) throw new Error("stamp.txt was wrong: " + stamp);
+  if (!events.some((e) => e.type === "assistant" && /Stamp a small file/.test(JSON.stringify(e)))) {
+    throw new Error("thought parts must reach the page: " + JSON.stringify(events.filter((e) => e.type === "assistant")));
+  }
+  if (!events.some((e) => e.type === "assistant")) throw new Error("no assistant events");
+  if (!events.some((e) => e.type === "tool_call")) throw new Error("no tool_call events");
+  const shown = events.find((e) => e.type === "tool_call");
+  const cmd = shown?.tool_call?.shellToolCall?.args?.command || "";
+  if (!/stamp\.txt/.test(cmd) || !/bytes/.test(cmd) || !/wrote/.test(cmd)) {
+    throw new Error("tool_call should say what was written: " + cmd);
+  }
+  if (!fs.existsSync(path.join(ws, GEMINI_TRACE))) throw new Error("the run left no .gemini-trace.log");
+  const parts = splitParts([{ text: "hidden plan", thought: true }, { text: "visible" }]);
+  if (parts.thought !== "hidden plan" || parts.text !== "visible") {
+    throw new Error("splitParts must keep thoughts out of the spoken text: " + JSON.stringify(parts));
+  }
+  const denied = summarizeTool("write_file", { path: "doc.evg.json", contents: '{"root":{"tag":"div","children":[]}}' }, {
+    error: "write_file will not replace doc.evg.json — write ops.json, then ./evg-agent patch",
+  });
+  if (!/whole EVG tree/.test(denied.call) || !/will not replace/.test(denied.reply)) {
+    throw new Error("a document replace should be named as one: " + JSON.stringify(denied));
+  }
+  const spend = events.find((e) => e.type === "result");
+  if (!spend || spend.usage.output_tokens !== 18) {
+    throw new Error("usage did not add both turns: " + JSON.stringify(spend));
+  }
+  if (!spend.modelUsage["gemini-3.8-flash"]) throw new Error("result did not name the model");
+  if (spend.usage.input_tokens !== 165 || spend.usage.cache_read_input_tokens !== 5) {
+    throw new Error("usage should split cache out of the prompt: " + JSON.stringify(spend.usage));
+  }
+  const expectCost = geminiCostUsd({ input: 170, fresh: 165, cacheRead: 5, output: 18 });
+  if (typeof spend.total_cost_usd !== "number" || Math.abs(spend.total_cost_usd - expectCost) > 1e-12) {
+    throw new Error("result should carry the Flash about-cost: " + JSON.stringify(spend));
+  }
+  if (Math.abs((spend.modelUsage["gemini-3.8-flash"].costUSD || 0) - expectCost) > 1e-12) {
+    throw new Error("modelUsage should carry costUSD: " + JSON.stringify(spend.modelUsage));
+  }
+  const hist = loadHistory(ws);
+  if (hist.length < 4) throw new Error("history too short to continue a Follow-up: " + hist.length);
+  if (hist.some((c) => (c.parts || []).some((p) => p && p.inlineData))) {
+    throw new Error("history must not store inline image bytes");
+  }
+  fs.writeFileSync(path.join(ws, "TASK.md"), "Now make the title gold.\n");
+  let followCalls = 0;
+  const followFetch = async (url, opts) => {
+    const body = JSON.parse(opts.body);
+    followCalls += 1;
+    if (followCalls === 1) {
+      if ((body.contents || []).length < 5) {
+        throw new Error("Follow-up did not replay history: " + (body.contents || []).length);
+      }
+      const last = body.contents[body.contents.length - 1];
+      const text = (((last.parts || [])[0] || {}).text) || "";
+      if (!/title gold/.test(text)) throw new Error("Follow-up task missing: " + text);
+      return {
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            candidates: [{ content: { role: "model", parts: [{ text: "Gold." }] }, finishReason: "STOP" }],
+            usageMetadata: { promptTokenCount: 40, candidatesTokenCount: 2 },
+          }),
+      };
+    }
+    throw new Error("Follow-up made a second API call");
+  };
+  await geminiLoop({
+    workspace: ws,
+    onEvent: () => {},
+    fetchImpl: followFetch,
+    env: { ...process.env, GEMINI_API_KEY: "test-livebuild-key" },
+  });
+  console.log("  gemini loop tool + history, thought signature kept, Follow-up continues");
+
+  {
+    const capWs = fs.mkdtempSync(path.join(os.tmpdir(), "evg-gemini-cap-"));
+    fs.writeFileSync(path.join(capWs, "TASK.md"), "never finish\n");
+    let n = 0;
+    const alwaysTool = async () => {
+      n += 1;
+      return {
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            candidates: [
+              {
+                content: {
+                  role: "model",
+                  parts: [{ functionCall: { name: "run", args: { command: "true" } } }],
+                },
+                finishReason: "STOP",
+              },
+            ],
+            usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1 },
+          }),
+      };
+    };
+    let hit = "";
+    try {
+      await geminiLoop({
+        workspace: capWs,
+        onEvent: () => {},
+        fetchImpl: alwaysTool,
+        env: { ...process.env, GEMINI_API_KEY: "test-livebuild-key", EVG_GEMINI_MAX_TURNS: "3" },
+      });
+    } catch (e) {
+      hit = String(e.message || e);
+    }
+    if (!/EVG_GEMINI_MAX_TURNS \(3\)/.test(hit)) {
+      throw new Error("the turn cap was not honoured: " + hit);
+    }
+    if (n !== 3) throw new Error("expected 3 API calls under a cap of 3, got " + n);
+    console.log("  gemini cap  EVG_GEMINI_MAX_TURNS=3 stops the loop");
+  }
+
+  {
+    const planWs = fs.mkdtempSync(path.join(os.tmpdir(), "evg-gemini-plan-"));
+    fs.writeFileSync(path.join(planWs, "TASK.md"), "Finish the tablet dashboard.\n");
+    let n = 0;
+    const planFetch = async (_url, opts) => {
+      const body = JSON.parse(opts.body);
+      n += 1;
+      if (n === 1) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () =>
+            JSON.stringify({
+              candidates: [
+                {
+                  content: {
+                    role: "model",
+                    parts: [
+                      {
+                        text: "Now, let's get Section 3 built. Left column products, right column feed.",
+                        thought: true,
+                      },
+                    ],
+                  },
+                  finishReason: "STOP",
+                },
+              ],
+              usageMetadata: { promptTokenCount: 20, candidatesTokenCount: 8, thoughtsTokenCount: 8 },
+            }),
+        };
+      }
+      if (n === 2) {
+        const last = body.contents[body.contents.length - 1];
+        const asked = (((last && last.parts) || [])[0] || {}).text || "";
+        if (!/plan is not a patch/.test(asked)) {
+          throw new Error("the host did not nudge a plan-only turn: " + asked);
+        }
+        if (body.toolConfig?.functionCallingConfig?.mode !== "ANY") {
+          throw new Error("the retry must force a tool call: " + JSON.stringify(body.toolConfig));
+        }
+        return {
+          ok: true,
+          status: 200,
+          text: async () =>
+            JSON.stringify({
+              candidates: [
+                {
+                  content: {
+                    role: "model",
+                    parts: [
+                      {
+                        functionCall: { name: "write_file", args: { path: "body.txt", contents: "products\n" } },
+                      },
+                    ],
+                  },
+                  finishReason: "STOP",
+                },
+              ],
+              usageMetadata: { promptTokenCount: 24, candidatesTokenCount: 6 },
+            }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            candidates: [{ content: { role: "model", parts: [{ text: "The outline names the products card." }] }, finishReason: "STOP" }],
+            usageMetadata: { promptTokenCount: 28, candidatesTokenCount: 4 },
+          }),
+      };
+    };
+    const planEvents = [];
+    const planned = await geminiLoop({
+      workspace: planWs,
+      onEvent: (e) => planEvents.push(e),
+      fetchImpl: planFetch,
+      env: { ...process.env, GEMINI_API_KEY: "test-livebuild-key" },
+    });
+    if (!planned.ok) throw new Error("plan-nudge loop did not finish ok");
+    if (n !== 3) throw new Error("expected outline-plan → nudge → tool → done (3 API calls), got " + n);
+    if (!fs.existsSync(path.join(planWs, "body.txt"))) {
+      throw new Error("the nudge did not produce the follow-up tool call");
+    }
+    if (!planEvents.some((e) => e.type === "assistant" && /plan is not a patch/.test(JSON.stringify(e)))) {
+      throw new Error("the page should see the host nudge");
+    }
+    fs.rmSync(planWs, { recursive: true, force: true });
+    console.log("  gemini plan  a Section-3 thought without a tool is nudged, not finished");
+  }
+
+  {
+    const stuckWs = fs.mkdtempSync(path.join(os.tmpdir(), "evg-gemini-stuck-"));
+    fs.writeFileSync(path.join(stuckWs, "TASK.md"), "Finish the tablet dashboard.\n");
+    let n = 0;
+    const alwaysPlan = async () => {
+      n += 1;
+      return {
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            candidates: [
+              {
+                content: {
+                  role: "model",
+                  parts: [{ text: "I will write_file the complete ops.json now.", thought: true }],
+                },
+                finishReason: "MAX_TOKENS",
+              },
+            ],
+            usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 8000, thoughtsTokenCount: 20 },
+          }),
+      };
+    };
+    let hit = "";
+    try {
+      await geminiLoop({
+        workspace: stuckWs,
+        onEvent: () => {},
+        fetchImpl: alwaysPlan,
+        env: { ...process.env, GEMINI_API_KEY: "test-livebuild-key", EVG_GEMINI_MAX_TURNS: "8" },
+      });
+    } catch (e) {
+      hit = String(e.message || e);
+    }
+    if (!/never called a tool/.test(hit)) {
+      throw new Error("a MAX_TOKENS essay must not report success: " + hit);
+    }
+    if (n !== 4) throw new Error("expected 3 nudges then an error on the 4th turn, got " + n + " — " + hit);
+    fs.rmSync(stuckWs, { recursive: true, force: true });
+    console.log("  gemini stuck  MAX_TOKENS with no tool errors instead of finishing");
+  }
+
+  const session = resetSession("dashboard");
+  fs.writeFileSync(path.join(session, GEMINI_HISTORY), JSON.stringify({ contents: [{ role: "user", parts: [{ text: "old" }] }] }));
+  resetSession("dashboard");
+  if (fs.existsSync(path.join(session, GEMINI_HISTORY))) {
+    throw new Error("start-over left Gemini history behind");
+  }
+  console.log("  gemini hist start-over wipes the conversation");
+
+  const geminiHttp = await new Promise((resolve) => {
+    const server = http.createServer(async (req, res) => {
+      const chunks = [];
+      for await (const c of req) chunks.push(c);
+      const body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
+      const n = (body.contents || []).filter((c) => c.role === "model").length;
+      const payload =
+        n === 0
+          ? {
+              candidates: [
+                {
+                  content: {
+                    role: "model",
+                    parts: [{ text: "Looking at the phone." }, { functionCall: { name: "write_file", args: { path: "gemini-wired.txt", contents: "wired\n" } } }],
+                  },
+                  finishReason: "STOP",
+                },
+              ],
+              usageMetadata: { promptTokenCount: 11, candidatesTokenCount: 3 },
+            }
+          : {
+              candidates: [{ content: { role: "model", parts: [{ text: "Wired through the orchestrator." }] }, finishReason: "STOP" }],
+              usageMetadata: { promptTokenCount: 12, candidatesTokenCount: 4 },
+            };
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify(payload));
+    });
+    server.listen(0, "127.0.0.1", () => {
+      const { port } = server.address();
+      resolve({ server, base: `http://127.0.0.1:${port}/v1beta` });
+    });
+  });
+  const prevBase = process.env.GEMINI_API_BASE;
+  const prevModel = process.env.EVG_GEMINI_MODEL;
+  process.env.GEMINI_API_KEY = "test-livebuild-key";
+  process.env.GOOGLE_API_KEY = "";
+  process.env.GEMINI_API_BASE = geminiHttp.base;
+  process.env.EVG_GEMINI_MODEL = "gemini-3.8-flash";
+  try {
+    resetSession("dashboard");
+    const seen = [];
+    await runTask({
+      agent: "gemini",
+      kind: "dashboard",
+      prompt: "prove the orchestrator spawns Gemini",
+      session: true,
+      onLine: (line) => seen.push(JSON.parse(line)),
+    });
+    const wired = path.join(sessionDir(), "gemini-wired.txt");
+    if (!fs.existsSync(wired)) throw new Error("spawned Gemini never ran the tool");
+    if (!seen.some((e) => e.t === "session" && e.agent === "gemini")) {
+      throw new Error("session did not name gemini");
+    }
+    const usage = seen.find((e) => e.t === "usage");
+    if (!usage) throw new Error("spawned Gemini reported no usage");
+    if (typeof usage.costUsd !== "number" || usage.input !== 23 || usage.output !== 7) {
+      throw new Error("spawned usage should carry tokens and dollars: " + JSON.stringify(usage));
+    }
+    const done = seen.filter((e) => e.t === "done").at(-1);
+    if (!done?.ok) throw new Error("spawned Gemini done.ok is false: " + JSON.stringify(done));
+    console.log("  gemini run  orchestrator spawn, usage on the page, tool hit the workspace");
+  } finally {
+    geminiHttp.server.close();
+    restoreKeys();
+    restoreBox();
+    if (prevBase === undefined) delete process.env.GEMINI_API_BASE;
+    else process.env.GEMINI_API_BASE = prevBase;
+    if (prevModel === undefined) delete process.env.EVG_GEMINI_MODEL;
+    else process.env.EVG_GEMINI_MODEL = prevModel;
+  }
+}
+
 const missing = agents.filter((a) => !a.available).map((a) => a.id);
 if (missing.length) {
   console.log("  skipped     " + missing.join(", ") + " (not on this machine)");
 }
 
-console.log("ALL PASS — local orchestrator, recipe + mock + self + Cursor slot");
+console.log("ALL PASS — local orchestrator, recipe + mock + self + Cursor slot + Gemini slot");

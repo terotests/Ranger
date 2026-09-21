@@ -842,6 +842,7 @@
     "livebuild:stream": "node gallery/evg/livebuild/stream-check.mjs",
     "livebuild:serve": "node gallery/evg/livebuild/serve.mjs",
     "livebuild:withcursor": "node gallery/evg/livebuild/withcursor.mjs",
+    "livebuild:withgemini": "node gallery/evg/livebuild/withgemini.mjs",
     "livebuild:web": "node gallery/evg/livebuild/browser-smoke.mjs",
     "livebuild:agents": "node gallery/evg/livebuild/agents-check.mjs",
     "livebuild:app": "node gallery/evg/livebuild/app-check.mjs",

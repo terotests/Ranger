@@ -38,6 +38,7 @@ this machine. Which *model* they call is a separate question:
                          ├── Cursor   local CLI, your Cursor subscription
                          ├── Codex    local CLI, OpenAI inference
                          ├── Claude   local CLI, Anthropic inference
+                         ├── Gemini   Google API, GEMINI_API_KEY, Flash
                          └── Ollama   local model, no cloud
 ```
 
@@ -47,9 +48,14 @@ is the Cursor cloud agent in the same container: it edits `doc.evg.json`
 with `EVGPatch` while the host streams frames. **Cursor** is the local
 Agent CLI (`agent` / `cursor-agent`) on your machine — the same
 subscription as the editor. Pick Codex or Claude when those CLIs are on
-`PATH`; they get a temp workspace (`doc.evg.json` + `AGENTS.md`). Inference
-for Cursor, Codex and Claude is in the cloud — the agent program is local,
-the weights are not. Ollama is the fully-offline slot (`localhost:11434`).
+`PATH`; they get a temp workspace (`doc.evg.json` + `AGENTS.md`). **Gemini**
+is the one that does not spawn a vendor CLI: if `GEMINI_API_KEY` is set
+(Google AI Studio; `GOOGLE_API_KEY` is also accepted) the page POSTs to
+Gemini Flash itself, runs `./evg-agent` in the workspace, and keeps the
+conversation in `.gemini-history.json` so Follow-up is the next turn.
+Inference for Cursor, Codex, Claude and Gemini is in the cloud — the agent
+program is local, the weights are not. Ollama is the fully-offline slot
+(`localhost:11434`).
 
 Matching a free-text prompt to a recipe is keyword-based when the
 adapter is `recipe`. The other adapters receive the prompt as the task.
@@ -84,6 +90,116 @@ the live-build program, and starts the page with Cursor selected. The phone
 already has a dashboard. **Follow up** edits that same `doc.evg.json`
 (Cursor `--continue` in the same workspace). Start-over chips
 (Dashboard / Empty / …) are what wipe it.
+
+To drive it with **Gemini Flash** over the network (no Cursor CLI):
+
+```sh
+export GEMINI_API_KEY=…              # https://aistudio.google.com/apikey
+# export EVG_GEMINI_MODEL=gemini-3.8-flash   # default; any Flash id
+# export EVG_GEMINI_MAX_TURNS=64             # generateContent rounds per Follow-up
+# export EVG_GEMINI_MAX_OUTPUT=65536         # response tokens (thoughts count)
+# export EVG_GEMINI_SANDBOX=docker           # opt-in: same argv in node-slim
+npm run livebuild:withgemini
+# open http://127.0.0.1:8765/?agent=gemini
+```
+
+`GEMINI_API_KEY` is enough — that is the Google AI Studio / Gemini Developer
+API key, not Vertex. `GOOGLE_API_KEY` is accepted if `GEMINI_API_KEY` is
+empty. The chip is also in the Agent row on `npm run livebuild:serve` whenever
+the key is set; withgemini only forces it on. Follow-up replays the Gemini
+conversation held in the session. Start-over chips drop it. One Follow-up
+stops after `EVG_GEMINI_MAX_TURNS` model rounds (64 unless you raise it) —
+that is the message `Gemini hit EVG_GEMINI_MAX_TURNS (N) without finishing`.
+A thought that lists the next cards with no `functionCall` is not treated
+as done. The host nudges (`A plan is not a patch — ONE card`) and the
+next generateContent uses `toolConfig.functionCallingConfig.mode=ANY`
+so Gemini must call a tool. `maxOutputTokens` defaults to **65536**
+(Gemini 3 Flash’s output cap; thoughts count). Override with
+`EVG_GEMINI_MAX_OUTPUT`. A whole-page `ops.json` still hits that cap
+and never becomes a `functionCall`; the prompt asks for one card under
+2000 bytes. If the retries still emit no tool, the Follow-up errors
+instead of saying it finished. Several screens need `set-id`
+(`nav.orders`) then `./evg-app init` / `check` — `count:7` now
+includes the missing ids, not only the number. `query` / `measure --boxes`
+used to come back as `count:1` and hide the match props and the
+`[x,y,w,h]` box; a 1px tab-bar overflow then burned the turn cap on
+sibling queries. Those replies now carry the match, the box, and
+`bottomFree`. `set-prop style=` is answered with one CSS name
+(`padding-top`, `height`), a bare `./evg-agent` is refused, and
+`ops.json` must be `{"ops":[…]}`. The system prompt is sent every
+turn — Gemini still wandered (second OCR, `./evg-ui list`,
+`read_file TASK.md`, `set-prop 0=column`) so the host now refuses
+those and an empty outline says `add card`.
+`./evg-ui add` prints ops — `--into` is the insert path, not an
+edit — so a successful add answers with `patch add.json` and does
+not put the ops back in the prompt.
+A photo attach sends Gemini the **pixels**, the **vectorized SVG**
+(up to 64k chars — not the old 8k clip),
+the palette and OCR on the **first turn** of a Follow-up (any UI).
+Later turns stay cheap; `image_info` / `ocr` / `read_file attachment.svg`
+send them again if the model asks. The brief says EVG is HTML flex/grid,
+names page/cards/accent hexes, and lists Erazer or SVG `x,y w×h` boxes.
+Pieces are `./evg-ui add appbar|pills|bars|tiles|banner|card|chips|tabbar`
+— those write `ui-appbar` / `ui-pills` / `ui-bars` / `ui-tile` /
+`ui-banner` / `ui-card` / `ui-tabbar` so **Export** collapses to `rave.AppBar` /
+`rave.Pills` / `rave.Bars` / `rave.Tile` / `rave.Banner` / `rave.TabBar` /
+`rave.Card` / `SettingsRow`. A dashboard photo must stay tiles + bars + banner, not a
+flattened SettingsRow list. After `add` the host paints the photo
+onto the new piece from **Erazer / SVG box shapes** (tall columns, wide
+slabs, compact chips — not “banner = first accent”) and **removes leftover SettingsRow cards**
+(and the old icon-chip row) in the same patch. A `write_file` that
+drops those leftovers while pills/tiles/bars stay is allowed;
+wiping the whole screen is not. `measure` `count:0` is no page overflow,
+not a finish — the page footer `layout N` / align / tight is forwarded
+to Gemini every turn as suspicious overlap (not done). Bar-column tops a
+few pixels apart are the chart, not misalignment — fills that do not fit
+the row (or Erazer colour boxes at a different *y*) mean the bars cover
+the title. Glued OCR labels
+(`7h38m`) are flagged. A hand `insert` of an unnamed `div` tree is
+refused (box soup). `set-css` is allowed and replaces the sheet. The
+system prompt starts with a compact **EXAMPLE_UI** (AppBar, pills, bars,
+tiles, banner, tabbar) and the `./evg-ui` recipe that builds it — Gemini
+copies those types and changes the words to the photo. An `add card`
+without `--row` is refused (`card` is a settings list only). After two
+outline/query/svg looks on a picture Follow-up the host refuses the
+third and names the filled add.
+
+Each generateContent reply carries `usageMetadata`. The withgemini console
+prints that per turn and for the whole Follow-up — uncached input, cache
+hits, output (thoughts included), and an about-cost at the paid Flash rates
+**$0.75 fresh / $0.075 cache / $3.75 out per 1M**. `promptTokenCount`
+already includes the cache; those hits are not billed at the fresh rate.
+The same dollars land on the page spend line. Each generateContent also
+prints what was *sent* (`send N chars ~tok · M msgs (sys / tools / hist)`)
+so a 4.7M-input run is visible as history, not as drawing. The host
+compacts the chat: tool results stay under 2.5k, a fat `.evg.json` is
+refused (`outline` instead of `read_file`), and after a handful of
+turns the middle of the conversation becomes one snapshot. The live
+document stays on disk; the model gets a diff, not 93 nodes again.
+The console (and
+`.gemini-trace.log` in the session) also prints the thought and each
+`→ tool · ← result`, so a Follow-up that OCR'd a screenshot and rewrote
+the document is visible as that, not only as a finished paragraph.
+Override with
+`EVG_GEMINI_INPUT_PER_M` / `EVG_GEMINI_CACHE_PER_M` /
+`EVG_GEMINI_OUTPUT_PER_M` if Google moves the card.
+
+`run` is not a host shell. Gemini proposes a line; this process splits it
+into argv and will only exec `./evg-agent`, `./evg-ui`, `./evg-app` or
+`./evg-image`. python / tesseract / `sips` / `/tmp` never start that way.
+The services Gemini actually needed are host tools instead — MCP-style,
+not a shell:
+
+| tool | what it is for |
+| --- | --- |
+| `list_dir` | files in the workspace (hidden names omitted) |
+| `image_info` | `attachment.json` palette, or width × height from an image header |
+| `ocr` | Tesseract on `attachment.png` (or another workspace image). `TESSERACT_PATH` if the binary is not on `PATH` |
+
+`read_file` will not open `.gemini-history.json` or compiled `evg_*.js`.
+Docker is opt-in (`EVG_GEMINI_SANDBOX=docker`): same four `run` binaries,
+`node:22-bookworm-slim`, `--network none`, repo read-only. `ocr` stays on
+the host — the slim image has no Tesseract.
 
 Without a browser:
 
@@ -184,9 +300,9 @@ workspace now carries the door to them as `./evg-ui`:
 ```
 
 It also answers with the whole PIECE rather than the part — `row`, `card`,
-`appbar`, `chips`, `field` — because a row is the unit a screen is built in,
-and an agent handed only the switch draws the other four parts by hand every
-time:
+`appbar`, `chips`, `pills`, `tiles`, `bars`, `banner`, `field` — because a
+row is the unit a settings screen is built in, and a dashboard is tiles /
+bars / a banner, not thirty SettingsRows:
 
 ```sh
 ./evg-ui add card --row "Share network|Others can connect|switch:on" \
@@ -296,8 +412,12 @@ version 2). The clipboard is that file. Inside it, four things stay
 logically separate:
 
 - **`ui`** — the semantic component tree. A known switch is `rave.Switch`
-  with `props.checked`, not a track and a thumb. Unknown markup is
-  `evg.div` / `evg.span`. Appearance is not in the nodes.
+  with `props.checked`, not a track and a thumb. Kit pieces (`ui-card`,
+  `ui-row`, `ui-appbar`, `ui-chip`) and the author aliases (`card`,
+  `row`) collapse to `rave.Card` / `SettingsRow` / `rave.AppBar` /
+  `rave.Chip`. A titled panel of nested boxes under the screen still
+  becomes `rave.Card` so a hand-built tree is not a soup of `evg.div`.
+  Unknown markup is `evg.div` / `evg.span`. Appearance is not in the nodes.
 - **`css`** — real CSS, as a string. Author rules stay; kit-default
   `.ui-switch-track` rules do not (those belong to the library).
 - **`machine`** — the statechart, when the screen became an app.
@@ -466,10 +586,13 @@ one, so the UI can say "+12" without walking the list.
 | `EvgLiveBuildMain.rgr` | `run` / `kinds` CLI |
 | `EvgLiveBuildTest.rgr` | the three recipes, in process |
 | `serve.mjs` | HTTP + SSE |
-| `agents.mjs` | `Agent` interface: recipe, mock, self, Cursor, Codex, Claude, Ollama |
+| `agents.mjs` | `Agent` interface: recipe, mock, self, Cursor, Codex, Claude, Gemini, Ollama |
 | `mock-agent.mjs` | a local CLI that writes `doc.evg.json` — no model |
 | `self-agent.mjs` | stays open while this cloud agent patches the tree |
+| `gemini-agent.mjs` | Google Gemini Flash: REST + workspace tools + conversation history |
+| `Dockerfile.gemini` | node-slim image for `run` — no python, no tesseract |
 | `withcursor.mjs` | `npm run livebuild:withcursor` — local Agent CLI + login check |
+| `withgemini.mjs` | `npm run livebuild:withgemini` — `GEMINI_API_KEY` check, Gemini selected |
 | `/attach` in `serve.mjs` | a picture in, traced; `lib/evg/tools/evg_image_tool.rgr` does the tracing |
 | `restyle.mjs` | recipe follow-ups: colour / size / radius from the ask |
 | `agents-check.mjs` | orchestrator: recipe, mock workspace, self slot |

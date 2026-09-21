@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Gemini live-build writes kit pieces, not box soup.** Export is
+  ranger-ui: `ui-card` / `ui-appbar` / `ui-chip` / `ui-row` become
+  `rave.Card` / `rave.AppBar` / `rave.Chip` / `SettingsRow`. The host
+  refuses an `insert` of an unnamed `div` tree at the root, allows
+  `set-css`, and the picture brief names `./evg-ui add card|appbar|chips|tabbar`.
+  Author classes `card` / `row` collapse the same way; a titled nested
+  panel under the screen is inferred as `rave.Card`. `./evg-ui add tabbar`
+  is the four-tab bottom nav. The system prompt now starts with a compact
+  **EXAMPLE_UI** JSON (AppBar, chips, Overview / Recent Orders,
+  `ui-tabbar`) plus the add/patch recipe. `add card` without `--row` is
+  refused. A picture Follow-up that outlines/queries/reads the SVG twice
+  is stopped on the third look. The first-turn SVG, `read_file`, and
+  `/build` POST body caps are 64k characters (were 8k). Gemini
+  `maxOutputTokens` defaults to 65536 (was 16384); override with
+  `EVG_GEMINI_MAX_OUTPUT`.
+
 ### Added
 
 - **`char_length`: how many characters, on all fourteen targets.** `strlen`
@@ -28,6 +46,80 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `rave.Switch` / `SettingsRow` rather than a track and a thumb.
   Compact is the clipboard; Full adds `compiled.evg` and layout debug.
   `npm run livebuild:export`.
+
+- **Gemini Flash as a live-build agent.** `npm run livebuild:withcursor` still
+  spawns the local Cursor Agent CLI. A new chip, **Gemini**, talks to Google
+  instead: if `GEMINI_API_KEY` is set (Google AI Studio;
+  `GOOGLE_API_KEY` is also accepted) the page POSTs to Gemini Flash itself
+  and runs `./evg-agent` in the workspace, rather than delegating to
+  `agent -p`. Conversation history lives in `.gemini-history.json` so Follow
+  up is the next turn; a start-over chip drops it. `EVG_GEMINI_MODEL`
+  selects the Flash id (`gemini-3.8-flash` by default). One Follow-up is
+  capped at `EVG_GEMINI_MAX_TURNS` generateContent rounds (64 by default;
+  the first cut stopped at 24). `run` is not a host shell: only
+  `./evg-agent`, `./evg-ui`, `./evg-app` and `./evg-image` are accepted —
+  the python / tesseract / sips loop against `/tmp` is refused — Gemini
+  proposes a line, this process splits argv and execs that binary, never
+  `sh -c`. The useful pieces of that loop are host tools instead:
+  `list_dir`, `image_info` (palette / image header, no pixel sampling)
+  and `ocr` (Tesseract on a workspace image, `TESSERACT_PATH`).
+  `read_file` will not open the conversation log or compiled `evg_*.js`.
+  Docker is opt-in (`EVG_GEMINI_SANDBOX=docker`): same argv in
+  `node:22-bookworm-slim` (`--network none`, repo read-only); `ocr` stays
+  on the host. Each Gemini reply's `usageMetadata` is printed on the
+  withgemini console (fresh / cache / output tokens and an about-cost at
+  the paid Flash rates $0.75 / $0.075 / $3.75 per 1M — cache hits are
+  not billed as fresh input) and sent to the page spend line.
+  `write_file` will not replace `doc.evg.json` or invent `layout.json`.
+  Thoughts are requested back (`includeThoughts`) and each tool is printed
+  as `→ call · ← result` on the withgemini console and in `.gemini-trace.log`.
+  The workspace guide and Gemini prompt now split *paste the photo* from
+  *rebuild a UI like it*, name `insert`/`node` (a `children` key on the op
+  is ignored), and tell the model to OCR once and measure at the size
+  TASK.md named. `read_file` will not open `attachment.ops.json` / `.svg`
+  or `AGENTS.md` (21k into the prompt). `./evg-ui` rebuilds a stale
+  `ui_host.cjs` that is missing `plainTreeJson` / `addButton`, and a
+  failed run prints stderr instead of `exit 1`. A thought that plans
+  the next section with no tool call is nudged (`A plan is not a
+  patch`) instead of ending the Follow-up — that is how a tablet
+  dashboard stopped after the header and four KPI cards. A retry that
+  dumps the whole page into the candidate still hits `maxOutputTokens`
+  (8k) with no `functionCall`; the next turn now forces `mode=ANY`,
+  asks for one card under 2000 bytes, slims 8k thoughts out of the
+  replayed history, and errors instead of reporting a finished
+  Follow-up. The prompt also asks for spaces between words and one
+  span per label, so overlapping duplicates do not paint as `Revenuee`.
+  Several screens use `set-id` (`nav.orders`) then `./evg-app init` /
+  `check`; a `count:7` from check now carries the missing ids, and
+  `set-prop id` is answered with the `set-id` op. A 40-turn Follow-up
+  that billed ~4.7M input tokens was replaying every outline, thought
+  and `read_file` of the document; tool results are now capped, a fat
+  `.evg.json` is kept on disk, old turns fold into a snapshot, and the
+  console prints `send N chars` per call.
+  `query` / `measure --boxes` now keep the match props and the
+  `[x,y,w,h]` box instead of collapsing to `count:1` — that is why a
+  1px tab-bar overflow burned the 64-turn cap. `set-prop style=` is
+  hinted as one CSS name, a bare `./evg-agent` is refused, and a
+  file that is not `{"ops":[…]}` is rejected at write_file.
+  The prompt is sent every turn; Gemini still ignored it (second
+  OCR, `./evg-ui list`, `TASK.md`, empty `set-prop`). Those are
+  now refused, an empty outline says `add card`, and four
+  sightseeing tools in a row get a stall nudge.
+  `./evg-ui add` writes ops to `add.json` and answers with
+  `patch` — `--into` does not edit the file, and `read_file add.json`
+  is refused so the 3k ops stay off the prompt.
+  A photo attach sends the pixels, the vectorized SVG, the palette
+  and OCR on the first turn of a Follow-up (any UI). Later turns stay
+  cheap; `image_info` / `ocr` / `attachment.svg` send them again.
+  The brief names HTML flex/grid, page/cards/accent hexes, and Erazer
+  or SVG `x,y w×h` boxes so the rebuild is not a guessed settings list.
+  A lone `remove` of the last named card is refused (that is how a
+  good half-screen got wiped). `padding` shorthand and insert-into-the-
+  first-card (`0/0`) are refused. `image_info` is the palette — it no
+  longer re-sends 135k of pixels.
+  `npm run livebuild:withgemini` checks the key and opens the
+  page with Gemini selected. The orchestrator suite drives the loop against
+  a fake fetch, so CI never spends Google credits.
 
 ### Changed
 

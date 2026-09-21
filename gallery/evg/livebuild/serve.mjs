@@ -1016,7 +1016,7 @@ function main() {
       let body = "";
       req.on("data", (c) => {
         body += c;
-        if (body.length > 8000) req.destroy();
+        if (body.length > 64_000) req.destroy();
       });
       req.on("end", () => {
         let prompt = "";

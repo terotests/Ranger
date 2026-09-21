@@ -2,10 +2,10 @@
 /**
  * Local agent orchestrator for EVG live-build.
  *
- * The page is this process. Codex / Claude Code / Cursor / Ollama are
- * *adapters*: a CLI (or a local HTTP model) that runs on this machine.
- * Inference for Codex, Claude and Cursor is in the cloud; Ollama's is on
- * localhost. The recipe adapter does not call a model at all.
+ * The page is this process. Codex / Claude Code / Cursor / Ollama / Gemini
+ * are *adapters*: a CLI, a local HTTP model, or (Gemini) a direct REST
+ * call. Inference for Codex, Claude, Cursor and Gemini is in the cloud;
+ * Ollama's is on localhost. The recipe adapter does not call a model at all.
  *
  *   interface Agent { run(task): stream of NDJSON events }
  *
@@ -19,12 +19,21 @@ import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { parseRestyle, restyleEnv } from "./restyle.mjs";
+import {
+  DEFAULT_GEMINI_MODEL,
+  GEMINI_HISTORY,
+  GEMINI_ONCE,
+  GEMINI_TRACE,
+  geminiKey,
+  geminiModel,
+} from "./gemini-agent.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const root = path.resolve(here, "../../..");
 const liveBin = path.join(root, "gallery/evg/bin/evg_livebuild.js");
 const mockBin = path.join(here, "mock-agent.mjs");
 const selfBin = path.join(here, "self-agent.mjs");
+const geminiBin = path.join(here, "gemini-agent.mjs");
 
 function which(cmd) {
   const r = spawnSync("which", [cmd], { encoding: "utf8" });
@@ -116,13 +125,15 @@ export function listAgents() {
   const codex = which("codex");
   const claude = which("claude");
   const ollama = ollamaUp();
+  const gemini = geminiKey();
+  const geminiId = gemini ? geminiModel() : DEFAULT_GEMINI_MODEL;
   return [
     {
       id: "recipe",
       label: "Recipe",
       available: true,
       where: "this process — no network",
-      hint: "Scripted. Restyles colour, type size, and radius. New widgets need Codex/Claude/Ollama.",
+      hint: "Scripted. Restyles colour, type size, and radius. New widgets need Codex/Claude/Gemini/Ollama.",
     },
     {
       id: "mock",
@@ -163,6 +174,15 @@ export function listAgents() {
       bin: claude || "",
       where: "local CLI — Anthropic inference",
       hint: claude ? "claude -p in a bounded workspace" : "claude is not on PATH",
+    },
+    {
+      id: "gemini",
+      label: "Gemini",
+      available: Boolean(gemini),
+      where: "Google API — Gemini Flash",
+      hint: gemini
+        ? `${geminiId} via GEMINI_API_KEY, tools in the workspace, history kept for Follow-up`
+        : "set GEMINI_API_KEY (Google AI Studio) to call Gemini Flash over the network",
     },
     {
       id: "ollama",
@@ -606,9 +626,7 @@ function attachmentSection(dir) {
   return `
 ## A picture was attached
 
-\`${ATTACH_BASE}.svg\` is it, traced to flat colour layers by Ranger's
-bitmap tracer — ${a.width}×${a.height}, ${a.layers} layers. It is vector,
-so the document can hold it and every painter draws it.
+This is a photograph of a UI, not the UI. ${a.width}×${a.height}, ${a.layers} layers.
 
 Its colours, by how much of the picture they cover:
 
@@ -617,24 +635,43 @@ ${colors}
 Use them. A screen built around the picture's own palette looks like it
 belongs to the picture; one built from guessed colours does not.
 
-To put the picture itself on the phone, apply the patch that is already
-written for it — you never have to handle the path data:
+Four files, four jobs:
+
+- \`${ATTACH_BASE}.json\` — the palette. The host sends it; \`image_info\`
+  if you need it again.
+- \`${ATTACH_BASE}.png\` — the pixels. The host sends them every turn;
+  \`ocr\` again if you need the words.
+- \`${ATTACH_BASE}.svg\` — the vectorized photo. The host sends an excerpt;
+  \`read_file attachment.svg\` if you need it again.
+- \`${ATTACH_BASE}.ops.json\` — path data for pasting the photo. Do not
+  read it.
+
+To **paste the photo** onto the screen (the picture itself, not rebuilt
+widgets), apply the patch that is already written — you never handle the
+path data:
 
 \`\`\`
 ./evg-agent patch doc.evg.json ${ATTACH_BASE}.ops.json
 \`\`\`
 
 It inserts at \`${a.insertsAt || "0/0"}\` at ${a.placed || "its own size"}.
-Edit that file's \`at\` / \`index\` / width first if it belongs somewhere
-else, or re-trace at another size:
+That is a screenshot on the page. It is not a dashboard made of cards.
+
+To **rebuild a UI like the picture** ("make a dashboard like this"):
+the host sends the pixels, the vectorized SVG, the palette and OCR.
+EVG is HTML flex/grid (\`display:flex\`, \`grid-template-columns:1fr 1fr\`),
+not left/top. Erazer / SVG boxes give x,y,w×h — map them to rows.
+set-prop the palette hexes; the seed rgb() is a placeholder. Ask again
+with \`image_info\`, \`ocr\` or \`read_file attachment.svg\` if you need them.
+Do not apply \`${ATTACH_BASE}.ops.json\` as the whole screen.
+
+Re-trace at another size only if you are placing the photo:
 
 \`\`\`
 ./evg-image ${ATTACH_BASE}.png --out=${ATTACH_BASE} --width=200 --at=0 --index=2
 \`\`\`
 
-\`--preset\` takes lineart, poster, photo, broken or print. If the task is
-about the colours rather than the picture, use the palette and leave the
-picture out.
+\`--preset\` takes lineart, poster, photo, broken or print.
 `;
 }
 
@@ -653,9 +690,13 @@ ${task}
 
 ## The screen
 
-390 × 844, one phone. \`doc.evg.json\` already holds a real UI — read it,
-or run \`./evg-agent outline doc.evg.json\`, before you change anything.
-If the outline has more than a handful of nodes, the phone is not empty.
+The seed is 390 × 844 (phone). If TASK.md names a tablet (820 × 1180) or
+a desktop, the root must be that size — measure with those flags. A
+tablet is not a phone stretched.
+
+\`doc.evg.json\` already holds a real UI — run
+\`./evg-agent outline doc.evg.json\` before you change anything. If the
+outline has more than a handful of nodes, the screen is not empty.
 Edit it in place. Do not replace it with a blank page unless the task
 says to start over.
 
@@ -750,8 +791,10 @@ the gap. A whole settings card is one command:
   --row "Privacy|Use randomized MAC|chevron" --into doc.evg.json > add.json
 \`\`\`
 
-\`row\`, \`card\`, \`appbar\`, \`chips\` and \`field\` are the pieces;
+\`row\`, \`card\`, \`appbar\`, \`chips\`, \`tabbar\`, \`pills\`, \`tiles\`, \`bars\`, \`banner\` and \`field\` are the pieces;
 \`./evg-ui list\` has them at the top and \`spec\` says what each takes.
+A dashboard (chart, 2×2 metrics, highlight) is \`add bars\` / \`add tiles\` / \`add banner\` / \`add pills\`.
+\`add card --row\` is a settings list of SettingsRows — do not flatten a dashboard into rows.
 
 ### A control on a SCREEN is a picture. In an APP it can work.
 
@@ -936,8 +979,11 @@ wrong.
 \`\`\`
 ./evg-agent outline doc.evg.json                          # 1. addresses
 ./evg-agent patch   doc.evg.json ops.json                 # 2. change it
-./evg-agent measure doc.evg.json --width=390 --height=844 # 3. is it right?
+./evg-agent measure doc.evg.json --width=W --height=H     # 3. is it right?
 \`\`\`
+
+W×H is what TASK.md said (390×844 phone, 820×1180 tablet, 1440×900
+desktop). Measuring a tablet document at 390×844 is the wrong question.
 
 \`outline\` prints one line per node: its path, its tag, its text, and
 only the properties it sets. Unkeyed paths shift when a sibling is
@@ -959,6 +1005,28 @@ design mode on the live page runs exactly this.
   {"op":"insert","at":"0/0","index":2,"tag":"span"}
 ]}
 \`\`\`
+
+\`insert\` with only \`tag\` is an empty node. A subtree is \`node\` —
+the same shape as a document — not \`children\` on the op. A \`children\`
+key is skipped, the insert lands as an empty box, and \`outline\` will
+show three nodes after you thought you built a dashboard:
+
+\`\`\`json
+{"op":"insert","at":"0","index":0,"node":{"tag":"div","props":{"display":"flex"},
+  "children":[{"tag":"span","text":"Hi"}]}}
+\`\`\`
+
+Prefer \`./evg-ui add tiles\` / \`bars\` / \`banner\` / \`pills\` when the
+photo is a dashboard. \`add card\` is a settings list of rows. One
+command is a whole measured piece; an 18k hand-written tree is how
+\`children\` gets ignored.
+
+A turn that only describes the next section is not a finish. Call
+\`patch\` in that turn. One card per \`write_file\` (under 2000 bytes) —
+a whole-page ops.json is cut off before the tool call. Header plus
+four KPI cards is half a dashboard if the ask named more. One
+\`text\` per label, with spaces ("Acme 360"); two overlapping spans
+with the same words paint as Revenuee.
 
 A rejected op fails the whole batch and changes nothing, so a batch is
 safe to attempt: you never have to work out what half-applied.
@@ -1324,6 +1392,21 @@ export function resetSession(kind = "dashboard") {
   } catch {
     /* first */
   }
+  try {
+    fs.unlinkSync(path.join(dir, GEMINI_HISTORY));
+  } catch {
+    /* first */
+  }
+  try {
+    fs.unlinkSync(path.join(dir, GEMINI_TRACE));
+  } catch {
+    /* first */
+  }
+  try {
+    fs.unlinkSync(path.join(dir, GEMINI_ONCE));
+  } catch {
+    /* first */
+  }
   installEvgAgent(dir);
   fs.writeFileSync(
     path.join(dir, "AGENTS.md"),
@@ -1360,7 +1443,8 @@ function countNodes(node) {
 function walkOutline(node, path, lines, cap) {
   if (!node || typeof node !== "object" || lines.length >= cap) return;
   const tag = node.tag || "?";
-  const text = node.text ? JSON.stringify(String(node.text).slice(0, 40)) : "";
+  const raw = node.text ? String(node.text) : "";
+  const text = raw ? JSON.stringify(raw.length > 48 ? `${raw.slice(0, 48)}…` : raw) : "";
   const cls = node.props && node.props.class ? "." + node.props.class : "";
   lines.push(`${path} ${tag}${cls} ${text}`.trim());
   const ch = node.children || [];
@@ -1375,14 +1459,26 @@ function followUpTask(task, docText) {
   try {
     const j = JSON.parse(docText);
     n = countNodes(j.root);
-    walkOutline(j.root, "0", lines, 16);
+    walkOutline(j.root, "0", lines, 40);
   } catch {
     /* invalid json still gets the instruction */
   }
   const stats = n
     ? `doc.evg.json is the live phone (${n} nodes). Edit that file in place. Do not replace it with a blank page.`
     : "doc.evg.json is the live phone. Edit that file in place. Do not replace it with a blank page.";
-  return ["# Follow-up", "", task, "", stats, "", "Current outline:", ...lines.map((l) => "- " + l), ""].join("\n");
+  return [
+    "# Follow-up",
+    "",
+    task,
+    "",
+    stats,
+    "",
+    "The outline is already on the phone. Continue it — do not start over. A plan without a tool call is not a finish.",
+    "",
+    "Current outline:",
+    ...lines.map((l) => "- " + l),
+    "",
+  ].join("\n");
 }
 
 export function prepareSession(task, { git = false, kind = "dashboard" } = {}) {
@@ -1461,6 +1557,15 @@ function spawnAgentProcess(id, bin, workspace, task, followUp = false) {
       stdio: ["ignore", "pipe", "pipe"],
     });
   }
+  if (id === "gemini") {
+    // Direct Google API. The workspace holds doc.evg.json, the tools, and
+    // `.gemini-history.json` so a Follow-up is the next turn, not a new chat.
+    return spawn(process.execPath, [geminiBin, workspace], {
+      cwd: workspace,
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  }
   throw new Error(`no spawn for ${id}`);
 }
 
@@ -1480,9 +1585,10 @@ function spawnAgentProcess(id, bin, workspace, task, followUp = false) {
 // ends, which is the next tool call, the end of the turn, or the end of the
 // stream.
 // The agent CLIs whose stdout is the `stream-json` event stream rather than
-// plain text. They share the shape, so one parser reads both — and both end a
-// run with the usage that `t:"usage"` carries to the page.
-const STREAM_JSON = new Set(["cursor", "claude"]);
+// plain text — and Gemini, which emits the same shape from the REST loop.
+// One parser reads them, and they end a run with the usage that `t:"usage"`
+// carries to the page.
+const STREAM_JSON = new Set(["cursor", "claude", "gemini"]);
 
 function makeCursorFeed(onLine) {
   let said = ""; // the thought so far, including the tail not yet emitted
@@ -1677,7 +1783,7 @@ export async function runWorkspaceAgent({ id, kind, prompt, seed, session = fals
   const live = looksLikeEvg(seed) || looksLikeEvg(readSessionDoc());
   if (session && live && kind !== "empty") {
     tokenize(
-      "Follow-up on the phone already in doc.evg.json. Edit that document. Do not replace it with a blank page.",
+      "Follow-up on the screen already in doc.evg.json. Edit that document. Do not replace it with a blank page.",
       onLine,
     );
   }
@@ -1756,9 +1862,15 @@ export async function runWorkspaceAgent({ id, kind, prompt, seed, session = fals
     });
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk) => {
-      const text = String(chunk).trim();
-      if (text) process.stderr.write(`[${id}] ${text}\n`);
+      const text = String(chunk);
+      for (const line of text.split(/\n/)) {
+        if (!line.trim()) continue;
+        process.stderr.write(`[${id}] ${line.trimEnd()}\n`);
+      }
       if (id === "cursor" && /not authenticated|invalid api key|agent login/i.test(text)) {
+        onLine(ndjson({ t: "error", text }));
+      }
+      if (id === "gemini" && /GEMINI_API_KEY|API_KEY|PERMISSION_DENIED|invalid api key|HTTP 40/i.test(text)) {
         onLine(ndjson({ t: "error", text }));
       }
     });

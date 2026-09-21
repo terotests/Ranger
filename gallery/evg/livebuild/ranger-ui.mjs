@@ -24,10 +24,18 @@ const COMPONENT_ROOTS = [
   { test: /^ui-btn(?:\s|$)|^ui-button(?:\s|$)/, type: "rave.Button", library: LIBRARY, leaf: true },
   { test: /^ui-slider(?:\s|$)/, type: "rave.Slider", library: LIBRARY, leaf: true },
   { test: /^ui-input(?:\s|$)|^ui-field(?:\s|$)/, type: "rave.Input", library: LIBRARY, leaf: true },
-  { test: /^ui-chip(?:\s|$)/, type: "rave.Chip", library: LIBRARY, leaf: false },
-  { test: /^ui-appbar(?:\s|$)/, type: "rave.AppBar", library: LIBRARY, leaf: false },
-  { test: /^ui-card(?:\s|$)/, type: "rave.Card", library: LIBRARY, leaf: false },
-  { test: /^ui-row(?:\s|$)/, type: "SettingsRow", library: SETTINGS_LIB, leaf: false },
+  { test: /(?:^|\s)(?:ui-chip|chip)(?:\s|$)/, type: "rave.Chip", library: LIBRARY, leaf: false },
+  { test: /(?:^|\s)ui-pills(?:\s|$)/, type: "rave.Pills", library: LIBRARY, leaf: false },
+  { test: /(?:^|\s)ui-pill(?:\s|$)/, type: "rave.Chip", library: LIBRARY, leaf: false },
+  { test: /(?:^|\s)(?:ui-appbar|appbar)(?:\s|$)/, type: "rave.AppBar", library: LIBRARY, leaf: false },
+  { test: /(?:^|\s)(?:ui-card|card)(?:\s|$)/, type: "rave.Card", library: LIBRARY, leaf: false },
+  { test: /(?:^|\s)ui-tiles(?:\s|$)/, type: "rave.Tiles", library: LIBRARY, leaf: false },
+  { test: /(?:^|\s)ui-tile(?:\s|$)/, type: "rave.Tile", library: LIBRARY, leaf: false },
+  { test: /(?:^|\s)ui-bars(?:\s|$)/, type: "rave.Bars", library: LIBRARY, leaf: false },
+  { test: /(?:^|\s)ui-banner(?:\s|$)/, type: "rave.Banner", library: LIBRARY, leaf: false },
+  { test: /(?:^|\s)ui-tabbar(?:\s|$)/, type: "rave.TabBar", library: LIBRARY, leaf: false },
+  { test: /(?:^|\s)ui-tab-item(?:\s|$)/, type: "rave.Tab", library: LIBRARY, leaf: true },
+  { test: /(?:^|\s)(?:ui-row|row)(?:\s|$)/, type: "SettingsRow", library: SETTINGS_LIB, leaf: false },
 ];
 
 const ROLE_TYPES = {
@@ -38,10 +46,10 @@ const ROLE_TYPES = {
 };
 
 const KIT_CLASS_RE =
-  /^(ui-switch|ui-checkbox|ui-btn|ui-button|ui-slider|ui-input|ui-field|ui-chip|ui-appbar|ui-card|ui-row|ui-radio|ui-tabs|ui-avatar|ui-sep|ui-toast|ui-dialog|ui-tooltip|ui-progress|ui-select|ui-combobox|ui-breadcrumb|ui-accordion|ui-collapsible|ui-toggle|ui-popover|ui-table|ui-grid|ui-menu|ui-dropdown)/;
+  /^(ui-switch|ui-checkbox|ui-btn|ui-button|ui-slider|ui-input|ui-field|ui-chip|ui-appbar|ui-card|ui-row|ui-pill|ui-tile|ui-bar|ui-banner|ui-tabbar|ui-tab-|ui-radio|ui-tabs|ui-avatar|ui-sep|ui-toast|ui-dialog|ui-tooltip|ui-progress|ui-select|ui-combobox|ui-breadcrumb|ui-accordion|ui-collapsible|ui-toggle|ui-popover|ui-table|ui-grid|ui-menu|ui-dropdown)/;
 
 const PART_CLASS_RE =
-  /^(ui-switch-|ui-checkbox-|ui-row-(?:title|sub|text|icon|value|chevron|line)|ui-card-title|ui-appbar-|ui-chip-(?:dot|label))/;
+  /^(ui-switch-|ui-checkbox-|ui-row-(?:title|sub|text|icon|value|chevron|line)|ui-card-title|ui-appbar-|ui-chip-(?:dot|label)|ui-tile-(?:icon|label|value|sub)|ui-bars-(?:title|badge|value|head|row)|ui-bar(?:-col|-label)?$|ui-banner-(?:icon|eyebrow|title|sub)|ui-tab-(?:icon|label))/;
 
 const VISUAL = new Set([
   "background-color",
@@ -142,6 +150,49 @@ function matchComponent(node) {
   const role = node && node.role;
   if (role && ROLE_TYPES[role]) {
     return { type: ROLE_TYPES[role], library: LIBRARY, leaf: true, test: null };
+  }
+  return null;
+}
+
+function isScreenChild(path, ctx) {
+  const root = (ctx && ctx.rootPath) || "0";
+  const prefix = `${root}/`;
+  if (!String(path || "").startsWith(prefix)) return false;
+  return !String(path).slice(prefix.length).includes("/");
+}
+
+function looksLikeTabbar(node) {
+  const cls = classList(node).join(" ");
+  if (/\bui-tabbar\b/.test(cls)) return true;
+  const props = (node && node.props) || {};
+  const pinned = props.position === "absolute" || props.bottom != null || /\btab/.test(cls);
+  if (!pinned) return false;
+  const kids = (node && node.children) || [];
+  if (kids.length < 3 || kids.length > 6) return false;
+  const labels = kids.map((c) => textOf(c).trim()).filter(Boolean);
+  if (labels.length !== kids.length) return false;
+  return labels.every((t) => t.length <= 16);
+}
+
+function childIsDiv(node) {
+  return ((node && node.children) || []).some((c) => c && (c.tag === "div" || (c.children && c.children.length)));
+}
+
+/**
+ * A titled panel under the screen with nested boxes, but no kit class —
+ * the tree Gemini draws by hand. Export still names it rave.Card.
+ */
+function inferSpec(node, path, ctx) {
+  const hit = matchComponent(node);
+  if (hit) return hit;
+  if (!node || path === ((ctx && ctx.rootPath) || "0")) return null;
+  if (ctx && ctx.parentType === "rave.TabBar") {
+    return { type: "rave.Tab", library: LIBRARY, leaf: true, test: null, inferred: true };
+  }
+  if (!isScreenChild(path, ctx)) return null;
+  if (looksLikeTabbar(node)) return { type: "rave.TabBar", library: LIBRARY, leaf: false, test: null, inferred: true };
+  if (childIsDiv(node) && (node.children || []).length >= 2 && textOf(node)) {
+    return { type: "rave.Card", library: LIBRARY, leaf: false, test: null, inferred: true };
   }
   return null;
 }
@@ -251,28 +302,126 @@ function switchProps(node) {
 
 function rowProps(node) {
   const props = {};
-  const title = findByClass(node, /^ui-row-title$/);
-  const sub = findByClass(node, /^ui-row-sub$/);
-  const icon = findByClass(node, /^ui-row-icon$/);
-  const value = findByClass(node, /^ui-row-value$/);
+  const title = findByClass(node, /^ui-row-title$/) || findByClass(node, /^row-title$/);
+  const sub = findByClass(node, /^ui-row-sub$/) || findByClass(node, /^row-sub$/);
+  const icon = findByClass(node, /^ui-row-icon$/) || findByClass(node, /^row-icon$/);
+  const value = findByClass(node, /^ui-row-value$/) || findByClass(node, /^row-value$/);
   if (title && title.text) props.label = String(title.text);
   if (sub && sub.text) props.sub = String(sub.text);
   if (icon && icon.text) props.icon = String(icon.text);
   if (value && value.text) props.value = String(value.text);
+  if (!props.label) {
+    const spans = (node.children || []).filter((c) => c && (c.text || c.tag === "span"));
+    if (spans.length >= 1 && textOf(spans[0])) props.label = textOf(spans[0]);
+    if (spans.length >= 2 && textOf(spans[1]) && !props.value) props.value = textOf(spans[1]);
+  }
   return props;
+}
+
+function firstHeading(node) {
+  const title =
+    findByClass(node, /^ui-card-title$/) ||
+    findByClass(node, /^(row-title|section-h|nav-title)$/);
+  if (title && title.text) return String(title.text);
+  for (const c of (node && node.children) || []) {
+    if (c && c.text && String(c.text).trim()) return String(c.text).trim();
+    if (c && c.tag === "span") {
+      const t = textOf(c);
+      if (t) return t;
+    }
+  }
+  return "";
 }
 
 function cardProps(node) {
   const props = {};
-  const title = findByClass(node, /^ui-card-title$/);
-  if (title && title.text) props.title = String(title.text);
+  const heading = firstHeading(node);
+  if (heading) props.title = heading;
+  return props;
+}
+
+function namedText(node, re) {
+  const hit = findByClass(node, re);
+  return hit && hit.text ? String(hit.text) : "";
+}
+
+function tileProps(node) {
+  const props = {};
+  const label = namedText(node, /^ui-tile-label$/);
+  const value = namedText(node, /^ui-tile-value$/);
+  const sub = namedText(node, /^ui-tile-sub$/);
+  const icon = namedText(node, /^ui-tile-icon$/);
+  if (label) props.label = label;
+  if (value) props.value = value;
+  if (sub) props.sub = sub;
+  if (icon) props.icon = icon;
+  return props;
+}
+
+function bannerProps(node) {
+  const props = {};
+  const eyebrow = namedText(node, /^ui-banner-eyebrow$/);
+  const title = namedText(node, /^ui-banner-title$/);
+  const sub = namedText(node, /^ui-banner-sub$/);
+  const icon = namedText(node, /^ui-banner-icon$/);
+  if (eyebrow) props.eyebrow = eyebrow;
+  if (title) props.title = title;
+  if (sub) props.sub = sub;
+  if (icon) props.icon = icon;
+  return props;
+}
+
+function barsProps(node) {
+  const props = {};
+  const title = namedText(node, /^ui-bars-title$/);
+  const value = namedText(node, /^ui-bars-value$/);
+  const badge = namedText(node, /^ui-bars-badge$/);
+  if (title) props.title = title;
+  if (value) props.value = value;
+  if (badge) props.badge = badge;
+  const bars = [];
+  const walk = (n) => {
+    if (!n || typeof n !== "object") return;
+    if (classList(n).includes("ui-bar-col")) {
+      const item = {};
+      const label = namedText(n, /^ui-bar-label$/);
+      const fill = findByClass(n, /^ui-bar$/);
+      if (label) item.label = label;
+      if (fill && fill.props && fill.props.height) item.height = String(fill.props.height);
+      if (fill && fill.props && fill.props["background-color"]) item.color = String(fill.props["background-color"]);
+      if (Object.keys(item).length) bars.push(item);
+    }
+    for (const c of n.children || []) walk(c);
+  };
+  walk(node);
+  if (bars.length) props.bars = bars;
+  return props;
+}
+
+function tabProps(node) {
+  const props = {};
+  const labelNode = findByClass(node, /^ui-tab-label/);
+  const icon = namedText(node, /^ui-tab-icon$/);
+  const label = (labelNode && labelNode.text) || textOf(node);
+  if (label) props.label = String(label).replace(/\s+/g, " ").trim();
+  if (icon) props.icon = icon;
+  if (
+    classList(node).some((c) => /-active$/.test(c)) ||
+    classList(labelNode).some((c) => /-active$/.test(c))
+  ) {
+    props.active = true;
+  }
   return props;
 }
 
 function appbarProps(node) {
   const props = {};
-  const title = findByClass(node, /^ui-appbar-title$/);
+  const title = findByClass(node, /^ui-appbar-title$/) || findByClass(node, /^nav-title$/);
   if (title && title.text) props.title = String(title.text);
+  else {
+    const heading = firstHeading(node);
+    if (heading) props.title = heading;
+  }
   return props;
 }
 
@@ -282,7 +431,7 @@ function appbarProps(node) {
  */
 export function convertNode(node, path, ctx) {
   if (!node || typeof node !== "object") return null;
-  const spec = matchComponent(node);
+  const spec = inferSpec(node, path, ctx);
   const uid = uidOf(node, path);
   const isRoot = path === (ctx.rootPath || "0");
   const vis = visualProps(node);
@@ -297,12 +446,15 @@ export function convertNode(node, path, ctx) {
 
   if (Object.keys(vis).length) {
     if (!klass) {
-      const key = styleKey(vis);
-      if (!ctx.styleClasses.has(key)) {
-        const n = ctx.styleClasses.size + 1;
-        ctx.styleClasses.set(key, `rui-s${n}`);
+      if (isRoot) klass = "screen";
+      else {
+        const key = styleKey(vis);
+        if (!ctx.styleClasses.has(key)) {
+          const n = ctx.styleClasses.size + 1;
+          ctx.styleClasses.set(key, `rui-s${n}`);
+        }
+        klass = ctx.styleClasses.get(key);
       }
-      klass = ctx.styleClasses.get(key);
     }
     const sel = `.${klass.split(/\s+/)[0]}`;
     mergeRule(ctx.styles, sel, vis);
@@ -317,20 +469,28 @@ export function convertNode(node, path, ctx) {
     if (spec.type === "rave.Switch" || spec.type === "rave.Checkbox") props = switchProps(node);
     else if (spec.type === "SettingsRow") props = rowProps(node);
     else if (spec.type === "rave.Card") props = cardProps(node);
+    else if (spec.type === "rave.Tile") props = tileProps(node);
+    else if (spec.type === "rave.Banner") props = bannerProps(node);
+    else if (spec.type === "rave.Bars") props = barsProps(node);
+    else if (spec.type === "rave.Tab") props = tabProps(node);
     else if (spec.type === "rave.AppBar") props = appbarProps(node);
     else if (spec.type === "rave.Button" || spec.type === "rave.Chip") {
       const t = textOf(node);
       if (t) props.label = t;
+      if (classList(node).includes("ui-pill-active")) props.active = true;
     }
     if (Object.keys(props).length) out.props = props;
     if (!spec.leaf) {
       const kids = [];
+      const prevParent = ctx.parentType;
+      ctx.parentType = spec.type;
       for (let i = 0; i < (node.children || []).length; i += 1) {
         const ch = node.children[i];
         if (isPartNode(ch) && !matchComponent(ch)) continue;
         const conv = convertNode(ch, `${path}/${i}`, ctx);
         if (conv) kids.push(conv);
       }
+      ctx.parentType = prevParent;
       if (kids.length) out.children = kids;
     }
     return out;
@@ -371,6 +531,24 @@ function countUi(node) {
   let n = 1;
   for (const c of node.children || []) n += countUi(c);
   return n;
+}
+
+function collectTypes(node, out = new Set()) {
+  if (!node || typeof node !== "object") return out;
+  if (node.type) out.add(node.type);
+  for (const c of node.children || []) collectTypes(c, out);
+  return out;
+}
+
+/** Seed chip "empty" is the starting canvas, not the finished screen. */
+export function inferKind(ui, given = "") {
+  const asked = String(given || "").trim();
+  if (asked && asked !== "empty") return asked;
+  const types = collectTypes(ui);
+  const dash = ["rave.Pills", "rave.Bars", "rave.Tiles", "rave.Banner", "rave.TabBar"].filter((t) => types.has(t));
+  if (dash.length >= 2) return "dashboard";
+  if (types.has("SettingsRow") || types.has("rave.Switch")) return "settings";
+  return asked;
 }
 
 function collectUiIds(node, out) {
@@ -488,7 +666,7 @@ export function buildRangerUi({
     meta: {
       name: String(name || "screen").slice(0, 120),
       prompt: prompt || "",
-      kind: kind || "",
+      kind: inferKind(converted.ui, kind),
       handoff: HANDOFF,
     },
     viewport: view,
