@@ -1,6 +1,6 @@
 # Ranger cross language compiler
 
-**Version 3.5.1** | Status: `experimental`
+**Version 3.6.0** | Status: `experimental`
 
 **Licensing:** Ranger-authored compiler and language sources are MIT licensed,
 unless a file says otherwise. Ranger-authored applications and technology

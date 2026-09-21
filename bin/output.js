@@ -77108,7 +77108,7 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
                                                         this.inputFile = "";
                                                         this.outputFile = "";
                                                         this.targetLanguage = "";
-                                                        this.compilerVersion = "3.5.1";
+                                                        this.compilerVersion = "3.6.0";
                                                         this.useColors = ((typeof process !== "undefined" && process.stdout && process.stdout.isTTY) || false);
                                                         this.startTime = Date.now();
                                                       }
