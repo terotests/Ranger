@@ -380,7 +380,9 @@ class test_input_filesystem {
     }
     defn fInfo (x) {
       def mF:InputFSFile x
-      print ' file -> ' + (mF.name) + " size : " + (strlen mF.data)
+      ; a size printed by the self-test, so it should be the same number
+      ; whichever build of the compiler printed it
+      print ' file -> ' + (mF.name) + " size : " + (char_length mF.data)
     }
 
     

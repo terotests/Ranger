@@ -36,7 +36,11 @@ class PkgJRead {
   fn parse:PkgJVal (src:string) {
     text = src
     i = 0
-    n = (strlen src)
+    ; the bound of the scan `skipWs`, `val` and the rest run over `text`, in
+    ; the same units their `charAt` reads. It is a position, not a count of
+    ; characters. docs/plans/PLAN_STRING_INDEXING.md 3.3.
+    def srcLen@(units):int (strlen src)
+    n = srcLen
     ok = true
     this.skipWs()
     return this.val()

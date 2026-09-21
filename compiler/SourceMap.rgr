@@ -189,25 +189,28 @@ class SourceMapBuilder {
     def out:string ""
     def i:int 0
     while (i < (strlen value)) {
-      def ch:int (charcode (substring value i (+ i 1)))
-      switch ch {
-        case 34 {
+      def piece:string (substring value i (+ i 1))
+      ; Switch on the piece rather than on its first code unit: the same
+      ; answer for ASCII structure, and still the right one for a slice of a
+      ; character the target counts in several units.
+      switch piece {
+        case "\"" {
           out = out + "\\\""
         }
-        case 92 {
+        case "\\" {
           out = out + "\\\\"
         }
-        case 10 {
+        case "\n" {
           out = out + "\\n"
         }
-        case 13 {
+        case "\r" {
           out = out + "\\r"
         }
-        case 9 {
+        case "\t" {
           out = out + "\\t"
         }
         default {
-          out = out + (substring value i (+ i 1))
+          out = out + piece
         }
       }
       i = i + 1

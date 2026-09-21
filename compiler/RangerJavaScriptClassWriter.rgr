@@ -361,7 +361,8 @@ class RangerJavaScriptClassWriter {
         return "string"
       }
       case "charbuffer" {
-        return "string"
+        ; UTF-8 bytes, which a JavaScript string cannot hold
+        return "Uint8Array"
       }
       case "buffer" {
         return "Uint8Array"
@@ -447,7 +448,8 @@ class RangerJavaScriptClassWriter {
         return "string"
       }
       case "charbuffer" {
-        return "string"
+        ; UTF-8 bytes, which a JavaScript string cannot hold
+        return "Uint8Array"
       }
       case "buffer" {
         return "Uint8Array"
@@ -564,7 +566,7 @@ class RangerJavaScriptClassWriter {
         wr.out("number" false)
       }  
       case RangerNodeType.CharBuffer {
-        wr.out("string" false)
+        wr.out("Uint8Array" false)
       }
       case RangerNodeType.Buffer {
         wr.out("Uint8Array" false)

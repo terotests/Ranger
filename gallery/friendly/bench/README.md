@@ -30,17 +30,30 @@ kotlinc 2.0.21.
 
 | Target | startup | arith | arrays | strings | maps | objects | total |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| C++ | 0.004 s | 13 | 18 | 4 | 139 | 86 | **260** |
-| Kotlin | 0.059 s | 20 | 133 | 52 | 222 | 39 | **466** |
-| C# | 0.020 s | 34 | 51 | 14 | 466 | 98 | **663** |
-| Java | 0.049 s | 119 | 116 | 35 | 393 | 97 | **760** |
-| PHP | 0.041 s | 136 | 167 | 12 | 115 | 371 | **801** |
-| JavaScript | 0.044 s | 18 | 167 | 9 | 648 | 234 | **1 076** |
-| Rust | 0.004 s | 15 | 22 | 2 178 | 251 | 90 | **2 556** |
-| Python | 0.030 s | 522 | 435 | 45 | 572 | 992 | **2 566** |
-| Go | 0.004 s | 14 | 272 | 143 182 | 273 | 141 | **143 882** |
+| C++ | 0.004 s | 13 | 18 | 4 | 147 | 83 | **265** |
+| Rust | 0.004 s | 15 | 21 | 6 | 268 | 87 | **397** |
+| Kotlin | 0.061 s | 20 | 124 | 54 | 246 | 41 | **485** |
+| C# | 0.022 s | 35 | 51 | 14 | 483 | 101 | **684** |
+| Go | 0.004 s | 14 | 185 | 4 | 325 | 166 | **694** |
+| Java | 0.048 s | 114 | 119 | 36 | 367 | 117 | **753** |
+| PHP | 0.046 s | 136 | 159 | 12 | 114 | 365 | **786** |
+| JavaScript | 0.047 s | 18 | 157 | 9 | 629 | 227 | **1 040** |
+| Python | 0.030 s | 577 | 433 | 46 | 582 | 969 | **2 607** |
 
 All nine printed the same five checksums.
+
+The `strings` column is what
+[`docs/plans/PLAN_STRING_INDEXING.md`](../../../docs/plans/PLAN_STRING_INDEXING.md)
+stage 4 was about. Before it, Rust read 2 178 ms there and Go read **143 182**
+-- a single kernel that was 99.5% of Go's total:
+
+| Target | strings, before | strings, after | total, before | total, after |
+| --- | --- | --- | --- | --- |
+| Rust | 2 178 | **6** | 2 556 | **397** |
+| Go | 143 182 | **4** | 143 882 | **694** |
+
+Rust moved from seventh to second and Go from ninth to fifth, on one change
+to what a string index means.
 
 Dart, Swift and Scala are not in the table: there is no `dart`, `swiftc` or
 `scalac` on this machine. The writers produce the files; nothing here has run
@@ -48,19 +61,19 @@ them.
 
 ## What the numbers found
 
-**`charAt` on a string is O(n) on Go and Rust.** Go writes
-`int64([]rune(s)[i])`, which decodes the whole string into a fresh rune slice
-for every character read; Rust writes `s.chars().nth(i)`, which walks from the
-start. A loop that scans a string is therefore quadratic: 143 seconds on Go
+**`charAt` on a string used to be O(n) on Go and Rust — fixed.** Go wrote
+`int64([]rune(s)[i])`, which decoded the whole string into a fresh rune slice
+for every character read; Rust wrote `s.chars().nth(i)`, which walks from the
+start. A loop that scans a string was therefore quadratic: 143 seconds on Go
 and 2.2 on Rust, against 4 milliseconds on C++.
 
-The cost buys something. Ranger's `charAt` is by code point on those two, the
-same as Python's `ord(s[i])`. Every other target indexes its own unit in
-constant time — a byte on C++ and PHP, a UTF-16 unit on C#, Java, Kotlin, Dart
-and JavaScript — so they are fast and they disagree with each other above the
-ASCII range. Making Go and Rust constant-time means either caching the decoded
-form or moving them onto the same unit as their neighbours, which is a
-language decision rather than a writer fix.
+They index the UTF-8 byte their string is actually made of now, which is the
+only unit either one reads in constant time — and, it turned out, the unit
+their own `indexOf` had been answering in all along, so this was a
+correctness fix as much as a speed one. The three of C++, PHP, Rust and Go
+agree on an index; JavaScript, Java, Kotlin, C# and Python agree on a
+different one; `to_chars` is the view that means the same thing on all of
+them. `docs/plans/PLAN_STRING_INDEXING.md` has the whole of it.
 
 **A Ranger map is a plain object on JavaScript.** `set`/`get`/`has` lower to
 `m[key]` with `Object.prototype.hasOwnProperty.call` guarding each read — two
@@ -69,9 +82,9 @@ the slowest map in the table at 648 ms, where PHP does the same work in 115.
 A `Map` would be the idiom and the faster form.
 
 **Everything else lands where the language would put it.** C++ is fastest
-overall, which is what the value-semantics work was for; Rust is second on
-every kernel except the string scan; Python is an interpreter and reads like
-one; the JVM and CLR pay for startup and win it back.
+overall, which is what the value-semantics work was for; Rust is second;
+Python is an interpreter and reads like one; the JVM and CLR pay for startup
+and win it back.
 
 ## intwidth.rgr
 

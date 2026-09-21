@@ -159,6 +159,59 @@ extension RangerRustClassWriter {
     return true
   }
 
+  ; A name declared with a trait family's ROOT type is `Rc<RefCell<dyn XTrait>>`
+  ; in Rust. Where the family is re-entrant its inherent methods are
+  ; associated functions taking `&Rc<RefCell<C>>` -- the concrete class --
+  ; which that handle is not, so the call has to dispatch through the trait
+  ; rather than name the class. `this` is the exception: there the handle IS
+  ; `__self_rc`, already concrete.
+  ; docs/plans/PLAN_RUST_REENTRANCY.md.
+  ; Which class does an associated-function call name?
+  ;
+  ; Normally the one that DECLARED the method. In a re-entrant family that is
+  ; wrong: every subclass carries its own copy of an inherited method, over
+  ; its own struct and taking its own `&Rc<RefCell<Child>>`, so a `this` call
+  ; inside the child has to name the child. The parent's copy takes the
+  ; parent's handle and the child does not have one.
+  ; docs/plans/PLAN_RUST_REENTRANCY.md.
+  fn rustStaticCallClassName:string (cc:RangerAppClassDesc fc:CodeNode ctx:RangerAppWriterContext) {
+    if (cc.rust_trait_reentrant == false) {
+      return cc.name
+    }
+    def scRoot:string ""
+    if ((array_length fc.ns) > 0) {
+      scRoot = (itemAt fc.ns 0)
+    }
+    if (scRoot == "this") {
+      if ((strlen rust_emit_class_name) > 0) {
+        return rust_emit_class_name
+      }
+      return cc.name
+    }
+    def scClsO@(optional):RangerAppClassDesc (this.rustReceiverPathClass(fc ctx))
+    if (!null? scClsO) {
+      return ((unwrap scClsO).name)
+    }
+    return cc.name
+  }
+
+  fn rustStaticCallBlockedByHandle:boolean (fc:CodeNode ctx:RangerAppWriterContext) {
+    if ((array_length fc.ns) > 0) {
+      if ((itemAt fc.ns 0) == "this") {
+        return false
+      }
+    }
+    def sbClsO@(optional):RangerAppClassDesc (this.rustReceiverPathClass(fc ctx))
+    if (null? sbClsO) {
+      return false
+    }
+    def sbCls:RangerAppClassDesc (unwrap sbClsO)
+    if (sbCls.is_extended_by_children && sbCls.rust_trait_reentrant) {
+      return true
+    }
+    return false
+  }
+
   fn rustFieldAccessorName:string (p:RangerAppParamDesc) {
     return ("rgf_" + (this.adjustType(p.compiledName)))
   }
@@ -297,10 +350,23 @@ extension RangerRustClassWriter {
       def mnrRootO@(optional):RangerAppClassDesc (this.rustTraitRootOf(mnrCls ctx))
       if (!null? mnrRootO) {
         def mnrRoot:RangerAppClassDesc (unwrap mnrRootO)
+        def mnrInIface:boolean false
         if (has mnrRoot.method_variants fnD.name) {
-          return true
+          mnrInIface = true
         }
         if (has mnrRoot.defined_methods fnD.name) {
+          mnrInIface = true
+        }
+        if mnrInIface {
+          ; …unless the family is RE-ENTRANT, and then the opposite: the trait
+          ; is implemented for `Rc<RefCell<C>>`, so the dispatch receiver is
+          ; the handle itself and the inherent method takes it as `__self_rc`.
+          ; A `&self` here would be a borrow held across a call that comes
+          ; back through the same cell.
+          ; docs/plans/PLAN_RUST_REENTRANCY.md.
+          if (this.rustTraitFamilyIsReentrant(mnrRoot ctx)) {
+            return false
+          }
           return true
         }
       }

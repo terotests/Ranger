@@ -20,6 +20,19 @@
 ; So: one place that knows how to step through a string properly, used by
 ; measurement, line breaking, the rasterizer and the encoders alike.
 ;
+; Since docs/plans/PLAN_STRING_INDEXING.md stage 2 the language has the
+; primitive this module was hand-rolling: `(to_chars s)` gives the code
+; points as an `[int]`, the same sequence on every target, in one pass.
+; `toArray`, `charCount` and `count` are that now, and a caller that wants
+; the whole string as codepoints should reach for `to_chars` directly.
+;
+; What stays here is the part `to_chars` cannot express: `codeAt`,
+; `unitsAt`, `utf8CodeAt`, `utf8UnitsAt` and `stringIsBytes` all take or
+; return a STORAGE index -- a caret column, a substring boundary, a position
+; a caller is holding in the target's own unit. Those callers index the
+; string itself, so they need to know how far the next character reaches in
+; that unit, which is a different question from "what are the code points".
+;
 ; Note this is about STORAGE, not about what a reader perceives as a character.
 ; A grapheme cluster — a flag, a skin-toned emoji, a ZWJ family — is several
 ; codepoints and still needs clustering on top of this. This module is the
@@ -225,35 +238,22 @@ class EVGCodepoint {
     ; `count` is a name the compiler keeps for itself at a call site, so the
     ; one callers use is `charCount`; both answer the same question.
     sfn charCount:int (s:string) {
-        def n:int 0
-        def i:int 0
-        while (i < (strlen s)) {
-            i = (i + (EVGCodepoint.unitsAt(s i)))
-            n = (n + 1)
-        }
-        return n
+        return (array_length (to_chars s))
     }
 
     sfn count:int (s:string) {
-        def n:int 0
-        def i:int 0
-        while (i < (strlen s)) {
-            i = (i + (EVGCodepoint.unitsAt(s i)))
-            n = (n + 1)
-        }
-        return n
+        return (array_length (to_chars s))
     }
 
     ; The string as a codepoint array — convenient where a loop wants random
     ; access, e.g. a kerning pass that needs the previous codepoint.
+    ;
+    ; This is `to_chars`, and was this module's own decoder until the language
+    ; grew one. The difference is not only tidiness: the old version stepped
+    ; by storage index, and a storage index costs O(n) on Rust and Go, so
+    ; walking a string was quadratic there. `to_chars` is one pass.
     sfn toArray:[int] (s:string) {
-        def out:[int]
-        def i:int 0
-        while (i < (strlen s)) {
-            push out (EVGCodepoint.codeAt(s i))
-            i = (i + (EVGCodepoint.unitsAt(s i)))
-        }
-        return out
+        return (to_chars s)
     }
 
     ; A single codepoint back to a string, re-splitting into a surrogate pair

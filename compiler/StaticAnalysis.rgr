@@ -16,6 +16,14 @@ class StaticAnalyzer {
   def currentFunction@(weak optional):RangerAppFunctionDesc
   def currentClass@(weak optional):RangerAppClassDesc
   def debug:boolean false
+  ; -strict-strings counters; see analyzeStringIndexing
+  def strictStringsTotal:int 0
+  def strictStringsRisky:int 0
+  def strictStringsSafe:int 0
+  def strictStringsGuards:int 0
+  def strictStringsNotes:[string]
+  def strictStringsFiles:[string:int]
+  def strictStringsFileOrder:[string]
   
   ; Registry of operators that mutate their first argument
   def mutatingOps:[string:boolean]
@@ -3529,10 +3537,825 @@ class StaticAnalyzer {
   ; Which methods of the shared classes need __self_rc: the direct users of
   ; `this` as a value, plus — to a fixpoint — every method that self-calls
   ; one, because the callee's hidden argument has to come from somewhere.
+  ; ---- -strict-strings ------------------------------------------------------
+  ;
+  ; Every `charAt` and `substring` on a `string` is an index in the TARGET'S
+  ; OWN unit -- a UTF-16 code unit, a Unicode code point or a UTF-8 byte,
+  ; depending on where the program runs. That is right for a scanner whose
+  ; structure is ASCII, which is most of them, and wrong for text a human
+  ; wrote. `-strict-strings` prints the sites so the difference can be read
+  ; off a list rather than out of 2 648 call sites by hand.
+  ;
+  ; The question is not "does this index a string" -- almost everything does
+  ; -- but "can the program tell which unit it got". These answer the same
+  ; way on every target and are not listed:
+  ;
+  ;   * an ASCII string literal, which is one byte, one code unit and one
+  ;     code point at once;
+  ;   * `(strlen s) == 0` and its spellings: empty is empty in any unit;
+  ;   * a length that INDEXES some string. `(substring path 0 (strlen
+  ;     prefix))` matches the same prefix everywhere; the number differs and
+  ;     the character it lands on does not. A position is portable even
+  ;     though a count is not;
+  ;   * a length that BOUNDS a variable used as an index, which is the same
+  ;     thing one step removed: `while (i < n) { charAt s i }`;
+  ;   * two counts of the SAME string compared with each other -- "has the
+  ;     writer put anything on this line yet";
+  ;   * a site the author marked `@(units)`, for the provenance this pass
+  ;     cannot follow: a position kept in a field, or one arriving as a
+  ;     parameter.
+  ;
+  ; What is left is where the unit escapes. A length that indexes nothing is
+  ; a count of characters -- a column, a width, a padding -- and differs with
+  ; the target. A `to_chars` offset handed to `charAt` mixes two spaces. And
+  ; `charcode` reads one unit of something that may be several.
+  ;
+  ; A length against a constant, or against ANOTHER string length, is a
+  ; separate list: the answer does move with the target, but the question is
+  ; about structure rather than about text.
+  ;
+  ; `char_length` is the portable count and `to_chars` the portable index.
+  ; docs/plans/PLAN_STRING_INDEXING.md 3.3.
+  fn stringIsAsciiOnly:boolean (s:string) {
+    def n:int (strlen s)
+    def i:int 0
+    while (i < n) {
+      if ((charAt s i) > 127) {
+        return false
+      }
+      i = (i + 1)
+    }
+    return true
+  }
+
+  fn strictStringsOpKind:string (name:string) {
+    if (name == "charAt") {
+      return "charAt"
+    }
+    if (name == "substring") {
+      return "substring"
+    }
+    if (name == "charcode") {
+      return "charcode"
+    }
+    if (name == "strlen") {
+      return "strlen"
+    }
+    return ""
+  }
+
+  ; The name a node refers to: `s`, or `this.buf` for a path.
+  fn ssSubjectName:string (n:CodeNode) {
+    if ((array_length n.ns) > 0) {
+      return (join n.ns ".")
+    }
+    return n.vref
+  }
+
+  ; An expression is wrapped in a node of its own -- `(strlen s)` inside a
+  ; comparison is a one-child node holding the call -- so every reader here
+  ; has to look through those before asking what it is looking at.
+  fn ssUnwrap:CodeNode (n:CodeNode) {
+    def ssCur:CodeNode n
+    while ((array_length ssCur.children) == 1) {
+      ssCur = (ssCur.getFirst())
+    }
+    return ssCur
+  }
+
+  fn ssIsIntLiteral:boolean (n:CodeNode) {
+    def ssI:CodeNode (this.ssUnwrap(n))
+    if ((array_length ssI.children) > 0) {
+      return false
+    }
+    return (ssI.value_type == RangerNodeType.Integer)
+  }
+
+  fn ssIsZeroLiteral:boolean (n:CodeNode) {
+    def ssZ:CodeNode (this.ssUnwrap(n))
+    if ((array_length ssZ.children) > 0) {
+      return false
+    }
+    if (ssZ.value_type != RangerNodeType.Integer) {
+      return false
+    }
+    return (ssZ.int_value == 0)
+  }
+
+  ; A label that counts code points rather than the target's own unit.
+  fn ssIsCodePointLabel:boolean (lbl:string) {
+    if ((strlen lbl) < 7) {
+      return false
+    }
+    return ((substring lbl 0 7) == "#chars:")
+  }
+
+  fn ssMergeTaint:string (a:string b:string) {
+    if (a == b) {
+      return a
+    }
+    if (a == "#lit") {
+      return b
+    }
+    if (b == "#lit") {
+      return a
+    }
+    return "#?"
+  }
+
+  ; The operations that answer in a string's own units
+  fn ssIsCountOp:boolean (name:string) {
+    if (name == "strlen") {
+      return true
+    }
+    if (name == "indexOf") {
+      return true
+    }
+    if (name == "lastIndexOf") {
+      return true
+    }
+    return false
+  }
+
+  fn ssIsArith:boolean (name:string) {
+    if (name == "+") {
+      return true
+    }
+    if (name == "idiv") {
+      return true
+    }
+    if (name == "/") {
+      return true
+    }
+    if (name == "-") {
+      return true
+    }
+    if (name == "*") {
+      return true
+    }
+    if (name == "min") {
+      return true
+    }
+    if (name == "max") {
+      return true
+    }
+    return false
+  }
+
+  fn ssIsCompare:boolean (name:string) {
+    if (name == "<") {
+      return true
+    }
+    if (name == "<=") {
+      return true
+    }
+    if (name == ">") {
+      return true
+    }
+    if (name == ">=") {
+      return true
+    }
+    if (name == "==") {
+      return true
+    }
+    if (name == "!=") {
+      return true
+    }
+    return false
+  }
+
+  ; What unit does this integer expression count in?
+  ;
+  ;   "#lit"   an integer literal, or arithmetic over literals: every target
+  ;            reads it the same way
+  ;   "#?"     unknown -- a parameter, a field, a call, or two strings mixed
+  ;   <name>   the units of THAT string, so using it to index THAT string is
+  ;            self-consistent whatever the target happens to count in
+  ;
+  ; This is what separates a scan from a character count. `strlen s` and
+  ; `charAt s i` disagree between targets and agree with each other on all of
+  ; them, so a loop that gets its bound from `s` and reads `s` is portable
+  ; even though every number in it is target-specific.
+  fn ssTaintOf:string (nRaw:CodeNode taint:[string:string]) {
+    def n:CodeNode (this.ssUnwrap(nRaw))
+    if ((array_length n.children) == 0) {
+      if (n.value_type == RangerNodeType.Integer) {
+        return "#lit"
+      }
+      def ssNm:string (this.ssSubjectName(n))
+      if ((strlen ssNm) > 0) {
+        if (has taint ssNm) {
+          return (unwrap (get taint ssNm))
+        }
+      }
+      return "#?"
+    }
+    if ((array_length n.children) < 2) {
+      return "#?"
+    }
+    def ssOp:string ((n.getFirst()).vref)
+    ; `to_chars` and `char_length` answer in CODE POINTS, which is a
+    ; different space from the one `charAt` indexes. Keeping the two apart
+    ; is the whole point of the labels.
+    if ((ssOp == "to_chars") || (ssOp == "char_length")) {
+      def ssCp:string (this.ssSubjectName((this.ssUnwrap((n.getSecond())))))
+      if ((strlen ssCp) > 0) {
+        return ("#chars:" + ssCp)
+      }
+      return "#chars:"
+    }
+    if (ssOp == "array_length") {
+      return (this.ssTaintOf((n.getSecond()) taint))
+    }
+    if (this.ssIsCountOp(ssOp)) {
+      def ssSubj:string (this.ssSubjectName((this.ssUnwrap((n.getSecond())))))
+      if ((strlen ssSubj) > 0) {
+        return ssSubj
+      }
+      return "#?"
+    }
+    if (this.ssIsArith(ssOp)) {
+      def ssAcc:string "#lit"
+      def ssAi:int 1
+      while (ssAi < (array_length n.children)) {
+        def ssPart:string (this.ssTaintOf((itemAt n.children ssAi) taint))
+        ssAcc = (this.ssMergeTaint(ssAcc ssPart))
+        ssAi = (ssAi + 1)
+      }
+      return ssAcc
+    }
+    return "#?"
+  }
+
+  ; `i < n` ties i to whatever n counts. That is what makes
+  ; `while (i < (strlen s)) { charAt s i }` a scan of s rather than a guess:
+  ; the bound and the index are in the same unit by construction.
+  fn ssTieBound:void (vRaw:CodeNode bound:CodeNode taint:[string:string]) {
+    def v:CodeNode (this.ssUnwrap(vRaw))
+    if ((array_length v.children) > 0) {
+      return
+    }
+    def ssNm:string (this.ssSubjectName(v))
+    if ((strlen ssNm) == 0) {
+      return
+    }
+    def ssBt:string (this.ssTaintOf(bound taint))
+    if (ssBt == "#lit") {
+      return
+    }
+    if (ssBt == "#?") {
+      return
+    }
+    def ssCur:string "#?"
+    if (has taint ssNm) {
+      ssCur = (unwrap (get taint ssNm))
+    }
+    if (ssCur == "#lit") {
+      set taint ssNm ssBt
+    }
+  }
+
+  ; Pass one: what does every local integer count in, and which strings does
+  ; this function index at all?
+  fn ssTaintWalk:void (node:CodeNode taint:[string:string] indexed:[string:boolean] zeroTested:[string:boolean] litGuarded:[string:boolean]) {
+    if ((array_length node.children) >= 2) {
+      def ssFirst:CodeNode (node.getFirst())
+      def ssOp:string ssFirst.vref
+      if ((array_length node.children) >= 3) {
+        if ((ssOp == "def") || (ssOp == "=")) {
+          def ssLhs:CodeNode (node.getSecond())
+          def ssRhs:CodeNode (itemAt node.children 2)
+          def ssLnm:string (this.ssSubjectName((this.ssUnwrap(ssLhs))))
+          def ssRlbl:string (this.ssTaintOf(ssRhs taint))
+          if ((strlen ssLnm) > 0) {
+            set taint ssLnm ssRlbl
+          }
+          ; `def cnt@(units):int (strlen s)` says: this is a position in
+          ; whatever unit the target indexes in, it is used as one, and that
+          ; was checked. The flag then stops asking.
+          if (ssLhs.hasFlag("units")) {
+            if ((ssRlbl != "#lit") && (ssRlbl != "#?")) {
+              set indexed ssRlbl true
+            }
+          }
+        }
+        if (this.ssIsCompare(ssOp)) {
+          def ssL:CodeNode (node.getSecond())
+          def ssR:CodeNode (itemAt node.children 2)
+          this.ssTieBound(ssL ssR taint)
+          this.ssTieBound(ssR ssL taint)
+          ; `n == 0` is the one question every unit answers the same way;
+          ; `n < 3` is a size guard, which reads the unit but is asked of
+          ; structure rather than of text
+          this.ssNoteGuard(ssL ssR taint zeroTested litGuarded)
+          this.ssNoteGuard(ssR ssL taint zeroTested litGuarded)
+          ; two counts of the SAME string: the number differs per target and
+          ; the comparison does not. "has the writer put anything on this
+          ; line" is the idiom, and it is portable.
+          def ssLl:string (this.ssTaintOf(ssL taint))
+          def ssRl:string (this.ssTaintOf(ssR taint))
+          def ssLreal:boolean ((ssLl != "#lit") && (ssLl != "#?"))
+          def ssRreal:boolean ((ssRl != "#lit") && (ssRl != "#?"))
+          if (ssLreal && ssRreal) {
+            if (ssLl == ssRl) {
+              ; two counts of the SAME string: the number differs per target
+              ; and the comparison does not
+              set zeroTested ssLl true
+            } {
+              ; two counts of DIFFERENT strings, in the same unit. The number
+              ; each target gives differs, so this is a guard on structure
+              set litGuarded ssLl true
+              set litGuarded ssRl true
+            }
+          }
+        }
+      }
+      ; Which units end up as an index? A length that indexes SOME string is
+      ; a position, and positions are portable: `strlen` and `charAt` are the
+      ; same unit on any one target, so `(substring path 0 (strlen prefix))`
+      ; matches the same prefix everywhere even though the number differs.
+      ; A length that indexes nothing is a count of characters, and that is
+      ; the number a target changes out from under the program.
+      def ssIk:string (this.strictStringsOpKind(ssOp))
+      if ((ssIk == "charAt") || (ssIk == "substring")) {
+        def ssAi:int 2
+        while (ssAi < (array_length node.children)) {
+          def ssLbl:string (this.ssTaintOf((itemAt node.children ssAi) taint))
+          if ((ssLbl != "#lit") && (ssLbl != "#?")) {
+            set indexed ssLbl true
+          }
+          ssAi = (ssAi + 1)
+        }
+      }
+    }
+    for node.children ssCh:CodeNode ssChi {
+      this.ssTaintWalk(ssCh taint indexed zeroTested litGuarded)
+    }
+  }
+
+  ; Every plain name this expression mentions.
+  fn ssCollectVars:void (n:CodeNode out:[string:boolean]) {
+    if ((array_length n.children) == 0) {
+      def ssVn:string (this.ssSubjectName(n))
+      if ((strlen ssVn) > 0) {
+        set out ssVn true
+      }
+      return
+    }
+    for n.children ssC:CodeNode ssCi {
+      this.ssCollectVars(ssC out)
+    }
+  }
+
+  fn ssRefsAny:boolean (n:CodeNode names:[string:boolean]) {
+    if ((array_length n.children) == 0) {
+      def ssRn:string (this.ssSubjectName(n))
+      if ((strlen ssRn) > 0) {
+        if (has names ssRn) {
+          return true
+        }
+      }
+      return false
+    }
+    for n.children ssC:CodeNode ssCi {
+      if (this.ssRefsAny(ssC names)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  ; Every string whose units this expression counts.
+  fn ssCollectLabels:void (n:CodeNode taint:[string:string] out:[string:boolean]) {
+    def ssL:string (this.ssTaintOf(n taint))
+    if ((ssL != "#lit") && (ssL != "#?")) {
+      set out ssL true
+    }
+    for n.children ssC:CodeNode ssCi {
+      this.ssCollectLabels(ssC taint out)
+    }
+  }
+
+  ; The names that appear inside an index: `substring caps i (i + m)` makes
+  ; both `i` and `m` index names.
+  fn ssIndexVarWalk:void (node:CodeNode idxVars:[string:boolean]) {
+    if ((array_length node.children) >= 2) {
+      def ssF:CodeNode (node.getFirst())
+      def ssK:string (this.strictStringsOpKind(ssF.vref))
+      if ((ssK == "charAt") || (ssK == "substring")) {
+        def ssAi:int 2
+        while (ssAi < (array_length node.children)) {
+          this.ssCollectVars((itemAt node.children ssAi) idxVars)
+          ssAi = (ssAi + 1)
+        }
+      }
+    }
+    for node.children ssCh:CodeNode ssChi {
+      this.ssIndexVarWalk(ssCh idxVars)
+    }
+  }
+
+  ; A length that BOUNDS an index is a scan bound, one step removed:
+  ; `while (i <= (n - m))` with `substring caps i (i + m)` reads caps in
+  ; caps's own units even though `n` never appears inside the brackets.
+  fn ssBoundWalk:void (node:CodeNode taint:[string:string] idxVars:[string:boolean] indexed:[string:boolean]) {
+    if ((array_length node.children) >= 3) {
+      def ssF:CodeNode (node.getFirst())
+      if (this.ssIsCompare(ssF.vref)) {
+        def ssL:CodeNode (node.getSecond())
+        def ssR:CodeNode (itemAt node.children 2)
+        if (this.ssRefsAny(ssL idxVars)) {
+          this.ssCollectLabels(ssR taint indexed)
+        }
+        if (this.ssRefsAny(ssR idxVars)) {
+          this.ssCollectLabels(ssL taint indexed)
+        }
+      }
+    }
+    for node.children ssCh:CodeNode ssChi {
+      this.ssBoundWalk(ssCh taint idxVars indexed)
+    }
+  }
+
+  ; One side of a comparison is an integer literal: record what the other
+  ; side counts and how tightly it was pinned.
+  fn ssNoteGuard:void (v:CodeNode lit:CodeNode taint:[string:string] zeroTested:[string:boolean] litGuarded:[string:boolean]) {
+    if ((this.ssIsIntLiteral(lit)) == false) {
+      return
+    }
+    def ssLbl:string (this.ssTaintOf(v taint))
+    if ((ssLbl == "#lit") || (ssLbl == "#?")) {
+      return
+    }
+    if (this.ssIsZeroLiteral(lit)) {
+      set zeroTested ssLbl true
+    } {
+      set litGuarded ssLbl true
+    }
+  }
+
+  ; Pass two: report the sites where the unit is observable.
+  ;
+  ; `sizeTest` is true for the operand of a comparison whose other side is
+  ; the literal 0. "is this string empty" is the one question every unit
+  ; answers identically, so a length asked that way is not a count.
+  fn ssReportWalk:void (node:CodeNode fnName:string taint:[string:string] indexed:[string:boolean] zeroTested:[string:boolean] litGuarded:[string:boolean] sizeTest:boolean fnUnits:boolean) {
+    if ((array_length node.children) >= 2) {
+      def ssFc:CodeNode (node.getFirst())
+      def ssKind:string (this.strictStringsOpKind(ssFc.vref))
+      if ((strlen ssKind) > 0) {
+        def ssSubRaw:CodeNode (node.getSecond())
+        def ssSub:CodeNode (this.ssUnwrap(ssSubRaw))
+        ; a charbuffer overload is the explicit byte view and is not the
+        ; question this flag asks
+        def ssIsString:boolean false
+        if (ssSubRaw.eval_type == RangerNodeType.String) {
+          ssIsString = true
+        }
+        if (ssSub.eval_type == RangerNodeType.String) {
+          ssIsString = true
+        }
+        if (ssSub.value_type == RangerNodeType.String) {
+          ssIsString = true
+        }
+        if (ssSubRaw.eval_type == RangerNodeType.CharBuffer) {
+          ssIsString = false
+        }
+        if (ssSub.eval_type == RangerNodeType.CharBuffer) {
+          ssIsString = false
+        }
+        if ssIsString {
+          strictStringsTotal = (strictStringsTotal + 1)
+          def ssProved:boolean false
+          def ssGuard:boolean false
+          def ssReason:string ""
+          ; an ASCII literal reads the same in every unit
+          if (ssSub.value_type == RangerNodeType.String) {
+            if ((array_length ssSub.children) == 0) {
+              if (this.stringIsAsciiOnly(ssSub.string_value)) {
+                ssProved = true
+              }
+            }
+          }
+          def ssSubj:string (this.ssSubjectName(ssSub))
+          if (ssProved == false) {
+            if (ssKind == "strlen") {
+              ; the subject is an expression the taint cannot name -- but the
+              ; comparison right here still says what the length is for
+              if sizeTest {
+                ssProved = true
+              }
+              if fnUnits {
+                ssProved = true
+              }
+              if ((strlen ssSubj) > 0) {
+                ; a length that indexes SOME string is a position, and a
+                ; position is portable: the number differs per target and
+                ; the character it lands on does not
+                if (has indexed ssSubj) {
+                  ssProved = true
+                }
+                ; empty is empty in every unit
+                if (has zeroTested ssSubj) {
+                  ssProved = true
+                }
+                if (ssProved == false) {
+                  if (has litGuarded ssSubj) {
+                    ssGuard = true
+                  }
+                }
+              }
+              if (ssProved == false) {
+                ssReason = "a length that indexes nothing, so it is a count of characters"
+                if ssGuard {
+                  ssReason = "a length compared against a constant: a size guard, not a count"
+                }
+              }
+            } {
+              if (ssKind == "charcode") {
+                ssReason = "the first unit of text that is not an ASCII literal"
+              } {
+                ; An index is portable as long as it counts the unit the
+                ; target indexes in, whichever string it was measured on. It
+                ; is not portable when it counts CODE POINTS -- a `to_chars`
+                ; offset handed to `charAt` is right on Python and wrong
+                ; everywhere else, and that is the mistake this operator pair
+                ; makes possible.
+                def ssBad:string ""
+                def ssArgi:int 2
+                while (ssArgi < (array_length node.children)) {
+                  def ssAt:string (this.ssTaintOf((itemAt node.children ssArgi) taint))
+                  if (this.ssIsCodePointLabel(ssAt)) {
+                    if ((strlen ssBad) == 0) {
+                      ssBad = ssAt
+                    }
+                  }
+                  ssArgi = (ssArgi + 1)
+                }
+                if ((strlen ssBad) == 0) {
+                  ssProved = true
+                } {
+                  ssReason = (("a code-point offset used where " + ssSubj) + " is indexed in the target's own unit")
+                }
+              }
+            }
+          }
+          if ssProved {
+            strictStringsSafe = (strictStringsSafe + 1)
+          } {
+            def ssFile:string (ssFc.getFilename())
+            def ssLine:int ((ssFc.getLine()) + 1)
+            def ssShow:string ssSubj
+            if ((strlen ssShow) == 0) {
+              ssShow = "<expr>"
+            }
+            def ssTag:string "strict-strings "
+            if ssGuard {
+              ssTag = "strict-strings note "
+            }
+            def ssMsg:string ((((((((((ssTag + ssFile) + ":") + (to_string ssLine)) + " ") + ssKind) + "(") + ssShow) + ") in ") + fnName) + " -- ")
+            if ssGuard {
+              strictStringsGuards = (strictStringsGuards + 1)
+              push strictStringsNotes (ssMsg + ssReason)
+            } {
+              strictStringsRisky = (strictStringsRisky + 1)
+              print (ssMsg + ssReason)
+              if (has strictStringsFiles ssFile) {
+                def ssPrev:int (unwrap (get strictStringsFiles ssFile))
+                set strictStringsFiles ssFile (ssPrev + 1)
+              } {
+                set strictStringsFiles ssFile 1
+                push strictStringsFileOrder ssFile
+              }
+            }
+          }
+        }
+      }
+    }
+    def ssCmpZero:boolean false
+    ; a wrapper node is not a step away from the comparison
+    if ((array_length node.children) == 1) {
+      ssCmpZero = sizeTest
+    }
+    if ((array_length node.children) >= 3) {
+      def ssCop:string ((node.getFirst()).vref)
+      if (this.ssIsCompare(ssCop)) {
+        if ((this.ssIsZeroLiteral((node.getSecond()))) || (this.ssIsZeroLiteral((itemAt node.children 2)))) {
+          ssCmpZero = true
+        }
+      }
+    }
+    for node.children ssCh:CodeNode ssChi {
+      this.ssReportWalk(ssCh fnName taint indexed zeroTested litGuarded ssCmpZero fnUnits)
+    }
+  }
+
+  fn strictStringsScanFns:void (fns:[RangerAppFunctionDesc] clName:string) {
+    for fns ssM:RangerAppFunctionDesc ssMi {
+      if ssM.is_lambda {
+        continue
+      }
+      def ssBodyO@(optional):CodeNode ssM.fnBody
+      if (null? ssBodyO) {
+        continue
+      }
+      def ssBody:CodeNode (unwrap ssBodyO)
+      ; `fn f@(units)` says the same thing about a whole function, for the
+      ; places where the length never lands in a local of its own.
+      def ssFnUnits:boolean false
+      def ssNameNodeO@(optional):CodeNode ssM.nameNode
+      if (!null? ssNameNodeO) {
+        def ssNameNode:CodeNode (unwrap ssNameNodeO)
+        ssFnUnits = (ssNameNode.hasFlag("units"))
+      }
+      def ssTaint:[string:string]
+      def ssIndexed:[string:boolean]
+      def ssZeroTested:[string:boolean]
+      def ssLitGuarded:[string:boolean]
+      def ssIdxVars:[string:boolean]
+      this.ssTaintWalk(ssBody ssTaint ssIndexed ssZeroTested ssLitGuarded)
+      this.ssIndexVarWalk(ssBody ssIdxVars)
+      this.ssBoundWalk(ssBody ssTaint ssIdxVars ssIndexed)
+      this.ssReportWalk(ssBody ((clName + ".") + ssM.name) ssTaint ssIndexed ssZeroTested ssLitGuarded false ssFnUnits)
+    }
+  }
+
+  fn analyzeStringIndexing:void () {
+    if (null? ctx) {
+      return
+    }
+    def ssRoot:RangerAppWriterContext ((unwrap ctx).getRoot())
+    for ssRoot.definedClasses ssCl:RangerAppClassDesc ssCi {
+      if ((((ssCl.is_system || ssCl.is_template) || ssCl.is_operator_class) || ssCl.is_generic_instance)) {
+        continue
+      }
+      this.strictStringsScanFns(ssCl.methods ssCl.name)
+      this.strictStringsScanFns(ssCl.static_methods ssCl.name)
+    }
+    print ""
+    print ((((((("strict-strings: " + (to_string strictStringsRisky)) + " of ") + (to_string strictStringsTotal)) + " string index sites read a unit the program can observe, in ") + (to_string (array_length strictStringsFileOrder))) + " files"))
+    for strictStringsFileOrder ssF:string ssFi {
+      def ssCnt:int (unwrap (get strictStringsFiles ssF))
+      print (((("  " + (to_string ssCnt)) + "  ") + ssF))
+    }
+    if ((array_length strictStringsNotes) > 0) {
+      print ""
+      for strictStringsNotes ssN:string ssNi {
+        print ssN
+      }
+    }
+    print ""
+    print ((("  " + (to_string strictStringsGuards)) + " more are a length against a constant or against another length:"))
+    print "  a guard on structure rather than a count of text. Listed as notes"
+    print "  above, because the number still differs per target."
+    print ""
+    print ((("  " + (to_string strictStringsSafe)) + " sites are self-consistent and not listed: an ASCII literal, an"))
+    print "  emptiness test, a length that indexes some string, an index that"
+    print "  bounds a scan, or a site marked @(units) by hand."
+    print ""
+    print "  `char_length` is the portable count and `to_chars` the portable"
+    print "  index. What this cannot follow is provenance across a function"
+    print "  boundary: a position held in a field or passed in as a parameter"
+    print "  is where `@(units)` is for."
+    print "  docs/plans/PLAN_STRING_INDEXING.md 3.3 has the rest."
+  }
+
+  ; Which trait families can be called back into through their own handle?
+  ;
+  ; A trait method dispatched on a `&self` or `&mut self` receiver holds a
+  ; borrow of the cell for the whole call. Where the callee can reach back
+  ; through the same handle that is "RefCell already borrowed" at run time --
+  ; rustc cannot see it, which is how the Rust self-host compiled clean and
+  ; died on its first input. Those families are implemented for
+  ; `Rc<RefCell<C>>` instead, so the receiver IS the handle and nothing is
+  ; borrowed to dispatch.
+  ;
+  ; The question is answered from the field graph: the trait root holds a
+  ; field of some class X, and X holds a field of the family's own type. That
+  ; two-cycle is what lets a call go out and come back. For the writers it is
+  ; `RangerGenericClassWriter.compiler : LiveCompiler` against
+  ; `LiveCompiler.langWriter : RangerGenericClassWriter`.
+  ; docs/plans/PLAN_RUST_REENTRANCY.md.
+  fn computeTraitReentrancy:void () {
+    if (null? ctx) {
+      return
+    }
+    def trRoot:RangerAppWriterContext ((unwrap ctx).getRoot())
+    for trRoot.definedClasses trCl:RangerAppClassDesc trCi {
+      if (trCl.is_extended_by_children == false) {
+        continue
+      }
+      if (this.classHasBackReference(trCl)) {
+        trCl.rust_trait_reentrant = true
+        for trCl.child_classes trCh:string trChi {
+          if ((unwrap ctx).isDefinedClass(trCh)) {
+            def trChC:RangerAppClassDesc ((unwrap ctx).findClass(trCh))
+            trChC.rust_trait_reentrant = true
+          }
+        }
+      }
+    }
+  }
+
+  ; Does any method body of `cl` CALL something through the field `fieldName`?
+  ; A field that is only read or written cannot carry a call back into the
+  ; family, and a data structure that merely points at its container is not
+  ; re-entrant.
+  fn treeCallsThroughField:boolean (node:CodeNode fieldName:string) {
+    if node.hasFnCall {
+      ; the call node holds the receiver path on its FIRST CHILD, the way
+      ; every other reader of a call does it
+      if ((array_length node.children) > 0) {
+        def tcFc:CodeNode (node.getFirst())
+        def tcLen:int (array_length tcFc.ns)
+        if (tcLen >= 2) {
+          def tcSeg:string (itemAt tcFc.ns 0)
+          if (tcSeg == fieldName) {
+            return true
+          }
+          if (tcSeg == "this") {
+            if ((itemAt tcFc.ns 1) == fieldName) {
+              return true
+            }
+          }
+        }
+      }
+    }
+    for node.children tcCh:CodeNode tcChi {
+      if (this.treeCallsThroughField(tcCh fieldName)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn classCallsThroughField:boolean (cl:RangerAppClassDesc fieldName:string) {
+    for cl.methods ccM:RangerAppFunctionDesc ccMi {
+      def ccBodyO@(optional):CodeNode ccM.fnBody
+      if (null? ccBodyO) {
+        continue
+      }
+      if (this.treeCallsThroughField((unwrap ccBodyO) fieldName)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn classHasBackReference:boolean (cl:RangerAppClassDesc) {
+    for cl.variables brV:RangerAppParamDesc brVi {
+      def brNNO@(optional):CodeNode brV.nameNode
+      if (null? brNNO) {
+        continue
+      }
+      def brTn:string ((unwrap brNNO).type_name)
+      if ((strlen brTn) == 0) {
+        continue
+      }
+      if (((unwrap ctx).isDefinedClass(brTn)) == false) {
+        continue
+      }
+      ; …and the family has to CALL through it, or the cycle is only two data
+      ; structures pointing at each other
+      if ((this.classCallsThroughField(cl brV.name)) == false) {
+        continue
+      }
+      def brOther:RangerAppClassDesc ((unwrap ctx).findClass(brTn))
+      for brOther.variables brB:RangerAppParamDesc brBi {
+        def brBNNO@(optional):CodeNode brB.nameNode
+        if (null? brBNNO) {
+          continue
+        }
+        def brBTn:string ((unwrap brBNNO).type_name)
+        def brBHits:boolean false
+        if (brBTn == cl.name) {
+          brBHits = true
+        }
+        if ((strlen brBTn) > 0) {
+          if ((unwrap ctx).isDefinedClass(brBTn)) {
+            def brBC:RangerAppClassDesc ((unwrap ctx).findClass(brBTn))
+            for brBC.extends_classes brBE:string brBEi {
+              if (brBE == cl.name) {
+                brBHits = true
+              }
+            }
+          }
+        }
+        if brBHits {
+          if (this.classCallsThroughField(brOther brB.name)) {
+            return true
+          }
+        }
+      }
+    }
+    return false
+  }
+
   fn computeSelfRcNeeds:void () {
     if (null? ctx) {
       return
     }
+    this.computeTraitReentrancy()
     def root:RangerAppWriterContext ((unwrap ctx).getRoot())
     for root.definedClasses cl:RangerAppClassDesc ci {
       if (cl.rust_needs_ref_semantics == false) {
@@ -3550,6 +4373,12 @@ class StaticAnalyzer {
             inTraitFamily = true
           }
         }
+      }
+      ; …except a RE-ENTRANT family, where the hidden argument is the
+      ; concrete class for every method, trait-declared or not, so the two
+      ; spellings the exclusion is about never arise.
+      if cl.rust_trait_reentrant {
+        inTraitFamily = false
       }
       for cl.methods m:RangerAppFunctionDesc i {
         if (m.is_lambda == false) {

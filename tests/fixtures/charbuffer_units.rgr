@@ -1,0 +1,49 @@
+; charbuffer_units.rgr — what does a charbuffer index mean on this target?
+;
+; `to_charbuffer` is the explicit conversion: it says "give me the indexable
+; view of this text", and unlike `charAt` on a `string` it is a cost the
+; program asked for. It should therefore have ONE unit everywhere, and
+; docs/plans/PLAN_STRING_INDEXING.md §2.3 says that unit is the UTF-8 byte.
+;
+; This program prints what the target it was compiled for actually does. Read
+; the output as:
+;
+;   len   <n>       (length b)
+;   code  <n> …     (charAt b i) for every i
+;   back  <text>    (to_string b)   -- the round trip
+;
+; The input is "a—b" (U+2014 EM DASH): one code point, one UTF-16 unit, THREE
+; UTF-8 bytes. A target that answers 5 is counting bytes; 3 is counting
+; something else.
+
+class CharBufferUnits {
+
+    sfn main:void () {
+        def s:string "a—b"
+        def b:charbuffer (to_charbuffer s)
+        def n:int (length b)
+        print ("len " + (to_string n))
+        def codes:string ""
+        def i:int 0
+        while (i < n) {
+            ; the charbuffer overload of charAt is declared `:char`, so the
+            ; code goes through an int before it is printed
+            def c:int (charAt b i)
+            codes = (codes + (to_string c))
+            i = (i + 1)
+            if (i < n) {
+                codes = (codes + " ")
+            }
+        }
+        print ("code " + codes)
+        print ("back " + (to_string b))
+        def same:string "no"
+        if ((to_string b) == s) {
+            same = "yes"
+        }
+        print ("roundtrip " + same)
+        ; A slice on an ASCII boundary has to come back as the ASCII
+        ; character, whatever the unit is: index 0 is always "a".
+        print ("head " + (substring b 0 1))
+    }
+}

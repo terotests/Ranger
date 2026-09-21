@@ -646,6 +646,7 @@ class tester {
       'keep-examples' 'Emit the functions named by `example` into the output. They are type checked either way; by default they are left out'
       'docstyle-none' 'Do not write documentation comments into the generated code'
       'strict-ownership' 'Print the inferred ownership of each function parameter (borrowed, moved, shared, owned, unknown)'
+      'strict-strings' 'Print every charAt/substring on a string whose subject is not an ASCII literal. A string index is the target own unit, so those are the sites that mean different things on different targets'
       'rust-shared-classes' 'Emit Rc<RefCell<T>> for classes the sharing analysis marks as shared (Rust target; the default since the conformance gate closed — kept for compatibility)'
       'rust-value-classes' 'Every class is a plain value struct on Rust (the pre-ownership object model); disables the shared-class Rc<RefCell<T>> emission'
       'inline-statics' 'Expand trivial static forwarders (a single return of an expression over the parameters) at their call sites instead of emitting a call'
@@ -1260,6 +1261,16 @@ class tester {
       ; pass must run for that target with or without the flag. The Rust
       ; writer reads it too: a proven-borrowed object parameter becomes `&T`
       ; (applyOwnershipToRustBorrows, PLAN_RUST_OWNERSHIP step 1).
+      ; -strict-strings: the inventory of index sites whose subject could be
+      ; text rather than ASCII structure. Target-independent, and a report
+      ; only -- it changes nothing about the output.
+      ; docs/plans/PLAN_STRING_INDEXING.md 3.3.
+      if (appCtx.hasCompilerFlag("strict-strings")) {
+        def strAnalyzer:StaticAnalyzer (new StaticAnalyzer())
+        strAnalyzer.ctx = appCtx
+        strAnalyzer.analyzeStringIndexing()
+      }
+
       def ownStrict:boolean (appCtx.hasCompilerFlag("strict-ownership"))
       if ((ownStrict || (appCtx.targetLangName == "cpp")) || (appCtx.targetLangName == "rust")) {
         def ownAnalyzer:StaticAnalyzer (new StaticAnalyzer())

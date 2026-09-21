@@ -1,0 +1,51 @@
+; What -strict-strings is for, in three functions.
+;
+; `scan` is the shape almost every string loop in the compiler has: the bound
+; and the index both come from `s`, so the numbers are the target's own unit
+; and the characters read are the same everywhere. The flag proves it quiet.
+;
+; `width` and `mixed` are the two mistakes it exists to catch.
+; docs/plans/PLAN_STRING_INDEXING.md 3.3.
+
+class Bad {
+
+    ; portable: a scan of s, in s's own units
+    fn scan:int (s:string) {
+        def n:int (strlen s)
+        def i:int 0
+        def sum:int 0
+        while (i < n) {
+            sum = (sum + (charAt s i))
+            i = (i + 1)
+        }
+        return sum
+    }
+
+    ; not portable: `wanted` is a column, so the count has to be characters
+    fn width:int (text:string wanted:int) {
+        def len:int (strlen text)
+        if (len > wanted) {
+            return wanted
+        }
+        return len
+    }
+
+    ; not portable: a code-point offset handed to an operator that indexes
+    ; in the target's own unit
+    fn mixed:int (s:string) {
+        def cs:[int] (to_chars s)
+        def n:int (array_length cs)
+        def k:int 0
+        def sum:int 0
+        while (k < n) {
+            sum = (sum + (charAt s k))
+            k = (k + 1)
+        }
+        return sum
+    }
+
+    sfn main:void () {
+        def b:Bad (new Bad())
+        print (to_string (b.scan("ab")))
+    }
+}

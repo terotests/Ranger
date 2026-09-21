@@ -7,7 +7,171 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`char_length`: how many characters, on all fourteen targets.** `strlen`
+  counts the target's own unit — UTF-16 code units on JavaScript, Java,
+  Kotlin, C#, Scala and Swift, UTF-8 bytes on Rust, Go, C++ and PHP, code
+  points on Python. That is the right number for a scan and the wrong one for
+  anything a person sees: a column, a width, a padding count. `char_length`
+  is the count that does not move: `len(s)` on Python, `chars().count()` on
+  Rust, `utf8.RuneCountInString` on Go, `codePointCount` on the JVM,
+  `runes.length` on Dart, `mb_strlen` on PHP, `unicodeScalars.count` on
+  Swift, and a non-continuation-byte or non-low-surrogate count where the
+  standard library has nothing. It is the length of `(to_chars s)` without
+  building the array, and for ASCII it is `strlen`.
+
 ### Changed
+
+- **`-strict-strings` asks whether the unit is observable, and the compiler
+  now reports zero.** The first version listed every index whose subject was
+  not an ASCII literal — 322 sites, which named the language rather than the
+  defect. A scan is not a defect: `while (i < (strlen s)) { charAt s i }`
+  reads the same characters on a byte target and a UTF-16 one; only the
+  numbers differ, and the program never sees them.
+
+  The flag now reports the three ways a number escapes — a `strlen` that
+  indexes nothing, a `to_chars` offset handed to `charAt`, a `charcode` on
+  something that is not an ASCII literal — and proves the rest quiet: an
+  emptiness test, a length that indexes some string, a length that bounds an
+  index, two counts of the same string compared with each other. A length
+  against a constant or against another string's length is a **note**, not a
+  finding. `strlen` is covered, which it was not before, and that is where
+  the real defects were.
+
+  Four of them, all a count of characters someone sees: the CLI progress bar
+  padded to a different column depending on which build of the compiler wrote
+  it; `formatSource` wrapped the same file in different places, because a
+  comment holding an em dash was one column wide under Node and three in the
+  Rust and Go self-hosts; `columnNumber`, which goes into errors and into the
+  source map; and `(cc N)`, which burns a character code into generated
+  source and so must not depend on its host. Three escapers now `switch` on
+  the one-character slice instead of on `charcode` of it.
+
+  Where provenance crosses a function boundary — a scan position kept in a
+  field, a length arriving as a parameter — the source says so with
+  `@(units)` on the `def` or on the function, so the claim is visible where
+  it is made. `tests/strict-strings.test.ts` keeps the count at zero.
+
+### Fixed
+
+- **A string literal holding BOTH an escape and a non-ASCII character came
+  out broken.** `"merkintä... esim. \"treeni\""` compiled to
+  `merkint\uFFFD\uFFFD...`: two replacement characters where the `ä` was.
+  The parser's escape-decoding path converted the literal to a `charbuffer`
+  and copied it back one unit at a time, and since a `charbuffer` is UTF-8
+  bytes on every target now, each byte of a multi-byte character was decoded
+  by itself. It reads the string directly — `strlen`, `charAt` and
+  `substring` index the same unit as each other on any one target, and every
+  character the loop looks at (`\`, `"`, `n`, …) is ASCII. The same shape as
+  the `EncodeString` fix in the six writers, in the one place that was
+  missed; the checked-in `bin/output.js` carried the damage in one of its own
+  messages and needed two bootstrap passes to converge.
+
+- **A Rust `switch` over strings broke on a quote, a backslash or a
+  newline.** A `match` arm is a pattern, so the Rust writer wrote the case
+  literal with `(str N)` — the text and nothing else, because the
+  `.to_string()` a literal gets in expression position is not something a
+  pattern takes. Unescaped, `case "\""` came out as `"""` and rustc read
+  three tokens where one was meant; `case "\n"` put a real newline inside
+  the pattern. `(estr N)` is the same accessor with the target's own string
+  escaping applied and still no quotes of its own, and the Rust `case`
+  template uses it. Found by moving three escapers onto a string `switch`.
+
+- **The Rust rendering of the compiler compiles the compiler.** It had type-
+  checked with zero rustc errors for years and aborted on the first file it
+  was ever given, because `RefCell` checks at run time and the self-host gate
+  only type-checked. Two causes, both the same shape — a borrow that outlives
+  the statement that took it:
+
+  A `for` head is the one place Rust keeps a temporary alive across a block,
+  so a collection reached through a field kept that object borrowed while the
+  body ran and the first `borrow_mut` panicked. And a trait method with a
+  `&mut self` receiver means the call site holds a `RefMut` for the whole
+  call — while the compiler and its writers are mutually recursive by design.
+
+  A trait family that can be re-entered through its own handle is now
+  implemented for `Rc<RefCell<C>>` rather than for `C`, so `&self` IS the
+  handle and dispatching borrows nothing. Which families those are is
+  answered from the field graph rather than declared: the trait root holds a
+  field of some class X, X holds a field of the family's type, and both call
+  through it.
+
+  `npm run selfhost:run:rust` is the new gate and holds Rust to what C++ and
+  Go already meet: build it, make it compile `compiler/Compiler.rgr`, and
+  diff the result against `bin/output.js`. It is identical, all 5 596 785
+  bytes, in 7.3 s against the node host's 7.8 s.
+  `docs/plans/PLAN_RUST_REENTRANCY.md` is the write-up.
+
+- **Rust and Go index the byte their string is made of.** `strlen`, `charAt`
+  and `substring` on both counted characters, which cost them the quadratic
+  scan — `charAt` walked from the start on every read, and on Go `[]rune(s)`
+  copied the whole string each time. `gallery/friendly/bench/strscan.rgr` at
+  120 000 characters: Rust 8 830 ms → 11 ms, which is C++ to the millisecond;
+  Go did not finish inside two minutes → 19 ms.
+
+  It was also a correctness fix. `indexOf` is `strings.Index` on Go and
+  answers a BYTE offset, so a scanner that found a delimiter and sliced at it
+  sliced in the wrong place as soon as anything non-ASCII stood before it:
+  for `"ä,b"` the head came back as `"ä,"` and the tail as `""` — the rest of
+  the text, dropped without a word. Rust had the same bug and paid an O(n)
+  `chars().count()` on every `indexOf` to hide it; that conversion is gone.
+  Rust's `charcode` read `as_bytes()[0]` all along and so disagreed with its
+  own `charAt`; Java's read `getBytes()[0]` and answered −61 where `charAt`
+  said 228. All nine runnable targets are now internally consistent.
+
+- **A byte-hosted compiler wrote every non-ASCII literal twice encoded.**
+  The C++ self-host emitted `"a—b"` into its JavaScript output as
+  `C3 A2 C2 80 C2 94` instead of `E2 80 94`: `EncodeString` rebuilt each
+  character with `strfromcode`, which writes a code point, from what `charAt`
+  gave it, which on a byte host is a byte. True of C++ and PHP all along and
+  never noticed. A one-unit `substring` copies the unit across instead, and
+  the C++ and Go self-hosts now produce output byte-identical to the
+  node-hosted compiler's.
+
+- **`to_chars` is the portable indexable view of text.** `def cs:[int]
+  (to_chars s)` gives Unicode code points, the same sequence on every target,
+  built once in O(n) and read in O(1). `charAt` on a `string` stays the
+  target's own unit — that is what makes it O(1) there — and is right for a
+  scanner over ASCII structure; `to_chars` is for text a human wrote, where
+  `"a😀b"` has to be three characters and not two UTF-16 units plus two.
+  Because the program names the conversion, the allocation is asked for
+  rather than hidden behind an index.
+
+- **A `charbuffer` is a buffer of bytes, and `to_charbuffer` is a string's
+  UTF-8.** One element is one octet, 0..255, not a character; UTF-8 belongs
+  to `to_charbuffer` and `to_string`, the two operators that cross between
+  text and bytes, because a conversion cannot be made without naming an
+  encoding. The buffer itself is just bytes — one holding a JPEG is not
+  "UTF-8 bytes".
+
+  It used to be whatever the host's string happened to be made of: UTF-16
+  units on JavaScript, Kotlin and Dart, code points on Python, bytes on the
+  other eight, and on Scala a `toByte` cast that truncated anything above
+  U+00FF. `to_charbuffer` is the explicit conversion — the program asks for
+  the byte view by name — so it is the one place a single portable unit can
+  be promised, and now it is: `"a—b"` is five bytes on all of them.
+
+  Measuring it with `tests/fixtures/charbuffer_units.rgr` turned up three
+  holes as well: `to_string` on a charbuffer did not compile on Rust, Java or
+  Kotlin, `charAt` on one returned a *signed* byte on the JVM targets, and
+  Swift 6 had no `to_charbuffer` template at all. Java's conversion used the
+  platform default charset rather than UTF-8.
+
+  A `charbuffer` is `Uint8Array` on JavaScript and TypeScript, `bytes` on
+  Python and `ByteArray` on Kotlin. `RangerLispParser` holds its source in
+  one, so the JavaScript self-host now scans the same bytes the C++ one does,
+  at the same speed. `tests/charbuffer-units.test.ts` asserts the agreement;
+  `docs/plans/PLAN_STRING_INDEXING.md` is the plan this is stage 1 of.
+
+- **What a `string` index means is now measured and written down.**
+  `strlen`, `charAt` and `substring` mean a UTF-16 code unit on six targets, a
+  Unicode code point on three and a UTF-8 byte on two, and nothing said so.
+  `tests/fixtures/string_units.rgr` and `tests/string-units.test.ts` pin each
+  target's answer, `gallery/friendly/bench/strscan.rgr` measures the other
+  half — the ordinary index scan is O(n²) on Rust and Go — and `ai/QUICKREF.md`
+  says both where `string` is documented. No behaviour changed; the defect is
+  visible now.
 
 - **Generated-code quality is three questions now, not one ranking.** The
   single ordering read as a verdict, and it was one reading of the generated
@@ -24,7 +188,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   *Speed* is new: `gallery/friendly/bench/` is the same Ranger program, five
   kernels, each timing itself with `wall_clock_ms`. Kernels only: C++ 260 ms,
   Kotlin 466, C# 663, Java 760, PHP 801, JavaScript 1076, Rust 2556,
-  Python 2566, Go 143882. Two of those are the compiler's doing and are
+  Python 2566, Go 143882. (Re-measured after the string-indexing work: C++
+  265, Rust 397, Kotlin 485, C# 684, Go 694, Java 753, PHP 786,
+  JavaScript 1040, Python 2607.) Two of those are the compiler's doing and are
   written down — `charAt` is O(n) on Go and Rust, and a Ranger map is a plain
   object on JavaScript.
 

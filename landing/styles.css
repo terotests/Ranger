@@ -261,6 +261,52 @@ code:not(pre code) {
   font: 650 14px/1 var(--mono);
   min-width: 3.2em;
 }
+/* The five-kernel benchmark: numbers, so the columns line up and the eye can
+   run down one of them. Shares the .matrix chrome; only the alignment and the
+   emphasis on the total are its own. */
+.matrix .bench__n {
+  text-align: right;
+  font: 400 13px/1.4 var(--mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  /* a fixed, narrow numeric column so the figures sit together and the eye
+     can run down one of them; the target column absorbs the slack */
+  width: 5.5em;
+}
+.matrix thead th.bench__n { text-align: right; }
+.matrix .bench__total {
+  color: var(--paper);
+  font-weight: 650;
+  border-left: 1px solid var(--line);
+  width: 6em;
+}
+.matrix thead th.bench__total { color: var(--gold); }
+.bench tbody th {
+  white-space: nowrap;
+  width: auto;
+}
+@media (max-width: 720px) {
+  /* Seven columns do not fit a phone, and the two a reader wants are the
+     ends: which target, and what it totalled. Both are pinned, the five
+     kernels scroll between them, and nothing is hidden. */
+  .matrix.bench th, .matrix.bench td { padding: 7px 7px; }
+  .matrix .bench__n { font-size: 11px; width: auto; }
+  .bench tbody th, .bench thead th:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    font-size: 12px;
+  }
+  .matrix .bench__total {
+    position: sticky;
+    right: 0;
+    z-index: 2;
+    width: auto;
+    background: #101118;
+    border-left: 1px solid var(--line);
+  }
+}
+
 .matrix .score__bar {
   display: block;
   flex: 1;

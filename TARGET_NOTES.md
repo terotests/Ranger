@@ -672,6 +672,10 @@ assumed.
   string means something different on the two targets. Everything in the
   compiler that needs bytes now goes through `LowIRUtil.utf8Bytes`; anything
   else that indexes strings has not been audited.
+  `docs/plans/PLAN_STRING_INDEXING.md` is the plan that answers this for the
+  language as a whole: `to_chars` is the portable code-point view,
+  `to_charbuffer` the portable byte view, and a raw index stays the target's
+  own unit and is documented as such.
 
 **Closed since this section was written:**
 
@@ -1208,6 +1212,138 @@ Rust, `offsetByCodePoints` on the JVM targets, `runes` on Dart, `mb_substr` on
 PHP, a surrogate-aware walk on C#, and `Array.from` elsewhere.
 
 `tests/string-index-semantics.test.ts` pins both halves across seven targets.
+
+### Rust and Go index the byte, and two bugs fell out of it
+
+`strlen`, `charAt` and `substring` on Rust and Go counted CHARACTERS, which
+is what made them quadratic -- `s.chars().nth(i)` walks from the start, and
+`[]rune(s)[i]` allocates and copies the whole string first. They are the
+UTF-8 byte now, which is what a `String` and a Go `string` are actually made
+of and the only unit either indexes in constant time. 120 000 characters of
+`gallery/friendly/bench/strscan.rgr`: Rust 8 830 ms to 11 ms, the same as
+C++; Go from not finishing inside two minutes to 19 ms.
+
+The speed was the reason to look. What the measurement found was worse:
+
+- **Go was losing text.** `indexOf` is `strings.Index` and answers a BYTE
+  offset, while `charAt`, `strlen` and `substring` counted runes, so a
+  scanner that found a delimiter and sliced at it sliced in the wrong place
+  the moment anything non-ASCII stood before it. For `"<a-umlaut>,b"` the
+  head came back as `"<a-umlaut>,"` and the tail as `""`. Rust had the same
+  bug and had papered over it -- `rg_index_of` converted the byte offset to
+  a character offset with an O(n) `chars().count()` on every call, and the
+  comment that fix left behind records what it cost: an OOXML parser reading
+  a slide with an umlaut in it "sliced the rest of the document one byte
+  short per accent and dropped every shape after the first". Making the unit
+  the byte removes the bug and the workaround together.
+- **Rust's `charcode` disagreed with Rust's `charAt`.** It has read
+  `as_bytes()[0]` all along. Java's read `getBytes()[0]`, which is SIGNED,
+  and answered -61 for the first byte of "<a-umlaut>" where `charAt` says
+  228; it is `charAt(0)` now.
+
+All nine targets with a toolchain here are internally consistent afterwards,
+in two families: C++, PHP, Rust and Go index the UTF-8 byte, and JavaScript,
+Python, Java, C# and Kotlin index the UTF-16 code unit (Python the code
+point, which is the same thing below U+10000).
+
+### A column is not a length — `char_length`, and the four places that got it wrong
+
+Every target is internally consistent, and they disagree with each other. That
+is fine for a scan, which reads the same characters either way, and wrong the
+moment a number is shown to somebody. `char_length` is the count that does not
+move: Unicode code points on all fourteen targets, the length of `(to_chars s)`
+without building the array, and exactly `strlen` for ASCII.
+
+`-strict-strings` found four places in the compiler where `strlen` was standing
+in for it, each one visible in the output rather than in a crash:
+
+- the CLI progress bar padded to a different column depending on which build of
+  the compiler drew it;
+- `formatSource` wrapped the same file in different places — a comment holding
+  an em dash is one column wide under Node and three in the Rust and Go
+  self-hosts, so the formatter's own output was not reproducible;
+- `columnNumber`, which goes into error messages and into the source map;
+- `(cc N)`, which burns a character code into generated source: `charcode`
+  there answered 8212 under Node and 226 natively, so the self-hosts would
+  stop producing byte-identical output for any template with a non-ASCII
+  literal.
+
+The flag reports zero on the compiler now, and `tests/strict-strings.test.ts`
+keeps it there. Where the pass cannot follow a position across a function
+boundary — held in a field, or arriving as a parameter — the source says
+`@(units)` on the `def` or on the function, so the claim sits next to the code
+making it.
+
+### A compiler whose own strings are bytes wrote every literal twice encoded
+
+Found by building the C++ self-host and running it: it emitted `"a-em-dash-b"`
+into its JavaScript output as `C3 A2 C2 80 C2 94` rather than `E2 80 94`.
+`EncodeString` walked the literal with `charAt` and rebuilt each character
+with `strfromcode` -- and `strfromcode` writes a CODE POINT, so on a
+byte-hosted compiler every byte of a multi byte character was encoded a
+second time. This was true of the C++ and PHP self-hosts all along and had
+never been noticed, because nothing checked their output against the node
+host's on text that was not ASCII. It is the same bug this file records
+against the LLVM writer, arrived at from the other direction.
+
+The fix is one line in each of the six `EncodeString` copies and in
+`DictNode`: copy the unit with a one-unit `substring` rather than rebuilding
+it from its code. That carries whatever the unit is across unchanged on every
+host. Afterwards the C++ and Go self-hosts each produce output BYTE-IDENTICAL
+to the node-hosted compiler's for the same input.
+
+One limitation that WAS worth recording, and no longer is: the Rust self-host
+compiled to 0 rustc errors and panicked at startup on any input. Two
+`RefCell` borrows that outlived the statements that took them --
+docs/plans/PLAN_RUST_REENTRANCY.md. It compiles the compiler now, to output
+byte-identical to the node host's, and `npm run selfhost:run:rust` checks
+exactly that.
+
+### A `charbuffer` is bytes, and `to_charbuffer` is the UTF-8 of a string
+
+A `charbuffer` is a buffer of octets -- `Vec<u8>`, `[]byte`, `Uint8Array`,
+`bytes`, `byte[]`, `[UInt8]`, `List<int>` -- and one element is one byte, not
+one character. UTF-8 belongs to the two operators that cross between text and
+bytes, `to_charbuffer` and `to_string`, because a conversion cannot be made
+without choosing an encoding. A buffer holding a JPEG is not "UTF-8 bytes";
+it is bytes.
+
+`to_charbuffer` is the explicit conversion -- the program asks for the byte
+view by name and pays for it once -- so it is the one place where a single
+portable unit can be promised, and it was not keeping the promise.
+Measured with `tests/fixtures/charbuffer_units.rgr`, `"a-dash-b"` (U+2014)
+came back as 3 units on JavaScript, Kotlin and Dart (UTF-16), 3 on Python
+(code points) and 5 on Go, C++, PHP, C#, Rust and Swift 3 (bytes), and on
+Scala a `toByte` cast truncated everything above U+00FF. Running the fixture
+found three more holes the table of models did not predict:
+
+- `to_string` on a charbuffer did not COMPILE on Rust, Java or Kotlin. The
+  `*` fallback passed the buffer through where a string was wanted, so
+  `Vec<u8>` reached `println!("{}")` and `byte[]` reached an `Integer`.
+- `charAt` on a charbuffer returned a SIGNED byte on the JVM targets: every
+  byte above U+007F answered negative where the operator is declared to
+  return 0..255.
+- Swift 6 had no `to_charbuffer` template at all and inherited the
+  passthrough.
+
+All of it is UTF-8 bytes now: `Uint8Array` on JavaScript and TypeScript,
+`bytes` on Python, `ByteArray` on Kotlin, and the byte array the other ten
+already had. `to_charbuffer` encodes UTF-8 explicitly -- Java used the
+platform default charset, which is whatever `file.encoding` happens to be --
+and `to_string`, `substring` and `charAt` decode it rather than reading the
+bytes as code units.
+
+This matters beyond the operator: `RangerLispParser` holds the source it is
+parsing in a charbuffer, so the JavaScript self-host now scans the same bytes
+the C++ one does. It costs nothing measurable -- the JavaScript compile of the
+compiler is 9.2 s against 9.7 s before -- because one `TextDecoder` for the
+process is cheaper than the string slicing it replaced.
+
+`tests/charbuffer-units.test.ts` asserts the agreement on every target with a
+toolchain, and unlike `tests/string-units.test.ts` -- which characterises a
+disagreement that is still there on `string` -- this one demands they match.
+`docs/plans/PLAN_STRING_INDEXING.md` is the plan the rest of that work
+follows.
 
 ### How long the compiler takes to compile itself
 

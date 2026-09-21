@@ -129,6 +129,12 @@ class RangerAppClassDesc {
   ; value-model target (Rust) needs Rc<RefCell<T>> to give it the reference
   ; semantics the language defines. The reason is the first event found.
   def rust_needs_ref_semantics:boolean false
+  ; Set by StaticAnalyzer.computeTraitReentrancy: this class is in a trait
+  ; family that can be called back into through its own handle, so the Rust
+  ; rendering implements the trait for `Rc<RefCell<C>>` rather than for `C`
+  ; and no borrow is held across a dispatch.
+  ; docs/plans/PLAN_RUST_REENTRANCY.md.
+  def rust_trait_reentrant:boolean false
   def rust_ref_reason:string ""
 
   fn isClass:boolean () {

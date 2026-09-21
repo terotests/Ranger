@@ -345,9 +345,14 @@ class CLIProgress {
         return (this.gray("─────────────────────────"))
     }
     
+    ; `width` is a terminal column, so the count has to be characters and not
+    ; the target's own unit: `strlen` on "läpi" is 4 under Node and 5 in the
+    ; Rust or Go build, and the column the progress line lands in would then
+    ; depend on which compiler wrote it.
+    ; docs/plans/PLAN_STRING_INDEXING.md 3.3.
     fn padRight:string (text:string width:int) {
         def result text
-        def len (strlen text)
+        def len (char_length text)
         while (len < width) {
             result = result + " "
             len = len + 1
@@ -355,9 +360,10 @@ class CLIProgress {
         return result
     }
     
+    ; ...and the same for the right-aligned form.
     fn padLeft:string (text:string width:int) {
         def result text
-        def len (strlen text)
+        def len (char_length text)
         while (len < width) {
             result = " " + result
             len = len + 1

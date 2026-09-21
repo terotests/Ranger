@@ -688,63 +688,10 @@ extension RangerRustClassWriter {
       return
     }
 
-    ; substring: skip/take — the take count drops a literal-zero start
-    ; instead of emitting `x - 0`
-    if (cmd == "substring") {
-      ctx.setInExpr()
-      this.WalkNode((node.getSecond()) ctx wr)
-      def subStart:CodeNode (this.rustUnwrapParens((node.getThird())))
-      def subEnd:CodeNode (this.rustUnwrapParens((itemAt node.children 3)))
-      def startIsZero:boolean false
-      if (subStart.value_type == RangerNodeType.Integer) {
-        if (subStart.int_value == 0) {
-          startIsZero = true
-        }
-      }
-      wr.out(".chars()" false)
-      if (startIsZero == false) {
-        wr.out(".skip(" false)
-        if (subStart.value_type == RangerNodeType.Integer) {
-          wr.out(("" + subStart.int_value) false)
-        } {
-          wr.out("(" false)
-          wr.suppress_expr_parens = true
-          this.WalkNode(subStart ctx wr)
-          wr.suppress_expr_parens = false
-          wr.out(") as usize" false)
-        }
-        wr.out(")" false)
-      }
-      wr.out(".take(" false)
-      if startIsZero {
-        if (subEnd.value_type == RangerNodeType.Integer) {
-          wr.out(("" + subEnd.int_value) false)
-        } {
-          wr.out("(" false)
-          wr.suppress_expr_parens = true
-          this.WalkNode(subEnd ctx wr)
-          wr.suppress_expr_parens = false
-          wr.out(") as usize" false)
-        }
-      } {
-        ; Each side gets its OWN parens: with the outer parens suppressed,
-        ; an additive operand pair like end=(i + 2) start=(i + 1) printed as
-        ; `i + 2 - i + 1`, which is 3, not 1 — $& in a replace template was
-        ; read as a 3-char slice and never matched.
-        wr.out("((" false)
-        wr.suppress_expr_parens = true
-        this.WalkNode(subEnd ctx wr)
-        wr.suppress_expr_parens = false
-        wr.out(") - (" false)
-        wr.suppress_expr_parens = true
-        this.WalkNode(subStart ctx wr)
-        wr.suppress_expr_parens = false
-        wr.out(")) as usize" false)
-      }
-      wr.out(").collect::<String>()" false)
-      ctx.unsetInExpr()
-      return
-    }
+    ; `substring` on this target is rg_substring, a byte slice named in
+    ; compiler/Lang.rgr. It used to be emitted here as a chars()
+    ; skip/take chain, because a string index meant the character;
+    ; docs/plans/PLAN_STRING_INDEXING.md 2.4 made it the byte.
 
     ; strfromcode: a char is Display — inside a format! argument the
     ; .to_string() is dropped
@@ -1727,10 +1674,26 @@ extension RangerRustClassWriter {
                   wr.out(((".clone() as Rc<RefCell<dyn " + traitCoerceOpt) + "Trait>>);") true)
                 } {
                   ; Assignment to trait type field: needs Some(Rc::new(RefCell::new(value)))
+                  ; …and one cell more where the family is RE-ENTRANT: there
+                  ; the trait is implemented for `Rc<RefCell<C>>`, so the
+                  ; trait object holds a HANDLE and not a struct.
+                  ; docs/plans/PLAN_RUST_REENTRANCY.md.
+                  def ftReentrant:boolean false
+                  def ftClsO@(optional):RangerAppClassDesc (ctx.findClass(field_type_name))
+                  if (!null? ftClsO) {
+                    def ftCls:RangerAppClassDesc (unwrap ftClsO)
+                    ftReentrant = ftCls.rust_trait_reentrant
+                  }
                   wr.out(" = Some(Rc::new(RefCell::new(" false)
+                  if ftReentrant {
+                    wr.out("Rc::new(RefCell::new(" false)
+                  }
                   this.WalkNode(right ctx wr)
                   if should_clone_rhs {
                     wr.out(".clone()" false)
+                  }
+                  if ftReentrant {
+                    wr.out("))" false)
                   }
                   wr.out(")));" true)
                 }
@@ -2842,6 +2805,68 @@ extension RangerRustClassWriter {
     return false
   }
 
+  ; Does reading this collection take a `.borrow()`?
+  ;
+  ; Only then does the head need hoisting. A field of a plain struct reached
+  ; through a `&self` receiver is `self.lines` -- no cell, nothing held -- and
+  ; hoisting THAT would clone the collection once per loop for nothing.
+  ; docs/plans/PLAN_RUST_REENTRANCY.md 1.
+  fn rustForCollBorrows:boolean (coll:CodeNode ctx:RangerAppWriterContext) {
+    def fcbN:int (array_length coll.ns)
+    if (fcbN == 0) {
+      return false
+    }
+    def fcbRoot:string (itemAt coll.ns 0)
+    ; a receiverless method reaches every field through __self_rc.borrow()
+    if rust_receiverless_method {
+      if (fcbRoot == "this") {
+        return true
+      }
+      if (ctx.isMemberVariable(fcbRoot)) {
+        return true
+      }
+    }
+    ; …and any segment BEFORE the last that is a shared class is read through
+    ; its own cell, whatever the receiver is
+    def fcbCls@(optional):RangerAppClassDesc (ctx.getCurrentClass())
+    def fcbI:int 0
+    while (fcbI < (fcbN - 1)) {
+      def fcbSeg:string (itemAt coll.ns fcbI)
+      if (fcbSeg != "this") {
+        def fcbTn:string ""
+        if ((array_length coll.nsp) > fcbI) {
+          def fcbP:RangerAppParamDesc (itemAt coll.nsp fcbI)
+          def fcbNNO@(optional):CodeNode fcbP.nameNode
+          if (!null? fcbNNO) {
+            def fcbNN:CodeNode (unwrap fcbNNO)
+            fcbTn = fcbNN.type_name
+          }
+        }
+        if ((strlen fcbTn) == 0) {
+          if (!null? fcbCls) {
+            def fcbC:RangerAppClassDesc (unwrap fcbCls)
+            def fcbVO@(optional):RangerAppParamDesc (fcbC.findVariable(fcbSeg))
+            if (!null? fcbVO) {
+              def fcbV:RangerAppParamDesc (unwrap fcbVO)
+              def fcbVNNO@(optional):CodeNode fcbV.nameNode
+              if (!null? fcbVNNO) {
+                def fcbVNN:CodeNode (unwrap fcbVNNO)
+                fcbTn = fcbVNN.type_name
+              }
+            }
+          }
+        }
+        if ((strlen fcbTn) > 0) {
+          if (this.rustClassIsShared(fcbTn ctx)) {
+            return true
+          }
+        }
+      }
+      fcbI = (fcbI + 1)
+    }
+    return false
+  }
+
   fn rustWriteForLoop:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if ((array_length node.children) < 5) {
       return
@@ -2881,6 +2906,34 @@ extension RangerRustClassWriter {
           needsMut = true
         }
       }
+      ; A `for` head's temporaries live for the WHOLE loop. That is the one
+      ; place Rust does this: the condition of an `if` or a `while` is its own
+      ; temporary scope and its `Ref` is dropped before the block runs, but
+      ; `for x in EXPR` desugars to a `match` over `into_iter(EXPR)` and every
+      ; temporary in EXPR lives until the match ends -- which is after the
+      ; last iteration.
+      ;
+      ; So a collection reached through a FIELD keeps that object borrowed
+      ; while the body runs, and the first `borrow_mut` of the same cell
+      ; inside the body panics with "RefCell already borrowed". rustc accepts
+      ; the program; it fails at run time. That is how the Rust self-host came
+      ; to compile with zero errors and panic on the first file it was given:
+      ; `for stdCommands.children lch i { ... set opHash fc.vref newOpList }`
+      ; in RangerActiveOperators borrows `this` for the head and mutably
+      ; borrows it in the body. The body never mentions `stdCommands`, so the
+      ; name-matching check above does not see it.
+      ;
+      ; Reading the collection into a local first ends the borrow at that
+      ; statement's semicolon, which is what the index form below already does
+      ; for its bound and what the `forEach` path does for its receiver. A
+      ; bare local name borrows nothing, so it is left alone.
+      def hoistColl:boolean (this.rustForCollBorrows(coll ctx))
+      def itName:string ("__it_" + itemName)
+      if hoistColl {
+        wr.out(("let " + itName + " = ") false)
+        this.rustWriteOperand(coll ctx wr)
+        wr.out(".clone();" true)
+      }
       wr.out("for " false)
       if needsMut {
         wr.out("mut " false)
@@ -2890,7 +2943,11 @@ extension RangerRustClassWriter {
       ; renaming lives in the walker. `let mut fn = …` does not parse.
       this.rustWriteOperand(item ctx wr)
       wr.out(" in " false)
-      this.rustWriteOperand(coll ctx wr)
+      if hoistColl {
+        wr.out(itName false)
+      } {
+        this.rustWriteOperand(coll ctx wr)
+      }
       if itemIsCopy {
         wr.out(".iter().copied() {" true)
       } {

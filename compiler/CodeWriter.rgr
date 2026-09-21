@@ -678,7 +678,13 @@ class RangerSourceFormat {
         def out:[string]
         for lines line:string li {
             def keep:boolean true
-            def len:int (strlen line)
+            ; `w` is a column, so this has to be a count of characters. With
+            ; `strlen` the same file wraps in different places depending on
+            ; which build of the compiler formatted it: a comment holding an
+            ; em dash is one character wide under Node and three under the
+            ; Rust and Go self-hosts.
+            ; docs/plans/PLAN_STRING_INDEXING.md 3.3.
+            def len:int (char_length line)
             if (len > w) {
                 def skip:boolean (RangerSourceFormat.isCommentOrEmpty(line))
                 if (skip == false) {
@@ -1204,43 +1210,65 @@ class CodeWriter {
     }
 
     fn line_end:void (str:string) {
-        ; `charcode` reads index 0, so an empty argument has to leave early.
-        ; JavaScript answers NaN and the comparison below is then always true,
-        ; which writes the empty string -- a no-op. Every other target raises on
-        ; the read instead, and the C++ build turned that into "Error parsing
-        ; function unspecified error" for 106 functions.
+        ; An empty separator is nothing to append. This used to read index 0
+        ; of `str` instead: JavaScript answered NaN and wrote the empty
+        ; string, every other target raised on the read, and the C++ build
+        ; turned that into "Error parsing function unspecified error" for 106
+        ; functions. The guard stays; the read is gone.
         if ( (strlen str) == 0) {
             return
         }
-        if ( (strlen currentLine) > 0) {
-            if ( (charcode str) != (charAt currentLine ( (strlen currentLine) - 1) ) ) {
+        ; Compare the strings, not their first and last code units: "does
+        ; the line already end with this" is the question, and asking it of
+        ; the text gives the same answer on a byte target and a UTF-16 one.
+        def clLen:int (strlen currentLine)
+        if (clLen > 0) {
+            def sLen:int (strlen str)
+            def tail:string ""
+            if (clLen >= sLen) {
+                tail = (substring currentLine (clLen - sLen) clLen)
+            }
+            if (tail != str) {
                 this.out(str false)
-            }    
+            }
         } 
     }
 
+    ; `columnNumber` counts CHARACTERS, the same unit
+    ; `syncColumnFromCurrentLine` sets it in, so the two cannot drift apart
+    ; and the number does not depend on which build of this compiler wrote
+    ; the file. (The source map spec counts UTF-16 code units; the two agree
+    ; on everything below U+10000, which is all of the generated source that
+    ; is not a literal holding an astral character.)
+    ;
+    ; The newline scan stays in the target's own unit: `\n` is one unit in
+    ; every one of them, and `charAt` indexes what `strlen` counts, so the
+    ; count of lines is the same everywhere. Only the column is converted,
+    ; once, for the tail after the last newline.
+    ; docs/plans/PLAN_STRING_INDEXING.md 3.3.
     fn advanceColumnForString:void (str:string) {
+        def n:int (strlen str)
+        def lastNl:int -1
         def i:int 0
-        while (i < (strlen str)) {
-            ; `charAt` indexes the same units `strlen` counts on every target.
-            ; The previous form asked `substring` for one unit and read its
-            ; first code: on C++ `substring` counts UTF-8 CHARACTERS while
-            ; `strlen` counts BYTES, so a string holding one multi-byte
-            ; character ran the index past the end, `substring` gave "" and
-            ; reading its first code raised.
-            def ch:int (charAt str i)
-            if (ch == 10) {
+        while (i < n) {
+            if ((charAt str i) == 10) {
                 lineNumber = lineNumber + 1
-                columnNumber = 0
-            } {
-                columnNumber = columnNumber + 1
+                lastNl = i
             }
             i = i + 1
         }
+        if (lastNl < 0) {
+            columnNumber = (columnNumber + (char_length str))
+        } {
+            columnNumber = (char_length (substring str (lastNl + 1) n))
+        }
     }
 
+    ; `columnNumber` is reported to people -- in errors and in the source map
+    ; -- so it counts characters rather than whatever unit this target
+    ; indexes in. docs/plans/PLAN_STRING_INDEXING.md 3.3.
     fn syncColumnFromCurrentLine:void () {
-        def lineLen:int (strlen currentLine)
+        def lineLen:int (char_length currentLine)
         columnNumber = lineLen
     }
 

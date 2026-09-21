@@ -266,14 +266,96 @@ Pricing.kt</code></pre>
       different answer on those four.
     </p>
     <p class="reveal">
-      <strong>Fast.</strong> A five-kernel benchmark — arithmetic, arrays,
-      strings, maps, objects — times itself on every target that builds here.
-      C++ is quickest at 260&nbsp;ms, then Kotlin 466, C# 663, Java 760,
-      PHP 801, JavaScript 1&nbsp;076, Rust 2&nbsp;556, Python 2&nbsp;566. Two of
-      those numbers are the compiler's fault rather than the language's, and
-      both are written down:
-      <code>charAt</code> is O(n) on Go and Rust, and a Ranger map is a plain
-      object on JavaScript.
+      <strong>Fast.</strong> The same Ranger program, five kernels, each one
+      timing itself, on every target that builds here. Milliseconds, lower is
+      faster; process and VM startup are excluded, so these are the kernels
+      and nothing else.
+    </p>
+
+    <div class="matrix-wrap reveal">
+      <table class="matrix bench">
+        <caption class="sr-only">Five-kernel benchmark by target, milliseconds, lower is faster</caption>
+        <thead>
+          <tr>
+            <th scope="col">Target</th>
+            <th class="bench__n" scope="col">Arith</th>
+            <th class="bench__n" scope="col">Arrays</th>
+            <th class="bench__n" scope="col">Strings</th>
+            <th class="bench__n" scope="col">Maps</th>
+            <th class="bench__n" scope="col">Objects</th>
+            <th class="bench__n bench__total" scope="col">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row">C++</th>
+            <td class="bench__n">13</td><td class="bench__n">18</td><td class="bench__n">4</td>
+            <td class="bench__n">147</td><td class="bench__n">83</td>
+            <td class="bench__n bench__total">265</td>
+          </tr>
+          <tr>
+            <th scope="row">Rust</th>
+            <td class="bench__n">15</td><td class="bench__n">21</td><td class="bench__n">6</td>
+            <td class="bench__n">268</td><td class="bench__n">87</td>
+            <td class="bench__n bench__total">397</td>
+          </tr>
+          <tr>
+            <th scope="row">Kotlin</th>
+            <td class="bench__n">20</td><td class="bench__n">124</td><td class="bench__n">54</td>
+            <td class="bench__n">246</td><td class="bench__n">41</td>
+            <td class="bench__n bench__total">485</td>
+          </tr>
+          <tr>
+            <th scope="row">C#</th>
+            <td class="bench__n">35</td><td class="bench__n">51</td><td class="bench__n">14</td>
+            <td class="bench__n">483</td><td class="bench__n">101</td>
+            <td class="bench__n bench__total">684</td>
+          </tr>
+          <tr>
+            <th scope="row">Go</th>
+            <td class="bench__n">14</td><td class="bench__n">185</td><td class="bench__n">4</td>
+            <td class="bench__n">325</td><td class="bench__n">166</td>
+            <td class="bench__n bench__total">694</td>
+          </tr>
+          <tr>
+            <th scope="row">Java</th>
+            <td class="bench__n">114</td><td class="bench__n">119</td><td class="bench__n">36</td>
+            <td class="bench__n">367</td><td class="bench__n">117</td>
+            <td class="bench__n bench__total">753</td>
+          </tr>
+          <tr>
+            <th scope="row">PHP</th>
+            <td class="bench__n">136</td><td class="bench__n">159</td><td class="bench__n">12</td>
+            <td class="bench__n">114</td><td class="bench__n">365</td>
+            <td class="bench__n bench__total">786</td>
+          </tr>
+          <tr>
+            <th scope="row">JavaScript</th>
+            <td class="bench__n">18</td><td class="bench__n">157</td><td class="bench__n">9</td>
+            <td class="bench__n">629</td><td class="bench__n">227</td>
+            <td class="bench__n bench__total">1&nbsp;040</td>
+          </tr>
+          <tr>
+            <th scope="row">Python</th>
+            <td class="bench__n">577</td><td class="bench__n">433</td><td class="bench__n">46</td>
+            <td class="bench__n">582</td><td class="bench__n">969</td>
+            <td class="bench__n bench__total">2&nbsp;607</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="reveal">
+      All nine printed the same five checksums; a fast wrong answer is not a
+      result. A number that is the compiler's fault rather than the language's
+      gets written down and then fixed, and the <strong>strings</strong>
+      column is the example: <code>charAt</code> used to be O(n) on Go and
+      Rust, which made a string scan quadratic. That column read
+      2&nbsp;178&nbsp;ms on Rust and 143&nbsp;182 on Go — one kernel that was
+      99.5% of Go's total. Both index the UTF-8 byte their string is actually
+      made of now. What is still there: a Ranger map is a plain object on
+      JavaScript, which is why its maps column is the slowest in the table
+      where PHP's is the fastest.
     </p>
     <p class="reveal">
       <strong>Idiomatic.</strong> The score below is the third question only,
@@ -632,7 +714,7 @@ Pricing.kt</code></pre>
             <li>A <code>shape</code> is a <code>_rg_kind</code> tag rather than a match over a closed family.</li>
             <li>A multi-statement lambda is hoisted into a generated <code>__rg_lambda_1</code> def.</li>
             <li>Method names keep Ranger's camelCase where PEP&nbsp;8 wants snake_case.</li>
-            <li>Generic classes are monomorphized, and it is the slowest target measured apart from one Go kernel.</li>
+            <li>Generic classes are monomorphized, and it is the slowest target measured.</li>
             </ul>
           </div>
         </div>
@@ -648,13 +730,12 @@ Pricing.kt</code></pre>
             <li>A Ranger <code>Enum</code> is an <code>enum</code>, and a <code>shape</code> is an <code>enum</code> matched with <code>if let</code>.</li>
             <li>A behaviour-only <code>trait</code> used as a type becomes a <code>trait</code>; optionals are <code>Option&lt;T&gt;</code>.</li>
             <li>Identifiers are snake_case, and <code>def</code> plus the field writes after it become one struct literal.</li>
-            <li>Second fastest on every kernel except the string scan.</li>
+            <li>Second fastest overall, behind C++ and ahead of every managed target.</li>
             </ul>
           </div>
           <div>
             <p class="label">Current limitations</p>
             <ul class="quality__list">
-            <li><code>charAt</code> walks the string from the start, so scanning one character by character is quadratic.</li>
             <li>There is no <code>Result</code> or <code>?</code>; <code>try</code>/<code>catch</code> is refused outright, with the <code>shape</code> alternative named.</li>
             <li>A function parameter is <code>&amp;mut dyn FnMut</code> where a native API would be generic.</li>
             <li>Type names such as <code>Stack_int</code> and <code>union_Payload</code> draw rustc warnings.</li>
@@ -747,13 +828,12 @@ Pricing.kt</code></pre>
             <li>A behaviour-only <code>trait</code> used as a type becomes an <code>interface</code>.</li>
             <li>A loop whose body ignores its index is <code>for _, v := range xs</code>.</li>
             <li>Sharing is <code>*T</code>, which is what Go would use.</li>
-            <li>Fast on arithmetic, objects and maps.</li>
+            <li>Fast on arithmetic and strings; a string index is the byte a Go string is made of, so a scan is linear.</li>
             </ul>
           </div>
           <div>
             <p class="label">Current limitations</p>
             <ul class="quality__list">
-            <li><code>charAt</code> rebuilds the whole rune slice per read, so scanning a string is quadratic — the one number in the benchmark that is off the scale.</li>
             <li>An optional is <code>*GoNullable</code> holding an <code>interface{}</code>, not a pointer and not a second return value.</li>
             <li><code>try</code>/<code>throw</code> is <code>panic</code>/<code>recover</code> rather than <code>(T, error)</code>.</li>
             <li>The ownership analysis does not run for this target at all.</li>

@@ -1,0 +1,102 @@
+; string_units.rgr — what does a string index mean on this target?
+;
+; Ranger has one `string` and one `charAt`, and they mean three different
+; things (docs/plans/PLAN_STRING_INDEXING.md §1.1). This program prints what
+; the target it was compiled for actually does, in a form a test can read.
+;
+; Two inputs, chosen for what they separate:
+;
+;   "a—b"   U+2014 EM DASH. Three bytes in UTF-8, one UTF-16 unit, one code
+;           point. It separates the BYTE targets from the rest.
+;   "a😀b"  U+1F600, outside the Basic Multilingual Plane. Four bytes, TWO
+;           UTF-16 units, one code point. It separates UTF-16 from code
+;           points — the split `lib/evg/EVGCodepoint.rgr` exists because of.
+;
+; Read the output as:
+;
+;   len       <n>       (strlen s)
+;   code      <n> …     (charAt s i) for every i
+;   slice     <text>    (substring s 1 2)
+;   chars     <n>       (array_length (to_chars s))
+;   charlen   <n>       (char_length s)
+;   charcodes <n> …     every code point of s
+;
+; The first three are the target's own unit and disagree between targets.
+; The last three are the portable view — code points everywhere — and every
+; target has to give the same answer for them.
+;
+; A target whose `len`, `code` and `slice` disagree with each other is a bug
+; in that writer. Targets that disagree with EACH OTHER are the defect this
+; file exists to measure.
+
+class StringUnits {
+
+    fn dump:void (label:string s:string) {
+        def n:int (strlen s)
+        print ((label + " len ") + (to_string n))
+        def codes:string ""
+        def i:int 0
+        while (i < n) {
+            codes = (codes + (to_string (charAt s i)))
+            i = (i + 1)
+            if (i < n) {
+                codes = (codes + " ")
+            }
+        }
+        print ((label + " code ") + codes)
+        if (n > 2) {
+            print ((label + " slice ") + (substring s 1 2))
+        }
+        ; ...and the portable view of the same text. `to_chars` is Unicode
+        ; code points on every target, so these two lines have to agree
+        ; everywhere while the three above disagree.
+        def cs:[int] (to_chars s)
+        def cn:int (array_length cs)
+        print ((label + " chars ") + (to_string cn))
+        ; ...and the same number without building the array. `char_length`
+        ; has to equal `(array_length (to_chars s))` on every target, or one
+        ; of the two is lying about what a character is.
+        print ((label + " charlen ") + (to_string (char_length s)))
+        def cc:string ""
+        def k:int 0
+        while (k < cn) {
+            cc = (cc + (to_string (itemAt cs k)))
+            k = (k + 1)
+            if (k < cn) {
+                cc = (cc + " ")
+            }
+        }
+        print ((label + " charcodes ") + cc)
+    }
+
+    sfn main:void () {
+        def u:StringUnits (new StringUnits())
+        u.dump("bmp" "a—b")
+        u.dump("astral" "a😀b")
+        ; An index unit is only self-consistent if a scan and a slice agree.
+        ; This walks the string one index at a time and glues it back
+        ; together: any target whose `strlen` and `substring` count different
+        ; things produces something other than the input.
+        def s:string "a—b"
+        def out:string ""
+        def i:int 0
+        while (i < (strlen s)) {
+            out = (out + (substring s i (i + 1)))
+            i = (i + 1)
+        }
+        def same:string "no"
+        if (out == s) {
+            same = "yes"
+        }
+        print ("roundtrip " + same)
+        ; A literal that holds BOTH an escape and a character the target
+        ; counts in several units. The parser decodes the escapes by hand,
+        ; and it used to do that through a `charbuffer` -- UTF-8 bytes on
+        ; every target -- one unit at a time, so every byte of the em dash
+        ; below came back as its own replacement character. The escape is
+        ; what puts a literal on that path, so a fixture without one never
+        ; asked the question.
+        def esc:string "x\"—\"y"
+        print ("escaped " + esc)
+    }
+}

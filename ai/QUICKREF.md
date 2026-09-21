@@ -71,6 +71,10 @@ int  double  string  boolean  char  charbuffer  void
 fn:T (p:T)   ; function type
 ```
 
+`string` is text and `charbuffer` is bytes — one element of a charbuffer is
+one octet, not one character. See "Strings" below for the three views of text
+and the conversions between them.
+
 ```ranger
 def x 10
 def x:int 10
@@ -234,6 +238,86 @@ Prefix form only:
 (trim s)
 ("a" + "b")
 ```
+
+**An index does not mean the same thing on every target.** `strlen`, `charAt`,
+`substring`, `indexOf` and `charcode` agree with each other on any one target,
+and disagree between targets: a UTF-16 code unit on JavaScript, Java, Kotlin,
+C#, Dart and Swift; a Unicode code point on Python; a UTF-8 byte on C++, PHP,
+Rust and Go. So `(strlen "a—b")` is 3 or 5 depending on where it runs, and an
+index-based scan over non-ASCII text lands in different places.
+
+`tests/fixtures/string_units.rgr` prints what the target it was compiled for
+actually does, and `tests/string-units.test.ts` pins it. Write ASCII-only
+scans with `charAt`, use `to_chars` for text that may not be ASCII, and see
+`docs/plans/PLAN_STRING_INDEXING.md` for the rest.
+
+`-strict-strings` lists the sites where the unit is *observable* — where the
+answer, not just the number, changes with the target. It proves the rest
+quiet: an ASCII literal, `(strlen s) == 0`, a length that indexes some
+string, an index that bounds a scan. What is left is a length nothing
+indexes with (a column, a width, a padding count) or a code-point offset
+handed to `charAt`. A length compared against a constant or against another
+length is listed separately as a note. The compiler itself reports zero.
+
+Where the provenance crosses a function boundary — a scan position held in a
+field, a length handed in as a parameter — the pass cannot follow it. Say so
+in the source and it stops asking:
+
+```ranger
+def srcLen@(units):int (strlen src)   ; a position, checked
+fn getColumn@(units):int (sp:int) {   ; ...or a whole function
+```
+
+Three explicit conversions DO mean the same thing everywhere. `char_length`
+is the count of characters — code points — for anything a person sees:
+
+```ranger
+def w:int (char_length line)         ; a column: same number everywhere
+def n:int (strlen line)              ; a scan bound: the target's own unit
+```
+
+`to_chars` is
+the portable indexable view — Unicode code points, built once in O(n) and
+read in O(1) — and is what text a human wrote should be walked with:
+
+```ranger
+def cs:[int] (to_chars s)            ; code points, same on every target
+def n:int (array_length cs)
+def c:int (itemAt cs 0)
+```
+
+A `charbuffer` is a buffer of **bytes** — one element is one octet, 0..255,
+not a character. `Vec<u8>`, `[]byte`, `Uint8Array`, `bytes`, `byte[]`,
+`[UInt8]`, `List<int>`, depending on the target; the same type whether the
+bytes came from a file, a socket or a piece of text.
+
+Text and bytes are separate, and the two operators that cross between them
+are the ones that name an encoding — UTF-8, because a conversion cannot be
+done without choosing one:
+
+```ranger
+def b:charbuffer (to_charbuffer s)   ; text -> its UTF-8 bytes
+def n:int (length b)                 ; how many BYTES
+def c:int (charAt b 0)               ; ONE byte, 0..255
+def back:string (to_string b)        ; bytes -> the text they encode
+def head:string (substring b 0 1)    ; the text THAT RANGE encodes
+```
+
+So UTF-8 is a property of the conversion, not of the buffer: a `charbuffer`
+holding a PNG is bytes, and `to_string` on it means nothing. And `charAt` on
+one is a byte, so copying a buffer back into text one element at a time
+decodes each byte of a multi-byte character on its own and gets a
+replacement character for each — walk the `string` when the subject is text.
+
+Above the Basic Multilingual Plane the three views differ by construction:
+`"a😀b"` is 3 `to_chars` elements, 6 `to_charbuffer` bytes, and 3 or 4 `strlen`
+units depending on the target.
+
+An index is **O(1) on every target**, because each one uses the unit its own
+string is made of. `gallery/friendly/bench/strscan.rgr` measures it: it used
+to be O(n) on Rust and Go — `s.chars().nth(i)` and `[]rune(s)[i]` both walked
+from the start — which made the ordinary
+`while (i < (strlen s)) { charAt s i }` loop quadratic there.
 
 ## I/O and errors
 
