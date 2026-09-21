@@ -1015,10 +1015,11 @@ whole measured piece; an 18k hand-written tree is how \`children\` gets
 ignored.
 
 A turn that only describes the next section is not a finish. Call
-\`patch\` in that turn. Header plus four KPI cards is half a dashboard
-if the ask named more. One \`text\` per label, with spaces
-("Acme 360"); two overlapping spans with the same words paint as
-Revenuee.
+\`patch\` in that turn. One card per \`write_file\` (under 2000 bytes) —
+a whole-page ops.json is cut off before the tool call. Header plus
+four KPI cards is half a dashboard if the ask named more. One
+\`text\` per label, with spaces ("Acme 360"); two overlapping spans
+with the same words paint as Revenuee.
 
 A rejected op fails the whole batch and changes nothing, so a batch is
 safe to attempt: you never have to work out what half-applied.

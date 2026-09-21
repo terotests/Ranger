@@ -25,7 +25,11 @@ import {
   GEMINI_TRACE,
   geminiSystemPrompt,
   looksLikeUnfinishedPlan,
+  needsToolNudge,
+  dropTrailingPlan,
+  slimModelThoughts,
   PLAN_NUDGE,
+  OPS_WRITE_CAP,
 } from "./gemini-agent.mjs";
 import http from "node:http";
 
@@ -848,6 +852,8 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
     "Acme 360",
     "Revenuee",
     "jatka",
+    "One card per write_file",
+    "2000 bytes",
   ]) {
     if (!prompt.includes(need)) throw new Error("gemini system prompt missing " + need);
   }
@@ -856,6 +862,9 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   }
   if (!looksLikeUnfinishedPlan("I will add the products card next and write ops.json.")) {
     throw new Error("an I'll-add spoken plan must look unfinished");
+  }
+  if (!looksLikeUnfinishedPlan("", "write_file NOW with the complete ops.json")) {
+    throw new Error("write_file NOW must look unfinished");
   }
   if (looksLikeUnfinishedPlan("Gold.")) {
     throw new Error("a short finish must not look like a plan");
@@ -866,8 +875,35 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   if (looksLikeUnfinishedPlan("The outline matches the ask. Done.")) {
     throw new Error("an explicit finish must not look like a plan");
   }
-  if (!PLAN_NUDGE.includes("plan is not a patch")) {
+  if (!needsToolNudge({ finishReason: "MAX_TOKENS" })) {
+    throw new Error("MAX_TOKENS with no functionCall must nudge");
+  }
+  if (!needsToolNudge({ outputTokens: 8200, text: "…" })) {
+    throw new Error("an 8k candidate with no tool must nudge");
+  }
+  if (!PLAN_NUDGE.includes("plan is not a patch") || !/ONE card/.test(PLAN_NUDGE)) {
     throw new Error("PLAN_NUDGE must name the failure: " + PLAN_NUDGE);
+  }
+  const essay = dropTrailingPlan([
+    { role: "user", parts: [{ text: "build it" }] },
+    { role: "model", parts: [{ text: "Now, let's get Section 3 built. Left column products.", thought: true }] },
+    { role: "user", parts: [{ text: PLAN_NUDGE }] },
+  ]);
+  if (essay.length !== 1 || essay[0].parts[0].text !== "build it") {
+    throw new Error("dropTrailingPlan should strip the essay and the nudge: " + JSON.stringify(essay));
+  }
+  const slimed = slimModelThoughts([
+    { role: "model", parts: [{ text: "x".repeat(2000), thought: true, thoughtSignature: "keep" }] },
+  ]);
+  if (slimed[0].parts[0].text.length > 700 || slimed[0].parts[0].thoughtSignature !== "keep") {
+    throw new Error("slimModelThoughts should clip thoughts and keep the signature: " + JSON.stringify(slimed));
+  }
+  const hugeOps = executeTool(ws, "write_file", {
+    path: "ops.json",
+    contents: `{"ops":[${"{\"op\":\"set-text\",\"at\":\"0\",\"value\":\"n\"},".repeat(200)}]}`,
+  });
+  if (!hugeOps.error || !/one card/.test(hugeOps.error) || hugeOps.error.indexOf(String(OPS_WRITE_CAP)) < 0) {
+    throw new Error("write_file must refuse a whole-page ops.json: " + JSON.stringify(hugeOps));
   }
   fs.writeFileSync(
     path.join(ws, "attachment.json"),
@@ -1164,6 +1200,9 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
         if (!/plan is not a patch/.test(asked)) {
           throw new Error("the host did not nudge a plan-only turn: " + asked);
         }
+        if (body.toolConfig?.functionCallingConfig?.mode !== "ANY") {
+          throw new Error("the retry must force a tool call: " + JSON.stringify(body.toolConfig));
+        }
         return {
           ok: true,
           status: 200,
@@ -1213,6 +1252,49 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
     }
     fs.rmSync(planWs, { recursive: true, force: true });
     console.log("  gemini plan  a Section-3 thought without a tool is nudged, not finished");
+  }
+
+  {
+    const stuckWs = fs.mkdtempSync(path.join(os.tmpdir(), "evg-gemini-stuck-"));
+    fs.writeFileSync(path.join(stuckWs, "TASK.md"), "Finish the tablet dashboard.\n");
+    let n = 0;
+    const alwaysPlan = async () => {
+      n += 1;
+      return {
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            candidates: [
+              {
+                content: {
+                  role: "model",
+                  parts: [{ text: "I will write_file the complete ops.json now.", thought: true }],
+                },
+                finishReason: "MAX_TOKENS",
+              },
+            ],
+            usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 8000, thoughtsTokenCount: 20 },
+          }),
+      };
+    };
+    let hit = "";
+    try {
+      await geminiLoop({
+        workspace: stuckWs,
+        onEvent: () => {},
+        fetchImpl: alwaysPlan,
+        env: { ...process.env, GEMINI_API_KEY: "test-livebuild-key", EVG_GEMINI_MAX_TURNS: "8" },
+      });
+    } catch (e) {
+      hit = String(e.message || e);
+    }
+    if (!/never called a tool/.test(hit)) {
+      throw new Error("a MAX_TOKENS essay must not report success: " + hit);
+    }
+    if (n !== 4) throw new Error("expected 3 nudges then an error on the 4th turn, got " + n + " — " + hit);
+    fs.rmSync(stuckWs, { recursive: true, force: true });
+    console.log("  gemini stuck  MAX_TOKENS with no tool errors instead of finishing");
   }
 
   const session = resetSession("dashboard");

@@ -110,8 +110,12 @@ conversation held in the session. Start-over chips drop it. One Follow-up
 stops after `EVG_GEMINI_MAX_TURNS` model rounds (64 unless you raise it) —
 that is the message `Gemini hit EVG_GEMINI_MAX_TURNS (N) without finishing`.
 A thought that lists the next cards with no `functionCall` is not treated
-as done: the host nudges once or twice (`A plan is not a patch`) so a
-tablet dashboard cannot stop after the header and four KPI cards.
+as done. The host nudges (`A plan is not a patch — ONE card`) and the
+next generateContent uses `toolConfig.functionCallingConfig.mode=ANY`
+so Gemini must call a tool. A whole-page `ops.json` hits the output cap
+and never becomes a `functionCall`; the prompt asks for one card under
+2000 bytes. If the retries still emit no tool, the Follow-up errors
+instead of saying it finished.
 
 Each generateContent reply carries `usageMetadata`. The withgemini console
 prints that per turn and for the whole Follow-up — uncached input, cache

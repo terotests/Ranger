@@ -284,22 +284,25 @@ Never write_file doc.evg.json or layout.json. measure count:0 with three empty n
 
 Labels: one span per phrase, spaces between words ("Acme 360", not "Acme360"). Do not insert the same text twice — two overlapping spans paint as Revenuee / monthlyy.
 
-A thought is not a patch. If you still have a header, KPI row, or body column to add, call a tool in that turn. Stopping after "Section 3 will be…" leaves a half screen. Header plus four KPI cards is not the dashboard — keep adding until outline names the remaining cards (products, opportunities, feed).
+A thought is not a patch. One card per write_file (under 2000 bytes). A whole-page ops.json is cut off before the functionCall and the host sees no tool. Do not paste JSON in the thought — ./evg-ui add card is the unit. If you still have a header, KPI row, or body column to add, call a tool in that turn. Stopping after "Section 3 will be…" leaves a half screen. Header plus four KPI cards is not the dashboard — keep adding until outline names the remaining cards (products, opportunities, feed).
 
 Do not git, evg_agent.js, --help, /tmp, python, sips. When the outline matches the ask, stop.`;
 }
 
 /**
- * Gemini 3 often writes the next section in a thought and then emits no
- * functionCall. The loop used to treat that as "done", which is how a
- * tablet dashboard stopped after the header and four KPI cards.
+ * Gemini 3 often writes the next section in a thought — or dumps a whole
+ * ops.json into the candidate — and hits maxOutputTokens before a
+ * functionCall. The host used to treat "no calls" as done; after a nudge
+ * it still finished if the retry also overflowed.
  */
-export const MAX_PLAN_NUDGES = 2;
+export const MAX_PLAN_NUDGES = 3;
+export const OPS_WRITE_CAP = 4000;
+export const THOUGHT_SLIM_CAP = 600;
 export const PLAN_NUDGE =
-  "You described the next piece but did not call a tool. A plan is not a patch. write_file ops.json (or ./evg-ui add) and ./evg-agent patch now. Do not stop until outline names those cards.";
+  "Your last reply used the output budget and never issued a functionCall. A plan is not a patch. Do not dump the page in the thought. Call write_file now with ops.json under 2000 bytes (ONE card) or ./evg-ui add card, then ./evg-agent patch.";
 
 const PLAN_FUTURE =
-  /\b(let's|i(?:'| wi)ll (?:now |then )?(?:add|insert|build|write|patch|keep|get|construct|create)|next(?:\s+i|'ll|\s+step)|then (?:i(?:'| wi)ll|let's)|write(?:_file)? ops|ops\.json|remaining (?:cards?|columns?)|keep (?:building|going|adding)|time to (?:build|add|insert)|i(?: am|'m) going to|jatka)\b/i;
+  /\b(let's|i(?:'| wi)ll (?:now |then )?(?:add|insert|build|write|patch|keep|get|construct|create)|next(?:\s+i|'ll|\s+step)|then (?:i(?:'| wi)ll|let's)|write_file|functionCall|write(?:_file)? ops|ops\.json|remaining (?:cards?|columns?)|keep (?:building|going|adding)|time to (?:build|add|insert)|i(?: am|'m) going to|jatka)\b/i;
 const PLAN_DONE =
   /\b(done|finished|complete|matches the ask|nothing (?:left|more) to (?:add|do)|outline now names)\b/i;
 
@@ -307,10 +310,58 @@ export function looksLikeUnfinishedPlan(text, thought = "") {
   const s = `${text}\n${thought}`.replace(/\s+/g, " ").trim();
   if (s.length < 24) return false;
   if (!PLAN_FUTURE.test(s)) return false;
-  if (PLAN_DONE.test(s) && !/\b(remaining|keep (?:building|adding)|i(?:'| wi)ll (?:add|insert|build)|let's)\b/i.test(s)) {
+  if (PLAN_DONE.test(s) && !/\b(remaining|keep (?:building|adding)|i(?:'| wi)ll (?:add|insert|build)|let's|write_file)\b/i.test(s)) {
     return false;
   }
   return true;
+}
+
+export function needsToolNudge({ text = "", thought = "", finishReason = "", outputTokens = 0 } = {}) {
+  if (looksLikeUnfinishedPlan(text, thought)) return true;
+  if (String(finishReason || "") === "MAX_TOKENS") return true;
+  if ((Number(outputTokens) || 0) >= 7000) return true;
+  return false;
+}
+
+/** Drop a trailing plan-only model turn (and our nudge) so a Follow-up does not continue an 8k essay. */
+export function dropTrailingPlan(contents) {
+  const out = Array.isArray(contents) ? contents.slice() : [];
+  let guard = 0;
+  while (out.length && guard++ < 16) {
+    const last = out[out.length - 1];
+    const parts = (last && last.parts) || [];
+    if (last.role === "user" && parts.some((p) => p.functionResponse)) break;
+    const joined = parts.map((p) => (typeof p.text === "string" ? p.text : "")).join("\n");
+    if (last.role === "user" && /plan is not a patch/.test(joined)) {
+      out.pop();
+      continue;
+    }
+    if (last.role === "model") {
+      const split = splitParts(parts);
+      if (!split.calls.length && (looksLikeUnfinishedPlan(split.text, split.thought) || joined.length > 2000)) {
+        out.pop();
+        continue;
+      }
+    }
+    break;
+  }
+  return out;
+}
+
+/** Thoughts are for the console; sending 8k of them back makes the next turn imitate the essay. */
+export function slimModelThoughts(contents, cap = THOUGHT_SLIM_CAP) {
+  return (Array.isArray(contents) ? contents : []).map((c) => {
+    if (!c || c.role !== "model" || !Array.isArray(c.parts)) return c;
+    return {
+      ...c,
+      parts: c.parts.map((p) => {
+        if (p && p.thought && typeof p.text === "string" && p.text.length > cap) {
+          return { ...p, text: `${p.text.slice(0, cap)}…` };
+        }
+        return p;
+      }),
+    };
+  });
 }
 
 function clip(text, cap = TOOL_OUT_CAP) {
@@ -630,10 +681,16 @@ export function executeTool(workspace, name, rawArgs, env = process.env) {
     if (name === "write_file") {
       const blocked = denyWrite(args.path);
       if (blocked) return { error: blocked };
+      const contents = String(args.contents ?? "");
+      if (/"op"\s*:/.test(contents) && contents.length > OPS_WRITE_CAP) {
+        return {
+          error: `ops file is ${contents.length} bytes — one card per write_file (under ${OPS_WRITE_CAP}). Split it and patch this card first.`,
+        };
+      }
       const file = resolveInWorkspace(workspace, args.path);
       fs.mkdirSync(path.dirname(file), { recursive: true });
-      fs.writeFileSync(file, String(args.contents ?? ""), "utf8");
-      return { ok: true, path: String(args.path), bytes: String(args.contents ?? "").length };
+      fs.writeFileSync(file, contents, "utf8");
+      return { ok: true, path: String(args.path), bytes: contents.length };
     }
     if (name === "list_dir") return listDir(workspace, args.path);
     if (name === "image_info") return imageInfo(workspace, args.path);
@@ -885,11 +942,12 @@ export async function geminiGenerate({
   return data;
 }
 
-function requestBody(contents, env = process.env) {
+export function requestBody(contents, env = process.env, extra = {}) {
   const gen = {
     temperature: 0.4,
-    maxOutputTokens: 8192,
+    maxOutputTokens: Number(env.EVG_GEMINI_MAX_OUTPUT || extra.maxOutputTokens || 16384),
   };
+  if (!Number.isFinite(gen.maxOutputTokens) || gen.maxOutputTokens < 1024) gen.maxOutputTokens = 16384;
   const think = String(env.EVG_GEMINI_THINKING || "").trim();
   if (think === "0") gen.thinkingConfig = { thinkingBudget: 0 };
   else {
@@ -898,12 +956,16 @@ function requestBody(contents, env = process.env) {
       gen.thinkingConfig.thinkingBudget = Number(think);
     }
   }
-  return {
+  const body = {
     systemInstruction: { parts: [{ text: geminiSystemPrompt() }] },
-    contents,
+    contents: slimModelThoughts(contents),
     tools: [{ functionDeclarations: GEMINI_TOOLS }],
     generationConfig: gen,
   };
+  if (extra.forceTool) {
+    body.toolConfig = { functionCallingConfig: { mode: "ANY" } };
+  }
+  return body;
 }
 
 /**
@@ -931,7 +993,7 @@ export async function geminiLoop({
   }
   if (!task) task = "Edit doc.evg.json.";
 
-  const prior = loadHistory(workspace);
+  const prior = dropTrailingPlan(loadHistory(workspace));
   const followUp = prior.length > 0;
   let contents = trimHistory(
     [...prior, { role: "user", parts: [{ text: task }] }],
@@ -943,6 +1005,7 @@ export async function geminiLoop({
   const started = Date.now();
   let turns = 0;
   let planNudges = 0;
+  let forceTool = false;
 
   for (let i = 0; i < maxTurns; i += 1) {
     if (signal && signal.aborted) throw new Error("aborted");
@@ -950,10 +1013,11 @@ export async function geminiLoop({
       base,
       model,
       key,
-      body: requestBody(contents, env),
+      body: requestBody(contents, env, { forceTool }),
       fetchImpl,
       signal,
     });
+    forceTool = false;
     const piece = usageOf(data);
     addUsage(spend, piece);
     turns += 1;
@@ -983,14 +1047,30 @@ export async function geminiLoop({
       onEvent({ type: "assistant", message: { content: [{ text }] } });
     }
     if (!calls.length) {
-      if (planNudges < MAX_PLAN_NUDGES && looksLikeUnfinishedPlan(text, thought)) {
-        planNudges += 1;
-        log(`nudge: plan without a tool (${planNudges}/${MAX_PLAN_NUDGES})`);
-        appendTrace(workspace, `nudge: ${PLAN_NUDGE}`);
-        onEvent({ type: "assistant", message: { content: [{ text: PLAN_NUDGE }] } });
-        contents.push({ role: "user", parts: [{ text: PLAN_NUDGE }] });
-        saveHistory(workspace, contents, { model, followUp });
-        continue;
+      const finishReason = (candidate && candidate.finishReason) || "";
+      const stuck = needsToolNudge({
+        text,
+        thought,
+        finishReason,
+        outputTokens: piece.output,
+      });
+      if (stuck) {
+        if (planNudges < MAX_PLAN_NUDGES) {
+          planNudges += 1;
+          forceTool = true;
+          const why = finishReason === "MAX_TOKENS" ? "output cap" : "plan without a tool";
+          log(`nudge: ${why} (${planNudges}/${MAX_PLAN_NUDGES}) — next turn must call a tool`);
+          appendTrace(workspace, `nudge: ${PLAN_NUDGE}`);
+          onEvent({ type: "assistant", message: { content: [{ text: PLAN_NUDGE }] } });
+          contents.push({ role: "user", parts: [{ text: PLAN_NUDGE }] });
+          saveHistory(workspace, contents, { model, followUp });
+          continue;
+        }
+        const capped = resultEvent(spend, { turns, started, model, env, subtype: "error" });
+        onEvent(capped);
+        throw new Error(
+          `Gemini used the output budget on a plan and never called a tool — ${formatGeminiSpend(spend, { turns, env })}`,
+        );
       }
       const result = resultEvent(spend, { turns, started, model, env });
       onEvent(result);

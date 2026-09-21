@@ -64,9 +64,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   failed run prints stderr instead of `exit 1`. A thought that plans
   the next section with no tool call is nudged (`A plan is not a
   patch`) instead of ending the Follow-up — that is how a tablet
-  dashboard stopped after the header and four KPI cards. The prompt
-  also asks for spaces between words and one span per label, so
-  overlapping duplicates do not paint as `Revenuee`.
+  dashboard stopped after the header and four KPI cards. A retry that
+  dumps the whole page into the candidate still hits `maxOutputTokens`
+  (8k) with no `functionCall`; the next turn now forces `mode=ANY`,
+  asks for one card under 2000 bytes, slims 8k thoughts out of the
+  replayed history, and errors instead of reporting a finished
+  Follow-up. The prompt also asks for spaces between words and one
+  span per label, so overlapping duplicates do not paint as `Revenuee`.
   `npm run livebuild:withgemini` checks the key and opens the
   page with Gemini selected. The orchestrator suite drives the loop against
   a fake fetch, so CI never spends Google credits.
