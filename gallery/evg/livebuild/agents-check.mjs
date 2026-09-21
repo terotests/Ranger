@@ -34,7 +34,11 @@ import {
   payloadStats,
   formatPayloadStats,
   PLAN_NUDGE,
+  STALL_NUDGE,
+  ADD_CARD,
   OPS_WRITE_CAP,
+  recentSightseeing,
+  isSightseeingCall,
 } from "./gemini-agent.mjs";
 import http from "node:http";
 
@@ -940,6 +944,66 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   if (!denyRun("./evg-agent") || !/verb/.test(denyRun("./evg-agent"))) {
     throw new Error("bare ./evg-agent must be denied: " + denyRun("./evg-agent"));
   }
+  if (!denyRun("./evg-ui") || !/add/.test(denyRun("./evg-ui"))) {
+    throw new Error("bare ./evg-ui must be denied: " + denyRun("./evg-ui"));
+  }
+  if (!denyRun("./evg-ui list") || !/add/.test(denyRun("./evg-ui list"))) {
+    throw new Error("./evg-ui list must be denied: " + denyRun("./evg-ui list"));
+  }
+  if (denyRun("./evg-ui add card --title T --into doc.evg.json > add.json")) {
+    throw new Error("add card must stay allowed: " + denyRun("./evg-ui add card --title T --into doc.evg.json > add.json"));
+  }
+  const emptyProp = summarizeTool("run", { command: "./evg-agent patch doc.evg.json ops.json" }, {
+    ok: false,
+    status: 1,
+    stdout: JSON.stringify({
+      ok: false,
+      applied: 0,
+      rejected: ['op 0 (set-prop 0=column): property "" is not patchable — nothing here can read it back, so the edit could not be undone'],
+    }),
+    stderr: "",
+  });
+  if (!/flex-direction/.test(emptyProp.reply) || !/prop/.test(emptyProp.reply)) {
+    throw new Error("empty set-prop must name prop+value: " + JSON.stringify(emptyProp));
+  }
+  const missingProp = executeTool(ws, "write_file", {
+    path: "ops-noprop.json",
+    contents: '{"ops":[{"op":"set-prop","at":"0","value":"column"}]}',
+  });
+  if (!missingProp.error || !/prop/.test(missingProp.error)) {
+    throw new Error("write_file must refuse set-prop without prop: " + JSON.stringify(missingProp));
+  }
+  const emptySeed = summarizeTool("run", { command: "./evg-agent outline doc.evg.json" }, {
+    ok: true,
+    status: 0,
+    stdout: "0                     div  display=flex  width=390px  height=844px\n",
+    stderr: "",
+  });
+  if (!/empty seed/.test(emptySeed.reply) || !/add card/.test(emptySeed.reply)) {
+    throw new Error("an empty outline must say add card: " + JSON.stringify(emptySeed));
+  }
+  const taskRead = executeTool(ws, "read_file", { path: "TASK.md" });
+  if (!taskRead.error || !/already the ask/.test(taskRead.error)) {
+    throw new Error("read_file TASK.md must be refused: " + JSON.stringify(taskRead));
+  }
+  if (!isSightseeingCall("ocr", {}) || !isSightseeingCall("run", { command: "./evg-agent outline doc.evg.json" })) {
+    throw new Error("ocr and outline must count as sightseeing");
+  }
+  if (isSightseeingCall("run", { command: "./evg-ui add card --title T --into doc.evg.json" })) {
+    throw new Error("add card must not count as sightseeing");
+  }
+  const stallHist = [
+    { role: "model", parts: [{ functionCall: { name: "run", args: { command: "./evg-agent outline doc.evg.json" } } }] },
+    { role: "model", parts: [{ functionCall: { name: "image_info", args: {} } }] },
+    { role: "model", parts: [{ functionCall: { name: "ocr", args: {} } }] },
+    { role: "model", parts: [{ functionCall: { name: "ocr", args: {} } }] },
+  ];
+  if (!recentSightseeing(stallHist, 4)) {
+    throw new Error("four explore tools must look like a stall");
+  }
+  if (!STALL_NUDGE.includes("add card") || !ADD_CARD.includes("add card")) {
+    throw new Error("stall nudge must name add card");
+  }
   const wrapHint = executeTool(ws, "write_file", {
     path: "ops.json",
     contents: '{"op":"set-prop","at":"0/5","prop":"height","value":"48px"}',
@@ -1004,6 +1068,8 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
     "one CSS name",
     "do not query every sibling",
     '{"ops":[...]}',
+    "NEXT tool is ./evg-ui add card",
+    "TASK.md is already this message",
   ]) {
     if (!prompt.includes(need)) throw new Error("gemini system prompt missing " + need);
   }
@@ -1151,8 +1217,12 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
     throw new Error("ocr should echo path and lang: " + JSON.stringify(ocred));
   }
   const ocrDefault = executeTool(ws, "ocr", {}, { ...process.env, TESSERACT_PATH: tess });
-  if (ocrDefault.path !== "attachment.png") {
-    throw new Error("ocr should default to attachment.png: " + JSON.stringify(ocrDefault));
+  if (!ocrDefault.error || !/already ran/.test(ocrDefault.error)) {
+    throw new Error("second ocr must be refused: " + JSON.stringify(ocrDefault));
+  }
+  const imageAgain = executeTool(ws, "image_info", {});
+  if (!imageAgain.error || !/already ran/.test(imageAgain.error)) {
+    throw new Error("second image_info on the same path must be refused: " + JSON.stringify(imageAgain));
   }
   console.log("  gemini host list_dir / image_info / ocr; archaeology reads refused");
 

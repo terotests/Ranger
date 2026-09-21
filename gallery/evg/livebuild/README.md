@@ -123,7 +123,10 @@ used to come back as `count:1` and hide the match props and the
 sibling queries. Those replies now carry the match, the box, and
 `bottomFree`. `set-prop style=` is answered with one CSS name
 (`padding-top`, `height`), a bare `./evg-agent` is refused, and
-`ops.json` must be `{"ops":[…]}`.
+`ops.json` must be `{"ops":[…]}`. The system prompt is sent every
+turn — Gemini still wandered (second OCR, `./evg-ui list`,
+`read_file TASK.md`, `set-prop 0=column`) so the host now refuses
+those and an empty outline says `add card`.
 
 Each generateContent reply carries `usageMetadata`. The withgemini console
 prints that per turn and for the whole Follow-up — uncached input, cache

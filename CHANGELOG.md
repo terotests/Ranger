@@ -83,6 +83,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   1px tab-bar overflow burned the 64-turn cap. `set-prop style=` is
   hinted as one CSS name, a bare `./evg-agent` is refused, and a
   file that is not `{"ops":[…]}` is rejected at write_file.
+  The prompt is sent every turn; Gemini still ignored it (second
+  OCR, `./evg-ui list`, `TASK.md`, empty `set-prop`). Those are
+  now refused, an empty outline says `add card`, and four
+  sightseeing tools in a row get a stall nudge.
   `npm run livebuild:withgemini` checks the key and opens the
   page with Gemini selected. The orchestrator suite drives the loop against
   a fake fetch, so CI never spends Google credits.

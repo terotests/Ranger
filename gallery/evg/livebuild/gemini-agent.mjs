@@ -27,6 +27,9 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 export const GEMINI_HISTORY = ".gemini-history.json";
+export const GEMINI_ONCE = ".gemini-once.json";
+export const ADD_CARD =
+  './evg-ui add card --title "…" --row "Title|Sub|value:42" --into doc.evg.json > add.json';
 export const DEFAULT_GEMINI_MODEL = "gemini-3.8-flash";
 export const DEFAULT_GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta";
 
@@ -204,7 +207,7 @@ export const GEMINI_TOOLS = [
   },
   {
     name: "read_file",
-    description: "Read a UTF-8 file in the workspace. Path is relative to this folder.",
+    description: "Read a UTF-8 file in the workspace. Not TASK.md (already the ask), not a .evg.json.",
     parameters: {
       type: "object",
       properties: {
@@ -239,7 +242,7 @@ export const GEMINI_TOOLS = [
   {
     name: "image_info",
     description:
-      "What the host already knows about a picture: attachment.json palette after a trace, or the size of an image file. Use this instead of sampling pixels in Python.",
+      "Palette or image size, once per path. A second call on the same file is refused — use those colours and add a card.",
     parameters: {
       type: "object",
       properties: {
@@ -250,7 +253,7 @@ export const GEMINI_TOOLS = [
   {
     name: "ocr",
     description:
-      "Read printed text out of a workspace image with Tesseract. Default path is attachment.png (or .jpg). Use this for a screenshot's labels — do not crop BMPs or call tesseract via run.",
+      "OCR a workspace image once. A second ocr is refused. Default attachment.png. Do not crop BMPs or call tesseract via run.",
     parameters: {
       type: "object",
       properties: {
@@ -291,7 +294,9 @@ Several screens (Orders / Analytics / Settings) is an app, not hidden divs:
 2. ./evg-app init app --from=doc.evg.json  (or Run on the page). Then patch app/pages/<state>.evg.json so the pages differ. ./evg-app check app --width=W --height=H. count:N with missing nav.* means the tabs have no ids yet.
 3. Do not rewrite a whole page tree. Patch one card on that page. The live phone is still doc.evg.json until Run.
 
-set-prop is one CSS name (height, padding-top, gap, background-color), not style= and not a shorthand blob. A 1px overflow is one set-prop on the finding path, then measure — do not query every sibling. outline --at=PATH for one node; query/measure replies already include the match props and boxes [x,y,w,h]. ops.json is {"ops":[...]} — a bare op object or [] is "no ops in that file".
+set-prop is one CSS name (height, padding-top, gap, background-color), not style= and not a shorthand blob. set-prop needs "prop" and "value" — {"op":"set-prop","at":"0","prop":"flex-direction","value":"column"}, not 0=column. A 1px overflow is one set-prop on the finding path, then measure — do not query every sibling. outline --at=PATH for one node; query/measure replies already include the match props and boxes [x,y,w,h]. ops.json is {"ops":[...]} — a bare op object or [] is "no ops in that file".
+
+After an empty outline the NEXT tool is ./evg-ui add card (not list, not ocr, not image_info, not read_file TASK.md). TASK.md is already this message. ocr once; a second ocr is refused.
 
 Labels: one span per phrase, spaces between words ("Acme 360", not "Acme360"). Do not insert the same text twice — two overlapping spans paint as Revenuee / monthlyy.
 
@@ -307,10 +312,13 @@ Do not git, evg_agent.js, --help, /tmp, python, sips. When the outline matches t
  * it still finished if the retry also overflowed.
  */
 export const MAX_PLAN_NUDGES = 3;
+export const MAX_STALL_NUDGES = 3;
 export const OPS_WRITE_CAP = 4000;
 export const THOUGHT_SLIM_CAP = 600;
 export const PLAN_NUDGE =
   "Your last reply used the output budget and never issued a functionCall. A plan is not a patch. Do not dump the page in the thought. Call write_file now with ops.json under 2000 bytes (ONE card) or ./evg-ui add card, then ./evg-agent patch.";
+export const STALL_NUDGE =
+  `Stop exploring. Next tool is ${ADD_CARD} then ./evg-agent patch doc.evg.json add.json. Not ocr, not image_info, not list, not TASK.md.`;
 
 const PLAN_FUTURE =
   /\b(let's.{0,60}?\b(?:build(?:ing|s)?|built|add|insert|continue|patch|write)|i(?:'| wi)ll (?:now |then )?(?:add|insert|build|write|patch|keep|get|construct|create)|next(?:\s+i|'ll|\s+step)|then (?:i(?:'| wi)ll|let's)|write_file|functionCall|write(?:_file)? ops|ops\.json|remaining (?:cards?|columns?)|keep (?:building|going|adding)|time to (?:build|add|insert)|i(?: am|'m) going to|jatka)\b/i;
@@ -404,7 +412,24 @@ export function compactToolResult(name, rawArgs, result) {
     if (j && typeof j === "object") {
       return compactRunJson(j, result);
     }
-    if (stdout.length > TOOL_RESULT_CAP || /^0\s+\S+/.test(stdout)) {
+    if (/^0\s+\S+/.test(stdout)) {
+      const lines = stdout
+        .trim()
+        .split(/\n/)
+        .filter((l) => /^\d/.test(l.trim()));
+      const out = {
+        ok: result.ok,
+        status: result.status,
+        stdout: clip(stdout, TOOL_RESULT_CAP),
+        nodes: lines.length,
+      };
+      if (lines.length <= 1) {
+        out.hint = `empty seed — not done. Next: ${ADD_CARD} then ./evg-agent patch doc.evg.json add.json`;
+      }
+      if (stderr) out.stderr = clip(stderr, 400);
+      return out;
+    }
+    if (stdout.length > TOOL_RESULT_CAP) {
       return {
         ok: result.ok,
         status: result.status,
@@ -506,9 +531,11 @@ function compactRunJson(j, result) {
     }
     out.boxes = picked;
   }
+  if (j.nodes != null) out.nodes = j.nodes;
   if (j.layout && typeof j.layout === "object") {
     out.layout = {
       count: j.layout.count,
+      nodes: j.layout.nodes,
       bottomFree: j.layout.bottomFree,
       findings: Array.isArray(j.layout.findings) ? j.layout.findings.slice(0, 4) : undefined,
     };
@@ -532,7 +559,7 @@ function snapshotDropped(dropped) {
   return [
     "Earlier turns were compacted. The live UI is doc.evg.json on disk, not this chat.",
     bits.length ? `Already ran: ${bits.slice(-10).join("; ")}.` : "",
-    "Continue with outline / measure / patch. Do not read_file the document.",
+    "Continue with ./evg-ui add card then patch. Do not ocr, image_info, or read TASK.md again.",
   ]
     .filter(Boolean)
     .join(" ");
@@ -642,6 +669,48 @@ export function tesseractBin(env = process.env) {
 /** Compiled tool sources and the conversation log are not part of the phone. */
 export const GEMINI_TRACE = ".gemini-trace.log";
 
+export function loadOnce(workspace) {
+  try {
+    const j = JSON.parse(fs.readFileSync(path.join(workspace, GEMINI_ONCE), "utf8"));
+    return j && typeof j === "object" ? j : {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveOnce(workspace, patch) {
+  const next = { ...loadOnce(workspace), ...patch };
+  fs.writeFileSync(path.join(workspace, GEMINI_ONCE), `${JSON.stringify(next)}\n`);
+  return next;
+}
+
+export function isSightseeingCall(name, rawArgs) {
+  if (name === "ocr" || name === "image_info" || name === "list_dir") return true;
+  if (name === "read_file") {
+    const p = String((rawArgs && rawArgs.path) || "");
+    return /TASK\.md|attachment\.(json|png|jpe?g|webp)|AGENTS\.md/i.test(p);
+  }
+  if (name === "run") {
+    const c = String((rawArgs && rawArgs.command) || "");
+    if (/^\.\/evg-ui\b/.test(c) && !/\badd\b/.test(c)) return true;
+    if (/\boutline\b/.test(c) || /\bquery\b/.test(c)) return true;
+  }
+  return false;
+}
+
+export function recentSightseeing(contents, n = 4) {
+  const calls = [];
+  for (const c of contents || []) {
+    for (const p of (c && c.parts) || []) {
+      if (p && p.functionCall && p.functionCall.name) {
+        calls.push({ name: p.functionCall.name, args: argsOf(p.functionCall) });
+      }
+    }
+  }
+  const tail = calls.slice(-n);
+  return tail.length >= n && tail.every((c) => isSightseeingCall(c.name, c.args));
+}
+
 export function denyRead(rel) {
   const name = path.basename(String(rel || ""));
   if (name === GEMINI_HISTORY) return "read_file will not open the conversation log";
@@ -653,8 +722,12 @@ export function denyRead(rel) {
     return "that file is path data for the photo — image_info has the palette; paste with ./evg-agent patch doc.evg.json attachment.ops.json; to rebuild a UI like it, ocr once and ./evg-ui";
   }
   if (name === "AGENTS.md") {
-    return "the loop is already in the system prompt — ./evg-ui list for pieces, outline for the screen. Do not load the whole guide.";
+    return "the loop is already in the system prompt — outline the screen, then ./evg-ui add card. Do not load the whole guide.";
   }
+  if (name === "TASK.md") {
+    return `TASK.md is already the ask. Next: ${ADD_CARD} then ./evg-agent patch doc.evg.json add.json`;
+  }
+  if (name === GEMINI_ONCE) return "read_file will not open the once-stamp";
   return "";
 }
 
@@ -667,6 +740,7 @@ export function denyWrite(rel) {
   if (name === "layout.json") {
     return "write_file will not invent layout.json — ./evg-agent measure writes it";
   }
+  if (name === GEMINI_ONCE) return "write_file will not overwrite the once-stamp";
   return "";
 }
 
@@ -891,6 +965,17 @@ export function parseRun(command) {
       };
     }
   }
+  if (bin === "./evg-ui") {
+    const verb = argv[0] || "";
+    if (!verb || verb.startsWith("-") || verb === "list" || verb === "spec" || verb === "shot" || verb === "check") {
+      return {
+        error: `./evg-ui add is the only verb — ${ADD_CARD} then ./evg-agent patch doc.evg.json add.json. list/spec/--help is not a patch.`,
+      };
+    }
+    if (verb !== "add") {
+      return { error: `./evg-ui only add — ${ADD_CARD}` };
+    }
+  }
   if (stdoutTo) {
     if (stdoutTo.startsWith("/") || stdoutTo.includes("..")) {
       return { error: "redirect must be a relative file in the workspace" };
@@ -953,8 +1038,27 @@ export function executeTool(workspace, name, rawArgs, env = process.env) {
       return { ok: true, path: String(args.path), bytes: contents.length };
     }
     if (name === "list_dir") return listDir(workspace, args.path);
-    if (name === "image_info") return imageInfo(workspace, args.path);
-    if (name === "ocr") return runOcr(workspace, args, env);
+    if (name === "image_info") {
+      const rel = String(args.path || "").trim() || "attachment.json";
+      const once = loadOnce(workspace);
+      const images = once.images && typeof once.images === "object" ? once.images : {};
+      if (images[rel]) {
+        return { error: `image_info already ran for ${rel} — use those colours. Next: ${ADD_CARD}` };
+      }
+      const result = imageInfo(workspace, args.path);
+      if (!result.error) saveOnce(workspace, { images: { ...images, [rel]: true } });
+      return result;
+    }
+    if (name === "ocr") {
+      if (loadOnce(workspace).ocr) {
+        return {
+          error: `ocr already ran — keep those words. Next: ${ADD_CARD} then ./evg-agent patch doc.evg.json add.json`,
+        };
+      }
+      const result = runOcr(workspace, args, env);
+      if (!result.error) saveOnce(workspace, { ocr: true });
+      return result;
+    }
     return { error: `unknown tool ${name}` };
   } catch (e) {
     return { error: String(e.message || e) };
@@ -1066,9 +1170,16 @@ export function summarizeRunReply(out, result) {
       }
     }
     if (bits.length) {
-      return clipOneLine(hintPatchReject(bits.join(" — ")), 520);
+      let line = hintPatchReject(bits.join(" — "));
+      const nodes = j.nodes != null ? j.nodes : j.layout && j.layout.nodes;
+      if (j.count === 0 && nodes != null && Number(nodes) <= 2) {
+        line += ` — empty seed. Next: ${ADD_CARD}`;
+      }
+      return clipOneLine(line, 520);
     }
   }
+  const outlined = summarizeOutline(raw || (result && result.stdout) || "");
+  if (outlined) return outlined;
   const count = /"count"\s*:\s*(-?\d+)/.exec(raw);
   if (count) return `count:${count[1]}`;
   if (result && !result.ok) {
@@ -1076,6 +1187,22 @@ export function summarizeRunReply(out, result) {
   }
   if (result && result.stdout) return clipOneLine(result.stdout);
   return "ok";
+}
+
+export function summarizeOutline(raw) {
+  const s = String(raw || "").trim();
+  if (!/^0\s+\S+/m.test(s)) return "";
+  const lines = s
+    .split(/\n/)
+    .map((l) => l.trim())
+    .filter((l) => /^\d/.test(l) && !l.startsWith("…"));
+  if (!lines.length) return "";
+  const heads = lines.slice(0, 8).map((l) => clipOneLine(l, 88));
+  let line = `${lines.length} node${lines.length === 1 ? "" : "s"} — ${heads.join(" · ")}`;
+  if (lines.length <= 1) {
+    line += ` — empty seed, not done. Next: ${ADD_CARD} then ./evg-agent patch doc.evg.json add.json`;
+  }
+  return clipOneLine(line, 520);
 }
 
 function formatMatchLine(m) {
@@ -1101,6 +1228,10 @@ function hintPatchReject(line) {
     s +=
       ' — set-prop is one CSS name, not style=: {"op":"set-prop","at":"0","prop":"padding-top","value":"12px"}';
   }
+  if (/property "" is not patchable/i.test(s)) {
+    s +=
+      ' — set-prop needs "prop":"flex-direction" and "value":"column" (one CSS name). Not set-prop 0=column.';
+  }
   return s;
 }
 
@@ -1122,6 +1253,14 @@ export function opsWriteError(rel, contents) {
   }
   if (j && typeof j === "object" && Array.isArray(j.ops) && j.ops.length === 0) {
     return "ops array is empty — add one set-prop (one CSS name: height, padding-top, gap)";
+  }
+  if (j && Array.isArray(j.ops)) {
+    for (const op of j.ops) {
+      if (!op || op.op !== "set-prop") continue;
+      if (!String(op.prop || "").trim()) {
+        return 'set-prop needs "prop":"flex-direction" (one CSS name) and "value":"column" — not value alone';
+      }
+    }
   }
   return "";
 }
@@ -1371,6 +1510,7 @@ export async function geminiLoop({
   const started = Date.now();
   let turns = 0;
   let planNudges = 0;
+  let stallNudges = 0;
   let forceTool = false;
 
   for (let i = 0; i < maxTurns; i += 1) {
@@ -1468,6 +1608,14 @@ export async function geminiLoop({
       responses.push({ functionResponse: fr });
     }
     contents.push({ role: "user", parts: responses });
+    if (recentSightseeing(contents, 4) && stallNudges < MAX_STALL_NUDGES) {
+      stallNudges += 1;
+      forceTool = true;
+      log(`nudge: sightseeing (${stallNudges}/${MAX_STALL_NUDGES}) — next turn must add a card`);
+      appendTrace(workspace, `nudge: ${STALL_NUDGE}`);
+      onEvent({ type: "assistant", message: { content: [{ text: STALL_NUDGE }] } });
+      contents.push({ role: "user", parts: [{ text: STALL_NUDGE }] });
+    }
     contents = prepareContents(contents, env);
     saveHistory(workspace, contents, { model, followUp });
   }
