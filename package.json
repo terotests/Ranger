@@ -846,6 +846,7 @@
     "livebuild:agents": "node gallery/evg/livebuild/agents-check.mjs",
     "livebuild:app": "node gallery/evg/livebuild/app-check.mjs",
     "livebuild:save": "node gallery/evg/livebuild/save-check.mjs",
+    "livebuild:export": "node gallery/evg/livebuild/export-check.mjs",
     "livebuild:fx": "node gallery/evg/livebuild/fx-check.mjs",
     "livebuild:codeapp": "node gallery/evg/livebuild/app-code-check.mjs",
     "livebuild:app:build": "bash scripts/rgr-suite.sh ./gallery/evg/livebuild/EvgAppTool.rgr ./gallery/evg/bin evg_app.js",

@@ -220,6 +220,48 @@
   .op.set-prop { color: #bfdbfe; }
   .code { color: #c4b5fd; background: #0b1020; }
   .empty { color: var(--muted); }
+  /* Export: a brief another agent can paste. The overlay is the choice —
+     clipboard vs a file, with or without the build instructions — not a
+     second editor. */
+  .sheet {
+    display: none; position: fixed; inset: 0; z-index: 20;
+    background: rgba(4, 8, 16, .62);
+    align-items: center; justify-content: center; padding: 24px;
+  }
+  .sheet.on { display: flex; }
+  .sheet .card {
+    width: min(720px, 100%); max-height: min(88vh, 840px);
+    background: #101826; border: 1px solid var(--line); border-radius: 16px;
+    box-shadow: 0 24px 80px rgba(0,0,0,.55);
+    display: flex; flex-direction: column; min-height: 0;
+  }
+  .sheet h3 {
+    margin: 0; padding: 16px 18px 4px; font-size: 15px; font-weight: 650;
+  }
+  .sheet .lead code {
+    font: 11.5px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color: var(--accent);
+  }
+  .sheet .opts {
+    display: flex; flex-wrap: wrap; gap: 10px 18px; padding: 0 18px 12px;
+    font-size: 13px;
+  }
+  .sheet label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+  .sheet .preview {
+    flex: 1; min-height: 160px; overflow: auto; margin: 0 18px;
+    padding: 12px 14px; border-radius: 10px; border: 1px solid var(--line);
+    background: #0b1220; color: #d1fae5;
+    font: 11.5px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .sheet .meta {
+    margin: 8px 18px 0; font-size: 11.5px; color: var(--muted);
+    display: block;
+  }
+  .sheet .row {
+    display: flex; flex-wrap: wrap; gap: 8px; padding: 14px 18px 16px;
+    justify-content: flex-end;
+  }
 </style>
 <header>
   <div class="mark">RANGER · <span>EVG live build</span></div>
@@ -243,6 +285,7 @@
   <button type="button" class="chip" id="makeapp" hidden title="Write app/machine.json and a page per state from this phone">Make this an app</button>
   <span class="lbl">Keep</span>
   <button type="button" class="chip" id="save" title="Save this phone — the document and its app — so it survives the next start over">Save</button>
+  <button type="button" class="chip" id="export" title="Copy this screen as one Ranger UI JSON document — paste it into Ranger or an agent prompt">Export</button>
   <button type="button" class="chip" id="reset" title="Empty the project: a blank canvas, and the app that was built from this screen thrown away">Reset</button>
   <select id="saved" class="chip" title="Open a saved design back into this session">
     <option value="">Saved…</option>
@@ -298,6 +341,23 @@
     </section>
   </div>
 </main>
+<div class="sheet" id="exportSheet" role="dialog" aria-modal="true" aria-labelledby="exportTitle">
+  <div class="card">
+    <h3 id="exportTitle">Export Ranger UI</h3>
+    <p class="lead">One JSON document — component tree, CSS, and machine. Copy it to the clipboard, save it as a <code>.ranger.json</code> file, or paste it into an agent prompt.</p>
+    <div class="opts">
+      <label><input type="radio" name="exportMode" id="exportCompact" value="compact" checked> Compact — ui, css, machine</label>
+      <label><input type="radio" name="exportMode" id="exportFull" value="full"> Full — plus compiled EVG and layout debug</label>
+    </div>
+    <pre class="preview" id="exportPreview">Loading…</pre>
+    <div class="meta" id="exportMeta"></div>
+    <div class="row">
+      <button type="button" class="chip" id="exportClose">Close</button>
+      <button type="button" class="chip" id="exportDl">Download .ranger.json</button>
+      <button type="button" class="chip primary" id="exportCopy">Copy to clipboard</button>
+    </div>
+  </div>
+</div>
 <script type="module">
 import { renderDisplayList } from "/evg-html.js";
 
@@ -459,6 +519,116 @@ $("saved").addEventListener("change", async (ev) => {
   }
 });
 
+// EXPORT: one Ranger UI JSON document. Save keeps the design on this
+// machine. This is the door out — ui, css and machine in a single
+// `.ranger.json` another agent (or Ranger) can paste. Compact is the
+// clipboard; Full adds the compiled EVG snapshot and the layout debug.
+let exportPayload = null;
+
+function exportMode() {
+  return $("exportFull").checked ? "full" : "compact";
+}
+
+function exportText() {
+  if (!exportPayload) return "";
+  const doc = exportMode() === "full" ? exportPayload.full : exportPayload.compact;
+  return JSON.stringify(doc || exportPayload.document, null, 2);
+}
+
+function paintExport() {
+  if (!exportPayload) return;
+  const text = exportText();
+  $("exportPreview").textContent = text;
+  const n = exportPayload.nodes || 0;
+  const pages = exportPayload.pages || 0;
+  const kb = Math.max(1, Math.round((text.length || 1) / 1024));
+  const types = exportPayload.components ? Object.keys(exportPayload.components).length : 0;
+  $("exportMeta").textContent =
+    `${exportPayload.device || ""} · ${n} nodes` +
+    (types ? ` · ${types} component type${types === 1 ? "" : "s"}` : "") +
+    (pages ? ` · ${pages} page${pages === 1 ? "" : "s"}` : "") +
+    (exportPayload.ids && exportPayload.ids.length ? ` · ${exportPayload.ids.length} ids` : "") +
+    ` · ${kb} KB · ${exportMode()}`;
+}
+
+function closeExport() {
+  $("exportSheet").classList.remove("on");
+}
+
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.left = "-9999px";
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand("copy");
+    ta.remove();
+    return ok;
+  }
+}
+
+function downloadText(name, text, type) {
+  const blob = new Blob([text], { type: type || "text/plain;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+$("export").addEventListener("click", async () => {
+  $("export").disabled = true;
+  $("exportPreview").textContent = "Loading…";
+  $("exportMeta").textContent = "";
+  $("exportSheet").classList.add("on");
+  try {
+    const v = viewport();
+    const ask = encodeURIComponent(($("prompt").value || "").trim());
+    exportPayload = await (await fetch(`/export?w=${v.w}&h=${v.h}${ask ? `&ask=${ask}` : ""}`)).json();
+    if (exportPayload.error) throw new Error(exportPayload.error);
+    paintExport();
+  } catch (e) {
+    exportPayload = null;
+    $("exportPreview").textContent = "export failed: " + (e.message || e);
+  } finally {
+    $("export").disabled = uiPhase === "working";
+  }
+});
+
+$("exportCompact").addEventListener("change", paintExport);
+$("exportFull").addEventListener("change", paintExport);
+$("exportClose").addEventListener("click", closeExport);
+$("exportSheet").addEventListener("click", (ev) => {
+  if (ev.target === $("exportSheet")) closeExport();
+});
+document.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape" && $("exportSheet").classList.contains("on")) closeExport();
+});
+
+$("exportCopy").addEventListener("click", async () => {
+  const text = exportText();
+  if (!text) return;
+  const ok = await copyText(text);
+  note(ok
+    ? "copied the Ranger UI document — paste it into Ranger or an agent prompt"
+    : "could not copy — use Download");
+  if (ok) closeExport();
+});
+
+$("exportDl").addEventListener("click", () => {
+  const text = exportText();
+  if (!text || !exportPayload) return;
+  const name = `${exportPayload.slug || "screen"}.ranger.json`;
+  downloadText(name, text, "application/json;charset=utf-8");
+  note(`downloaded ${name}`);
+});
+
 // --- WHAT IS LIVE RIGHT NOW ---------------------------------------------------
 //
 // Three states, and one place that says what each allows. It used to be eight
@@ -498,6 +668,7 @@ function setPhase(phase) {
     b.classList.toggle("off", !canEdit);
   }
   $("save").disabled = !idle;
+  $("export").disabled = working;
   $("saved").disabled = !idle;
   $("reset").disabled = !canEdit;
   $("reset").classList.toggle("off", !canEdit);

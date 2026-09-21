@@ -287,6 +287,33 @@ runs on a server.
 
 ```sh
 npm run livebuild:save    # save, start over, open — byte for byte, app and all
+npm run livebuild:export  # one .ranger.json — ui, css, machine
+```
+
+**Export** is the door out. Save keeps the design on this machine; Export
+builds **one JSON document** (`name.ranger.json`, `format: ranger-ui`,
+version 2). The clipboard is that file. Inside it, four things stay
+logically separate:
+
+- **`ui`** — the semantic component tree. A known switch is `rave.Switch`
+  with `props.checked`, not a track and a thumb. Unknown markup is
+  `evg.div` / `evg.span`. Appearance is not in the nodes.
+- **`css`** — real CSS, as a string. Author rules stay; kit-default
+  `.ui-switch-track` rules do not (those belong to the library).
+- **`machine`** — the statechart, when the screen became an app.
+- **`components`** — which contracts this document assumes (`rave.Switch`
+  → `@rave/core`).
+
+Compact (the clipboard) is those four plus `meta` and `viewport`. Full
+adds `compiled.evg` (a snapshot, not the source) and `debug.outline` /
+`debug.layout`. Same format either way. ZIP can wrap this file later;
+it does not change the document.
+
+Paste the JSON into Ranger, save it as a file, or hand it to an agent:
+
+```
+Here's a Ranger screen:
+{ …the document… }
 ```
 
 Three things that used to throw a design away and no longer do: turning Run
@@ -342,17 +369,19 @@ named for `t`.
 
 The page has three states and one function that owns them:
 
-| | edits | start over · reset | Run |
-| --- | --- | --- | --- |
-| **idle** | yes | yes | enter |
-| **working** — an agent is building | no | no | no |
-| **running** — the machine owns the page | no | no | leave |
+| | edits | start over · reset | Run | Export |
+| --- | --- | --- | --- | --- |
+| **idle** | yes | yes | enter | yes |
+| **working** — an agent is building | no | no | no | no |
+| **running** — the machine owns the page | no | no | leave | yes |
 
 Editing during Run would rewrite the document the app was built from, and a
 start-over during Run deletes `app/` out from under the app that is running.
 Entering Run mid-build would drive a screen that is still changing. Leaving Run
 stays possible in every state, which is why `Run` is disabled on *working* and
-not simply on "not idle".
+not simply on "not idle". **Export** is a read of the session's files, so it
+stays live during Run — that is when you have something worth handing to the
+next agent.
 
 **Reset** empties the project: a blank canvas, and the app built from the old
 screen thrown away. It is the `empty` seed with its own button, because among
@@ -446,4 +475,8 @@ one, so the UI can say "+12" without walking the list.
 | `agents-check.mjs` | orchestrator: recipe, mock workspace, self slot |
 | `browser-smoke.mjs` | Chromium: three recipes and a typed prompt |
 | `web/index.html` | the page |
+| `export.mjs` | session → one `.ranger.json` (compact or full) |
+| `ranger-ui.mjs` | EVG tree → semantic ui + css + components |
+| `ranger-ui.schema.json` | the document shape |
+| `export-check.mjs` | compact has no compiled EVG; a switch collapses |
 | `stream-check.mjs` | parse the CLI stream as JSON |

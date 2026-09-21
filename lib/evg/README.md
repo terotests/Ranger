@@ -1188,6 +1188,7 @@ npm run evg:trace:web:serve        # the live bitmap tracer
 npm run erazer:web:serve           # bitmap UI screenshot → EVG layout
 npm run livebuild:serve            # seed a phone; Follow up streams display lists over SSE
 npm run livebuild:withcursor       # same page, local Cursor Agent CLI (agent login)
+# Export copies one .ranger.json (ui + css + machine) onto the clipboard.
 
 # one document, three targets
 npm run evgpdf:test             # -> PDF
