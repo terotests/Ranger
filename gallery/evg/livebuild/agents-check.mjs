@@ -51,6 +51,8 @@ import {
   paintAddOps,
   attachLeftoverRemoves,
   leftoverSettingsAts,
+  layoutSuspicion,
+  gluedLabelHints,
   OPS_WRITE_CAP,
   recentSightseeing,
   isSightseeingCall,
@@ -1272,6 +1274,58 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   if (!/no overflow/.test(okLayout.reply)) {
     throw new Error("measure count:0 should say no overflow: " + okLayout.reply);
   }
+  const shady = summarizeTool("run", { command: "./evg-agent measure --width=390 --height=844" }, {
+    ok: true,
+    status: 0,
+    stdout: JSON.stringify({
+      count: 0,
+      bottomFree: 100,
+      nodes: 76,
+      align: [
+        "0/2/2/1 and 0/2/2/5: top edges 2px apart — align them or mean it",
+        "0/2/2/5 and 0/2/2/6: top edges 3px apart — align them or mean it",
+      ],
+      tight: ["0/5/0/0 → 0/5/0/1: 3 apart", "0/5/1/0 → 0/5/1/1: 3 apart"],
+    }),
+    stderr: "",
+  });
+  if (!/not done/.test(shady.reply) || !/0\/2\/2\/1/.test(shady.reply) || !/suspicious/.test(shady.reply)) {
+    throw new Error("measure must pass page-footer align to Gemini as not done: " + shady.reply);
+  }
+  if (/no overflow/.test(shady.reply) && !/not done/.test(shady.reply)) {
+    throw new Error("count:0 with align must not look finished: " + shady.reply);
+  }
+  const packedLayout = compactToolResult("run", { command: "./evg-agent patch doc.evg.json add.json" }, {
+    ok: true,
+    status: 0,
+    stdout: JSON.stringify({
+      ok: true,
+      applied: 1,
+      layout: {
+        count: 0,
+        nodes: 76,
+        bottomFree: 100,
+        align: ["0/2/2/1 and 0/2/2/5: top edges 2px apart — align them or mean it"],
+        tight: ["0/5/0/0 → 0/5/1/1: 3 apart"],
+      },
+    }),
+    stderr: "",
+  });
+  if (!packedLayout.hint || !/not done/.test(packedLayout.hint) || !/0\/2\/2\/1/.test(packedLayout.hint)) {
+    throw new Error("patch layout.align must become a hint: " + JSON.stringify(packedLayout));
+  }
+  if (layoutSuspicion({ count: 0, align: ["0/2/2/1 and 0/2/2/5: top edges 2px apart"] }).n !== 1) {
+    throw new Error("layoutSuspicion must count align as layout N");
+  }
+  if (!gluedLabelHints(`0/3/0 span "7h38m"\n0/3/1 span "64BPMM"`).includes("7h38m")) {
+    throw new Error("glued OCR labels must be flagged: " + gluedLabelHints(`0/3/0 span "7h38m"`));
+  }
+  const gluedOut = summarizeOutline(`0 div
+0/0 span .ui-appbar-title "Progress"
+0/3/0 span .ui-tile-value "7h38m"`);
+  if (!/7h38m/.test(gluedOut) || !/OCR/.test(gluedOut)) {
+    throw new Error("outline must flag glued OCR labels: " + gluedOut);
+  }
   const insertMiss = summarizeTool("run", { command: "./evg-agent patch doc.evg.json ops.json" }, {
     ok: false,
     status: 1,
@@ -1516,6 +1570,9 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
     "rave.Banner",
     "Leftover SettingsRow",
     "highest index first",
+    "page footer",
+    "7h 38m",
+    "NOT done",
   ]) {
     if (!prompt.includes(need)) throw new Error("gemini system prompt missing " + need);
   }

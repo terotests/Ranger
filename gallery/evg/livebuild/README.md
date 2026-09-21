@@ -148,7 +148,10 @@ flattened SettingsRow list. After `add` the host paints the photo
 palette onto the new piece and **removes leftover SettingsRow cards**
 (and the old icon-chip row) in the same patch. A `write_file` that
 drops those leftovers while pills/tiles/bars stay is allowed;
-wiping the whole screen is not. A hand `insert` of an unnamed `div` tree is
+wiping the whole screen is not. `measure` `count:0` is no page overflow,
+not a finish — the page footer `layout N` / align / tight is forwarded
+to Gemini every turn as suspicious overlap (not done). Glued OCR labels
+(`7h38m`) are flagged. A hand `insert` of an unnamed `div` tree is
 refused (box soup). `set-css` is allowed and replaces the sheet. The
 system prompt starts with a compact **EXAMPLE_UI** (AppBar, pills, bars,
 tiles, banner, tabbar) and the `./evg-ui` recipe that builds it — Gemini

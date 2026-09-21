@@ -488,7 +488,7 @@ The loop:
    spec is optional. Do not smoke-test with add button. Do not read AGENTS.md. No --help.
 3. ./evg-agent measure doc.evg.json --width=W --height=H
    W×H is what TASK.md said: phone 390×844, tablet 820×1180, desktop 1440×900. Not always 390.
-   measure count:0 means no overflow, not an empty screen. An outline with 1 node is the empty seed.
+   measure count:0 means no page overflow, not a finished screen. The page footer layout N / align / tight is for you — those are suspicious overlaps. count:0 with align/tight is NOT done. Copy OCR spaces (7h 38m, not 7h38m). EXAMPLE_UI is the types, not the words.
 
 insert the first child at "0", not "0/0" — 0/0 does not exist on an empty root. insert with only "tag" is an empty box. A subtree is "node" (document shape), not "children" on the op. One add card is a whole measured piece with ui-card. box-sizing is not patchable — one bad prop rejects the whole file.
 
@@ -511,7 +511,7 @@ Labels: one span per phrase, spaces between words ("Acme 360", not "Acme360"). D
 
 A thought is not a patch. One card per write_file (under 2000 bytes). A whole-page ops.json is cut off before the functionCall and the host sees no tool. Do not paste JSON in the thought. If you still have a header, KPI row, or body column to add, call a tool in that turn. Stopping after "Section 3 will be…" leaves a half screen. Header plus four KPI cards is not the dashboard — keep adding until outline names the remaining cards (products, opportunities, feed).
 
-Do not git, evg_agent.js, --help, /tmp, python, sips. When the outline matches the ask, stop.`;
+Do not git, evg_agent.js, --help, /tmp, python, sips. When the outline matches the ask AND measure has no align/tight (page footer layout ok), stop. count:0 alone is not a match.`;
 }
 
 /**
@@ -652,6 +652,11 @@ export function compactToolResult(name, rawArgs, result) {
       if (result.hint) out.hint = result.hint;
       else if (lines.length <= 1) {
         out.hint = `empty seed — not done. Next: ${ADD_APPBAR} then patch. A dashboard then add pills|bars|tiles|banner — not a card of SettingsRows.`;
+      } else {
+        const glued = gluedLabelHints(stdout);
+        if (glued.length) {
+          out.hint = `glued labels ${glued.join(", ")} — copy OCR spaces (7h 38m, not 7h38m). Not done.`;
+        }
       }
       if (stderr) out.stderr = clip(stderr, 400);
       return out;
@@ -724,6 +729,37 @@ function findingPaths(findings) {
   return wanted;
 }
 
+/** Same align/tight lines the page footer shows as `layout N`. count:0 is not clean. */
+export function layoutSuspicion(j) {
+  if (!j || typeof j !== "object") return { findings: [], align: [], tight: [], n: 0, line: "" };
+  const layout = j.layout && typeof j.layout === "object" ? j.layout : {};
+  const findings = [...(j.findings || []), ...(layout.findings || [])].filter(Boolean);
+  const align = [...(j.align || []), ...(layout.align || [])].filter(Boolean);
+  const tight = [...(j.tight || []), ...(layout.tight || [])].filter(Boolean);
+  const n = findings.length + align.length;
+  const bits = [];
+  if (n) bits.push(`layout ${n} — not done`);
+  if (findings.length) bits.push(findings.slice(0, 3).join("; "));
+  if (align.length) bits.push("suspicious overlap/align: " + align.slice(0, 3).join("; "));
+  if (tight.length) bits.push("tight: " + tight.slice(0, 2).join(" · "));
+  if (!n && tight.length) bits.unshift("crowded — check overlap");
+  return { findings, align, tight, n, line: bits.join(" — ") };
+}
+
+/** Outline quotes that lost OCR spaces (7h38m, 64BPMM). */
+export function gluedLabelHints(raw) {
+  const out = [];
+  const re = /"([^"]+)"/g;
+  let m;
+  while ((m = re.exec(String(raw || "")))) {
+    const t = m[1];
+    if (t.length < 5) continue;
+    const glued = (!/\s/.test(t) && /[A-Za-z]/.test(t) && /\d/.test(t)) || /[a-z][A-Z]/.test(t) || /([A-Za-z])\1{2,}/.test(t);
+    if (glued) out.push(t);
+  }
+  return out.slice(0, 6);
+}
+
 function compactRunJson(j, result) {
   const out = { ok: result.ok, status: result.status };
   if (j.error) out.error = j.error;
@@ -765,8 +801,12 @@ function compactRunJson(j, result) {
       nodes: j.layout.nodes,
       bottomFree: j.layout.bottomFree,
       findings: Array.isArray(j.layout.findings) ? j.layout.findings.slice(0, 4) : undefined,
+      align: Array.isArray(j.layout.align) ? j.layout.align.slice(0, 4) : undefined,
+      tight: Array.isArray(j.layout.tight) ? j.layout.tight.slice(0, 4) : undefined,
     };
   }
+  const sus = layoutSuspicion(j);
+  if (sus.line) out.hint = sus.line;
   if (result.stderr) out.stderr = clip(result.stderr, 400);
   return out;
 }
@@ -1331,6 +1371,7 @@ export function collectPictureBrief(workspace, env = process.env) {
     "Pieces: ./evg-ui add appbar|pills|bars|tiles|banner|card|chips|tabbar (ui-card / ui-tile / ui-bars / ui-banner / ui-tabbar). Do not insert unnamed div trees — Export needs those classes for rave.Card / rave.Tile.",
     "A 2×2 of metrics is add tiles. A bar chart is add bars. A highlight is add banner. Day/Week is add pills. add card --row is a settings list (SettingsRow) — do not flatten a dashboard into rows.",
     "If the outline still names leftover SettingsRow / ui-card / ui-chiprow after pills/tiles/bars, remove those paths in one ops.json (highest index first). Adding pills/tiles/bars/banner also drops them on patch. Do not leave both.",
+    "count:0 is no page overflow. The page footer layout N / align / tight is suspicious overlap — not done. Copy OCR spaces (7h 38m, not 7h38m). EXAMPLE_UI is types, not the words.",
     "Copy EXAMPLE_UI from the system prompt (rave.AppBar, rave.Pills, rave.Bars, rave.Tile, rave.Banner, SettingsRow only for lists). Change the words to this photo. ONE outline, then add FILLED pieces. Empty ui-card is a failed turn.",
   ];
   let att = null;
@@ -1841,15 +1882,19 @@ export function summarizeRunReply(out, result) {
         bits.push(j.layout.findings.slice(0, 3).join("; "));
       }
     }
+    const sus = layoutSuspicion(j);
+    if (sus.line) bits.push(sus.line);
     if (bits.length) {
       let line = hintPatchReject(bits.join(" — "));
       const nodes = j.nodes != null ? j.nodes : j.layout && j.layout.nodes;
       if (j.count === 0 && nodes != null && Number(nodes) <= 2) {
         line += ` — empty seed. Next: ${ADD_CARD}`;
+      } else if (sus.n || sus.tight.length) {
+        line += " — count:0 is no page overflow, not a clean layout. Fix align/tight (same lines as the page footer). Copy OCR spaces.";
       } else if (j.count === 0 && (j.bottomFree != null || (Array.isArray(j.boxes) && j.boxes.length))) {
         line += " — no overflow. Keep pills/tiles/bars/banner. Leftover SettingsRow cards: remove them (highest index first). Do not wipe the dashboard.";
       }
-      return clipOneLine(line, 520);
+      return clipOneLine(line, 720);
     }
   }
   const outlined = summarizeOutline(raw || (result && result.stdout) || "");
@@ -1993,7 +2038,11 @@ export function summarizeOutline(raw) {
     const ats = leftover.map((l) => l.split(/\s+/)[0]).join(" ");
     line += ` — leftover settings cards ${ats}. Remove them in one ops.json (highest index first). Do not leave both.`;
   }
-  return clipOneLine(line, 520);
+  const glued = gluedLabelHints(s);
+  if (glued.length) {
+    line += ` — glued labels ${glued.join(", ")}: copy OCR spaces (7h 38m, not 7h38m).`;
+  }
+  return clipOneLine(line, 720);
 }
 
 function formatMatchLine(m) {
