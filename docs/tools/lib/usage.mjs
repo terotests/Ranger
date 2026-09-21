@@ -8,7 +8,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { ROOT } from "./paths.mjs";
 
-const SKIP_DIRS = new Set(["node_modules", "dist", ".git", ".cache", "bin"]);
+// `tmp` is where the self-host checks write their copy of `lib/`, and those
+// copies import each other exactly as the originals do — so a run of
+// `selfhost:check:*` made `lib/DOMLib.rgr is legacy but imported by
+// tmp/selfhost-rust/lib/ViewLib.rgr` out of a file nobody edited.
+const SKIP_DIRS = new Set(["node_modules", "dist", ".git", ".cache", "bin", "tmp"]);
 
 /** Repository-relative paths of every `.rgr` file, excluding build trees. */
 export function walkRgrFiles(root = ROOT) {
