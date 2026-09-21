@@ -94,22 +94,13 @@ undefined behaviour rather than a wrap.
 maps, objects — each timing itself. Kernels only, milliseconds, one machine,
 one program:
 
-| C++ | Rust | Kotlin | C# | Go | Java | PHP | JavaScript | Python |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 265 | 397 | 485 | 684 | 694 | 753 | 786 | 1 040 | 2 607 |
+| C++ | Rust | Go | Java | JavaScript | Python |
+| --- | --- | --- | --- | --- | --- |
+| 136 | 170 | 236 | 351 | 508 | 971 |
 
-Two of the numbers in the previous reading were a writer finding rather than a
-language fact, and one of them is fixed. **`charAt` was O(n) on Go and Rust** —
-`[]rune(s)[i]` allocated the whole rune slice per read, `s.chars().nth(i)`
-walked from the start — so a string scan was quadratic there and
-constant-time everywhere else. Both index the UTF-8 byte their string is made
-of now (`docs/plans/PLAN_STRING_INDEXING.md`), and the string kernel went from
-2 178 ms to 6 on Rust and from 143 182 to 4 on Go, which moved Rust from
-seventh to second and Go from ninth to fifth.
-
-What is still there: **a Ranger map is a plain object on JavaScript**, with two
-`hasOwnProperty` probes per lookup, which makes it the slowest map in the table
-where PHP is the fastest.
+Go is third, next to Rust. PHP, C# and Kotlin were not on this machine this
+run. A Ranger map is a plain object on JavaScript, which is why that maps
+column is the slowest of the six.
 
 ### 3. Idiom
 

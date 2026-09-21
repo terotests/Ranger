@@ -66,8 +66,8 @@ img { max-width: 100%; display: block; }
  * to get. Zero lets the column be the window's width and the <pre> scroll
  * inside it.
  */
-.cols > *, .tiers > *, .plats > *, .steps > *,
-.gal > *, .starts > *, .figures > *, .shots > *,
+.cols > *, .tiers > *, .steps > *,
+.starts > *, .figures > *, .shots > *,
 .hero__cols > *, .native-calls > *, .matrix-wrap,
 .quality > * { min-width: 0; }
 
@@ -683,23 +683,6 @@ code:not(pre code) {
 .chips li { font: 400 12.5px/1 var(--mono); border: 1px solid var(--line-2); padding: 6px 9px; }
 .chips--dim li { color: var(--dim); border-color: var(--line); }
 
-/* ---------------------------------------------------------- platforms --- */
-
-.plats {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(330px, 100%), 1fr));
-  gap: 0; margin-top: 44px;
-  border-top: 1px solid var(--line-2);
-}
-.plat {
-  padding: 30px 30px 34px;
-  border-right: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
-}
-.plat:first-child { padding-left: 0; }
-.plat h3 { font: 650 20px/1.2 var(--sans); letter-spacing: -.015em; margin: 0 0 12px; }
-.plat p:not(.label) { color: var(--dim); font-size: 15.5px; margin: 0; }
-@media (max-width: 760px) { .plat { padding-inline: 0; border-right: 0; } }
-
 /* --------------------------------------------------------------- seam --- */
 
 .seam { margin-top: 40px; border: 1px solid var(--line); padding: 24px; background: var(--ink-3); }
@@ -715,42 +698,6 @@ code:not(pre code) {
 .shot { margin: 40px 0 0; border: 1px solid var(--line); background: var(--ink-3); overflow: hidden; }
 .shot img { width: 100%; height: auto; }
 .shot figcaption { padding: 12px 14px; font-size: 13.5px; color: var(--dim); border-top: 1px solid var(--line); }
-
-/* ------------------------------------------------------------ gallery --- */
-
-.gal { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); gap: 16px; margin-top: 44px; }
-.gal__item--wide { grid-column: span 2; }
-@media (max-width: 720px) { .gal__item--wide { grid-column: span 1; } }
-
-.gal__item {
-  text-decoration: none; border: 1px solid var(--line); overflow: hidden;
-  background: var(--ink-3); transition: border-color .2s, transform .25s;
-}
-.gal__item:hover { border-color: var(--gold); transform: translateY(-3px); }
-.gal__item figure { margin: 0; display: flex; flex-direction: column; height: 100%; }
-.gal__item img {
-  width: 100%; height: auto; aspect-ratio: 16 / 9; object-fit: cover; object-position: top center;
-  border-bottom: 1px solid var(--line); background: #05060a;
-}
-.gal__item--wide img { aspect-ratio: 16 / 7; }
-.gal__item figcaption { padding: 18px 20px 22px; }
-.gal__item h3 { font: 650 17px/1.25 var(--sans); letter-spacing: -.01em; margin: 0 0 8px; }
-.gal__item p:not(.label) { margin: 0; color: var(--dim); font-size: 14.5px; }
-
-.more {
-  list-style: none; margin: 30px 0 0; padding: 0;
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(330px, 100%), 1fr)); gap: 0 30px;
-}
-.more li {
-  border-top: 1px solid var(--line); padding: 11px 0;
-  /* Two columns rather than a flex row: a long name used to squeeze its own
-     description into a ribbon four words wide. */
-  display: grid; grid-template-columns: 10.5em 1fr; gap: 14px;
-  align-items: baseline; font-size: 14px;
-}
-.more a { color: var(--paper); text-decoration: none; font-weight: 500; }
-.more a:hover { color: var(--gold); }
-.more span { color: var(--dimmer); }
 
 /* ------------------------------------------------------------- start ---- */
 

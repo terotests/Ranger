@@ -25,66 +25,37 @@ places where one target does something the others do not.
 ## Numbers
 
 Kernels only, milliseconds, lower is better. Linux x86-64, node 22,
-python 3.11, php 8, go, g++ 13 `-O2`, rustc `-O`, javac/java 21, mono/mcs,
-kotlinc 2.0.21.
+python 3.12, go 1.22, g++ 13 `-O2`, rustc `-O`, javac/java 21. No
+`php`, `mcs` or `kotlinc` on this machine this run.
 
 | Target | startup | arith | arrays | strings | maps | objects | total |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| C++ | 0.004 s | 13 | 18 | 4 | 147 | 83 | **265** |
-| Rust | 0.004 s | 15 | 21 | 6 | 268 | 87 | **397** |
-| Kotlin | 0.061 s | 20 | 124 | 54 | 246 | 41 | **485** |
-| C# | 0.022 s | 35 | 51 | 14 | 483 | 101 | **684** |
-| Go | 0.004 s | 14 | 185 | 4 | 325 | 166 | **694** |
-| Java | 0.048 s | 114 | 119 | 36 | 367 | 117 | **753** |
-| PHP | 0.046 s | 136 | 159 | 12 | 114 | 365 | **786** |
-| JavaScript | 0.047 s | 18 | 157 | 9 | 629 | 227 | **1 040** |
-| Python | 0.030 s | 577 | 433 | 46 | 582 | 969 | **2 607** |
+| C++ | 0.002 s | 11 | 11 | 2 | 74 | 38 | **136** |
+| Rust | 0.002 s | 13 | 11 | 3 | 101 | 42 | **170** |
+| Go | 0.002 s | 12 | 34 | 4 | 125 | 61 | **236** |
+| Java | 0.024 s | 53 | 60 | 12 | 189 | 37 | **351** |
+| JavaScript | 0.015 s | 14 | 82 | 4 | 263 | 145 | **508** |
+| Python | 0.016 s | 245 | 166 | 13 | 181 | 366 | **971** |
 
-All nine printed the same five checksums.
+All six printed the same five checksums.
 
-The `strings` column is what
-[`docs/plans/PLAN_STRING_INDEXING.md`](../../../docs/plans/PLAN_STRING_INDEXING.md)
-stage 4 was about. Before it, Rust read 2 178 ms there and Go read **143 182**
--- a single kernel that was 99.5% of Go's total:
-
-| Target | strings, before | strings, after | total, before | total, after |
-| --- | --- | --- | --- | --- |
-| Rust | 2 178 | **6** | 2 556 | **397** |
-| Go | 143 182 | **4** | 143 882 | **694** |
-
-Rust moved from seventh to second and Go from ninth to fifth, on one change
-to what a string index means.
-
-Dart, Swift and Scala are not in the table: there is no `dart`, `swiftc` or
-`scalac` on this machine. The writers produce the files; nothing here has run
-them.
+Go sits third, next to Rust. PHP, C#, Kotlin, Dart, Swift and Scala are
+not in the table: no toolchain for them on this machine this run.
 
 ## What the numbers found
 
-**`charAt` on a string used to be O(n) on Go and Rust — fixed.** Go wrote
-`int64([]rune(s)[i])`, which decoded the whole string into a fresh rune slice
-for every character read; Rust wrote `s.chars().nth(i)`, which walks from the
-start. A loop that scans a string was therefore quadratic: 143 seconds on Go
-and 2.2 on Rust, against 4 milliseconds on C++.
-
-They index the UTF-8 byte their string is actually made of now, which is the
-only unit either one reads in constant time — and, it turned out, the unit
-their own `indexOf` had been answering in all along, so this was a
-correctness fix as much as a speed one. The three of C++, PHP, Rust and Go
-agree on an index; JavaScript, Java, Kotlin, C# and Python agree on a
-different one; `to_chars` is the view that means the same thing on all of
-them. `docs/plans/PLAN_STRING_INDEXING.md` has the whole of it.
+Go and Rust index the UTF-8 byte their string is made of, the same unit
+as C++. How that used to be a rune walk is
+[`PLAN_STRING_INDEXING.md`](../../../docs/plans/PLAN_STRING_INDEXING.md).
 
 **A Ranger map is a plain object on JavaScript.** `set`/`get`/`has` lower to
 `m[key]` with `Object.prototype.hasOwnProperty.call` guarding each read — two
 property probes per lookup, on an object V8 has put in dictionary mode. It is
-the slowest map in the table at 648 ms, where PHP does the same work in 115.
-A `Map` would be the idiom and the faster form.
+the slowest map in this run at 263 ms, against 74 on C++. A `Map` would be
+the idiom and the faster form.
 
 **Everything else lands where the language would put it.** C++ is fastest
-overall, which is what the value-semantics work was for; Rust is second;
-Python is an interpreter and reads like one; the JVM and CLR pay for startup
-and win it back.
+overall; Rust then Go; Python is an interpreter and reads like one.
 
 ## intwidth.rgr
 

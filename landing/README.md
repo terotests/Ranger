@@ -1,8 +1,8 @@
 # The front page
 
 What is published at <https://terotests.github.io/Ranger/> — the language's own
-page: what Ranger is, what it compiles to, which platforms it reaches, and the
-gallery. The playground it replaced at the site root now lives at
+page: what Ranger is, and what it compiles to. The playground it replaced at
+the site root now lives at
 [`/playground/`](https://terotests.github.io/Ranger/playground/).
 
 It is plain HTML, one stylesheet and one module. No framework, no bundler, no

@@ -23,6 +23,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Front-page bench re-run: Go is 236 ms, third after C++ and Rust.**
+  Re-running after the string-index fix (C++ 136, Rust 170, Go 236, Java
+  351, JavaScript 508, Python 971). PHP, C# and Kotlin were not on this
+  machine this run. The Platforms and Gallery sections come off the front
+  page: they are AGPL gallery work, and the Platforms copy was too specific
+  for the language page.
+
 - **`-strict-strings` asks whether the unit is observable, and the compiler
   now reports zero.** The first version listed every index whose subject was
   not an ASCII literal — 322 sites, which named the language rather than the
