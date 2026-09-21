@@ -752,7 +752,7 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
     workspace: ws,
     onEvent: (e) => events.push(e),
     fetchImpl,
-    env: { ...process.env, GEMINI_API_KEY: "test-livebuild-key", GOOGLE_API_KEY: "", EVG_GEMINI_MODEL: "gemini-2.5-flash" },
+    env: { ...process.env, GEMINI_API_KEY: "test-livebuild-key", GOOGLE_API_KEY: "", EVG_GEMINI_MODEL: "gemini-3.8-flash" },
   });
   if (!looped.ok) throw new Error("geminiLoop did not finish ok");
   if (!fs.existsSync(path.join(ws, "stamp.txt"))) throw new Error("Gemini run tool did not execute");
@@ -764,7 +764,7 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   if (!spend || spend.usage.output_tokens !== 18) {
     throw new Error("usage did not add both turns: " + JSON.stringify(spend));
   }
-  if (!spend.modelUsage["gemini-2.5-flash"]) throw new Error("result did not name the model");
+  if (!spend.modelUsage["gemini-3.8-flash"]) throw new Error("result did not name the model");
   const hist = loadHistory(ws);
   if (hist.length < 4) throw new Error("history too short to continue a Follow-up: " + hist.length);
   fs.writeFileSync(path.join(ws, "TASK.md"), "Now make the title gold.\n");
@@ -844,7 +844,7 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   process.env.GEMINI_API_KEY = "test-livebuild-key";
   process.env.GOOGLE_API_KEY = "";
   process.env.GEMINI_API_BASE = geminiHttp.base;
-  process.env.EVG_GEMINI_MODEL = "gemini-2.5-flash";
+  process.env.EVG_GEMINI_MODEL = "gemini-3.8-flash";
   try {
     resetSession("dashboard");
     const seen = [];

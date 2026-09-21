@@ -9,7 +9,7 @@
  *
  *   GEMINI_API_KEY from Google AI Studio is enough.
  *   GOOGLE_API_KEY is accepted if GEMINI_API_KEY is empty.
- *   EVG_GEMINI_MODEL selects the Flash id (default gemini-2.5-flash).
+ *   EVG_GEMINI_MODEL selects the Flash id (default gemini-3.8-flash).
  *
  * Stdout is the same `stream-json` shape Cursor already emits, so the
  * page's thinking panel and spend line work without a second parser.
@@ -20,7 +20,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 export const GEMINI_HISTORY = ".gemini-history.json";
-export const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
+export const DEFAULT_GEMINI_MODEL = "gemini-3.8-flash";
 export const DEFAULT_GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta";
 
 const TOOL_OUT_CAP = 24_000;

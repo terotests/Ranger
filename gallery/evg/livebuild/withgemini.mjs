@@ -9,7 +9,7 @@
  *   export GEMINI_API_KEY=…     # https://aistudio.google.com/apikey
  *
  * GOOGLE_API_KEY is accepted if GEMINI_API_KEY is empty.
- * Optional: EVG_GEMINI_MODEL (default gemini-2.5-flash).
+ * Optional: EVG_GEMINI_MODEL (default gemini-3.8-flash).
  *
  * Recipe still works without keys (`npm run livebuild:serve`).
  * Cursor still works with `npm run livebuild:withcursor`.
@@ -35,7 +35,7 @@ Get a key from Google AI Studio (the Gemini Developer API, not Vertex):
 GOOGLE_API_KEY is accepted if GEMINI_API_KEY is empty.
 
 Optional:
-  export EVG_GEMINI_MODEL=gemini-2.5-flash
+  export EVG_GEMINI_MODEL=gemini-3.8-flash
 
 Then:
   npm run livebuild:withgemini

@@ -20,6 +20,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { parseRestyle, restyleEnv } from "./restyle.mjs";
 import {
+  DEFAULT_GEMINI_MODEL,
   GEMINI_HISTORY,
   geminiKey,
   geminiModel,
@@ -123,7 +124,7 @@ export function listAgents() {
   const claude = which("claude");
   const ollama = ollamaUp();
   const gemini = geminiKey();
-  const geminiId = gemini ? geminiModel() : "gemini-2.5-flash";
+  const geminiId = gemini ? geminiModel() : DEFAULT_GEMINI_MODEL;
   return [
     {
       id: "recipe",

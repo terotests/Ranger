@@ -37,7 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and runs `./evg-agent` in the workspace, rather than delegating to
   `agent -p`. Conversation history lives in `.gemini-history.json` so Follow
   up is the next turn; a start-over chip drops it. `EVG_GEMINI_MODEL`
-  selects the Flash id (`gemini-2.5-flash` by default).
+  selects the Flash id (`gemini-3.8-flash` by default).
   `npm run livebuild:withgemini` checks the key and opens the page with Gemini
   selected. The orchestrator suite drives the loop against a fake fetch, so
   CI never spends Google credits.

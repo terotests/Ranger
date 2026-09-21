@@ -95,7 +95,7 @@ To drive it with **Gemini Flash** over the network (no Cursor CLI):
 
 ```sh
 export GEMINI_API_KEY=…              # https://aistudio.google.com/apikey
-# export EVG_GEMINI_MODEL=gemini-2.5-flash   # default; any Flash id
+# export EVG_GEMINI_MODEL=gemini-3.8-flash   # default; any Flash id
 npm run livebuild:withgemini
 # open http://127.0.0.1:8765/?agent=gemini
 ```
