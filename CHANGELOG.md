@@ -95,6 +95,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cheap; `image_info` / `ocr` / `attachment.svg` send them again.
   The brief names HTML flex/grid, page/cards/accent hexes, and Erazer
   or SVG `x,y w×h` boxes so the rebuild is not a guessed settings list.
+  A lone `remove` of the last named card is refused (that is how a
+  good half-screen got wiped). `padding` shorthand and insert-into-the-
+  first-card (`0/0`) are refused. `image_info` is the palette — it no
+  longer re-sends 135k of pixels.
   `npm run livebuild:withgemini` checks the key and opens the
   page with Gemini selected. The orchestrator suite drives the loop against
   a fake fetch, so CI never spends Google credits.

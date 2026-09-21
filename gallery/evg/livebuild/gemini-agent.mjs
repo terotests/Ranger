@@ -309,7 +309,7 @@ insert the first child at "0", not "0/0" — 0/0 does not exist on an empty root
 
 EVG layout is HTML/CSS flex and grid: display:flex, flex-direction:column|row, gap, padding; or display:grid, grid-template-columns:1fr 1fr. Not left/top. Two cards side by side are one grid row. Erazer / SVG boxes are the photo geometry — map them to flex/grid. Use the brief hexes: set-prop background-color on the root (page) and each card. The seed rgb() is a placeholder.
 
-Never write_file doc.evg.json or layout.json. Never read_file a .evg.json — the tree is on disk; outline / measure / patch. Do not remove the cards the outline already names — set-prop colours or add the next missing one.
+Never write_file doc.evg.json or layout.json. Never read_file a .evg.json — the tree is on disk; outline / measure / patch. Do not remove the cards the outline already names — set-prop colours or add the next missing one. insert at "0" adds a sibling under the root; insert at "0/0" goes inside the first card. padding is padding-top / padding-left (not padding). image_info is the palette already in the brief — do not keep calling it.
 
 Several screens (Orders / Analytics / Settings) is an app, not hidden divs:
 1. set-id each tab: {"op":"set-id","at":"0/6/0","value":"nav.home"} — id is NOT a property (set-prop id is rejected).
@@ -1235,9 +1235,9 @@ export function stripInlineData(contents) {
 }
 
 export function askedForPicture(name, rawArgs) {
-  if (name === "image_info" || name === "ocr") return true;
+  if (name === "ocr") return true;
   if (name === "read_file") {
-    return /attachment\.(png|jpe?g|webp|gif|svg|json)$/i.test(String((rawArgs && rawArgs.path) || ""));
+    return /attachment\.(png|jpe?g|webp|gif)$/i.test(String((rawArgs && rawArgs.path) || ""));
   }
   return false;
 }
@@ -1359,7 +1359,7 @@ export function executeTool(workspace, name, rawArgs, env = process.env) {
         const lines = String(result.stdout || "")
           .split(/\n/)
           .filter((l) => /^\d/.test(l.trim()));
-        if (lines.length <= 1) {
+        if (isEmptySeedOutline(command, result.stdout)) {
           const roles = picturePalette(workspace);
           if (roles) {
             return {
@@ -1416,7 +1416,7 @@ export function executeTool(workspace, name, rawArgs, env = process.env) {
           error: `ops file is ${contents.length} bytes — one card per write_file (under ${OPS_WRITE_CAP}). Split it and patch this card first.`,
         };
       }
-      const opsErr = opsWriteError(String(args.path || ""), contents);
+      const opsErr = opsWriteError(String(args.path || ""), contents, workspace);
       if (opsErr) return { error: opsErr };
       const file = resolveInWorkspace(workspace, args.path);
       fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -1566,6 +1566,35 @@ export function summarizeRunReply(out, result) {
   return "ok";
 }
 
+export function isEmptySeedOutline(command, stdout) {
+  if (/--at=/.test(String(command || ""))) return false;
+  const lines = String(stdout || "")
+    .split(/\n/)
+    .filter((l) => /^\d/.test(l.trim()));
+  return lines.length <= 1;
+}
+
+export function evgRootOf(workspace) {
+  try {
+    const j = JSON.parse(fs.readFileSync(path.join(workspace, "doc.evg.json"), "utf8"));
+    if (j && j.root && j.root.tag) return j.root;
+    if (j && j.tag) return j;
+  } catch {
+    /* missing */
+  }
+  return null;
+}
+
+function nodeLooksBuilt(el) {
+  if (!el || typeof el !== "object") return false;
+  const props = el.props && typeof el.props === "object" ? el.props : {};
+  const cls = String(props["class-name"] || el["class-name"] || "");
+  if (/ui-card|ui-appbar|ui-row/.test(cls)) return true;
+  if (String(el.textContent || "").trim()) return true;
+  if (Array.isArray(el.children) && el.children.length) return true;
+  return false;
+}
+
 export function summarizeOutline(raw) {
   const s = String(raw || "").trim();
   if (!/^0\s+\S+/m.test(s)) return "";
@@ -1633,7 +1662,7 @@ function hintPatchReject(line) {
 }
 
 /** Catch a bare op object / empty ops array before patch wastes a turn. */
-export function opsWriteError(rel, contents) {
+export function opsWriteError(rel, contents, workspace = "") {
   const text = String(contents ?? "");
   const looksOps = /ops/i.test(String(rel || "")) || /"op"\s*:/.test(text);
   if (!looksOps) return "";
@@ -1664,14 +1693,40 @@ export function opsWriteError(rel, contents) {
         if (!prop) {
           return 'set-prop needs "prop":"flex-direction" (one CSS name) and "value":"column" — not value alone';
         }
-        if (prop === "box-sizing" || prop === "overflow-x" || prop === "overflow-y") {
-          return `${prop} is not patchable — drop it or the whole file is rejected. height, padding, gap, background-color, flex-direction, overflow are fine.`;
+        if (
+          prop === "box-sizing" ||
+          prop === "overflow-x" ||
+          prop === "overflow-y" ||
+          prop === "padding" ||
+          prop === "margin" ||
+          prop === "border" ||
+          prop === "background"
+        ) {
+          return `${prop} is not patchable — use padding-top / padding-left / background-color (one CSS name) or the whole file is rejected.`;
+        }
+      }
+      if (op.op === "insert" && String(op.at || "") === "0/0") {
+        const root = workspace ? evgRootOf(workspace) : null;
+        const kids = root && Array.isArray(root.children) ? root.children : [];
+        if (kids.length && nodeLooksBuilt(kids[0])) {
+          return 'insert at "0/0" goes inside the first card. insert at "0" to add a header above it.';
         }
       }
       if (op.op === "remove" && /^0\/\d+$/.test(String(op.at || ""))) rootRemoves.push(op.at);
     }
     if (rootRemoves.length >= 2) {
       return "do not wipe the cards — remove one empty node, or set-prop the ones you have";
+    }
+    if (workspace && rootRemoves.length) {
+      const root = evgRootOf(workspace);
+      const kids = root && Array.isArray(root.children) ? root.children : [];
+      const built = kids
+        .map((k, i) => ({ at: `0/${i}`, built: nodeLooksBuilt(k) }))
+        .filter((k) => k.built);
+      const left = built.filter((k) => !rootRemoves.includes(k.at));
+      if (built.length && left.length === 0) {
+        return "do not wipe the cards you just added — set-prop colours or add the next one. remove is for one empty box, not the screen.";
+      }
     }
   }
   return "";
@@ -1710,7 +1765,7 @@ export function summarizeTool(name, rawArgs, result) {
   } else if (name === "image_info" && result) {
     reply =
       result.kind === "palette"
-        ? `palette ${result.width}×${result.height}, ${(result.colors || []).length} colours`
+        ? `palette ${result.width}×${result.height} — ${result.roles || `${(result.colors || []).length} colours`}. Already in the brief — do not image_info again.`
         : `${result.kind || "image"} ${result.width || "?"}×${result.height || "?"}`;
   } else if (name === "write_file" && result && result.ok) {
     reply = `wrote ${result.bytes} bytes`;

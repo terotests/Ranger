@@ -1121,8 +1121,11 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   if (shouldAttachPicture([{ role: "user", parts: [{ text: "go" }] }, { role: "model", parts: [{ functionCall: { name: "run", args: {} } }] }], { sentPicture: true })) {
     throw new Error("later turns must not re-attach unless asked");
   }
-  if (!shouldAttachPicture([{ role: "model", parts: [{ functionCall: { name: "image_info", args: {} } }] }], { sentPicture: true })) {
-    throw new Error("image_info must re-attach the photo");
+  if (shouldAttachPicture([{ role: "model", parts: [{ functionCall: { name: "image_info", args: {} } }] }], { sentPicture: true })) {
+    throw new Error("image_info is the palette — do not re-send the photo");
+  }
+  if (!shouldAttachPicture([{ role: "model", parts: [{ functionCall: { name: "ocr", args: {} } }] }], { sentPicture: true })) {
+    throw new Error("ocr must re-attach the photo");
   }
   const namedOutline = summarizeOutline(`0 div
 0/0 div .ui-card
@@ -1169,6 +1172,13 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   if (!boxSizing.error || !/box-sizing/.test(boxSizing.error)) {
     throw new Error("box-sizing must be refused before patch: " + JSON.stringify(boxSizing));
   }
+  const padShort = executeTool(ws, "write_file", {
+    path: "ops.json",
+    contents: '{"ops":[{"op":"set-prop","at":"0","prop":"padding","value":"20px 16px"}]}',
+  });
+  if (!padShort.error || !/padding-top/.test(padShort.error)) {
+    throw new Error("padding shorthand must be refused: " + JSON.stringify(padShort));
+  }
   const wipe = executeTool(ws, "write_file", {
     path: "ops.json",
     contents: '{"ops":[{"op":"remove","at":"0/0"},{"op":"remove","at":"0/1"},{"op":"remove","at":"0/2"}]}',
@@ -1182,6 +1192,36 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   });
   if (!unknownOp.error || !/unknown op/.test(unknownOp.error)) {
     throw new Error("delete must be refused: " + JSON.stringify(unknownOp));
+  }
+  fs.writeFileSync(
+    path.join(ws, "doc.evg.json"),
+    JSON.stringify({
+      evg: 1,
+      root: {
+        tag: "div",
+        children: [
+          {
+            tag: "div",
+            props: { "class-name": "ui-card" },
+            children: [{ tag: "span", textContent: "TODAY'S SUMMARY" }],
+          },
+        ],
+      },
+    }),
+  );
+  const lastCard = executeTool(ws, "write_file", {
+    path: "ops.json",
+    contents: '{"ops":[{"op":"remove","at":"0/0"}]}',
+  });
+  if (!lastCard.error || !/wipe/.test(lastCard.error)) {
+    throw new Error("removing the last named card must be refused: " + JSON.stringify(lastCard));
+  }
+  const inside = executeTool(ws, "write_file", {
+    path: "ops_header.json",
+    contents: '{"ops":[{"op":"insert","at":"0/0","node":{"tag":"div"}}]}',
+  });
+  if (!inside.error || !/inside the first card/.test(inside.error)) {
+    throw new Error("insert at 0/0 into a card must say insert at 0: " + JSON.stringify(inside));
   }
   fs.writeFileSync(path.join(ws, "add.json"), '{"ops":[]}\n');
   const past = Date.now() - 5_000;
