@@ -25,6 +25,14 @@
 ;   3. order within layers   barycentre sweeps, which is the crossing reduction
 ;   4. assign coordinates    pack each layer, centre it on its neighbours
 ;
+; The seed for (3) is the order the chart was written in, with one exception:
+; a dummy that stands for a reversed (back) edge starts on the LEFT of its
+; layer — the start of the cross axis, which is the top under `LR`. A return
+; path that begins on the right of the column it is returning up crosses the
+; boxes on the way; the same path on the left does not. Mermaid's TB default
+; is the same convention: top to bottom, left to right, the feedback on the
+; left.
+;
 ; Long edges get the real treatment: an edge spanning more than one layer is
 ; replaced, for the duration of the layout, by a chain of DUMMY vertices — one
 ; in each layer it crosses. That is Sugiyama's trick and it buys two things at
@@ -708,6 +716,79 @@ class LayeredLayout {
         return (array_length vLayer)
     }
 
+    ; A dummy that holds a reversed edge's lane through this layer. Those are
+    ; the return paths: they start on the left so they do not cross the column
+    ; they are returning up. Forward long-edge dummies stay on the right of
+    ; the nodes, which is where they have always been.
+    fn reversedDummy:boolean (v:int) {
+        if ((itemAt vNode v) >= 0) {
+            return false
+        }
+        def e:int (itemAt vEdge v)
+        return (this.reversedEdge(e))
+    }
+
+    fn reversedEdge:boolean (e:int) {
+        if (e < 0) {
+            return false
+        }
+        if (e >= (array_length edgeReversed)) {
+            return false
+        }
+        return (itemAt edgeReversed e)
+    }
+
+    ; Per layer: return-path dummies, then real nodes in graph order, then
+    ; the dummies of forward long edges. Barycentre keeps this where the
+    ; keys tie, which they do for a cycle A→B→C→A: B and the dummy of the
+    ; reversed C→A both look at the same neighbour, so the dummy stays left
+    ; and C stands under it rather than to the right of B.
+    fn seedVertexOrder:void () {
+        def lc:int (this.layerCount())
+        def total:int (this.vertexCount())
+        def l:int 0
+        while (l < lc) {
+            def backs:[int]
+            def nodes:[int]
+            def rest:[int]
+            def v:int 0
+            while (v < total) {
+                if ((itemAt vLayer v) == l) {
+                    if ((itemAt vNode v) >= 0) {
+                        push nodes v
+                    } {
+                        if (this.reversedDummy(v)) {
+                            push backs v
+                        } {
+                            push rest v
+                        }
+                    }
+                }
+                v = (v + 1)
+            }
+            def order:int 0
+            def a:int 0
+            while (a < (array_length backs)) {
+                set_at vOrder (itemAt backs a) order
+                order = (order + 1)
+                a = (a + 1)
+            }
+            def b:int 0
+            while (b < (array_length nodes)) {
+                set_at vOrder (itemAt nodes b) order
+                order = (order + 1)
+                b = (b + 1)
+            }
+            def c:int 0
+            while (c < (array_length rest)) {
+                set_at vOrder (itemAt rest c) order
+                order = (order + 1)
+                c = (c + 1)
+            }
+            l = (l + 1)
+        }
+    }
+
     ; Barycentre ordering, now over the vertices rather than the nodes: sort
     ; each layer by the mean position of what it is joined to in the layer
     ; before (then after, alternating). It is the cheapest crossing reduction
@@ -715,21 +796,8 @@ class LayeredLayout {
     ; Running it over the dummies too is the whole point of having them — a
     ; long edge is now something the sweep can move out of the way.
     fn orderVertices:void () {
-        def total:int (this.vertexCount())
+        this.seedVertexOrder()
         def lc:int (this.layerCount())
-        def counters:[int]
-        def i:int 0
-        while (i < lc) {
-            push counters 0
-            i = (i + 1)
-        }
-        def v:int 0
-        while (v < total) {
-            def l:int (itemAt vLayer v)
-            set_at vOrder v (itemAt counters l)
-            set_at counters l ((itemAt counters l) + 1)
-            v = (v + 1)
-        }
         def sweep:int 0
         while (sweep < sweeps) {
             def down:boolean true
@@ -773,8 +841,7 @@ class LayeredLayout {
     }
 
     fn sortLayer:void (layer:int useIncoming:boolean) {
-        def members:[int]
-        def keys:[double]
+        def raw:[int]
         def aside:[int]
         def v:int 0
         while (v < (this.vertexCount())) {
@@ -787,11 +854,23 @@ class LayeredLayout {
                     }
                 }
                 if take {
-                    push members v
-                    push keys (this.barycentre(v useIncoming))
+                    push raw v
                 }
             }
             v = (v + 1)
+        }
+        ; Start from the order the last sweep (or the seed) left, not from
+        ; vertex insertion order. Dummies are created after the nodes, so
+        ; walking the vertex list would put every return path on the right
+        ; of the column it is returning up, and a stable sort on equal
+        ; barycentres would keep it there — undoing the seed and any sweep
+        ; that had already moved it.
+        def members:[int] (this.byOrder(raw))
+        def keys:[double]
+        def ki:int 0
+        while (ki < (array_length members)) {
+            push keys (this.barycentre((itemAt members ki) useIncoming))
+            ki = (ki + 1)
         }
         ; The ones stepping aside go last, in the order they had.
         def sideSorted:[int] (this.byOrder(aside))
@@ -1025,8 +1104,9 @@ class LayeredLayout {
     ; ignores the long edges merely passing through: under its parent, not
     ; halfway between its parent and a line from somewhere else on its way
     ; to somewhere else — so a chain of nodes hangs straight down from
-    ; where it starts. A vertex with nothing on that side wants to stay
-    ; where it is, lightly.
+    ; where it starts. A reversed long edge is that node's own return path,
+    ; not a passer-by, so the node stands toward it. A vertex with nothing
+    ; on that side wants to stay where it is, lightly.
     fn balanceLayers:void () {
         def lc:int (this.layerCount())
         if (lc == 0) {
@@ -1219,6 +1299,14 @@ class LayeredLayout {
                 } {
                     if (isDummy == false) {
                         oc = (oc - mine)
+                        ; A return path ends here: count it with the real
+                        ; neighbours so the node sits on that side rather
+                        ; than on the parent and leaving the path to go
+                        ; around the far side of the column.
+                        if (this.reversedDummy(other)) {
+                            realTotal = (realTotal + oc)
+                            realN = (realN + 1)
+                        }
                     }
                 }
                 total = (total + oc)

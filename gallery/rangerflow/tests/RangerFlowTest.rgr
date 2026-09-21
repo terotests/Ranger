@@ -170,6 +170,7 @@ class RangerFlowTest {
         RangerFlowTest.testMermaidGit(c)
         RangerFlowTest.testMermaidSubgraphEnds(c)
         RangerFlowTest.testCompoundLayout(c)
+        RangerFlowTest.testReturnPathOrder(c)
         RangerFlowTest.testMermaidKanban(c)
         RangerFlowTest.testMermaidQuadrant(c)
         RangerFlowTest.testMermaidPie(c)
@@ -1702,6 +1703,64 @@ class RangerFlowTest {
         l2.run()
         c.ok("cycle broken" ((l2.layerCount()) >= 2))
         c.ok("cycle terminated" ((l2.layerCount()) <= 3))
+
+        ; Children of one node, left to right in the order they were written.
+        def fan (new FlowGraph)
+        fan.node("A" "A" 0.0 0.0)
+        fan.node("B" "B" 0.0 0.0)
+        fan.node("C" "C" 0.0 0.0)
+        fan.connect("A" "B")
+        fan.connect("A" "C")
+        def lf:LayeredLayout (LayeredLayout.of(fan))
+        lf.direction = "TB"
+        lf.run()
+        def fb:FlowNode (fan.nodeById("B"))
+        def fc:FlowNode (fan.nodeById("C"))
+        c.ok("TB children run left to right as written" (fb.x < fc.x))
+
+        ; A return to the top of a TB column sits on the left of it. The
+        ; dummy of the reversed C→A used to be appended after the nodes, so
+        ; C stood to the right of B and the line back to A crossed B.
+        def loop (new FlowGraph)
+        def na:FlowNode (loop.node("A" "A" 0.0 0.0))
+        def nb:FlowNode (loop.node("B" "B" 0.0 0.0))
+        def nc:FlowNode (loop.node("C" "C" 0.0 0.0))
+        na.width = 120.0
+        na.height = 50.0
+        nb.width = 120.0
+        nb.height = 50.0
+        nc.width = 120.0
+        nc.height = 50.0
+        loop.connect("A" "B")
+        loop.connect("B" "C")
+        loop.connect("C" "A")
+        def l3:LayeredLayout (LayeredLayout.of(loop))
+        l3.direction = "TB"
+        l3.balance = true
+        l3.run()
+        c.ok("the return sits below the step it comes from" (nc.y > (nb.y + nb.height)))
+        c.ok(("and to its left, so the path up does not cross it (C.cx=" + ((to_string (nc.centerX())) + " B.cx=" + (to_string (nb.centerX())) + ")")) ((nc.centerX()) < (nb.centerX())))
+
+        ; A forward long edge is still a passer-by: the chain hangs straight
+        ; and the dummy stays on the right of the nodes it passes.
+        def chain (new FlowGraph)
+        def ca:FlowNode (chain.node("A" "A" 0.0 0.0))
+        def cb:FlowNode (chain.node("B" "B" 0.0 0.0))
+        def cc:FlowNode (chain.node("C" "C" 0.0 0.0))
+        ca.width = 120.0
+        ca.height = 50.0
+        cb.width = 120.0
+        cb.height = 50.0
+        cc.width = 120.0
+        cc.height = 50.0
+        chain.connect("A" "B")
+        chain.connect("B" "C")
+        chain.connect("A" "C")
+        def l4:LayeredLayout (LayeredLayout.of(chain))
+        l4.direction = "TB"
+        l4.balance = true
+        l4.run()
+        c.ok("a forward long edge leaves the chain hanging straight" ((fabs ((cc.centerX()) - (cb.centerX()))) < 8.0))
     }
 
     ; ---------------------------------------------------------- edge lanes --
@@ -6489,6 +6548,34 @@ class RangerFlowTest {
         def p1:FlowNode (pg.nodeById("one"))
         def p3:FlowNode (pg.nodeById("three"))
         c.ok("with or without that line, the ring breaks in the same place" (p3.y > p1.y))
+    }
+
+    ; A TB flowchart's default is top-down, left-to-right: children of one
+    ; node run left to right in the order they were written, and a return
+    ; to the top of a column sits on the LEFT of it. Mermaid does this;
+    ; RangerFlow used to put the return's dummy after the nodes, so
+    ; EVGMeasure (the node the cycle feeds back from) stood down and to
+    ; the right of doc.evg.json and the "what is wrong" line crossed it.
+    sfn testReturnPathOrder:void (c:Checker) {
+        c.section("TB return paths sit on the left")
+        def src:string "flowchart TB\n"
+        src = (src + "  subgraph AUTHOR[\"Design time\"]\n")
+        src = (src + "    A[\"Agent / Rave / you\"] -->|EVGPatch ops| DOC[\"doc.evg.json\"]\n")
+        src = (src + "    DOC --> M[\"EVGMeasure\"]\n")
+        src = (src + "    M -.->|\"what is wrong\"| A\n")
+        src = (src + "  end\n")
+        src = (src + "  DOC -->|evg_app init| MACHINE[\"app/machine.json\"]\n")
+        src = (src + "  DOC -->|one copy per state| PAGES[\"app/pages\"]\n")
+        def g:FlowGraph (MermaidFlow.render(src))
+        def a:FlowNode (g.nodeById("A"))
+        def doc:FlowNode (g.nodeById("DOC"))
+        def m:FlowNode (g.nodeById("M"))
+        c.ok("EVGMeasure still sits below the document" (m.y > (doc.y + doc.height)))
+        c.ok(("and to its left, so the return does not cross it (M.cx=" + ((to_string (m.centerX())) + " DOC.cx=" + (to_string (doc.centerX())) + ")")) ((m.centerX()) < (doc.centerX())))
+        c.ok("the agent stays above the document" ((a.y + a.height) < doc.y))
+        def machine:FlowNode (g.nodeById("MACHINE"))
+        def pages:FlowNode (g.nodeById("PAGES"))
+        c.ok("the two copies of the document run left to right as written" (machine.x < pages.x))
     }
 
     sfn testMermaidSubgraphEnds:void (c:Checker) {
