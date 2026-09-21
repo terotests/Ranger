@@ -22,6 +22,11 @@ repository:
 }
 ```
 
+Gallery still path-depends on this vendor copy. Switching those
+`ranger.json` files to a `git` + `subdir: "storm"` dependency (then
+`rgrc install`) waits until Storm is on `terotests/evg` master — a
+clean checkout cannot fetch a package that is only on a PR branch.
+
 Pull a published Storm tree back into this vendor copy:
 
 ```bash
