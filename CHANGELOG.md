@@ -23,6 +23,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Front-page Fast copy drops the old Go/Rust string story.** The bench
+  table already has the numbers after the indexing fix (Go 694 ms, Rust
+  397 ms, strings 4 and 6). The paragraph under it no longer recites what
+  `charAt` used to cost, and the summary no longer lists that as a remaining
+  problem.
+
 - **`-strict-strings` asks whether the unit is observable, and the compiler
   now reports zero.** The first version listed every index whose subject was
   not an ASCII literal — 322 sites, which named the language rather than the

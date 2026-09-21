@@ -346,15 +346,8 @@ Pricing.kt</code></pre>
     </div>
 
     <p class="reveal">
-      All nine printed the same five checksums; a fast wrong answer is not a
-      result. A number that is the compiler's fault rather than the language's
-      gets written down and then fixed, and the <strong>strings</strong>
-      column is the example: <code>charAt</code> used to be O(n) on Go and
-      Rust, which made a string scan quadratic. That column read
-      2&nbsp;178&nbsp;ms on Rust and 143&nbsp;182 on Go — one kernel that was
-      99.5% of Go's total. Both index the UTF-8 byte their string is actually
-      made of now. What is still there: a Ranger map is a plain object on
-      JavaScript, which is why its maps column is the slowest in the table
+      All nine printed the same five checksums. A Ranger map is a plain object
+      on JavaScript, which is why its maps column is the slowest in the table
       where PHP's is the fastest.
     </p>
     <p class="reveal">
@@ -625,7 +618,7 @@ Pricing.kt</code></pre>
           <div>
             <p class="label">What works well</p>
             <ul class="quality__list">
-            <li>Fastest of every target measured: 260&nbsp;ms against JavaScript's 1&nbsp;076.</li>
+            <li>Fastest of every target measured: 265&nbsp;ms against JavaScript's 1&nbsp;040.</li>
             <li>A <code>record</code> the sharing analysis proves nothing aliases is a value, so <code>manhattan(const Point&amp; p)</code> is the signature.</li>
             <li>A Ranger <code>Enum</code> is an <code>enum class</code>, and a <code>shape</code> is a <code>std::variant</code>.</li>
             <li>A loop whose body ignores its index is <code>for (const T&amp; v : xs)</code>.</li>
@@ -874,8 +867,7 @@ Pricing.kt</code></pre>
           the thirteen targets.</li>
           <li>There is no portable <code>Result</code> / <code>(T, error)</code>
           / <code>throws</code> type.</li>
-          <li><code>charAt</code> is O(n) on Go and Rust, and a Ranger map is a
-          plain object on JavaScript.</li>
+          <li>A Ranger map is a plain object on JavaScript.</li>
           <li>C++ and Rust read an ownership analysis Go does not run at
           all.</li>
         </ul>
