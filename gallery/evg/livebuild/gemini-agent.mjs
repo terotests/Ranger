@@ -11,11 +11,15 @@
  *   GOOGLE_API_KEY is accepted if GEMINI_API_KEY is empty.
  *   EVG_GEMINI_MODEL selects the Flash id (default gemini-3.8-flash).
  *   EVG_GEMINI_MAX_TURNS is generateContent rounds per Follow-up (default 64).
+ *   EVG_GEMINI_SANDBOX=auto|docker|host — `run` goes in a node-slim
+ *   container (no python, no tesseract) when Docker is up; allowlist
+ *   always applies.
  *
  * Stdout is the same `stream-json` shape Cursor already emits, so the
  * page's thinking panel and spend line work without a second parser.
  */
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -24,8 +28,11 @@ export const GEMINI_HISTORY = ".gemini-history.json";
 export const DEFAULT_GEMINI_MODEL = "gemini-3.8-flash";
 export const DEFAULT_GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta";
 
-const TOOL_OUT_CAP = 24_000;
+export const DEFAULT_DOCKER_IMAGE = "node:22-bookworm-slim";
+const here = path.dirname(fileURLToPath(import.meta.url));
+export const repoRoot = path.resolve(here, "../../..");
 export const DEFAULT_MAX_TURNS = 64;
+const TOOL_OUT_CAP = 24_000;
 const DEFAULT_HISTORY_CHARS = 350_000;
 const RUN_TIMEOUT_MS = 90_000;
 
@@ -47,11 +54,124 @@ export function geminiBase(env = process.env) {
   return raw.replace(/\/$/, "") || DEFAULT_GEMINI_BASE;
 }
 
+export function geminiDockerImage(env = process.env) {
+  return String(env.EVG_GEMINI_DOCKER_IMAGE || DEFAULT_DOCKER_IMAGE).trim() || DEFAULT_DOCKER_IMAGE;
+}
+
+let dockerMemo;
+export function dockerRunning(env = process.env) {
+  if (env.EVG_GEMINI_DOCKER === "0") return false;
+  if (dockerMemo !== undefined) return dockerMemo;
+  const bin = env.DOCKER_BIN || "docker";
+  try {
+    const r = spawnSync(bin, ["info"], {
+      encoding: "utf8",
+      timeout: 2500,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    dockerMemo = r.status === 0;
+  } catch {
+    dockerMemo = false;
+  }
+  return dockerMemo;
+}
+
+export function resetDockerMemo() {
+  dockerMemo = undefined;
+}
+
+/** host | docker | docker-missing */
+export function geminiSandbox(env = process.env) {
+  const v = String(env.EVG_GEMINI_SANDBOX || "auto").trim().toLowerCase();
+  if (v === "host" || v === "off" || v === "0") return "host";
+  if (v === "docker") return dockerRunning(env) ? "docker" : "docker-missing";
+  return dockerRunning(env) ? "docker" : "host";
+}
+
+export function dockerRunArgs(workspace, command, env = process.env) {
+  const image = geminiDockerImage(env);
+  const root = env.EVG_GEMINI_REPO || repoRoot;
+  const args = [
+    "run",
+    "--rm",
+    "--network",
+    "none",
+    "--read-only",
+    "--tmpfs",
+    "/tmp:rw,noexec,nosuid,size=64m",
+    "--cap-drop",
+    "ALL",
+    "--security-opt",
+    "no-new-privileges",
+    "-v",
+    `${workspace}:${workspace}`,
+    "-v",
+    `${root}:${root}:ro`,
+    "-w",
+    workspace,
+  ];
+  try {
+    const { uid, gid } = os.userInfo();
+    if (Number.isInteger(uid) && uid >= 0 && Number.isInteger(gid) && gid >= 0) {
+      args.push("--user", `${uid}:${gid}`);
+    }
+  } catch {
+    /* Windows */
+  }
+  args.push(image, "sh", "-c", command);
+  return args;
+}
+
+function spawnRun(workspace, command, env = process.env) {
+  const childEnv = { ...env };
+  delete childEnv.GEMINI_API_KEY;
+  delete childEnv.GOOGLE_API_KEY;
+  const box = geminiSandbox(env);
+  if (box === "docker-missing") {
+    return {
+      error: "EVG_GEMINI_SANDBOX=docker but docker is not running. Install Docker, or set EVG_GEMINI_SANDBOX=host.",
+    };
+  }
+  if (box === "docker") {
+    const bin = env.DOCKER_BIN || "docker";
+    const r = spawnSync(bin, dockerRunArgs(workspace, command, env), {
+      encoding: "utf8",
+      timeout: RUN_TIMEOUT_MS,
+      maxBuffer: 2 * 1024 * 1024,
+      env: childEnv,
+    });
+    if (r.error && /ENOENT/.test(String(r.error))) {
+      return { error: "docker is not on PATH" };
+    }
+    return {
+      ok: r.status === 0,
+      status: r.status,
+      stdout: clip(r.stdout || ""),
+      stderr: clip(r.stderr || ""),
+      sandbox: "docker",
+    };
+  }
+  const r = spawnSync("sh", ["-c", command], {
+    cwd: workspace,
+    encoding: "utf8",
+    timeout: RUN_TIMEOUT_MS,
+    maxBuffer: 2 * 1024 * 1024,
+    env: childEnv,
+  });
+  return {
+    ok: r.status === 0,
+    status: r.status,
+    stdout: clip(r.stdout || ""),
+    stderr: clip(r.stderr || ""),
+    sandbox: "host",
+  };
+}
+
 export const GEMINI_TOOLS = [
   {
     name: "run",
     description:
-      "Run a shell command in the workspace. cwd is this folder. Use the tools already there: ./evg-agent, ./evg-ui, ./evg-app, ./evg-image. Example: ./evg-agent outline doc.evg.json",
+      "Run ONE workspace tool. Only ./evg-agent, ./evg-ui, ./evg-app, ./evg-image are allowed — no python, no tesseract, no git, no /tmp. Example: ./evg-agent outline doc.evg.json",
     parameters: {
       type: "object",
       properties: {
@@ -92,13 +212,15 @@ export const GEMINI_TOOLS = [
 export function geminiSystemPrompt() {
   return `You are a local agent editing a phone UI in this folder.
 
-doc.evg.json is the screen. TASK.md is the ask (also in the user message). AGENTS.md is the full guide — read it before the first patch.
+doc.evg.json is the screen. TASK.md is the ask (also in the user message). AGENTS.md is the full guide.
 
 The loop:
 1. ./evg-agent outline doc.evg.json
 2. write_file an ops JSON, then ./evg-agent patch doc.evg.json ops.json
 3. ./evg-agent measure doc.evg.json --width=390 --height=844
 Fix findings. count:0 is the goal. After a save, layout.json has the same numbers.
+
+run may only invoke ./evg-agent, ./evg-ui, ./evg-app, ./evg-image. Use read_file and write_file for everything else. Do not python, tesseract, sips, git, or write /tmp. Do not OCR a screenshot — the document and measure are the picture.
 
 Stay in this folder. Edit the live document in place. Do not replace it with a blank page unless the task says to start over. When the screen is right, stop — do not keep calling tools.`;
 }
@@ -130,28 +252,66 @@ export function argsOf(fc) {
   return a && typeof a === "object" && !Array.isArray(a) ? a : {};
 }
 
-export function executeTool(workspace, name, rawArgs) {
+export const RUN_BINS = ["./evg-agent", "./evg-ui", "./evg-app", "./evg-image"];
+
+/**
+ * `run` is not a shell. Flash will OCR /tmp, rewrite BMP headers and call
+ * tesseract if you let it — those are host processes, and they are how a
+ * "bounded workspace" stops being bounded. Only the four workspace tools
+ * are allowed; read_file / write_file cover the rest.
+ */
+export function denyRun(command) {
+  const raw = String(command || "").trim();
+  if (!raw) return "run needs a command";
+  const chunks = raw.split(/\s*(?:&&|\|\||;|\n)\s*/);
+  for (const chunk of chunks) {
+    const piece0 = chunk.trim();
+    if (!piece0) continue;
+    if (piece0.includes("|")) {
+      return "run cannot pipe — call one ./evg-* command at a time";
+    }
+    let abs = false;
+    let dots = false;
+    let piece = piece0
+      .replace(/(?:^|\s)\d*(?:>>?|<<?)\s*\/dev\/null/g, " ")
+      .replace(/(?:^|\s)\d*>&?\d*/g, " ")
+      .replace(/(?:^|\s)(?:>>?|<<?)\s*(\S+)/g, (_, file) => {
+        if (file === "/dev/null") return " ";
+        if (file.startsWith("/")) {
+          abs = true;
+          return " ";
+        }
+        if (file.includes("..")) {
+          dots = true;
+          return " ";
+        }
+        return " ";
+      });
+    if (abs) return "run cannot redirect outside the workspace";
+    if (dots) return "run cannot use .. in a path";
+    piece = piece.trim();
+    const tok = piece.split(/\s+/)[0] || "";
+    if (!RUN_BINS.includes(tok)) {
+      return `run only accepts ${RUN_BINS.join(", ")}. Not: ${tok || raw.slice(0, 80)}`;
+    }
+    const rest = piece.slice(tok.length);
+    if (/\.\.(\/|$)/.test(rest)) return "run cannot use .. in a path";
+    if (/(?:^|[\s='"])\/(?!dev\/null)/.test(rest)) {
+      return "run cannot take absolute paths — stay in this folder";
+    }
+  }
+  return "";
+}
+
+export function executeTool(workspace, name, rawArgs, env = process.env) {
   const args = argsOf({ args: rawArgs });
   try {
     if (name === "run") {
       const command = String(args.command || "").trim();
       if (!command) return { error: "run needs a command" };
-      const env = { ...process.env };
-      delete env.GEMINI_API_KEY;
-      delete env.GOOGLE_API_KEY;
-      const r = spawnSync("sh", ["-c", command], {
-        cwd: workspace,
-        encoding: "utf8",
-        timeout: RUN_TIMEOUT_MS,
-        maxBuffer: 2 * 1024 * 1024,
-        env,
-      });
-      return {
-        ok: r.status === 0,
-        status: r.status,
-        stdout: clip(r.stdout || ""),
-        stderr: clip(r.stderr || ""),
-      };
+      const blocked = denyRun(command);
+      if (blocked) return { error: blocked };
+      return spawnRun(workspace, command, env);
     }
     if (name === "read_file") {
       const file = resolveInWorkspace(workspace, args.path);
@@ -391,7 +551,7 @@ export async function geminiLoop({
         subtype: "started",
         tool_call: { shellToolCall: { args: { command: shown } } },
       });
-      const result = executeTool(workspace, name, args);
+      const result = executeTool(workspace, name, args, env);
       const fr = { name, response: result };
       if (fc.id) fr.id = fc.id;
       responses.push({ functionResponse: fr });

@@ -97,6 +97,7 @@ To drive it with **Gemini Flash** over the network (no Cursor CLI):
 export GEMINI_API_KEY=…              # https://aistudio.google.com/apikey
 # export EVG_GEMINI_MODEL=gemini-3.8-flash   # default; any Flash id
 # export EVG_GEMINI_MAX_TURNS=64             # generateContent rounds per Follow-up
+# export EVG_GEMINI_SANDBOX=docker           # tools in node-slim; `host` skips Docker
 npm run livebuild:withgemini
 # open http://127.0.0.1:8765/?agent=gemini
 ```
@@ -108,6 +109,12 @@ the key is set; withgemini only forces it on. Follow-up replays the Gemini
 conversation held in the session. Start-over chips drop it. One Follow-up
 stops after `EVG_GEMINI_MAX_TURNS` model rounds (64 unless you raise it) —
 that is the message `Gemini hit EVG_GEMINI_MAX_TURNS (N) without finishing`.
+
+`run` is not a host shell. Only `./evg-agent`, `./evg-ui`, `./evg-app` and
+`./evg-image` are accepted, so Flash cannot OCR `/tmp` or call `tesseract`.
+If Docker is running, those four also execute inside `node:22-bookworm-slim`
+(`--network none`, repo mounted read-only). Force it with
+`EVG_GEMINI_SANDBOX=docker`, or stay on the host with `=host`.
 
 Without a browser:
 
@@ -494,6 +501,7 @@ one, so the UI can say "+12" without walking the list.
 | `mock-agent.mjs` | a local CLI that writes `doc.evg.json` — no model |
 | `self-agent.mjs` | stays open while this cloud agent patches the tree |
 | `gemini-agent.mjs` | Google Gemini Flash: REST + workspace tools + conversation history |
+| `Dockerfile.gemini` | node-slim image for `run` — no python, no tesseract |
 | `withcursor.mjs` | `npm run livebuild:withcursor` — local Agent CLI + login check |
 | `withgemini.mjs` | `npm run livebuild:withgemini` — `GEMINI_API_KEY` check, Gemini selected |
 | `/attach` in `serve.mjs` | a picture in, traced; `lib/evg/tools/evg_image_tool.rgr` does the tracing |

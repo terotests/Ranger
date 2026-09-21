@@ -18,7 +18,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { geminiBase, geminiKey, geminiMaxTurns, geminiModel } from "./gemini-agent.mjs";
+import { geminiBase, geminiKey, geminiMaxTurns, geminiModel, geminiSandbox } from "./gemini-agent.mjs";
 import { root } from "./agents.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -37,6 +37,7 @@ GOOGLE_API_KEY is accepted if GEMINI_API_KEY is empty.
 Optional:
   export EVG_GEMINI_MODEL=gemini-3.8-flash
   export EVG_GEMINI_MAX_TURNS=64          # generateContent rounds per Follow-up
+  export EVG_GEMINI_SANDBOX=docker        # run tools in node-slim (no python/tesseract)
 
 Then:
   npm run livebuild:withgemini
@@ -75,6 +76,7 @@ function report() {
   process.stderr.write(`Gemini key:  ${geminiKey() ? "yes" : "no"}\n`);
   process.stderr.write(`Model:       ${geminiModel()}\n`);
   process.stderr.write(`Max turns:   ${geminiMaxTurns()}\n`);
+  process.stderr.write(`Sandbox:     ${geminiSandbox()}\n`);
   process.stderr.write(`Endpoint:    ${geminiBase()}\n`);
 }
 

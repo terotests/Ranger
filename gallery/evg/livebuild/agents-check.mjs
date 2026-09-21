@@ -15,6 +15,8 @@ import {
   executeTool,
   loadHistory,
   GEMINI_HISTORY,
+  denyRun,
+  dockerRunArgs,
 } from "./gemini-agent.mjs";
 import http from "node:http";
 
@@ -613,11 +615,17 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
 {
   const savedG = process.env.GEMINI_API_KEY;
   const savedO = process.env.GOOGLE_API_KEY;
+  const savedBox = process.env.EVG_GEMINI_SANDBOX;
+  process.env.EVG_GEMINI_SANDBOX = "host";
   const restoreKeys = () => {
     if (savedG === undefined) delete process.env.GEMINI_API_KEY;
     else process.env.GEMINI_API_KEY = savedG;
     if (savedO === undefined) delete process.env.GOOGLE_API_KEY;
     else process.env.GOOGLE_API_KEY = savedO;
+  };
+  const restoreBox = () => {
+    if (savedBox === undefined) delete process.env.EVG_GEMINI_SANDBOX;
+    else process.env.EVG_GEMINI_SANDBOX = savedBox;
   };
 
   delete process.env.GEMINI_API_KEY;
@@ -683,6 +691,43 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   if (!escaped.error || !/leaves the workspace/.test(escaped.error)) {
     throw new Error("read_file must refuse a path that leaves the workspace: " + JSON.stringify(escaped));
   }
+  for (const [cmd, why] of [
+    ["python3 -c 'open(\"/tmp/x\",\"w\")'", "python"],
+    ["tesseract ./r0.png stdout --psm 6", "tesseract"],
+    ["sips -s format png /tmp/right_0.bmp --out ./r0.png", "sips"],
+    ["echo hi > /tmp/x", "echo"],
+    ["./evg-agent outline doc.evg.json && python3 -c pass", "python after &&"],
+  ]) {
+    const blocked = denyRun(cmd);
+    if (!blocked) throw new Error("denyRun let through: " + cmd);
+    const ran = executeTool(ws, "run", { command: cmd });
+    if (!ran.error) throw new Error("run executed a host command: " + cmd);
+  }
+  if (denyRun("./evg-agent outline doc.evg.json")) {
+    throw new Error("denyRun blocked the tool it is for: " + denyRun("./evg-agent outline doc.evg.json"));
+  }
+  if (denyRun("./evg-ui add switch --into doc.evg.json > add.json")) {
+    throw new Error("denyRun blocked a relative redirect");
+  }
+  const dargs = dockerRunArgs("/tmp/evg-ws", "./evg-agent outline doc.evg.json", {
+    EVG_GEMINI_DOCKER_IMAGE: "node:22-bookworm-slim",
+    EVG_GEMINI_REPO: "/opt/ranger",
+  });
+  const djoin = dargs.join(" ");
+  if (!dargs.includes("--network") || !djoin.includes("none")) {
+    throw new Error("the container must have no network: " + djoin);
+  }
+  if (!dargs.includes("--read-only")) throw new Error("the container rootfs must be read-only");
+  if (!djoin.includes("/opt/ranger:/opt/ranger:ro")) {
+    throw new Error("the repo must be read-only in the container: " + djoin);
+  }
+  if (dargs.includes("python") || djoin.includes("tesseract")) {
+    throw new Error("the sandbox image is node, not an OCR box");
+  }
+  if (dargs.at(-1) !== "./evg-agent outline doc.evg.json") {
+    throw new Error("docker argv lost the command: " + djoin);
+  }
+  console.log("  gemini run  python/tesseract/sips refused; docker has no net, repo ro");
 
   const requests = [];
   let calls = 0;
@@ -711,7 +756,7 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
                   parts: [
                     { text: "I will stamp the folder." },
                     {
-                      functionCall: { name: "run", args: { command: "echo gemini-ok > stamp.txt" } },
+                      functionCall: { name: "write_file", args: { path: "stamp.txt", contents: "gemini-ok\n" } },
                       thoughtSignature: "sig-keep",
                     },
                   ],
@@ -862,7 +907,7 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
                 {
                   content: {
                     role: "model",
-                    parts: [{ text: "Looking at the phone." }, { functionCall: { name: "run", args: { command: "echo wired > gemini-wired.txt" } } }],
+                    parts: [{ text: "Looking at the phone." }, { functionCall: { name: "write_file", args: { path: "gemini-wired.txt", contents: "wired\n" } } }],
                   },
                   finishReason: "STOP",
                 },
