@@ -97,6 +97,7 @@ To drive it with **Gemini Flash** over the network (no Cursor CLI):
 export GEMINI_API_KEY=…              # https://aistudio.google.com/apikey
 # export EVG_GEMINI_MODEL=gemini-3.8-flash   # default; any Flash id
 # export EVG_GEMINI_MAX_TURNS=64             # generateContent rounds per Follow-up
+# export EVG_GEMINI_MAX_OUTPUT=65536         # response tokens (thoughts count)
 # export EVG_GEMINI_SANDBOX=docker           # opt-in: same argv in node-slim
 npm run livebuild:withgemini
 # open http://127.0.0.1:8765/?agent=gemini
@@ -112,7 +113,9 @@ that is the message `Gemini hit EVG_GEMINI_MAX_TURNS (N) without finishing`.
 A thought that lists the next cards with no `functionCall` is not treated
 as done. The host nudges (`A plan is not a patch — ONE card`) and the
 next generateContent uses `toolConfig.functionCallingConfig.mode=ANY`
-so Gemini must call a tool. A whole-page `ops.json` hits the output cap
+so Gemini must call a tool. `maxOutputTokens` defaults to **65536**
+(Gemini 3 Flash’s output cap; thoughts count). Override with
+`EVG_GEMINI_MAX_OUTPUT`. A whole-page `ops.json` still hits that cap
 and never becomes a `functionCall`; the prompt asks for one card under
 2000 bytes. If the retries still emit no tool, the Follow-up errors
 instead of saying it finished. Several screens need `set-id`

@@ -114,6 +114,8 @@ export const DEFAULT_DOCKER_IMAGE = "node:22-bookworm-slim";
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const repoRoot = path.resolve(here, "../../..");
 export const DEFAULT_MAX_TURNS = 64;
+/** Gemini 3 Flash output cap (tokens, thoughts included). Override EVG_GEMINI_MAX_OUTPUT. */
+export const DEFAULT_GEMINI_MAX_OUTPUT = 65_536;
 /** Paid Gemini 3.8 Flash (Developer API), USD per 1M tokens through 2026-12-31. */
 export const GEMINI_FLASH_INPUT_PER_M = 0.75;
 export const GEMINI_FLASH_OUTPUT_PER_M = 3.75;
@@ -2125,9 +2127,11 @@ export async function geminiGenerate({
 export function requestBody(contents, env = process.env, extra = {}) {
   const gen = {
     temperature: 0.4,
-    maxOutputTokens: Number(env.EVG_GEMINI_MAX_OUTPUT || extra.maxOutputTokens || 16384),
+    maxOutputTokens: Number(env.EVG_GEMINI_MAX_OUTPUT || extra.maxOutputTokens || DEFAULT_GEMINI_MAX_OUTPUT),
   };
-  if (!Number.isFinite(gen.maxOutputTokens) || gen.maxOutputTokens < 1024) gen.maxOutputTokens = 16384;
+  if (!Number.isFinite(gen.maxOutputTokens) || gen.maxOutputTokens < 1024) {
+    gen.maxOutputTokens = DEFAULT_GEMINI_MAX_OUTPUT;
+  }
   const think = String(env.EVG_GEMINI_THINKING || "").trim();
   if (think === "0") gen.thinkingConfig = { thinkingBudget: 0 };
   else {

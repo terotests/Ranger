@@ -21,7 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ui-tabbar`) plus the add/patch recipe. `add card` without `--row` is
   refused. A picture Follow-up that outlines/queries/reads the SVG twice
   is stopped on the third look. The first-turn SVG, `read_file`, and
-  `/build` POST body caps are 64k characters (were 8k).
+  `/build` POST body caps are 64k characters (were 8k). Gemini
+  `maxOutputTokens` defaults to 65536 (was 16384); override with
+  `EVG_GEMINI_MAX_OUTPUT`.
 
 ### Added
 

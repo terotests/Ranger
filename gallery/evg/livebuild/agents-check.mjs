@@ -56,6 +56,8 @@ import {
   SVG_BRIEF_CAP,
   FILE_READ_CAP,
   pictureMediaParts,
+  requestBody,
+  DEFAULT_GEMINI_MAX_OUTPUT,
 } from "./gemini-agent.mjs";
 import http from "node:http";
 
@@ -1474,6 +1476,14 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   });
   if (!/msgs/.test(formatPayloadStats(sent)) || sent.msgs !== folded.length) {
     throw new Error("payloadStats should describe the request: " + JSON.stringify(sent));
+  }
+  const outBody = requestBody([{ role: "user", parts: [{ text: "x" }] }], {});
+  if (outBody.generationConfig.maxOutputTokens !== DEFAULT_GEMINI_MAX_OUTPUT || DEFAULT_GEMINI_MAX_OUTPUT < 65_536) {
+    throw new Error("Gemini maxOutputTokens should be 64k tokens: " + outBody.generationConfig.maxOutputTokens);
+  }
+  const outLow = requestBody([{ role: "user", parts: [{ text: "x" }] }], { EVG_GEMINI_MAX_OUTPUT: "2048" });
+  if (outLow.generationConfig.maxOutputTokens !== 2048) {
+    throw new Error("EVG_GEMINI_MAX_OUTPUT should win: " + outLow.generationConfig.maxOutputTokens);
   }
   const prepared = prepareContents(longHist, { EVG_GEMINI_HISTORY_KEEP: "6" });
   if (prepared.length > 10) throw new Error("prepareContents should compact: " + prepared.length);
