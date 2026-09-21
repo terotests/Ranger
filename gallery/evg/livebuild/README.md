@@ -117,7 +117,13 @@ and never becomes a `functionCall`; the prompt asks for one card under
 2000 bytes. If the retries still emit no tool, the Follow-up errors
 instead of saying it finished. Several screens need `set-id`
 (`nav.orders`) then `./evg-app init` / `check` — `count:7` now
-includes the missing ids, not only the number.
+includes the missing ids, not only the number. `query` / `measure --boxes`
+used to come back as `count:1` and hide the match props and the
+`[x,y,w,h]` box; a 1px tab-bar overflow then burned the turn cap on
+sibling queries. Those replies now carry the match, the box, and
+`bottomFree`. `set-prop style=` is answered with one CSS name
+(`padding-top`, `height`), a bare `./evg-agent` is refused, and
+`ops.json` must be `{"ops":[…]}`.
 
 Each generateContent reply carries `usageMetadata`. The withgemini console
 prints that per turn and for the whole Follow-up — uncached input, cache

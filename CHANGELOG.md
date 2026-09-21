@@ -78,6 +78,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `read_file` of the document; tool results are now capped, a fat
   `.evg.json` is kept on disk, old turns fold into a snapshot, and the
   console prints `send N chars` per call.
+  `query` / `measure --boxes` now keep the match props and the
+  `[x,y,w,h]` box instead of collapsing to `count:1` — that is why a
+  1px tab-bar overflow burned the 64-turn cap. `set-prop style=` is
+  hinted as one CSS name, a bare `./evg-agent` is refused, and a
+  file that is not `{"ops":[…]}` is rejected at write_file.
   `npm run livebuild:withgemini` checks the key and opens the
   page with Gemini selected. The orchestrator suite drives the loop against
   a fake fetch, so CI never spends Google credits.

@@ -190,7 +190,7 @@ export const GEMINI_TOOLS = [
   {
     name: "run",
     description:
-      "Run ONE workspace tool as argv, not a shell. Only ./evg-agent, ./evg-ui, ./evg-app, ./evg-image. Example: ./evg-agent outline doc.evg.json",
+      "Run ONE workspace tool as argv, not a shell. Only ./evg-agent, ./evg-ui, ./evg-app, ./evg-image. Example: ./evg-agent outline doc.evg.json. Never ./evg-agent with no verb.",
     parameters: {
       type: "object",
       properties: {
@@ -291,6 +291,8 @@ Several screens (Orders / Analytics / Settings) is an app, not hidden divs:
 2. ./evg-app init app --from=doc.evg.json  (or Run on the page). Then patch app/pages/<state>.evg.json so the pages differ. ./evg-app check app --width=W --height=H. count:N with missing nav.* means the tabs have no ids yet.
 3. Do not rewrite a whole page tree. Patch one card on that page. The live phone is still doc.evg.json until Run.
 
+set-prop is one CSS name (height, padding-top, gap, background-color), not style= and not a shorthand blob. A 1px overflow is one set-prop on the finding path, then measure — do not query every sibling. outline --at=PATH for one node; query/measure replies already include the match props and boxes [x,y,w,h]. ops.json is {"ops":[...]} — a bare op object or [] is "no ops in that file".
+
 Labels: one span per phrase, spaces between words ("Acme 360", not "Acme360"). Do not insert the same text twice — two overlapping spans paint as Revenuee / monthlyy.
 
 A thought is not a patch. One card per write_file (under 2000 bytes). A whole-page ops.json is cut off before the functionCall and the host sees no tool. Do not paste JSON in the thought — ./evg-ui add card is the unit. If you still have a header, KPI row, or body column to add, call a tool in that turn. Stopping after "Section 3 will be…" leaves a half screen. Header plus four KPI cards is not the dashboard — keep adding until outline names the remaining cards (products, opportunities, feed).
@@ -376,6 +378,8 @@ export function slimModelThoughts(contents, cap = THOUGHT_SLIM_CAP) {
 /**
  * What we put back into the prompt after a tool runs. The live document
  * stays on disk; the model gets a line, not a 13k tree or an 8k outline.
+ * query/measure JSON is compacted by field (matches, boxes, findings) so a
+ * 1px overflow still names the box instead of dying as count:1.
  */
 export function compactToolResult(name, rawArgs, result) {
   if (!result || result.error) return result;
@@ -396,6 +400,10 @@ export function compactToolResult(name, rawArgs, result) {
   if (name === "run") {
     const stdout = String(result.stdout || "");
     const stderr = String(result.stderr || "");
+    const j = firstJsonObject(stdout);
+    if (j && typeof j === "object") {
+      return compactRunJson(j, result);
+    }
     if (stdout.length > TOOL_RESULT_CAP || /^0\s+\S+/.test(stdout)) {
       return {
         ok: result.ok,
@@ -406,6 +414,105 @@ export function compactToolResult(name, rawArgs, result) {
     }
   }
   return result;
+}
+
+const MATCH_PROP_PREFER = [
+  "height",
+  "width",
+  "padding-top",
+  "padding-right",
+  "padding-bottom",
+  "padding-left",
+  "gap",
+  "display",
+  "flex-direction",
+  "class-name",
+  "background-color",
+  "border-radius",
+  "justify-content",
+  "align-items",
+  "margin-top",
+];
+
+function pickMatchProps(props) {
+  if (!props || typeof props !== "object") return {};
+  const out = {};
+  for (const k of MATCH_PROP_PREFER) {
+    if (props[k] != null) out[k] = props[k];
+  }
+  for (const k of Object.keys(props)) {
+    if (out[k] != null) continue;
+    if (Object.keys(out).length >= 16) break;
+    out[k] = props[k];
+  }
+  return out;
+}
+
+function compactMatch(m) {
+  if (!m || typeof m !== "object") return m;
+  return { at: m.at, tag: m.tag, children: m.children, props: pickMatchProps(m.props) };
+}
+
+function compactBox(b) {
+  if (!b || typeof b !== "object") return b;
+  const o = { at: b.at, x: b.x, y: b.y, w: b.w, h: b.h };
+  if (b.gapNext != null) o.gapNext = b.gapNext;
+  if (b.tag) o.tag = b.tag;
+  return o;
+}
+
+function findingPaths(findings) {
+  const wanted = new Set();
+  for (const f of findings || []) {
+    const m = String(f).match(/\b(\d+(?:\/[\w:]+)*)/);
+    if (m) wanted.add(m[1]);
+  }
+  return wanted;
+}
+
+function compactRunJson(j, result) {
+  const out = { ok: result.ok, status: result.status };
+  if (j.error) out.error = j.error;
+  if (j.count != null) out.count = j.count;
+  if (j.bottomFree != null) out.bottomFree = j.bottomFree;
+  if (j.width != null) out.width = j.width;
+  if (j.height != null) out.height = j.height;
+  if (j.applied != null) out.applied = j.applied;
+  if (j.next) out.next = j.next;
+  if (Array.isArray(j.findings) && j.findings.length) out.findings = j.findings.slice(0, 6);
+  if (Array.isArray(j.missing) && j.missing.length) out.missing = j.missing.slice(0, 8);
+  if (Array.isArray(j.rejected) && j.rejected.length) out.rejected = j.rejected.slice(0, 3);
+  if (Array.isArray(j.tight) && j.tight.length) out.tight = j.tight.slice(0, 4);
+  if (Array.isArray(j.align) && j.align.length) out.align = j.align.slice(0, 3);
+  if (Array.isArray(j.matches) && j.matches.length) {
+    out.matches = j.matches.slice(0, 6).map(compactMatch);
+  }
+  if (Array.isArray(j.boxes) && j.boxes.length) {
+    const wanted = findingPaths(j.findings);
+    const picked = [];
+    const seen = new Set();
+    for (const b of j.boxes) {
+      if (!b || !wanted.has(b.at) || seen.has(b.at)) continue;
+      picked.push(compactBox(b));
+      seen.add(b.at);
+    }
+    for (const b of j.boxes) {
+      if (picked.length >= 12) break;
+      if (!b || seen.has(b.at)) continue;
+      picked.push(compactBox(b));
+      seen.add(b.at);
+    }
+    out.boxes = picked;
+  }
+  if (j.layout && typeof j.layout === "object") {
+    out.layout = {
+      count: j.layout.count,
+      bottomFree: j.layout.bottomFree,
+      findings: Array.isArray(j.layout.findings) ? j.layout.findings.slice(0, 4) : undefined,
+    };
+  }
+  if (result.stderr) out.stderr = clip(result.stderr, 400);
+  return out;
 }
 
 function snapshotDropped(dropped) {
@@ -773,6 +880,15 @@ export function parseRun(command) {
   if (!RUN_BINS.includes(bin)) {
     return { error: `run only accepts ${RUN_BINS.join(", ")}. Not: ${bin}` };
   }
+  if (bin === "./evg-agent") {
+    const verb = argv[0] || "";
+    if (!verb || verb.startsWith("-")) {
+      return {
+        error:
+          "./evg-agent needs a verb — outline doc.evg.json, query, patch, or measure. Bare usage is not a patch.",
+      };
+    }
+  }
   if (stdoutTo) {
     if (stdoutTo.startsWith("/") || stdoutTo.includes("..")) {
       return { error: "redirect must be a relative file in the workspace" };
@@ -822,6 +938,8 @@ export function executeTool(workspace, name, rawArgs, env = process.env) {
       const blocked = denyWrite(args.path);
       if (blocked) return { error: blocked };
       const contents = String(args.contents ?? "");
+      const opsErr = opsWriteError(String(args.path || ""), contents);
+      if (opsErr) return { error: opsErr };
       if (/"op"\s*:/.test(contents) && contents.length > OPS_WRITE_CAP) {
         return {
           error: `ops file is ${contents.length} bytes — one card per write_file (under ${OPS_WRITE_CAP}). Split it and patch this card first.`,
@@ -903,13 +1021,21 @@ function firstJsonObject(text) {
   }
 }
 
-/** count:7 hid "missing nav.orders" and "pages are copies" — that is why subpages stalled. */
+/** A query/measure JSON that only said count:1 hid the match and the box. */
 export function summarizeRunReply(out, result) {
   const raw = String(out || "");
   const j = firstJsonObject(result && result.stdout ? result.stdout : raw);
   if (j && typeof j === "object") {
+    if (j.error) {
+      let err = String(j.error);
+      if (/no ops in that file/i.test(err)) {
+        err += ' — write_file {"ops":[{"op":"set-prop","at":"0/5","prop":"height","value":"48px"}]}';
+      }
+      return clipOneLine(hintPatchReject(err), 520);
+    }
     const bits = [];
     if (j.count != null) bits.push(`count:${j.count}`);
+    if (j.bottomFree != null) bits.push(`bottomFree:${j.bottomFree}`);
     if (j.ok === false && Array.isArray(j.rejected) && j.rejected.length) {
       bits.push(String(j.rejected[0]));
     }
@@ -920,21 +1046,82 @@ export function summarizeRunReply(out, result) {
       bits.push(j.findings.slice(0, 3).join("; "));
     }
     if (j.next) bits.push(String(j.next));
-    if (bits.length) {
-      let line = bits.join(" — ");
-      if (/property "id" is not patchable|id is not patchable/i.test(line)) {
-        line += ' — id is set-id, not set-prop: {"op":"set-id","at":"0/6/0","value":"nav.home"}';
+    if (Array.isArray(j.matches) && j.matches.length) {
+      bits.push(j.matches.slice(0, 4).map(formatMatchLine).filter(Boolean).join("; "));
+    }
+    if (Array.isArray(j.boxes) && j.boxes.length) {
+      const wanted = findingPaths(j.findings);
+      const ordered = [
+        ...j.boxes.filter((b) => b && wanted.has(b.at)),
+        ...j.boxes.filter((b) => b && !wanted.has(b.at)),
+      ];
+      bits.push(ordered.slice(0, 6).map(formatBoxLine).filter(Boolean).join("; "));
+    }
+    if (j.layout && typeof j.layout === "object") {
+      if (j.layout.bottomFree != null && j.bottomFree == null) bits.push(`bottomFree:${j.layout.bottomFree}`);
+      if (Array.isArray(j.layout.findings) && j.layout.findings.length) {
+        bits.push(j.layout.findings.slice(0, 3).join("; "));
       }
-      return clipOneLine(line, 420);
+    }
+    if (bits.length) {
+      return clipOneLine(hintPatchReject(bits.join(" — ")), 520);
     }
   }
   const count = /"count"\s*:\s*(-?\d+)/.exec(raw);
   if (count) return `count:${count[1]}`;
   if (result && !result.ok) {
-    return clipOneLine(result.stderr || result.stdout || `exit ${result.status}`);
+    return clipOneLine(hintPatchReject(result.stderr || result.stdout || `exit ${result.status}`), 520);
   }
   if (result && result.stdout) return clipOneLine(result.stdout);
   return "ok";
+}
+
+function formatMatchLine(m) {
+  if (!m || typeof m !== "object") return "";
+  const props = pickMatchProps(m.props);
+  const shown = Object.keys(props).map((k) => `${k}=${props[k]}`);
+  const kids = m.children != null ? ` children:${m.children}` : "";
+  return `${m.at || "?"} ${m.tag || ""}${kids} ${shown.join(" ")}`.trim();
+}
+
+function formatBoxLine(b) {
+  if (!b || typeof b !== "object") return "";
+  const gap = b.gapNext != null ? ` gapNext:${b.gapNext}` : "";
+  return `${b.at} [${b.x},${b.y},${b.w},${b.h}]${gap}`;
+}
+
+function hintPatchReject(line) {
+  let s = String(line || "");
+  if (/property "id" is not patchable|id is not patchable/i.test(s)) {
+    s += ' — id is set-id, not set-prop: {"op":"set-id","at":"0/6/0","value":"nav.home"}';
+  }
+  if (/property "(style|background|background-image)" is not patchable/i.test(s)) {
+    s +=
+      ' — set-prop is one CSS name, not style=: {"op":"set-prop","at":"0","prop":"padding-top","value":"12px"}';
+  }
+  return s;
+}
+
+/** Catch a bare op object / empty ops array before patch wastes a turn. */
+export function opsWriteError(rel, contents) {
+  const text = String(contents ?? "");
+  const looksOps = /ops/i.test(String(rel || "")) || /"op"\s*:/.test(text);
+  if (!looksOps) return "";
+  let j;
+  try {
+    j = JSON.parse(text);
+  } catch {
+    if (/"op"\s*:/.test(text)) return "ops.json is not valid JSON — one object with an ops array";
+    return "";
+  }
+  if (Array.isArray(j)) return 'ops must be {"ops":[...]}, not a bare array';
+  if (j && typeof j === "object" && j.op && !Array.isArray(j.ops)) {
+    return 'a single op needs an ops array: {"ops":[{"op":"set-prop","at":"0/5","prop":"height","value":"48px"}]}';
+  }
+  if (j && typeof j === "object" && Array.isArray(j.ops) && j.ops.length === 0) {
+    return "ops array is empty — add one set-prop (one CSS name: height, padding-top, gap)";
+  }
+  return "";
 }
 
 function writeKind(contents) {

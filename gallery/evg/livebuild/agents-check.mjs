@@ -878,6 +878,113 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
   if (!/set-id/.test(badId.reply)) {
     throw new Error("a rejected set-prop id must name set-id: " + JSON.stringify(badId));
   }
+  const queried = summarizeTool("run", { command: "./evg-agent query doc.evg.json 0/5" }, {
+    ok: true,
+    status: 0,
+    stdout: JSON.stringify({
+      matches: [{
+        at: "0/5",
+        tag: "div",
+        props: { height: "50px", "padding-top": "8px", gap: "8px", "background-color": "rgb(22,27,34)" },
+        children: 4,
+      }],
+      count: 1,
+    }),
+    stderr: "",
+  });
+  if (!/0\/5/.test(queried.reply) || !/height=50px/.test(queried.reply) || !/children:4/.test(queried.reply)) {
+    throw new Error("query must show the match, not only count: " + JSON.stringify(queried));
+  }
+  const boxed = summarizeTool("run", { command: "./evg-agent measure doc.evg.json --boxes" }, {
+    ok: true,
+    status: 0,
+    stdout: JSON.stringify({
+      width: 390,
+      height: 844,
+      nodes: 20,
+      count: 1,
+      bottomFree: -1,
+      findings: ["0/5: bottom edge 844 is past the page height 844"],
+      boxes: [
+        { at: "0/0", x: 16, y: 16, w: 358, h: 80, gapNext: 8 },
+        { at: "0/5", x: 0, y: 795, w: 390, h: 50, gapNext: 0 },
+      ],
+    }),
+    stderr: "",
+  });
+  if (!/bottomFree:-1/.test(boxed.reply) || !/0\/5 \[0,795,390,50\]/.test(boxed.reply)) {
+    throw new Error("measure --boxes must name the box and bottomFree: " + JSON.stringify(boxed));
+  }
+  const badStyle = summarizeTool("run", { command: "./evg-agent patch doc.evg.json ops.json" }, {
+    ok: false,
+    status: 1,
+    stdout: JSON.stringify({
+      ok: false,
+      applied: 0,
+      rejected: ['op 0 (set-prop 0 style=display:flex): property "style" is not patchable — nothing here can read it back, so the edit could not be undone'],
+    }),
+    stderr: "",
+  });
+  if (!/padding-top/.test(badStyle.reply) || !/one CSS name/.test(badStyle.reply)) {
+    throw new Error("rejected style= must name a single CSS prop: " + JSON.stringify(badStyle));
+  }
+  const emptyOps = summarizeTool("run", { command: "./evg-agent patch doc.evg.json ops.json" }, {
+    ok: false,
+    status: 1,
+    stdout: JSON.stringify({ error: "no ops in that file" }),
+    stderr: "",
+  });
+  if (!/"ops"/.test(emptyOps.reply) || !/set-prop/.test(emptyOps.reply)) {
+    throw new Error("empty ops.json must say how to write one: " + JSON.stringify(emptyOps));
+  }
+  if (!denyRun("./evg-agent") || !/verb/.test(denyRun("./evg-agent"))) {
+    throw new Error("bare ./evg-agent must be denied: " + denyRun("./evg-agent"));
+  }
+  const wrapHint = executeTool(ws, "write_file", {
+    path: "ops.json",
+    contents: '{"op":"set-prop","at":"0/5","prop":"height","value":"48px"}',
+  });
+  if (!wrapHint.error || !/ops array/.test(wrapHint.error)) {
+    throw new Error("write_file must refuse a bare op object: " + JSON.stringify(wrapHint));
+  }
+  const emptyArr = executeTool(ws, "write_file", { path: "ops.json", contents: '{"ops":[]}' });
+  if (!emptyArr.error || !/empty/.test(emptyArr.error)) {
+    throw new Error("write_file must refuse an empty ops array: " + JSON.stringify(emptyArr));
+  }
+  const compactBoxes = compactToolResult("run", { command: "./evg-agent measure --boxes" }, {
+    ok: true,
+    status: 0,
+    stdout: JSON.stringify({
+      count: 1,
+      bottomFree: -1,
+      findings: ["0/5: bottom edge 844 is past the page height 844"],
+      boxes: [
+        ...Array.from({ length: 40 }, (_, i) => ({
+          at: `0/${i === 5 ? 99 : i}`,
+          x: 0,
+          y: i * 20,
+          w: 390,
+          h: 18,
+          gapNext: 2,
+        })),
+        { at: "0/5", x: 0, y: 795, w: 390, h: 50, gapNext: 0 },
+      ],
+    }),
+    stderr: "",
+  });
+  const boxedJson = JSON.stringify(compactBoxes);
+  if (boxedJson.length > 2_500) {
+    throw new Error("compactToolResult must keep measure boxes small: " + boxedJson.length);
+  }
+  if (!boxedJson.includes('"at":"0/5"') || !/795/.test(boxedJson)) {
+    throw new Error("compactToolResult must keep the finding box, not clip it off the end: " + boxedJson);
+  }
+  if (!compactBoxes.boxes || compactBoxes.boxes[0].at !== "0/5") {
+    throw new Error("finding box should be first: " + boxedJson);
+  }
+  if (compactBoxes.boxes.length > 12) {
+    throw new Error("compactToolResult should cap boxes: " + compactBoxes.boxes.length);
+  }
   const prompt = geminiSystemPrompt();
   for (const need of [
     "ocr attachment.png at most ONCE",
@@ -894,6 +1001,9 @@ console.log("  withcursor  " + String(withcursor.stdout || "").trim());
     "set-id",
     "nav.home",
     "Never read_file a .evg.json",
+    "one CSS name",
+    "do not query every sibling",
+    '{"ops":[...]}',
   ]) {
     if (!prompt.includes(need)) throw new Error("gemini system prompt missing " + need);
   }
