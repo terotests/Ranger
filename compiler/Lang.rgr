@@ -6289,6 +6289,79 @@ static bool r_regex_test_i(string pattern, string s) {
         ; swift:
         ; String(data: Data(bytes: s[sp ..< i]) , encoding: .utf8)!
 
+        ; ===================================================================
+        ; `charbuffer` IS A BUFFER OF BYTES.
+        ; ===================================================================
+        ;
+        ; One element is one OCTET, 0..255. It is not a character, it is not
+        ; a code point, and it is not "a string that happens to hold bytes".
+        ; `Vec<u8>` on Rust, `[]byte` on Go, `Uint8Array` on JavaScript,
+        ; `bytes` on Python, `byte[]` on the JVM and .NET, `[UInt8]` on
+        ; Swift, `List<int>` on Dart. That is the whole of the type, and it
+        ; is the same type whether the bytes came from a file, a socket, a
+        ; JPEG or a piece of text.
+        ;
+        ; TEXT IS A SEPARATE THING, AND THE CONVERSION NAMES ITS ENCODING.
+        ; `string` is text; `charbuffer` is bytes; nothing turns one into the
+        ; other by itself. Three operators cross that line, and because a
+        ; text<->bytes conversion cannot be done without choosing an
+        ; encoding, all three are defined to use UTF-8:
+        ;
+        ;   (to_charbuffer s)   text  -> its UTF-8 bytes
+        ;   (to_string buf)     bytes -> the text they are the UTF-8 of
+        ;   (substring buf a b) bytes -> the text THAT RANGE is the UTF-8 of
+        ;
+        ; UTF-8 is a property of those three conversions. It is NOT a
+        ; property of the buffer: a `charbuffer` holding a PNG is not
+        ; "UTF-8 bytes", it is bytes, and `to_string` on it is meaningless.
+        ;
+        ; THE MISTAKE THIS COMMENT EXISTS TO STOP. `(charAt buf i)` answers
+        ; ONE BYTE. A character outside ASCII is two, three or four of them,
+        ; so a loop that copies a buffer back into text one element at a time
+        ;
+        ;     while (i < (length buf)) {                 ; WRONG
+        ;       out = out + (substring buf i (i + 1))
+        ;       i = i + 1
+        ;     }
+        ;
+        ; decodes each byte of a multi-byte character on its own and gets a
+        ; replacement character for each. That is a real defect this
+        ; compiler shipped: `RangerLispParser` decoded escapes that way, and
+        ; every literal holding both a backslash escape and a non-ASCII
+        ; character came out broken. Walk the STRING when the subject is
+        ; text (`strlen`, `charAt` and `substring` on a `string` agree with
+        ; each other on any one target), and reach for a `charbuffer` when
+        ; the subject really is bytes.
+        ;
+        ; WHY BYTES AND NOT THE HOST'S OWN UNIT. A `charbuffer` used to be
+        ; whatever each host's string was made of -- UTF-16 units on
+        ; JavaScript, Kotlin and Dart, code points on Python, bytes
+        ; elsewhere, and on Scala a `toCharArray.map(_.toByte)` that
+        ; silently truncated anything above U+00FF. A byte is the one unit
+        ; every host can hold exactly: a UTF-16 target cannot hold a lone
+        ; code point above the BMP in one unit, and a code-point target
+        ; cannot hold a surrogate half. Every one of them can hold a byte.
+        ; docs/plans/PLAN_STRING_INDEXING.md 2.3.
+        ;
+        ; THE VIEWS OF TEXT, for when a byte is not what is wanted:
+        ;
+        ;   (to_chars s)      [int], Unicode CODE POINTS, one per character,
+        ;                     the same sequence on every target
+        ;   (char_length s)   how many characters, without building that
+        ;                     array
+        ;   (strlen s) / (charAt s i) / (substring s a b)
+        ;                     the TARGET'S OWN unit -- a byte, a UTF-16 code
+        ;                     unit or a code point, depending on where it
+        ;                     runs. Right for a scan over ASCII structure,
+        ;                     wrong for a column or a width. `-strict-strings`
+        ;                     reports the sites where the difference shows.
+        ; ===================================================================
+
+        ; The TEXT that this range of bytes is the UTF-8 of. One of the
+        ; three places the line between bytes and text is crossed, so it
+        ; decodes: a range that cuts a character in half gives a replacement
+        ; character, which is what makes a one-byte-at-a-time copy of a
+        ; buffer back into a string wrong. See the block above.
         substring   cmdSubstring:string       ( text:charbuffer start:int end:int ) { 
             templates {
                 ranger ( "(substring " (e 1) " " (e 2) " " (e 3) ")") 
@@ -6316,7 +6389,7 @@ static bool r_regex_test_i(string pattern, string s) {
                 ; string nor sliceable with String.substring
                 es6 ( "r_cb_dec.decode(" (e 1) ".subarray(" (e 2) ", " (e 3) "))"
 (create_polyfill "
-// A charbuffer is UTF-8 bytes on every target, so it is a Uint8Array here
+// A charbuffer is a buffer of BYTES, so it is a Uint8Array here
 // rather than the string it used to be. One encoder and one decoder for the
 // process: constructing them per call is most of the cost of a short slice.
 const r_cb_enc = new TextEncoder();
@@ -6332,6 +6405,10 @@ const r_cb_dec = new TextDecoder();
             }
         }
 
+        ; The TEXT these bytes are the UTF-8 of -- the other direction of
+        ; `to_charbuffer`. Bytes that are not valid UTF-8 come back as
+        ; replacement characters; a buffer holding a PNG has no text in it
+        ; and this operator has nothing to say about one.
         to_string bufferToString:string       ( text:charbuffer ) { 
             templates {      
                 ranger ( "(to_string " (e 1) ")")
@@ -6341,7 +6418,7 @@ const r_cb_dec = new TextDecoder();
                 python ( (e 1) ".decode(\"utf-8\")" )
                 es6 ( "r_cb_dec.decode(" (e 1) ")"
 (create_polyfill "
-// A charbuffer is UTF-8 bytes on every target, so it is a Uint8Array here
+// A charbuffer is a buffer of BYTES, so it is a Uint8Array here
 // rather than the string it used to be. One encoder and one decoder for the
 // process: constructing them per call is most of the cost of a short slice.
 const r_cb_enc = new TextEncoder();
@@ -6360,6 +6437,7 @@ const r_cb_dec = new TextDecoder();
             }
         }     
 
+        ; ...and the same thing under the method-call spelling.
         toString   bufferToString:string       ( text:charbuffer ) { 
             templates {      
                 go ( "string(" (e 1) ")" )
@@ -6368,7 +6446,7 @@ const r_cb_dec = new TextDecoder();
                 python ( (e 1) ".decode(\"utf-8\")" )
                 es6 ( "r_cb_dec.decode(" (e 1) ")"
 (create_polyfill "
-// A charbuffer is UTF-8 bytes on every target, so it is a Uint8Array here
+// A charbuffer is a buffer of BYTES, so it is a Uint8Array here
 // rather than the string it used to be. One encoder and one decoder for the
 // process: constructing them per call is most of the cost of a short slice.
 const r_cb_enc = new TextEncoder();
@@ -6387,17 +6465,11 @@ const r_cb_dec = new TextDecoder();
             }
         }        
 
-        ; A charbuffer is the text's UTF-8 BYTES, on every target. That is the
-        ; one unit every host can represent exactly: a UTF-16 target cannot
-        ; hold a lone code point above the BMP in one unit, and a code point
-        ; target cannot hold a surrogate half, but every one of them can hold
-        ; a byte. It is also the unit the round trip is defined in -- bytes
-        ; sliced apart and concatenated back give the text again -- which is
-        ; what `RangerLispParser` scans source code with.
-        ; It used to be whatever each host's string happened to be made of:
-        ; UTF-16 units on JavaScript, Kotlin and Dart, code points on Python,
-        ; bytes everywhere else, and on Scala `toCharArray.map(_.toByte)`,
-        ; which silently truncates anything above U+00FF.
+        ; A `charbuffer` is a buffer of BYTES -- see the block above the
+        ; charbuffer overloads for what that does and does not mean. This
+        ; operator is one of the two places the line between text and bytes
+        ; is crossed, so it is the place that names the encoding: the bytes
+        ; are the UTF-8 of the text, on every target.
         ; docs/plans/PLAN_STRING_INDEXING.md 2.3.
         ; The portable indexable view of text: Unicode CODE POINTS, the same
         ; sequence on every target, built once in O(n) and read in O(1).
@@ -6665,7 +6737,7 @@ function r_char_length(s) {
                 python ( (e 1) ".encode(\"utf-8\")" )
                 es6 ( "r_cb_enc.encode(" (e 1) ")"
 (create_polyfill "
-// A charbuffer is UTF-8 bytes on every target, so it is a Uint8Array here
+// A charbuffer is a buffer of BYTES, so it is a Uint8Array here
 // rather than the string it used to be. One encoder and one decoder for the
 // process: constructing them per call is most of the cost of a short slice.
 const r_cb_enc = new TextEncoder();
@@ -7320,6 +7392,9 @@ static byte[] r_buffer_read_file(String path, String filename) {
         }
 
         ; Length
+        ; HOW MANY BYTES. For text that is not ASCII this is more than the
+        ; number of characters -- `char_length` is that one. See the block
+        ; above the charbuffer overloads.
         length      cmdLength:int       ( buffer:charbuffer ) { 
             templates {
                 ranger ( "(length " (e 1) ")") 
@@ -7331,9 +7406,10 @@ static byte[] r_buffer_read_file(String path, String filename) {
                 java7 ( (e 1 ) ".length" )
                 cpp( "strlen( " (e 1) " )" (imp "<cstring>"))
                 go ( "int64(len(" (e 1 ) "))")
-                ; to_charbuffer passes the string through on Python, so a
-                ; charbuffer IS a str there -- the `*` fallback is the
-                ; JavaScript `.length` property
+                ; how many BYTES. A Python charbuffer is `bytes`, so `len`
+                ; counts octets, not characters -- the same number every
+                ; other arm here answers. The `*` fallback is the JavaScript
+                ; `.length` property of a Uint8Array
                 python ( "len(" (e 1) ")" )
                 php ( "strlen(" (e 1 ) ")")
                 * ( (e 1) ".length" )
@@ -7744,6 +7820,11 @@ std::vector<std::string> r_get_keys_of_map( const M & orig_map )  {
             }
         } 
 
+        ; ONE BYTE, 0..255, at that index. Not one character: a character
+        ; outside ASCII is two, three or four of these, so this is the
+        ; operator to reach for when the subject really is bytes and the
+        ; wrong one for walking text. See the block above the charbuffer
+        ; overloads.
         charAt      cmdCharAt:char       ( text:charbuffer position:int ) { 
             templates {
                 ranger ( "(charAt " (e 1) " " ( e 2 ) ")")

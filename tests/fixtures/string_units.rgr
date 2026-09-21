@@ -89,5 +89,14 @@ class StringUnits {
             same = "yes"
         }
         print ("roundtrip " + same)
+        ; A literal that holds BOTH an escape and a character the target
+        ; counts in several units. The parser decodes the escapes by hand,
+        ; and it used to do that through a `charbuffer` -- UTF-8 bytes on
+        ; every target -- one unit at a time, so every byte of the em dash
+        ; below came back as its own replacement character. The escape is
+        ; what puts a literal on that path, so a fixture without one never
+        ; asked the question.
+        def esc:string "x\"—\"y"
+        print ("escaped " + esc)
     }
 }

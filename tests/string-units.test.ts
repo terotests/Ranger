@@ -48,6 +48,8 @@ interface Units {
   /** `char_length` — the same count without building the array. */
   bmpCharLen: number;
   astralCharLen: number;
+  /** A literal holding both an escape and a multi-unit character. */
+  escaped: string;
 }
 
 function parse(stdout: string): Units {
@@ -68,6 +70,7 @@ function parse(stdout: string): Units {
     astralCharCodes: line("astral charcodes"),
     bmpCharLen: Number(line("bmp charlen")),
     astralCharLen: Number(line("astral charlen")),
+    escaped: line("escaped"),
   };
 }
 
@@ -247,6 +250,27 @@ describe("to_chars means one thing everywhere", () => {
     // what the `it.fails` below records.
     expect(new Set(seen.map((u) => u.astralLen)).size).toBeGreaterThan(1);
   });
+});
+
+describe("a literal survives being decoded", () => {
+  // The parser decodes `\"` by hand, and it used to do that through a
+  // `charbuffer` — UTF-8 bytes on every target — one unit at a time, so each
+  // byte of the em dash came back as its own replacement character and every
+  // literal holding both an escape and non-ASCII text compiled broken. The
+  // escape is what puts a literal on that path; a fixture without one never
+  // asked.
+  for (const target of Object.keys(runners)) {
+    it(`${target} keeps the text of an escaped literal`, (ctx) => {
+      const u = measure(target);
+      if (!u) return ctx.skip();
+      // The defect wrote TWO characters where one belongs, so the count is
+      // the assertion that holds on every target. mono's console cannot
+      // print an em dash and writes "?" for it — the generated C# source
+      // carries the character itself.
+      expect([...u.escaped].length).toBe(5);
+      if (target !== "csharp") expect(u.escaped).toBe('x"\u2014"y');
+    });
+  }
 });
 
 describe("what it should mean (still broken)", () => {

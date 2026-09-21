@@ -757,7 +757,7 @@ class RangerDocReader  {
             if ( argc > 2 ) {
               third = item.children[2];
               if ( third.value_type != 4 ) {
-                ctx.addError(item, ((("param `" + p.name) + "` restates a type. The compiler already knows it: write `param ") + p.name) + " \"���\"`.");
+                ctx.addError(item, ((("param `" + p.name) + "` restates a type. The compiler already knows it: write `param ") + p.name) + " \"…\"`.");
               }
             }
             p.text = this.textFrom(item, 2);
@@ -10764,13 +10764,12 @@ class RangerLispParser  {
             let encoded_str = "";
             if ( must_encode ) {
               const subs = r_cb_dec.decode(s.subarray(sp, ep));
-              const orig_str = r_cb_enc.encode(subs);
-              const str_length = orig_str.length;
+              const str_length = subs.length;
               let ii = 0;
               while (ii < str_length) {
-                const cc = orig_str[ii];
+                const cc = subs.charCodeAt(ii );
                 if ( cc == 92 ) {
-                  const next_ch = orig_str[(ii + 1)];
+                  const next_ch = subs.charCodeAt((ii + 1) );
                   switch (next_ch ) { 
                     case 34 : 
                       encoded_str = encoded_str + String.fromCharCode(34);
@@ -10804,7 +10803,7 @@ class RangerLispParser  {
                   };
                   ii = ii + 2;
                 } else {
-                  encoded_str = encoded_str + r_cb_dec.decode(orig_str.subarray(ii, (1 + ii)));
+                  encoded_str = encoded_str + subs.substring(ii, (1 + ii) );
                   ii = ii + 1;
                 }
               };
@@ -88010,7 +88009,7 @@ function r_char_length(s) {
 }
 
 
-// A charbuffer is UTF-8 bytes on every target, so it is a Uint8Array here
+// A charbuffer is a buffer of BYTES, so it is a Uint8Array here
 // rather than the string it used to be. One encoder and one decoder for the
 // process: constructing them per call is most of the cost of a short slice.
 const r_cb_enc = new TextEncoder();

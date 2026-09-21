@@ -71,6 +71,10 @@ int  double  string  boolean  char  charbuffer  void
 fn:T (p:T)   ; function type
 ```
 
+`string` is text and `charbuffer` is bytes — one element of a charbuffer is
+one octet, not one character. See "Strings" below for the three views of text
+and the conversions between them.
+
 ```ranger
 def x 10
 def x:int 10
@@ -282,15 +286,28 @@ def n:int (array_length cs)
 def c:int (itemAt cs 0)
 ```
 
-`to_charbuffer` is the byte view: UTF-8 bytes, indexed in O(1), on all
-thirteen targets.
+A `charbuffer` is a buffer of **bytes** — one element is one octet, 0..255,
+not a character. `Vec<u8>`, `[]byte`, `Uint8Array`, `bytes`, `byte[]`,
+`[UInt8]`, `List<int>`, depending on the target; the same type whether the
+bytes came from a file, a socket or a piece of text.
+
+Text and bytes are separate, and the two operators that cross between them
+are the ones that name an encoding — UTF-8, because a conversion cannot be
+done without choosing one:
 
 ```ranger
-def b:charbuffer (to_charbuffer s)   ; UTF-8 bytes
-def n:int (length b)
-def c:int (charAt b 0)               ; 0..255
-def head:string (substring b 0 1)    ; decoded back to text
+def b:charbuffer (to_charbuffer s)   ; text -> its UTF-8 bytes
+def n:int (length b)                 ; how many BYTES
+def c:int (charAt b 0)               ; ONE byte, 0..255
+def back:string (to_string b)        ; bytes -> the text they encode
+def head:string (substring b 0 1)    ; the text THAT RANGE encodes
 ```
+
+So UTF-8 is a property of the conversion, not of the buffer: a `charbuffer`
+holding a PNG is bytes, and `to_string` on it means nothing. And `charAt` on
+one is a byte, so copying a buffer back into text one element at a time
+decodes each byte of a multi-byte character on its own and gets a
+replacement character for each — walk the `string` when the subject is text.
 
 Above the Basic Multilingual Plane the three views differ by construction:
 `"a😀b"` is 3 `to_chars` elements, 6 `to_charbuffer` bytes, and 3 or 4 `strlen`

@@ -1299,11 +1299,18 @@ docs/plans/PLAN_RUST_REENTRANCY.md. It compiles the compiler now, to output
 byte-identical to the node host's, and `npm run selfhost:run:rust` checks
 exactly that.
 
-### A `charbuffer` is UTF-8 bytes, on every target
+### A `charbuffer` is bytes, and `to_charbuffer` is the UTF-8 of a string
 
-`to_charbuffer` is the explicit conversion -- the program asks for the
-indexable view by name and pays for it once -- so it is the one place where a
-single portable unit can be promised, and it was not keeping the promise.
+A `charbuffer` is a buffer of octets -- `Vec<u8>`, `[]byte`, `Uint8Array`,
+`bytes`, `byte[]`, `[UInt8]`, `List<int>` -- and one element is one byte, not
+one character. UTF-8 belongs to the two operators that cross between text and
+bytes, `to_charbuffer` and `to_string`, because a conversion cannot be made
+without choosing an encoding. A buffer holding a JPEG is not "UTF-8 bytes";
+it is bytes.
+
+`to_charbuffer` is the explicit conversion -- the program asks for the byte
+view by name and pays for it once -- so it is the one place where a single
+portable unit can be promised, and it was not keeping the promise.
 Measured with `tests/fixtures/charbuffer_units.rgr`, `"a-dash-b"` (U+2014)
 came back as 3 units on JavaScript, Kotlin and Dart (UTF-16), 3 on Python
 (code points) and 5 on Go, C++, PHP, C#, Rust and Swift 3 (bytes), and on

@@ -55,6 +55,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A string literal holding BOTH an escape and a non-ASCII character came
+  out broken.** `"merkintä... esim. \"treeni\""` compiled to
+  `merkint\uFFFD\uFFFD...`: two replacement characters where the `ä` was.
+  The parser's escape-decoding path converted the literal to a `charbuffer`
+  and copied it back one unit at a time, and since a `charbuffer` is UTF-8
+  bytes on every target now, each byte of a multi-byte character was decoded
+  by itself. It reads the string directly — `strlen`, `charAt` and
+  `substring` index the same unit as each other on any one target, and every
+  character the loop looks at (`\`, `"`, `n`, …) is ASCII. The same shape as
+  the `EncodeString` fix in the six writers, in the one place that was
+  missed; the checked-in `bin/output.js` carried the damage in one of its own
+  messages and needed two bootstrap passes to converge.
+
 - **A Rust `switch` over strings broke on a quote, a backslash or a
   newline.** A `match` arm is a pattern, so the Rust writer wrote the case
   literal with `(str N)` — the text and nothing else, because the
@@ -125,13 +138,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Because the program names the conversion, the allocation is asked for
   rather than hidden behind an index.
 
-- **A `charbuffer` is UTF-8 bytes on every target.** It used to be whatever
-  the host's string happened to be made of: UTF-16 units on JavaScript,
-  Kotlin and Dart, code points on Python, bytes on the other eight, and on
-  Scala a `toByte` cast that truncated anything above U+00FF. `to_charbuffer`
-  is the explicit conversion — the program asks for the indexable view by
-  name — so it is the one place a single portable unit can be promised, and
-  now it is: `"a—b"` is five bytes on all of them.
+- **A `charbuffer` is a buffer of bytes, and `to_charbuffer` is a string's
+  UTF-8.** One element is one octet, 0..255, not a character; UTF-8 belongs
+  to `to_charbuffer` and `to_string`, the two operators that cross between
+  text and bytes, because a conversion cannot be made without naming an
+  encoding. The buffer itself is just bytes — one holding a JPEG is not
+  "UTF-8 bytes".
+
+  It used to be whatever the host's string happened to be made of: UTF-16
+  units on JavaScript, Kotlin and Dart, code points on Python, bytes on the
+  other eight, and on Scala a `toByte` cast that truncated anything above
+  U+00FF. `to_charbuffer` is the explicit conversion — the program asks for
+  the byte view by name — so it is the one place a single portable unit can
+  be promised, and now it is: `"a—b"` is five bytes on all of them.
 
   Measuring it with `tests/fixtures/charbuffer_units.rgr` turned up three
   holes as well: `to_string` on a charbuffer did not compile on Rust, Java or

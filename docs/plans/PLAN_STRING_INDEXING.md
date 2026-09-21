@@ -237,7 +237,7 @@ rather than by reading.
 
 *Gate: the new tests run and fail for the reasons stated.*
 
-### Stage 1 — `to_charbuffer` becomes UTF-8 bytes everywhere — **done**
+### Stage 1 — a `charbuffer` is bytes, and `to_charbuffer` is UTF-8 — **done**
 
 Measured rather than read this time: `tests/fixtures/charbuffer_units.rgr`
 runs the same `"a—b"` through `to_charbuffer`, `length`, `charAt`,
@@ -251,9 +251,15 @@ Scala.
 
 What changed:
 
-- `charbuffer` is UTF-8 bytes on all thirteen targets. Its type is now
+- `charbuffer` is a buffer of BYTES on all thirteen targets. Its type is now
   `Uint8Array` on JavaScript and TypeScript, `bytes` on Python and
-  `ByteArray` on Kotlin; the others already held bytes.
+  `ByteArray` on Kotlin; the others already held bytes. One element is one
+  octet, 0..255, and not one character — UTF-8 is a property of
+  `to_charbuffer` and `to_string`, the two operators that cross between text
+  and bytes, and not of the buffer, which is equally the type a JPEG arrives
+  in. The contract is written out above the charbuffer overloads in
+  `compiler/Lang.rgr`, where a reader reaching for `charAt` on one will meet
+  it.
 - `to_charbuffer` encodes UTF-8 explicitly — including Java, which used the
   platform default charset, and Scala, whose `toByte` cast truncated anything
   above U+00FF.
@@ -478,7 +484,19 @@ subject: `RangerDocCommentWriter.xmlEscape`,
 of comparing two code units. One dead `strlen` in `RangerLispParser.joo` was
 deleted.
 
-A fifth defect fell out of that: a Rust `match` arm is a pattern, and the
+A fifth was found by CI rather than by the flag, and is Stage 1's: the
+parser decodes `\"` and its siblings by hand, and it did that through a
+`charbuffer` — UTF-8 bytes on every target since Stage 1 — copying one unit
+at a time. Every byte of a multi-byte character was therefore decoded by
+itself, so `"merkintä... esim. \"treeni\""` compiled to
+`merkint\uFFFD\uFFFD...`. It reads the string directly now, the same fix as
+`EncodeString` in the six writers, in the one place that was missed. The
+checked-in `bin/output.js` carried the damage in one of its own diagnostics
+and took two bootstrap passes to converge. `tests/fixtures/string_units.rgr`
+now holds a literal with both an escape and an em dash in it — the escape is
+what puts a literal on that path, so no fixture had asked.
+
+A sixth: a Rust `match` arm is a pattern, and the
 writer wrote the case literal unescaped, so the new `case "\""` came out as
 `"""` and rustc read three tokens where one was meant. `(estr N)` is the
 template accessor that escapes without quoting, and the Rust `case` template
