@@ -71,7 +71,7 @@ app.innerHTML = `
     <div>
       <p class="home"><a href="../">← Ranger</a></p>
       <h1>Ranger Playground</h1>
-      <p class="tagline">In-browser compiler · Ranger ${"3.0.5"}</p>
+      <p class="tagline">In-browser compiler · Ranger ${__RANGER_VERSION__}</p>
     </div>
     <div class="toolbar">
       <label class="field">
