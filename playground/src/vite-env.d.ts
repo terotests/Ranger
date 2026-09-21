@@ -1,5 +1,7 @@
 /// <reference types="vite/client" />
 
+import type { InputEnvInstance, RangerAppWriterContext } from "./ranger/types.js";
+
 declare global {
   const __RANGER_VERSION__: string;
   const InputEnv: {
