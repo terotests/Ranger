@@ -287,20 +287,34 @@ runs on a server.
 
 ```sh
 npm run livebuild:save    # save, start over, open — byte for byte, app and all
-npm run livebuild:export  # a brief another Ranger + EVG agent can paste
+npm run livebuild:export  # one .ranger.json — ui, css, machine
 ```
 
 **Export** is the door out. Save keeps the design on this machine; Export
-builds a markdown brief of the same files — the document, the app if the
-screen became one, an outline of the tree, and the instructions that tell
-another agent in a Ranger + EVG checkout how to turn that picture into a
-real application (Rave if it needs routes, the EVG document and
-`EVGPatch` if it is already a screen). The page copies it to the clipboard
-or downloads it; the JSON bundle is the same files without the prose.
+builds **one JSON document** (`name.ranger.json`, `format: ranger-ui`,
+version 2). The clipboard is that file. Inside it, four things stay
+logically separate:
 
-The next agent is a chat, not a special importer. Paste the brief into a
-Ranger session and let it run `rave check` / `agent measure` until the
-numbers say the app matches the screen.
+- **`ui`** — the semantic component tree. A known switch is `rave.Switch`
+  with `props.checked`, not a track and a thumb. Unknown markup is
+  `evg.div` / `evg.span`. Appearance is not in the nodes.
+- **`css`** — real CSS, as a string. Author rules stay; kit-default
+  `.ui-switch-track` rules do not (those belong to the library).
+- **`machine`** — the statechart, when the screen became an app.
+- **`components`** — which contracts this document assumes (`rave.Switch`
+  → `@rave/core`).
+
+Compact (the clipboard) is those four plus `meta` and `viewport`. Full
+adds `compiled.evg` (a snapshot, not the source) and `debug.outline` /
+`debug.layout`. Same format either way. ZIP can wrap this file later;
+it does not change the document.
+
+Paste the JSON into Ranger, save it as a file, or hand it to an agent:
+
+```
+Here's a Ranger screen:
+{ …the document… }
+```
 
 Three things that used to throw a design away and no longer do: turning Run
 off, reloading the page, and restarting the server. Only the seed chips start
@@ -461,6 +475,8 @@ one, so the UI can say "+12" without walking the list.
 | `agents-check.mjs` | orchestrator: recipe, mock workspace, self slot |
 | `browser-smoke.mjs` | Chromium: three recipes and a typed prompt |
 | `web/index.html` | the page |
-| `export.mjs` | the brief: files + outline + how a Ranger + EVG agent builds the app |
-| `export-check.mjs` | the brief is this session's files, not the example app |
+| `export.mjs` | session → one `.ranger.json` (compact or full) |
+| `ranger-ui.mjs` | EVG tree → semantic ui + css + components |
+| `ranger-ui.schema.json` | the document shape |
+| `export-check.mjs` | compact has no compiled EVG; a switch collapses |
 | `stream-check.mjs` | parse the CLI stream as JSON |

@@ -21,13 +21,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   standard library has nothing. It is the length of `(to_chars s)` without
   building the array, and for ASCII it is `strlen`.
 
-- **EVG live build can export a screen as a brief for another agent.** Save
-  keeps a design on this machine. **Export** copies it out: the document,
-  the app if the screen became one, an outline of the tree, and the
-  instructions that tell a Ranger + EVG agent how to turn that picture into
-  a real application — Rave if it needs routes, `EVGPatch` / `evg-app` if it
-  is already a screen. The page puts the markdown on the clipboard or
-  downloads the JSON bundle. `npm run livebuild:export`.
+- **EVG live build exports one Ranger UI JSON document.** Save keeps a
+  design on this machine. **Export** copies a single `.ranger.json`
+  (`format: ranger-ui`, version 2): a semantic `ui` tree, a CSS string,
+  the machine, and a `components` manifest. Known controls collapse to
+  `rave.Switch` / `SettingsRow` rather than a track and a thumb.
+  Compact is the clipboard; Full adds `compiled.evg` and layout debug.
+  `npm run livebuild:export`.
 
 ### Changed
 

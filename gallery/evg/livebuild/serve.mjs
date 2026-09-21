@@ -887,10 +887,10 @@ function main() {
       send(res, 200, "application/json; charset=utf-8", JSON.stringify({ saved: savedList() }));
       return;
     }
-    // A brief another Ranger + EVG agent can paste. Save keeps a design on
-    // this machine; this is the door out. The page copies the markdown to
-    // the clipboard or downloads the JSON — the server only builds the
-    // payload, so a test can check the brief without a browser.
+    // One Ranger UI document. Save keeps a design on this machine; this is
+    // the door out — a single .ranger.json (ui, css, machine) the next
+    // agent can paste. Compact is the clipboard; full adds compiled EVG
+    // and layout debug. Same format either way.
     if (url.pathname === "/export") {
       const file = path.join(sessionDir(), "doc.evg.json");
       if (!fs.existsSync(file)) {
@@ -903,6 +903,7 @@ function main() {
         const measure = events.find((e) => e && e.t === "measure") || null;
         const ask = (url.searchParams.get("ask") || "").trim().slice(0, 500);
         const prompt = ask || lastPrompt;
+        const full = url.searchParams.get("mode") === "full";
         const made = exportSession({
           dir: sessionDir(),
           prompt,
@@ -910,6 +911,7 @@ function main() {
           name: prompt || lastKind || "screen",
           viewport: view || { width: 390, height: 844 },
           measure,
+          full,
         });
         send(res, 200, "application/json; charset=utf-8", JSON.stringify(made));
       } catch (e) {

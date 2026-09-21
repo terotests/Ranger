@@ -238,8 +238,9 @@
   .sheet h3 {
     margin: 0; padding: 16px 18px 4px; font-size: 15px; font-weight: 650;
   }
-  .sheet .lead {
-    margin: 0; padding: 0 18px 12px; color: var(--muted); font-size: 12.5px;
+  .sheet .lead code {
+    font: 11.5px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color: var(--accent);
   }
   .sheet .opts {
     display: flex; flex-wrap: wrap; gap: 10px 18px; padding: 0 18px 12px;
@@ -284,7 +285,7 @@
   <button type="button" class="chip" id="makeapp" hidden title="Write app/machine.json and a page per state from this phone">Make this an app</button>
   <span class="lbl">Keep</span>
   <button type="button" class="chip" id="save" title="Save this phone — the document and its app — so it survives the next start over">Save</button>
-  <button type="button" class="chip" id="export" title="Copy this phone as a brief another Ranger + EVG agent can paste to build the real app">Export</button>
+  <button type="button" class="chip" id="export" title="Copy this screen as one Ranger UI JSON document — paste it into Ranger or an agent prompt">Export</button>
   <button type="button" class="chip" id="reset" title="Empty the project: a blank canvas, and the app that was built from this screen thrown away">Reset</button>
   <select id="saved" class="chip" title="Open a saved design back into this session">
     <option value="">Saved…</option>
@@ -342,17 +343,17 @@
 </main>
 <div class="sheet" id="exportSheet" role="dialog" aria-modal="true" aria-labelledby="exportTitle">
   <div class="card">
-    <h3 id="exportTitle">Export for another agent</h3>
-    <p class="lead">Paste this into a Ranger + EVG session. That agent builds the real app from this screen — Rave if it needs routes, or the EVG document if it is already one.</p>
+    <h3 id="exportTitle">Export Ranger UI</h3>
+    <p class="lead">One JSON document — component tree, CSS, and machine. Copy it to the clipboard, save it as a <code>.ranger.json</code> file, or paste it into an agent prompt.</p>
     <div class="opts">
-      <label><input type="checkbox" id="exportHelp" checked> Include how to build it</label>
-      <label><input type="checkbox" id="exportJson"> Copy the JSON bundle instead of the brief</label>
+      <label><input type="radio" name="exportMode" id="exportCompact" value="compact" checked> Compact — ui, css, machine</label>
+      <label><input type="radio" name="exportMode" id="exportFull" value="full"> Full — plus compiled EVG and layout debug</label>
     </div>
     <pre class="preview" id="exportPreview">Loading…</pre>
     <div class="meta" id="exportMeta"></div>
     <div class="row">
       <button type="button" class="chip" id="exportClose">Close</button>
-      <button type="button" class="chip" id="exportDl">Download</button>
+      <button type="button" class="chip" id="exportDl">Download .ranger.json</button>
       <button type="button" class="chip primary" id="exportCopy">Copy to clipboard</button>
     </div>
   </div>
@@ -518,17 +519,20 @@ $("saved").addEventListener("change", async (ev) => {
   }
 });
 
-// EXPORT: a brief another Ranger + EVG agent pastes to build the real app.
-// Save keeps the design on this machine. This is the door out — the screen
-// as files, an outline of it, and the loop (Rave check / EVGPatch measure)
-// that turns a picture of an app into one. The clipboard is the default
-// because the next agent is a chat, not a folder.
+// EXPORT: one Ranger UI JSON document. Save keeps the design on this
+// machine. This is the door out — ui, css and machine in a single
+// `.ranger.json` another agent (or Ranger) can paste. Compact is the
+// clipboard; Full adds the compiled EVG snapshot and the layout debug.
 let exportPayload = null;
+
+function exportMode() {
+  return $("exportFull").checked ? "full" : "compact";
+}
 
 function exportText() {
   if (!exportPayload) return "";
-  if ($("exportJson").checked) return JSON.stringify(exportPayload.bundle, null, 2);
-  return $("exportHelp").checked ? exportPayload.markdown : exportPayload.markdownBare;
+  const doc = exportMode() === "full" ? exportPayload.full : exportPayload.compact;
+  return JSON.stringify(doc || exportPayload.document, null, 2);
 }
 
 function paintExport() {
@@ -538,11 +542,13 @@ function paintExport() {
   const n = exportPayload.nodes || 0;
   const pages = exportPayload.pages || 0;
   const kb = Math.max(1, Math.round((text.length || 1) / 1024));
+  const types = exportPayload.components ? Object.keys(exportPayload.components).length : 0;
   $("exportMeta").textContent =
     `${exportPayload.device || ""} · ${n} nodes` +
-    (pages ? ` · ${pages} app page${pages === 1 ? "" : "s"}` : "") +
+    (types ? ` · ${types} component type${types === 1 ? "" : "s"}` : "") +
+    (pages ? ` · ${pages} page${pages === 1 ? "" : "s"}` : "") +
     (exportPayload.ids && exportPayload.ids.length ? ` · ${exportPayload.ids.length} ids` : "") +
-    ` · ${kb} KB`;
+    ` · ${kb} KB · ${exportMode()}`;
 }
 
 function closeExport() {
@@ -595,8 +601,8 @@ $("export").addEventListener("click", async () => {
   }
 });
 
-$("exportHelp").addEventListener("change", paintExport);
-$("exportJson").addEventListener("change", paintExport);
+$("exportCompact").addEventListener("change", paintExport);
+$("exportFull").addEventListener("change", paintExport);
 $("exportClose").addEventListener("click", closeExport);
 $("exportSheet").addEventListener("click", (ev) => {
   if (ev.target === $("exportSheet")) closeExport();
@@ -610,9 +616,7 @@ $("exportCopy").addEventListener("click", async () => {
   if (!text) return;
   const ok = await copyText(text);
   note(ok
-    ? ($("exportJson").checked
-      ? "copied the JSON bundle — paste it into a Ranger + EVG agent"
-      : "copied the brief — paste it into a Ranger + EVG agent to build the app")
+    ? "copied the Ranger UI document — paste it into Ranger or an agent prompt"
     : "could not copy — use Download");
   if (ok) closeExport();
 });
@@ -620,9 +624,8 @@ $("exportCopy").addEventListener("click", async () => {
 $("exportDl").addEventListener("click", () => {
   const text = exportText();
   if (!text || !exportPayload) return;
-  const json = $("exportJson").checked;
-  const name = `${exportPayload.slug || "screen"}${json ? ".evg-export.json" : "-brief.md"}`;
-  downloadText(name, text, json ? "application/json;charset=utf-8" : "text/markdown;charset=utf-8");
+  const name = `${exportPayload.slug || "screen"}.ranger.json`;
+  downloadText(name, text, "application/json;charset=utf-8");
   note(`downloaded ${name}`);
 });
 
