@@ -1,9 +1,0 @@
-{"evg":1,"root":{"tag":"div","props":{"class-name":"page","width":"600px","height":"400px","padding-left":"24px","padding-top":"24px","background-color":"rgb(246,247,249)"},"children":[
-  {"tag":"div","props":{"class-name":"card","width":"320px","height":"120px","background-color":"rgb(255,255,255)","border-radius":"8px","padding-left":"16px","padding-top":"12px","flex-direction":"column"},"children":[
-    {"tag":"span","key":"title","props":{"font-size":"20px","font-weight":"bold","color":"rgb(31,41,51)"},"text":"Orders"},
-    {"tag":"span","key":"sub","props":{"font-size":"13px","color":"rgb(110,120,130)"},"text":"1 284 this month"}
-  ]},
-  {"tag":"div","props":{"class-name":"card","width":"320px","height":"120px","background-color":"rgb(255,255,255)","border-radius":"8px","padding-left":"16px","padding-top":"12px"},"children":[
-    {"tag":"span","props":{"font-size":"20px"},"text":"Revenue"}
-  ]}
-]}}
