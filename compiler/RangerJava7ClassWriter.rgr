@@ -5,8 +5,6 @@ Import "ForLoopAnalysis.rgr"
 Import "EnumAnalysis.rgr"
 
 
-Import "AndroidPageWriter.rgr"
-
 operators {
   trace _:void () {
     templates {
@@ -1620,19 +1618,6 @@ public class RgJson {
         print " - service " + index
       })
     } 
-  }
-
-  fn CreatePages (parser:RangerFlowParser ctx:RangerAppWriterContext orig_wr:CodeWriter) {
-      ; TODO: the application container could be here
-      ctx.appPages.forEach({
-        this.CreatePage(parser item ctx orig_wr)
-      })
-  }
-
-  fn CreatePage (parser:RangerFlowParser node:CodeNode ctx:RangerAppWriterContext orig_wr:CodeWriter) {
-    def writer (new AndroidPageWriter)
-    writer.classWriter = this
-    writer.CreatePage( parser node ctx orig_wr )
   }
 
 

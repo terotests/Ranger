@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The other kind of imported file: one that brings its own palette, its own
+     groups and its own transforms, and must come out the same in all three
+     targets. The shield inherits its fill from the group; the band is a
+     rotated group; the counter in the ring is a hole rather than a second
+     disc, which is the fill rule doing its job on geometry that arrived from a
+     file rather than from the page. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 120" width="100" height="120">
+  <title>An emblem</title>
+  <defs>
+    <circle id="stud" cx="0" cy="0" r="4"/>
+  </defs>
+
+  <g fill="#2f4858">
+    <path d="M50,4 L94,20 L94,66 C94,92 74,110 50,116 C26,110 6,92 6,66 L6,20 Z"/>
+  </g>
+
+  <g transform="translate(50,58) rotate(-18)">
+    <rect x="-40" y="-9" width="80" height="18" fill="#f6c453"/>
+  </g>
+
+  <path
+    fill="#e0e6ea"
+    fill-rule="evenodd"
+    d="M50,30 A16 16 0 1 1 49.99,30 Z M50,40 A6 6 0 1 0 49.99,40 Z"/>
+
+  <use href="#stud" x="22" y="96" fill="#f6c453"/>
+  <use href="#stud" x="50" y="104" fill="#f6c453"/>
+  <use href="#stud" x="78" y="96" fill="#f6c453"/>
+</svg>

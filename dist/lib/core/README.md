@@ -10,7 +10,7 @@ templates, no per-target branches.
 **Status: first slice, wired into the JS engine.** `RgNum`, `RgU32`, `RgText`
 and `RgBase` are landed and gated, and `ComponentEngine.rgr` now delegates 16 of
 its own functions here instead of carrying copies (268 lines deleted). The rest
-is planned in [PLAN_JS_STDLIB.md](../../../docs/plans/PLAN_JS_STDLIB.md).
+is planned in [PLAN_JS_STDLIB.md](../../docs/plans/PLAN_JS_STDLIB.md).
 
 | File | What | State |
 | --- | --- | --- |

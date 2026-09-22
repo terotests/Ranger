@@ -1013,12 +1013,6 @@ class RangerGenericClassWriter {
 
   }
 
-  fn CreatePages (parser:RangerFlowParser ctx:RangerAppWriterContext orig_wr:CodeWriter) {
-  }
-
-  fn CreatePage (parser:RangerFlowParser node:CodeNode ctx:RangerAppWriterContext orig_wr:CodeWriter) {
-    ctx.addError(node "CreatePage not implemented for the build target")
-  }
   fn CreateLambdaCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def fName:CodeNode (itemAt node.children 0)
     def args:CodeNode (itemAt node.children 1)

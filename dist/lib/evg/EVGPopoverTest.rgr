@@ -1,0 +1,395 @@
+; SPDX-License-Identifier: MIT
+
+; ==============================================================================
+; EVGPopoverTest — surfaces: named anchors, fallbacks, fit and presentation
+; ==============================================================================
+;
+; EVG has had overlay surfaces for a while: out of flow, drawn in the top layer
+; after the whole normal tree, placed against an anchor and flipped when they
+; ran off the page. What it did not have is the four things that turn that into
+; a menu system, and this is the test for those four.
+;
+;   * `position-anchor: --file` — the anchor NAMED, rather than found among the
+;     surface's own siblings. A menu no longer has to be declared beside its
+;     trigger, which is what a portal is for in every other toolkit.
+;   * `position-try-fallbacks` — an ordered list of `position-area`s, tried
+;     until one is wholly on the page, with `position-try-order: most-space`
+;     to take the roomiest instead of the first.
+;   * `fit-viewport` — take the room there is rather than running off the page,
+;     and scroll for the rest.
+;   * `presentation: sheet | fullscreen` — on a phone an anchored menu is the
+;     wrong widget, not a badly placed one.
+;
+; The old behaviour is asserted by EVGOverlayTest and is deliberately not
+; repeated here; what this file checks is that the new parts do what they say
+; and that a surface that declares none of them is untouched.
+; ==============================================================================
+
+Import "EVGElement.rgr"
+Import "EVGUnit.rgr"
+Import "EVGLayout.rgr"
+
+class PopCheck {
+    def passed:int 0
+    def failed:int 0
+
+    fn ok:void (name:string cond:boolean) {
+        if cond {
+            passed = (passed + 1)
+            print ("  PASS " + name)
+        } {
+            failed = (failed + 1)
+            print ("  FAIL " + name)
+        }
+    }
+
+    fn eqInt:void (name:string got:int want:int) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got " + (to_string got) + " want " + (to_string want))
+        }
+        this.ok(name good)
+    }
+
+    fn eqStr:void (name:string got:string want:string) {
+        def good:boolean (got == want)
+        if (good == false) {
+            print ("       got \"" + got + "\" want \"" + want + "\"")
+        }
+        this.ok(name good)
+    }
+}
+
+class EVGPopoverTest {
+
+    sfn box:EVGElement (id:string w:double h:double) {
+        def el (EVGElement.createDiv())
+        el.id = id
+        el.setAttribute("width" ((to_string (to_int w)) + "px"))
+        el.setAttribute("height" ((to_string (to_int h)) + "px"))
+        return el
+    }
+
+    sfn laidOut:EVGLayout (root:EVGElement w:double h:double) {
+        def lay (new EVGLayout())
+        lay.setPageSize(w h)
+        lay.layout(root)
+        return lay
+    }
+
+    ; A page with a bar at `barY`, a trigger in it named `--file`, and a body
+    ; below. The surface is added by the caller.
+    sfn buildPage:EVGElement (barY:double) {
+        def page:EVGElement (EVGPopoverTest.box("page" 400.0 800.0))
+        page.setAttribute("flex-direction" "column")
+        def spacer:EVGElement (EVGPopoverTest.box("spacer" 400.0 barY))
+        if (barY > 0.0) {
+            page.addChild(spacer)
+        }
+        def bar:EVGElement (EVGPopoverTest.box("bar" 400.0 40.0))
+        bar.setAttribute("flex-direction" "row")
+        def trigger:EVGElement (EVGPopoverTest.box("file" 80.0 40.0))
+        trigger.setAttribute("anchor-name" "--file")
+        bar.addChild(trigger)
+        page.addChild(bar)
+        ; Whatever is left under the bar. The page must not overflow: a column
+        ; that does shrinks its children, and then the trigger is not where the
+        ; test says it is.
+        def rest:double ((800.0 - barY) - 40.0)
+        if (rest > 200.0) {
+            rest = 200.0
+        }
+        page.addChild((EVGPopoverTest.box("body" 400.0 rest)))
+        return page
+    }
+
+    sfn menu:EVGElement (w:double h:double) {
+        def m (EVGElement.createDiv())
+        m.tagName = "popover"
+        m.id = "menu"
+        m.setAttribute("width" ((to_string (to_int w)) + "px"))
+        m.setAttribute("height" ((to_string (to_int h)) + "px"))
+        m.setAttribute("position-anchor" "--file")
+        return m
+    }
+
+    ; ---------------------------------------------------------------------
+
+    sfn testNamedAnchor:void (c:PopCheck) {
+        print ""
+        print "--- position-anchor names the box, wherever it is ---"
+        def page:EVGElement (EVGPopoverTest.buildPage(0.0))
+        def m:EVGElement (EVGPopoverTest.menu(160.0 100.0))
+        m.setAttribute("position-area" "bottom start")
+        page.addChild(m)
+        def lay:EVGLayout (EVGPopoverTest.laidOut(page 400.0 800.0))
+        ; The trigger is two levels down in another subtree; the surface is a
+        ; child of the page and has no anchor sibling at all.
+        c.eqInt("under the trigger, not under its own parent" (to_int m.calculatedY) 44)
+        c.eqInt("aligned to the trigger's left edge" (to_int m.calculatedX) 0)
+        c.eqStr("and it says where it went" m.overlayPlacedSide "bottom")
+        c.eqStr("…and how it was aligned" m.overlayPlacedAlign "start")
+        c.eqStr("…and what it is" m.overlayPlacedPresentation "anchored")
+        ; Out of flow: the body sits directly under the bar, and the `popover`
+        ; tag alone was enough to make that true — nothing said `overlay`.
+        def body:EVGElement (page.getChild(1))
+        c.eqStr("the third child is the body" body.id "body")
+        c.eqInt("a popover takes no space in the flow" (to_int body.calculatedY) 40)
+        c.ok("it is a surface" (m.isSurface()))
+        c.ok("…which position-anchor said on its own" m.isOverlay)
+        ; And the tag says it too, with no properties at all: `popover` is the
+        ; web's name for this and is worth having as one.
+        def bare (EVGElement.createDiv())
+        bare.tagName = "popover"
+        c.ok("the popover tag alone is a surface" (bare.isSurface()))
+        c.ok("…and it took no property to say so" (bare.isOverlay == false))
+    }
+
+    sfn testPositionArea:void (c:PopCheck) {
+        print ""
+        print "--- position-area, both spellings of the cross axis ---"
+        def page:EVGElement (EVGPopoverTest.buildPage(200.0))
+        def m:EVGElement (EVGPopoverTest.menu(160.0 100.0))
+        m.setAttribute("position-area" "bottom end")
+        page.addChild(m)
+        def lay:EVGLayout (EVGPopoverTest.laidOut(page 400.0 800.0))
+        ; The trigger is 80 wide at x=0, so `end` puts the surface's right edge
+        ; on the trigger's: 80 - 160.  Clamped back onto the page at 0.
+        c.eqInt("end aligns the far edges" (to_int m.calculatedX) 0)
+        c.eqInt("below the bar at y=200" (to_int m.calculatedY) 244)
+
+        def page2:EVGElement (EVGPopoverTest.buildPage(200.0))
+        def m2:EVGElement (EVGPopoverTest.menu(160.0 100.0))
+        m2.setAttribute("position-area" "right top")
+        page2.addChild(m2)
+        def lay2:EVGLayout (EVGPopoverTest.laidOut(page2 400.0 800.0))
+        c.eqStr("a physical cross word is read as start" m2.overlayPlacedAlign "start")
+        c.eqInt("beside the trigger" (to_int m2.calculatedX) 84)
+        c.eqInt("…and level with its top" (to_int m2.calculatedY) 200)
+    }
+
+    sfn testFallbacks:void (c:PopCheck) {
+        print ""
+        print "--- position-try-fallbacks, in order, first one that fits ---"
+        ; The bar is at the bottom of the page: 740..780.
+        def page:EVGElement (EVGPopoverTest.buildPage(740.0))
+        def m:EVGElement (EVGPopoverTest.menu(160.0 100.0))
+        m.setAttribute("position-area" "bottom start")
+        m.setAttribute("position-try-fallbacks" "right start, top start")
+        page.addChild(m)
+        def lay:EVGLayout (EVGPopoverTest.laidOut(page 400.0 800.0))
+        ; bottom: 784 + 100 runs 84 past the page.
+        ; right:  x=84 fits, but `start` puts its top at 740 and its bottom at
+        ;         840 — off the page by 40, so it is not a fit either.
+        ; top:    636..736. It fits, and it is the first that does.
+        c.eqStr("it landed on the first candidate that is wholly on the page" m.overlayPlacedSide "top")
+        c.eqInt("above the trigger, gap included" (to_int m.calculatedY) 636)
+
+        ; A fallback that is not a position-area is reported, not obeyed.
+        def page2:EVGElement (EVGPopoverTest.buildPage(740.0))
+        def m2:EVGElement (EVGPopoverTest.menu(160.0 100.0))
+        m2.setAttribute("position-area" "bottom start")
+        m2.setAttribute("position-try-fallbacks" "sideways, top start")
+        page2.addChild(m2)
+        def lay2:EVGLayout (EVGPopoverTest.laidOut(page2 400.0 800.0))
+        c.eqStr("a nonsense fallback is skipped" m2.overlayPlacedSide "top")
+        def said:boolean false
+        def i:int 0
+        while (i < (lay2.warningCount())) {
+            def w:string (lay2.warningAt(i))
+            if ((indexOf w "sideways") >= 0) {
+                said = true
+            }
+            i = (i + 1)
+        }
+        c.ok("…and named in the warnings" said)
+    }
+
+    sfn testMostSpace:void (c:PopCheck) {
+        print ""
+        print "--- position-try-order: most-space ---"
+        ; Trigger at 300..340: 300 above, 460 below. Both fit a 100-tall menu.
+        def page:EVGElement (EVGPopoverTest.buildPage(300.0))
+        def m:EVGElement (EVGPopoverTest.menu(160.0 100.0))
+        m.setAttribute("position-area" "top start")
+        m.setAttribute("position-try-fallbacks" "bottom start")
+        page.addChild(m)
+        def lay:EVGLayout (EVGPopoverTest.laidOut(page 400.0 800.0))
+        c.eqStr("in order, the declared side wins because it fits" m.overlayPlacedSide "top")
+
+        def page2:EVGElement (EVGPopoverTest.buildPage(300.0))
+        def m2:EVGElement (EVGPopoverTest.menu(160.0 100.0))
+        m2.setAttribute("position-area" "top start")
+        m2.setAttribute("position-try-fallbacks" "bottom start")
+        m2.setAttribute("position-try-order" "most-space")
+        page2.addChild(m2)
+        def lay2:EVGLayout (EVGPopoverTest.laidOut(page2 400.0 800.0))
+        c.eqStr("most-space takes the roomier one instead" m2.overlayPlacedSide "bottom")
+        c.eqInt("below the trigger" (to_int m2.calculatedY) 344)
+    }
+
+    sfn testFitViewport:void (c:PopCheck) {
+        print ""
+        print "--- fit-viewport: take the room there is, and scroll for the rest ---"
+        def page:EVGElement (EVGPopoverTest.buildPage(600.0))
+        def m:EVGElement (EVGPopoverTest.menu(160.0 700.0))
+        m.setAttribute("position-area" "bottom start")
+        m.setAttribute("fit-viewport" "true")
+        m.setAttribute("overflow" "hidden")
+        def r:int 0
+        while (r < 10) {
+            m.addChild((EVGPopoverTest.box(("row" + (to_string r)) 160.0 70.0)))
+            r = (r + 1)
+        }
+        page.addChild(m)
+        def lay:EVGLayout (EVGPopoverTest.laidOut(page 400.0 800.0))
+        ; Neither side fits 700. Above the trigger hangs off by 104 and below
+        ; by 544, so it opens upwards and is cut to the 596 there is.
+        c.eqStr("it opened on the side it loses least on" m.overlayPlacedSide "top")
+        c.ok("and it says it was cut" m.overlayClamped)
+        c.eqInt("to the room above the trigger" (to_int m.calculatedHeight) 596)
+        c.eqInt("which starts at the top of the page" (to_int m.calculatedY) 0)
+        c.eqInt("the rest is there to scroll to" (to_int m.scrollHeight) 700)
+        c.eqInt("…which is 104 of scrolling" (to_int (m.maxScrollTop())) 104)
+    }
+
+    sfn sheetMenu:EVGElement () {
+        def m (EVGElement.createDiv())
+        m.tagName = "popover"
+        m.id = "menu"
+        m.setAttribute("width" "160px")
+        m.setAttribute("position-anchor" "--file")
+        m.setAttribute("position-area" "bottom start")
+        m.setAttribute("flex-direction" "column")
+        def r:int 0
+        while (r < 3) {
+            def row:EVGElement (EVGPopoverTest.box(("row" + (to_string r)) 160.0 60.0))
+            row.setAttribute("width" "100%")
+            m.addChild(row)
+            r = (r + 1)
+        }
+        return m
+    }
+
+    sfn testSheet:void (c:PopCheck) {
+        print ""
+        print "--- presentation: a menu is the wrong widget on a phone ---"
+        def page:EVGElement (EVGPopoverTest.buildPage(0.0))
+        def m:EVGElement (EVGPopoverTest.sheetMenu())
+        m.setAttribute("sheet-below" "600px")
+        page.addChild(m)
+        def lay:EVGLayout (EVGPopoverTest.laidOut(page 400.0 800.0))
+        c.eqStr("at 400 wide it is a sheet" m.overlayPlacedPresentation "sheet")
+        c.eqInt("as wide as the page" (to_int m.calculatedWidth) 400)
+        c.eqInt("against its left edge" (to_int m.calculatedX) 0)
+        c.eqInt("as tall as its three rows" (to_int m.calculatedHeight) 180)
+        c.eqInt("along the bottom edge" (to_int m.calculatedY) 620)
+        ; The rows were laid out again at the sheet's width, not the menu's.
+        def row0:EVGElement (m.getChild(0))
+        c.eqInt("and the rows were laid out again at that width" (to_int row0.calculatedWidth) 400)
+
+        def wide:EVGElement (EVGPopoverTest.buildPage(0.0))
+        def m2:EVGElement (EVGPopoverTest.sheetMenu())
+        m2.setAttribute("sheet-below" "600px")
+        wide.addChild(m2)
+        def lay2:EVGLayout (EVGPopoverTest.laidOut(wide 900.0 800.0))
+        c.eqStr("at 900 it is an anchored menu again" m2.overlayPlacedPresentation "anchored")
+        c.eqInt("under the trigger" (to_int m2.calculatedY) 44)
+        c.eqInt("and back to its own width" (to_int m2.calculatedWidth) 160)
+    }
+
+    sfn testFullscreen:void (c:PopCheck) {
+        print ""
+        print "--- presentation: fullscreen ---"
+        def page:EVGElement (EVGPopoverTest.buildPage(0.0))
+        def m:EVGElement (EVGPopoverTest.sheetMenu())
+        m.setAttribute("presentation" "fullscreen")
+        page.addChild(m)
+        def lay:EVGLayout (EVGPopoverTest.laidOut(page 400.0 800.0))
+        c.eqStr("it covers the page" m.overlayPlacedPresentation "fullscreen")
+        c.eqInt("from the top left" (to_int m.calculatedX) 0)
+        c.eqInt("…" (to_int m.calculatedY) 0)
+        c.eqInt("as wide as the page" (to_int m.calculatedWidth) 400)
+        c.eqInt("and as tall" (to_int m.calculatedHeight) 800)
+    }
+
+    sfn testAnchorInsets:void (c:PopCheck) {
+        print ""
+        print "--- anchor() places an edge, not a side ---"
+        def page:EVGElement (EVGPopoverTest.buildPage(200.0))
+        ; A badge hanging off the trigger's top-right corner. The trigger is
+        ; 80x40 at (0,200), so its right edge is x=80 and its top is y=200.
+        def badge (EVGElement.createDiv())
+        badge.id = "badge"
+        badge.setAttribute("width" "20px")
+        badge.setAttribute("height" "20px")
+        badge.setAttribute("position-anchor" "--file")
+        badge.setAttribute("left" "calc(anchor(right) - 8px)")
+        badge.setAttribute("top" "calc(anchor(top) - 6px)")
+        page.addChild(badge)
+        def lay:EVGLayout (EVGPopoverTest.laidOut(page 400.0 800.0))
+        c.eqStr("placed by its edges" badge.overlayPlacedSide "anchor")
+        c.eqInt("left edge on the anchor's right, less the offset" (to_int badge.calculatedX) 72)
+        c.eqInt("top edge above the anchor's top" (to_int badge.calculatedY) 194)
+
+        ; The other two insets: `right`/`bottom` measure the box's far edges.
+        def page2:EVGElement (EVGPopoverTest.buildPage(200.0))
+        def tag2 (EVGElement.createDiv())
+        tag2.id = "tag"
+        tag2.setAttribute("width" "30px")
+        tag2.setAttribute("height" "10px")
+        tag2.setAttribute("position-anchor" "--file")
+        tag2.setAttribute("right" "anchor(left)")
+        tag2.setAttribute("bottom" "anchor(center)")
+        page2.addChild(tag2)
+        def lay2:EVGLayout (EVGPopoverTest.laidOut(page2 400.0 800.0))
+        c.eqInt("its right edge on the anchor's left" (to_int (tag2.calculatedX + tag2.calculatedWidth)) 0)
+        c.eqInt("its bottom on the anchor's middle" (to_int (tag2.calculatedY + tag2.calculatedHeight)) 220)
+
+        ; Both insets on an axis stretch the box between them.
+        def page3:EVGElement (EVGPopoverTest.buildPage(200.0))
+        def rule (EVGElement.createDiv())
+        rule.id = "rule"
+        rule.setAttribute("height" "2px")
+        rule.setAttribute("position-anchor" "--file")
+        rule.setAttribute("left" "anchor(left)")
+        rule.setAttribute("right" "calc(anchor(right) + 40px)")
+        rule.setAttribute("top" "calc(anchor(bottom) + 4px)")
+        page3.addChild(rule)
+        def lay3:EVGLayout (EVGPopoverTest.laidOut(page3 400.0 800.0))
+        c.eqInt("stretched from one inset to the other" (to_int rule.calculatedWidth) 120)
+        c.eqInt("starting at the anchor's left" (to_int rule.calculatedX) 0)
+        c.eqInt("just under it" (to_int rule.calculatedY) 244)
+
+        ; An inset on the wrong axis is reported, not guessed at.
+        def page4:EVGElement (EVGPopoverTest.buildPage(200.0))
+        def bad (EVGElement.createDiv())
+        bad.id = "bad"
+        bad.setAttribute("width" "10px")
+        bad.setAttribute("height" "10px")
+        bad.setAttribute("position-anchor" "--file")
+        bad.setAttribute("left" "anchor(bottom)")
+        page4.addChild(bad)
+        c.ok("a cross-axis edge is not taken" ((strlen bad.anchorLeftSide) == 0))
+    }
+
+    sfn main:void () {
+        def c (new PopCheck())
+        print "=== EVG popovers ==="
+        EVGPopoverTest.testNamedAnchor(c)
+        EVGPopoverTest.testPositionArea(c)
+        EVGPopoverTest.testFallbacks(c)
+        EVGPopoverTest.testMostSpace(c)
+        EVGPopoverTest.testFitViewport(c)
+        EVGPopoverTest.testSheet(c)
+        EVGPopoverTest.testFullscreen(c)
+        EVGPopoverTest.testAnchorInsets(c)
+        print ""
+        print ("passed=" + (to_string c.passed) + " failed=" + (to_string c.failed))
+        if (c.failed > 0) {
+            print "FAILURES"
+        } {
+            print "ALL PASS"
+        }
+    }
+}

@@ -7,8 +7,6 @@ Import "TTypeRegistry.rgr"
 Import "ForLoopAnalysis.rgr"
 Import "EnumAnalysis.rgr"
 
-Import "WebPageWriter.rgr"
-
 class RangerJavaScriptClassWriter {
 
   Extends (RangerGenericClassWriter)
@@ -1804,26 +1802,6 @@ class RangerJavaScriptClassWriter {
 
     theEnd.out("(new test_webservice).run();" true)
 
-  }
-
-  fn CreatePages (parser:RangerFlowParser ctx:RangerAppWriterContext orig_wr:CodeWriter) {
-
-      def wr:CodeWriter (orig_wr.getFileWriter("." ("pages.js")))
-    
-      ; TODO: the application container could be here
-      wr.out("class theApplicationClass {" true)
-      wr.indent(1)
-      ctx.appPages.forEach({
-        this.CreatePage(parser item ctx wr)
-      })
-      wr.indent(-1)
-      wr.out("}" true)
-  }
-
-  fn CreatePage (parser:RangerFlowParser node:CodeNode ctx:RangerAppWriterContext orig_wr:CodeWriter) {
-    def writer (new WebPageWriter)
-    writer.classWriter = this
-    writer.CreatePage( parser node ctx orig_wr )
   }
 
   fn writeNpmPackage ( node:CodeNode ctx:RangerAppWriterContext orig_wr:CodeWriter ) {

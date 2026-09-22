@@ -1,0 +1,899 @@
+; SPDX-License-Identifier: MIT
+
+; ==============================================================================
+; evg_agent — the tool surface, before there is a protocol around it
+; ==============================================================================
+;
+; Four verbs over an EVG document. An agent with a shell and a way to read a
+; file already has everything it needs to edit one; MCP, a widget and an editor
+; panel are transports over exactly these, added when something needs them.
+;
+;   npm run agent -- outline <doc.evg.json> [--depth=N] [--at=PATH]
+;   npm run agent -- query   <doc.evg.json> <.class | #id | tag | path>
+;   npm run agent -- patch   <doc.evg.json> <ops.json> [--out=FILE]
+;   npm run agent -- measure <doc.evg.json> [--width=N] [--height=N] [--boxes]
+;
+; --- WHY OUTLINE IS NOT JSON --------------------------------------------------
+;
+; `outline` prints an indented text tree and everything else prints JSON, which
+; looks inconsistent until you count tokens. An outline exists to be READ by a
+; model deciding what to change, and one line per node — path, tag, class, the
+; few properties it actually sets — costs a fraction of the same tree as JSON
+; while carrying the addresses the other verbs take. The others are parsed, not
+; read, so they are JSON.
+;
+; --- WHY MEASURE IS THE INTERESTING ONE ---------------------------------------
+;
+; The rest of this is bookkeeping. `measure` is the verb that does something a
+; model cannot do for itself: it lays the document out and answers, in numbers,
+; whether the result is wrong — text past its box, siblings on top of each
+; other, a node off the page. A screenshot asks the model to SEE that, badly
+; and expensively. This reads it off the boxes layout already computed.
+; ==============================================================================
+
+Import "../EVGElement.rgr"
+Import "../EVGInspect.rgr"
+Import "../EVGLayout.rgr"
+Import "../EVGMeasure.rgr"
+Import "../EVGHoles.rgr"
+Import "../EVGHitTest.rgr"
+Import "../EVGPatch.rgr"
+Import "../EVGUnit.rgr"
+Import "../EVGTreeJson.rgr"
+
+class EvgAgent {
+    def insp:EVGInspect
+
+    Constructor () {
+        insp = (new EVGInspect())
+    }
+
+    sfn main:void () {
+        def a (new EvgAgent())
+        a.run()
+    }
+
+    fn run:void () {
+        def argc:int (shell_arg_cnt)
+        if (argc < 2) {
+            this.usage()
+            return
+        }
+        def verb:string (shell_arg 0)
+        def docPath:string (shell_arg 1)
+        def text@(optional):string (EvgAgent.slurp(docPath))
+        if (null? text) {
+            print (("{\"error\":\"cannot read \\\"" + docPath) + "\\\"\"}")
+            return
+        }
+        def root@(optional):EVGElement (EVGTreeJson.fromText((unwrap text)))
+        if (null? root) {
+            print (("{\"error\":\"not an EVG document: \\\"" + docPath) + "\\\"\"}")
+            return
+        }
+        def tree:EVGElement (unwrap root)
+
+        if (verb == "outline") {
+            this.outline(tree)
+            return
+        }
+        if (verb == "query") {
+            this.query(tree)
+            return
+        }
+        if (verb == "patch") {
+            this.patch(tree docPath)
+            return
+        }
+        if (verb == "measure") {
+            this.measure(tree)
+            return
+        }
+        if (verb == "pick") {
+            this.pick(tree)
+            return
+        }
+        this.usage()
+    }
+
+    fn usage:void () {
+        print "evg_agent — read, edit and check an EVG document"
+        print ""
+        print "  outline <doc> [--depth=N] [--at=PATH]   the tree, one line per node"
+        print "  query   <doc> <.class|#id|tag|path>     the nodes that match"
+        print "  patch   <doc> <ops.json> [--out=FILE]   apply ops, print the inverse"
+        print "  measure <doc> [--width=N] [--height=N] [--boxes] [--at=PATH]"
+        print "                                          lay it out and say what is wrong"
+        print "  pick    <doc> X Y [--width=N] [--height=N]"
+        print "                                          what is under that point, root first"
+    }
+
+    ; --- pick -----------------------------------------------------------------
+    ; The editor's question, which `query` cannot answer: somebody pointed at
+    ; the picture — what is that?
+    ;
+    ; It answers with the whole CHAIN from the root down to the deepest thing
+    ; under the point, not with one node, because the node under a pointer is
+    ; almost never the one somebody means. A click on a switch lands on its
+    ; thumb, and the thing to select is two levels up. Handing back the chain
+    ; lets the caller show the levels and let a person choose, and it costs one
+    ; walk rather than a round trip per level.
+    ;
+    ; The tree is dressed first, for the same reason `measure` dresses it: the
+    ; point was aimed at the picture on the screen, so the boxes have to be the
+    ; boxes that were drawn.
+    fn pick:void (root:EVGElement) {
+        def argc:int (shell_arg_cnt)
+        if (argc < 4) {
+            print "{\"error\":\"pick needs X and Y\"}"
+            return
+        }
+        EVGDress.dress(root)
+        def w:int (EvgAgent.intFlag("--width" (EVGMeasure.sizeOf(root true 1200))))
+        def h:int (EvgAgent.intFlag("--height" (EVGMeasure.sizeOf(root false 900))))
+        def ax:int (EvgAgent.numAt(2))
+        def ay:int (EvgAgent.numAt(3))
+        def px:double (to_double ax)
+        def py:double (to_double ay)
+        def l (new EVGLayout())
+        l.setPageSize((to_double w) (to_double h))
+        l.layout(root)
+        ; Every box where it was drawn. A `transform` is carried as a shift
+        ; that a reader settles before looking, and a picker is a reader.
+        ; Note this settles a subtree, not the shifted element's own box —
+        ; the same thing `EVGHitTest` does, so a thumb moved by a transform
+        ; answers as its track here exactly as it does under a press.
+        root.settleAll()
+        insp.build(root)
+
+        ; The deepest element holding the point. Depth decides, and among
+        ; equals the later one wins, because that is the one painted on top.
+        def best:string ""
+        def bestDepth:int (0 - 1)
+        def i:int 0
+        while (i < (insp.count())) {
+            def path:string (insp.pathAt(i))
+            def hit@(optional):EVGElement (insp.elementAt(path))
+            if ((null? hit) == false) {
+                def el:EVGElement (unwrap hit)
+                if ((el.isHidden()) == false) {
+                    if (EVGHitTest.containsPoint(el px py)) {
+                        def d:int (EvgAgent.depthOf(path))
+                        if (d >= bestDepth) {
+                            bestDepth = d
+                            best = path
+                        }
+                    }
+                }
+            }
+            i = (i + 1)
+        }
+        if ((strlen best) == 0) {
+            print "{\"chain\":[],\"count\":0}"
+            return
+        }
+        ; Up to the root, then printed the other way round, so the first entry
+        ; is the page and the last is what the pointer was actually over.
+        def up:[string]
+        def at:string best
+        def guard:int 0
+        while ((guard < 64) && ((strlen at) > 0)) {
+            push up at
+            at = (insp.parentOf(at))
+            guard = (guard + 1)
+        }
+        def out:string "{\"chain\":["
+        def n:int 0
+        def k:int ((array_length up) - 1)
+        while (k >= 0) {
+            def p:string (itemAt up k)
+            def got@(optional):EVGElement (insp.elementAt(p))
+            if ((null? got) == false) {
+                def el:EVGElement (unwrap got)
+                if (n > 0) {
+                    out = (out + ",")
+                }
+                out = (out + "\n  ")
+                out = (out + (EvgAgent.pickOne(p el)))
+                n = (n + 1)
+            }
+            k = (k - 1)
+        }
+        if (n > 0) {
+            out = (out + "\n")
+        }
+        out = ((out + "],\"count\":") + (to_string n))
+        out = ((out + ",\"at\":") + (EVGTreeJson.str(best)))
+        print (out + "}")
+    }
+
+    ; One link of the chain: enough to name it in a sidebar and draw a box
+    ; round it, and not the whole node.
+    sfn pickOne:string (path:string el:EVGElement) {
+        def out:string "{\"at\":"
+        out = (out + (EVGTreeJson.str(path)))
+        out = ((out + ",\"tag\":") + (EVGTreeJson.str(el.tagName)))
+        if ((strlen el.id) > 0) {
+            out = ((out + ",\"id\":") + (EVGTreeJson.str(el.id)))
+        }
+        if ((strlen el.className) > 0) {
+            out = ((out + ",\"class\":") + (EVGTreeJson.str(el.className)))
+        }
+        if ((strlen el.role) > 0) {
+            out = ((out + ",\"role\":") + (EVGTreeJson.str(el.role)))
+        }
+        def t:string (trim el.textContent)
+        if ((strlen t) > 0) {
+            out = ((out + ",\"text\":") + (EVGTreeJson.str(t)))
+        }
+        out = ((out + ",\"x\":") + (EVGMeasure.num(el.calculatedX)))
+        out = ((out + ",\"y\":") + (EVGMeasure.num(el.calculatedY)))
+        out = ((out + ",\"w\":") + (EVGMeasure.num(el.calculatedWidth)))
+        out = ((out + ",\"h\":") + (EVGMeasure.num(el.calculatedHeight)))
+        out = ((out + ",\"children\":") + (to_string (array_length el.children)))
+        return (out + "}")
+    }
+
+    ; A positional number argument. `to_int` on a string is optional-typed and
+    ; answers differently per target, so a digit loop is the same everywhere —
+    ; the same reason `intFlag` has one.
+    sfn numAt:int (slot:int) {
+        def v:string (shell_arg slot)
+        def out@(mutable):int 0
+        def k@(mutable):int 0
+        def neg:boolean ((indexOf v "-") == 0)
+        if neg {
+            k = 1
+        }
+        while (k < (strlen v)) {
+            def d:int (indexOf "0123456789" (substring v k (k + 1)))
+            if (d < 0) {
+                k = (strlen v)
+            } {
+                out = ((out * 10) + d)
+                k = (k + 1)
+            }
+        }
+        if neg {
+            return (0 - out)
+        }
+        return out
+    }
+
+    ; --- outline --------------------------------------------------------------
+
+    fn outline:void (root:EVGElement) {
+        def depth:int (EvgAgent.intFlag("--depth" 99))
+        def from:string (EvgAgent.textFlag("--at" "0"))
+        insp.build(root)
+        def shown:int 0
+        def hidden:int 0
+        def i:int 0
+        while (i < (insp.count())) {
+            def path:string (insp.pathAt(i))
+            if (EvgAgent.under(path from)) {
+                def d:int (EvgAgent.depthOf(path))
+                def base:int (EvgAgent.depthOf(from))
+                if ((d - base) <= depth) {
+                    def hit@(optional):EVGElement (insp.elementAt(path))
+                    if ((null? hit) == false) {
+                        print (EvgAgent.line(path (unwrap hit) (d - base)))
+                        shown = (shown + 1)
+                    }
+                } {
+                    hidden = (hidden + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        ; Never truncate in silence — a model that cannot see there is more
+        ; will confidently describe a document it has only the top of.
+        if (hidden > 0) {
+            print ""
+            print ((("… " + (to_string hidden)) + " deeper nodes not shown — raise --depth or pass --at to go into one"))
+        }
+    }
+
+    ; One node: its address, what it is, and only what it actually says.
+    sfn line:string (path:string el:EVGElement indent:int) {
+        def out:string (EvgAgent.pad(path 22))
+        def i:int 0
+        while (i < indent) {
+            out = (out + "  ")
+            i = (i + 1)
+        }
+        out = (out + el.tagName)
+        if ((strlen el.id) > 0) {
+            out = ((out + " #") + el.id)
+        }
+        if ((strlen el.className) > 0) {
+            out = ((out + " .") + el.className)
+        }
+        if ((strlen el.textContent) > 0) {
+            out = ((out + " \"") + (EvgAgent.clip(el.textContent 40)))
+            out = (out + "\"")
+        }
+        def names:[string] (EVGPatch.patchableNames())
+        def fresh@(optional):EVGElement (EVGPatch.create(el.tagName))
+        if (null? fresh) {
+            return out
+        }
+        def blank:EVGElement (unwrap fresh)
+        def k:int 0
+        while (k < (array_length names)) {
+            def name:string (itemAt names k)
+            if (name != "class-name") {
+                def mine:string (EVGPatch.readProp(el name))
+                def theirs:string (EVGPatch.readProp(blank name))
+                if (mine != theirs) {
+                    out = ((((out + "  ") + name) + "=") + mine)
+                }
+            }
+            k = (k + 1)
+        }
+        ; `evg-fx-*` is per element rather than per format, so it is not in the
+        ; static list above. Without this an outline shows that a node has a
+        ; starfield and not how it is tuned.
+        def fx:[string] (EVGPatch.fxNamesOf(el))
+        def f:int 0
+        while (f < (array_length fx)) {
+            def fxName:string (itemAt fx f)
+            out = ((((out + "  ") + fxName) + "=") + (EVGPatch.readProp(el fxName)))
+            f = (f + 1)
+        }
+        return out
+    }
+
+    ; --- query ----------------------------------------------------------------
+
+    fn query:void (root:EVGElement) {
+        def argc:int (shell_arg_cnt)
+        if (argc < 3) {
+            print "{\"error\":\"query needs something to match\"}"
+            return
+        }
+        def want:string (shell_arg 2)
+        insp.build(root)
+        def out:string "{\"matches\":["
+        def n:int 0
+        def i:int 0
+        while (i < (insp.count())) {
+            def path:string (insp.pathAt(i))
+            def hit@(optional):EVGElement (insp.elementAt(path))
+            if ((null? hit) == false) {
+                def el:EVGElement (unwrap hit)
+                if (EvgAgent.matches(el path want)) {
+                    if (n > 0) {
+                        out = (out + ",")
+                    }
+                    out = (out + "\n  ")
+                    out = (out + (EVGTreeJson.brief(path el)))
+                    n = (n + 1)
+                }
+            }
+            i = (i + 1)
+        }
+        if (n > 0) {
+            out = (out + "\n")
+        }
+        out = ((out + "],\"count\":") + (to_string n))
+        out = (out + "}")
+        print out
+    }
+
+    ; `.class`, `#id`, a bare tag, or a path — which is every way an address is
+    ; written in the rest of this toolchain. Not a selector engine: a compound
+    ; selector belongs to `EVGStyleSheet`, and pretending otherwise here would
+    ; be a second, weaker implementation of one.
+    sfn matches:boolean (el:EVGElement path:string want:string) {
+        if ((strlen want) == 0) {
+            return false
+        }
+        def c:int (charAt want 0)
+        if (c == 46) {
+            return (el.className == (substring want 1 (strlen want)))
+        }
+        if (c == 35) {
+            return (el.id == (substring want 1 (strlen want)))
+        }
+        if ((c >= 48) && (c <= 57)) {
+            return (path == want)
+        }
+        return (el.tagName == want)
+    }
+
+    ; --- patch ----------------------------------------------------------------
+
+    fn patch:void (root:EVGElement docPath:string) {
+        def argc:int (shell_arg_cnt)
+        if (argc < 3) {
+            print "{\"error\":\"patch needs an ops file\"}"
+            return
+        }
+        def opsPath:string (shell_arg 2)
+        def opsText@(optional):string (EvgAgent.slurp(opsPath))
+        if (null? opsText) {
+            print (("{\"error\":\"cannot read \\\"" + opsPath) + "\\\"\"}")
+            return
+        }
+        def ops:[EVGPatchOp] (EvgAgent.readOps((unwrap opsText)))
+        if ((array_length ops) == 0) {
+            print "{\"error\":\"no ops in that file\"}"
+            return
+        }
+        def p (new EVGPatch())
+        def r:EVGPatchResult (p.apply(root ops))
+        if (r.ok == false) {
+            print (("{\"ok\":false,\"applied\":0,\"rejected\":" + (EvgAgent.strArray(r.rejected))) + "}")
+            return
+        }
+        def outPath:string (EvgAgent.textFlag("--out" docPath))
+        def text:string (EVGTreeJson.toText(root))
+        EvgAgent.spit(outPath text)
+        def out:string "{\"ok\":true,\"applied\":"
+        out = (out + (to_string r.applied))
+        out = ((out + ",\"wrote\":\"") + outPath)
+        out = (out + "\"")
+        ; Read the properties back BEFORE laying the document out: layout
+        ; resolves units into the elements it measures, so a height asked for
+        ; in the ops file no longer reads the way it was written afterwards.
+        def dflt:string (this.atDefaults(root ops))
+        out = (out + ",\"layout\":")
+        out = (out + (this.layoutOf(root)))
+        if ((strlen dflt) > 0) {
+            out = ((out + ",\"atDefault\":[") + dflt)
+            out = (out + "],\"note\":\"applied — but those values are the tag default, and the format writes only what differs from a fresh element, so they will not appear in the file or in outline\"")
+        }
+        out = (out + ",\"inverse\":[")
+        def i:int 0
+        while (i < (array_length r.inverse)) {
+            if (i > 0) {
+                out = (out + ",")
+            }
+            out = (out + "\n  ")
+            out = (out + (EvgAgent.opJson((itemAt r.inverse i))))
+            i = (i + 1)
+        }
+        if ((array_length r.inverse) > 0) {
+            out = (out + "\n")
+        }
+        out = (out + "]}")
+        print out
+    }
+
+    ; What the edit did to the layout, without being asked for it.
+    ;
+    ; An agent that patches and then stops has changed a picture it cannot see.
+    ; The numbers that decide whether the change was good — what overlaps, what
+    ; left the page, how much room is left — cost one layout pass here and a
+    ; round trip it would usually skip if it had to ask.
+    fn layoutOf:string (root:EVGElement) {
+        def m (new EVGMeasure())
+        def w:int (EVGMeasure.sizeOf(root true 1200))
+        def h:int (EVGMeasure.sizeOf(root false 900))
+        m.look(root w h "")
+        return (m.summary(5))
+    }
+
+    ; --- WHY AN APPLIED OP CAN LEAVE NO TRACE ---------------------------------
+    ;
+    ; The format writes a property only where it differs from a fresh element of
+    ; the same tag, and EVG's defaults are not CSS's: a div is `column`, not
+    ; `row`. So `set-prop flex-direction=column` on a row really does turn the
+    ; node, and then the file, the outline and a query all show nothing, because
+    ; there is nothing left to say. An agent that re-reads its own edit concludes
+    ; the tool dropped it and writes a worse document around the phantom bug.
+    ; Naming those ops in the result is the whole fix: the answer arrives with
+    ; the edit instead of after a wrong theory about it.
+    ;
+    ; A batch that inserts, removes or moves is skipped — those shift the paths
+    ; the ops were written against, so a lookup afterwards could name the wrong
+    ; node, and a confident wrong note is worse than none.
+    fn atDefaults:string (root:EVGElement ops:[EVGPatchOp]) {
+        def n:int (array_length ops)
+        def i:int 0
+        while (i < n) {
+            def op:EVGPatchOp (itemAt ops i)
+            if ((((op.op != "set-prop") && (op.op != "set-text")) && (op.op != "set-id")) && (op.op != "set-css")) {
+                return ""
+            }
+            i = (i + 1)
+        }
+        insp.build(root)
+        def out:string ""
+        def wrote:int 0
+        def k:int 0
+        while (k < n) {
+            def op:EVGPatchOp (itemAt ops k)
+            if (op.op == "set-prop") {
+                def one:string (this.defaultNote(op))
+                if ((strlen one) > 0) {
+                    if (wrote > 0) {
+                        out = (out + ",")
+                    }
+                    out = (out + "\n  ")
+                    out = (out + one)
+                    wrote = (wrote + 1)
+                }
+            }
+            k = (k + 1)
+        }
+        if (wrote > 0) {
+            out = (out + "\n")
+        }
+        return out
+    }
+
+    ; One op, if what it wrote now reads the same as a fresh element of that tag.
+    fn defaultNote:string (op:EVGPatchOp) {
+        ; An empty value IS the request to go back to the default — the inverse
+        ; of a property that had never been set writes one. Saying it landed on
+        ; the default would be reporting the caller's own instruction back.
+        if ((strlen op.value) == 0) {
+            return ""
+        }
+        def hit@(optional):EVGElement (insp.elementAt(op.at))
+        if (null? hit) {
+            return ""
+        }
+        def el:EVGElement (unwrap hit)
+        def fresh@(optional):EVGElement (EVGPatch.create(el.tagName))
+        if (null? fresh) {
+            return ""
+        }
+        def blank:EVGElement (unwrap fresh)
+        def mine:string (EVGPatch.readProp(el op.prop))
+        def theirs:string (EVGPatch.readProp(blank op.prop))
+        if (mine != theirs) {
+            return ""
+        }
+        def out:string "{\"at\":"
+        out = (out + (EVGTreeJson.str(op.at)))
+        out = ((out + ",\"prop\":") + (EVGTreeJson.str(op.prop)))
+        out = ((out + ",\"value\":") + (EVGTreeJson.str(mine)))
+        out = ((out + ",\"tag\":") + (EVGTreeJson.str(el.tagName)))
+        return (out + "}")
+    }
+
+    ; An inverse op, in the shape `patch` takes back. Writing the file the
+    ; caller would have to write is the difference between "here is how to undo
+    ; it" and "here is a description of the undo".
+    sfn opJson:string (op:EVGPatchOp) {
+        def out:string "{\"op\":"
+        out = (out + (EVGTreeJson.str(op.op)))
+        out = ((out + ",\"at\":") + (EVGTreeJson.str(op.at)))
+        if ((strlen op.prop) > 0) {
+            out = ((out + ",\"prop\":") + (EVGTreeJson.str(op.prop)))
+        }
+        if (op.op == "set-prop") {
+            out = ((out + ",\"value\":") + (EVGTreeJson.str(op.value)))
+        }
+        if (op.op == "set-text") {
+            out = ((out + ",\"value\":") + (EVGTreeJson.str(op.value)))
+        }
+        if (op.op == "set-id") {
+            out = ((out + ",\"value\":") + (EVGTreeJson.str(op.value)))
+        }
+        if (op.op == "set-css") {
+            out = ((out + ",\"value\":") + (EVGTreeJson.str(op.value)))
+        }
+        if ((strlen op.toPath) > 0) {
+            out = ((out + ",\"to\":") + (EVGTreeJson.str(op.toPath)))
+        }
+        if ((strlen op.tag) > 0) {
+            out = ((out + ",\"tag\":") + (EVGTreeJson.str(op.tag)))
+        }
+        if (((op.op == "insert") || (op.op == "move")) || (op.op == "restore")) {
+            out = ((out + ",\"index\":") + (to_string op.index))
+        }
+        ; `restore` names a subtree this process is holding, so an inverse
+        ; carrying one cannot be replayed from a file. Say so in the file
+        ; rather than let it look replayable.
+        if (op.op == "restore") {
+            out = (out + ",\"note\":\"in-process only — a removed subtree lives in the patch that removed it\"")
+        }
+        return (out + "}")
+    }
+
+    ; Is `path` at or below `from`? String prefix is not enough: "0/1" is not
+    ; under "0/12", and both start the same way.
+    sfn under:boolean (path:string from:string) {
+        if (path == from) {
+            return true
+        }
+        def head:string (from + "/")
+        def n:int (strlen head)
+        if ((strlen path) <= n) {
+            return false
+        }
+        return ((substring path 0 n) == head)
+    }
+
+    sfn depthOf:int (path:string) {
+        def n:int 0
+        def i:int 0
+        while (i < (strlen path)) {
+            if ((charAt path i) == 47) {
+                n = (n + 1)
+            }
+            i = (i + 1)
+        }
+        return n
+    }
+
+    ; --- measure --------------------------------------------------------------
+
+    ; The layout, in numbers. `EVGMeasure` is shared with the live-build server
+    ; so the agent and the page cannot disagree about whether a screen is
+    ; right; this verb is the flags around it.
+    fn measure:void (root:EVGElement) {
+        def m (new EVGMeasure())
+        ; Fill the design's own state holes first, so the numbers describe the
+        ; control as it is drawn rather than a `ui-switch-state-{wifi}` that
+        ; matches no rule and lays out to nothing. `measure` never writes the
+        ; document back — `patch` is a different verb and a different tree —
+        ; so dressing in place here cannot reach the file.
+        EVGDress.dress(root)
+        def w:int (EvgAgent.intFlag("--width" (EVGMeasure.sizeOf(root true 1200))))
+        def h:int (EvgAgent.intFlag("--height" (EVGMeasure.sizeOf(root false 900))))
+        def at:string ""
+        if (EvgAgent.hasFlag("--boxes")) {
+            at = (EvgAgent.textFlag("--at" "0"))
+        } {
+            at = (EvgAgent.textFlag("--at" ""))
+        }
+        m.look(root w h at)
+        print (m.json(true))
+    }
+
+    ; --- the ops file ---------------------------------------------------------
+
+    sfn readOps:[EVGPatchOp] (text:string) {
+        def out:[EVGPatchOp]
+        def c (new EVGJsonCursor())
+        c.src = text
+        c.at = 0
+        c.skipWs()
+        if ((c.take()) != 123) {
+            return out
+        }
+        while (c.ok) {
+            c.skipWs()
+            def ch:int (c.peek())
+            if (ch == 125) {
+                return out
+            }
+            if (ch == 0) {
+                return out
+            }
+            if (ch == 44) {
+                def comma:int (c.take())
+            } {
+                def key:string (c.readString())
+                c.skipWs()
+                def colon:int (c.take())
+                if (key == "ops") {
+                    EvgAgent.readOpList(c out)
+                } {
+                    c.skipValue()
+                }
+            }
+        }
+        return out
+    }
+
+    sfn readOpList:void (c:EVGJsonCursor out:[EVGPatchOp]) {
+        c.skipWs()
+        if ((c.take()) != 91) {
+            c.ok = false
+            return
+        }
+        while (c.ok) {
+            c.skipWs()
+            def ch:int (c.peek())
+            if (ch == 93) {
+                def closing:int (c.take())
+                return
+            }
+            if (ch == 0) {
+                c.ok = false
+                return
+            }
+            if (ch == 44) {
+                def comma:int (c.take())
+            } {
+                def op:EVGPatchOp (EvgAgent.readOp(c))
+                push out op
+            }
+        }
+    }
+
+    sfn readOp:EVGPatchOp (c:EVGJsonCursor) {
+        def o (new EVGPatchOp())
+        c.skipWs()
+        if ((c.take()) != 123) {
+            c.ok = false
+            return o
+        }
+        while (c.ok) {
+            c.skipWs()
+            def ch:int (c.peek())
+            if (ch == 125) {
+                def closing:int (c.take())
+                return o
+            }
+            if (ch == 0) {
+                c.ok = false
+                return o
+            }
+            if (ch == 44) {
+                def comma:int (c.take())
+            } {
+                def key:string (c.readString())
+                c.skipWs()
+                def colon:int (c.take())
+                if (key == "op") {
+                    o.op = (c.readString())
+                } {
+                    if (key == "at") {
+                        o.at = (c.readString())
+                    } {
+                        if (key == "prop") {
+                            o.prop = (c.readString())
+                        } {
+                            if (key == "value") {
+                                o.value = (c.readString())
+                            } {
+                                if (key == "to") {
+                                    o.toPath = (c.readString())
+                                } {
+                                    if (key == "tag") {
+                                        o.tag = (c.readString())
+                                    } {
+                                      if (key == "node") {
+                                        ; A whole subtree, in the same shape a
+                                        ; document is written in, read by the
+                                        ; same reader. `insert` then puts in a
+                                        ; control rather than an empty box.
+                                        def sub@(optional):EVGElement (c.readNode())
+                                        if sub {
+                                            def kid:EVGElement (unwrap sub)
+                                            o.node = sub
+                                            if ((strlen o.tag) == 0) {
+                                                o.tag = kid.tagName
+                                            }
+                                        }
+                                      } {
+                                        if (key == "index") {
+                                            o.index = (c.readNumber())
+                                        } {
+                                            c.skipValue()
+                                        }
+                                      }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return o
+    }
+
+    ; --- flags, files and text ------------------------------------------------
+
+    sfn textFlag:string (name:string fallback:string) {
+        def argc:int (shell_arg_cnt)
+        def head:string (name + "=")
+        def n:int (strlen head)
+        def i:int 0
+        while (i < argc) {
+            def a:string (shell_arg i)
+            if ((strlen a) > n) {
+                if ((substring a 0 n) == head) {
+                    return (substring a n (strlen a))
+                }
+            }
+            i = (i + 1)
+        }
+        return fallback
+    }
+
+    ; A flag with no value: `--boxes`, not `--boxes=1`.
+    sfn hasFlag:boolean (name:string) {
+        def argc:int (shell_arg_cnt)
+        def i:int 0
+        while (i < argc) {
+            if ((shell_arg i) == name) {
+                return true
+            }
+            i = (i + 1)
+        }
+        return false
+    }
+
+    sfn intFlag:int (name:string fallback:int) {
+        def v:string (EvgAgent.textFlag(name ""))
+        if ((strlen v) == 0) {
+            return fallback
+        }
+        def parsed@(optional):int (to_int v)
+        if (null? parsed) {
+            return fallback
+        }
+        return (unwrap parsed)
+    }
+
+    sfn slurp@(optional):string (path:string) {
+        def cut:int (EvgAgent.lastSlash(path))
+        def dir:string "."
+        def name:string path
+        if (cut >= 0) {
+            dir = (substring path 0 cut)
+            name = (substring path (cut + 1) (strlen path))
+        }
+        def text@(optional):string (read_file dir name)
+        return text
+    }
+
+    sfn spit:void (path:string data:string) {
+        def cut:int (EvgAgent.lastSlash(path))
+        def dir:string "."
+        def name:string path
+        if (cut >= 0) {
+            dir = (substring path 0 cut)
+            name = (substring path (cut + 1) (strlen path))
+        }
+        write_file dir name data
+    }
+
+    sfn lastSlash:int (path:string) {
+        def at:int (0 - 1)
+        def i:int 0
+        while (i < (strlen path)) {
+            if ((charAt path i) == 47) {
+                at = i
+            }
+            i = (i + 1)
+        }
+        return at
+    }
+
+    sfn strArray:string (items:[string]) {
+        def out:string "["
+        def i:int 0
+        while (i < (array_length items)) {
+            if (i > 0) {
+                out = (out + ",")
+            }
+            out = (out + "\n  ")
+            out = (out + (EVGTreeJson.str((itemAt items i))))
+            i = (i + 1)
+        }
+        if ((array_length items) > 0) {
+            out = (out + "\n")
+        }
+        return (out + "]")
+    }
+
+    sfn pad:string (s:string width:int) {
+        def out:string s
+        while ((strlen out) < width) {
+            out = (out + " ")
+        }
+        return out
+    }
+
+    sfn clip:string (s:string width:int) {
+        if ((strlen s) <= width) {
+            return s
+        }
+        return ((substring s 0 width) + "…")
+    }
+
+    sfn num:string (v:double) {
+        def whole:int (to_int v)
+        return (to_string whole)
+    }
+}

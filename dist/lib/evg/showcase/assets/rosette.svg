@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A rosette written the way a drawing tool writes one: the petal exists
+     once, and everything else is that petal referenced again at a different
+     angle. Nothing here names a colour, so the drawing takes the paint of the
+     element that hosts it — which is what lets the gallery's rule hold for an
+     imported file too: the file is geometry, the stylesheet is appearance. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <path id="petal" d="M50,50 C58,32 58,20 50,8 C42,20 42,32 50,50 Z"/>
+  </defs>
+  <g>
+    <use href="#petal"/>
+    <use href="#petal" transform="rotate(45 50 50)"/>
+    <use href="#petal" transform="rotate(90 50 50)"/>
+    <use href="#petal" transform="rotate(135 50 50)"/>
+    <use href="#petal" transform="rotate(180 50 50)"/>
+    <use href="#petal" transform="rotate(225 50 50)"/>
+    <use href="#petal" transform="rotate(270 50 50)"/>
+    <use href="#petal" transform="rotate(315 50 50)"/>
+  </g>
+  <circle cx="50" cy="50" r="5"/>
+</svg>
