@@ -384,19 +384,52 @@ fs.copyFileSync(
 // measurer the Node check uses, which is what keeps the two pictures the same.
 const noFilesystem = {
   name: "no-filesystem",
+
   setup(build) {
-    build.onResolve({ filter: /^fs$/ }, () => ({ path: "fs", namespace: "stub-fs" }));
+    build.onResolve({ filter: /^(fs|node:fs)$/ }, () => ({
+      path: "fs",
+      namespace: "stub-fs",
+    }));
+
     build.onLoad({ filter: /.*/, namespace: "stub-fs" }, () => ({
-      contents:
-        "export const existsSync = () => false;\n" +
-        "export const readFileSync = () => { throw new Error('no filesystem in the browser'); };\n" +
-        "export const readdirSync = () => [];\n" +
-        "export default { existsSync, readFileSync, readdirSync };\n",
+      contents: `
+        export const existsSync = () => false;
+        export const readFileSync = () => {
+          throw new Error("no filesystem in the browser");
+        };
+        export const readdirSync = () => [];
+
+        export default {
+          existsSync,
+          readFileSync,
+          readdirSync,
+        };
+      `,
+      loader: "js",
+    }));
+
+    build.onResolve({ filter: /^(path|node:path)$/ }, () => ({
+      path: "path",
+      namespace: "stub-path",
+    }));
+
+    build.onLoad({ filter: /.*/, namespace: "stub-path" }, () => ({
+      contents: `
+        export const join = (...parts) =>
+          parts
+            .filter(Boolean)
+            .join("/")
+            .replace(/\\\\+/g, "/")
+            .replace(/\\/+/g, "/");
+
+        export default {
+          join,
+        };
+      `,
       loader: "js",
     }));
   },
 };
-
 // MINIFIED. The generated app is machine-written and reads like it — long
 // identifiers, one statement per line, every temporary named — and none of
 // that survives to the browser usefully. What the page ships is the behaviour,
