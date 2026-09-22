@@ -25,7 +25,7 @@ class RangerApiMethod {
   def returnType:string ""
   def returnDoc:string ""
   def params:[RangerApiParam]
-  def doc:RangerDocBlock
+  def doc@(optional):RangerDocBlock
   def has_doc:boolean false
   def node:CodeNode
 }
@@ -48,7 +48,7 @@ class RangerApiClass {
   def extendsName:string ""
   def fields:[RangerApiField]
   def methods:[RangerApiMethod]
-  def doc:RangerDocBlock
+  def doc@(optional):RangerDocBlock
   def has_doc:boolean false
   def node:CodeNode
 

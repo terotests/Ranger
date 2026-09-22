@@ -10,7 +10,7 @@
 ; questions a device would answer are asked here instead, in the same
 ; `UiIos` the app runs — not in a second implementation of the same sums.
 ;
-;   node bin/output.js -es6 gallery/ui/ios/ranger/check_ios.rgr -nodecli \
+;   node dist/rgrc.js -es6 gallery/ui/ios/ranger/check_ios.rgr -nodecli \
 ;        -d=tmp/ui-ios -o=check_ios.js
 ;   node tmp/ui-ios/check_ios.js
 ;

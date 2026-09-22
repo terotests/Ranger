@@ -79,7 +79,7 @@ function compile(t: Target): string {
   fs.mkdirSync(OUT, { recursive: true });
   const rel = path.relative(ROOT, OUT).replace(/\\/g, "/");
   const file = `core_vectors.${t.ext}`;
-  execFileSync(process.execPath, ["bin/output.js", t.flag, VECTORS, `-d=${rel}`, `-o=${file}`, "-nodecli"], {
+  execFileSync(process.execPath, ["dist/rgrc.js", t.flag, VECTORS, `-d=${rel}`, `-o=${file}`, "-nodecli"], {
     cwd: ROOT,
     encoding: "utf8",
     env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr:./lib/stdops.rgr:./lib" },

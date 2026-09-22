@@ -5,7 +5,7 @@
 ; ==============================================================================
 ; Prints the generated Rust module (RGC1 wire constants + a const per live
 ; command id) to stdout. Regenerate a guest crate's committed binding with:
-;   node bin/output.js -es6 <this-file> -d=/tmp -o=gen.js \
+;   node dist/rgrc.js -es6 <this-file> -d=/tmp -o=gen.js \
 ;        && node /tmp/gen.js > <guest-crate>/src/rg_abi.rs
 ; The freshness gate (a *_test.rgr under bridge/wasm) fails if a committed file
 ; drifts from a fresh generation.

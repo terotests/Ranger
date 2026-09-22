@@ -12,9 +12,13 @@ class SourceCode {
     def code:string ""
     def lines:[string]
     def filename:string ""
-    Constructor (code_str:string ) {
-        code = code_str
-        lines = (strsplit code_str "\n")
+    Constructor (code_str@(optional):string ) {
+        def str:string ""
+        if (!null? code_str) {
+            str = ( unwrap code_str )
+        }
+        this.code = str
+        lines = (strsplit this.code "\n")
     }
     
     fn getLineString:string (line_index:int) {

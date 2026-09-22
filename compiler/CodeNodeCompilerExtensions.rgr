@@ -447,7 +447,7 @@ extension CodeNode {
   ;
   ; ISSUES.md #71: this used to be `return false` here, with the real body kept
   ; as hand-written JavaScript in scripts/patch-chain-desugar.js and stamped
-  ; into bin/output.js after every build. That patch ran in exactly two npm
+  ; into dist/rgrc.js after every build. That patch ran in exactly two npm
   ; scripts, so every selfhost:* compiler returned false from this and then
   ; REFUSED to compile method chaining at all — five of the six chain_*.rgr
   ; fixtures failed with "Undefined variable .hello" on a self-hosted build.

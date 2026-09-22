@@ -14,7 +14,7 @@
 ;      guest drift).
 ;
 ; Regenerate the committed binding with:
-;   node bin/output.js -es6 gallery/game_engine/v2/bridge/wasm/tools/gen_rust_abi.rgr \
+;   node dist/rgrc.js -es6 gallery/game_engine/v2/bridge/wasm/tools/gen_rust_abi.rgr \
 ;     -d=/tmp -o=g.js && node /tmp/g.js \
 ;     > gallery/game_engine/v2/bridge/wasm/conformance/ylos3d_slice/src/rg_abi.rs
 ; ==============================================================================

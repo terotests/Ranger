@@ -2,7 +2,7 @@
 ; Each row is a CounterRowProcess — start/stop preserves value + tick count;
 ; Space adds reps on the selected row.
 ;
-;   node bin/output.js -es6 tests/fixtures/process_counter_board.rgr -nodecli -d=tests/.output -o=process_counter_board.js
+;   node dist/rgrc.js -es6 tests/fixtures/process_counter_board.rgr -nodecli -d=tests/.output -o=process_counter_board.js
 ;   node tests/.output/process_counter_board.js interactive
 ; Recompile after compiler/lib changes — stale .js will miss ProcessTreeView or keyboard fixes.
 ;

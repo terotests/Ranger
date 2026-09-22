@@ -14,8 +14,6 @@ Import "StaticAnalysis.rgr"
 Import "RangerLLVMPipeline.rgr"
 
 Import "RangerPlugin.rgr"
-Import "viewbuilder_Android.rgr"
-Import "viewbuilder_Web.rgr"
 
 defn CreateFolder (folder fname) (create_folder (unwrap folder) fname)
 defn CreateFolder (folder fname) (create_folder folder fname)
@@ -846,12 +844,6 @@ class tester {
                   case "package" {
                     package_name = sc.string_value
                   }
-                  case "android_res_dir" {
-                    set comp_attrs fc.vref sc.string_value
-                  }
-                  case "web_res_dir" {
-                    set comp_attrs fc.vref sc.string_value
-                  }
                   case "Import" {
                     push inserted_nodes (r.expression (r.vref "Import") (r.value sc.string_value))                    
                   }
@@ -1301,290 +1293,262 @@ class tester {
         return res
       }
 
-      switch appCtx.targetLangName {
-        case "java7" {
-          if(has comp_attrs "android_res_dir") {
-            ; print "--> had android res dir"
-            def resDir (unwrap (get comp_attrs "android_res_dir"))
-            def resFs:CodeFileSystem (new CodeFileSystem())
-            def file:CodeFile (resFs.getFile("." "README.txt"))
-            def wr:CodeWriter (unwrap (file.getWriter()))
-            def builder (new viewbuilder_Android)
-            appCtx.viewClassBody.forEach({
-                builder.writeClass( item appCtx wr )
-            })
-            resFs.saveTo(resDir (appCtx.hasCompilerFlag("show-writes")))          
-          }
-        }
-        case "es6" {
-          if(has comp_attrs "web_res_dir") {
-            print "--> had web res dir"
-            def resDir (unwrap (get comp_attrs "web_res_dir"))
-            def resFs:CodeFileSystem (new CodeFileSystem())
-            def file:CodeFile (resFs.getFile("." "webviews.html"))
-            def wr:CodeWriter (unwrap (file.getWriter()))
-            def builder (new viewbuilder_Web)
-            builder.CreateViews( appCtx wr)
-            resFs.saveTo(resDir (appCtx.hasCompilerFlag("show-writes")))          
+
+      def staticMethods:RangerAppClassDesc
+      
+      ; Polyfill position tags. Physical slice order below is:
+      ;   [before_imports][importFork][forward_declarations][after_imports]
+      ;   [contentFork][utilities][file_end]
+      ; before_imports  -> ahead of the #include/import lines (e.g. #define guards)
+      ; forward_declarations -> right after the imports, before any content, so
+      ;   embedded helpers (polyfills) can forward-declare each other and avoid
+      ;   "use of undeclared identifier" ordering errors in C++.
+      ; file_attributes -> ahead of before_imports, for lines that have to
+      ;   precede every item in the file. Rust inner attributes (#![...])
+      ;   are the case: the backend adds one only once it has emitted the
+      ;   shape that needs it, which is long after the header was written,
+      ;   and a slice keeps the position open for it.
+      wr.createTag("file_attributes")
+      def beforeImports:CodeWriter (wr.createTag("before_imports"))
+      def importFork:CodeWriter (wr.fork())
+      def forwardDecls:CodeWriter (wr.createTag("forward_declarations"))
+      wr.createTag("after_imports")
+      def contentFork (wr.fork())
+      wr.createTag("utilities")
+      def theEnd (wr.createTag("file_end"))
+      if (appCtx.hasCompilerFlag("typescript")) {
+        if (has appCtx.compilerSettings "processTsHelpers") {
+          def __rgrTs:string (unwrap (get appCtx.compilerSettings "processTsHelpers"))
+          if ((strlen __rgrTs) > 0) {
+            theEnd.raw(__rgrTs false)
+            theEnd.newline()
           }
         }
       }
 
-        def staticMethods:RangerAppClassDesc
+      wr = contentFork
+
+      ; Every doc example is rendered in the target's own syntax before a
+      ; single class is written, because the doc comment that quotes one is
+      ; usually emitted before the example itself would have been.
+      for apiBuilder.exampleFns exFn:RangerAppFunctionDesc exIdx {
+        exFn.docExampleText = (lcc.langWriter.renderDocExample(exFn appCtx (unwrap wr)))
+      }
+
+      def handledClasses:[string:boolean]
+
+      for appCtx.definedClassList cName:string i {
+        if (cName == "RangerStaticMethods") {
+          staticMethods = (get appCtx.definedClasses cName)
+          continue _
+        }
+        def cl:RangerAppClassDesc (get appCtx.definedClasses cName)
+        if(cl.is_operator_class) {
+          continue
+        }
+        if(cl.is_trait) {
+          continue
+        }
+        if(cl.is_system) {
+          continue _
+        }
+        if(cl.is_generic_instance) {
+          continue
+        }          
+        if(cl.is_system_union) {
+          continue _
+        }
+        if(cl.is_union) {
+          continue _
+        }          
+        if(has handledClasses cName) {
+          continue
+        }
+        set handledClasses cName true
+
+        if( (array_length cl.extends_classes) > 0 ) {
+          ; got to walk the extended classes first..
+          for cl.extends_classes eClassName:string i {
+            if(has handledClasses eClassName) {
+              continue
+            }
+            def parentCl:RangerAppClassDesc (get appCtx.definedClasses eClassName)
+            lcc.WalkNode( (unwrap parentCl.classNode ) appCtx (unwrap wr))
+            set handledClasses eClassName true      
+          }
+        }
+
+        lcc.WalkNode( (unwrap cl.classNode ) appCtx (unwrap wr))
         
-        ; Polyfill position tags. Physical slice order below is:
-        ;   [before_imports][importFork][forward_declarations][after_imports]
-        ;   [contentFork][utilities][file_end]
-        ; before_imports  -> ahead of the #include/import lines (e.g. #define guards)
-        ; forward_declarations -> right after the imports, before any content, so
-        ;   embedded helpers (polyfills) can forward-declare each other and avoid
-        ;   "use of undeclared identifier" ordering errors in C++.
-        ; file_attributes -> ahead of before_imports, for lines that have to
-        ;   precede every item in the file. Rust inner attributes (#![...])
-        ;   are the case: the backend adds one only once it has emitted the
-        ;   shape that needs it, which is long after the header was written,
-        ;   and a slice keeps the position open for it.
-        wr.createTag("file_attributes")
-        def beforeImports:CodeWriter (wr.createTag("before_imports"))
-        def importFork:CodeWriter (wr.fork())
-        def forwardDecls:CodeWriter (wr.createTag("forward_declarations"))
-        wr.createTag("after_imports")
-        def contentFork (wr.fork())
-        wr.createTag("utilities")
-        def theEnd (wr.createTag("file_end"))
-        if (appCtx.hasCompilerFlag("typescript")) {
-          if (has appCtx.compilerSettings "processTsHelpers") {
-            def __rgrTs:string (unwrap (get appCtx.compilerSettings "processTsHelpers"))
-            if ((strlen __rgrTs) > 0) {
-              theEnd.raw(__rgrTs false)
-              theEnd.newline()
-            }
-          }
+      }        
+      if (!null? staticMethods) {
+        lcc.WalkNode( (unwrap staticMethods.classNode) appCtx (unwrap wr))
+      }
+      for flowParser.collectedIntefaces ifDesc:RangerAppClassDesc i {
+          print "should define also interface " + ifDesc.name
+          lcc.langWriter.writeInterface( ifDesc appCtx (unwrap wr) )
+      }
+
+      for appCtx.definedClassList cName:string i {
+        if(has handledClasses cName) {
+          continue
         }
-
-        wr = contentFork
-
-        ; Every doc example is rendered in the target's own syntax before a
-        ; single class is written, because the doc comment that quotes one is
-        ; usually emitted before the example itself would have been.
-        for apiBuilder.exampleFns exFn:RangerAppFunctionDesc exIdx {
-          exFn.docExampleText = (lcc.langWriter.renderDocExample(exFn appCtx (unwrap wr)))
+        if (cName == "RangerStaticMethods") {
+          staticMethods = (get appCtx.definedClasses cName)
+          continue _
         }
-
-        def handledClasses:[string:boolean]
-
-        for appCtx.definedClassList cName:string i {
-          if (cName == "RangerStaticMethods") {
-            staticMethods = (get appCtx.definedClasses cName)
-            continue _
-          }
-          def cl:RangerAppClassDesc (get appCtx.definedClasses cName)
-          if(cl.is_operator_class) {
-            continue
-          }
-          if(cl.is_trait) {
-            continue
-          }
-          if(cl.is_system) {
-            continue _
-          }
-          if(cl.is_generic_instance) {
-            continue
-          }          
-          if(cl.is_system_union) {
-            continue _
-          }
-          if(cl.is_union) {
-            continue _
-          }          
-          if(has handledClasses cName) {
-            continue
-          }
-          set handledClasses cName true
-
-          if( (array_length cl.extends_classes) > 0 ) {
-            ; got to walk the extended classes first..
-            for cl.extends_classes eClassName:string i {
-              if(has handledClasses eClassName) {
-                continue
-              }
-              def parentCl:RangerAppClassDesc (get appCtx.definedClasses eClassName)
-              lcc.WalkNode( (unwrap parentCl.classNode ) appCtx (unwrap wr))
-              set handledClasses eClassName true      
-            }
-          }
-
+        def cl:RangerAppClassDesc (get appCtx.definedClasses cName)
+        if(cl.is_operator_class) {
+          continue 
+        }
+        if(cl.is_generic_instance) {
           lcc.WalkNode( (unwrap cl.classNode ) appCtx (unwrap wr))
-          
-        }        
-        if (!null? staticMethods) {
-          lcc.WalkNode( (unwrap staticMethods.classNode) appCtx (unwrap wr))
         }
-        for flowParser.collectedIntefaces ifDesc:RangerAppClassDesc i {
-            print "should define also interface " + ifDesc.name
-            lcc.langWriter.writeInterface( ifDesc appCtx (unwrap wr) )
+        if(cl.is_trait) {
+          continue
         }
+        if(cl.is_system) {
+          continue _
+        }
+        if(cl.is_operator_class) {
+          continue
+        }
+        if(cl.is_generic_instance) {
+          continue
+        }          
+        if(cl.is_system_union) {
+          continue _
+        }
+        if(cl.is_union) {
+          continue _
+        }          
+        lcc.WalkNode( (unwrap cl.classNode ) appCtx (unwrap wr))
+      }        
 
-        for appCtx.definedClassList cName:string i {
-          if(has handledClasses cName) {
-            continue
-          }
-          if (cName == "RangerStaticMethods") {
-            staticMethods = (get appCtx.definedClasses cName)
-            continue _
-          }
-          def cl:RangerAppClassDesc (get appCtx.definedClasses cName)
-          if(cl.is_operator_class) {
-            continue 
-          }
-          if(cl.is_generic_instance) {
-            lcc.WalkNode( (unwrap cl.classNode ) appCtx (unwrap wr))
-          }
-          if(cl.is_trait) {
-            continue
-          }
-          if(cl.is_system) {
-            continue _
-          }
-          if(cl.is_operator_class) {
-            continue
-          }
-          if(cl.is_generic_instance) {
-            continue
-          }          
-          if(cl.is_system_union) {
-            continue _
-          }
-          if(cl.is_union) {
-            continue _
-          }          
+      for appCtx.definedClassList cName:string i {
+        def cl:RangerAppClassDesc (get appCtx.definedClasses cName)
+        if(cl.is_operator_class) {
           lcc.WalkNode( (unwrap cl.classNode ) appCtx (unwrap wr))
-        }        
+        }
+      }
 
-        for appCtx.definedClassList cName:string i {
-          def cl:RangerAppClassDesc (get appCtx.definedClasses cName)
-          if(cl.is_operator_class) {
-            lcc.WalkNode( (unwrap cl.classNode ) appCtx (unwrap wr))
+      ; This should be changed into something like
+      ; import R from 'foo/bar'
+      def import_list:[string] (wr.getImports ())
+      if(appCtx.targetLangName == "go") {
+        importFork.out("package main" true)
+        importFork.newline()
+        importFork.out("import (" true)
+        importFork.indent(1)
+      }
+      def added_import:[string:boolean]
+      for import_list codeStr:string i {
+
+        if( has added_import codeStr) {
+          continue
+        }
+        set added_import codeStr true
+
+        switch appCtx.targetLangName {
+          case "es6" {
+            def parts (strsplit codeStr ".")
+            let p0 = (itemAt parts 0)
+            if( (array_length parts) > 1) {
+              let p1 = (itemAt parts 1)
+              importFork.out (('const ' +  p1 + " = require('" + p0 + "')." + p1 +  ";") , true)
+            }
+            if( (array_length parts) == 1) {
+              importFork.out (('const ' +  p0 + " = require('" + p0 + "');") , true)
+            }
+
+            ; the Import version
+            ; if( (array_length parts) > 1) {
+            ;  importFork.out (("import  { " + (itemAt parts 1) + " } from  '" + (itemAt parts 0) + "';") , true)
+            ; }
+            ; if( (array_length parts) == 1) {
+            ;  importFork.out (("import  " + (itemAt parts 0) + " from  '" + (itemAt parts 0) + "';") , true)
+            ; }
           }
-        }
-
-        ; This should be changed into something like
-        ; import R from 'foo/bar'
-        def import_list:[string] (wr.getImports ())
-        if(appCtx.targetLangName == "go") {
-          importFork.out("package main" true)
-          importFork.newline()
-          importFork.out("import (" true)
-          importFork.indent(1)
-        }
-        def added_import:[string:boolean]
-        for import_list codeStr:string i {
-
-          if( has added_import codeStr) {
-            continue
-          }
-          set added_import codeStr true
-
-          switch appCtx.targetLangName {
-            case "es6" {
-              def parts (strsplit codeStr ".")
-              let p0 = (itemAt parts 0)
-              if( (array_length parts) > 1) {
-                let p1 = (itemAt parts 1)
-                importFork.out (('const ' +  p1 + " = require('" + p0 + "')." + p1 +  ";") , true)
-              }
-              if( (array_length parts) == 1) {
-                importFork.out (('const ' +  p0 + " = require('" + p0 + "');") , true)
-              }
-
-              ; the Import version
-              ; if( (array_length parts) > 1) {
-              ;  importFork.out (("import  { " + (itemAt parts 1) + " } from  '" + (itemAt parts 0) + "';") , true)
-              ; }
-              ; if( (array_length parts) == 1) {
-              ;  importFork.out (("import  " + (itemAt parts 0) + " from  '" + (itemAt parts 0) + "';") , true)
-              ; }
-            }
-            case "go" {
-              if ( (charAt codeStr 0) == (to_int (charcode "_") ) ) {
-                importFork.out (( ' _ \"' + (substring codeStr 1 (strlen codeStr)) + "\"") , true)
-              } {
-                importFork.out (('\"' + codeStr + '\"') , true)
-              }
-              
-            }
-            case "csharp" {
-              importFork.out(("using " + codeStr + ";") true)              
-            }
-            case "rust" {
-              importFork.out (( "use " + codeStr + ";") , true)
-            }
-            case "java7" {
-              importFork.out (("import "  + codeStr + ";") , true)
-            }
-            case "dart" {
-              ; Dart imports are quoted library URIs: dart:math, package:foo/bar.dart
-              importFork.out (("import '" + codeStr + "';") , true)
-            }
-            case "cpp" {
-              importFork.out (( '#include  ' + codeStr ) , true)
-            }
-            default {
-              importFork.out (('import '  + codeStr ) , true)
-            }
-          }        
-        }				
-        if(appCtx.targetLangName == "go") {
-          importFork.indent(-1)
-          importFork.out(')' true)
-        }
-        if( appCtx.hasCompilerSetting('classdoc') ) {
-          def gen (new RangerDocGenerator)
-          gen.createClassDoc( root appCtx (unwrap wr) )
-        }
-        if( appCtx.hasCompilerSetting('operatordoc') ) {
-          def gen (new RangerDocGenerator)
-          gen.createOperatorDoc( root appCtx (unwrap wr) )
-        }
-        if( appCtx.hasCompilerSetting('apidoc') ) {
-          def apiGen (new RangerApiArtifactWriter)
-          apiGen.writeAll( apiModel appCtx (unwrap wr) )
-        }
-        if( appCtx.hasCompilerFlag('apipackage') ) {
-          def pkgGen (new RangerApiPackageWriter)
-          pkgGen.writeAll( apiModel appCtx (unwrap wr) node )
-        }
-        for apiModel.warnings warnMsg:string warnIdx {
-          print (cli.warning(("api docs: " + warnMsg)))
-        }
-      
-        cli.step(5 "Writing output")
-        
-        VirtualCompiler.displayCompilerErrorsWithCLI(appCtx cli)
-        if ( ( array_length appCtx.compilerErrors ) > 0 ) {
-          cli.printFailure((array_length appCtx.compilerErrors))
-          res.hasErrors = true
-          res.errorMessage = "Errors during compilation phase"
-        } {
-          ; Success - print summary
-          def outputPath the_target_dir + "/" + the_target
-          cli.printSuccess(outputPath)
-        }
-
-        if_javascript {
-          def ppList (appCtx.findPluginsFor('postprocess'))
-          ppList.forEach({
-            try {
-              def plugin (load_compiler_plugin item)
-              call_plugin plugin "postprocess" root appCtx (unwrap wr)
+          case "go" {
+            if ( (charAt codeStr 0) == (to_int (charcode "_") ) ) {
+              importFork.out (( ' _ \"' + (substring codeStr 1 (strlen codeStr)) + "\"") , true)
             } {
+              importFork.out (('\"' + codeStr + '\"') , true)
             }
-          })
+            
+          }
+          case "csharp" {
+            importFork.out(("using " + codeStr + ";") true)              
+          }
+          case "rust" {
+            importFork.out (( "use " + codeStr + ";") , true)
+          }
+          case "java7" {
+            importFork.out (("import "  + codeStr + ";") , true)
+          }
+          case "dart" {
+            ; Dart imports are quoted library URIs: dart:math, package:foo/bar.dart
+            importFork.out (("import '" + codeStr + "';") , true)
+          }
+          case "cpp" {
+            importFork.out (( '#include  ' + codeStr ) , true)
+          }
+          default {
+            importFork.out (('import '  + codeStr ) , true)
+          }
         }        
+      }				
+      if(appCtx.targetLangName == "go") {
+        importFork.indent(-1)
+        importFork.out(')' true)
+      }
+      if( appCtx.hasCompilerSetting('classdoc') ) {
+        def gen (new RangerDocGenerator)
+        gen.createClassDoc( root appCtx (unwrap wr) )
+      }
+      if( appCtx.hasCompilerSetting('operatordoc') ) {
+        def gen (new RangerDocGenerator)
+        gen.createOperatorDoc( root appCtx (unwrap wr) )
+      }
+      if( appCtx.hasCompilerSetting('apidoc') ) {
+        def apiGen (new RangerApiArtifactWriter)
+        apiGen.writeAll( apiModel appCtx (unwrap wr) )
+      }
+      if( appCtx.hasCompilerFlag('apipackage') ) {
+        def pkgGen (new RangerApiPackageWriter)
+        pkgGen.writeAll( apiModel appCtx (unwrap wr) node )
+      }
+      for apiModel.warnings warnMsg:string warnIdx {
+        print (cli.warning(("api docs: " + warnMsg)))
+      }
+    
+      cli.step(5 "Writing output")
       
-        res.target_dir = the_target_dir
-        res.fileSystem = fileSystem
-        res.ctx = appCtx
+      VirtualCompiler.displayCompilerErrorsWithCLI(appCtx cli)
+      if ( ( array_length appCtx.compilerErrors ) > 0 ) {
+        cli.printFailure((array_length appCtx.compilerErrors))
+        res.hasErrors = true
+        res.errorMessage = "Errors during compilation phase"
+      } {
+        ; Success - print summary
+        def outputPath the_target_dir + "/" + the_target
+        cli.printSuccess(outputPath)
+      }
+
+      if_javascript {
+        def ppList (appCtx.findPluginsFor('postprocess'))
+        ppList.forEach({
+          try {
+            def plugin (load_compiler_plugin item)
+            call_plugin plugin "postprocess" root appCtx (unwrap wr)
+          } {
+          }
+        })
+      }        
+    
+      res.target_dir = the_target_dir
+      res.fileSystem = fileSystem
+      res.ctx = appCtx
 
     } {
       def err_msg (error_msg)

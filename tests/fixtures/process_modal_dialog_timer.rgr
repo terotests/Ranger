@@ -1,7 +1,7 @@
 ; CLI demo: UIPage with a ModalDialog child; ModalDialog owns a countdown timer.
 ; When the timer hits zero the modal stops (and its timer), then the page opens
 ; the next modal. Run auto (vitest) or interactive:
-;   node bin/output.js -es6 tests/fixtures/process_modal_dialog_timer.rgr interactive
+;   node dist/rgrc.js -es6 tests/fixtures/process_modal_dialog_timer.rgr interactive
 
 Import "RangerProcess.rgr"
 

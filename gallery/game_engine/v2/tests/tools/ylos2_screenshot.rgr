@@ -10,7 +10,7 @@
 ; flag, diamond glyph) — v1's rendering model on the v2 architecture. Emits an
 ; RGBSHOT dump; dump_rgb_to_png.js turns it into a PNG. Diagnostic only.
 ;
-;   node bin/output.js -es6 gallery/game_engine/v2/tests/tools/ylos2_screenshot.rgr \
+;   node dist/rgrc.js -es6 gallery/game_engine/v2/tests/tools/ylos2_screenshot.rgr \
 ;     -d=out -o=shot.js && node out/shot.js > s.txt
 ;   node gallery/game_engine/v2/tests/tools/dump_rgb_to_png.js s.txt ylos2.png 3
 ; ==============================================================================

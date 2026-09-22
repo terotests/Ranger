@@ -4,7 +4,7 @@
 ; ComponentEngine Module - TSX/TS interpreter exported for benchmarking
 ; =============================================================================
 ; Compile with:
-;   RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 -nodemodule \
+;   RANGER_LIB=./compiler/Lang.rgr node dist/rgrc.js -es6 -nodemodule \
 ;     ./gallery/pdf_writer/src/tools/component_engine_module.rgr \
 ;     -d=./gallery/pdf_writer/bin -o=component_engine_module.cjs
 ;

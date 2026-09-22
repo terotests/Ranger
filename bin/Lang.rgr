@@ -5889,7 +5889,8 @@ case class customException(smth:String)  extends Exception
                 llvm ( nl "for " (e 1) " " (e 2) ":" (typeof 2) " " (e 3) " {" nl I (block 4) nl i "}" )
                 es6 ("for( var " (e 3) " in " (e 1) ") {" nl I "if(" (e 1) ".hasOwnProperty(" (e 3) ")) {"
                         nl I "var " (e 2) " = " (e 1) "[" (e 3) "] " nl (block 4)
-                        nl i "} }"
+                        nl i "}"
+                        nl i "}"
                      )
                 dart ( (forkctx _ ) (def 2) (def 3) "for ( var " (e 3) " in " (e 1) ".keys ) {" nl I "var " (e 2) " = " (e 1) "[" (e 3) "]!; " nl (block 4) nl i "}" )
                 ; Go rejects a declared and unused loop variable, so both names

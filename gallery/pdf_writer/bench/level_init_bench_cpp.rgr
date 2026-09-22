@@ -9,7 +9,7 @@
 ; measures pure interpreter evaluation cost on the C++ target.
 ;
 ; Build & run:
-;   RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js \
+;   RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node dist/rgrc.js \
 ;     -l=cpp gallery/pdf_writer/bench/level_init_bench_cpp.rgr -nodecli \
 ;     -d=tmp/bench-cpp -o=bench.cpp
 ;   clang++ -O2 -std=c++17 tmp/bench-cpp/bench.cpp -o tmp/bench-cpp/bench

@@ -3275,7 +3275,7 @@ func r_file_exists ( fileName:String ) -> Bool {
 }
     ")                    
                 )
-                es6 ("require(\"fs\").existsSync(" (e 1) " + \"/\" + " (e 2) " )")
+                es6 ("require(\"fs\").existsSync( require(\"path\").join(" (e 1) ", " (e 2) ") )")
                 python ( "os.path.isfile(" (e 1) " + \"/\" + " (e 2) ")" (imp "os") )
                 ranger ("( file_exists " (e 1) " + \"/\" + " (e 2) "  )")
                 java7 ( "new File(" (e 1) " + '/' + " (e 2) ").exists()" (imp "java.io.File") )
@@ -3423,7 +3423,7 @@ func r_file_mtime(pathName string, fileName string) int64 {
 "
 )                    
                 )
-                es6 ( "require('fs').statSync(" (e 1) " + '/' + " (e 2) ").mtimeMs" )
+                es6 ( "require('fs').statSync( require('path').join(" (e 1) ", " (e 2) ") ).mtimeMs" )
                 cpp ( "r_file_mtime(" (e 1) ", " (e 2) ")" (imp "<sys/stat.h>") (imp "<string>")
 (create_polyfill "
 int64_t r_file_mtime(const std::string& path, const std::string& filename) {
@@ -3820,7 +3820,7 @@ fn r_write_file(path: &str, filename: &str, data: &str) {
 
         async_read_file  _@(optional async):string (path:string filename:string) {
             templates {
-                es6 @flags('typescript') ( "await (new Promise<string>(resolve => { require('fs').readFile( " (e 1) " + '/' + " (e 2) " , 'utf8', (err,data)=>{ resolve(data) }) } ))" )
+                es6 @flags('typescript') ( "await (new Promise<string>(resolve => { require('fs').readFile( require('path').join(" (e 1) ", " (e 2) ") , 'utf8', (err,data)=>{ resolve(data) }) } ))" )
                 es6 ( "await (new Promise(resolve => { require('fs').readFile( " (e 1) " + '/' + " (e 2) " , 'utf8', (err,data)=>{ resolve(data) }) } ))" )
             }
         }
@@ -3829,8 +3829,8 @@ fn r_write_file(path: &str, filename: &str, data: &str) {
 
             templates {
                 llvm ( "(read_file " (e 1) " " (e 2) ")")
-                ts ( "await (new Promise<string>(resolve => { require('fs').readFile( " (e 1) " + '/' + " (e 2) " , 'utf8', (err,data)=>{ resolve(data) }) } ))" )
-                es6 ( "await (new Promise(resolve => { require('fs').readFile( " (e 1) " + '/' + " (e 2) " , 'utf8', (err,data)=>{ resolve(data) }) } ))" )
+                ts ( "await (new Promise<string>(resolve => { require('fs').readFile( require('path').join(" (e 1) ", " (e 2) ") , 'utf8', (err,data)=>{ resolve(data) }) } ))" )
+                es6 ( "await (new Promise(resolve => { require('fs').readFile( require('path').join(" (e 1) ", " (e 2) ") , 'utf8', (err,data)=>{ resolve(data) }) } ))" )
                 ranger (  "(read_file " (e 1) " " (e 2) ")" )
                 ; returns the optional: None is how Python spells absent, which
                 ; is what a missing or unreadable file has to answer
@@ -3963,7 +3963,7 @@ fn r_read_file(path: &str, filename: &str) -> Option<String> {
     std::fs::read_to_string(full_path).ok()
 }
 "))
-                es6 ( "(require('fs').readFileSync( " (e 1) " + '/' + " (e 2) " , 'utf8'))" )
+                es6 ( "(require('fs').readFileSync( require('path').join(" (e 1) ", " (e 2) ") , 'utf8'))" )
                 kotlin ( "try { java.io.File(if (" (e 1) ".isEmpty()) " (e 2) " else " (e 1) " + \"/\" + " (e 2) ").readText() } catch (_: Exception) { null }" (imp "java.io.File") )
                 dart ( (imp "dart:io") "(() { try { final __p = (" (e 1) ").isEmpty ? (" (e 2) ") : ((" (e 1) ") + \"/\" + (" (e 2) ")); return File(__p).readAsStringSync(); } catch (_) { return null; } })()" )
                 csharp ( "RgFiles.ReadFile(" (e 1) ", " (e 2) ")"
@@ -4018,8 +4018,8 @@ static class RgFiles {
 
             templates {
                 llvm ( "(read_file " (e 1) " " (e 2) ")")
-                ts ( "(() => { try { return require('fs').readFileSync( " (e 1) " + '/' + " (e 2) " , 'utf8'); } catch (e) { return undefined; } })()" )
-                es6 ( "(() => { try { return require('fs').readFileSync( " (e 1) " + '/' + " (e 2) " , 'utf8'); } catch (e) { return undefined; } })()" )
+                ts ( "(() => { try { return require('fs').readFileSync( require('path').join(" (e 1) ", " (e 2) ") , 'utf8'); } catch (e) { return undefined; } })()" )
+                es6 ( "(() => { try { return require('fs').readFileSync( require('path').join(" (e 1) ", " (e 2) ") , 'utf8'); } catch (e) { return undefined; } })()" )
                 ranger (  "(read_file " (e 1) " " (e 2) ")" )
                 ; returns the optional: None is how Python spells absent, which
                 ; is what a missing or unreadable file has to answer
@@ -5889,7 +5889,7 @@ case class customException(smth:String)  extends Exception
                 llvm ( nl "for " (e 1) " " (e 2) ":" (typeof 2) " " (e 3) " {" nl I (block 4) nl i "}" )
                 es6 ("for( var " (e 3) " in " (e 1) ") {" nl I "if(" (e 1) ".hasOwnProperty(" (e 3) ")) {"
                         nl I "var " (e 2) " = " (e 1) "[" (e 3) "] " nl (block 4)
-                        nl i "} }"
+                        nl i "}" nl i "}"
                      )
                 dart ( (forkctx _ ) (def 2) (def 3) "for ( var " (e 3) " in " (e 1) ".keys ) {" nl I "var " (e 2) " = " (e 1) "[" (e 3) "]!; " nl (block 4) nl i "}" )
                 ; Go rejects a declared and unused loop variable, so both names
@@ -6975,7 +6975,7 @@ std::string r_buffer_to_base64(const std::vector<uint8_t>& data) {
             templates {
                 llvm ( "(buffer_write_file " (e 1) " " (e 2) " " (e 3) ")" )
                 ranger ( "(buffer_write_file " (e 1) " " (e 2) " " (e 3) ")" )
-                es6 ( "require('fs').writeFileSync(" (e 1) " + '/' + " (e 2) ", Buffer.from(" (e 3) "))" )
+                es6 ( "require('fs').writeFileSync(require('path').join(" (e 1) ", " (e 2) "), Buffer.from(" (e 3) "))" )
                 go ( "os.WriteFile(" (e 1) " + \"/\" + " (e 2) ", " (e 3) ", 0644)" (imp "os") )
                 rust ( "std::fs::write(format!(\"{}/{}\", " (e 1) ", " (e 2) "), &" (e 3) ").unwrap()" )
                 cpp ( "r_buffer_write_file(" (e 1) ", " (e 2) ", " (e 3) ")" (imp "<fstream>") (imp "<vector>")
@@ -7010,7 +7010,7 @@ static void r_buffer_write_file(String path, String filename, byte[] data) {
             templates {
                 llvm ( "(buffer_read_file " (e 1) " " (e 2) ")" )
                 ranger ( "(buffer_read_file " (e 1) " " (e 2) ")" )
-                es6 ( "(function(){ var b = require('fs').readFileSync(" (e 1) " + '/' + " (e 2) "); var ab = new ArrayBuffer(b.length); var v = new Uint8Array(ab); for(var i=0;i<b.length;i++)v[i]=b[i]; ab._view = new DataView(ab); return ab; })()" )
+                es6 ( "(function(){ var b = require('fs').readFileSync( require('path').join(" (e 1) ", " (e 2) ") ); var ab = new ArrayBuffer(b.length); var v = new Uint8Array(ab); for(var i=0;i<b.length;i++)v[i]=b[i]; ab._view = new DataView(ab); return ab; })()" )
                 go ( "func() []byte { d, _ := os.ReadFile(filepath.Join(" (e 1) ", " (e 2) ")); return d }()" (imp "os") (imp "path/filepath") )
                 rust ( "std::fs::read(format!(\"{}/{}\", " (e 1) ", " (e 2) ")).unwrap_or_default()" )
                 cpp ( "r_buffer_read_file(" (e 1) ", " (e 2) ")" (imp "<fstream>") (imp "<vector>") (imp "<iterator>")

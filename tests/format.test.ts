@@ -32,7 +32,7 @@ function compile(src: string, lang: string, ext: string, name: string,
   if (fs.existsSync(target)) fs.rmSync(target);
   const flags = lang === "es6" ? ["-es6"] : ["-l=" + lang];
   execFileSync(process.execPath, [
-    "--max-old-space-size=8192", "bin/output.js", ...flags, src,
+    "--max-old-space-size=8192", "dist/rgrc.js", ...flags, src,
     "-d=" + path.relative(ROOT, OUT).replace(/\\/g, "/"),
     "-o=" + file, "-nodecli", ...extra,
   ], {
@@ -470,7 +470,7 @@ describe("native formatting is an optional step (phase 4)", () => {
     // would just look like the feature is missing.
     const r = require("child_process").spawnSync(
       process.execPath,
-      ["bin/output.js", "-es6", CHAINS, "-d=tests/.output-format",
+      ["dist/rgrc.js", "-es6", CHAINS, "-d=tests/.output-format",
        "-o=nv.js", "-nodecli", "-format=native"],
       { cwd: ROOT, encoding: "utf-8",
         env: { ...process.env,

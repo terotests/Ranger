@@ -224,7 +224,7 @@ describe("Ranger engine", () => {
       execFileSync(
         "node",
         [
-          "bin/output.js",
+          "dist/rgrc.js",
           "-es6",
           path.join(ENGINE, "examples", program),
           "-d=./tmp/ranger-engine-test",

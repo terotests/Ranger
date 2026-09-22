@@ -6,7 +6,7 @@
 ; body and drops the catch (docs/site/.../targets/overview.md).
 ;
 ; Run:
-;   node bin/output.js -l=rust gallery/friendly/rust/attempts/09_throw_panics.rgr \
+;   node dist/rgrc.js -l=rust gallery/friendly/rust/attempts/09_throw_panics.rgr \
 ;     -d=/tmp -o=throw.rs
 ;   rustc --edition 2021 /tmp/throw.rs -o /tmp/throw && /tmp/throw
 
