@@ -1,7 +1,7 @@
 ; ============================================================================
 ; rc_demo.rgr — end-to-end demo of automatic memory management under -wasmrc
 ; (PLAN_WASM_MEMORY.md Phase 2). Compile with:
-;   node bin/output.js -l=llvm -wat -freestanding -wasmrc runtime/wasm/rc_demo.rgr
+;   node dist/rgrc.js -l=llvm -wat -freestanding -wasmrc runtime/wasm/rc_demo.rgr
 ; `new` allocates via the free-list heap (ranger_obj_new); owned locals are
 ; released automatically at scope end and — the point of Phase 2 — at the end
 ; of each loop iteration, so an allocating loop does not leak.

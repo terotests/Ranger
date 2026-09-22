@@ -3,7 +3,7 @@
 ; ==============================================================================
 ; ylos3d_screenshot — hybrid frame with spinning 3D diamond sprites.
 ; ==============================================================================
-;   node bin/output.js -es6 gallery/game_engine/v2/tests/tools/ylos3d_screenshot.rgr \
+;   node dist/rgrc.js -es6 gallery/game_engine/v2/tests/tools/ylos3d_screenshot.rgr \
 ;     -d=out -o=shot.js && node out/shot.js > s.txt
 ;   node gallery/game_engine/v2/tests/tools/dump_rgb_to_png.js s.txt ylos3d.png 1
 ; ==============================================================================

@@ -1,7 +1,7 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 
 ; Headless self-test for split-screen world-model resolution (IDEAL_TODO R.7). Run:
-;   RANGER_LIB=compiler/Lang.rgr:lib/stdops.rgr node bin/output.js -es6 \
+;   RANGER_LIB=compiler/Lang.rgr:lib/stdops.rgr node dist/rgrc.js -es6 \
 ;     gallery/game_engine/scripting/game_split_world_demo.rgr \
 ;     -d=gallery/game_engine/scripting -o=game_split_world_demo.js -nodecli \
 ;   && node gallery/game_engine/scripting/game_split_world_demo.js

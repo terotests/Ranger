@@ -10,7 +10,7 @@
 ; records instead of executing, so the whole plan is a list of strings, and the
 ; simulator parser is a pure function over the text simctl prints.
 ;
-;     node bin/output.js -es6 lib/apple/apple_test.rgr -nodecli -d=tmp -o=apple_test.js
+;     node dist/rgrc.js -es6 lib/apple/apple_test.rgr -nodecli -d=tmp -o=apple_test.js
 ;     node tmp/apple_test.js
 ; =============================================================================
 

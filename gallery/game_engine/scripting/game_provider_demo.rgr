@@ -4,7 +4,7 @@
 ; property: the host's advertised caps ARE the OR of attached providers' capBits,
 ; and the capability gate consumes that — so attaching a provider widens what the
 ; host offers, with no second list. Run:
-;   RANGER_LIB=compiler/Lang.rgr:lib/stdops.rgr node bin/output.js -es6 \
+;   RANGER_LIB=compiler/Lang.rgr:lib/stdops.rgr node dist/rgrc.js -es6 \
 ;     gallery/game_engine/scripting/game_provider_demo.rgr \
 ;     -d=gallery/game_engine/scripting -o=game_provider_demo.js -nodecli \
 ;   && node gallery/game_engine/scripting/game_provider_demo.js

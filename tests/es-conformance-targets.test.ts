@@ -116,7 +116,7 @@ function compile(t: Target): string {
   const file = `es_conformance.${t.ext}`;
   execFileSync(
     process.execPath,
-    [NODE_STACK, "--max-old-space-size=8192", "bin/output.js", t.flag, MAIN,
+    [NODE_STACK, "--max-old-space-size=8192", "dist/rgrc.js", t.flag, MAIN,
      `-d=${rel}`, `-o=${file}`, "-nodecli", "-native-fast-alloc"],
     {
       cwd: ROOT,

@@ -30,7 +30,7 @@ function strictStrings(source: string): string {
     return execFileSync(
       process.execPath,
       [
-        "bin/output.js",
+        "dist/rgrc.js",
         "-es6",
         "-strict-strings",
         source,

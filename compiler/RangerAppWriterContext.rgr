@@ -351,6 +351,16 @@ class RangerAppWriterContext {
     push rootNode.children code
   }
 
+  fn isOptional:boolean (node:CodeNode) {
+
+    def desc@(optional):RangerAppParamDesc node.paramDesc
+    if (null? desc) {
+      return false
+    }
+    return desc.is_optional
+  }
+
+
   ; Asked for every call expression the analysis walks, and the answer is
   ; nearly always empty. Walks the parents in a loop rather than recursing:
   ; the recursion built and copied a list at every level of the context

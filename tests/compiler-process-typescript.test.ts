@@ -16,7 +16,7 @@ describe("Ranger @process TypeScript emit", () => {
       RANGER_LIB: "./compiler/Lang.rgr;./lib/stdops.rgr",
     };
     execSync(
-      `node bin/output.js -es6 -typescript -esm "${FIXTURE}" -d=tests/.output -o=process_named_paths.ts`,
+      `node dist/rgrc.js -es6 -typescript -esm "${FIXTURE}" -d=tests/.output -o=process_named_paths.ts`,
       { cwd: ROOT, env, encoding: "utf-8", stdio: "pipe" }
     );
 

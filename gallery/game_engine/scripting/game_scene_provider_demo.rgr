@@ -4,7 +4,7 @@
 ; Proves the invariant: a SECOND physics game drives the SAME interface reference
 ; with different world size, player count, camera, ids, and sound vocabulary — so
 ; a runner compiled against GameSceneProvider needs zero edits per game. Run:
-;   RANGER_LIB=compiler/Lang.rgr:lib/stdops.rgr node bin/output.js -es6 \
+;   RANGER_LIB=compiler/Lang.rgr:lib/stdops.rgr node dist/rgrc.js -es6 \
 ;     gallery/game_engine/scripting/game_scene_provider_demo.rgr \
 ;     -d=gallery/game_engine/scripting -o=game_scene_provider_demo.js -nodecli \
 ;   && node gallery/game_engine/scripting/game_scene_provider_demo.js

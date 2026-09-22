@@ -265,7 +265,7 @@ describe("shapes (closed variant families)", () => {
     it("TypeScript: a real union type, and the generated file type-checks", () => {
       const out = path.join(ROOT, "tests", ".output");
       execSync(
-        `node bin/output.js -es6 -typescript "${FIXTURES_DIR}/shape_match.rgr" -d=tests/.output -o=shape_match.ts`,
+        `node dist/rgrc.js -es6 -typescript "${FIXTURES_DIR}/shape_match.rgr" -d=tests/.output -o=shape_match.ts`,
         {
           cwd: ROOT,
           env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr;./lib/stdops.rgr" },
@@ -298,7 +298,7 @@ describe("shapes (closed variant families)", () => {
     it("ES6: FlatTaggedObject kind tag instead of instanceof", () => {
       const out = path.join(ROOT, "tests", ".output-es6-shapes");
       execSync(
-        `node bin/output.js -es6 "${FIXTURES_DIR}/shape_match.rgr" -d=tests/.output-es6-shapes -o=shape_match.js`,
+        `node dist/rgrc.js -es6 "${FIXTURES_DIR}/shape_match.rgr" -d=tests/.output-es6-shapes -o=shape_match.js`,
         {
           cwd: ROOT,
           env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr;./lib/stdops.rgr" },
@@ -349,7 +349,7 @@ describe("shapes (closed variant families)", () => {
     it.skipIf(!isPythonAvailable())("Python: FlatTaggedObject kind tag instead of isinstance", () => {
       const out = path.join(ROOT, "tests", ".output-python-shapes");
       execSync(
-        `node bin/output.js -l=python "${FIXTURES_DIR}/shape_match.rgr" -d=tests/.output-python-shapes -o=shape_match.py`,
+        `node dist/rgrc.js -l=python "${FIXTURES_DIR}/shape_match.rgr" -d=tests/.output-python-shapes -o=shape_match.py`,
         {
           cwd: ROOT,
           env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr;./lib/stdops.rgr" },
@@ -383,7 +383,7 @@ describe("shapes (closed variant families)", () => {
       // each member access through the DLR
       const out = path.join(ROOT, "tests", ".output-csharp");
       execSync(
-        `node bin/output.js -l=csharp "${FIXTURES_DIR}/shape_match.rgr" -d=tests/.output-csharp -o=shape_match.cs`,
+        `node dist/rgrc.js -l=csharp "${FIXTURES_DIR}/shape_match.rgr" -d=tests/.output-csharp -o=shape_match.cs`,
         {
           cwd: ROOT,
           env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr;./lib/stdops.rgr" },

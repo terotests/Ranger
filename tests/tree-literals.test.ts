@@ -132,7 +132,7 @@ describe("tree literals", () => {
 
     beforeAll(() => {
       execSync(
-        "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule " +
+        "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node dist/rgrc.js -es6 -nodemodule " +
           `./gallery/ui/demo/MenubarDemo.rgr -d=./${OUT} -o=MenubarDemo.cjs`,
         { cwd: process.cwd(), stdio: "pipe" },
       );
@@ -259,7 +259,7 @@ describe("tree literals", () => {
 
     it("says what a toggle is, in the word a reader uses for it", () => {
       execSync(
-        "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule " +
+        "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node dist/rgrc.js -es6 -nodemodule " +
           "./gallery/ui/demo/ToolbarDemo.rgr -d=./gallery/ui/bin -o=ToolbarDemo.cjs",
         { cwd: process.cwd(), stdio: "pipe" },
       );
@@ -320,7 +320,7 @@ describe("tree literals", () => {
 
     it("reorders by being rebuilt, and says which row is carried", () => {
       execSync(
-        "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule " +
+        "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node dist/rgrc.js -es6 -nodemodule " +
           "./gallery/ui/demo/SortableDemo.rgr -d=./gallery/ui/bin -o=SortableDemo.cjs",
         { cwd: process.cwd(), stdio: "pipe" },
       );

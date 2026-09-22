@@ -36,13 +36,23 @@ class RangerJavaScriptClassWriter {
   }
 
   fn jsWriteForLoop:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+
     if ((array_length node.children) < 5) {
+      wr.out("// Loop skipped" true )
       return
     }
     def coll:CodeNode (node.getSecond())
     def item:CodeNode (itemAt node.children 2)
     def idx:CodeNode (itemAt node.children 3)
     def body:CodeNode (itemAt node.children 4)
+
+    wr.out("// Loop start" true )
+
+    ; Check if the collection is optional and handle it accordingly
+    ; ctx.isOptional(coll)
+
+    def isOptional:boolean (ctx.isOptional(coll))
+
 
     if (jsLoops.canIterate(node)) {
       wr.out("for ( " false)

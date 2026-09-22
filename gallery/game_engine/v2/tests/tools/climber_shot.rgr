@@ -8,7 +8,7 @@
 ; into RGBA-24 framebuffers. Emits an "RGBSHOT <w> <h>" dump (6 hex chars per
 ; pixel, 0xRRGGBB) that dump_rgb_to_png.js turns into a PNG. Diagnostic only.
 ;
-;   node bin/output.js -es6 gallery/game_engine/v2/tests/tools/climber_shot.rgr \
+;   node dist/rgrc.js -es6 gallery/game_engine/v2/tests/tools/climber_shot.rgr \
 ;     -d=out -o=cshot.js && node out/cshot.js > c.txt
 ;   node gallery/game_engine/v2/tests/tools/dump_rgb_to_png.js c.txt c.png 4
 ; ==============================================================================

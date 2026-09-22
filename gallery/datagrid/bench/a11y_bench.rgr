@@ -22,7 +22,7 @@
 ; the cached string in between.
 ;
 ; Natively:
-;   RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -l=cpp \
+;   RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node dist/rgrc.js -l=cpp \
 ;     gallery/datagrid/bench/a11y_bench.rgr -nodecli -d=tmp/a11ybench -o=a11y_bench.cpp
 ;   cp gallery/invaders/variant.hpp tmp/a11ybench/
 ;   g++ -O2 -std=c++17 tmp/a11ybench/a11y_bench.cpp -o tmp/a11ybench/a11y_bench

@@ -4,7 +4,7 @@
 ; Compile to a Dart package the Flutter app imports — do not generate widgets.
 ;
 ;   RANGER_LIB="./compiler/Lang.rgr;./lib/stdops.rgr" \
-;     node bin/output.js examples/dart_flutter_logic/CounterLogic.rgr \
+;     node dist/rgrc.js examples/dart_flutter_logic/CounterLogic.rgr \
 ;       -l=dart -pubspec -name=counter_logic -version=0.1.0 \
 ;       -description="Shared counter logic from Ranger" \
 ;       -d=examples/dart_flutter_logic/generated -o=counter_logic.dart

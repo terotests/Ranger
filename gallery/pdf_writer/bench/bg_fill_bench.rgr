@@ -9,7 +9,7 @@
 ; interpreter drives through bgFillRect / bgFillCircle.
 ;
 ; Build & run:
-;   RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js \
+;   RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node dist/rgrc.js \
 ;     -l=cpp gallery/pdf_writer/bench/bg_fill_bench.rgr -nodecli \
 ;     -d=tmp/bg-bench -o=bench.cpp
 ;   cp gallery/invaders/variant.hpp tmp/bg-bench/

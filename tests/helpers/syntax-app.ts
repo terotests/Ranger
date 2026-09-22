@@ -32,7 +32,7 @@ export interface Target {
   id: string;
   /** Name a reader recognises. */
   label: string;
-  /** Flags handed to bin/output.js. */
+  /** Flags handed to dist/rgrc.js. */
   flags: string[];
   /** Extension of the generated file. */
   ext: string;
@@ -207,7 +207,7 @@ const RUNNERS: Record<string, Runner> = {
 };
 
 /**
- * Every target bin/output.js accepts, plus TypeScript, which is the ES6 target
+ * Every target dist/rgrc.js accepts, plus TypeScript, which is the ES6 target
  * with the -typescript flag rather than a language of its own.
  *
  * The order is the order of the report: the targets the README calls primary

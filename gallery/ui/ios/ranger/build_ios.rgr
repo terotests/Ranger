@@ -336,7 +336,7 @@ class IosBuild {
         ; The generated file is 46k lines of Swift from one Ranger tree, and
         ; the default heap is not enough for the analysis that produces it.
         push argv "--max-old-space-size=8192"
-        push argv "bin/output.js"
+        push argv "dist/rgrc.js"
         push argv "-l=swift6"
         push argv app.rangerFile
         push argv "-nodecli"

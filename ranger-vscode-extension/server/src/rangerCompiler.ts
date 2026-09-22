@@ -1,7 +1,7 @@
 /**
  * Ranger Compiler Integration
  *
- * Wrapper around the real Ranger compiler (bin/output.js) to provide
+ * Wrapper around the real Ranger compiler (dist/rgrc.js) to provide
  * parsing and analysis capabilities for the language server.
  */
 

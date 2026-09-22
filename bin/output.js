@@ -15696,11 +15696,6 @@ RangerProcessProcSend.collectProcessClasses = function(ctx) {
             ctx.addError(argNode, ("ERROR, invalid argument type for " + currC.name) + " constructor ");
           }
           const pNode = param.nameNode;
-          if ( pNode.hasFlag("optional") ) {
-            if ( false == argNode.hasFlag("optional") ) {
-              ctx.addError(node, "new parameter optionality does not match, expected optional parameter" + argNode.getCode());
-            }
-          }
           if ( argNode.hasFlag("optional") ) {
             if ( false == pNode.hasFlag("optional") ) {
               ctx.addError(node, "new parameter optionality does not match, expected non-optional, optional given" + argNode.getCode());

@@ -56,7 +56,7 @@ function compileEngine(target: string): { out: string; file: string } {
   const out = execFileSync(
     process.execPath,
     [
-      "bin/output.js",
+      "dist/rgrc.js",
       `-l=${target}`,
       ENGINE,
       `-d=${rel}`,

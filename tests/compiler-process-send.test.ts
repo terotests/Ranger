@@ -80,7 +80,7 @@ describe("Ranger proc_send TypeScript emit", () => {
   it("should emit ProcessPath and findProcess overloads", () => {
     const ROOT = path.resolve(__dirname, "..");
     execSync(
-      `node bin/output.js -es6 -typescript -esm "${FIXTURE}" -d=tests/.output -o=process_proc_send.ts`,
+      `node dist/rgrc.js -es6 -typescript -esm "${FIXTURE}" -d=tests/.output -o=process_proc_send.ts`,
       {
         cwd: ROOT,
         env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr;./lib/stdops.rgr" },
