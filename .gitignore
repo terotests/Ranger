@@ -6,6 +6,8 @@ node_modules/
 !gallery/uast/fixtures/dts_app/node_modules/
 !gallery/uast/fixtures/dts_app/node_modules/**
 
+dist
+
 # folder files
 data_folder/
 
