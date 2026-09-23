@@ -39,6 +39,32 @@ if (null? name) {
 The operators are in prefix form: the operator is first and the arguments are
 after it.
 
+## Narrowing with `if (!null? …)`
+
+In the then block of `if (!null? x)`, an optional object is not empty. The
+program can read its fields and call its methods without `unwrap`:
+
+```lisp
+fn describe:string (p@(optional):Person) {
+    if (!null? p) {
+        return (p.greet() + " " + p.name)
+    }
+    return "nobody"
+}
+```
+
+A condition narrows the value only when it must be true for the block to run:
+one `!null?`, or `!null?` checks joined with `&&`. A path such as `a.friend`
+is narrowed in the same way.
+
+These are not narrowed at this time:
+
+- a condition with `||`
+- the code after `if (null? p) { return … }`
+- the else branch of `if (null? p)`
+- an optional `int` or `double`: use `(unwrap n)`
+- a copy such as `def q:Person p`: `q` is optional
+
 ## What the compiler writes
 
 Each target language has its own way to hold an empty value. The compiler
@@ -49,6 +75,7 @@ writes the correct one:
 | JavaScript | `undefined` |
 | Go | A structure with a `has_value` field |
 | Rust | `Option<T>` |
+| C++ | `std::optional<T>` |
 | Swift | An optional type |
 | Java | `null` |
 
@@ -57,5 +84,7 @@ the generated code of each operator for each target.
 
 ## Strict mode
 
-The flag `-strict` stops the automatic read of an optional value outside of a
-`try` block. Use the flag when the program must handle each empty value.
+Without a flag, the compiler reads an optional value automatically where the
+program uses it. The flag `-strict` stops the automatic read of an optional
+value outside of a `try` block or a narrowed `if (!null? …)` block. Use the
+flag when the program must handle each empty value.

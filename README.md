@@ -265,7 +265,9 @@ def c (Config.__singleton())
 **Optionals have to be wrapped and unwrapped.** Any variable declared without a
 value is optional, and several operators — `get` on a hash above all — always
 return one. Reading the value takes `unwrap` / `!!`, or `??` for a default;
-`wrap` makes an optional out of a plain value. Forgetting this shows up as a
+`wrap` makes an optional out of a plain value. Inside `if (!null? x) { … }`
+an optional object is narrowed: `x.field` and `x.method()` need no `unwrap`
+there. Forgetting this shows up as a
 type error between `T` and `<optional>T`. See
 [Optional variables](#optional-variables).
 
@@ -608,7 +610,7 @@ class Hello {
 ```
 
 ```
-ranger-compiler hello.rgr            ; writes dist/rgrc.js
+ranger-compiler hello.rgr            ; writes bin/hello.js
 ranger-compiler hello.rgr -o=hello.js
 ```
 
@@ -1272,6 +1274,25 @@ return one.
     }
 ```
 
+Inside the then block of `if (!null? x)` an optional **object** is narrowed:
+fields and methods are read through it without `unwrap`, also under `-strict`.
+A condition narrows only when it must be true for the block to run — a single
+`!null?` or an `&&` of them, on a name or a path such as `a.friend`:
+
+```
+    fn describe:string (p@(optional):Person) {
+        if (!null? p) {
+            return (p.greet() + " " + p.name)
+        }
+        return "nobody"
+    }
+```
+
+Not narrowed (yet): an `||` condition, the code after an early
+`if (null? p) { return … }`, the else branch of `if (null? p)`, and optional
+scalars — `(n + 1)` on an optional int still needs `(unwrap n)`. Binding
+`def q:Person p` keeps `q` optional.
+
 [Optional values](https://terotests.github.io/Ranger/docs/language/optionals/)
 lists the operators (`??`, `!!`, `unwrap`, `null?`, `!null?`, `wrap`,
 `nullify`), what each target uses for an empty value, and the `-strict` flag.
@@ -1634,7 +1655,7 @@ are Ranger source under `compiler/`. Changing them means compiling the compiler
 with itself:
 
 ```bash
-npm run compile      # compiler/Compiler.rgr -> dist/rgrc.js, and copies Lang.rgr to bin/
+npm run compile      # compiler/Compiler.rgr -> dist/rgrc.js, and copies Lang.rgr to dist/
 npm test             # the suite runs against the compiler you just built
 ```
 

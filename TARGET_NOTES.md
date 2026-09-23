@@ -36,17 +36,15 @@ npm run selfhost:check:cpp     # generate the C++ and run g++ -fsyntax-only
 npm run selfhost:build:cpp     # ...and link ./tmp/selfhost/rangerc
 
 # the C++ binary compiles a Ranger program
-RANGER_LIB="./compiler/Lang.rgr:./lib/stdops.rgr" \
-  ./tmp/selfhost/rangerc -es6 hello.rgr -d=./tmp/out -o=hello.js -nodecli
+./tmp/selfhost/rangerc -es6 hello.rgr -d=./tmp/out -o=hello.js -nodecli
 
 # ...including the compiler
-RANGER_LIB="./compiler/Lang.rgr:./lib/stdops.rgr" \
-  ./tmp/selfhost/rangerc -es6 ./compiler/Compiler.rgr -nodecli \
-    -d=./tmp/self -o=output.js
+./tmp/selfhost/rangerc -es6 ./compiler/Compiler.rgr -nodecli \
+    -d=./tmp/self -o=rgrc.js
 ```
 
 `selfhost:build:cpp` copies `Lang.rgr`, `stdops.rgr` and `lib/` next to the
-binary, the same way `compile:copylibs` does for `bin/`: the compiler looks for
+binary, the same way `compile:copylibs` does for `dist/`: the compiler looks for
 its library beside the executable, and `install_directory` on C++ is the
 directory of `argv[0]`.
 
@@ -76,9 +74,8 @@ file:
 npm run selfhost:check:dart    # generate the Dart and run `dart analyze`
 npm run selfhost:build:dart    # ...and put the library beside it
 
-RANGER_LIB="./compiler/Lang.rgr:./lib/stdops.rgr" \
-  dart run ./tmp/selfhost-dart/ranger_compiler.dart \
-    -es6 ./compiler/Compiler.rgr -nodecli -d=./tmp/self -o=output.js
+dart run ./tmp/selfhost-dart/ranger_compiler.dart \
+    -es6 ./compiler/Compiler.rgr -nodecli -d=./tmp/self -o=rgrc.js
 ```
 
 The JavaScript the Dart build writes for the compiler is **byte-identical** to
@@ -93,9 +90,8 @@ non-null).
 ```bash
 npm run selfhost:build:python   # generate the Python, py_compile it, copy the library
 
-RANGER_LIB="./compiler/Lang.rgr:./lib/stdops.rgr" \
-  python3 ./tmp/selfhost-python/ranger_compiler.py \
-    -es6 ./compiler/Compiler.rgr -nodecli -d=./tmp/self -o=output.js
+python3 ./tmp/selfhost-python/ranger_compiler.py \
+    -es6 ./compiler/Compiler.rgr -nodecli -d=./tmp/self -o=rgrc.js
 ```
 
 Its output is **byte-identical** to the Node build's as well, and reproduces
@@ -108,9 +104,8 @@ language version past C# 7, and the JSON runtime is hand written rather than
 ```bash
 npm run selfhost:build:csharp   # generate the C#, build it with mcs, copy the library
 
-cd tmp/selfhost-csharp && RANGER_LIB="./compiler/Lang.rgr:./lib/stdops.rgr" \
-  mono ranger_compiler.exe -es6 ../../compiler/Compiler.rgr -nodecli \
-    -d=../../tmp/self -o=output.js
+cd tmp/selfhost-csharp && mono ranger_compiler.exe -es6 ../../compiler/Compiler.rgr -nodecli \
+    -d=../../tmp/self -o=rgrc.js
 ```
 
 Its output is **byte-identical** to the Node build's, the compiler that comes
@@ -123,9 +118,8 @@ errors before any of this — and still would not build:
 ```bash
 npm run selfhost:build:go      # generate the Go, go build it, copy the library
 
-RANGER_LIB="./compiler/Lang.rgr:./lib/stdops.rgr" \
-  ./tmp/selfhost-go/rangerc -es6 ./compiler/Compiler.rgr -nodecli \
-    -d=./tmp/self -o=output.js
+./tmp/selfhost-go/rangerc -es6 ./compiler/Compiler.rgr -nodecli \
+    -d=./tmp/self -o=rgrc.js
 ```
 
 Its output is **byte-identical** to the Node build's, the compiler that comes
@@ -137,9 +131,8 @@ back the same 70k-line source it was built from.
 ```bash
 npm run selfhost:build:kotlin   # generate the Kotlin, kotlinc it, copy the library
 
-cd tmp/selfhost-kotlin && RANGER_LIB="./compiler/Lang.rgr:./lib/stdops.rgr" \
-  java -Xmx8g -jar rangerc.jar -es6 ../../compiler/Compiler.rgr -nodecli \
-    -d=../../tmp/self -o=output.js
+cd tmp/selfhost-kotlin && java -Xmx8g -jar rangerc.jar -es6 ../../compiler/Compiler.rgr -nodecli \
+    -d=../../tmp/self -o=rgrc.js
 ```
 
 Its output is **byte-identical** to the Node build's, the compiler that comes
@@ -275,7 +268,7 @@ exercises the shapes that broke first (a `[string:string]` map, `strsplit`,
 `join`, `remove_index`) and it now answers correctly natively:
 
 ```bash
-RANGER_LIB="./compiler/Lang.rgr;./lib/stdops.rgr" node dist/rgrc.js \
+node dist/rgrc.js \
   -l=llvm ./lib/CmdParams.rgr -nodecli -d=tmp/probe -o=cmdparams.ll \
   -target=native-linux-gnu
 clang -O0 tmp/probe/cmdparams.ll runtime/ranger_rt.c runtime/ranger_mem.c \
@@ -449,7 +442,6 @@ does not. Where JavaScript reads a property off `undefined` and carries an
 dereferences a null pointer and the process dies with no diagnostic at all.
 
 ```bash
-export RANGER_LIB="./compiler/Lang.rgr;./lib/stdops.rgr"
 for f in compiler/*.rgr lib/*.rgr; do
   tmp/selfhost-llvm/rangerc -l=es6 "$f" -d=tmp/sweep -o=out.js
   [ $? -gt 1 ] && echo "died: $f"
@@ -1398,8 +1390,7 @@ widget trees.
 - Conformance and `npm run test:dart` exercise the target when the Dart SDK is on `PATH`
 
 ```bash
-RANGER_LIB="./compiler/Lang.rgr;./lib/stdops.rgr" \
-  node dist/rgrc.js examples/dart_flutter_logic/CounterLogic.rgr \
+node dist/rgrc.js examples/dart_flutter_logic/CounterLogic.rgr \
     -l=dart -pubspec -name=counter_logic -version=0.1.0 \
     -description="Shared counter logic from Ranger" \
     -d=examples/dart_flutter_logic/generated -o=counter_logic.dart
@@ -1975,7 +1966,7 @@ sfn main@(main):void () {
 - **Lifecycle:** `start server port`, `stop server`
 
 ```bash
-RANGER_LIB=./compiler/Lang.rgr node dist/rgrc.js -l=go ./myserver.rgr -d=./bin -o=myserver.go -nodecli
+node dist/rgrc.js -l=go ./myserver.rgr -d=./bin -o=myserver.go -nodecli
 cd bin && go run myserver.go
 ```
 

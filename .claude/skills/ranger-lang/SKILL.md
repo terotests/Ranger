@@ -12,8 +12,7 @@ each. `AGENTS.md` has the full list; this is what to check first.
 ## Compile after every few functions
 
 ```bash
-RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr \
-  node dist/rgrc.js -es6 path/to/File.rgr -d=/tmp -o=File.js -nodecli 2>&1 | grep -A3 FAIL
+node dist/rgrc.js -es6 path/to/File.rgr -d=/tmp -o=File.js -nodecli 2>&1 | grep -A3 FAIL
 ```
 
 A failed compile prints `[FAIL]` and `Compilation FAILED` and exits non-zero.

@@ -227,6 +227,10 @@ Prefix form only:
 (?? opt default)
 ```
 
+Inside `if (!null? obj) { … }` (or an `&&` of `!null?` checks) `obj.field` and
+`obj.method()` need no `unwrap`, also under `-strict`. Not narrowed yet: `||`,
+code after an early `return`, the else branch, and optional int/double values.
+
 ## Strings
 
 ```ranger

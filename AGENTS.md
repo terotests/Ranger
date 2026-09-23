@@ -59,6 +59,40 @@ follow them exactly.
 - [ ] It is a **new** branch/PR, not a push to an already-merged one.
 - [ ] `git log origin/master..HEAD` shows only the commits you intend to land.
 
+## Building and running the compiler
+
+- The compiler is **`dist/rgrc.js`**, and it is committed. `npm run compile`
+  builds it from `compiler/*.rgr` with the current `dist/rgrc.js` and copies
+  `Lang.rgr` / `stdops.rgr` next to it. Nothing is written to `bin/output.js`
+  any more. `git checkout dist/rgrc.js` restores the last good build.
+- `RANGER_LIB` is not needed. `dist/rgrc.js` finds `Lang.rgr`, `stdops.rgr`
+  and `lib/` beside itself and in `../compiler/` and `../lib/`. The native
+  self-host builds (`npm run selfhost:build:*`) copy the library beside the
+  binary. Just run `node dist/rgrc.js -l=<target> file.rgr -d=<dir> -o=<name>`.
+- A user program compiled without `-d` is written to `bin/<name>.js` under the
+  current directory. That is program output, not the compiler; `bin/output.js`
+  is ignored and must not be committed.
+- `npm run selfhost:check:<target>` compiles the compiler for a target and
+  runs that target's compiler or syntax check over it (`cpp`, `go`, `java`,
+  `python`, `rust`, `llvm`, …).
+
+## Optionals
+
+- `if (!null? x) { … }` narrows `x` in the then block: `x.field` and
+  `x.method()` need no `unwrap` there, also under `-strict`. `&&` of `!null?`
+  checks narrows each one, and a path (`a.friend`) is narrowed as a whole.
+- Not narrowed yet: `||`, the code after an early
+  `if (null? x) { return … }`, the else branch, and optional `int` / `double`
+  values (`(unwrap n)` is still needed for arithmetic). `def q:T x` keeps `q`
+  optional. Extending narrowing to early returns and else branches is planned.
+- Without `-strict` the compiler unwraps optionals automatically wherever
+  they are read, so a missing check is not reported. Use `-strict` to find
+  them.
+- On C++ every `@(optional)` is a `std::optional<T>` (objects are
+  `std::optional<std::shared_ptr<T>>`). There is no `r_optional_primitive` any
+  more. Tests and docs that expect `NULL` checks or `r_optional_primitive`
+  describe the old output.
+
 ## Ranger language gotchas
 
 Ranger is **LISP / S-expression based**. Full answers with compiled output are in
