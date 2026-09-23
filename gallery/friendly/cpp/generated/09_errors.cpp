@@ -14,11 +14,17 @@ class ErrorsMain;
 typedef std::variant<Guarded_Ok, std::shared_ptr<Guarded_Err>>  r_union_Guarded;
 
 
+// reads a property through an optional object, returning the property's default value when absent
+template <class O, class F> auto rg_optional_access(const O& value, F accessor) {
+  using R = decltype(accessor(value.value()));
+  if (value.has_value()) { return accessor(value.value()); }
+  return R{};
+}
+
 // header definitions
 class Guarded_Ok { 
   public :
-    int value;
-    /* class constructor */ 
+    int value;/* class constructor */ 
     Guarded_Ok( int value  );
     /* a value case of a closed family compares by content */ 
     bool operator==(const Guarded_Ok& o) const {
@@ -28,8 +34,7 @@ class Guarded_Ok {
 };
 class Guarded_Err { 
   public :
-    std::string message;
-    /* class constructor */ 
+    std::string message;/* class constructor */ 
     Guarded_Err( const std::string& message  );
 };
 class Guarded__ops { 
@@ -72,7 +77,7 @@ bool  Guarded__ops::equals( const r_union_Guarded& a , const r_union_Guarded& b 
     Guarded_Ok __ea0 = std::get<Guarded_Ok>(a);
     if( std::holds_alternative<Guarded_Ok>(b) ) {
       Guarded_Ok __eb0 = std::get<Guarded_Ok>(b);
-      if ( __ea0.value != __eb0.value ) {
+      if (__ea0.value != __eb0.value) {
         return false;
       }
       return true;
@@ -83,7 +88,7 @@ bool  Guarded__ops::equals( const r_union_Guarded& a , const r_union_Guarded& b 
     std::shared_ptr<Guarded_Err> __ea1 = std::get<std::shared_ptr<Guarded_Err>>(a);
     if( std::holds_alternative<std::shared_ptr<Guarded_Err>>(b) ) {
       std::shared_ptr<Guarded_Err> __eb1 = std::get<std::shared_ptr<Guarded_Err>>(b);
-      if ( (__ea1->message != __eb1->message) ) {
+      if ((__ea1->message != __eb1->message)) {
         return false;
       }
       return true;
@@ -93,7 +98,7 @@ bool  Guarded__ops::equals( const r_union_Guarded& a , const r_union_Guarded& b 
   return false;
 }
 bool  Guarded__ops::notEquals( const r_union_Guarded& a , const r_union_Guarded& b ) {
-  if ( Guarded__ops::equals(a, b) ) {
+  if (Guarded__ops::equals(a, b)) {
     return false;
   }
   return true;
@@ -101,7 +106,7 @@ bool  Guarded__ops::notEquals( const r_union_Guarded& a , const r_union_Guarded&
 Guard::Guard( ) {
 }
 r_union_Guarded  Guard::check( int value ) {
-  if ( value < 0 ) {
+  if (value < 0) {
     return  std::make_shared<Guarded_Err>(std::string("negative"));
   }
   return  Guarded_Ok(value);

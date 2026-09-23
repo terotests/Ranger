@@ -206,12 +206,13 @@ describe("Ranger Compiler - C++ Target", () => {
   });
 
   describe("Optional/Nullable Types", () => {
-    it("should handle optional types with r_optional_primitive", () => {
+    it("should handle optional types with std::optional", () => {
       const result = getGeneratedCppCode(`${FIXTURES_DIR}/optional_int.rgr`);
 
       if (result.success) {
-        // If file exists and compiles, check for optional handling
-        expect(result.code).toMatch(/r_optional|std::optional|has_value/);
+        expect(result.code).toMatch(/std::optional<int>/);
+        expect(result.code).toMatch(/#include\s+<optional>/);
+        expect(result.code).not.toContain("r_optional_primitive");
       }
     });
   });

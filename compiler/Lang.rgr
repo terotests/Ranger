@@ -4224,14 +4224,7 @@ static class RgFiles {
 
         unwrap       cmdUnwrap:int        ( arg@(optional):int ) {
             templates {
-                cpp ( "rg_opt_value(" (e 1) ")" (imp "<optional>") (create_polyfill
-"// reads the value out of an optional int or double: a std::optional variable
-// or the r_optional_primitive a runtime helper returns
-template <class O> auto rg_opt_value(const O & o) -> decltype(o.value) { return o.value; }
-template <class T> T rg_opt_value(const std::optional<T> & o) { return o.value_or(T()); }
-template <class O> auto rg_opt_has(const O & o) -> decltype(bool(o.has_value)) { return o.has_value; }
-template <class T> bool rg_opt_has(const std::optional<T> & o) { return o.has_value(); }
-") )
+                cpp ( (e 1) ".value()" )
                 ; an optional int is `int?` on C#, and Nullable<T> does not
                 ; convert back to T on its own
                 csharp ( "(" (e 1) ").Value" )
@@ -4239,14 +4232,7 @@ template <class T> bool rg_opt_has(const std::optional<T> & o) { return o.has_va
         } 
         unwrap       cmdUnwrap:double        ( arg@(optional):double ) {
             templates {
-                cpp ( "rg_opt_value(" (e 1) ")" (imp "<optional>") (create_polyfill
-"// reads the value out of an optional int or double: a std::optional variable
-// or the r_optional_primitive a runtime helper returns
-template <class O> auto rg_opt_value(const O & o) -> decltype(o.value) { return o.value; }
-template <class T> T rg_opt_value(const std::optional<T> & o) { return o.value_or(T()); }
-template <class O> auto rg_opt_has(const O & o) -> decltype(bool(o.has_value)) { return o.has_value; }
-template <class T> bool rg_opt_has(const std::optional<T> & o) { return o.has_value(); }
-") )
+                cpp ( (e 1) ".value()" )
                 csharp ( "(" (e 1) ").Value" )
             }
         }
@@ -5086,14 +5072,7 @@ def r_div_f64(a, b):
 
         if              cmdIf:void              ( condition@(optional):int then_block:block )  {
             templates {
-                cpp ( "if ( rg_opt_has(" (e 1) ") ) {" nl I (block 2) i nl "}" nl (imp "<optional>") (create_polyfill
-"// reads the value out of an optional int or double: a std::optional variable
-// or the r_optional_primitive a runtime helper returns
-template <class O> auto rg_opt_value(const O & o) -> decltype(o.value) { return o.value; }
-template <class T> T rg_opt_value(const std::optional<T> & o) { return o.value_or(T()); }
-template <class O> auto rg_opt_has(const O & o) -> decltype(bool(o.has_value)) { return o.has_value; }
-template <class T> bool rg_opt_has(const std::optional<T> & o) { return o.has_value(); }
-") )
+                cpp ( "if ( " (e 1) ".has_value() ) {" nl I (block 2) i nl "}" nl )
                 ranger ( "if ( " (e 1) " ) {" I nl (block 2) i nl "}" nl )
                 scala ( "if ( " (e 1) ".isDefined ) {" nl I (block 2) i nl "}" nl )
                 swift3 ( "if ( " (e 1) " != nil ) {" nl I (block 2) i nl "}" nl )
@@ -5117,14 +5096,7 @@ template <class T> bool rg_opt_has(const std::optional<T> & o) { return o.has_va
 
         if              cmdIf:void              ( condition@(optional):double then_block:block )  {
             templates {
-                cpp ( "if ( rg_opt_has(" (e 1) ") ) {" nl I (block 2) i nl "}" nl (imp "<optional>") (create_polyfill
-"// reads the value out of an optional int or double: a std::optional variable
-// or the r_optional_primitive a runtime helper returns
-template <class O> auto rg_opt_value(const O & o) -> decltype(o.value) { return o.value; }
-template <class T> T rg_opt_value(const std::optional<T> & o) { return o.value_or(T()); }
-template <class O> auto rg_opt_has(const O & o) -> decltype(bool(o.has_value)) { return o.has_value; }
-template <class T> bool rg_opt_has(const std::optional<T> & o) { return o.has_value(); }
-") )
+                cpp ( "if ( " (e 1) ".has_value() ) {" nl I (block 2) i nl "}" nl )
                 ranger ( "if ( " (e 1) " ) {" I nl (block 2) i nl "}" nl )
                 scala ( "if ( " (e 1) ".isDefined ) {" nl I (block 2) i nl "}" nl )
                 swift3 ( "if ( " (e 1) " != nil ) {" nl I (block 2) i nl "}" nl )
@@ -5141,19 +5113,11 @@ template <class T> bool rg_opt_has(const std::optional<T> & o) { return o.has_va
             }
         }
 
-        ; typed optional int/double with an else branch: r_optional_primitive is
-        ; a value type (has_value field), not a pointer, so the generic :T
-        ; `!= NULL` form below does not compile under clang. Emit `.has_value`.
+        ; typed optional int/double with an else branch: a std::optional is a
+        ; value, not a pointer, so the check is `.has_value()`.
         if              cmdIf:void              ( condition@(optional):int then_block:block else_block )  {
             templates {
-                cpp ( "if ( rg_opt_has(" (e 1) ") ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl (imp "<optional>") (create_polyfill
-"// reads the value out of an optional int or double: a std::optional variable
-// or the r_optional_primitive a runtime helper returns
-template <class O> auto rg_opt_value(const O & o) -> decltype(o.value) { return o.value; }
-template <class T> T rg_opt_value(const std::optional<T> & o) { return o.value_or(T()); }
-template <class O> auto rg_opt_has(const O & o) -> decltype(bool(o.has_value)) { return o.has_value; }
-template <class T> bool rg_opt_has(const std::optional<T> & o) { return o.has_value(); }
-") )
+                cpp ( "if ( " (e 1) ".has_value() ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl )
                 ranger ( "if ( " (e 1) " ) {" I nl (block 2) i nl "} {" nl I (block 3) i "}" nl)
                 php ( "if ( isset(" (e 1) ") ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 scala ( "if ( " (e 1) ".isDefined ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
@@ -5172,14 +5136,7 @@ template <class T> bool rg_opt_has(const std::optional<T> & o) { return o.has_va
 
         if              cmdIf:void              ( condition@(optional):double then_block:block else_block )  {
             templates {
-                cpp ( "if ( rg_opt_has(" (e 1) ") ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl (imp "<optional>") (create_polyfill
-"// reads the value out of an optional int or double: a std::optional variable
-// or the r_optional_primitive a runtime helper returns
-template <class O> auto rg_opt_value(const O & o) -> decltype(o.value) { return o.value; }
-template <class T> T rg_opt_value(const std::optional<T> & o) { return o.value_or(T()); }
-template <class O> auto rg_opt_has(const O & o) -> decltype(bool(o.has_value)) { return o.has_value; }
-template <class T> bool rg_opt_has(const std::optional<T> & o) { return o.has_value(); }
-") )
+                cpp ( "if ( " (e 1) ".has_value() ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl )
                 ranger ( "if ( " (e 1) " ) {" I nl (block 2) i nl "} {" nl I (block 3) i "}" nl)
                 php ( "if ( isset(" (e 1) ") ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
                 scala ( "if ( " (e 1) ".isDefined ) {" I nl (block 2) i nl "} else {" nl I (block 3) i "}" nl)
@@ -5515,33 +5472,19 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
         }
         null?       cmdIsNotNull:boolean        ( arg@(optional):int ) {
             templates {
-                cpp ("(rg_opt_has(" (e 1) ") == false)" (imp "<optional>") (create_polyfill
-"// reads the value out of an optional int or double: a std::optional variable
-// or the r_optional_primitive a runtime helper returns
-template <class O> auto rg_opt_value(const O & o) -> decltype(o.value) { return o.value; }
-template <class T> T rg_opt_value(const std::optional<T> & o) { return o.value_or(T()); }
-template <class O> auto rg_opt_has(const O & o) -> decltype(bool(o.has_value)) { return o.has_value; }
-template <class T> bool rg_opt_has(const std::optional<T> & o) { return o.has_value(); }
-") )
+                cpp ("(" (e 1) ".has_value() == false)" )
             }
         }  
         null?       cmdIsNotNull:boolean        ( arg@(optional):double ) {
             templates {
-                cpp ("(rg_opt_has(" (e 1) ") == false)" (imp "<optional>") (create_polyfill
-"// reads the value out of an optional int or double: a std::optional variable
-// or the r_optional_primitive a runtime helper returns
-template <class O> auto rg_opt_value(const O & o) -> decltype(o.value) { return o.value; }
-template <class T> T rg_opt_value(const std::optional<T> & o) { return o.value_or(T()); }
-template <class O> auto rg_opt_has(const O & o) -> decltype(bool(o.has_value)) { return o.has_value; }
-template <class T> bool rg_opt_has(const std::optional<T> & o) { return o.has_value(); }
-") )
+                cpp ("(" (e 1) ".has_value() == false)" )
             }
         }               
         ; an optional string used to be a bare std::string on C++, with ""
         ; standing in for absent. That is the one place the C++ output
         ; disagreed with every other target: `s = ""` then `null? s` answered
         ; true here and false on JS, Python, Go and Rust. It is an
-        ; r_optional_primitive<std::string> now, so "" is a value like any
+        ; std::optional<std::string> now, so "" is a value like any
         ; other and the presence bit is its own.
         null?       cmdIsNotNull:boolean        ( arg@(optional):string ) {
             templates {
@@ -5590,26 +5533,12 @@ template <class T> bool rg_opt_has(const std::optional<T> & o) { return o.has_va
         }   
         !null?       cmdIsNotNull:boolean        ( arg@(optional):int ) {
             templates {
-                cpp ("rg_opt_has(" (e 1) ")" (imp "<optional>") (create_polyfill
-"// reads the value out of an optional int or double: a std::optional variable
-// or the r_optional_primitive a runtime helper returns
-template <class O> auto rg_opt_value(const O & o) -> decltype(o.value) { return o.value; }
-template <class T> T rg_opt_value(const std::optional<T> & o) { return o.value_or(T()); }
-template <class O> auto rg_opt_has(const O & o) -> decltype(bool(o.has_value)) { return o.has_value; }
-template <class T> bool rg_opt_has(const std::optional<T> & o) { return o.has_value(); }
-") )
+                cpp ((e 1) ".has_value()" )
             }
         }  
         !null?       cmdIsNotNull:boolean        ( arg@(optional):double ) {
             templates {
-                cpp ("rg_opt_has(" (e 1) ")" (imp "<optional>") (create_polyfill
-"// reads the value out of an optional int or double: a std::optional variable
-// or the r_optional_primitive a runtime helper returns
-template <class O> auto rg_opt_value(const O & o) -> decltype(o.value) { return o.value; }
-template <class T> T rg_opt_value(const std::optional<T> & o) { return o.value_or(T()); }
-template <class O> auto rg_opt_has(const O & o) -> decltype(bool(o.has_value)) { return o.has_value; }
-template <class T> bool rg_opt_has(const std::optional<T> & o) { return o.has_value(); }
-") )
+                cpp ((e 1) ".has_value()" )
             }
         }               
         !null?       cmdIsNotNull:boolean        ( arg@(optional):string ) {
@@ -8629,45 +8558,10 @@ inline std::string r_double_to_string(double v) {
                 ranger ( "(str2int " (e 1) ")")
                 cpp ("cpp_str_to_int(" (e 1) ")" (imp "<string>")
                 
-(imp "<optional>")
+(imp "<optional>") 
 (create_polyfill
-"
-template <class T>
-class r_optional_primitive {
-  public:
-    // has_value has to start false: cpp_str_to_int and its siblings leave the
-    // field untouched when the conversion throws, and an indeterminate bool
-    // made a failed str2int read back as a value on the C++ target.
-    bool has_value = false;
-    T value = T();
-    r_optional_primitive() {}
-    // a plain value placed into an optional slot: returning a bare string
-    // from a function declared @(optional):string arrives here. Declaring
-    // any constructor takes the implicit default one away, hence the pair.
-    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
-    r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
-        has_value = rhs.has_value;
-        value = rhs.value;
-        return *this;
-    }
-    r_optional_primitive<T> & operator=(const T a_value) {
-        has_value = true;
-        value = a_value;
-        return *this;
-    }
-    // optional int, double and string variables are std::optional; the
-    // runtime helpers (cpp_str_to_int, cpp_get_map_int_value, ...) still
-    // return this type, so their result has to convert on assignment.
-    operator std::optional<T>() const {
-        if (has_value) { return value; }
-        return std::nullopt;
-    }
-};
-"
-) 
-(create_polyfill
-"r_optional_primitive<int> cpp_str_to_int(std::string s) {
-    r_optional_primitive<int> result;
+"std::optional<int> cpp_str_to_int(std::string s) {
+    std::optional<int> result;
     try {
         // Ranger `int` is 64-bit on Go, Rust, Java, Kotlin and Python and 32-bit
         // here, so a literal between INT_MAX and INT64_MAX has no C++ int to
@@ -8677,8 +8571,7 @@ class r_optional_primitive {
         long long wide = std::stoll(s);
         if (wide > 2147483647LL) { wide = 2147483647LL; }
         if (wide < -2147483648LL) { wide = -2147483648LL; }
-        result.value = (int)wide;
-        result.has_value = true;
+        result = (int)wide;
     } catch (...) {
         
     }
@@ -8825,45 +8718,10 @@ int? rangerStr2IntPrefix(String s) {
             templates {
                 ranger ( "(str2double " (e 1) ")")
                 cpp ("cpp_str_to_double(" (e 1) ")" (imp "<string>")
-(imp "<optional>")
+(imp "<optional>") 
 (create_polyfill
-"
-template <class T>
-class r_optional_primitive {
-  public:
-    // has_value has to start false: cpp_str_to_int and its siblings leave the
-    // field untouched when the conversion throws, and an indeterminate bool
-    // made a failed str2int read back as a value on the C++ target.
-    bool has_value = false;
-    T value = T();
-    r_optional_primitive() {}
-    // a plain value placed into an optional slot: returning a bare string
-    // from a function declared @(optional):string arrives here. Declaring
-    // any constructor takes the implicit default one away, hence the pair.
-    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
-    r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
-        has_value = rhs.has_value;
-        value = rhs.value;
-        return *this;
-    }
-    r_optional_primitive<T> & operator=(const T a_value) {
-        has_value = true;
-        value = a_value;
-        return *this;
-    }
-    // optional int, double and string variables are std::optional; the
-    // runtime helpers (cpp_str_to_int, cpp_get_map_int_value, ...) still
-    // return this type, so their result has to convert on assignment.
-    operator std::optional<T>() const {
-        if (has_value) { return value; }
-        return std::nullopt;
-    }
-};
-"
-) 
-(create_polyfill
-"r_optional_primitive<double> cpp_str_to_double(std::string s) {
-    r_optional_primitive<double> result;
+"std::optional<double> cpp_str_to_double(std::string s) {
+    std::optional<double> result;
     /* strtod, not stod: glibc's stod throws out_of_range whenever strtod
        sets ERANGE, which includes SUBNORMAL results -- parsing 5e-324
        (Number.MIN_VALUE) answered nothing at all. strtod still returns the
@@ -8875,8 +8733,7 @@ class r_optional_primitive {
     if (end != cs) {
         while (*end == 32 || *end == 9 || *end == 10 || *end == 13) { end++; }
         if (*end == 0) {
-            result.value = v;
-            result.has_value = true;
+            result = v;
         }
     }
     return result;
@@ -9067,52 +8924,15 @@ std::string join(const T& v, const std::string& delim) {
         get             cmdGet@(optional weak):int          ( map:[K:int] key:K ) { 
             templates {
                 cpp( "cpp_get_map_int_value(" (e 1) ", " (e 2) ")"
-(imp "<optional>")
-(create_polyfill
-"
-template <class T>
-class r_optional_primitive {
-  public:
-    // has_value has to start false: cpp_str_to_int and its siblings leave the
-    // field untouched when the conversion throws, and an indeterminate bool
-    // made a failed str2int read back as a value on the C++ target.
-    bool has_value = false;
-    T value = T();
-    r_optional_primitive() {}
-    // a plain value placed into an optional slot: returning a bare string
-    // from a function declared @(optional):string arrives here. Declaring
-    // any constructor takes the implicit default one away, hence the pair.
-    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
-    r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
-        has_value = rhs.has_value;
-        value = rhs.value;
-        return *this;
-    }
-    r_optional_primitive<T> & operator=(const T a_value) {
-        has_value = true;
-        value = a_value;
-        return *this;
-    }
-    // optional int, double and string variables are std::optional; the
-    // runtime helpers (cpp_str_to_int, cpp_get_map_int_value, ...) still
-    // return this type, so their result has to convert on assignment.
-    operator std::optional<T>() const {
-        if (has_value) { return value; }
-        return std::nullopt;
-    }
-};
-"
-) 
+(imp "<optional>") 
 (macro
 ("
 template<typename M, typename K>
-r_optional_primitive<int> cpp_get_map_int_value( const M & m , const K & key) {
-    r_optional_primitive<int> result;
-    result.has_value = false;
+std::optional<int> cpp_get_map_int_value( const M & m , const K & key) {
+    std::optional<int> result;
     auto it = m.find(key);
     if (it != m.end()) {
-        result.value = it->second;
-        result.has_value = true;
+        result = it->second;
     }
     return result;
 }")
@@ -9132,51 +8952,14 @@ r_optional_primitive<int> cpp_get_map_int_value( const M & m , const K & key) {
             templates {
                 cpp( "cpp_get_map_string_double_value(" (e 1) ", " (e 2) ")"
 (imp "<optional>")
-(create_polyfill
-"
-template <class T>
-class r_optional_primitive {
-  public:
-    // has_value has to start false: cpp_str_to_int and its siblings leave the
-    // field untouched when the conversion throws, and an indeterminate bool
-    // made a failed str2int read back as a value on the C++ target.
-    bool has_value = false;
-    T value = T();
-    r_optional_primitive() {}
-    // a plain value placed into an optional slot: returning a bare string
-    // from a function declared @(optional):string arrives here. Declaring
-    // any constructor takes the implicit default one away, hence the pair.
-    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
-    r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
-        has_value = rhs.has_value;
-        value = rhs.value;
-        return *this;
-    }
-    r_optional_primitive<T> & operator=(const T a_value) {
-        has_value = true;
-        value = a_value;
-        return *this;
-    }
-    // optional int, double and string variables are std::optional; the
-    // runtime helpers (cpp_str_to_int, cpp_get_map_int_value, ...) still
-    // return this type, so their result has to convert on assignment.
-    operator std::optional<T>() const {
-        if (has_value) { return value; }
-        return std::nullopt;
-    }
-};
-"
-)
 (macro
 ("
 template<typename M, typename K>
-r_optional_primitive<double> cpp_get_map_string_double_value( const M & m , const K & key) {
-    r_optional_primitive<double> result;
-    result.has_value = false;
+std::optional<double> cpp_get_map_string_double_value( const M & m , const K & key) {
+    std::optional<double> result;
     auto it = m.find(key);
     if (it != m.end()) {
-        result.value = it->second;
-        result.has_value = true;
+        result = it->second;
     }
     return result;
 }")

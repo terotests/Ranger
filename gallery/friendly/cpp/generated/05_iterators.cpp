@@ -10,6 +10,13 @@ class IterMain;
 
 
 
+// reads a property through an optional object, returning the property's default value when absent
+template <class O, class F> auto rg_optional_access(const O& value, F accessor) {
+  using R = decltype(accessor(value.value()));
+  if (value.has_value()) { return accessor(value.value()); }
+  return R{};
+}
+
 // header definitions
 class Stats { 
   public :
@@ -43,7 +50,7 @@ int  Stats::total( const std::vector<int>& xs ) {
 int  Stats::evenCount( const std::vector<int>& xs ) {
   int n = 0;
   for ( int v : xs ) {
-    if ( v % 2 == 0 ) {
+    if (v % 2 == 0) {
       n = n + 1;
     }
   }

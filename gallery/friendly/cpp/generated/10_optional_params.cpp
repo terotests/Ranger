@@ -1,5 +1,6 @@
 #include  <memory>
 #include  <string>
+#include  <optional>
 #include  <iostream>
 
 // define classes here to avoid compiler errors
@@ -7,39 +8,18 @@ class Point;
 class OptionalParams;
 
 
-template <class T>
-class r_optional_primitive {
-  public:
-    // has_value has to start false: cpp_str_to_int and its siblings leave the
-    // field untouched when the conversion throws, and an indeterminate bool
-    // made a failed str2int read back as a value on the C++ target.
-    bool has_value = false;
-    T value = T();
-    r_optional_primitive() {}
-    // a plain value placed into an optional slot: returning a bare string
-    // from a function declared @(optional):string arrives here. Declaring
-    // any constructor takes the implicit default one away, hence the pair.
-    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
-    r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
-        has_value = rhs.has_value;
-        value = rhs.value;
-        return *this;
-    }
-    r_optional_primitive<T> & operator=(const T a_value) {
-        has_value = true;
-        value = a_value;
-        return *this;
-    }
-};
 
-
+// reads a property through an optional object, returning the property's default value when absent
+template <class O, class F> auto rg_optional_access(const O& value, F accessor) {
+  using R = decltype(accessor(value.value()));
+  if (value.has_value()) { return accessor(value.value()); }
+  return R{};
+}
 
 // header definitions
 class Point { 
   public :
-    int x;
-    int y     /* note: unused */;
-    /* class constructor */ 
+    int x;int y;/* class constructor */ 
     Point( );
 };
 class OptionalParams { 
@@ -49,9 +29,9 @@ class OptionalParams {
     /* static methods */ 
     static void main();
     /* instance methods */ 
-    std::string shown(  r_optional_primitive<std::string>  maybe );
-    int shownInt(  r_optional_primitive<int>  a );
-    int shownPoint( const std::shared_ptr<Point>& p );
+    std::string shown(  std::optional<std::string>  maybe );
+    int shownInt(  std::optional<int>  a );
+    int shownPoint( const std::optional<std::shared_ptr<Point>>& p );
 };
 
 int __g_argc;
@@ -62,39 +42,39 @@ Point::Point( ) {
 }
 OptionalParams::OptionalParams( ) {
 }
-std::string  OptionalParams::shown(  r_optional_primitive<std::string>  maybe ) {
-  if ( maybe.has_value == false ) {
+std::string  OptionalParams::shown(  std::optional<std::string>  maybe ) {
+  if (maybe.has_value() == false) {
     return std::string("unknown");
   }
-  return maybe.value;
+  return maybe.value();
 }
-int  OptionalParams::shownInt(  r_optional_primitive<int>  a ) {
-  if ( a.has_value == false ) {
+int  OptionalParams::shownInt(  std::optional<int>  a ) {
+  if ((a.has_value() == false)) {
     return 0;
   }
-  int r = /*unwrap int*/a.value;
+  int r = a.value();
   return r;
 }
-int  OptionalParams::shownPoint( const std::shared_ptr<Point>& p ) {
-  if ( p == NULL ) {
+int  OptionalParams::shownPoint( const std::optional<std::shared_ptr<Point>>& p ) {
+  if (!p.has_value()) {
     return 0;
   }
-  std::shared_ptr<Point> q = p;
+  std::shared_ptr<Point> q = p.value();
   return q->x;
 }
 int main(int argc, char* argv[]) {
   __g_argc = argc;
   __g_argv = argv;
   std::shared_ptr<OptionalParams> app =  std::make_shared<OptionalParams>();
-   r_optional_primitive<std::string>  hit;
+   std::optional<std::string>  hit;
   hit  = std::string("ada");
   std::cout << std::string("name ") + app->shown(hit) << std::endl;
-   r_optional_primitive<std::string>  miss;
+   std::optional<std::string>  miss;
   std::cout << std::string("miss ") + app->shown(miss) << std::endl;
-   r_optional_primitive<int>  n;
+   std::optional<int>  n;
   n  = 41;
   std::cout << std::string("int ") + std::to_string(app->shownInt(n)) << std::endl;
-  std::shared_ptr<Point> p;
+  std::optional<std::shared_ptr<Point>> p;
   std::shared_ptr<Point> pt =  std::make_shared<Point>();
   pt->x = 7;
   p  = pt;

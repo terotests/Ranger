@@ -9,12 +9,17 @@ class TraitsMain;
 
 
 
+// reads a property through an optional object, returning the property's default value when absent
+template <class O, class F> auto rg_optional_access(const O& value, F accessor) {
+  using R = decltype(accessor(value.value()));
+  if (value.has_value()) { return accessor(value.value()); }
+  return R{};
+}
+
 // header definitions
 class User { 
   public :
-    int age;
-    std::string name;
-    /* class constructor */ 
+    int age;std::string name;/* class constructor */ 
     User( );
     /* instance methods */ 
     std::string asString();
@@ -22,8 +27,7 @@ class User {
 };
 class Bot { 
   public :
-    std::string name;
-    /* class constructor */ 
+    std::string name;/* class constructor */ 
     Bot( );
     /* instance methods */ 
     std::string asString();
