@@ -21,7 +21,7 @@ const SRC = path.join(HERE, "src");
 const ROOT = (() => {
   let d = HERE;
   for (let i = 0; i < 8; i++) {
-    if (fs.existsSync(path.join(d, "bin", "output.js"))) return d;
+    if (fs.existsSync(path.join(d, "dist", "rgrc.js"))) return d;
     d = path.dirname(d);
   }
   return path.resolve(HERE, "..", "..", "..", "..");

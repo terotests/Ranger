@@ -25,7 +25,7 @@ const V2 = path.dirname(HERE); // gallery/game_engine/v2 (guests/assets are give
 function findRoot(start) {
   let d = start;
   for (let i = 0; i < 8; i++) {
-    if (fs.existsSync(path.join(d, "bin", "output.js"))) return d;
+    if (fs.existsSync(path.join(d, "dist", "rgrc.js"))) return d;
     d = path.dirname(d);
   }
   return path.resolve(start, "..", "..", "..", "..");

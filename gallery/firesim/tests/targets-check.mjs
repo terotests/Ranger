@@ -63,7 +63,7 @@ for (const [entry, what] of ENTRIES) {
       execFileSync(
         process.execPath,
         [
-          path.join(REPO, "bin", "output.js"),
+          path.join(REPO, "dist", "rgrc.js"),
           `-l=${target}`,
           path.join(REPO, "gallery", "firesim", "src", entry),
           `-d=${REL}`,

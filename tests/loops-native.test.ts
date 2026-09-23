@@ -25,7 +25,7 @@ const OUT = path.join(ROOT, "tests", ".output-loops");
 // The compiler is driven directly rather than through the shared helper: that
 // one knows a fixed list of languages and would silently fall back to es6 for
 // `dart`, which is the target this file most needs to ask.
-const OUTPUT_JS = path.join(ROOT, "bin", "output.js");
+const OUTPUT_JS = path.join(ROOT, "dist", "rgrc.js");
 const ENV = {
   ...process.env,
   RANGER_LIB: "./compiler/Lang.rgr:./lib/stdops.rgr",

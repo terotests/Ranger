@@ -51,7 +51,7 @@ function compile(fixture, outName) {
     out = execFileSync(
       process.execPath,
       [
-        path.join(ROOT, "bin", "output.js"),
+        path.join(ROOT, "dist", "rgrc.js"),
         "-es6",
         `./tests/fixtures/${fixture}`,
         "-nodecli",

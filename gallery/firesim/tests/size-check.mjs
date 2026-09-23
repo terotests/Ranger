@@ -35,7 +35,7 @@ for (const [entry, label] of ENTRIES) {
   for (const target of TARGETS) {
     execFileSync(
       process.execPath,
-      [path.join(REPO, "bin", "output.js"), `-l=${target}`, path.join(REPO, "gallery", "firesim", "src", entry), `-d=${REL}`, `-o=out.${target}`],
+      [path.join(REPO, "dist", "rgrc.js"), `-l=${target}`, path.join(REPO, "gallery", "firesim", "src", entry), `-d=${REL}`, `-o=out.${target}`],
       { cwd: REPO, env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr:./lib/stdops.rgr" }, stdio: "ignore" },
     );
     // The compiler names the file by target; find whatever it wrote.

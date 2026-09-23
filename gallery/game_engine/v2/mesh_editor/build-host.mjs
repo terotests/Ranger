@@ -11,7 +11,7 @@ const HERE = path.dirname(url.fileURLToPath(import.meta.url));
 function findRoot(start) {
   let d = start;
   for (let i = 0; i < 8; i++) {
-    if (fs.existsSync(path.join(d, "bin", "output.js"))) return d;
+    if (fs.existsSync(path.join(d, "dist", "rgrc.js"))) return d;
     d = path.dirname(d);
   }
   throw new Error("repo root not found");
