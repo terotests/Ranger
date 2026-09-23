@@ -39,6 +39,10 @@ if (!html.includes("layout-lab.js") || !html.includes("buildSetBtn") || !html.in
   console.error("live page is missing HTML test-set / WebGPU train buttons");
   process.exit(1);
 }
+if (!html.includes("tryPickBtn") || !html.includes("testHoldoutBtn") || !html.includes("Kokeile valinta")) {
+  console.error("live page is missing recognition-test buttons");
+  process.exit(1);
+}
 if (!fs.existsSync(path.join(DIST, "layout-lab.js"))) {
   console.error("layout-lab.js was not copied to dist");
   process.exit(1);
@@ -46,6 +50,12 @@ if (!fs.existsSync(path.join(DIST, "layout-lab.js"))) {
 const components = fs.readFileSync(path.join(DIST, "components.html"), "utf8");
 if (!components.includes('data-concept="form"') || !components.includes('data-role="checkbox"')) {
   console.error("components.html is missing layout ground-truth annotations");
+  process.exit(1);
+}
+const shadcn = fs.readFileSync(path.join(DIST, "shadcn.html"), "utf8");
+if (!shadcn.includes('data-holdout="1"') || !shadcn.includes('data-concept="toolbar"') ||
+    !shadcn.includes('data-fixture="shadcn-kit-btns"')) {
+  console.error("shadcn.html is missing held-out recognition annotations");
   process.exit(1);
 }
 
@@ -195,4 +205,28 @@ if (after.core < live.core) {
   process.exit(1);
 }
 
-console.log("erazer web smoke ok — button, chip row, sliders, layout-net, html-set, train gate");
+const detail = ErazerLayoutLab.scoreCasesDetail(ErazerLayoutLab.currentDump(), cases);
+if (detail.rows.length !== cases.length || detail.ok !== cases.length) {
+  console.error("scoreCasesDetail did not keep one row per archetype");
+  process.exit(1);
+}
+const named = ErazerLayoutLab.predictBoxes(list);
+if (!named || named.type !== "list") {
+  console.error("predictBoxes missed the seeded list: " + (named && named.type));
+  process.exit(1);
+}
+const found = ErazerLayoutLab.scanFinds(list, "list");
+if (!found.hit) {
+  console.error("scanFinds missed the seeded list among " + JSON.stringify(found.guesses));
+  process.exit(1);
+}
+const evalSum = ErazerLayoutLab.summarizeEval([
+  { expected: "list", dom: { type: "list" }, erazer: { type: "nav" }, scan: { hit: true } },
+  { expected: "nav", dom: { type: "list" }, erazer: { type: "nav" }, scan: { hit: false } }
+]);
+if (evalSum.dom.ok !== 1 || evalSum.erazer.ok !== 1 || evalSum.scan.ok !== 1) {
+  console.error("summarizeEval miscounted: " + JSON.stringify(evalSum));
+  process.exit(1);
+}
+
+console.log("erazer web smoke ok — button, chip row, sliders, layout-net, html-set, train gate, holdout helpers");
