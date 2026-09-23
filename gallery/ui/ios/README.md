@@ -19,7 +19,7 @@ gallery/ui/src/*.rgr                cascade, layout, table, sortable
 lib/evg/*.rgr                   EVG: units, flex, clip, display list
 gallery/vela/*.rgr                  the chart's runtime — all Ranger
       │
-      │  node bin/output.js -l=swift6        (from inside build_ios.rgr)
+      │  node dist/rgrc.js -l=swift6        (from inside build_ios.rgr)
       ▼
 generated/ui_ios.swift              ~46k lines, one file
       │
@@ -205,7 +205,7 @@ any machine:
 ```console
 $ npm run ui:ios:plan
 RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node --max-old-space-size=8192 \
-  bin/output.js -l=swift6 gallery/ui/ios/ranger/ui_ios.rgr -nodecli \
+  dist/rgrc.js -l=swift6 gallery/ui/ios/ranger/ui_ios.rgr -nodecli \
   -d=gallery/ui/ios/generated -o=ui_ios.swift
 plutil -lint tmp/ui-ios/build/ios-simulator/RangerDashboard.app/Info.plist
 xcrun --sdk iphonesimulator swiftc -sdk <…> -target arm64-apple-ios15.0-simulator \

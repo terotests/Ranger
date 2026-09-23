@@ -35,7 +35,7 @@ STAGE=$WEB/dist
 mkdir -p "$STAGE" "$OUT"
 
 rm -f "$STAGE/r5_app.js"
-log=$(node bin/output.js -es6 gallery/r5/src/R5App.rgr -d="$STAGE" -o=r5_app.js 2>&1)
+log=$(node dist/rgrc.js -es6 gallery/r5/src/R5App.rgr -d="$STAGE" -o=r5_app.js 2>&1)
 if echo "$log" | grep -q "Compilation FAILED"; then
   echo "$log" | grep -A3 "\[FAIL\]" | head -40
   echo "FAILED to compile gallery/r5/src/R5App.rgr" >&2

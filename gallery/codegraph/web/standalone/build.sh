@@ -22,7 +22,7 @@ mkdir -p "$STAGE" "$OUT"
 rm -f "$STAGE/codegraph_web.js"
 # Do not pass -client: it injects RangerAppService and currently corrupts the
 # next operator class line in ES6 output (classRangerAppServiceclass operatorsOf).
-log=$(node bin/output.js -es6 gallery/codegraph/web/codegraph_web.rgr -d="$STAGE" -o=codegraph_web.js 2>&1)
+log=$(node dist/rgrc.js -es6 gallery/codegraph/web/codegraph_web.rgr -d="$STAGE" -o=codegraph_web.js 2>&1)
 if echo "$log" | grep -q "Compilation FAILED"; then
   echo "$log" | grep -A3 "\[FAIL\]" | head -40
   echo "FAILED to compile gallery/codegraph/web/codegraph_web.rgr" >&2

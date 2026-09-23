@@ -43,7 +43,7 @@ fs.mkdirSync(TMP, { recursive: true });
 
 console.log("compiling the bitmap tracer...");
 // The compiler exits 0 on failure, so read the log rather than the status.
-const log = run("node", ["bin/output.js", "-es6", "./lib/evg/tools/evg_trace_cli.rgr",
+const log = run("node", ["dist/rgrc.js", "-es6", "./lib/evg/tools/evg_trace_cli.rgr",
   "-d=./lib/evg/bin", "-o=evg_trace_cli.js", "-nodecli"]);
 if (log.includes("[FAIL]") || log.includes("Compilation FAILED")) {
   console.error(log);

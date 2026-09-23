@@ -406,7 +406,7 @@ it shrinks as sites move to `to_chars`.
 On the compiler's own sources:
 
 ```
-$ node bin/output.js -es6 -strict-strings ./compiler/Compiler.rgr …
+$ node dist/rgrc.js -es6 -strict-strings ./compiler/Compiler.rgr …
 strict-strings compiler/CodeWriter.rgr:214 charAt(line) in RangerSourceFormat.codeEndOf
 …
 strict-strings: 322 of 342 string index sites are not an ASCII literal, in 45 files
@@ -491,7 +491,7 @@ at a time. Every byte of a multi-byte character was therefore decoded by
 itself, so `"merkintä... esim. \"treeni\""` compiled to
 `merkint\uFFFD\uFFFD...`. It reads the string directly now, the same fix as
 `EncodeString` in the six writers, in the one place that was missed. The
-checked-in `bin/output.js` carried the damage in one of its own diagnostics
+checked-in `dist/rgrc.js` carried the damage in one of its own diagnostics
 and took two bootstrap passes to converge. `tests/fixtures/string_units.rgr`
 now holds a literal with both an escape and an em dash in it — the escape is
 what puts a literal on that path, so no fixture had asked.
@@ -504,7 +504,7 @@ uses it now. The Rust rendering of the compiler had never contained a string
 `switch` with a quote in it, so nothing had asked.
 
 ```
-$ node bin/output.js -es6 -strict-strings ./compiler/Compiler.rgr …
+$ node dist/rgrc.js -es6 -strict-strings ./compiler/Compiler.rgr …
 strict-strings: 0 of 1726 string index sites read a unit the program can observe, in 0 files
 
   32 more are a length against a constant or against another length:

@@ -356,8 +356,8 @@ gallery/zip/
 Add to package.json:
 
 ```json
-"zip:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/zip/zip_tool.rgr -d=./gallery/zip/bin -o=zip_tool.js -nodecli",
-"zip:compile:go": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -l=go ./gallery/zip/zip_tool.rgr -d=./gallery/zip/bin -o=zip_tool.go -nodecli",
+"zip:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node dist/rgrc.js -es6 ./gallery/zip/zip_tool.rgr -d=./gallery/zip/bin -o=zip_tool.js -nodecli",
+"zip:compile:go": "cross-env RANGER_LIB=./compiler/Lang.rgr node dist/rgrc.js -l=go ./gallery/zip/zip_tool.rgr -d=./gallery/zip/bin -o=zip_tool.go -nodecli",
 "zip:run": "node ./gallery/zip/bin/zip_tool.js",
 "zip:build:go": "npm run zip:compile:go && cd gallery/zip/bin && go build -o zip_tool.exe zip_tool.go"
 ```

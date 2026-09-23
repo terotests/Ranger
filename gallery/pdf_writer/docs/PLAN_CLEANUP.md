@@ -391,12 +391,12 @@ Update compilation scripts to use new paths:
 ```json
 {
   "scripts": {
-    "evgpdf:compile": "node ../../bin/output.js src/tools/evg_pdf_tool.rgr -l=es6 -o=bin/evg_pdf_tool.js",
-    "evgcomp:compile": "node ../../bin/output.js src/tools/evg_component_tool.rgr -l=es6 -o=bin/evg_component_tool.js",
-    "jpeg:encode": "node ../../bin/output.js src/tools/jpeg_encoder_test.rgr -l=es6 -o=bin/jpeg_encoder_test.js",
-    "jpeg:scaler": "node ../../bin/output.js src/tools/jpeg_scaler.rgr -l=es6 -o=bin/jpeg_scaler.js",
-    "progressive": "node ../../bin/output.js src/tools/progressive_jpeg_test.rgr -l=es6 -o=bin/progressive_jpeg_test.js",
-    "font:compile": "node ../../bin/output.js src/tools/font_test.rgr -l=es6 -o=bin/font_test.js"
+    "evgpdf:compile": "node ../../dist/rgrc.js src/tools/evg_pdf_tool.rgr -l=es6 -o=bin/evg_pdf_tool.js",
+    "evgcomp:compile": "node ../../dist/rgrc.js src/tools/evg_component_tool.rgr -l=es6 -o=bin/evg_component_tool.js",
+    "jpeg:encode": "node ../../dist/rgrc.js src/tools/jpeg_encoder_test.rgr -l=es6 -o=bin/jpeg_encoder_test.js",
+    "jpeg:scaler": "node ../../dist/rgrc.js src/tools/jpeg_scaler.rgr -l=es6 -o=bin/jpeg_scaler.js",
+    "progressive": "node ../../dist/rgrc.js src/tools/progressive_jpeg_test.rgr -l=es6 -o=bin/progressive_jpeg_test.js",
+    "font:compile": "node ../../dist/rgrc.js src/tools/font_test.rgr -l=es6 -o=bin/font_test.js"
   }
 }
 ```
@@ -430,9 +430,9 @@ Update all file references in README.md to reflect new structure:
 
 ### Understanding Ranger Compilation
 
-Ranger uses the **Ranger compiler** (located in the root `bin/output.js`) to compile `.rgr` source files to target languages. The compilation process:
+Ranger uses the **Ranger compiler** (located in the root `dist/rgrc.js`) to compile `.rgr` source files to target languages. The compilation process:
 
-1. **Compiler Location**: `bin/output.js` at repository root
+1. **Compiler Location**: `dist/rgrc.js` at repository root
 2. **Environment Variable**: `RANGER_LIB` sets the library path for imports
 3. **Cross-platform**: Uses `cross-env` for Windows/Linux/Mac compatibility
 4. **Target Language**: Specified with `-l=es6`, `-l=go`, `-l=rust`, etc.
@@ -441,10 +441,10 @@ Ranger uses the **Ranger compiler** (located in the root `bin/output.js`) to com
 
 ```bash
 # General pattern from repository root
-cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -l=<target> <source.rgr> -d=<output-dir> -o=<output-file> -nodecli
+cross-env RANGER_LIB=./compiler/Lang.rgr node dist/rgrc.js -l=<target> <source.rgr> -d=<output-dir> -o=<output-file> -nodecli
 
 # Example for PDF writer (from repo root)
-cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/pdf_writer/evg_pdf_tool.rgr -d=./gallery/pdf_writer/bin -o=evg_pdf_tool.js -nodecli
+cross-env RANGER_LIB=./compiler/Lang.rgr node dist/rgrc.js -es6 ./gallery/pdf_writer/evg_pdf_tool.rgr -d=./gallery/pdf_writer/bin -o=evg_pdf_tool.js -nodecli
 ```
 
 **Flags:**
@@ -470,7 +470,7 @@ Before starting the cleanup, establish baseline functionality:
 cd gallery/pdf_writer
 
 # Compile component tool (current structure)
-cross-env RANGER_LIB=../../compiler/Lang.rgr node ../../bin/output.js -es6 ./evg_component_tool.rgr -d=./bin -o=evg_component_tool.js -nodecli
+cross-env RANGER_LIB=../../compiler/Lang.rgr node ../../dist/rgrc.js -es6 ./evg_component_tool.rgr -d=./bin -o=evg_component_tool.js -nodecli
 
 # Run test
 node ./bin/evg_component_tool.js ./test_imports.tsx ./bin/import_test.pdf
@@ -483,7 +483,7 @@ ls -l ./bin/import_test.pdf
 
 ```bash
 # Compile
-cross-env RANGER_LIB=../../compiler/Lang.rgr node ../../bin/output.js -es6 ./evg_pdf_tool.rgr -d=./bin -o=evg_pdf_tool.js -nodecli
+cross-env RANGER_LIB=../../compiler/Lang.rgr node ../../dist/rgrc.js -es6 ./evg_pdf_tool.rgr -d=./bin -o=evg_pdf_tool.js -nodecli
 
 # Run with example
 node ./bin/evg_pdf_tool.js ./test_simple.tsx ./bin/test_simple_output.pdf
@@ -493,7 +493,7 @@ node ./bin/evg_pdf_tool.js ./test_simple.tsx ./bin/test_simple_output.pdf
 
 ```bash
 # Compile
-cross-env RANGER_LIB=../../compiler/Lang.rgr node ../../bin/output.js -es6 ./jpeg_encoder_test.rgr -d=./bin -o=jpeg_encoder_test.js -nodecli
+cross-env RANGER_LIB=../../compiler/Lang.rgr node ../../dist/rgrc.js -es6 ./jpeg_encoder_test.rgr -d=./bin -o=jpeg_encoder_test.js -nodecli
 
 # Run
 node ./bin/jpeg_encoder_test.js
@@ -503,7 +503,7 @@ node ./bin/jpeg_encoder_test.js
 
 ```bash
 # Compile
-cross-env RANGER_LIB=../../compiler/Lang.rgr node ../../bin/output.js -es6 ./progressive_jpeg_test.rgr -d=./bin -o=progressive_jpeg_test.js -nodecli
+cross-env RANGER_LIB=../../compiler/Lang.rgr node ../../dist/rgrc.js -es6 ./progressive_jpeg_test.rgr -d=./bin -o=progressive_jpeg_test.js -nodecli
 
 # Run
 node ./bin/progressive_jpeg_test.js
@@ -513,7 +513,7 @@ node ./bin/progressive_jpeg_test.js
 
 ```bash
 # Compile
-cross-env RANGER_LIB=../../compiler/Lang.rgr node ../../bin/output.js -es6 ./font_test.rgr -d=./bin -o=font_test.js -nodecli
+cross-env RANGER_LIB=../../compiler/Lang.rgr node ../../dist/rgrc.js -es6 ./font_test.rgr -d=./bin -o=font_test.js -nodecli
 
 # Run
 node ./bin/font_test.js
@@ -530,15 +530,15 @@ Add these to root `package.json`:
 ```json
 {
   "scripts": {
-    "evgpdf:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/pdf_writer/src/tools/evg_pdf_tool.rgr -d=./gallery/pdf_writer/bin -o=evg_pdf_tool.js -nodecli",
+    "evgpdf:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node dist/rgrc.js -es6 ./gallery/pdf_writer/src/tools/evg_pdf_tool.rgr -d=./gallery/pdf_writer/bin -o=evg_pdf_tool.js -nodecli",
     "evgpdf:run": "node ./gallery/pdf_writer/bin/evg_pdf_tool.js",
-    "evgcomp:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/pdf_writer/src/tools/evg_component_tool.rgr -d=./gallery/pdf_writer/bin -o=evg_component_tool.js -nodecli",
+    "evgcomp:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node dist/rgrc.js -es6 ./gallery/pdf_writer/src/tools/evg_component_tool.rgr -d=./gallery/pdf_writer/bin -o=evg_component_tool.js -nodecli",
     "evgcomp:run": "node ./gallery/pdf_writer/bin/evg_component_tool.js",
-    "pdf:jpeg:encode": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/pdf_writer/src/tools/jpeg_encoder_test.rgr -d=./gallery/pdf_writer/bin -o=jpeg_encoder_test.js -nodecli",
-    "pdf:jpeg:scaler": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/pdf_writer/src/tools/jpeg_scaler.rgr -d=./gallery/pdf_writer/bin -o=jpeg_scaler.js -nodecli",
-    "pdf:progressive": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/pdf_writer/src/tools/progressive_jpeg_test.rgr -d=./gallery/pdf_writer/bin -o=progressive_jpeg_test.js -nodecli",
-    "pdf:font:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/pdf_writer/src/tools/font_test.rgr -d=./gallery/pdf_writer/bin -o=font_test.js -nodecli",
-    "pdf:evalvalue:module": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 -nodemodule ./gallery/pdf_writer/src/tools/eval_value_module.rgr -d=./gallery/pdf_writer/bin -o=eval_value_module.cjs",
+    "pdf:jpeg:encode": "cross-env RANGER_LIB=./compiler/Lang.rgr node dist/rgrc.js -es6 ./gallery/pdf_writer/src/tools/jpeg_encoder_test.rgr -d=./gallery/pdf_writer/bin -o=jpeg_encoder_test.js -nodecli",
+    "pdf:jpeg:scaler": "cross-env RANGER_LIB=./compiler/Lang.rgr node dist/rgrc.js -es6 ./gallery/pdf_writer/src/tools/jpeg_scaler.rgr -d=./gallery/pdf_writer/bin -o=jpeg_scaler.js -nodecli",
+    "pdf:progressive": "cross-env RANGER_LIB=./compiler/Lang.rgr node dist/rgrc.js -es6 ./gallery/pdf_writer/src/tools/progressive_jpeg_test.rgr -d=./gallery/pdf_writer/bin -o=progressive_jpeg_test.js -nodecli",
+    "pdf:font:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node dist/rgrc.js -es6 ./gallery/pdf_writer/src/tools/font_test.rgr -d=./gallery/pdf_writer/bin -o=font_test.js -nodecli",
+    "pdf:evalvalue:module": "cross-env RANGER_LIB=./compiler/Lang.rgr node dist/rgrc.js -es6 -nodemodule ./gallery/pdf_writer/src/tools/eval_value_module.rgr -d=./gallery/pdf_writer/bin -o=eval_value_module.cjs",
     "pdf:test": "npm run pdf:evalvalue:module && vitest run --config gallery/pdf_writer/vitest.config.js"
   }
 }

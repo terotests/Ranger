@@ -5,7 +5,7 @@
 # WHY THIS EXISTS. The compiler prints `[FAIL]` and `Compilation FAILED` and
 # then exits 0. Written the obvious way,
 #
-#     node bin/output.js … -o=Suite.js && node ./bin/Suite.js
+#     node dist/rgrc.js … -o=Suite.js && node ./bin/Suite.js
 #
 # the `&&` is satisfied by that zero, the previous run's `Suite.js` is still on
 # disk, and node runs THAT. The suite prints ALL PASS — of code that no longer
@@ -29,7 +29,7 @@ export RANGER_LIB
 mkdir -p "$outdir"
 rm -f "$outdir/$out"
 
-log=$(node bin/output.js -es6 "$src" -d="$outdir" -o="$out" -nodecli 2>&1)
+log=$(node dist/rgrc.js -es6 "$src" -d="$outdir" -o="$out" -nodecli 2>&1)
 status=$?
 if [ $status -ne 0 ] || echo "$log" | grep -q "Compilation FAILED"; then
   echo "$log" | grep -B1 -A3 "\[FAIL\]" | head -60

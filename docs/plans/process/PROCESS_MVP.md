@@ -263,7 +263,7 @@ For production-shaped code, add **`fn stop`** cleanup and a **host-driven tick**
 ### `process_nesting.rgr` — stack + timer playground
 
 ```bash
-node bin/output.js -es6 tests/fixtures/process_nesting.rgr -nodecli -d=tests/.output -o=process_nesting.js
+node dist/rgrc.js -es6 tests/fixtures/process_nesting.rgr -nodecli -d=tests/.output -o=process_nesting.js
 node tests/.output/process_nesting.js
 node tests/.output/process_nesting.js interactive
 ```
@@ -271,7 +271,7 @@ node tests/.output/process_nesting.js interactive
 ### `process_page_lifecycle.rgr` — two pages, stop on switch
 
 ```bash
-node bin/output.js -es6 tests/fixtures/process_page_lifecycle.rgr -nodecli -d=tests/.output -o=process_page_lifecycle.js
+node dist/rgrc.js -es6 tests/fixtures/process_page_lifecycle.rgr -nodecli -d=tests/.output -o=process_page_lifecycle.js
 node tests/.output/process_page_lifecycle.js
 node tests/.output/process_page_lifecycle.js interactive
 ```
@@ -281,7 +281,7 @@ node tests/.output/process_page_lifecycle.js interactive
 Home `UIPage` opens a `ModalDialog` child; the modal owns a `DialogTimer` (4 ticks). When the timer hits zero the modal and timer are `proc_stop`ped, then the page opens the next modal (3 cycles, then exit). CLI shows the process tree and lifecycle log each frame.
 
 ```bash
-node bin/output.js -es6 tests/fixtures/process_modal_dialog_timer.rgr -nodecli -d=tests/.output -o=process_modal_dialog_timer.js
+node dist/rgrc.js -es6 tests/fixtures/process_modal_dialog_timer.rgr -nodecli -d=tests/.output -o=process_modal_dialog_timer.js
 node tests/.output/process_modal_dialog_timer.js
 node tests/.output/process_modal_dialog_timer.js interactive
 ```
@@ -293,7 +293,7 @@ Vitest: `tests/compiler-process-modal-dialog.test.ts` (auto mode).
 A normal class calls `host.spawnWorkerFromOutside()`; `new WorkerProcess` inside that method must register under the host (`parentIdOf` / `__rangerParentId`). Controls: direct `new` from the orchestrator (root) and `sfn` static spawn on the process class (root).
 
 ```bash
-node bin/output.js -es6 tests/fixtures/process_external_spawn.rgr -nodecli -d=tests/.output -o=process_external_spawn.js
+node dist/rgrc.js -es6 tests/fixtures/process_external_spawn.rgr -nodecli -d=tests/.output -o=process_external_spawn.js
 node tests/.output/process_external_spawn.js
 ```
 
@@ -304,7 +304,7 @@ Vitest: `tests/compiler-process-external-spawn.test.ts`.
 `CounterBoardPage` owns a list of `CounterRowProcess` children. Add/remove rows at runtime; **r** run/stop keeps `reps` and `ticks`; **space** adds a rep on the selected row. Console UI with **+**, **-**, **up**/**down**, **q**.
 
 ```bash
-node bin/output.js -es6 tests/fixtures/process_counter_board.rgr -nodecli -d=tests/.output -o=process_counter_board.js
+node dist/rgrc.js -es6 tests/fixtures/process_counter_board.rgr -nodecli -d=tests/.output -o=process_counter_board.js
 node tests/.output/process_counter_board.js interactive
 ```
 

@@ -9,7 +9,7 @@ Keep this concept separate from the two other things in the engine:
 
 | Folder | What it is | How a game gets there |
 |--------|------------|-----------------------|
-| **`ranger_games/`** (here) | Static Ranger games, AOT-compiled to a native binary | Written in / emitted to `.rgr`, then `node bin/output.js` → C++/LLVM/ES6 |
+| **`ranger_games/`** (here) | Static Ranger games, AOT-compiled to a native binary | Written in / emitted to `.rgr`, then `node dist/rgrc.js` → C++/LLVM/ES6 |
 | [`../games/`](../games/) | **Loadable** games the engine host runs at runtime | `index.tsx` (interpreted TSX) or `logic.wasm` / `game.as` loaded by the launcher |
 | [`../scripting/`](../scripting/) | **Engine core** runtime (host, physics, sprite, HUD, WASM/TSX runners) | not a game — the platform the loadable games run on |
 

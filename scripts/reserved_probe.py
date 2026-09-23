@@ -126,7 +126,7 @@ def probe(lang, kw, workdir):
     if os.path.exists(stale):
         os.remove(stale)
     r = subprocess.run(
-        ["node", "bin/output.js", "-l=" + lang, rel, "-d=" + out,
+        ["node", "dist/rgrc.js", "-l=" + lang, rel, "-d=" + out,
          "-o=probe." + ext, "-nodecli"],
         cwd=ROOT, env=env, capture_output=True, text=True)
     path = os.path.join(workdir, "probe." + ext)

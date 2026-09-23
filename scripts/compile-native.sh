@@ -22,7 +22,7 @@ MAIN_C="$OUT_DIR/main.c"
 mkdir -p "$OUT_DIR"
 
 RANGER_LIB="$ROOT/compiler/Lang.rgr:$ROOT/lib/stdops.rgr"
-COMPILER="$ROOT/bin/output.js"
+COMPILER="$ROOT/dist/rgrc.js"
 
 if ! command -v clang >/dev/null 2>&1; then
   echo "error: clang not found (install Xcode CLT or LLVM)" >&2

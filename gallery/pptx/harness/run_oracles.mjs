@@ -51,7 +51,7 @@ function ensureDumpTool() {
   // leaving stale table/chart/gradient paint out of inspect + PNGs).
   const bin = path.join(PPTX, "bin/pptx_oracle_dump.js");
   const compile = run("node", [
-    "bin/output.js",
+    "dist/rgrc.js",
     "-es6",
     "./gallery/pptx/src/pptx_oracle_dump.rgr",
     `-d=./gallery/pptx/bin`,

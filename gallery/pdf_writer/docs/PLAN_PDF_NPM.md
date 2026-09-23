@@ -255,7 +255,7 @@ fs.writeFileSync('output.pdf', pdfBuffer);
    
    Add to root `package.json`:
    ```json
-   "pdf:module": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 -nodemodule ./gallery/pdf_writer/src/lib/ranger_pdf_tool.rgr -d=./gallery/pdf_writer/dist/lib -o=index.js"
+   "pdf:module": "cross-env RANGER_LIB=./compiler/Lang.rgr node dist/rgrc.js -es6 -nodemodule ./gallery/pdf_writer/src/lib/ranger_pdf_tool.rgr -d=./gallery/pdf_writer/dist/lib -o=index.js"
    ```
 
 ### Phase 3: CLI Tool Compilation
@@ -264,11 +264,11 @@ Each CLI tool needs to be compiled separately with `-nodecli` flag:
 
 Add to root `package.json`:
 ```json
-"pdf:cli:pdf": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 -nodecli ./gallery/pdf_writer/src/tools/evg_pdf_tool.rgr -d=./gallery/pdf_writer/dist/cli -o=evg_pdf_tool.js",
-"pdf:cli:html": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 -nodecli ./gallery/pdf_writer/src/tools/evg_html_tool.rgr -d=./gallery/pdf_writer/dist/cli -o=evg_html_tool.js",
-"pdf:cli:png": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 -nodecli ./gallery/pdf_writer/src/tools/evg_png_tool.rgr -d=./gallery/pdf_writer/dist/cli -o=evg_png_tool.js",
-"pdf:cli:preview": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 -nodecli ./gallery/pdf_writer/src/tools/evg_preview_server.rgr -d=./gallery/pdf_writer/dist/cli -o=evg_preview_server.js",
-"pdf:cli:component": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 -nodecli ./gallery/pdf_writer/src/tools/evg_component_tool.rgr -d=./gallery/pdf_writer/dist/cli -o=evg_component_tool.js",
+"pdf:cli:pdf": "cross-env RANGER_LIB=./compiler/Lang.rgr node dist/rgrc.js -es6 -nodecli ./gallery/pdf_writer/src/tools/evg_pdf_tool.rgr -d=./gallery/pdf_writer/dist/cli -o=evg_pdf_tool.js",
+"pdf:cli:html": "cross-env RANGER_LIB=./compiler/Lang.rgr node dist/rgrc.js -es6 -nodecli ./gallery/pdf_writer/src/tools/evg_html_tool.rgr -d=./gallery/pdf_writer/dist/cli -o=evg_html_tool.js",
+"pdf:cli:png": "cross-env RANGER_LIB=./compiler/Lang.rgr node dist/rgrc.js -es6 -nodecli ./gallery/pdf_writer/src/tools/evg_png_tool.rgr -d=./gallery/pdf_writer/dist/cli -o=evg_png_tool.js",
+"pdf:cli:preview": "cross-env RANGER_LIB=./compiler/Lang.rgr node dist/rgrc.js -es6 -nodecli ./gallery/pdf_writer/src/tools/evg_preview_server.rgr -d=./gallery/pdf_writer/dist/cli -o=evg_preview_server.js",
+"pdf:cli:component": "cross-env RANGER_LIB=./compiler/Lang.rgr node dist/rgrc.js -es6 -nodecli ./gallery/pdf_writer/src/tools/evg_component_tool.rgr -d=./gallery/pdf_writer/dist/cli -o=evg_component_tool.js",
 "pdf:build": "npm run pdf:module && npm run pdf:cli:pdf && npm run pdf:cli:html && npm run pdf:cli:png && npm run pdf:cli:preview && npm run pdf:cli:component"
 ```
 
@@ -276,7 +276,7 @@ Add to root `package.json`:
 
 1. **Option A: Generate with `-typescript` flag**
    ```
-   node bin/output.js -es6 -nodemodule -typescript ./gallery/pdf_writer/src/lib/ranger_pdf_tool.rgr -o=index.ts
+   node dist/rgrc.js -es6 -nodemodule -typescript ./gallery/pdf_writer/src/lib/ranger_pdf_tool.rgr -o=index.ts
    ```
    Then run `tsc` to generate `.d.ts` files.
 
@@ -343,7 +343,7 @@ Consider whether to include default fonts:
 
 **Current workaround:** Compile to current directory then move:
 ```bash
-node bin/output.js -es6 -nodemodule ./file.rgr -o=file.cjs && mv file.cjs target/dir/
+node dist/rgrc.js -es6 -nodemodule ./file.rgr -o=file.cjs && mv file.cjs target/dir/
 ```
 
 **TODO:** Fix the compiler to respect output directory for `-nodemodule` builds.

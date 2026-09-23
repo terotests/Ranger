@@ -530,7 +530,7 @@ identical on every target. What the piles were made of:
   `substring t (i+1) (i+2)` became `take(i + 2 - i + 1)` = 3 — `$&`
   in a replace template read three chars and never matched, and JSON's
   \uXXXX decoding sliced garbage. The writer now parenthesizes each
-  side; compiler rebootstrapped (bin/output.js +6 lines).
+  side; compiler rebootstrapped (dist/rgrc.js +6 lines).
 - **Array lengths past 2^31 (C++)**: `declaredLength` is a double now
   (a JS length runs to 2^32-1; Ranger's int is 32-bit on C++), with a
   D-suffixed exact lane (arrayLengthD, canonicalArrayIndexD,

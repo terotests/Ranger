@@ -35,7 +35,7 @@ mkdir -p "$STAGE" "$OUT"
 # A previous build's bundle must not survive this one: the check below asks
 # whether a bundle is loadable, and a stale file answers yes.
 rm -f "$STAGE/pptx_web.js"
-log=$(node bin/output.js -es6 gallery/pptx/web/pptx_web.rgr -d="$STAGE" -o=pptx_web.js 2>&1)
+log=$(node dist/rgrc.js -es6 gallery/pptx/web/pptx_web.rgr -d="$STAGE" -o=pptx_web.js 2>&1)
 if echo "$log" | grep -q "Compilation FAILED"; then
   echo "$log" | grep -A3 "\[FAIL\]" | head -40
   echo "FAILED to compile gallery/pptx/web/pptx_web.rgr" >&2

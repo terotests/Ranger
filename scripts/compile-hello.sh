@@ -40,7 +40,7 @@ OUT_BIN="${2:-$OUT_DIR/hello}"
 mkdir -p "$OUT_DIR"
 
 RANGER_LIB="$ROOT/compiler/Lang.rgr:$ROOT/lib/stdops.rgr"
-COMPILER="$ROOT/bin/output.js"
+COMPILER="$ROOT/dist/rgrc.js"
 
 if [[ ! -f "$COMPILER" ]]; then
   echo "error: run npm run compile first" >&2

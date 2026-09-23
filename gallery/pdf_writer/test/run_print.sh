@@ -17,7 +17,7 @@ mkdir -p "$OUT"
 trap 'rm -rf "$OUT"' EXIT
 
 echo "### pdf_writer/print"
-if ! node bin/output.js -es6 gallery/pdf_writer/test/print_test.rgr \
+if ! node dist/rgrc.js -es6 gallery/pdf_writer/test/print_test.rgr \
       -d="$OUT" -o=print_test.js >"$OUT/compile.log" 2>&1; then
   echo "  COMPILE FAIL print_test"
   tail -25 "$OUT/compile.log"
@@ -34,7 +34,7 @@ fi
 
 echo
 echo "### pdf_writer/attrs"
-if ! node bin/output.js -es6 gallery/pdf_writer/test/attrs_test.rgr \
+if ! node dist/rgrc.js -es6 gallery/pdf_writer/test/attrs_test.rgr \
       -d="$OUT" -o=attrs_test.js >"$OUT/attrs.log" 2>&1; then
   echo "  COMPILE FAIL attrs_test"
   tail -25 "$OUT/attrs.log"

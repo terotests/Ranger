@@ -586,7 +586,7 @@ Test the parser in isolation:
 
 ```typescript
 // tests/parser.test.ts
-import { RangerLispParser, SourceCode } from "../bin/output.js";
+import { RangerLispParser, SourceCode } from "../dist/rgrc.js";
 
 describe("Parser", () => {
   it("should parse simple class", () => {
@@ -623,7 +623,7 @@ Test context forking and variable resolution:
 
 ```typescript
 // tests/context.test.ts
-import { RangerAppWriterContext, RangerAppParamDesc } from "../bin/output.js";
+import { RangerAppWriterContext, RangerAppParamDesc } from "../dist/rgrc.js";
 
 describe("Context", () => {
   it("should fork with inherited variables", () => {
@@ -657,7 +657,7 @@ describe("Context", () => {
 
 ```typescript
 // tests/incremental.test.ts
-import { VirtualCompiler, IncrementalCompiler } from "../bin/output.js";
+import { VirtualCompiler, IncrementalCompiler } from "../dist/rgrc.js";
 
 describe("Incremental Compilation", () => {
   let baseCompilation: any;
@@ -712,7 +712,7 @@ import {
   InputFSFolder,
   InputFSFile,
   CmdParams,
-} from "../bin/output.js";
+} from "../dist/rgrc.js";
 
 describe("VirtualCompiler", () => {
   function createTestEnv(sourceCode: string): InputEnv {
@@ -786,7 +786,7 @@ Create a test harness that imports the compiled JavaScript directly:
 
 ```typescript
 // tests/helpers/direct-test.ts
-const compiler = require("../../bin/output.js");
+const compiler = require("../../dist/rgrc.js");
 
 export function createParser(code: string) {
   const sourceCode = new compiler.SourceCode(code);

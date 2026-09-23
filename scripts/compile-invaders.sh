@@ -27,7 +27,7 @@ fi
 echo "==> Target: $TARGET"
 echo "==> 1/3 Ranger -> LLVM IR"
 cd "$ROOT"
-RANGER_LIB="$ROOT/compiler/Lang.rgr:$ROOT/lib/stdops.rgr" node "$ROOT/bin/output.js" \
+RANGER_LIB="$ROOT/compiler/Lang.rgr:$ROOT/lib/stdops.rgr" node "$ROOT/dist/rgrc.js" \
   -l=llvm "$SOURCE" \
   -nodecli \
   -d="tmp/invaders-native" \

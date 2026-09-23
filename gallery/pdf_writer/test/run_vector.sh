@@ -52,7 +52,7 @@ fi
 status=0
 
 echo "### pdf_writer/path_parser (SVG 1.1 §8.3 grammar)"
-if ! node bin/output.js -es6 gallery/pdf_writer/test/path_parser_test.rgr \
+if ! node dist/rgrc.js -es6 gallery/pdf_writer/test/path_parser_test.rgr \
       -d="$OUT" -o=path_parser_test.js >"$OUT/parser.log" 2>&1; then
   echo "  COMPILE FAIL path_parser_test"
   tail -25 "$OUT/parser.log"
@@ -67,7 +67,7 @@ fi
 
 echo
 echo "### pdf_writer/path_builder (building a path from data)"
-if ! node bin/output.js -es6 gallery/pdf_writer/test/path_builder_test.rgr \
+if ! node dist/rgrc.js -es6 gallery/pdf_writer/test/path_builder_test.rgr \
       -d="$OUT" -o=path_builder_test.js >"$OUT/builder.log" 2>&1; then
   echo "  COMPILE FAIL path_builder_test"
   tail -25 "$OUT/builder.log"
@@ -82,7 +82,7 @@ fi
 
 echo
 echo "### pdf_writer/vector_shapes (basic shapes as paths)"
-if ! node bin/output.js -es6 gallery/pdf_writer/test/vector_shapes_test.rgr \
+if ! node dist/rgrc.js -es6 gallery/pdf_writer/test/vector_shapes_test.rgr \
       -d="$OUT" -o=vector_shapes_test.js >"$OUT/shapes.log" 2>&1; then
   echo "  COMPILE FAIL vector_shapes_test"
   tail -25 "$OUT/shapes.log"
@@ -97,7 +97,7 @@ fi
 
 echo
 echo "### pdf_writer/vector_raster (contours, fill rules, holes)"
-if ! node bin/output.js -es6 gallery/pdf_writer/test/vector_raster_test.rgr \
+if ! node dist/rgrc.js -es6 gallery/pdf_writer/test/vector_raster_test.rgr \
       -d="$OUT" -o=vector_raster_test.js >"$OUT/raster.log" 2>&1; then
   echo "  COMPILE FAIL vector_raster_test"
   tail -25 "$OUT/raster.log"
@@ -112,7 +112,7 @@ fi
 
 echo
 echo "### pdf_writer/svg_parser (a document, read into the vector layer)"
-if ! node bin/output.js -es6 gallery/pdf_writer/test/svg_parser_test.rgr \
+if ! node dist/rgrc.js -es6 gallery/pdf_writer/test/svg_parser_test.rgr \
       -d="$OUT" -o=svg_parser_test.js >"$OUT/svgparser.log" 2>&1; then
   echo "  COMPILE FAIL svg_parser_test"
   tail -25 "$OUT/svgparser.log"
@@ -127,7 +127,7 @@ fi
 
 echo
 echo "### pdf_writer/vector_viewbox (offline, spec + browser snapshot)"
-if ! node bin/output.js -es6 gallery/pdf_writer/test/vector_viewbox_test.rgr \
+if ! node dist/rgrc.js -es6 gallery/pdf_writer/test/vector_viewbox_test.rgr \
       -d="$OUT" -o=vector_viewbox_test.js >"$OUT/viewbox.log" 2>&1; then
   echo "  COMPILE FAIL vector_viewbox_test"
   tail -25 "$OUT/viewbox.log"
@@ -153,7 +153,7 @@ echo "### pdf_writer/vector_renderers (end to end)"
 FIXTURE="gallery/pdf_writer/test/fixtures/vector_paths.tsx"
 
 for tool in pdf html png; do
-  if ! node bin/output.js -es6 -nodecli "gallery/pdf_writer/src/tools/evg_${tool}_tool.rgr" \
+  if ! node dist/rgrc.js -es6 -nodecli "gallery/pdf_writer/src/tools/evg_${tool}_tool.rgr" \
         -d="$OUT" -o="${tool}_tool.js" >"$OUT/${tool}.log" 2>&1; then
     echo "  COMPILE FAIL evg_${tool}_tool"
     tail -25 "$OUT/${tool}.log"

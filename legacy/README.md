@@ -14,7 +14,7 @@ holds them either way, so deleting this folder costs nothing.
 | `native/` | `httpd/*.clj` HTTP demo | `.clj` era; the HTTP operators live in `compiler/Lang.rgr` |
 | `features/` | `any/test_any.clj` and its compiled `bin/` | The `test-any*` npm scripts pointed at `test_any.rgr`, which does not exist — they had been failing |
 | `generated/` | 17 `.clj` chess/AI-smoke fixtures | The `gen:*` npm scripts pointed at `.rgr` files that do not exist — same story; its own README already says these are not a tutorial |
-| `versions/` | Frozen `compiler.js` per target, 3.2 MB | The git history of `bin/output.js` is the rollback, and README now says so |
+| `versions/` | Frozen `compiler.js` per target, 3.2 MB | The git history of `dist/rgrc.js` is the rollback, and README now says so |
 
 The npm scripts that referenced `features/` and `generated/` were removed with
 the move. They had been broken for long enough that no one noticed.

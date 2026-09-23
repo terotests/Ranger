@@ -27,7 +27,7 @@ writes `out/duck.png` and `out/box.png`.
 Render one asset manually:
 
 ```sh
-node bin/output.js -es6 gallery/game_engine/model3d/demo/render_glb_demo.rgr -d=. -o=render.js
+node dist/rgrc.js -es6 gallery/game_engine/model3d/demo/render_glb_demo.rgr -d=. -o=render.js
 node render.js <dir> <file.glb> <outDir> <out.ppm> [w] [h]
 node gallery/game_engine/model3d/demo/ppm_to_png.cjs <out.ppm> <out.png>
 ```

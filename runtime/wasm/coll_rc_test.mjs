@@ -1,6 +1,6 @@
 // Collection RC test (PLAN_WASM_MEMORY Phase 4b).
 // Build:
-//   node bin/output.js -l=llvm -wat -freestanding -wasmrc \
+//   node dist/rgrc.js -l=llvm -wat -freestanding -wasmrc \
 //     runtime/wasm/coll_rc_demo.rgr -nodecli -d=tmp/collrc -o=g.wat
 //   cp tmp/collrc/g.wat.ll tmp/collrc/g.wat && wat2wasm tmp/collrc/g.wat -o tmp/collrc/g.wasm
 import fs from "fs";

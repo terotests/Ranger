@@ -1,6 +1,6 @@
 // Owned string-FIELD release test (PLAN_WASM_MEMORY Phase 4a).
 // Build:
-//   node bin/output.js -l=llvm -wat -freestanding -wasmrc \
+//   node dist/rgrc.js -l=llvm -wat -freestanding -wasmrc \
 //     runtime/wasm/field_rc_demo.rgr -nodecli -d=tmp/fieldrc -o=g.wat
 //   cp tmp/fieldrc/g.wat.ll tmp/fieldrc/g.wat && wat2wasm tmp/fieldrc/g.wat -o tmp/fieldrc/g.wasm
 import fs from "fs";

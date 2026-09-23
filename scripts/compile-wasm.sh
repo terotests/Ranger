@@ -19,7 +19,7 @@ WAT_FILE="$OUT_DIR/${BASENAME}.wat"
 mkdir -p "$OUT_DIR"
 
 RANGER_LIB="$ROOT/compiler/Lang.rgr:$ROOT/lib/stdops.rgr"
-COMPILER="$ROOT/bin/output.js"
+COMPILER="$ROOT/dist/rgrc.js"
 WAT2WASM="$ROOT/node_modules/.bin/wat2wasm"
 
 if [[ ! -f "$COMPILER" ]]; then

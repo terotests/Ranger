@@ -28,7 +28,7 @@ fi
 mkdir -p "$OUT"
 echo "==> generating LLVM IR for the compiler"
 RANGER_LIB="./compiler/Lang.rgr;./lib/stdops.rgr" \
-  node --max-old-space-size=8192 bin/output.js \
+  node --max-old-space-size=8192 dist/rgrc.js \
   -l=llvm ./compiler/Compiler.rgr -nodecli \
   -d="$OUT" -o=ranger_compiler.ll -target="$TARGET" > "$LOG" 2>&1
 ERRORS="$(grep -c '\[FAIL\]' "$LOG" || true)"
@@ -74,7 +74,7 @@ echo "    $(wc -c < "$ROUND/gen2.js") bytes"
 
 echo "==> reference: the Node build compiles the same sources"
 RANGER_LIB="./compiler/Lang.rgr;./lib/stdops.rgr" \
-  node --max-old-space-size=8192 bin/output.js \
+  node --max-old-space-size=8192 dist/rgrc.js \
   -l=es6 ./compiler/Compiler.rgr -nodecli -d="$ROUND" -o=ref.js > "$ROUND/ref.log" 2>&1
 if cmp -s "$ROUND/gen2.js" "$ROUND/ref.js"; then
   echo "    identical to the Node build"

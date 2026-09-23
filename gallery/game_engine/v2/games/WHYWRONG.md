@@ -42,7 +42,7 @@ The deliverable is a *running TSX guest*, not a Ranger reimplementation.
 ## The faulty reasoning chain (how I talked myself into it)
 
 1. **Tooling habit / availability bias.** For 11 phases I wrote *everything* in
-   `.rgr`, compiled with `node bin/output.js`, ran under Node. My default action
+   `.rgr`, compiled with `node dist/rgrc.js`, ran under Node. My default action
    became "author a `.rgr`, compile, run." When the task turned to a *game*, I
    reached for the same hammer instead of asking "what language is a game
    written in here?"

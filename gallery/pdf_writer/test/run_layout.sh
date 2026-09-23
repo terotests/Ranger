@@ -32,7 +32,7 @@ if [ "${1:-}" = "--verify-snapshot" ]; then
 fi
 
 echo "### pdf_writer/box_model (offline, from snapshot)"
-if ! node bin/output.js -es6 gallery/pdf_writer/test/box_model_test.rgr \
+if ! node dist/rgrc.js -es6 gallery/pdf_writer/test/box_model_test.rgr \
       -d="$OUT" -o=box_model.js >"$OUT/compile.log" 2>&1; then
   echo "  COMPILE FAIL box_model_test"
   tail -25 "$OUT/compile.log"

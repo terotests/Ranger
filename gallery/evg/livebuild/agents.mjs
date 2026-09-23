@@ -1149,7 +1149,7 @@ function installEvgApp(dir) {
       "      fi",
       '      if [ ! -f "$bin" ] || [ "$app/App.rgr" -nt "$bin" ]; then',
       '        RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr \\',
-      '          node "$repo/bin/output.js" -es6 "$(cd "$(dirname "$app")" && pwd)/$(basename "$app")/App.rgr" \\',
+      '          node "$repo/dist/rgrc.js" -es6 "$(cd "$(dirname "$app")" && pwd)/$(basename "$app")/App.rgr" \\',
       '          -d="$(cd "$(dirname "$app")" && pwd)/$(basename "$app")/bin" -o=app.js -nodecli \\',
       '          | grep -E "\\[FAIL\\]|Compilation FAILED" && exit 1',
       "      fi",

@@ -26,7 +26,7 @@ console.log("[mesh-editor-host] compiling", HOST_RGR);
 execFileSync(
   "node",
   [
-    "bin/output.js",
+    "dist/rgrc.js",
     "-es6",
     HOST_RGR,
     "-d=" + path.relative(ROOT, RAW_DIR),

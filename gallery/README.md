@@ -83,7 +83,7 @@ recursive descent parser, and a pretty-printer.
 
 ```bash
 # Compile the parser
-node bin/output.js gallery/js_parser/js_parser_main.rgr -o=js_parser.js -d=gallery/js_parser
+node dist/rgrc.js gallery/js_parser/js_parser_main.rgr -o=js_parser.js -d=gallery/js_parser
 
 # Parse and pretty-print a JavaScript file
 node gallery/js_parser/js_parser.js -i input.js -o output.js
@@ -97,7 +97,7 @@ node gallery/js_parser/js_parser.js -i input.js --ast
 ```bash
 # Compile to Swift (from gallery/js_parser directory)
 cd gallery/js_parser
-node ../../bin/output.js js_parser_main.rgr -l=swift6 -o js_parser.swift
+node ../../dist/rgrc.js js_parser_main.rgr -l=swift6 -o js_parser.swift
 
 # Fix line endings and compile
 sed -i '' $'s/\r$//' bin/js_parser_main.swift
@@ -112,7 +112,7 @@ swiftc -o js_parser_swift bin/js_parser_main.swift
 
 ```bash
 # Compile to C++ (from Ranger root)
-node bin/output.js gallery/js_parser/js_parser_main.rgr -l=cpp -d=gallery/js_parser -o=js_parser.cpp
+node dist/rgrc.js gallery/js_parser/js_parser_main.rgr -l=cpp -d=gallery/js_parser -o=js_parser.cpp
 
 # Cross-compile from WSL to Windows
 wsl -d Ubuntu -- bash -c "
@@ -197,7 +197,7 @@ pipeline (`-l=llvm`), then link with `clang` and a small C runtime
 (`runtime/ranger_term.c`) for terminal I/O.
 
 ```bash
-npm run compile              # refresh bin/output.js after compiler changes
+npm run compile              # refresh dist/rgrc.js after compiler changes
 npm run game:build:llvm      # invaders.rgr → tmp/invaders-native/invaders.ll → native binary
 npm run test:llvm            # LLVM/WASM fixture tests (vitest)
 npm run demo:wasm            # smaller freestanding WASM demo (tests/fixtures/llvm_wasm_demo.rgr)

@@ -77,7 +77,7 @@ Run a game headless and dump a PNG (Node harness):
 
 ```bash
 RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr \
-  node bin/output.js -es6 ./gallery/game_engine/tests/pong_runner_demo.rgr \
+  node dist/rgrc.js -es6 ./gallery/game_engine/tests/pong_runner_demo.rgr \
   -d=./tests/.output -o=pong_runner_demo.js -nodecli
 node ./tests/.output/pong_runner_demo.js 300
 ffmpeg -f rawvideo -pixel_format rgba -video_size 480x270 \

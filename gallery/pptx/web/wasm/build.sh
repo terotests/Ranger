@@ -57,7 +57,7 @@ mkdir -p "$STAGE" "$WASM/build"
 echo "==> 1/4  Ranger -> C++"
 rm -f "$WASM/build/pptx_web.cpp"
 log=$(RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr \
-      node bin/output.js -l=cpp ./gallery/pptx/web/pptx_web.rgr \
+      node dist/rgrc.js -l=cpp ./gallery/pptx/web/pptx_web.rgr \
       -d="gallery/pptx/web/wasm/build" -o=pptx_web.cpp -nodecli 2>&1) || true
 if echo "$log" | grep -q "Compilation FAILED"; then
   echo "$log" | grep -A3 "\[FAIL\]" | head -40

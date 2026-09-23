@@ -27,17 +27,17 @@ else
   TARGET="native-linux-gnu"
 fi
 
-if [[ ! -f "$ROOT/bin/output.js" ]]; then
+if [[ ! -f "$ROOT/dist/rgrc.js" ]]; then
   echo "error: run npm run compile first" >&2
   exit 1
 fi
 
 echo "==> 1/4 Ranger compiler + LLVM IR"
 cd "$ROOT"
-if [[ "$ROOT/compiler/LowIRBuilder.rgr" -nt "$ROOT/bin/output.js" ]] || [[ ! -f "$ROOT/bin/output.js" ]]; then
+if [[ "$ROOT/compiler/LowIRBuilder.rgr" -nt "$ROOT/dist/rgrc.js" ]] || [[ ! -f "$ROOT/dist/rgrc.js" ]]; then
   npm run compile --silent
 fi
-RANGER_LIB="$ROOT/compiler/Lang.rgr:$ROOT/lib/stdops.rgr" node "$ROOT/bin/output.js" \
+RANGER_LIB="$ROOT/compiler/Lang.rgr:$ROOT/lib/stdops.rgr" node "$ROOT/dist/rgrc.js" \
   -l=llvm "$SOURCE" \
   -nodecli \
   -d="tmp/ts-parser-llvm" \

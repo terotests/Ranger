@@ -50,7 +50,7 @@ function ensureTool() {
     log = execFileSync(
       "node",
       [
-        "bin/output.js",
+        "dist/rgrc.js",
         "-es6",
         "./pkg/src/pkg_tool.rgr",
         "-d=./pkg/bin",

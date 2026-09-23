@@ -18,9 +18,9 @@ hot pattern — construct a value, ask its type, read it back, compare two:
 ```bash
 R=../../../../..                    # repo root
 for v in fat shape tagged handle; do
-  node $R/bin/output.js -es6 $v.rgr -d=out -o=$v.js -nodecli
-  node $R/bin/output.js -l=cpp  $v.rgr -d=out -o=$v.cpp
-  node $R/bin/output.js -l=rust $v.rgr -d=out -o=$v.rs
+  node $R/dist/rgrc.js -es6 $v.rgr -d=out -o=$v.js -nodecli
+  node $R/dist/rgrc.js -l=cpp  $v.rgr -d=out -o=$v.cpp
+  node $R/dist/rgrc.js -l=rust $v.rgr -d=out -o=$v.rs
 done
 (cd out && for v in fat shape tagged handle; do node $v.js; done)
 ```

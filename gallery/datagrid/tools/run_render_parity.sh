@@ -29,7 +29,7 @@ fail_on_compile() {
 }
 
 echo "==> JavaScript"
-node bin/output.js -es6 "$SRC" -d="$OUT" -o=render_js.js -nodecli > "$OUT/js.log" 2>&1 || true
+node dist/rgrc.js -es6 "$SRC" -d="$OUT" -o=render_js.js -nodecli > "$OUT/js.log" 2>&1 || true
 fail_on_compile "$OUT/js.log" "Ranger -> JS failed"
 node "$OUT/render_js.js" "$BOOK" js.png "$OUT" > /dev/null
 
@@ -44,7 +44,7 @@ if [ -z "$CXX" ]; then
 fi
 
 echo "==> C++ ($CXX)"
-node bin/output.js -l=cpp "$SRC" -nodecli -d="$OUT" -o=render.cpp > "$OUT/cpp.log" 2>&1 || true
+node dist/rgrc.js -l=cpp "$SRC" -nodecli -d="$OUT" -o=render.cpp > "$OUT/cpp.log" 2>&1 || true
 fail_on_compile "$OUT/cpp.log" "Ranger -> C++ failed"
 cp gallery/invaders/variant.hpp "$OUT/variant.hpp"
 "$CXX" -std=c++17 -O1 -I "$OUT" -o "$OUT/render" "$OUT/render.cpp"

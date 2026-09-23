@@ -30,7 +30,7 @@ if [[ ! -f "$ROOT/gallery/game_engine/games/autopeli_wasm/logic.wasm" ]]; then
 fi
 
 echo "==> Ranger -> C++"
-RANGER_LIB="$ROOT/compiler/Lang.rgr:$ROOT/lib/stdops.rgr" node "$ROOT/bin/output.js" \
+RANGER_LIB="$ROOT/compiler/Lang.rgr:$ROOT/lib/stdops.rgr" node "$ROOT/dist/rgrc.js" \
   -l=cpp "$SOURCE" -nodecli -d="tmp/wasm-autopeli-demo" -o="wasm_autopeli_demo.cpp"
 
 cp "$ROOT/gallery/invaders/variant.hpp" "$OUT_DIR/variant.hpp"

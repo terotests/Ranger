@@ -1070,10 +1070,10 @@ Add to `package.json`:
 ```json
 {
   "scripts": {
-    "tsparser:compile": "node bin/output.js gallery/ts_parser/ts_parser.rgr -d=gallery/ts_parser -o=ts_parser.js",
-    "tsparser:compile:rust": "node bin/output.js gallery/ts_parser/ts_parser.rgr -l=rust -d=gallery/ts_parser -o=ts_parser.rs",
-    "tsparser:compile:swift": "node bin/output.js gallery/ts_parser/ts_parser.rgr -l=swift6 -d=gallery/ts_parser -o=ts_parser.swift",
-    "tsparser:compile:cpp": "node bin/output.js gallery/ts_parser/ts_parser.rgr -l=cpp -d=gallery/ts_parser -o=ts_parser.cpp",
+    "tsparser:compile": "node dist/rgrc.js gallery/ts_parser/ts_parser.rgr -d=gallery/ts_parser -o=ts_parser.js",
+    "tsparser:compile:rust": "node dist/rgrc.js gallery/ts_parser/ts_parser.rgr -l=rust -d=gallery/ts_parser -o=ts_parser.rs",
+    "tsparser:compile:swift": "node dist/rgrc.js gallery/ts_parser/ts_parser.rgr -l=swift6 -d=gallery/ts_parser -o=ts_parser.swift",
+    "tsparser:compile:cpp": "node dist/rgrc.js gallery/ts_parser/ts_parser.rgr -l=cpp -d=gallery/ts_parser -o=ts_parser.cpp",
     "tsparser:run": "node gallery/ts_parser/ts_parser.js -i test.ts --ast",
     "tsparser:test": "node gallery/ts_parser/ts_parser.js -d"
   }

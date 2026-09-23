@@ -692,7 +692,7 @@ Verification: 12 new WinAnsi assertions plus a round-trip over all 27 assigned
 codes, 12 text-spacing assertions, and 12 grid-warning assertions covering the
 report, the dedup, and silence on a grid the engine fully understands.
 
-> **Compiling is not a passing build.** `node bin/output.js` prints
+> **Compiling is not a passing build.** `node dist/rgrc.js` prints
 > `Compilation FAILED` and still exits 0, so `npm run <tool>:compile && echo OK`
 > reports success on a broken tool. Grep the output for `Compilation FAILED`.
 > This cost a round here: a tool that had not rebuilt looked like a feature

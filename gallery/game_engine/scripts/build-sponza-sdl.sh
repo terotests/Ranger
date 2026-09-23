@@ -63,7 +63,7 @@ fi
 
 echo "==> 1/2 Ranger -> C++"
 cd "$ROOT"
-RANGER_OUT="$(node "$ROOT/bin/output.js" -l=cpp "$SOURCE" -nodecli -d="tmp/sponza-sdl" -o="sponza_sdl.cpp" 2>&1)" || true
+RANGER_OUT="$(node "$ROOT/dist/rgrc.js" -l=cpp "$SOURCE" -nodecli -d="tmp/sponza-sdl" -o="sponza_sdl.cpp" 2>&1)" || true
 echo "$RANGER_OUT" | tail -20
 if echo "$RANGER_OUT" | grep -q '\[FAIL\]'; then
   echo "error: Ranger compilation failed (see output above)" >&2

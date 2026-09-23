@@ -35,7 +35,7 @@ function compile(out, extra) {
   if (fs.existsSync(out) && fs.statSync(out).mtimeMs >= fs.statSync(src).mtimeMs) return;
   const r = spawnSync(
     "node",
-    ["bin/output.js", "-es6", ...extra, src, `-d=${path.join(appDir, "bin")}`, `-o=${path.basename(out)}`],
+    ["dist/rgrc.js", "-es6", ...extra, src, `-d=${path.join(appDir, "bin")}`, `-o=${path.basename(out)}`],
     {
       cwd: root,
       encoding: "utf8",
@@ -168,7 +168,7 @@ fs.writeFileSync(
 );
 const failed = spawnSync(
   "node",
-  ["bin/output.js", "-es6", path.join(bad, "App.rgr"), `-d=${path.join(bad, "bin")}`, "-o=app.js", "-nodecli"],
+  ["dist/rgrc.js", "-es6", path.join(bad, "App.rgr"), `-d=${path.join(bad, "bin")}`, "-o=app.js", "-nodecli"],
   {
     cwd: root,
     encoding: "utf8",

@@ -42,9 +42,9 @@ if grep -q "panicked" "$OUT/run.log"; then
 fi
 
 echo "==> and answers what the node host answers"
-if ! diff -q ./tmp/rust-selfhost-out/output.js ./bin/output.js > /dev/null; then
-  echo "FAIL: output differs from bin/output.js"
-  diff ./tmp/rust-selfhost-out/output.js ./bin/output.js | head -20
+if ! diff -q ./tmp/rust-selfhost-out/output.js ./dist/rgrc.js > /dev/null; then
+  echo "FAIL: output differs from dist/rgrc.js"
+  diff ./tmp/rust-selfhost-out/output.js ./dist/rgrc.js | head -20
   exit 1
 fi
 echo "OK: byte-identical to the node-hosted compiler's own output"

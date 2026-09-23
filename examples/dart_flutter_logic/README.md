@@ -10,7 +10,7 @@ This example shows the intended Dart target workflow:
 
 ```bash
 RANGER_LIB="./compiler/Lang.rgr;./lib/stdops.rgr" \
-  node bin/output.js examples/dart_flutter_logic/CounterLogic.rgr \
+  node dist/rgrc.js examples/dart_flutter_logic/CounterLogic.rgr \
     -l=dart \
     -pubspec \
     -name=counter_logic \

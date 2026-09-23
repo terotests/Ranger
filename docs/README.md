@@ -44,7 +44,7 @@ npm run docs:build       # generate, then the static site in docs/site/dist
 npm run docs:lint        # Vale, needs a Vale installation
 ```
 
-The generator needs `bin/output.js`. Run `npm run compile` first when the
+The generator needs `dist/rgrc.js`. Run `npm run compile` first when the
 compiler is not built.
 
 ## The two operator mechanisms

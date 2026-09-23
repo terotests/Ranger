@@ -16,7 +16,7 @@ function findRoot(start) {
     if (fs.existsSync(path.join(d, "bin", "output.js"))) return d;
     d = path.dirname(d);
   }
-  throw new Error("repo root (bin/output.js) not found from " + start);
+  throw new Error("repo root (dist/rgrc.js) not found from " + start);
 }
 const ROOT = findRoot(HERE);
 const RAW_DIR = path.join(HERE, "_raw");
@@ -26,7 +26,7 @@ fs.mkdirSync(RAW_DIR, { recursive: true });
 execFileSync(
   "node",
   [
-    "bin/output.js",
+    "dist/rgrc.js",
     "-es6",
     "gallery/game_engine/v2/mesh_editor/tessellate/spline_lathe.rgr",
     "-d=" + path.relative(ROOT, RAW_DIR),

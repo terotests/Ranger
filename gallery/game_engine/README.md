@@ -452,7 +452,7 @@ Ranger → WAT-teksti → `.wasm`. Backend on LLVM-generaattorin WAT-moodi
 ```bash
 # 1) Ranger -> WAT  (backend kirjoittaa .wat.ll-päätteellä)
 RANGER_LIB="compiler/Lang.rgr:lib/stdops.rgr" \
-  node bin/output.js -l=llvm -wat -freestanding [-wasmrc] \
+  node dist/rgrc.js -l=llvm -wat -freestanding [-wasmrc] \
   peli.rgr -nodecli -d=tmp/out -o=peli.wat
 # 2) WAT -> wasm
 node_modules/.bin/wat2wasm tmp/out/peli.wat.ll -o logic.wasm
@@ -853,7 +853,7 @@ ajetaan nodella — **ilman SDL/WASM-buildia**. Kukin ajaa self-testin ja tulost
 `RESULT: N passed, 0 failed`. Aja yksi:
 
 ```bash
-RANGER_LIB=compiler/Lang.rgr:lib/stdops.rgr node bin/output.js -es6 \
+RANGER_LIB=compiler/Lang.rgr:lib/stdops.rgr node dist/rgrc.js -es6 \
   gallery/game_engine/scripting/<nimi>_demo.rgr \
   -d=gallery/game_engine/scripting -o=<nimi>_demo.js -nodecli \
   && node gallery/game_engine/scripting/<nimi>_demo.js

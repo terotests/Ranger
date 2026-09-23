@@ -16,7 +16,7 @@ cd "$ROOT"
 OUT=".ui_test_out"
 mkdir -p "$OUT"
 trap 'rm -rf "$OUT"' EXIT
-RGRC="node bin/output.js -es6"
+RGRC="node dist/rgrc.js -es6"
 SUITE="gallery/game_engine/v2/ui/tests/UITest"
 
 echo "### ui/tests/UITest"

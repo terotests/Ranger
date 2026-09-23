@@ -33,7 +33,7 @@ if ! command -v clang >/dev/null 2>&1; then
   exit 1
 fi
 
-if [[ ! -f "$ROOT/bin/output.js" ]]; then
+if [[ ! -f "$ROOT/dist/rgrc.js" ]]; then
   echo "error: compiler not built — run: npm run compile" >&2
   exit 1
 fi
@@ -41,7 +41,7 @@ fi
 echo "==> Target: $TARGET"
 echo "==> 1/3 Ranger -> LLVM IR"
 cd "$ROOT"
-RANGER_LIB="$ROOT/compiler/Lang.rgr:$ROOT/lib/stdops.rgr" node "$ROOT/bin/output.js" \
+RANGER_LIB="$ROOT/compiler/Lang.rgr:$ROOT/lib/stdops.rgr" node "$ROOT/dist/rgrc.js" \
   -l=llvm "$SOURCE" \
   -nodecli \
   -d="tmp/jpeg-native" \

@@ -24,7 +24,7 @@ painter z-order, facing flip, split-screen. Emits an `RGBSHOT` dump (0xRRGGBB
 per pixel); `dump_rgb_to_png.js` turns it into a PNG.
 
 ```sh
-node bin/output.js -es6 gallery/game_engine/v2/tests/tools/climber_shot.rgr -d=out -o=cshot.js
+node dist/rgrc.js -es6 gallery/game_engine/v2/tests/tools/climber_shot.rgr -d=out -o=cshot.js
 node out/cshot.js > c.txt
 node gallery/game_engine/v2/tests/tools/dump_rgb_to_png.js c.txt climber.png 4
 ```

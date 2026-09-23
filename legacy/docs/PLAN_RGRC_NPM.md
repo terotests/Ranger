@@ -26,8 +26,8 @@ This plan outlines the steps to:
 ### CLI Binaries
 ```json
 "bin": {
-  "ranger-compiler": "bin/output.js",
-  "rgrc": "bin/output.js",
+  "ranger-compiler": "dist/rgrc.js",
+  "rgrc": "dist/rgrc.js",
   "evg_server": "bin/evg_server.js"
 }
 ```
@@ -792,8 +792,8 @@ node_modules/
   "main": "dist/bin/api.js",
   "types": "dist/bin/api.d.ts",
   "bin": {
-    "ranger-compiler": "bin/output.js",
-    "rgrc": "bin/output.js"
+    "ranger-compiler": "dist/rgrc.js",
+    "rgrc": "dist/rgrc.js"
   },
   "files": [
     "bin/",

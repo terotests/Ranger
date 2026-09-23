@@ -28,7 +28,7 @@ OUT=".font_test_out"
 mkdir -p "$OUT"
 trap 'rm -rf "$OUT" gallery/pdf_writer/examples/_parity_check.html' EXIT
 
-RGRC="node bin/output.js -es6"
+RGRC="node dist/rgrc.js -es6"
 SNAPSHOT_JS="gallery/pdf_writer/test/browser_parity_snapshot.js"
 status=0
 

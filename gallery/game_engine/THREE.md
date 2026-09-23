@@ -211,7 +211,7 @@ renderer.render(scene camera)
 ## 5. Portability
 
 - The object model + backend compile to **ES6 and C++** from one source
-  (`node bin/output.js -es6|-l=cpp …`). GPU ops carry both a WebGL (`es6`) and an
+  (`node dist/rgrc.js -es6|-l=cpp …`). GPU ops carry both a WebGL (`es6`) and an
   OpenGL/GLES (`cpp`) body via Ranger's template system.
 - Shaders are GLSL ES 1.00 (one source for WebGL1/2, GLES2, desktop-GL compat).
   Normal mapping uses per-vertex tangents (not screen-space derivatives) so it

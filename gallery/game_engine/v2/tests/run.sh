@@ -24,7 +24,7 @@ OUT=".v2_test_out"
 mkdir -p "$OUT"
 trap 'rm -rf "$OUT"' EXIT
 
-# Prefer Bun: Ranger compile (bin/output.js) is ~98% of suite wall time and runs
+# Prefer Bun: Ranger compile (dist/rgrc.js) is ~98% of suite wall time and runs
 # substantially faster under Bun than Node. Override with V2_JS_RUNTIME=node.
 JS_RUNTIME="${V2_JS_RUNTIME:-}"
 if [ -z "$JS_RUNTIME" ]; then
@@ -47,7 +47,7 @@ if ! command -v "$JS_RUNTIME" >/dev/null 2>&1; then
 fi
 echo "v2 run.sh: using $JS_RUNTIME ($("$JS_RUNTIME" --version 2>/dev/null | head -1))"
 
-RGRC="$JS_RUNTIME bin/output.js -es6"
+RGRC="$JS_RUNTIME dist/rgrc.js -es6"
 V2="gallery/game_engine/v2"
 
 TOTAL_SUITES=0

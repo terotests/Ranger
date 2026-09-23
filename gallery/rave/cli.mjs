@@ -96,7 +96,7 @@ function buildPngTool() {
   process.stderr.write("rave: compiling the rasterizer…\n");
   spawnSync(
     process.execPath,
-    ["bin/output.js", "-es6", "./gallery/pdf_writer/src/tools/evg_png_tool.rgr", "-d=./gallery/pdf_writer/bin", "-o=evg_png_tool.js", "-nodecli"],
+    ["dist/rgrc.js", "-es6", "./gallery/pdf_writer/src/tools/evg_png_tool.rgr", "-d=./gallery/pdf_writer/bin", "-o=evg_png_tool.js", "-nodecli"],
     { cwd: ROOT, encoding: "utf8", env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr" } },
   );
   return fs.existsSync(PNG_TOOL);
@@ -108,7 +108,7 @@ function buildAgent() {
   fs.mkdirSync(path.dirname(AGENT_JS), { recursive: true });
   spawnSync(
     process.execPath,
-    ["bin/output.js", "-es6", "./lib/evg/agent/evg_agent.rgr", "-d=./lib/evg/bin", "-o=evg_agent.js", "-nodecli"],
+    ["dist/rgrc.js", "-es6", "./lib/evg/agent/evg_agent.rgr", "-d=./lib/evg/bin", "-o=evg_agent.js", "-nodecli"],
     { cwd: ROOT, encoding: "utf8", env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr:./lib/stdops.rgr" } },
   );
   return fs.existsSync(AGENT_JS);

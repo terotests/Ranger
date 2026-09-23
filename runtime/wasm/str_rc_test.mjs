@@ -1,6 +1,6 @@
 // String RC / leak-freedom test (PLAN_WASM_MEMORY Phase 3.4).
 // Build:
-//   node bin/output.js -l=llvm -wat -freestanding -wasmrc \
+//   node dist/rgrc.js -l=llvm -wat -freestanding -wasmrc \
 //     runtime/wasm/str_rc_demo.rgr -nodecli -d=tmp/strrc -o=g.wat
 //   cp tmp/strrc/g.wat.ll tmp/strrc/g.wat && wat2wasm tmp/strrc/g.wat -o tmp/strrc/g.wasm
 import fs from "fs";

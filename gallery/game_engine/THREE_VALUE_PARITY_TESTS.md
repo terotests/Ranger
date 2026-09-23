@@ -81,7 +81,7 @@ node gallery/game_engine/three/reference/gen-goldens.mjs \
 # the test itself (goldens.json is committed — no vendor needed here)
 bash gallery/game_engine/three/src/run.sh        # includes three_value_parity_test
 # or just this suite:
-node bin/output.js -es6 gallery/game_engine/three/tests/value_parity/three_value_parity_test.rgr \
+node dist/rgrc.js -es6 gallery/game_engine/three/tests/value_parity/three_value_parity_test.rgr \
      -d=.out -o=t.js && node .out/t.js
 ```
 

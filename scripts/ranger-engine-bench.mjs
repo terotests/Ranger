@@ -73,7 +73,7 @@ function compileNative() {
     "node",
     // -d is resolved against the compiler's working directory, so it has to
     // stay relative even though everything else here is absolute.
-    ["bin/output.js", "-es6", "-nodemodule", PROGRAM, `-d=./${TMP_REL}`, "-o=bench.js"],
+    ["dist/rgrc.js", "-es6", "-nodemodule", PROGRAM, `-d=./${TMP_REL}`, "-o=bench.js"],
     { cwd: ROOT, env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr:./lib/stdops.rgr" }, stdio: "pipe" },
   );
   return require(resolve(TMP, "bench.js"));

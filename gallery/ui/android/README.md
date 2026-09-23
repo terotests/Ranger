@@ -12,7 +12,7 @@ gallery/ui/src/*.rgr                cascade, layout, table, sortable
 lib/evg/*.rgr                   EVG: units, flex, clip, display list
 gallery/vela/*.rgr                  the chart's runtime — all Ranger
       │
-      │  node bin/output.js -l=kotlin       (scripts/build-ranger.sh)
+      │  node dist/rgrc.js -l=kotlin       (scripts/build-ranger.sh)
       ▼
 generated/ui_android.kt             ~46k lines, one file, package fi.ranger.rgr
       │
@@ -49,7 +49,7 @@ twin and the platform stubs are **not** here: they are
 ## Build and run
 
 ```bash
-# 1. the page, compiled from Ranger to Kotlin   (needs bin/output.js)
+# 1. the page, compiled from Ranger to Kotlin   (needs dist/rgrc.js)
 bash gallery/ui/android/scripts/build-ranger.sh
 
 # 2. the demo's stylesheet into app/src/main/assets

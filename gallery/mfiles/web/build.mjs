@@ -99,7 +99,7 @@ fs.mkdirSync(VIEWER_DIR, { recursive: true });
 for (const [source, out] of VIEWERS) {
   if (fs.existsSync(path.join(VIEWER_DIR, out)) && !argv.includes("--viewers")) continue;
   process.stdout.write(`  compiling ${source} …\n`);
-  const log = execFileSync(process.execPath, ["bin/output.js", "-es6", source, `-d=${VIEWER_DIR_REL}`, `-o=${out}`], {
+  const log = execFileSync(process.execPath, ["dist/rgrc.js", "-es6", source, `-d=${VIEWER_DIR_REL}`, `-o=${out}`], {
     cwd: REPO,
     env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr:./lib/stdops.rgr" },
     encoding: "utf8",

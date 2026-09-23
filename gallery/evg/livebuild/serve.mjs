@@ -205,7 +205,7 @@ function compile() {
   const log = spawnSync(
     "node",
     [
-      "bin/output.js",
+      "dist/rgrc.js",
       "-es6",
       "./gallery/evg/livebuild/EvgLiveBuildMain.rgr",
       "-d=./gallery/evg/bin",
@@ -447,7 +447,7 @@ function main() {
     if (fs.existsSync(webBin) && fs.statSync(webBin).mtimeMs >= fs.statSync(src).mtimeMs) return webBin;
     const r = spawnSync(
       "node",
-      ["bin/output.js", "-es6", "gallery/evg/livebuild/EvgAppWeb.rgr", "-d=gallery/evg/bin", "-o=evg_app_web.js"],
+      ["dist/rgrc.js", "-es6", "gallery/evg/livebuild/EvgAppWeb.rgr", "-d=gallery/evg/bin", "-o=evg_app_web.js"],
       {
         cwd: repoRoot,
         encoding: "utf8",
@@ -510,7 +510,7 @@ function main() {
     if (fresh) return mod;
     const r = spawnSync(
       "node",
-      ["bin/output.js", "-es6", "-esm", "-nodemodule", src, `-d=${path.join(dir, "bin")}`, "-o=app_module.mjs"],
+      ["dist/rgrc.js", "-es6", "-esm", "-nodemodule", src, `-d=${path.join(dir, "bin")}`, "-o=app_module.mjs"],
       {
         cwd: repoRoot,
         encoding: "utf8",

@@ -373,7 +373,7 @@ symbols it defines, the host exposes `ensure(chunk)`, and the app calls it at
 the seams it already has (routing, dialog open). Nothing in the language
 changes; the app gains one asynchronous boundary it did not have.
 
-**B3 — compiler support (the durable answer).** `bin/output.js` already
+**B3 — compiler support (the durable answer).** `dist/rgrc.js` already
 computes what to export; the reachability analysis belongs on its side of the
 fence. The key move is that the compiler does **not** have to solve JavaScript's
 general tree-shaking problem — it never sees JavaScript. It has its own symbol

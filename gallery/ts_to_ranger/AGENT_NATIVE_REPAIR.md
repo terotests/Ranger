@@ -11,7 +11,7 @@
 
 | # | Issue | Where |
 |---|--------|--------|
-| **P0** | Compiler returns exit 0 on errors → stale binary links | `bin/output.js`, `build-game-sdl-native.sh` |
+| **P0** | Compiler returns exit 0 on errors → stale binary links | `dist/rgrc.js`, `build-game-sdl-native.sh` |
 | **P1** | `patch.dt` missing from `NativeGameState` | `game_native_runtime.rgr`, `game_script_types.rgr` |
 | **P2** | `import { soundEvent }` → `this.soundEvent()` (invalid) | `ts_emitter.rgr` |
 | **P3** | `props.input.players` not supported in native | `ts_emitter.rgr`, `UpdatePropsNative` |
@@ -38,7 +38,7 @@ P0 (fail-fast) → P1 (patch.dt) → P2 (soundEvent) → pong smoke OK
 
 1. Check emitter exit code.
 2. Remove stale `game_sdl_native.cpp` / binary before Ranger compile.
-3. Check Ranger `node bin/output.js` exit code.
+3. Check Ranger `node dist/rgrc.js` exit code.
 4. Verify `$CPP_FILE` exists before linking.
 
 Without this, a failed compile leaves the previous game binary (e.g. pacman `entities=240`) and smoke tests lie.

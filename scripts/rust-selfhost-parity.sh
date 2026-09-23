@@ -16,7 +16,7 @@ echo "[1/4] generating the Rust rendering"
 # compiler has been reporting those twelve failures as a panic rather than as an
 # error list. The flag keeps that behaviour and prints each site; removing it is
 # item B of docs/plans/PLAN_RUST_SEMANTIC_IDIOMS.md.
-RANGER_LIB=./compiler/Lang.rgr node bin/output.js -l=rust -rust-allow-dropped-catch ./compiler/Compiler.rgr \
+RANGER_LIB=./compiler/Lang.rgr node dist/rgrc.js -l=rust -rust-allow-dropped-catch ./compiler/Compiler.rgr \
   -d=./tmp/selfhost-rust -o=ranger_compiler.rs -nodecli > tmp/selfhost-rust/gen.log 2>&1
 if [ ! -f tmp/selfhost-rust/ranger_compiler.rs ]; then
   echo "GENERATION FAILED"; tail -30 tmp/selfhost-rust/gen.log; exit 1
@@ -45,7 +45,7 @@ fi
 
 echo "[4/4] comparing with the JavaScript build"
 mkdir -p tmp/js-selfcompile
-RANGER_LIB=./compiler/Lang.rgr node bin/output.js -l=es6 ./compiler/Compiler.rgr \
+RANGER_LIB=./compiler/Lang.rgr node dist/rgrc.js -l=es6 ./compiler/Compiler.rgr \
   -d=./tmp/js-selfcompile -o=out.js -nodecli > /dev/null 2>&1
 if cmp -s tmp/js-selfcompile/out.js tmp/rust-selfcompile/out.js; then
   echo "OK: byte-identical"

@@ -105,7 +105,7 @@ doc                   ; child 4   ← the tail
 
 `EnterFnParts` (`compiler/RangerFlowParser.rgr:1031`) reads children at fixed indices
 `idx+1`, `idx+2`, `idx+3` and never looks past them. Compiled against the current compiler
-(`bin/output.js`, v3.3.1), every form below was tried as written:
+(`dist/rgrc.js`, v3.3.1), every form below was tried as written:
 
 | Form | Today |
 | --- | --- |
@@ -1338,7 +1338,7 @@ against golden files alone.
 ### 17.3 JavaScript
 
 ```bash
-node bin/output.js -es6 a11y.rgr -d=out -o=index.js -nodemodule \
+node dist/rgrc.js -es6 a11y.rgr -d=out -o=index.js -nodemodule \
   -apidoc=docs -apipackage -name=evg-a11y -version=1.2.0 -license=MIT
 ```
 
@@ -1368,7 +1368,7 @@ same hole. They are now `/* note: unused */`.
 ### 17.4 C#
 
 ```bash
-node bin/output.js -l=csharp a11y.rgr -d=out -o=EvgA11y.cs \
+node dist/rgrc.js -l=csharp a11y.rgr -d=out -o=EvgA11y.cs \
   -apidoc=docs -apipackage -name=Evg.A11y -version=1.2.0 -license=MIT
 ```
 
@@ -1401,7 +1401,7 @@ A block namespace is emitted rather than the file-scoped C# 10 form: Mono's
 ### 17.5 Kotlin
 
 ```bash
-node bin/output.js -l=kotlin a11y.rgr -d=out -o=EvgA11y.kt \
+node dist/rgrc.js -l=kotlin a11y.rgr -d=out -o=EvgA11y.kt \
   -apidoc=docs -apipackage -name=com.evg.a11y -version=1.2.0
 ```
 
@@ -1439,7 +1439,7 @@ cannot know which JDKs are installed.
 ### 17.6 Swift
 
 ```bash
-node bin/output.js -l=swift6 a11y.rgr -d=out -o=EvgA11y.swift \
+node dist/rgrc.js -l=swift6 a11y.rgr -d=out -o=EvgA11y.swift \
   -apidoc=docs -apipackage -name=EVGA11y -version=1.2.0
 ```
 
@@ -1474,7 +1474,7 @@ named in `sources:` — because Ranger still emits one file per target. The
 ### 17.7 Python
 
 ```bash
-node bin/output.js -l=python a11y.rgr -d=out -o=evg_a11y.py \
+node dist/rgrc.js -l=python a11y.rgr -d=out -o=evg_a11y.py \
   -apidoc=docs -apipackage -name=evg-a11y -version=1.2.0
 ```
 
@@ -1501,7 +1501,7 @@ would change what the program *does*, and a documentation flag must not.
 ### 17.8 Dart
 
 ```bash
-node bin/output.js -l=dart a11y.rgr -d=pkg/lib/src -o=evg_a11y_impl.dart \
+node dist/rgrc.js -l=dart a11y.rgr -d=pkg/lib/src -o=evg_a11y_impl.dart \
   -apidoc=docs -apipackage -name=evg_a11y -version=1.2.0
 ```
 

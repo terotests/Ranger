@@ -25,8 +25,8 @@ ROOT="$(pwd)"
 OUT="gallery/ui/android/generated"
 PKG="fi.ranger.rgr"
 
-if [ ! -f bin/output.js ]; then
-  echo "bin/output.js is missing — build the compiler first (npm run compile)" >&2
+if [ ! -f dist/rgrc.js ]; then
+  echo "dist/rgrc.js is missing — build the compiler first (npm run compile)" >&2
   exit 1
 fi
 
@@ -34,7 +34,7 @@ export RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr
 mkdir -p "$OUT"
 rm -f "$OUT/ui_android.kt"
 
-log=$(node --max-old-space-size=8192 bin/output.js -l=kotlin \
+log=$(node --max-old-space-size=8192 dist/rgrc.js -l=kotlin \
   gallery/ui/android/ranger/ui_android.rgr -nodecli -d="$OUT" -o=ui_android.kt 2>&1)
 if echo "$log" | grep -q "Compilation FAILED"; then
   echo "$log" | grep -A4 "\[FAIL\]" | head -40

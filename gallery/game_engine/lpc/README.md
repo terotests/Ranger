@@ -1,7 +1,7 @@
 # LPC Spritesheet Compositor (Ranger)
 
 **Ranger-käännös** — compositor on `.rgr`-lähdekoodia, joka käännetään `rgrc`:llä /
-`bin/output.js`:llä. Ei JavaScript-compositoria eikä npm-riippuvuuksia tässä
+`dist/rgrc.js`:llä. Ei JavaScript-compositoria eikä npm-riippuvuuksia tässä
 hakemistossa.
 
 LPC:n **taide** ei ole automaattisesti mukana — compositor lukee `spritesheets/`-puita

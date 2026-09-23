@@ -29,7 +29,7 @@ record() { NAMES+=("$1"); STATES+=("$2"); NOTES+=("$3"); }
 compile() { # lang outfile extra…
   local lang="$1"; shift
   local out="$1"; shift
-  node bin/output.js -l="$lang" "$SRC" -d="gallery/rangerforms/bin/conformance" -o="$out" "$@" \
+  node dist/rgrc.js -l="$lang" "$SRC" -d="gallery/rangerforms/bin/conformance" -o="$out" "$@" \
     >"$OUT/$lang.compile.log" 2>&1
 }
 

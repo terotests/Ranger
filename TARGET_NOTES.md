@@ -184,7 +184,7 @@ anything was timed):
 | | time | vs C++ | binary | peak RSS | vs C++ |
 |---|---|---|---|---|---|
 | C++ `g++ -O2` | 4,196 ms | 1.00x | 6,307,336 B | 803 MB | 1.00x |
-| Node `bin/output.js` | 9,044 ms | 2.16x | — | 1,078 MB | 1.34x |
+| Node `dist/rgrc.js` | 9,044 ms | 2.16x | — | 1,078 MB | 1.34x |
 | LLVM `clang -O2` | 8,607 ms | 2.05x | **1,791,048 B** | 1,604 MB | 2.00x |
 
 **Read the ratios, not the absolute times.** This is a shared cloud host, and a
@@ -217,7 +217,7 @@ driver, so the only variable is the backend and its toolchain:
 
 | stage | C++ route | LLVM route |
 |---|---|---|
-| codegen (`node bin/output.js`) | 11,536 ms -> 2.86 MB `.cpp` | 9,923 ms -> 21.0 MB `.ll` |
+| codegen (`node dist/rgrc.js`) | 11,536 ms -> 2.86 MB `.cpp` | 9,923 ms -> 21.0 MB `.ll` |
 | toolchain, debug | `g++ -O0` 45,743 ms | `clang -O0` **3,408 ms** |
 | toolchain, release | `g++ -O2` 137,143 ms | `clang -O2` **23,691 ms** |
 | **end to end, debug** | **57.3 s** | **13.3 s** (4.3x faster) |
@@ -275,7 +275,7 @@ exercises the shapes that broke first (a `[string:string]` map, `strsplit`,
 `join`, `remove_index`) and it now answers correctly natively:
 
 ```bash
-RANGER_LIB="./compiler/Lang.rgr;./lib/stdops.rgr" node bin/output.js \
+RANGER_LIB="./compiler/Lang.rgr;./lib/stdops.rgr" node dist/rgrc.js \
   -l=llvm ./lib/CmdParams.rgr -nodecli -d=tmp/probe -o=cmdparams.ll \
   -target=native-linux-gnu
 clang -O0 tmp/probe/cmdparams.ll runtime/ranger_rt.c runtime/ranger_mem.c \
@@ -1167,7 +1167,7 @@ package on the classpath.
 
 ### The same self-compile on the other targets
 
-Measured with `node bin/output.js -l=<target> ./compiler/Compiler.rgr
+Measured with `node dist/rgrc.js -l=<target> ./compiler/Compiler.rgr
 -nodecli`, so this is the compiler's own diagnosis, not the target toolchain's:
 
 | Target | Errors | First thing in the way |
@@ -1399,7 +1399,7 @@ widget trees.
 
 ```bash
 RANGER_LIB="./compiler/Lang.rgr;./lib/stdops.rgr" \
-  node bin/output.js examples/dart_flutter_logic/CounterLogic.rgr \
+  node dist/rgrc.js examples/dart_flutter_logic/CounterLogic.rgr \
     -l=dart -pubspec -name=counter_logic -version=0.1.0 \
     -description="Shared counter logic from Ranger" \
     -d=examples/dart_flutter_logic/generated -o=counter_logic.dart
@@ -1434,7 +1434,7 @@ Node benchmark cases as Go/Python/C# (`npm run test:tsengine`).
   when flow marks them mutated; uninitialized optionals emit `= nil`
 
 ```bash
-node bin/output.js myfile.rgr -l=swift6 -o=myfile.swift
+node dist/rgrc.js myfile.rgr -l=swift6 -o=myfile.swift
 sed -i '' $'s/\r$//' myfile.swift  # Fix line endings on macOS
 swiftc myfile.swift -o myfile
 ```
@@ -1462,7 +1462,7 @@ Preliminary support:
 - Mutability detection (`let` vs `let mut`)
 
 ```bash
-node bin/output.js myfile.rgr -l=rust -o=myfile.rs
+node dist/rgrc.js myfile.rgr -l=rust -o=myfile.rs
 rustc myfile.rs -o myfile
 ```
 
@@ -1504,7 +1504,7 @@ That binary does not yet **run** a compilation to completion — see *What the
 binary still hits* at the end of this section. The rest of this records how the
 compile got there, because the number started at 4981.
 
-`node bin/output.js -l=rust ./compiler/Compiler.rgr` reported 21 errors, and
+`node dist/rgrc.js -l=rust ./compiler/Compiler.rgr` reported 21 errors, and
 all 21 were one writer bug: a `this.method(…)` written inside a `forEach` body
 came out as *"a method that stores `this` cannot be called from here on Rust:
 the constructor runs before the object is inside its Rc"*. None of the 21 was in
@@ -1852,7 +1852,7 @@ The pass runs for a C++ compilation always, because the C++ writer reads the
 result. `-strict-ownership` runs it for any target and prints it:
 
 ```bash
-node bin/output.js program.rgr -l=cpp -strict-ownership
+node dist/rgrc.js program.rgr -l=cpp -strict-ownership
 ```
 
 ```text
@@ -1975,7 +1975,7 @@ sfn main@(main):void () {
 - **Lifecycle:** `start server port`, `stop server`
 
 ```bash
-RANGER_LIB=./compiler/Lang.rgr node bin/output.js -l=go ./myserver.rgr -d=./bin -o=myserver.go -nodecli
+RANGER_LIB=./compiler/Lang.rgr node dist/rgrc.js -l=go ./myserver.rgr -d=./bin -o=myserver.go -nodecli
 cd bin && go run myserver.go
 ```
 

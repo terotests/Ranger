@@ -21,7 +21,7 @@ import { compileRgr } from "../../build-support/rgr-compile.mjs";
 
 const HERE = path.dirname(url.fileURLToPath(import.meta.url));
 const V2 = path.dirname(HERE); // gallery/game_engine/v2 (guests/assets are given relative to this)
-// Repo root — walk up until bin/output.js is found (robust to the web/ dir depth).
+// Repo root — walk up until dist/rgrc.js is found (robust to the web/ dir depth).
 function findRoot(start) {
   let d = start;
   for (let i = 0; i < 8; i++) {

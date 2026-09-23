@@ -191,13 +191,13 @@ npm run dev            # Vite on port 5188
 ### Manual native run
 
 ```bash
-node bin/output.js -kotlin tests/fixtures/process_page_lifecycle.rgr -d=tests/.output -o=process_page_lifecycle.kt
+node dist/rgrc.js -kotlin tests/fixtures/process_page_lifecycle.rgr -d=tests/.output -o=process_page_lifecycle.kt
 cd tests/.output && kotlinc process_page_lifecycle.kt -include-runtime -d page.jar && java -jar page.jar
 
-node bin/output.js -swift6 tests/fixtures/process_nesting.rgr -d=tests/.output-swift -o=process_nesting.swift
+node dist/rgrc.js -swift6 tests/fixtures/process_nesting.rgr -d=tests/.output-swift -o=process_nesting.swift
 cd tests/.output-swift && swiftc process_nesting.swift -parse-as-library -o process_nesting && ./process_nesting
 
-node bin/output.js -swift6 tests/fixtures/process_page_lifecycle.rgr -nodecli -d=tests/.output-swift -o=process_page_lifecycle.swift
+node dist/rgrc.js -swift6 tests/fixtures/process_page_lifecycle.rgr -nodecli -d=tests/.output-swift -o=process_page_lifecycle.swift
 cd tests/.output-swift && swiftc process_page_lifecycle.swift -parse-as-library -o process_page_lifecycle && ./process_page_lifecycle
 ```
 

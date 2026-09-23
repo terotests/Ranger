@@ -15,7 +15,7 @@ PORT="gallery/game_engine/v2/three/port"
 OUT=".three_port_test_out"
 mkdir -p "$OUT"
 trap 'rm -rf "$OUT"' EXIT
-RGRC="node bin/output.js -es6"
+RGRC="node dist/rgrc.js -es6"
 
 TOTAL=0
 FAILED=0

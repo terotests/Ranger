@@ -20,7 +20,7 @@ mkdir -p "$OUT"
 build() {
   local src="$1" out="$2"
   rm -f "$OUT/$out"
-  log=$(node bin/output.js -es6 -nodemodule "$src" -d="$OUT" -o="$out" 2>&1)
+  log=$(node dist/rgrc.js -es6 -nodemodule "$src" -d="$OUT" -o="$out" 2>&1)
   # The compiler can print [FAIL] and still exit 0, so the log is what decides.
   if echo "$log" | grep -q "\[FAIL\]"; then
     echo "$log" | grep -A3 "\[FAIL\]" | head -40

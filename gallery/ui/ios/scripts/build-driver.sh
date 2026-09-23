@@ -12,15 +12,15 @@
 set -e
 cd "$(dirname "$0")/../../../.."
 
-if [ ! -f bin/output.js ]; then
-  echo "bin/output.js is missing — build the compiler first (npm run compile)" >&2
+if [ ! -f dist/rgrc.js ]; then
+  echo "dist/rgrc.js is missing — build the compiler first (npm run compile)" >&2
   exit 1
 fi
 
 export RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr
 mkdir -p tmp/ui-ios
 
-log=$(node bin/output.js -es6 gallery/ui/ios/ranger/build_ios.rgr -nodecli -d=tmp/ui-ios -o=build_ios.js 2>&1)
+log=$(node dist/rgrc.js -es6 gallery/ui/ios/ranger/build_ios.rgr -nodecli -d=tmp/ui-ios -o=build_ios.js 2>&1)
 if echo "$log" | grep -q "Compilation FAILED"; then
   echo "$log" | grep -A4 "\[FAIL\]" | head -40
   echo "FAILED to compile gallery/ui/ios/ranger/build_ios.rgr" >&2

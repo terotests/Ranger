@@ -331,8 +331,8 @@ npx vitest run --config tests/vitest.config.ts compiler-rust.test.ts codegen-rus
 The gate for step 1 on this machine, both sides built with `rustc`:
 
 ```sh
-node bin/output.js -l=rust ./tests/fixtures/llvm_ownership_infer.rgr -d=./tmp -o=own.rs
-node bin/output.js -l=rust ./gallery/pdf_writer/src/tools/jpeg_scaler.rgr -d=./tmp -o=jpeg.rs
+node dist/rgrc.js -l=rust ./tests/fixtures/llvm_ownership_infer.rgr -d=./tmp -o=own.rs
+node dist/rgrc.js -l=rust ./gallery/pdf_writer/src/tools/jpeg_scaler.rgr -d=./tmp -o=jpeg.rs
 ```
 
 - the fixture builds and prints `3` (the same as the ES6 output);

@@ -49,7 +49,7 @@ cp "$ROOT/gallery/game_engine/games/streaming_worker/resource_loader.wasm" "$GAM
 
 echo "==> 1/3 Ranger -> C++"
 cd "$ROOT"
-RANGER_OUT="$(RANGER_LIB="$ROOT/compiler/Lang.rgr:$ROOT/lib/stdops.rgr" node "$ROOT/bin/output.js" \
+RANGER_OUT="$(RANGER_LIB="$ROOT/compiler/Lang.rgr:$ROOT/lib/stdops.rgr" node "$ROOT/dist/rgrc.js" \
   -l=cpp "$SOURCE" -nodecli -d="tmp/streaming-world" -o="streaming_world_sdl.cpp" 2>&1)" || true
 echo "$RANGER_OUT" | tail -25
 if echo "$RANGER_OUT" | grep -q '\[FAIL\]'; then

@@ -1,6 +1,6 @@
 // Singleton test (@singleton(true) on the WASM backend).
 // Build:
-//   node bin/output.js -l=llvm -wat -freestanding -wasmrc \
+//   node dist/rgrc.js -l=llvm -wat -freestanding -wasmrc \
 //     runtime/wasm/singleton_demo.rgr -nodecli -d=tmp/sgl -o=g.wat
 //   cp tmp/sgl/g.wat.ll tmp/sgl/g.wat && wat2wasm tmp/sgl/g.wat -o tmp/sgl/g.wasm
 import fs from "fs";

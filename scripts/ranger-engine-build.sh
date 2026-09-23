@@ -31,7 +31,7 @@ wants() {
 OUT="gallery/ranger_engine/bin"
 mkdir -p "$OUT"
 export RANGER_LIB="./compiler/Lang.rgr:./lib/stdops.rgr"
-RGRC="node --max-old-space-size=8192 bin/output.js"
+RGRC="node --max-old-space-size=8192 dist/rgrc.js"
 
 # The compiler reports failure on stdout and still exits 0, so a build that
 # silently kept yesterday's output is a real hazard: check the text.

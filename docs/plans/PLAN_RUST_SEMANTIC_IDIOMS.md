@@ -27,7 +27,7 @@ them, and ranks the work by what it costs against what it unlocks.
 
 ## Verification — what the study got right, and what it under-reported
 
-Everything below was reproduced with `node bin/output.js -l=rust` and
+Everything below was reproduced with `node dist/rgrc.js -l=rust` and
 `rustc 1.94.1`, first against `master` at 1351dee and again after the writer
 split at 4e9fdd7.
 
@@ -845,7 +845,7 @@ Rust is itself meant to be a reusable crate. That is a different goal from
 "compile my Ranger application to Rust", and it should be a different mode:
 
 ```bash
-node bin/output.js -l=rust --library …
+node dist/rgrc.js -l=rust --library …
 ```
 
 with public Rust names, preserved generics where representable, modules, a
@@ -1185,7 +1185,7 @@ header stripped, neither fires anywhere.
 
 **Measured.** The Rust rendering of this compiler: 2 148 warnings → 321, with
 0 rustc errors, and it still compiles the compiler to output byte-identical to
-`bin/output.js`. What is left was never covered by any of these allows — 152
+`dist/rgrc.js`. What is left was never covered by any of these allows — 152
 `private_interfaces`, 67 unreachable match arms, 20 type names, 60 residual
 parens. The Cart study from the playground carries `#![allow(dead_code)]`
 alone and draws no rustc warning at all.

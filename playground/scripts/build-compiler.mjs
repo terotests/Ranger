@@ -9,11 +9,11 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rangerRoot = path.resolve(__dirname, "../..");
-const compiler = path.join(rangerRoot, "bin/output.js");
+const compiler = path.join(rangerRoot, "dist/rgrc.js");
 const outDir = path.join(rangerRoot, "playground/public");
 
 if (!fs.existsSync(compiler)) {
-  console.error("bin/output.js not found — run `npm run compile` in the repo root first.");
+  console.error("dist/rgrc.js not found — run `npm run compile` in the repo root first.");
   process.exit(1);
 }
 

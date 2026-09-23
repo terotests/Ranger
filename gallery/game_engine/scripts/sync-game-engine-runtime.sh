@@ -42,7 +42,7 @@ done
 copy_tree "$ROOT/lib" "lib"
 mkdir -p "$DEST/compiler" "$DEST/bin"
 cp "$ROOT/compiler/Lang.rgr" "$DEST/compiler/Lang.rgr"
-cp "$ROOT/bin/output.js" "$DEST/bin/output.js"
+cp "$ROOT/dist/rgrc.js" "$DEST/dist/rgrc.js"
 cp "$ROOT/lib/stdops.rgr" "$DEST/bin/stdops.rgr"
 cp "$ROOT/bin/Lang.rgr" "$DEST/bin/Lang.rgr"
 

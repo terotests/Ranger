@@ -22,7 +22,7 @@ STAGE=$WEB/dist
 mkdir -p "$STAGE" "$OUT"
 rm -f "$STAGE/fig_web.js"
 
-log=$(node bin/output.js -es6 gallery/figma/web/fig_web.rgr -d="$STAGE" -o=fig_web.js 2>&1)
+log=$(node dist/rgrc.js -es6 gallery/figma/web/fig_web.rgr -d="$STAGE" -o=fig_web.js 2>&1)
 if echo "$log" | grep -q "Compilation FAILED"; then
   echo "$log" | grep -A3 "\[FAIL\]" | head -40
   echo "FAILED to compile gallery/figma/web/fig_web.rgr" >&2

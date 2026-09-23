@@ -23,8 +23,8 @@ cd "$(dirname "$0")/../../../.."
 OUT="gallery/realtrainer/android/generated"
 PKG="fi.ranger.rgr"
 
-if [ ! -f bin/output.js ]; then
-  echo "bin/output.js is missing — build the compiler first (npm run compile)" >&2
+if [ ! -f dist/rgrc.js ]; then
+  echo "dist/rgrc.js is missing — build the compiler first (npm run compile)" >&2
   exit 1
 fi
 
@@ -32,7 +32,7 @@ export RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr:./lib
 mkdir -p "$OUT"
 rm -f "$OUT/rt_android.kt"
 
-log=$(node --max-old-space-size=8192 bin/output.js -l=kotlin \
+log=$(node --max-old-space-size=8192 dist/rgrc.js -l=kotlin \
   gallery/realtrainer/android/ranger/rt_android.rgr -nodecli -d="$OUT" -o=rt_android.kt 2>&1)
 if echo "$log" | grep -q "Compilation FAILED"; then
   echo "$log" | grep -A4 "\[FAIL\]" | head -40

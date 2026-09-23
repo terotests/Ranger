@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # For each test file that fails with the current compiler, run the same file
-# against a copy of a previous bin/output.js and say whether it failed there
+# against a copy of a previous dist/rgrc.js and say whether it failed there
 # too.
 #
 #   bash scripts/suite_baseline_diff.sh <baseline-compiler.js> <matrix.tsv>
@@ -12,14 +12,14 @@ cd "$(dirname "$0")/.."
 BASE="${1:?usage: suite_baseline_diff.sh <baseline-compiler.js> <matrix.tsv>}"
 TSV="${2:-tmp/suite-matrix.tsv}"
 CUR=tmp/.compiler-under-test.js
-cp bin/output.js "$CUR"
-restore() { cp "$CUR" bin/output.js; }
+cp dist/rgrc.js "$CUR"
+restore() { cp "$CUR" dist/rgrc.js; }
 trap restore EXIT
 
 mine=0; theirs=0
 while IFS=$'\t' read -r file verdict _; do
   [ "$verdict" = FAIL ] || continue
-  cp "$BASE" bin/output.js
+  cp "$BASE" dist/rgrc.js
   if timeout 900 npx vitest run --config tests/vitest.config.ts "$file" \
        > "tmp/baseline-$file.log" 2>&1; then
     printf '  %-44s PASSES on the baseline -- THIS CHANGE BROKE IT\n' "$file"

@@ -212,7 +212,7 @@ def compile_target(src, lang, ext, flags, outdir, fmt=None):
     os.makedirs(os.path.join(ROOT, outdir), exist_ok=True)
     env = dict(os.environ)
     env["RANGER_LIB"] = "./compiler/Lang.rgr:./lib/stdops.rgr"
-    cmd = ["node", "--max-old-space-size=8192", "bin/output.js", "-l=" + lang,
+    cmd = ["node", "--max-old-space-size=8192", "dist/rgrc.js", "-l=" + lang,
            src, "-d=" + outdir, "-o=" + name, "-nodecli"] + flags
     if fmt:
         cmd.append("-format=" + fmt)

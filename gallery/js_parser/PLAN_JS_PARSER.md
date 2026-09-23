@@ -333,7 +333,7 @@ Add to package.json:
 
 ```json
 {
-  "jsparser:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/js_parser/js_parser.rgr -d=./gallery/js_parser -o=js_parser.js -nodecli",
+  "jsparser:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node dist/rgrc.js -es6 ./gallery/js_parser/js_parser.rgr -d=./gallery/js_parser -o=js_parser.js -nodecli",
   "jsparser:run": "node ./gallery/js_parser/js_parser.js ./gallery/js_parser/test_input.js"
 }
 ```

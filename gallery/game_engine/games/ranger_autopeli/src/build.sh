@@ -18,7 +18,7 @@ WAT="$OUT_DIR/autopeli.wat"
 WASM="$GAME_DIR/logic.wasm"
 
 RANGER_LIB="$ROOT/compiler/Lang.rgr:$ROOT/lib/stdops.rgr"
-COMPILER="$ROOT/bin/output.js"
+COMPILER="$ROOT/dist/rgrc.js"
 WAT2WASM="$ROOT/node_modules/.bin/wat2wasm"
 if [[ ! -x "$WAT2WASM" ]]; then
   WAT2WASM="$(command -v wat2wasm || true)"

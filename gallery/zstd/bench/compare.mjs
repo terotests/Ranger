@@ -18,7 +18,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "../../..");
 
 execSync(
-  "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 " +
+  "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node dist/rgrc.js -es6 " +
     "./gallery/zstd/bench/ZstdBench.rgr -d=./gallery/zstd/bin -o=ZstdBench.js",
   { cwd: root, stdio: "ignore" }
 );

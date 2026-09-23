@@ -24,7 +24,7 @@ status=0
 export RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr
 
 compile () { # lang outfile
-  node bin/output.js "-l=$1" lib/evg/tools/evg_trace_cli.rgr \
+  node dist/rgrc.js "-l=$1" lib/evg/tools/evg_trace_cli.rgr \
     -d=lib/evg/bin "-o=$2" -nodecli >"$OUT/compile_$1.log" 2>&1
   if grep -q '\[FAIL\]' "$OUT/compile_$1.log"; then
     echo "  COMPILE FAIL ($1)"; grep -m 10 '\[FAIL\]' "$OUT/compile_$1.log"; return 1

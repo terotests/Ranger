@@ -208,7 +208,7 @@ the same moment the app moves into the tab: see §4 and S4.
 because "incremental compilation in the tab" is the interesting-sounding
 answer and the wrong one:
 
-- The host already has the compiler. `bin/output.js -es6 App.rgr -o=app.js` is
+- The host already has the compiler. `dist/rgrc.js -es6 App.rgr -o=app.js` is
   the same command `rangerdbviewer:web` uses to put a whole database in a tab.
 - Compiling in the tab means shipping the compiler to the tab — and then a
   compile takes the memory and the seconds of the process that is also

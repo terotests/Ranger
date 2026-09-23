@@ -25,7 +25,7 @@ SUITES="OfficeGeomFormulaTest OfficePresetShapesTest"
 
 echo "==> JavaScript"
 for T in $SUITES; do
-  node bin/output.js -es6 "gallery/office/geom/tests/$T.rgr" -d=gallery/office/geom/bin -o="$T.js" -nodecli > "$OUT/js-$T.log" 2>&1 || {
+  node dist/rgrc.js -es6 "gallery/office/geom/tests/$T.rgr" -d=gallery/office/geom/bin -o="$T.js" -nodecli > "$OUT/js-$T.log" 2>&1 || {
     tail -20 "$OUT/js-$T.log"; echo "Ranger -> JS failed ($T)" >&2; exit 1; }
   # The compiler can report [FAIL] and still exit 0, and the stale build from
   # the last run would then be what gets tested.
@@ -52,7 +52,7 @@ echo
 echo "==> C++ ($CXX)"
 cp gallery/invaders/variant.hpp "$OUT/variant.hpp"
 for T in $SUITES; do
-  node bin/output.js -l=cpp "gallery/office/geom/tests/$T.rgr" -nodecli -d="$OUT" -o="$T.cpp" > "$OUT/cpp-$T.log" 2>&1 || {
+  node dist/rgrc.js -l=cpp "gallery/office/geom/tests/$T.rgr" -nodecli -d="$OUT" -o="$T.cpp" > "$OUT/cpp-$T.log" 2>&1 || {
     tail -20 "$OUT/cpp-$T.log"; echo "Ranger -> C++ failed ($T)" >&2; exit 1; }
   if grep -q '\[FAIL\]' "$OUT/cpp-$T.log"; then
     grep -A2 '\[FAIL\]' "$OUT/cpp-$T.log" | head -20

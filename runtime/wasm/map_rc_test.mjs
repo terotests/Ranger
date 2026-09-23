@@ -1,6 +1,6 @@
 // Map RC / growth test (PLAN_WASM_MEMORY Phase 4b).
 // Build:
-//   node bin/output.js -l=llvm -wat -freestanding -wasmrc \
+//   node dist/rgrc.js -l=llvm -wat -freestanding -wasmrc \
 //     runtime/wasm/map_rc_demo.rgr -nodecli -d=tmp/maprc -o=g.wat
 //   cp tmp/maprc/g.wat.ll tmp/maprc/g.wat && wat2wasm tmp/maprc/g.wat -o tmp/maprc/g.wasm
 import fs from "fs";
