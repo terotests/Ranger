@@ -101,7 +101,7 @@ describe("Ranger Compiler - Source Maps", () => {
       fs.mkdirSync(OUTPUT_DIR, { recursive: true });
     }
 
-    const cmd = `node "${path.join(ROOT_DIR, "bin", "output.js")}" -es6 -nodecli -sourcemap "${FIXTURE}" -d="tests/.output-sourcemap" -o="sourcemap_smoke.js"`;
+    const cmd = `node "${path.join(ROOT_DIR, "dist", "rgrc.js")}" -es6 -nodecli -sourcemap "${FIXTURE}" -d="tests/.output-sourcemap" -o="sourcemap_smoke.js"`;
     const output = execSync(cmd, {
       cwd: ROOT_DIR,
       env: {
