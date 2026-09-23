@@ -238,8 +238,10 @@ extension CodeNode {
     }
 
     if(nodeValue.eval_type == RangerNodeType.ExpressionType) {
-      if(!null? nodeValue.expression_value) {
-        cn.expression_value = ( nodeValue.expression_value.copy() )
+      def expressionValueOpt@(optional):CodeNode nodeValue.expression_value
+      if(!null? expressionValueOpt) {
+        def expressionValue:CodeNode (unwrap expressionValueOpt)
+        cn.expression_value = (expressionValue.copy())
       } {
         if( (null? node.expression_value)) {
           ; infer the node type 
@@ -262,8 +264,10 @@ extension CodeNode {
     cn.key_type = nodeValue.eval_key_type
 
     if(nodeValue.eval_type == RangerNodeType.ExpressionType) {
-      if(!null? nodeValue.expression_value) {
-        cn.expression_value = ( nodeValue.expression_value.copy() )
+      def expressionValueOpt@(optional):CodeNode nodeValue.expression_value
+      if(!null? expressionValueOpt) {
+        def expressionValue:CodeNode (unwrap expressionValueOpt)
+        cn.expression_value = (expressionValue.copy())
       } {
         if( (null? node.expression_value)) {
           ; infer the node type 
@@ -546,13 +550,19 @@ extension CodeNode {
 
     if has_vref_annotation {
       newNode.has_vref_annotation = true
-      def ann:CodeNode vref_annotation
-      newNode.vref_annotation = (ann.cloneWithType(match true))
+      def annOpt@(optional):CodeNode vref_annotation
+      if (!null? annOpt) {
+        def ann:CodeNode (unwrap annOpt)
+        newNode.vref_annotation = (ann.cloneWithType(match true))
+      }
     }
     if has_type_annotation {
       newNode.has_type_annotation = true
-      def t_ann:CodeNode type_annotation
-      newNode.type_annotation = (t_ann.cloneWithType(match true))
+      def typeAnnOpt@(optional):CodeNode type_annotation
+      if (!null? typeAnnOpt) {
+        def typeAnn:CodeNode (unwrap typeAnnOpt)
+        newNode.type_annotation = (typeAnn.cloneWithType(match true))
+      }
     }
     for ns n:string i {
       if changeVref {
@@ -578,14 +588,20 @@ extension CodeNode {
         newNode.boolean_value = boolean_value
       }
       case RangerNodeType.ExpressionType {
-        if (!null? expression_value) {
-          newNode.expression_value = (expression_value.cloneWithType(match changeVref))
+        def expressionValueOpt@(optional):CodeNode expression_value
+        if (!null? expressionValueOpt) {
+          def expressionValue:CodeNode (unwrap expressionValueOpt)
+          newNode.expression_value = (expressionValue.cloneWithType(match changeVref))
         }
       }
     }
     for prop_keys key:string i {
       push newNode.prop_keys key
-      def oldp:CodeNode (get props key)
+      def oldpOpt@(optional):CodeNode (get props key)
+      if (null? oldpOpt) {
+        continue
+      }
+      def oldp:CodeNode (unwrap oldpOpt)
       def np:CodeNode (oldp.cloneWithType(match changeVref))
       set newNode.props key np
     }
@@ -683,13 +699,19 @@ extension CodeNode {
     }
     if has_vref_annotation {
       newNode.has_vref_annotation = true
-      def ann:CodeNode vref_annotation
-      newNode.vref_annotation = (ann.rebuildWithType(match true))
+      def annOpt@(optional):CodeNode vref_annotation
+      if (!null? annOpt) {
+        def ann:CodeNode (unwrap annOpt)
+        newNode.vref_annotation = (ann.rebuildWithType(match true))
+      }
     }
     if has_type_annotation {
       newNode.has_type_annotation = true
-      def t_ann:CodeNode type_annotation
-      newNode.type_annotation = (t_ann.rebuildWithType(match true))
+      def typeAnnOpt@(optional):CodeNode type_annotation
+      if (!null? typeAnnOpt) {
+        def typeAnn:CodeNode (unwrap typeAnnOpt)
+        newNode.type_annotation = (typeAnn.rebuildWithType(match true))
+      }
     }
     for ns n:string i {
       if changeVref {
@@ -715,14 +737,20 @@ extension CodeNode {
         newNode.boolean_value = boolean_value
       }
       case RangerNodeType.ExpressionType {
-        if (!null? expression_value) {
-          newNode.expression_value = (expression_value.rebuildWithType(match changeVref))
+        def expressionValueOpt@(optional):CodeNode expression_value
+        if (!null? expressionValueOpt) {
+          def expressionValue:CodeNode (unwrap expressionValueOpt)
+          newNode.expression_value = (expressionValue.rebuildWithType(match changeVref))
         }
       }
     }
     for prop_keys key:string i {
       push newNode.prop_keys key
-      def oldp:CodeNode (get props key)
+      def oldpOpt@(optional):CodeNode (get props key)
+      if (null? oldpOpt) {
+        continue
+      }
+      def oldp:CodeNode (unwrap oldpOpt)
       def np:CodeNode (oldp.rebuildWithType(match changeVref))
       set newNode.props key np
     }
@@ -800,8 +828,13 @@ extension CodeNode {
       return s
     }
     if (value_type == RangerNodeType.ExpressionType) {
-      def fnNode (expression_value.getFirst())
-      def argNode (expression_value.getSecond())
+      def expressionValueOpt@(optional):CodeNode expression_value
+      if (null? expressionValueOpt) {
+        return s
+      }
+      def expressionValue:CodeNode (unwrap expressionValueOpt)
+      def fnNode (expressionValue.getFirst())
+      def argNode (expressionValue.getSecond())
       s = s + "(_:" + (fnNode.buildTypeSignature())
       s = s + " ("  + (join (map argNode.children {
         return ("_:" + (item.buildTypeSignature()))
@@ -814,27 +847,47 @@ extension CodeNode {
 
   fn getVRefSignatureWithMatch:string (match:RangerArgMatch) {
     if has_vref_annotation {
-      def nn:CodeNode (vref_annotation.rebuildWithType(match true))
+      def annotationOpt@(optional):CodeNode vref_annotation
+      if (null? annotationOpt) {
+        return ""
+      }
+      def annotation:CodeNode (unwrap annotationOpt)
+      def nn:CodeNode (annotation.rebuildWithType(match true))
       return ("@" + (nn.getCode()))
     } 
     return ""
   }
   fn getVRefSignature:string () {
     if has_vref_annotation {
-      return ("@" + (vref_annotation.getCode()))
+      def annotationOpt@(optional):CodeNode vref_annotation
+      if (null? annotationOpt) {
+        return ""
+      }
+      def annotation:CodeNode (unwrap annotationOpt)
+      return ("@" + (annotation.getCode()))
     } 
     return ""
   }
   fn getTypeSignatureWithMatch:string (match:RangerArgMatch) {
     if has_type_annotation {
-      def nn:CodeNode (type_annotation.rebuildWithType(match true))
+      def annotationOpt@(optional):CodeNode type_annotation
+      if (null? annotationOpt) {
+        return ""
+      }
+      def annotation:CodeNode (unwrap annotationOpt)
+      def nn:CodeNode (annotation.rebuildWithType(match true))
       return ("@" + (nn.getCode()))
     } 
     return ""
   }
   fn getTypeSignature:string () {
     if has_type_annotation {
-      return ("@" + (type_annotation.getCode()))
+      def annotationOpt@(optional):CodeNode type_annotation
+      if (null? annotationOpt) {
+        return ""
+      }
+      def annotation:CodeNode (unwrap annotationOpt)
+      return ("@" + (annotation.getCode()))
     } 
     return ""
   }

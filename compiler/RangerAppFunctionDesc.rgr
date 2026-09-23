@@ -93,7 +93,11 @@ class RangerAppFunctionDesc {
     if( (indexOf this.isUsingClasses m) < 0 ) {
       push this.isUsingClasses m
       m.variables.forEach({
-        def nn item.nameNode
+        def nnOpt@(optional):CodeNode item.nameNode
+        if (null? nnOpt) {
+          return
+        }
+        def nn:CodeNode (unwrap nnOpt)
         if( ctx.isDefinedClass( nn.type_name )) {
           def cc (ctx.findClass(nn.type_name))
           this.addIndirectClassUsage( cc ctx )
@@ -112,7 +116,11 @@ class RangerAppFunctionDesc {
       push this.isUsingClasses m
       push this.isDirectlyUsingClasses m
       m.variables.forEach({
-        def nn item.nameNode
+        def nnOpt@(optional):CodeNode item.nameNode
+        if (null? nnOpt) {
+          return
+        }
+        def nn:CodeNode (unwrap nnOpt)
         if( ctx.isDefinedClass( nn.type_name )) {
           def cc (ctx.findClass(nn.type_name))
           this.addIndirectClassUsage( cc ctx )

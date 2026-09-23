@@ -666,7 +666,11 @@ class RangerApiBuilder  {
     if ( m.has_doc == false ) {
       return;
     }
-    const doc = m.doc;
+    const docOpt = m.doc;
+    if ( typeof(docOpt) === "undefined" ) {
+      return;
+    }
+    const doc = docOpt;
     let seen = {};
     // Loop start
     for ( const dp of doc.params) {
@@ -3081,7 +3085,7 @@ class RangerAppParamDesc  {
     this.is_doc_example = false;
     this.docExampleText = "";
     this.has_events = false;
-    this.eMap = undefined;
+    this.eMap = new RangerParamEventMap();
   }
   addEvent (name, e) {
     if ( this.has_events == false ) {
@@ -3164,17 +3168,22 @@ class RangerAppParamDesc  {
     const other_lifetime = target.getLifetime();
     let a_lives = false;
     let b_lives = false;
-    const tmp_var = this.nameNode.hasFlag("temp");
-    if ( (typeof(target.nameNode) !== "undefined" && target.nameNode != null )  ) {
-      if ( target.nameNode.hasFlag("lives") ) {
-        my_lifetime = 2;
-        b_lives = true;
-      }
-    }
-    if ( (typeof(this.nameNode) !== "undefined" && this.nameNode != null )  ) {
-      if ( this.nameNode.hasFlag("lives") ) {
+    const ownNameNode = this.nameNode;
+    let tmp_var = false;
+    if ( (typeof(ownNameNode) !== "undefined" && ownNameNode != null )  ) {
+      const ownName = ownNameNode;
+      tmp_var = ownName.hasFlag("temp");
+      if ( ownName.hasFlag("lives") ) {
         my_lifetime = 2;
         a_lives = true;
+      }
+    }
+    const targetNameNode = target.nameNode;
+    if ( (typeof(targetNameNode) !== "undefined" && targetNameNode != null )  ) {
+      const targetName = targetNameNode;
+      if ( targetName.hasFlag("lives") ) {
+        my_lifetime = 2;
+        b_lives = true;
       }
     }
     if ( other_s > 0 ) {
@@ -3204,7 +3213,7 @@ class RangerAppParamDesc  {
       if ( a_lives || b_lives ) {
       } else {
         if ( my_lifetime < other_lifetime && this.return_cnt == 0 ) {
-          if ( this.nameNode.hasFlag("returnvalue") == false ) {
+          if ( ((typeof(ownNameNode) !== "undefined" && ownNameNode != null ) ) && ownNameNode.hasFlag("returnvalue") == false ) {
             if ( false == b_disable_errors ) {
               ctx.addError(nodeToMove, "Can not create a weak reference if target has longer lifetime than original, current lifetime == " + my_lifetime);
             }
@@ -3241,7 +3250,11 @@ class RangerAppParamDesc  {
     console.log(("variable " + this.name) + " ref history : ");
     // Loop start
     for ( const h of this.ownerHistory) {
-      console.log(((" => change to " + h.strength) + " by ") + h.changer.getCode());
+      const changerOpt = h.changer;
+      if ( (typeof(changerOpt) !== "undefined" && changerOpt != null )  ) {
+        const changer = changerOpt;
+        console.log(((" => change to " + h.strength) + " by ") + changer.getCode());
+      }
     }
   };
   pointsToObject (ctx) {
@@ -3421,7 +3434,11 @@ class RangerAppFunctionDesc  extends RangerAppParamDesc {
     if ( this.isUsingClasses.indexOf(m) < 0 ) {
       this.isUsingClasses.push(m);
       operatorsOf.forEach_3(m.variables, ((item, index) => { 
-        const nn = item.nameNode;
+        const nnOpt = item.nameNode;
+        if ( typeof(nnOpt) === "undefined" ) {
+          return;
+        }
+        const nn = nnOpt;
         if ( ctx.isDefinedClass(nn.type_name) ) {
           const cc = ctx.findClass(nn.type_name);
           this.addIndirectClassUsage(cc, ctx);
@@ -3438,7 +3455,11 @@ class RangerAppFunctionDesc  extends RangerAppParamDesc {
       this.isUsingClasses.push(m);
       this.isDirectlyUsingClasses.push(m);
       operatorsOf.forEach_3(m.variables, ((item, index) => { 
-        const nn = item.nameNode;
+        const nnOpt = item.nameNode;
+        if ( typeof(nnOpt) === "undefined" ) {
+          return;
+        }
+        const nn = nnOpt;
         if ( ctx.isDefinedClass(nn.type_name) ) {
           const cc = ctx.findClass(nn.type_name);
           this.addIndirectClassUsage(cc, ctx);
@@ -3624,28 +3645,32 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
     return special == false;
   };
   getSystemclassType () {
-    if ( typeof(this.nameNode) === "undefined" ) {
+    const classNameNodeOpt = this.nameNode;
+    if ( typeof(classNameNodeOpt) === "undefined" ) {
       return "";
     }
-    if ( this.nameNode.hasFlag("HttpServer") ) {
+    const classNameNode = classNameNodeOpt;
+    if ( classNameNode.hasFlag("HttpServer") ) {
       return "HttpServer";
     }
-    if ( this.nameNode.hasFlag("HttpRequest") ) {
+    if ( classNameNode.hasFlag("HttpRequest") ) {
       return "HttpRequest";
     }
-    if ( this.nameNode.hasFlag("HttpResponse") ) {
+    if ( classNameNode.hasFlag("HttpResponse") ) {
       return "HttpResponse";
     }
-    if ( this.nameNode.hasFlag("SSEClient") ) {
+    if ( classNameNode.hasFlag("SSEClient") ) {
       return "SSEClient";
     }
     return "";
   };
   isSystemclassType (typeName) {
-    if ( typeof(this.nameNode) === "undefined" ) {
+    const classNameNodeOpt = this.nameNode;
+    if ( typeof(classNameNodeOpt) === "undefined" ) {
       return false;
     }
-    return this.nameNode.hasFlag(typeName);
+    const classNameNode = classNameNodeOpt;
+    return classNameNode.hasFlag(typeName);
   };
   hasTrait (class_name, ctx) {
     let res;
@@ -3779,12 +3804,17 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
     if ( ( typeof(this.defined_methods[m_name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.defined_methods, m_name) ) ) {
       return true;
     }
+    const classCtxOpt = this.ctx;
+    if ( typeof(classCtxOpt) === "undefined" ) {
+      return false;
+    }
+    const classCtx = classCtxOpt;
     // Loop start
     for ( const cname of this.extends_classes) {
-      if ( this.ctx.isDefinedClass(cname) == false ) {
+      if ( classCtx.isDefinedClass(cname) == false ) {
         continue;
       }
-      const cDesc = this.ctx.findClass(cname);
+      const cDesc = classCtx.findClass(cname);
       if ( cDesc.hasMethod(m_name) ) {
         return true;
       }
@@ -3798,12 +3828,17 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
       res = list.variants[0];
       return res;
     }
+    const classCtxOpt = this.ctx;
+    if ( typeof(classCtxOpt) === "undefined" ) {
+      return res;
+    }
+    const classCtx = classCtxOpt;
     // Loop start
     for ( const cname of this.extends_classes) {
-      if ( this.ctx.isDefinedClass(cname) == false ) {
+      if ( classCtx.isDefinedClass(cname) == false ) {
         continue;
       }
-      const cDesc = this.ctx.findClass(cname);
+      const cDesc = classCtx.findClass(cname);
       if ( cDesc.hasMethod(f_name) ) {
         return cDesc.findMethod(f_name);
       }
@@ -3819,12 +3854,17 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
         return res;
       }
     }
+    const classCtxOpt = this.ctx;
+    if ( typeof(classCtxOpt) === "undefined" ) {
+      return res;
+    }
+    const classCtx = classCtxOpt;
     // Loop start
     for ( const cname of this.extends_classes) {
-      if ( this.ctx.isDefinedClass(cname) == false ) {
+      if ( classCtx.isDefinedClass(cname) == false ) {
         continue;
       }
-      const cDesc = this.ctx.findClass(cname);
+      const cDesc = classCtx.findClass(cname);
       const found = cDesc.findMethodByCompiledName(compiled);
       if ( typeof(found) === "undefined" ) {
       } else {
@@ -3837,13 +3877,17 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
     if ( this.is_singleton ) {
       return true;
     }
-    if ( (typeof(this.nameNode) === "undefined") == false ) {
-      if ( this.nameNode.hasFlag("singleton") ) {
+    const classNameNodeOpt = this.nameNode;
+    if ( (typeof(classNameNodeOpt) !== "undefined" && classNameNodeOpt != null )  ) {
+      const classNameNode = classNameNodeOpt;
+      if ( classNameNode.hasFlag("singleton") ) {
         return true;
       }
     }
-    if ( (typeof(this.classNode) === "undefined") == false ) {
-      if ( this.classNode.hasBooleanProperty("singleton") ) {
+    const classNodeOpt = this.classNode;
+    if ( (typeof(classNodeOpt) !== "undefined" && classNodeOpt != null )  ) {
+      const classNodeValue = classNodeOpt;
+      if ( classNodeValue.hasBooleanProperty("singleton") ) {
         return true;
       }
     }
@@ -3905,12 +3949,17 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
         return e;
       }
     }
+    const classCtxOpt = this.ctx;
+    if ( typeof(classCtxOpt) === "undefined" ) {
+      return e;
+    }
+    const classCtx = classCtxOpt;
     // Loop start
     for ( const cname of this.extends_classes) {
-      if ( this.ctx.isDefinedClass(cname) == false ) {
+      if ( classCtx.isDefinedClass(cname) == false ) {
         continue;
       }
-      const cDesc = this.ctx.findClass(cname);
+      const cDesc = classCtx.findClass(cname);
       if ( cDesc.hasStaticMethod(f_name) ) {
         return cDesc.findStaticMethod(f_name);
       }
@@ -3926,12 +3975,17 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
         return e;
       }
     }
+    const classCtxOpt = this.ctx;
+    if ( typeof(classCtxOpt) === "undefined" ) {
+      return e;
+    }
+    const classCtx = classCtxOpt;
     // Loop start
     for ( const cname of this.extends_classes) {
-      if ( this.ctx.isDefinedClass(cname) == false ) {
+      if ( classCtx.isDefinedClass(cname) == false ) {
         continue;
       }
-      const cDesc = this.ctx.findClass(cname);
+      const cDesc = classCtx.findClass(cname);
       return cDesc.findVariable(f_name);
     }
     return e;
@@ -3941,7 +3995,12 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
   };
   createVariable (node, ctx, wr) {
     try {
-      const parser = ctx.getParser();
+      const parserOpt = ctx.getParser();
+      if ( typeof(parserOpt) === "undefined" ) {
+        ctx.addError(node, "Could not add variable without a flow parser");
+        return;
+      }
+      const parser = parserOpt;
       const s = node.getVRefAt(1);
       const vDef = node.children[1];
       const p = new RangerAppParamDesc();
@@ -4044,7 +4103,12 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
         }
       }
       currC.addVariable(p);
-      const subCtx = currC.ctx;
+      const subCtxOpt = currC.ctx;
+      if ( typeof(subCtxOpt) === "undefined" ) {
+        ctx.addError(node, "Could not add variable without a class context");
+        return;
+      }
+      const subCtx = subCtxOpt;
       subCtx.defineVariable(p.name, p);
       p.is_class_variable = true;
     } catch(e) {
@@ -4060,7 +4124,11 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
       }
     }
     if ( dupField ) {
-      this.ctx.addError(desc.node, (("Duplicate class property '" + desc.name) + "' in class ") + this.name);
+      const classCtxOpt = this.ctx;
+      if ( (typeof(classCtxOpt) !== "undefined" && classCtxOpt != null )  ) {
+        const classCtx = classCtxOpt;
+        classCtx.addError(desc.node, (("Duplicate class property '" + desc.name) + "' in class ") + this.name);
+      }
     }
     this.variables.push(desc);
     desc.propertyClass = this;
@@ -4088,13 +4156,21 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
     this.defined_static_methods[desc.name] = true;
     this.static_methods.push(desc);
     if ( desc.name == "main" ) {
-      const nn = desc.nameNode;
+      const nnOpt = desc.nameNode;
+      if ( typeof(nnOpt) === "undefined" ) {
+        return;
+      }
+      const nn = nnOpt;
       if ( nn.has_vref_annotation == false ) {
-        const vAnn = this.node.newExpressionNode();
+        const vAnn = nn.newExpressionNode();
         nn.has_vref_annotation = true;
         nn.vref_annotation = vAnn;
       }
-      const mainAnn = nn.vref_annotation;
+      const mainAnnOpt = nn.vref_annotation;
+      if ( typeof(mainAnnOpt) === "undefined" ) {
+        return;
+      }
+      const mainAnn = mainAnnOpt;
       const mainRef = mainAnn.newVRefNode("main");
       mainAnn.children.push(mainRef);
     }
@@ -4132,11 +4208,7 @@ class SourceCode  {
     this.code = "";
     this.lines = [];
     this.filename = "";
-    let str = "";
-    if ( (typeof(code_str) !== "undefined" && code_str != null )  ) {
-      str = code_str;
-    }
-    this.code = str;
+    this.code = code_str;
     this.lines = this.code.split("\n");
   }
   getLineString (line_index) {
@@ -4327,10 +4399,11 @@ class CodeNode  {
       return true;
     }
     if ( node.hasParamDesc ) {
-      const p = node.paramDesc;
-      if ( typeof(p) === "undefined" ) {
+      const pOpt = node.paramDesc;
+      if ( typeof(pOpt) === "undefined" ) {
         return false;
       }
+      const p = pOpt;
       if ( p.is_optional ) {
         return true;
       }
@@ -4525,7 +4598,11 @@ class CodeNode  {
     }
     const uflag = flag;
     if ( uflag.has_vref_annotation ) {
-      const ann = uflag.vref_annotation;
+      const annOpt = uflag.vref_annotation;
+      if ( typeof(annOpt) === "undefined" ) {
+        return false;
+      }
+      const ann = annOpt;
       // Loop start
       for ( const ch of ann.children) {
         if ( ch.vref == paramName ) {
@@ -4569,19 +4646,39 @@ class CodeNode  {
   };
   getLine () {
     const lnSp = this.sp;
-    return this.code.getLine(lnSp);
+    const sourceOpt = this.code;
+    if ( typeof(sourceOpt) === "undefined" ) {
+      return -1;
+    }
+    const source = sourceOpt;
+    return source.getLine(lnSp);
   };
   getLineString (line_index) {
-    return this.code.getLineString(line_index);
+    const sourceOpt = this.code;
+    if ( typeof(sourceOpt) === "undefined" ) {
+      return "";
+    }
+    const source = sourceOpt;
+    return source.getLineString(line_index);
   };
   getColStartString () {
     const colSp = this.sp;
-    return this.code.getColumnStr(colSp);
+    const sourceOpt = this.code;
+    if ( typeof(sourceOpt) === "undefined" ) {
+      return "";
+    }
+    const source = sourceOpt;
+    return source.getColumnStr(colSp);
   };
   getLineAsString () {
     const idx = this.getLine();
     const line_name_idx = idx + 1;
-    return (((this.getFilename() + ", line ") + line_name_idx) + " : ") + this.code.getLineString(idx);
+    const sourceOpt = this.code;
+    if ( typeof(sourceOpt) === "undefined" ) {
+      return "";
+    }
+    const source = sourceOpt;
+    return (((this.getFilename() + ", line ") + line_name_idx) + " : ") + source.getLineString(idx);
   };
   getSource () {
     if ( this.ep > this.sp ) {
@@ -4937,8 +5034,10 @@ class CodeNode  {
       cn.has_vref_annotation = true;
     }
     if ( nodeValue.eval_type == 20 ) {
-      if ( (typeof(nodeValue.expression_value) !== "undefined" && nodeValue.expression_value != null )  ) {
-        cn.expression_value = nodeValue.expression_value.copy();
+      const expressionValueOpt = nodeValue.expression_value;
+      if ( (typeof(expressionValueOpt) !== "undefined" && expressionValueOpt != null )  ) {
+        const expressionValue = expressionValueOpt;
+        cn.expression_value = expressionValue.copy();
       } else {
         if ( typeof(node.expression_value) === "undefined" ) {
           const copyOf = nodeValue.rebuildWithType(new RangerArgMatch(), false);
@@ -4957,8 +5056,10 @@ class CodeNode  {
     cn.array_type = nodeValue.eval_array_type;
     cn.key_type = nodeValue.eval_key_type;
     if ( nodeValue.eval_type == 20 ) {
-      if ( (typeof(nodeValue.expression_value) !== "undefined" && nodeValue.expression_value != null )  ) {
-        cn.expression_value = nodeValue.expression_value.copy();
+      const expressionValueOpt = nodeValue.expression_value;
+      if ( (typeof(expressionValueOpt) !== "undefined" && expressionValueOpt != null )  ) {
+        const expressionValue = expressionValueOpt;
+        cn.expression_value = expressionValue.copy();
       } else {
         if ( typeof(node.expression_value) === "undefined" ) {
           const copyOf = nodeValue.rebuildWithType(new RangerArgMatch(), false);
@@ -5189,13 +5290,19 @@ class CodeNode  {
     newNode.register_expressions = operatorsOf.clone_35(this.register_expressions);
     if ( this.has_vref_annotation ) {
       newNode.has_vref_annotation = true;
-      const ann = this.vref_annotation;
-      newNode.vref_annotation = ann.cloneWithType(match, true);
+      const annOpt = this.vref_annotation;
+      if ( (typeof(annOpt) !== "undefined" && annOpt != null )  ) {
+        const ann = annOpt;
+        newNode.vref_annotation = ann.cloneWithType(match, true);
+      }
     }
     if ( this.has_type_annotation ) {
       newNode.has_type_annotation = true;
-      const t_ann = this.type_annotation;
-      newNode.type_annotation = t_ann.cloneWithType(match, true);
+      const typeAnnOpt = this.type_annotation;
+      if ( (typeof(typeAnnOpt) !== "undefined" && typeAnnOpt != null )  ) {
+        const typeAnn = typeAnnOpt;
+        newNode.type_annotation = typeAnn.cloneWithType(match, true);
+      }
     }
     // Loop start
     for ( const n of this.ns) {
@@ -5222,15 +5329,21 @@ class CodeNode  {
         newNode.boolean_value = this.boolean_value;
         break;
       case 20 : 
-        if ( (typeof(this.expression_value) !== "undefined" && this.expression_value != null )  ) {
-          newNode.expression_value = this.expression_value.cloneWithType(match, changeVref);
+        const expressionValueOpt = this.expression_value;
+        if ( (typeof(expressionValueOpt) !== "undefined" && expressionValueOpt != null )  ) {
+          const expressionValue = expressionValueOpt;
+          newNode.expression_value = expressionValue.cloneWithType(match, changeVref);
         }
         break;
     };
     // Loop start
     for ( const key of this.prop_keys) {
       newNode.prop_keys.push(key);
-      const oldp = ( Object.prototype.hasOwnProperty.call(this.props, key) ? this.props[key] : undefined );
+      const oldpOpt = ( Object.prototype.hasOwnProperty.call(this.props, key) ? this.props[key] : undefined );
+      if ( typeof(oldpOpt) === "undefined" ) {
+        continue;
+      }
+      const oldp = oldpOpt;
       const np = oldp.cloneWithType(match, changeVref);
       newNode.props[key] = np;
     }
@@ -5312,13 +5425,19 @@ class CodeNode  {
     }
     if ( this.has_vref_annotation ) {
       newNode.has_vref_annotation = true;
-      const ann = this.vref_annotation;
-      newNode.vref_annotation = ann.rebuildWithType(match, true);
+      const annOpt = this.vref_annotation;
+      if ( (typeof(annOpt) !== "undefined" && annOpt != null )  ) {
+        const ann = annOpt;
+        newNode.vref_annotation = ann.rebuildWithType(match, true);
+      }
     }
     if ( this.has_type_annotation ) {
       newNode.has_type_annotation = true;
-      const t_ann = this.type_annotation;
-      newNode.type_annotation = t_ann.rebuildWithType(match, true);
+      const typeAnnOpt = this.type_annotation;
+      if ( (typeof(typeAnnOpt) !== "undefined" && typeAnnOpt != null )  ) {
+        const typeAnn = typeAnnOpt;
+        newNode.type_annotation = typeAnn.rebuildWithType(match, true);
+      }
     }
     // Loop start
     for ( const n_1 of this.ns) {
@@ -5345,15 +5464,21 @@ class CodeNode  {
         newNode.boolean_value = this.boolean_value;
         break;
       case 20 : 
-        if ( (typeof(this.expression_value) !== "undefined" && this.expression_value != null )  ) {
-          newNode.expression_value = this.expression_value.rebuildWithType(match, changeVref);
+        const expressionValueOpt = this.expression_value;
+        if ( (typeof(expressionValueOpt) !== "undefined" && expressionValueOpt != null )  ) {
+          const expressionValue = expressionValueOpt;
+          newNode.expression_value = expressionValue.rebuildWithType(match, changeVref);
         }
         break;
     };
     // Loop start
     for ( const key of this.prop_keys) {
       newNode.prop_keys.push(key);
-      const oldp = ( Object.prototype.hasOwnProperty.call(this.props, key) ? this.props[key] : undefined );
+      const oldpOpt = ( Object.prototype.hasOwnProperty.call(this.props, key) ? this.props[key] : undefined );
+      if ( typeof(oldpOpt) === "undefined" ) {
+        continue;
+      }
+      const oldp = oldpOpt;
       const np = oldp.rebuildWithType(match, changeVref);
       newNode.props[key] = np;
     }
@@ -5428,8 +5553,13 @@ class CodeNode  {
       return s;
     }
     if ( this.value_type == 20 ) {
-      const fnNode = this.expression_value.getFirst();
-      const argNode = this.expression_value.getSecond();
+      const expressionValueOpt = this.expression_value;
+      if ( typeof(expressionValueOpt) === "undefined" ) {
+        return s;
+      }
+      const expressionValue = expressionValueOpt;
+      const fnNode = expressionValue.getFirst();
+      const argNode = expressionValue.getSecond();
       s = (s + "(_:") + fnNode.buildTypeSignature();
       s = ((s + " (") + operatorsOf.map_42(argNode.children, ((item, index) => {
       return "_:" + item.buildTypeSignature();
@@ -5441,27 +5571,47 @@ class CodeNode  {
   };
   getVRefSignatureWithMatch (match) {
     if ( this.has_vref_annotation ) {
-      const nn = this.vref_annotation.rebuildWithType(match, true);
+      const annotationOpt = this.vref_annotation;
+      if ( typeof(annotationOpt) === "undefined" ) {
+        return "";
+      }
+      const annotation = annotationOpt;
+      const nn = annotation.rebuildWithType(match, true);
       return "@" + nn.getCode();
     }
     return "";
   };
   getVRefSignature () {
     if ( this.has_vref_annotation ) {
-      return "@" + this.vref_annotation.getCode();
+      const annotationOpt = this.vref_annotation;
+      if ( typeof(annotationOpt) === "undefined" ) {
+        return "";
+      }
+      const annotation = annotationOpt;
+      return "@" + annotation.getCode();
     }
     return "";
   };
   getTypeSignatureWithMatch (match) {
     if ( this.has_type_annotation ) {
-      const nn = this.type_annotation.rebuildWithType(match, true);
+      const annotationOpt = this.type_annotation;
+      if ( typeof(annotationOpt) === "undefined" ) {
+        return "";
+      }
+      const annotation = annotationOpt;
+      const nn = annotation.rebuildWithType(match, true);
       return "@" + nn.getCode();
     }
     return "";
   };
   getTypeSignature () {
     if ( this.has_type_annotation ) {
-      return "@" + this.type_annotation.getCode();
+      const annotationOpt = this.type_annotation;
+      if ( typeof(annotationOpt) === "undefined" ) {
+        return "";
+      }
+      const annotation = annotationOpt;
+      return "@" + annotation.getCode();
     }
     return "";
   };
@@ -6344,8 +6494,10 @@ class RangerAppWriterContext  {
     if ( (typeof(this.lastBlockOp) !== "undefined" && this.lastBlockOp != null )  ) {
       return this.lastBlockOp;
     }
-    if ( (typeof(this.parent) !== "undefined" && this.parent != null )  ) {
-      return this.parent.getLastBlockOp();
+    const parentOpt = this.parent;
+    if ( (typeof(parentOpt) !== "undefined" && parentOpt != null )  ) {
+      const parentCtx = parentOpt;
+      return parentCtx.getLastBlockOp();
     }
     return this.lastBlockOp;
   };
@@ -6545,8 +6697,9 @@ class RangerAppWriterContext  {
     code.filename = "dynamically_generated";
     const parser_1 = new RangerLispParser(code);
     parser_1.parse(this.hasCompilerFlag("no-op-transform"));
-    if ( typeof(parser_1.rootNode) != "undefined" ) {
-      const root = parser_1.rootNode;
+    const rootNodeOpt = parser_1.rootNode;
+    if ( (typeof(rootNodeOpt) !== "undefined" && rootNodeOpt != null )  ) {
+      const root = rootNodeOpt;
       node.children.push(root);
     }
   };
@@ -6555,8 +6708,9 @@ class RangerAppWriterContext  {
     code.filename = "dynamically_generated";
     const parser_1 = new RangerLispParser(code);
     parser_1.parse(this.hasCompilerFlag("no-op-transform"));
-    if ( typeof(parser_1.rootNode) != "undefined" ) {
-      const root = parser_1.rootNode;
+    const rootNodeOpt = parser_1.rootNode;
+    if ( (typeof(rootNodeOpt) !== "undefined" && rootNodeOpt != null )  ) {
+      const root = rootNodeOpt;
       const myParser = new RangerFlowParser();
       const rootCtx = this.getRoot();
       myParser.CollectMethods(root, rootCtx, wr);
@@ -6567,8 +6721,9 @@ class RangerAppWriterContext  {
     code.filename = "dynamically_generated";
     const parser_1 = new RangerLispParser(code);
     parser_1.parse(this.hasCompilerFlag("no-op-transform"));
-    if ( typeof(parser_1.rootNode) != "undefined" ) {
-      const root = parser_1.rootNode;
+    const rootNodeOpt = parser_1.rootNode;
+    if ( (typeof(rootNodeOpt) !== "undefined" && rootNodeOpt != null )  ) {
+      const root = rootNodeOpt;
       const myParser = new RangerFlowParser();
       const rootCtx = this.getRoot();
       myParser.CollectMethods(root, rootCtx, wr);
@@ -6596,7 +6751,8 @@ class RangerAppWriterContext  {
     if ( typeof(this.parent) === "undefined" ) {
       return res;
     }
-    return this.parent.getViewClass(s_name);
+    const parentCtx = this.parent;
+    return parentCtx.getViewClass(s_name);
   };
   addOpNs (n) {
     this.opNs.push(n);
@@ -6676,8 +6832,10 @@ class RangerAppWriterContext  {
     if ( this.is_capturing ) {
       return true;
     }
-    if ( typeof(this.parent) != "undefined" ) {
-      return this.parent.isCapturing();
+    const parentOpt = this.parent;
+    if ( (typeof(parentOpt) !== "undefined" && parentOpt != null )  ) {
+      const parentCtx = parentOpt;
+      return parentCtx.isCapturing();
     }
     return false;
   };
@@ -6763,8 +6921,10 @@ class RangerAppWriterContext  {
     if ( this.is_capturing ) {
       return false;
     }
-    if ( typeof(this.parent) != "undefined" ) {
-      return this.parent.isLocalToCapture(name);
+    const parentOpt = this.parent;
+    if ( (typeof(parentOpt) !== "undefined" && parentOpt != null )  ) {
+      const parentCtx = parentOpt;
+      return parentCtx.isLocalToCapture(name);
     }
     return false;
   };
@@ -6775,16 +6935,20 @@ class RangerAppWriterContext  {
       }
       return;
     }
-    if ( typeof(this.parent) != "undefined" ) {
-      this.parent.addCapturedVariable(name);
+    const parentOpt = this.parent;
+    if ( (typeof(parentOpt) !== "undefined" && parentOpt != null )  ) {
+      const parentCtx = parentOpt;
+      parentCtx.addCapturedVariable(name);
     }
   };
   getCapturedVariables () {
     if ( this.is_capturing ) {
       return this.captured_variables;
     }
-    if ( typeof(this.parent) != "undefined" ) {
-      const r = this.parent.getCapturedVariables();
+    const parentOpt = this.parent;
+    if ( (typeof(parentOpt) !== "undefined" && parentOpt != null )  ) {
+      const parentCtx = parentOpt;
+      const r = parentCtx.getCapturedVariables();
       return r;
     }
     let res = [];
@@ -6865,7 +7029,11 @@ class RangerAppWriterContext  {
     if ( (typeof(this.reservedWords) !== "undefined" && this.reservedWords != null )  ) {
       return true;
     }
-    const main = this.langOperators;
+    const mainOpt = this.langOperators;
+    if ( typeof(mainOpt) === "undefined" ) {
+      return true;
+    }
+    const main = mainOpt;
     let lang;
     // Loop start
     for ( const m of main.children) {
@@ -6912,7 +7080,11 @@ class RangerAppWriterContext  {
     if ( typeof(this.langOperators) === "undefined" ) {
       return true;
     }
-    const main = this.langOperators;
+    const mainOpt = this.langOperators;
+    if ( typeof(mainOpt) === "undefined" ) {
+      return true;
+    }
+    const main = mainOpt;
     let lang;
     // Loop start
     for ( const m of main.children) {
@@ -7078,7 +7250,11 @@ class RangerAppWriterContext  {
   };
   findClassWithSign (node) {
     const root = this.getRoot();
-    const tplArgs = node.vref_annotation;
+    const tplArgsOpt = node.vref_annotation;
+    if ( typeof(tplArgsOpt) === "undefined" ) {
+      return this.findClass(node.vref);
+    }
+    const tplArgs = tplArgsOpt;
     const sign = node.vref + tplArgs.getCode();
     const theName = ( Object.prototype.hasOwnProperty.call(root.classSignatures, sign) ? root.classSignatures[sign] : undefined );
     return this.findClass(theName);
@@ -7107,10 +7283,15 @@ class RangerAppWriterContext  {
     const rCtx = this.getRoot();
     m.fnCtx = rCtx.fork();
     m.is_static = true;
-    m.nameNode.ifNoTypeSetToVoid();
+    const methodNameNodeOpt = m.nameNode;
+    if ( typeof(methodNameNodeOpt) === "undefined" ) {
+      return m;
+    }
+    const methodNameNode = methodNameNodeOpt;
+    methodNameNode.ifNoTypeSetToVoid();
     const args = argsNode;
     m.fnBody = fnBody;
-    parser.CheckTypeAnnotationOf(m.nameNode, rCtx, wr);
+    parser.CheckTypeAnnotationOf(methodNameNode, rCtx, wr);
     // Loop start
     for ( const arg of args.children) {
       if ( arg.hasFlag("noeval") ) {
@@ -7243,12 +7424,18 @@ class RangerAppWriterContext  {
       const classNode = cl.node;
       const origBody = classNode.children[2];
       const match = new RangerArgMatch();
-      const params = t_2.node.getExpressionProperty("params");
+      const traitNodeOpt = t_2.node;
+      if ( typeof(traitNodeOpt) === "undefined" ) {
+        return res;
+      }
+      const traitNode = traitNodeOpt;
+      const params = traitNode.getExpressionProperty("params");
       const traitParams = new RangerTraitParams();
       if ( (typeof(params) !== "undefined" && params != null )  ) {
+        const traitParamsNode = params;
         // Loop start
-        for ( let i = 0; i < params.children.length; i++) {
-          var typeName = params.children[i];
+        for ( let i = 0; i < traitParamsNode.children.length; i++) {
+          var typeName = traitParamsNode.children[i];
           let set_value = "";
           if ( initParams.children.length > i ) {
             const pArg = initParams.children[i];
@@ -7269,17 +7456,31 @@ class RangerAppWriterContext  {
       const traitClass = t_2;
       // Loop start
       for ( const pvar of traitClass.variables) {
-        const ccopy = pvar.node.rebuildWithType(match, true);
+        const variableNodeOpt = pvar.node;
+        if ( typeof(variableNodeOpt) === "undefined" ) {
+          continue;
+        }
+        const variableNode = variableNodeOpt;
+        const ccopy = variableNode.rebuildWithType(match, true);
         flowParser.WalkCollectMethods(ccopy, ctx, wr);
         origBody.children.push(ccopy);
       }
       // Loop start
       for ( let i_2 = 0; i_2 < traitClass.defined_variants.length; i_2++) {
         var fnVar = traitClass.defined_variants[i_2];
-        const mVs = ( Object.prototype.hasOwnProperty.call(traitClass.method_variants, fnVar) ? traitClass.method_variants[fnVar] : undefined );
+        const variantsOpt = ( Object.prototype.hasOwnProperty.call(traitClass.method_variants, fnVar) ? traitClass.method_variants[fnVar] : undefined );
+        if ( typeof(variantsOpt) === "undefined" ) {
+          continue;
+        }
+        const mVs = variantsOpt;
         // Loop start
         for ( const variant of mVs.variants) {
-          const ccopy_1 = variant.node.rebuildWithType(match, true);
+          const variantNodeOpt = variant.node;
+          if ( typeof(variantNodeOpt) === "undefined" ) {
+            continue;
+          }
+          const variantNode = variantNodeOpt;
+          const ccopy_1 = variantNode.rebuildWithType(match, true);
           flowParser.WalkCollectMethods(ccopy_1, ctx, wr);
           origBody.children.push(ccopy_1);
         }
@@ -7385,7 +7586,11 @@ class RangerAppWriterContext  {
       for ( let i = 0; i < cl.defined_variants.length; i++) {
         var fnVar = cl.defined_variants[i];
         if ( fnVar == fname ) {
-          const mVs = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar) ? cl.method_variants[fnVar] : undefined );
+          const variantsOpt = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar) ? cl.method_variants[fnVar] : undefined );
+          if ( typeof(variantsOpt) === "undefined" ) {
+            continue;
+          }
+          const mVs = variantsOpt;
           // Loop start
           for ( const variant of mVs.variants) {
             res = variant;
@@ -7398,7 +7603,11 @@ class RangerAppWriterContext  {
   };
   getFileWriter (path, fileName) {
     const root = this.getRoot();
-    const fs = root.fileSystem;
+    const fileSystemOpt = root.fileSystem;
+    if ( typeof(fileSystemOpt) === "undefined" ) {
+      return new CodeWriter();
+    }
+    const fs = fileSystemOpt;
     const file = fs.getFile(path, fileName);
     let wr;
     wr = file.getWriter();
@@ -79619,12 +79828,12 @@ class VirtualCompiler  {
       console.log("  " + cli.gray(err_msg));
       res.hasErrors = true;
       res.ctx = appCtx;
-      if ( typeof(lcc.lastProcessedNode) != "undefined" ) {
+      if ( (typeof(lcc.lastProcessedNode) !== "undefined" && lcc.lastProcessedNode != null )  ) {
         console.log("");
         console.log(cli.gray("Error occurred near:"));
         console.log("  " + lcc.lastProcessedNode.getLineAsString());
       } else {
-        if ( typeof(flowParser.lastProcessedNode) != "undefined" ) {
+        if ( (typeof(flowParser.lastProcessedNode) !== "undefined" && flowParser.lastProcessedNode != null )  ) {
           console.log("");
           console.log(cli.gray("Error occurred near:"));
           console.log("  " + flowParser.lastProcessedNode.getLineAsString());
@@ -80687,7 +80896,7 @@ operatorsOf_21.getTargetLang_29 = function(__self) {
   if ( __self.targetLangName.length > 0 ) {
     return __self.targetLangName;
   }
-  if ( typeof(__self.parent) != "undefined" ) {
+  if ( (typeof(__self.parent) !== "undefined" && __self.parent != null )  ) {
     return operatorsOf_21.getTargetLang_29(__self.parent);
   }
   return "ranger";

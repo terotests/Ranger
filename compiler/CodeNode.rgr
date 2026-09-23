@@ -12,12 +12,8 @@ class SourceCode {
     def code:string ""
     def lines:[string]
     def filename:string ""
-    Constructor (code_str@(optional):string ) {
-        def str:string ""
-        if (!null? code_str) {
-            str = ( unwrap code_str )
-        }
-        this.code = str
+    Constructor (code_str:string ) {
+      this.code = code_str
         lines = (strsplit this.code "\n")
     }
     
@@ -293,10 +289,11 @@ class CodeNode {
       return true
     }
     if(node.hasParamDesc) {
-      def p:RangerAppParamDesc node.paramDesc
-      if (null? p) {
+      def pOpt@(optional):RangerAppParamDesc node.paramDesc
+      if (null? pOpt) {
         return false
       }
+      def p:RangerAppParamDesc (unwrap pOpt)
       if(p.is_optional) {
         return true
       }
@@ -627,7 +624,11 @@ class CodeNode {
     if (null? flag) { return false }
     def uflag:CodeNode (unwrap flag)
     if (uflag.has_vref_annotation) {
-      def ann:CodeNode uflag.vref_annotation
+      def annOpt@(optional):CodeNode uflag.vref_annotation
+      if (null? annOpt) {
+        return false
+      }
+      def ann:CodeNode (unwrap annOpt)
       for ann.children ch:CodeNode i {
         if (ch.vref == paramName) {
           return true
@@ -671,19 +672,39 @@ class CodeNode {
   }
   fn getLine:int () {
     def lnSp:int sp
-    return (code.getLine(lnSp))
+    def sourceOpt@(optional):SourceCode code
+    if (null? sourceOpt) {
+      return -1
+    }
+    def source:SourceCode (unwrap sourceOpt)
+    return (source.getLine(lnSp))
   }
   fn getLineString:string (line_index:int) {
-    return (code.getLineString(line_index))
+    def sourceOpt@(optional):SourceCode code
+    if (null? sourceOpt) {
+      return ""
+    }
+    def source:SourceCode (unwrap sourceOpt)
+    return (source.getLineString(line_index))
   }
   fn getColStartString:string () {
     def colSp:int sp
-    return (code.getColumnStr(colSp))
+    def sourceOpt@(optional):SourceCode code
+    if (null? sourceOpt) {
+      return ""
+    }
+    def source:SourceCode (unwrap sourceOpt)
+    return (source.getColumnStr(colSp))
   }
   fn getLineAsString:string () {
     def idx:int (this.getLine())
     def line_name_idx:int (idx + 1)
-    return ((this.getFilename()) + ", line " + line_name_idx + " : " + (code.getLineString(idx)))
+    def sourceOpt@(optional):SourceCode code
+    if (null? sourceOpt) {
+      return ""
+    }
+    def source:SourceCode (unwrap sourceOpt)
+    return ((this.getFilename()) + ", line " + line_name_idx + " : " + (source.getLineString(idx)))
   }
   fn getSource:string () {
     if (ep > sp)  {

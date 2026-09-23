@@ -1290,7 +1290,7 @@ func rg_sha256_hex(_ input: String) -> String {
                 llvm ( nl "nullify " (e 1) nl)
                 es6 ( (e 1) " = undefined;" nl)
                 java7 ( (e 1) " = null;" nl)
-                cpp ( (e 1) "= NULL;" nl)
+                cpp ( (e 1) " = std::nullopt;" nl (imp "<optional>"))
                 ; Optionals ride a *GoNullable wrapper the constructor
                 ; allocates once; clearing means emptying the wrapper, never
                 ; nilling the wrapper pointer itself -- readers dereference it.
@@ -1516,38 +1516,10 @@ func r_io_get_env( name string) *GoNullable {
                 ; same story as read_file: the operator is optional and Python
                 ; already answers None for a name that is not set. C++ handed
                 ; back the empty string for unset and for set-to-empty alike.
-                cpp ( "r_cpp_env_var(" (e 1) ")" (imp "<cstdlib>")
-(create_polyfill
-"
-template <class T>
-class r_optional_primitive {
-  public:
-    // has_value has to start false: cpp_str_to_int and its siblings leave the
-    // field untouched when the conversion throws, and an indeterminate bool
-    // made a failed str2int read back as a value on the C++ target.
-    bool has_value = false;
-    T value = T();
-    r_optional_primitive() {}
-    // a plain value placed into an optional slot: returning a bare string
-    // from a function declared @(optional):string arrives here. Declaring
-    // any constructor takes the implicit default one away, hence the pair.
-    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
-    r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
-        has_value = rhs.has_value;
-        value = rhs.value;
-        return *this;
-    }
-    r_optional_primitive<T> & operator=(const T a_value) {
-        has_value = true;
-        value = a_value;
-        return *this;
-    }
-};
-"
-)
+                cpp ( "r_cpp_env_var(" (e 1) ")" (imp "<cstdlib>") (imp "<optional>")
 (create_polyfill "
-inline r_optional_primitive<std::string> r_cpp_env_var(const std::string& name) {
-    r_optional_primitive<std::string> res;
+inline std::optional<std::string> r_cpp_env_var(const std::string& name) {
+    std::optional<std::string> res;
     const char* v = std::getenv(name.c_str());
     if (v) { res = std::string(v); }
     return res;
@@ -4252,7 +4224,7 @@ static class RgFiles {
 
         unwrap       cmdUnwrap:int        ( arg@(optional):int ) {
             templates {
-                cpp ( (e 1) ".value()" )
+                cpp ( (e 1) ".value" )
                 ; an optional int is `int?` on C#, and Nullable<T> does not
                 ; convert back to T on its own
                 csharp ( "(" (e 1) ").Value" )
@@ -5537,7 +5509,7 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
             templates {
                 ranger ("(null? " (e 1) ")")
                 php ( "(!isset(" (e 1) "))")                                
-                cpp ((e 1) " == NULL")                                
+                cpp ("!" (e 1) ".has_value()")
                 swift3 ((e 1) " == nil")  
                 swift6 ((e 1) " == nil")  
                 java7 ( (e 1) " == null")  

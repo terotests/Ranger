@@ -433,8 +433,10 @@ class RangerAppWriterContext {
     if(!null? lastBlockOp) {
       return lastBlockOp
     }
-    if(!null? parent) {
-      return (this.parent.getLastBlockOp())
+    def parentOpt@(optional):RangerAppWriterContext parent
+    if(!null? parentOpt) {
+      def parentCtx:RangerAppWriterContext (unwrap parentOpt)
+      return (parentCtx.getLastBlockOp())
     }
     return lastBlockOp
   }
@@ -665,8 +667,9 @@ class RangerAppWriterContext {
       def parser:RangerLispParser (new RangerLispParser (code))
       parser.parse((this.hasCompilerFlag("no-op-transform")))
 
-      if(parser.rootNode) {
-        def root (unwrap parser.rootNode)
+      def rootNodeOpt@(optional):CodeNode parser.rootNode
+      if(!null? rootNodeOpt) {
+        def root:CodeNode (unwrap rootNodeOpt)
         push node.children root
 
 ;        def rootCtx (this.getRoot())
@@ -681,8 +684,9 @@ class RangerAppWriterContext {
       code.filename = 'dynamically_generated'
       def parser:RangerLispParser (new RangerLispParser (code))
       parser.parse((this.hasCompilerFlag("no-op-transform")))
-      if(parser.rootNode) {
-        def root (unwrap parser.rootNode)
+      def rootNodeOpt@(optional):CodeNode parser.rootNode
+      if(!null? rootNodeOpt) {
+        def root:CodeNode (unwrap rootNodeOpt)
         def myParser (new RangerFlowParser())
         def rootCtx (this.getRoot())
         myParser.CollectMethods( root rootCtx wr )
@@ -696,8 +700,9 @@ class RangerAppWriterContext {
       def parser:RangerLispParser (new RangerLispParser (code))
       parser.parse((this.hasCompilerFlag("no-op-transform")))
 
-      if(parser.rootNode) {
-        def root (unwrap parser.rootNode)
+      def rootNodeOpt@(optional):CodeNode parser.rootNode
+      if(!null? rootNodeOpt) {
+        def root:CodeNode (unwrap rootNodeOpt)
         def myParser (new RangerFlowParser())
 ;        def myParser (this.getParser())
         def rootCtx (this.getRoot())
@@ -728,7 +733,8 @@ class RangerAppWriterContext {
     if (null? parent) {
       return res
     }
-    return (parent.getViewClass(s_name))
+    def parentCtx:RangerAppWriterContext (unwrap parent)
+    return (parentCtx.getViewClass(s_name))
   }
 
   fn addOpNs ( n:string ) {
@@ -820,8 +826,10 @@ class RangerAppWriterContext {
     if(is_capturing) {
       return true
     }
-    if parent {
-      return (parent.isCapturing())
+    def parentOpt@(optional):RangerAppWriterContext parent
+    if (!null? parentOpt) {
+      def parentCtx:RangerAppWriterContext (unwrap parentOpt)
+      return (parentCtx.isCapturing())
     }
     return false
   }
@@ -910,8 +918,10 @@ class RangerAppWriterContext {
     if(is_capturing) {
       return false
     }
-    if(parent) {
-      return (parent.isLocalToCapture(name))
+    def parentOpt@(optional):RangerAppWriterContext parent
+    if(!null? parentOpt) {
+      def parentCtx:RangerAppWriterContext (unwrap parentOpt)
+      return (parentCtx.isLocalToCapture(name))
     }
     return false
   }
@@ -923,16 +933,20 @@ class RangerAppWriterContext {
       }      
       return
     }
-    if(parent) {
-      parent.addCapturedVariable( name )
+    def parentOpt@(optional):RangerAppWriterContext parent
+    if(!null? parentOpt) {
+      def parentCtx:RangerAppWriterContext (unwrap parentOpt)
+      parentCtx.addCapturedVariable(name)
     }
   }
   fn getCapturedVariables@(weak):[string] () {
     if(is_capturing) {
       return captured_variables
     }
-    if(parent) {
-      def r@(weak):[string] ( parent.getCapturedVariables() )
+    def parentOpt@(optional):RangerAppWriterContext parent
+    if(!null? parentOpt) {
+      def parentCtx:RangerAppWriterContext (unwrap parentOpt)
+      def r@(weak):[string] (parentCtx.getCapturedVariables())
       return r
     }
     def res:[string]
@@ -1049,7 +1063,11 @@ class RangerAppWriterContext {
     if(!null? reservedWords) {
       return true
     }
-    def main:CodeNode langOperators
+    def mainOpt@(optional):CodeNode langOperators
+    if (null? mainOpt) {
+      return true
+    }
+    def main:CodeNode (unwrap mainOpt)
     def lang:CodeNode
     for main.children m:CodeNode i {
       def fc:CodeNode (m.getFirst())
@@ -1093,7 +1111,11 @@ class RangerAppWriterContext {
     if (null? langOperators) {
       return true
     }
-    def main:CodeNode langOperators
+    def mainOpt@(optional):CodeNode langOperators
+    if (null? mainOpt) {
+      return true
+    }
+    def main:CodeNode (unwrap mainOpt)
     def lang:CodeNode
     for main.children m:CodeNode i {
       def fc:CodeNode (m.getFirst())
@@ -1269,7 +1291,11 @@ class RangerAppWriterContext {
   }
   fn findClassWithSign:RangerAppClassDesc (node:CodeNode) {
     def root:RangerAppWriterContext (this.getRoot())
-    def tplArgs:CodeNode node.vref_annotation
+    def tplArgsOpt@(optional):CodeNode node.vref_annotation
+    if (null? tplArgsOpt) {
+      return (this.findClass(node.vref))
+    }
+    def tplArgs:CodeNode (unwrap tplArgsOpt)
     def sign:string (node.vref + (tplArgs.getCode()))
     def theName:string (get root.classSignatures sign)
     return (this.findClass((unwrap theName)))
@@ -1304,10 +1330,15 @@ class RangerAppWriterContext {
     def rCtx (this.getRoot())
     m.fnCtx = (rCtx.fork())
     m.is_static = true
-    m.nameNode.ifNoTypeSetToVoid()
+    def methodNameNodeOpt@(optional):CodeNode m.nameNode
+    if (null? methodNameNodeOpt) {
+      return m
+    }
+    def methodNameNode:CodeNode (unwrap methodNameNodeOpt)
+    methodNameNode.ifNoTypeSetToVoid()
     def args:CodeNode argsNode
     m.fnBody = fnBody  
-    parser.CheckTypeAnnotationOf( (unwrap m.nameNode) rCtx wr )
+    parser.CheckTypeAnnotationOf(methodNameNode rCtx wr)
 
     ; print "---> compiled to " + m.compiledName
 
@@ -1473,11 +1504,17 @@ class RangerAppWriterContext {
       def origBody:CodeNode (itemAt classNode.children 2)
       def match:RangerArgMatch (new RangerArgMatch ())
 
-      def params (t.node.getExpressionProperty("params"))
+      def traitNodeOpt@(optional):CodeNode t.node
+      if (null? traitNodeOpt) {
+        return res
+      }
+      def traitNode:CodeNode (unwrap traitNodeOpt)
+      def params@(optional):CodeNode (traitNode.getExpressionProperty("params"))
       def traitParams (new RangerTraitParams)
 
       if( (!null? params) ) {
-        for params.children typeName:CodeNode i {
+        def traitParamsNode:CodeNode (unwrap params)
+        for traitParamsNode.children typeName:CodeNode i {
           def set_value ""
           if( ( array_length initParams.children) > i ) {
             def pArg (itemAt initParams.children i)
@@ -1501,14 +1538,28 @@ class RangerAppWriterContext {
 
       def traitClass t
       for traitClass.variables pvar:RangerAppParamDesc i {
-        def ccopy:CodeNode (pvar.node.rebuildWithType(match true))      
+        def variableNodeOpt@(optional):CodeNode pvar.node
+        if (null? variableNodeOpt) {
+          continue
+        }
+        def variableNode:CodeNode (unwrap variableNodeOpt)
+        def ccopy:CodeNode (variableNode.rebuildWithType(match true))
         flowParser.WalkCollectMethods( ccopy ctx wr )
         push origBody.children ccopy
       }
       for traitClass.defined_variants fnVar:string i {
-        def mVs:RangerAppMethodVariants (get traitClass.method_variants fnVar)
+        def variantsOpt@(optional):RangerAppMethodVariants (get traitClass.method_variants fnVar)
+        if (null? variantsOpt) {
+          continue
+        }
+        def mVs:RangerAppMethodVariants (unwrap variantsOpt)
         for mVs.variants variant:RangerAppFunctionDesc i {
-          def ccopy:CodeNode (variant.node.rebuildWithType(match true))      
+          def variantNodeOpt@(optional):CodeNode variant.node
+          if (null? variantNodeOpt) {
+            continue
+          }
+          def variantNode:CodeNode (unwrap variantNodeOpt)
+          def ccopy:CodeNode (variantNode.rebuildWithType(match true))
           flowParser.WalkCollectMethods( ccopy ctx wr )
           push origBody.children ccopy
         }            
@@ -1628,7 +1679,11 @@ class RangerAppWriterContext {
       def cl (this.findClass(cname))
       for cl.defined_variants fnVar:string i {
           if(fnVar == fname) {
-            def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
+            def variantsOpt@(optional):RangerAppMethodVariants (get cl.method_variants fnVar)
+            if (null? variantsOpt) {
+              continue
+            }
+            def mVs:RangerAppMethodVariants (unwrap variantsOpt)
             for mVs.variants variant:RangerAppFunctionDesc i {
               res = variant
               return res
@@ -1641,7 +1696,11 @@ class RangerAppWriterContext {
 
   fn getFileWriter:CodeWriter (path:string fileName:string) {
     def root:RangerAppWriterContext (this.getRoot())
-    def fs:CodeFileSystem root.fileSystem
+    def fileSystemOpt@(optional):CodeFileSystem root.fileSystem
+    if (null? fileSystemOpt) {
+      return (new CodeWriter())
+    }
+    def fs:CodeFileSystem (unwrap fileSystemOpt)
     def file:CodeFile (fs.getFile(path fileName))
     def wr:CodeWriter 
     wr = (file.getWriter())

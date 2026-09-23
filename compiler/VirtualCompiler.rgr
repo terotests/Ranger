@@ -1511,12 +1511,12 @@ class tester {
       ; and not from run() -- `too many return values, have (*CompilerResults),
       ; want ()`. The nesting below says the same thing without one; all three
       ; paths ended with the same two statements anyway.
-      if(lcc.lastProcessedNode) {
+      if(!null? lcc.lastProcessedNode) {
         print ""
         print (cli.gray("Error occurred near:"))
         print "  " + (lcc.lastProcessedNode.getLineAsString())
       } {
-        if(flowParser.lastProcessedNode) {
+        if(!null? flowParser.lastProcessedNode) {
           print ""
           print (cli.gray("Error occurred near:"))
           print "  " + (flowParser.lastProcessedNode.getLineAsString())

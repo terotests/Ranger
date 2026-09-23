@@ -140,7 +140,11 @@ class RangerApiBuilder {
     if (m.has_doc == false) {
       return
     }
-    def doc:RangerDocBlock m.doc
+    def docOpt@(optional):RangerDocBlock m.doc
+    if (null? docOpt) {
+      return
+    }
+    def doc:RangerDocBlock (unwrap docOpt)
     def seen:[string:boolean]
     for doc.params dp:RangerDocParam i {
       def found:boolean false
@@ -275,7 +279,7 @@ class RangerApiBuilder {
     ; pass one: which declared classes are API. A method can name a class the
     ; registry lists after it, so the answer has to exist before the check.
     for root.definedClassList cname:string pi {
-      def pcl:RangerAppClassDesc (get root.definedClasses cname)
+      def pcl:RangerAppClassDesc (unwrap (get root.definedClasses cname))
       if ((pcl.isNormalClass()) == false) {
         continue
       }
@@ -298,7 +302,7 @@ class RangerApiBuilder {
       }
     }
     for root.definedClassList cname:string ci {
-      def cl:RangerAppClassDesc (get root.definedClasses cname)
+      def cl:RangerAppClassDesc (unwrap (get root.definedClasses cname))
       if (cl.is_system) {
         continue
       }
@@ -455,7 +459,7 @@ class RangerDocCommentWriter {
   sfn lookupFn:RangerAppFunctionDesc (ctx:RangerAppWriterContext name:string) {
     def root:RangerAppWriterContext (ctx.getRoot())
     for root.definedClassList cname:string ci {
-      def cl:RangerAppClassDesc (get root.definedClasses cname)
+      def cl:RangerAppClassDesc (unwrap (get root.definedClasses cname))
       def m@(optional):RangerAppFunctionDesc (cl.findStaticMethod(name))
       if ((null? m) == false) {
         return (unwrap m)

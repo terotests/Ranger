@@ -25,7 +25,7 @@ operator type:RangerAppWriterContext all {
     if( has self.targetLangName ) {
         return self.targetLangName
     }
-    if(self.parent) {
+    if(!null? self.parent) {
       return (getTargetLang (unwrap self.parent))
     }
     return "ranger"
