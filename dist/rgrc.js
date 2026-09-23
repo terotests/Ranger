@@ -7693,7 +7693,8 @@ class RangerAppWriterContext  {
     if ( typeof(this.parent) === "undefined" ) {
       return false;
     }
-    return this.parent.isEnumDefined(n);
+    const parentCtx = this.parent;
+    return parentCtx.isEnumDefined(n);
   };
   getEnum (n) {
     let res;
@@ -7713,7 +7714,8 @@ class RangerAppWriterContext  {
     if ( typeof(this.parent) === "undefined" ) {
       return false;
     }
-    return this.parent.isVarDefined(name);
+    const parentCtx = this.parent;
+    return parentCtx.isVarDefined(name);
   };
   setFlag (name, value) {
     this.contextFlags[name] = value;
@@ -7770,7 +7772,8 @@ class RangerAppWriterContext  {
     if ( typeof(this.parent) === "undefined" ) {
       return "";
     }
-    return this.parent.getCompilerSetting(s_name);
+    const parentCtx = this.parent;
+    return parentCtx.getCompilerSetting(s_name);
   };
   hasCompilerSetting (s_name) {
     if ( ( typeof(this.compilerSettings[s_name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.compilerSettings, s_name) ) ) {
@@ -7779,7 +7782,8 @@ class RangerAppWriterContext  {
     if ( typeof(this.parent) === "undefined" ) {
       return false;
     }
-    return this.parent.hasCompilerSetting(s_name);
+    const parentCtx = this.parent;
+    return parentCtx.hasCompilerSetting(s_name);
   };
   getVariableDef (name) {
     if ( ( typeof(this.localVariables[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.localVariables, name) ) ) {
@@ -7789,7 +7793,8 @@ class RangerAppWriterContext  {
       const tmp = new RangerAppParamDesc();
       return tmp;
     }
-    return this.parent.getVariableDef(name);
+    const parentCtx = this.parent;
+    return parentCtx.getVariableDef(name);
   };
   findFunctionCtx () {
     if ( this.is_function ) {
@@ -7798,7 +7803,8 @@ class RangerAppWriterContext  {
     if ( typeof(this.parent) === "undefined" ) {
       return this;
     }
-    return this.parent.findFunctionCtx();
+    const parentCtx = this.parent;
+    return parentCtx.findFunctionCtx();
   };
   getFnVarCnt (name) {
     const fnCtx = this.findFunctionCtx();
@@ -7835,7 +7841,8 @@ class RangerAppWriterContext  {
       ii = ( Object.prototype.hasOwnProperty.call(fnCtx.defCounts, name) ? fnCtx.defCounts[name] : undefined );
     }
     if ( (typeof(fnCtx.parent) !== "undefined" && fnCtx.parent != null )  ) {
-      ii = ii + fnCtx.parent.getVarTotalCnt(name);
+      const parentCtx = fnCtx.parent;
+      ii = ii + parentCtx.getVarTotalCnt(name);
     }
     if ( this.isVarDefined(name) ) {
       ii = ii + 1;
@@ -7853,7 +7860,8 @@ class RangerAppWriterContext  {
       fnCtx.defCounts[name] = 1;
     }
     if ( (typeof(fnCtx.parent) !== "undefined" && fnCtx.parent != null )  ) {
-      ii = ii + fnCtx.parent.getFnVarCnt2(name);
+      const parentCtx = fnCtx.parent;
+      ii = ii + parentCtx.getFnVarCnt2(name);
     }
     const scope_has = this.isVarDefined(name);
     if ( scope_has ) {

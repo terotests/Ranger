@@ -1792,7 +1792,8 @@ class RangerAppWriterContext {
     if (null? parent) {
       return false
     }
-    return (parent.isEnumDefined(n))
+    def parentCtx:RangerAppWriterContext (unwrap parent)
+    return (parentCtx.isEnumDefined(n))
   }
   fn getEnum@(optional weak):RangerAppEnum (n:string) {
     def res@(optional):RangerAppEnum
@@ -1812,7 +1813,8 @@ class RangerAppWriterContext {
     if (null? parent) {
       return false
     }
-    return (parent.isVarDefined(name))
+    def parentCtx:RangerAppWriterContext (unwrap parent)
+    return (parentCtx.isVarDefined(name))
   }
 
   fn setFlag(name:string value:boolean) {
@@ -1872,7 +1874,8 @@ class RangerAppWriterContext {
     if (null? parent) {
       return ""
     }
-    return (parent.getCompilerSetting(s_name))
+    def parentCtx:RangerAppWriterContext (unwrap parent)
+    return (parentCtx.getCompilerSetting(s_name))
   }
   fn hasCompilerSetting:boolean (s_name:string) {
     if (has compilerSettings s_name) {
@@ -1881,7 +1884,8 @@ class RangerAppWriterContext {
     if (null? parent) {
       return false
     }
-    return (parent.hasCompilerSetting(s_name))
+    def parentCtx:RangerAppWriterContext (unwrap parent)
+    return (parentCtx.hasCompilerSetting(s_name))
   }
   
   fn getVariableDef:RangerAppParamDesc (name:string) {
@@ -1892,7 +1896,8 @@ class RangerAppWriterContext {
       def tmp:RangerAppParamDesc (new RangerAppParamDesc ())
       return tmp
     }
-    return (parent.getVariableDef(name))
+    def parentCtx:RangerAppWriterContext (unwrap parent)
+    return (parentCtx.getVariableDef(name))
   }
   fn findFunctionCtx:RangerAppWriterContext () {
     if is_function {
@@ -1901,7 +1906,8 @@ class RangerAppWriterContext {
     if (null? parent) {
       return this
     }
-    return (parent.findFunctionCtx())
+    def parentCtx:RangerAppWriterContext (unwrap parent)
+    return (parentCtx.findFunctionCtx())
   }
   fn getFnVarCnt:int (name:string) {
     def fnCtx:RangerAppWriterContext (this.findFunctionCtx())
@@ -1937,7 +1943,8 @@ class RangerAppWriterContext {
       ii = (unwrap (get fnCtx.defCounts name))
     }
     if (!null? fnCtx.parent) {
-      ii = (ii + (fnCtx.parent.getVarTotalCnt(name)))
+      def parentCtx:RangerAppWriterContext (unwrap fnCtx.parent)
+      ii = (ii + (parentCtx.getVarTotalCnt(name)))
     }
     if (this.isVarDefined(name )) {
         ii = ii + 1
@@ -1955,7 +1962,8 @@ class RangerAppWriterContext {
       set fnCtx.defCounts name 1
     }
     if (!null? fnCtx.parent) {
-      ii = (ii + (fnCtx.parent.getFnVarCnt2(name)))
+      def parentCtx:RangerAppWriterContext (unwrap fnCtx.parent)
+      ii = (ii + (parentCtx.getFnVarCnt2(name)))
     }
 
     def scope_has:boolean (this.isVarDefined(name ))
