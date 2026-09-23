@@ -11,10 +11,6 @@ class RangerJavaScriptClassWriter {
 
   Extends (RangerGenericClassWriter)
 
-  ; `start server <port>` on a class annotated @(HttpServer). The operator is
-  ; declared `(custom _)` for es6 in Lang.rgr, so it arrives here; the Go writer
-  ; takes the same route into RangerGolangHttpServerWriter. ISSUES.md #93.
-  def httpServerWriter:RangerJavaScriptHttpServerWriter (new RangerJavaScriptHttpServerWriter())
 
   ; --- the generated `for` (PLAN_CPP_IDIOMS C4, the JavaScript half) ---------
   ; `for ( let i = 0; i < xs.length; i++) { var v = xs[i]; ... }` is the loop
@@ -48,11 +44,7 @@ class RangerJavaScriptClassWriter {
 
     wr.out("// Loop start" true )
 
-    ; Check if the collection is optional and handle it accordingly
-    ; ctx.isOptional(coll)
-
     def isOptional:boolean (ctx.isOptional(coll))
-
 
     if (jsLoops.canIterate(node)) {
       wr.out("for ( " false)
@@ -109,36 +101,6 @@ class RangerJavaScriptClassWriter {
       this.jsWriteForLoop(node ctx wr)
       return
     }
-    if (cmd != "start") {
-      return
-    }
-    if ((array_length node.children) < 2) {
-      return
-    }
-    def serverArg:CodeNode (node.getSecond())
-    if ((serverArg.hasParamDesc) == false) {
-      return
-    }
-    def paramDesc:RangerAppParamDesc serverArg.paramDesc
-    if (null? paramDesc.nameNode) {
-      return
-    }
-    def typeName:string paramDesc.nameNode.type_name
-    def isHttpServer:boolean false
-    if (typeName == "HttpServer") {
-      isHttpServer = true
-    }
-    if (ctx.isDefinedClass(typeName)) {
-      def serverClass:RangerAppClassDesc (ctx.findClass(typeName))
-      if (serverClass.isSystemclassType("HttpServer")) {
-        isHttpServer = true
-      }
-    }
-    if (isHttpServer == false) {
-      return
-    }
-    def srvWriter:RangerJavaScriptHttpServerWriter (new RangerJavaScriptHttpServerWriter())
-    srvWriter.writeServerStart(serverArg node ctx wr this)
   }
   def compiler:LiveCompiler
   def thisName:string "this"
@@ -220,23 +182,7 @@ class RangerJavaScriptClassWriter {
   }
 
   fn isOptionalReference:boolean (node:CodeNode) {
-    if (node.hasFlag("optional")) {
-      return true
-    }
-    if(node.hasParamDesc) {
-      def p:RangerAppParamDesc node.paramDesc
-      if(p.is_optional) {
-        return true
-      }
-    }
-    if((array_length node.nsp) > 0) {
-      def lastIdx:int ((array_length node.nsp) - 1)
-      def lp:RangerAppParamDesc (itemAt node.nsp lastIdx)
-      if(lp.is_optional) {
-        return true
-      }
-    }
-    return false
+    return (node.IsOptional())
   }
 
   fn writeFnCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {

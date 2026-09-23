@@ -31,11 +31,6 @@ operator type:RangerAppWriterContext all {
     return "ranger"
   }
 
-  fn addPluginOp( name:string ) {
-    def root (self.getRoot())
-    set self.pluginSpecificOperators name true
-  }
-
   fn create_var:RangerAppParamDesc ( name:string type_name:string ) {
       def fieldNode@(lives) (r.vref name type_name)
       fieldNode.value_type = (fieldNode.typeNameAsType(self))

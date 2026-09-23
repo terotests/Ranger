@@ -22,14 +22,6 @@ flag nodecli (
   name "ranger-compiler"
 )
 
-plugin.md "plugins.md" {
-  h2 'How to push code from plugins to the Ranger compiler'
-  h3 'generate_ast phase'
-  p 'Before code gets typechecke during the generate_ast phase you can use'
-  code '(source_code:string node:CodeNode wr:CodeWriter )'
-  p 'to push code before it is statically analyzed'
-}
-
 Import "VirtualCompiler.rgr"
 
 class CompilerInterface {

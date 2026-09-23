@@ -536,10 +536,6 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       return
     }
 
-    if( node.is_plugin ) {
-      this.finishWalkNode(wr)
-      return
-    }
     if( node.is_array_literal ) {
       wr.pushMappingNode(node node.vref)
       langWriter.writeArrayLiteral( node ctx wr)
@@ -1050,16 +1046,6 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
               wr.newline()
               wr.out("break;" true)
             }
-          }
-        }
-
-        ; fn addPluginNode ( name:string op@(temp):CodeNode ) {
-        case 'plugin' {
-          ; --> (plugin 'maven')
-          if( (size cmd.children) > 2) {
-            def cmdData@(lives):CodeNode (cmd.getThird())
-            def name cmdArg.string_value
-            ctx.addPluginNode( name cmdData)
           }
         }
 

@@ -13,8 +13,6 @@ Import "RangerDocGenerator.rgr"
 Import "StaticAnalysis.rgr"
 Import "RangerLLVMPipeline.rgr"
 
-Import "RangerPlugin.rgr"
-
 defn CreateFolder (folder fname) (create_folder (unwrap folder) fname)
 defn CreateFolder (folder fname) (create_folder folder fname)
 defn CreateFolder (fname) (create_folder (unwrap env.filesystem) fname)
@@ -613,7 +611,6 @@ class tester {
     }
 
     def the_file ""
-    def plugins_only false
 
     def valid_options:[string] ([] _:string
       ('l'  ('Selected language, one of ' + ( join allowed_languages ', ')) 
@@ -1117,34 +1114,7 @@ class tester {
     appCtx.compiler = lcc
 
     lcc.parser = flowParser
-
-    if_javascript {
-      if( appCtx.hasCompilerSetting("plugins")) {
-        def val (appCtx.getCompilerSetting("plugins"))
-        def list (strsplit val ",")
-        list.forEach({
-          try {
-            def plugin (load_compiler_plugin item)
-            def features ( register_plugin plugin )
-            if(appCtx.hasCompilerFlag('verbose')) {
-              print "Plugin " + item + " registered with features "
-              features.forEach({
-                print " [x] " + item
-              })
-            }
-            def regPlug (new RangerRegisteredPlugin)
-            regPlug.name = item
-            regPlug.features = (clone features)
-            appCtx.addPlugin(regPlug)
-            ; plugin_preprocess plugin root appCtx (unwrap wr)
-          } {
-            print "Failed to register plugin " + item
-          } 
-        })
-      }
-      plugins_only = (appCtx.hasCompilerFlag("plugins-only"))
-    }
-
+      
     ; Print header and compilation info
     cli.printHeader()
     cli.setCompilationInfo(the_file the_target the_lang)
@@ -1187,16 +1157,6 @@ class tester {
         flowParser.CreateRTTI( node appCtx (unwrap wr))
       }
 
-      if_javascript {
-        def ppList (appCtx.findPluginsFor("pre_flow"))
-        ppList.forEach({
-          try {
-            def plugin (load_compiler_plugin item)
-            call_plugin plugin "pre_flow" root appCtx (unwrap wr)
-          } {
-          }
-        })
-      }
       appCtx.initOpList()
       cli.step(2 "Analyzing code")
 
@@ -1533,18 +1493,7 @@ class tester {
         ; Success - print summary
         def outputPath the_target_dir + "/" + the_target
         cli.printSuccess(outputPath)
-      }
-
-      if_javascript {
-        def ppList (appCtx.findPluginsFor('postprocess'))
-        ppList.forEach({
-          try {
-            def plugin (load_compiler_plugin item)
-            call_plugin plugin "postprocess" root appCtx (unwrap wr)
-          } {
-          }
-        })
-      }        
+      }     
     
       res.target_dir = the_target_dir
       res.fileSystem = fileSystem

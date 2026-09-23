@@ -8,9 +8,6 @@ class RangerAppTodo {
 }
 
 class RangerCompilerMessage {
-  def error_level:int 0
-  def code_line:int 0
-  def fileName:string ""
   def description:string ""
   ; OWNING. A diagnostic outlives the tree it points at: the message is
   ; collected during analysis and printed after, by which time the nodes it

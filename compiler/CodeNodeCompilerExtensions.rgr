@@ -94,7 +94,6 @@ extension CodeNode {
   def chainTarget:CodeNode
 
   def register_set false
-  def did_walk false
   def reg_compiled_name ""
 
   ; tag for debugging the nodes if necessary...
@@ -326,7 +325,6 @@ extension CodeNode {
     cp.op_index = 0
     cp.is_array_literal = false
     cp.is_system_class = false
-    cp.is_plugin = false
 
     cp.mutable_def = false
     cp.has_lambda = false
@@ -335,24 +333,6 @@ extension CodeNode {
 
     cp.type_type = type_type
     cp.value_type = parsed_type
-
-    ; TODO:
-
-    ; def has_vref_annotation:boolean false
-    ; def vref_annotation:CodeNode
-    ; def has_type_annotation:boolean false
-    ; def type_annotation:CodeNode
-    ; def ref_type:RangerNodeRefType RangerNodeRefType.NoType
-    ; def ref_need_assign:int 0
-    ; def expression_value:CodeNode
-    ; def props:[string:CodeNode]
-    ; def prop_keys:[string]
-    ; def comments:[CodeNode]
-    ; def children:[CodeNode]
-    ; def parent@(weak):CodeNode
-    ; def attrs:[CodeNode]
-    ; def appGUID:string ""
-    ; def register_name:string ""
 
     cp.children.forEach({
       item.cleanNode()

@@ -11765,37 +11765,7 @@ std::string r_cpp_str_to_uppercase(const std::string& original)
                 * ( "false /* sse_is_connected not implemented */" )
             }
         }
-
-        ; HTTP Server Lifecycle Operators
-        ; These are special operators - the Go writer will detect @(HttpServer) class
-        ; and generate route setup code when start is called on HttpServer
         
-        ; Start HTTP server - wires up all @(GET), @(POST), @(SSE) routes and starts listening
-        ; Usage: start server 8080   OR   start server  (uses default port from annotation)
-        ; The Go writer generates http.HandleFunc calls for each annotated method
-        start@(moves@( 1 )) cmdHttpServerStart:void (server:HttpServer port:int) {
-            templates {
-                go ( (custom _) )
-                ; es6 used to emit `server.start(port)` -- a call to a method
-                ; nothing generated, so every JavaScript HTTP server died on its
-                ; first statement after printing. It is a custom operator now, and
-                ; RangerJavaScriptHttpServerWriter writes the server.
-                ; ISSUES.md #93.
-                es6 ( (custom _) )
-                * ( "/* start HttpServer not implemented */" )
-            }
-        }
-
-        ; Stop HTTP server gracefully
-        ; Usage: stop server
-        stop@(moves@( 1 )) cmdHttpServerStop:void (server:HttpServer) {
-            templates {
-                go ( (e 1) ".Shutdown(context.Background())" )
-                es6 ( (e 1) ".stop()" )
-                * ( "/* stop HttpServer not implemented */" )
-            }
-        }
-
         ; Process lifecycle operators (distinct from HttpServer start/stop)
         find_process@(moves@( 1 )) cmdFindProcess:RangerProcessBase@(optional) (path:string) {
             templates {

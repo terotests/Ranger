@@ -21,7 +21,6 @@ Import "RangerProcessClass.rgr"
 Import "RangerProcessProcSend.rgr"
 Import "RangerProcessProcStartCheck.rgr"
 Import "RangerProcessCodegen.rgr"
-Import "RangerServiceBuilder.rgr"
 Import "RangerAppOperatorDesc.rgr"
 
 Import "TFiles.rgr"
@@ -33,27 +32,6 @@ Import "FlowEnterVarDef.rgr"
 
 ; -------- developer documentation part comes over here --------------
 
-plugin.md "developer.md" {
-  h1 Flow Parser Developer Docs
-
-  h2 'Overview of the parsing'
-
-  p 'The parsing process has broadly following stages'
-
-  ul {
-    li 'Parse the root document using RangerLispParser'
-    li 'Create root context'
-    li 'Parse basic operators and initialize active `operators` from Lang.clj in the context'
-    li 'Merge imported documents into the main AST'
-    li 'Call plugins generate_ast method for additional declarations'
-    li 'Collect operators, classes, methods, extensions, unions, system classes from files'
-    li 'Do static analysis of the code using ' (b 'RangerFlowParser')
-    li 'Call preprocess plugins'
-    li 'Compile the source code into virtual filesystem'
-    li 'Call postprocess plugins'
-    li 'If no errors, save the results into real filesystem'
-  }
-}
 
 operator type:void all {
   fn r.func:RangerAppFunctionDesc ( node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter ) {
@@ -444,23 +422,7 @@ class RangerFlowParser {
         return true
       }
 
-    }
-    
-
-    if( (size node.children) > 0) {
-      def fc (node.getFirst())
-      if( (size fc.ns) > 1) {
-        if( (at fc.ns 0) == "plugin" ) {
-          if(node.is_plugin) {
-            return true
-          }
-          node.is_plugin = true
-          def pName (at fc.ns 1)
-          ctx.addPluginNode( pName node )
-          return true
-        }
-      }
-    }    
+    }  
 
     if( (size node.children) == 1 ) {
       def fc (first node.children)

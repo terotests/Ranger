@@ -64,8 +64,6 @@ class RangerGolangClassWriter {
       }
     }
   }
-  def httpServerWriter:RangerGolangHttpServerWriter (new RangerGolangHttpServerWriter())
-
   fn writeGoUnionStructs:void (ctx:RangerAppWriterContext wr:CodeWriter) {
     if go_unions_written {
       return
@@ -1783,41 +1781,6 @@ class RangerGolangClassWriter {
     if (cmd == "for") {
       this.goWriteForLoop(node ctx wr)
       return
-    }
-
-    ; Handle "start server port" for HttpServer
-    if (cmd == "start") {
-      if ((array_length node.children) >= 2) {
-        def serverArg:CodeNode (node.getSecond())
-        ; Check if argument is HttpServer type or has @(HttpServer) annotation
-        if (serverArg.hasParamDesc) {
-          def paramDesc:RangerAppParamDesc serverArg.paramDesc
-          if (!null? paramDesc.nameNode) {
-            def typeName:string paramDesc.nameNode.type_name
-            def isHttpServer:boolean false
-            ; Direct HttpServer type
-            if (typeName == "HttpServer") {
-              isHttpServer = true
-            }
-            ; Or class with @(HttpServer) annotation
-            if (ctx.isDefinedClass(typeName)) {
-              def serverClass:RangerAppClassDesc (ctx.findClass(typeName))
-              if (serverClass.isSystemclassType("HttpServer")) {
-                isHttpServer = true
-              }
-            }
-            if isHttpServer {
-              ; This is an HttpServer - generate route setup and server start
-              ; a fresh one per call: it carries no state between calls, and a
-              ; method that reaches a struct field of its own takes `&mut
-              ; self` — which a trait signature then imposes on every writer
-              def srvWriter:RangerGolangHttpServerWriter (new RangerGolangHttpServerWriter())
-              srvWriter.writeServerStart(serverArg node ctx wr this)
-              return
-            }
-          }
-        }
-      }
     }
 
     if(cmd == "return" ) {
