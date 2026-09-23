@@ -465,6 +465,7 @@ class RangerCppClassWriter {
   ; createPolyfill keys its dedup on the code text, so this is the same block the
   ; operator templates install and the two never double up.
   fn cppEmitOptionalPrimitive:void (wr:CodeWriter) {
+    wr.addImport("<optional>")
     def code:string "
 template <class T>
 class r_optional_primitive {
@@ -488,6 +489,13 @@ class r_optional_primitive {
         has_value = true;
         value = a_value;
         return *this;
+    }
+    // optional int, double and string variables are std::optional; the
+    // runtime helpers (cpp_str_to_int, cpp_get_map_int_value, ...) still
+    // return this type, so their result has to convert on assignment.
+    operator std::optional<T>() const {
+        if (has_value) { return value; }
+        return std::nullopt;
     }
 };
 "
@@ -547,6 +555,7 @@ class r_optional_primitive {
         this.import_lib("<functional>" ctx wr)
 
         if( node.IsOptional() ) {
+          wr.addImport("<optional>")
           wr.out("std::optional<" false)
         }
         wr.out("std::function<" false)
@@ -566,6 +575,7 @@ class r_optional_primitive {
       }
       case RangerNodeType.Enum {
         if( node.IsOptional() ) {
+          wr.addImport("<optional>")
           wr.out("std::optional<" false)
         }
         if (this.cppEnumIsNative(t_name ctx)) {
@@ -588,6 +598,7 @@ class r_optional_primitive {
         }
         if(node.IsOptional()) {
           this.cppEmitOptionalPrimitive(wr)
+          wr.addImport("<optional>")
           wr.out(((" std::optional<" + intCppType) + "> ") false)
         } {
           wr.out(intCppType false)
@@ -618,6 +629,7 @@ class r_optional_primitive {
         if (t_name == "f32") { dblCppType = "float" }
         if(node.hasFlag("optional")) {
           this.cppEmitOptionalPrimitive(wr)
+          wr.addImport("<optional>")
           wr.out(((" std::optional<" + dblCppType) + "> ") false)
         } {
           wr.out(dblCppType false)
@@ -627,6 +639,7 @@ class r_optional_primitive {
         wr.addImport("<string>")
         if(node.hasFlag("optional")) {
           this.cppEmitOptionalPrimitive(wr)
+          wr.addImport("<optional>")
           wr.out(" std::optional<std::string> " false)
         } {
           wr.out("std::string" false)
@@ -666,6 +679,7 @@ class r_optional_primitive {
             ; presence bit beside the value and converts back to the bare
             ; union, so a non-optional destination is unchanged.
             if (node.IsOptional()) {
+              wr.addImport("<optional>")
               wr.out("std::optional<r_union_" false)
               wr.out(t_name false)
               wr.out(">" false)
@@ -710,6 +724,7 @@ class r_optional_primitive {
           }
 
           if( node.IsOptional() ) {
+            wr.addImport("<optional>")
             wr.out("std::optional<" false)
           }
           wr.out((this.cppPtrOpen()) false)
@@ -722,6 +737,7 @@ class r_optional_primitive {
         }
 
         if(node.hasFlag("optional")) {
+          wr.addImport("<optional>")
           wr.out("std::optional<" false)
           wr.out(((this.cppPtrOpen()) + "std::vector<") false)
           wr.out((this.getTypeString2(t_name ctx)) false)
@@ -964,6 +980,35 @@ class r_optional_primitive {
     }
   }
 
+  fn cppSegmentNeedsValue:boolean (p:RangerAppParamDesc node:CodeNode index:int ctx:RangerAppWriterContext) {
+    if (index >= ((array_length node.nsp) - 1)) {
+      return false
+    }
+    ; the declared type, not is_optional, decides whether the C++ variable is
+    ; a std::optional: an initialised optional has is_optional false, and an
+    ; uninitialised collection has it true without being wrapped
+    def pNN@(optional):CodeNode p.nameNode
+    if (null? pNN) {
+      return false
+    }
+    def pN:CodeNode (unwrap pNN)
+    if ((pN.hasFlag("optional")) == false) {
+      return false
+    }
+    if (p.isClass()) {
+      return false
+    }
+    if (index == 0) {
+      if ((itemAt node.ns 0) == "this") {
+        return false
+      }
+      if (this.cppShouldAutoUnwrap(p ctx)) {
+        return false
+      }
+    }
+    return true
+  }
+
   fn cppVRefIsAssignmentTarget:boolean (node:CodeNode) {
     def parent@(optional):CodeNode node.parent
     if (null? parent) {
@@ -1137,6 +1182,12 @@ class r_optional_primitive {
         this.cppWriteVRefName(p node i wr)
         if (p.isClass()) {
           had_static = true
+        }
+        ; an optional segment that is not the last one is reached through:
+        ; the member is read from the value the optional holds. The segments
+        ; narrowed by a null check were already written as `(x.value())`.
+        if (this.cppSegmentNeedsValue(p node i ctx)) {
+          wr.out(".value()" false)
         }
       }
       return
@@ -2220,6 +2271,7 @@ class r_optional_primitive {
 
       if( is_weak ) {
         if( node.IsOptional() ) {
+          wr.addImport("<optional>")
           wr.out( "std::optional<" false)
         }
         def typeName:string (("r_weak<" + pnn.type_name) + ">")

@@ -29494,7 +29494,8 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     }
   };
   cppEmitOptionalPrimitive (wr) {
-    const code = "\ntemplate <class T>\nclass r_optional_primitive {\n  public:\n    // has_value has to start false: cpp_str_to_int and its siblings leave the\n    // field untouched when the conversion throws, and an indeterminate bool\n    // made a failed str2int read back as a value on the C++ target.\n    bool has_value = false;\n    T value = T();\n    r_optional_primitive() {}\n    // a plain value placed into an optional slot: returning a bare string\n    // from a function declared @(optional):string arrives here. Declaring\n    // any constructor takes the implicit default one away, hence the pair.\n    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}\n    r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {\n        has_value = rhs.has_value;\n        value = rhs.value;\n        return *this;\n    }\n    r_optional_primitive<T> & operator=(const T a_value) {\n        has_value = true;\n        value = a_value;\n        return *this;\n    }\n};\n";
+    wr.addImport("<optional>");
+    const code = "\ntemplate <class T>\nclass r_optional_primitive {\n  public:\n    // has_value has to start false: cpp_str_to_int and its siblings leave the\n    // field untouched when the conversion throws, and an indeterminate bool\n    // made a failed str2int read back as a value on the C++ target.\n    bool has_value = false;\n    T value = T();\n    r_optional_primitive() {}\n    // a plain value placed into an optional slot: returning a bare string\n    // from a function declared @(optional):string arrives here. Declaring\n    // any constructor takes the implicit default one away, hence the pair.\n    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}\n    r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {\n        has_value = rhs.has_value;\n        value = rhs.value;\n        return *this;\n    }\n    r_optional_primitive<T> & operator=(const T a_value) {\n        has_value = true;\n        value = a_value;\n        return *this;\n    }\n    // optional int, double and string variables are std::optional; the\n    // runtime helpers (cpp_str_to_int, cpp_get_map_int_value, ...) still\n    // return this type, so their result has to convert on assignment.\n    operator std::optional<T>() const {\n        if (has_value) { return value; }\n        return std::nullopt;\n    }\n};\n";
     const p_write = wr.getTag("utilities");
     if ( ( typeof(p_write.compiledTags[code] ) != "undefined" && Object.prototype.hasOwnProperty.call(p_write.compiledTags, code) ) == false ) {
       p_write.raw(code, true);
@@ -29537,6 +29538,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
         const fc = sec.getFirst();
         this.import_lib("<functional>", ctx, wr);
         if ( node.IsOptional() ) {
+          wr.addImport("<optional>");
           wr.out("std::optional<", false);
         }
         wr.out("std::function<", false);
@@ -29557,6 +29559,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
         break;
       case 13 : 
         if ( node.IsOptional() ) {
+          wr.addImport("<optional>");
           wr.out("std::optional<", false);
         }
         if ( this.cppEnumIsNative(t_name, ctx) ) {
@@ -29587,6 +29590,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
         }
         if ( node.IsOptional() ) {
           this.cppEmitOptionalPrimitive(wr);
+          wr.addImport("<optional>");
           wr.out((" std::optional<" + intCppType) + "> ", false);
         } else {
           wr.out(intCppType, false);
@@ -29619,6 +29623,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
         }
         if ( node.hasFlag("optional") ) {
           this.cppEmitOptionalPrimitive(wr);
+          wr.addImport("<optional>");
           wr.out((" std::optional<" + dblCppType) + "> ", false);
         } else {
           wr.out(dblCppType, false);
@@ -29628,6 +29633,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
         wr.addImport("<string>");
         if ( node.hasFlag("optional") ) {
           this.cppEmitOptionalPrimitive(wr);
+          wr.addImport("<optional>");
           wr.out(" std::optional<std::string> ", false);
         } else {
           wr.out("std::string", false);
@@ -29653,6 +29659,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
           const cc = ctx.findClass(t_name);
           if ( cc.is_union ) {
             if ( node.IsOptional() ) {
+              wr.addImport("<optional>");
               wr.out("std::optional<r_union_", false);
               wr.out(t_name, false);
               wr.out(">", false);
@@ -29680,6 +29687,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
             }
           }
           if ( node.IsOptional() ) {
+            wr.addImport("<optional>");
             wr.out("std::optional<", false);
           }
           wr.out(this.cppPtrOpen(), false);
@@ -29691,6 +29699,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
           return;
         }
         if ( node.hasFlag("optional") ) {
+          wr.addImport("<optional>");
           wr.out("std::optional<", false);
           wr.out(this.cppPtrOpen() + "std::vector<", false);
           wr.out(this.getTypeString2(t_name, ctx), false);
@@ -29888,6 +29897,31 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       }
     }
   };
+  cppSegmentNeedsValue (p, node, index, ctx) {
+    if ( index >= node.nsp.length - 1 ) {
+      return false;
+    }
+    const pNN = p.nameNode;
+    if ( typeof(pNN) === "undefined" ) {
+      return false;
+    }
+    const pN = pNN;
+    if ( pN.hasFlag("optional") == false ) {
+      return false;
+    }
+    if ( p.isClass() ) {
+      return false;
+    }
+    if ( index == 0 ) {
+      if ( node.ns[0] == "this" ) {
+        return false;
+      }
+      if ( this.cppShouldAutoUnwrap(p, ctx) ) {
+        return false;
+      }
+    }
+    return true;
+  };
   cppVRefIsAssignmentTarget (node) {
     const parent = node.parent;
     if ( typeof(parent) === "undefined" ) {
@@ -30058,6 +30092,9 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
         this.cppWriteVRefName(p, node, i, wr);
         if ( p.isClass() ) {
           had_static = true;
+        }
+        if ( this.cppSegmentNeedsValue(p, node, i, ctx) ) {
+          wr.out(".value()", false);
         }
       }
       return;
@@ -30960,6 +30997,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       const is_weak = this.cppIsWeakField(pnn, ctx);
       if ( is_weak ) {
         if ( node.IsOptional() ) {
+          wr.addImport("<optional>");
           wr.out("std::optional<", false);
         }
         const typeName_1 = ("r_weak<" + pnn.type_name) + ">";
