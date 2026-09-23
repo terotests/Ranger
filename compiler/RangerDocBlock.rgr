@@ -81,7 +81,7 @@ class RangerDocBlock {
     if ((this.hasTargetView(name)) == false) {
       return this
     }
-    def ov:RangerDocBlock (get targets name)
+    def ov@(optional):RangerDocBlock (get targets name)
     def merged:RangerDocBlock (new RangerDocBlock)
     merged.is_public = is_public
     merged.is_internal = is_internal
@@ -109,18 +109,23 @@ class RangerDocBlock {
     for exampleRefs r:string i {
       push merged.exampleRefs r
     }
-    for ov.attrs a:string i {
-      push merged.attrs a
+
+    if( ( !null? ov)) {
+      def ovs ( unwrap ov )
+      for ovs.attrs a:string i {
+        push merged.attrs a
+      }
+      if ((strlen ovs.description) > 0) {
+        merged.description = ovs.description
+      }
+      if ((strlen ovs.returns) > 0) {
+        merged.returns = ov.returns
+      }
+      for ovs.params p:RangerDocParam i {
+        push merged.params p
+      }
     }
-    if ((strlen ov.description) > 0) {
-      merged.description = ov.description
-    }
-    if ((strlen ov.returns) > 0) {
-      merged.returns = ov.returns
-    }
-    for ov.params p:RangerDocParam i {
-      push merged.params p
-    }
+    
     return merged
   }
 }

@@ -3848,38 +3848,11 @@ def rg_read_file(path, filename):
                 ; None for a file it cannot read. C++ used to hand back the
                 ; empty string for both a missing file and an empty one.
                 cpp ( "r_cpp_readFile( " (e 1) " , " (e 2) ")" (imp "<fstream>")
-(create_polyfill
-"
-template <class T>
-class r_optional_primitive {
-  public:
-    // has_value has to start false: cpp_str_to_int and its siblings leave the
-    // field untouched when the conversion throws, and an indeterminate bool
-    // made a failed str2int read back as a value on the C++ target.
-    bool has_value = false;
-    T value = T();
-    r_optional_primitive() {}
-    // a plain value placed into an optional slot: returning a bare string
-    // from a function declared @(optional):string arrives here. Declaring
-    // any constructor takes the implicit default one away, hence the pair.
-    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
-    r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
-        has_value = rhs.has_value;
-        value = rhs.value;
-        return *this;
-    }
-    r_optional_primitive<T> & operator=(const T a_value) {
-        has_value = true;
-        value = a_value;
-        return *this;
-    }
-};
-"
-)
+
 (create_polyfill "
-r_optional_primitive<std::string>  r_cpp_readFile(const std::string& path, const std::string& filename)
+std::optional<std::string>  r_cpp_readFile(const std::string& path, const std::string& filename)
 {
-  r_optional_primitive<std::string> res;
+  std::optional<std::string> res;
   std::ifstream ifs(path + \"/\" + filename);
   if (!ifs) { return res; }
   std::string content( (std::istreambuf_iterator<char>(ifs) ),
@@ -4037,38 +4010,11 @@ def rg_read_file(path, filename):
                 ; None for a file it cannot read. C++ used to hand back the
                 ; empty string for both a missing file and an empty one.
                 cpp ( "r_cpp_readFile( " (e 1) " , " (e 2) ")" (imp "<fstream>")
-(create_polyfill
-"
-template <class T>
-class r_optional_primitive {
-  public:
-    // has_value has to start false: cpp_str_to_int and its siblings leave the
-    // field untouched when the conversion throws, and an indeterminate bool
-    // made a failed str2int read back as a value on the C++ target.
-    bool has_value = false;
-    T value = T();
-    r_optional_primitive() {}
-    // a plain value placed into an optional slot: returning a bare string
-    // from a function declared @(optional):string arrives here. Declaring
-    // any constructor takes the implicit default one away, hence the pair.
-    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
-    r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
-        has_value = rhs.has_value;
-        value = rhs.value;
-        return *this;
-    }
-    r_optional_primitive<T> & operator=(const T a_value) {
-        has_value = true;
-        value = a_value;
-        return *this;
-    }
-};
-"
-)
+
 (create_polyfill "
-r_optional_primitive<std::string>  r_cpp_readFile(const std::string& path, const std::string& filename)
+std::optional<std::string>  r_cpp_readFile(const std::string& path, const std::string& filename)
 {
-  r_optional_primitive<std::string> res;
+  std::optional<std::string> res;
   std::ifstream ifs(path + \"/\" + filename);
   if (!ifs) { return res; }
   std::string content( (std::istreambuf_iterator<char>(ifs) ),
@@ -4306,7 +4252,7 @@ static class RgFiles {
 
         unwrap       cmdUnwrap:int        ( arg@(optional):int ) {
             templates {
-                cpp ( "/*unwrap int*/" (e 1) ".value" )
+                cpp ( (e 1) ".value()" )
                 ; an optional int is `int?` on C#, and Nullable<T> does not
                 ; convert back to T on its own
                 csharp ( "(" (e 1) ").Value" )
@@ -4314,7 +4260,7 @@ static class RgFiles {
         } 
         unwrap       cmdUnwrap:double        ( arg@(optional):double ) {
             templates {
-                cpp ( "/*unwrap dbl*/" (e 1) ".value" )
+                cpp ( (e 1) ".value" )
                 csharp ( "(" (e 1) ").Value" )
             }
         }
@@ -4322,7 +4268,7 @@ static class RgFiles {
         ; bit on C++, so reading the value out of one is not a no-op.
         unwrap       cmdUnwrap:string        ( arg@(optional):string ) {
             templates {
-                cpp ( (e 1) ".value" )
+                cpp ( (e 1) ".value()" )
             }
         }
         ; `bool?` is a Nullable<bool> like the two above, and `if (unwrap ok)`
@@ -4331,6 +4277,7 @@ static class RgFiles {
         unwrap       cmdUnwrap:boolean        ( arg@(optional):boolean ) {
             templates {
                 csharp ( "(" (e 1) ").Value" )
+                cpp ( (e 1) ".value()" )
             }
         }
 
@@ -4347,7 +4294,7 @@ static class RgFiles {
                 swift3 ( (e 1) "!" )
                 swift6 ( (e 1) "!" )
                 go ( (e 1) ".value.(" (typeof 1) ")" )
-                cpp ( (e 1) )
+                cpp ( (e 1) ".value()" )
 
                 * ( (e 1) )
             }
@@ -5559,7 +5506,7 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
         ; other and the presence bit is its own.
         null?       cmdIsNotNull:boolean        ( arg@(optional):string ) {
             templates {
-                cpp ((e 1) ".has_value == false")
+                cpp ((e 1) ".has_value() == false")
             }
         }
 
@@ -5604,17 +5551,17 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
         }   
         !null?       cmdIsNotNull:boolean        ( arg@(optional):int ) {
             templates {
-                cpp ((e 1) ".has_value")     
+                cpp ((e 1) ".has_value()")     
             }
         }  
         !null?       cmdIsNotNull:boolean        ( arg@(optional):double ) {
             templates {
-                cpp ((e 1) ".has_value")     
+                cpp ((e 1) ".has_value()")     
             }
         }               
         !null?       cmdIsNotNull:boolean        ( arg@(optional):string ) {
             templates {
-                cpp ((e 1) ".has_value")
+                cpp ((e 1) ".has_value()")
             }
         }
 
@@ -5641,7 +5588,7 @@ std::vector<T> r_make_vector_from_array( const T (&data)[N] )
                 scala ((e 1) ".isDefined")  
                 swift3 ((e 1) " != nil ")     
                 swift6 ((e 1) " != nil ")     
-                cpp ((e 1) " != NULL ")     
+                cpp ((e 1) ".has_value()")     
                 java7 ((e 1) " != null ")   
                 csharp ("" (e 1) " != null")
                 rust ((e 1) ".is_some()")     
@@ -9180,73 +9127,18 @@ r_optional_primitive<double> cpp_get_map_string_double_value( const M & m , cons
                 ; to give an optional T, so the borrow is cloned away.
                 rust ( (e 1) ".get(" (kref 2) ").cloned()" )
                 cpp ( "r_map_get_val(" (e 1) ", " (ckey 2) ")"
-; the string case below hands back one of these, so its definition has to be
-; on the page before r_map_get_val is. Same text the writer emits for an
-; optional primitive, and createPolyfill keys its dedup on the text.
 (create_polyfill
 "
-template <class T>
-class r_optional_primitive {
-  public:
-    // has_value has to start false: cpp_str_to_int and its siblings leave the
-    // field untouched when the conversion throws, and an indeterminate bool
-    // made a failed str2int read back as a value on the C++ target.
-    bool has_value = false;
-    T value = T();
-    r_optional_primitive() {}
-    // a plain value placed into an optional slot: returning a bare string
-    // from a function declared @(optional):string arrives here. Declaring
-    // any constructor takes the implicit default one away, hence the pair.
-    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}
-    r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {
-        has_value = rhs.has_value;
-        value = rhs.value;
-        return *this;
-    }
-    r_optional_primitive<T> & operator=(const T a_value) {
-        has_value = true;
-        value = a_value;
-        return *this;
-    }
-};
-"
-)
-(create_polyfill
-"
-// Map read that never inserts on miss (unlike std::map::operator[]) and does a
-// single lookup. Returns a default-constructed value (e.g. null shared_ptr)
-// when the key is absent.
-//
-// A closed family (std::variant) is the one mapped_type with no null state:
-// every alternative is a live value, so a default-constructed variant reads
-// back as its FIRST alternative and a miss is indistinguishable from a genuine
-// value of that case. For those maps the result carries the presence bit in
-// r_optional_union; it converts back to the bare union, so a non-optional
-// destination behaves exactly as it did before. Every other mapped_type keeps
-// the original return type and body.
-#include <variant>
-// Defined next to the union typedefs when the program has a closed family. It
-// is only ever named for a variant-valued map, so a declaration is enough here
-// and a program with no shape at all still compiles.
-template <class T> class r_optional_union;
-// Same story for a string-valued map, for a different reason: std::string has
-// no null state either, so a miss and a key holding the empty string read back
-// the same. Every other target tells those apart, and r_optional_primitive is
-// the shape an optional string already has on this one; it is defined by the
-// polyfill just above.
-#include <string>
-template<typename T> struct r_map_result { typedef T type; };
-template<typename... A> struct r_map_result<std::variant<A...>> {
-    typedef r_optional_union<std::variant<A...>> type;
-};
-template<> struct r_map_result<std::string> {
-    typedef r_optional_primitive<std::string> type;
-};
 template<typename M, typename K>
-typename r_map_result<typename M::mapped_type>::type r_map_get_val( const M & m , const K & key) {
+std::optional<typename M::mapped_type>
+r_map_get_val(const M& m, const K& key) {
     auto it = m.find(key);
-    if ( it != m.end() ) { return it->second; }
-    return typename r_map_result<typename M::mapped_type>::type();
+
+    if (it != m.end()) {
+        return it->second;
+    }
+
+    return std::nullopt;
 }
 "
 )

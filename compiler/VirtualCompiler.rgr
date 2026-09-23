@@ -7,7 +7,6 @@ Import "ColorConsole.rgr"
 Import "CLIProgress.rgr"
 Import "PkgFetch.rgr"
 Import "DictNode.rgr"
-Import "RangerSerializeClass.rgr"
 Import "CmdParams.rgr"
 Import "RangerDocGenerator.rgr"
 Import "StaticAnalysis.rgr"
@@ -458,7 +457,7 @@ class tester {
 }
 
     `    
-    write_file '.' 'compileEnv.js' ( 'window._Ranger_compiler_environment_ = ' + (to_string (env.toDictionary())))
+    ; write_file '.' 'compileEnv.js' ( 'window._Ranger_compiler_environment_ = ' + (to_string (env.toDictionary())))
     
   }
 

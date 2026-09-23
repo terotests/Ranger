@@ -109,6 +109,10 @@ class RangerCppClassWriter {
     return "std::shared_ptr<"
   }
 
+  fn cppPtrClose:string () {
+    return ">"
+  }
+
   fn cppMakeOpen:string () {
     if cpp_single_thread {
       return "rg_make<"
@@ -531,6 +535,8 @@ class r_optional_primitive {
         k_name = node.eval_key_type
       }
     }
+
+
     ; std::function<int (int, int)>
     switch v_type {
       case RangerNodeType.ExpressionType {
@@ -539,6 +545,9 @@ class r_optional_primitive {
         def fc:CodeNode (sec.getFirst())
         this.import_lib("<functional>" ctx wr)
 
+        if( node.IsOptional() ) {
+          wr.out("std::optional<" false)
+        }
         wr.out("std::function<" false)
         this.writeTypeDef( rv ctx wr)
         wr.out("(" false)
@@ -549,13 +558,22 @@ class r_optional_primitive {
           this.writeTypeDef( arg ctx wr)
         }
         wr.out(")>" false)
+        if( node.IsOptional() ) {
+          wr.out(">" false)
+        }
         
       }   
       case RangerNodeType.Enum {
+        if( node.IsOptional() ) {
+          wr.out("std::optional<" false)
+        }
         if (this.cppEnumIsNative(t_name ctx)) {
           wr.out(t_name false)
         } {
           wr.out("int" false)
+        }
+        if( node.IsOptional() ) {
+          wr.out(">" false)
         }
       }
       case RangerNodeType.Integer {
@@ -567,9 +585,9 @@ class r_optional_primitive {
         if (intCppType != "int") {
           wr.addImport("<cstdint>")
         }
-        if(node.hasFlag("optional")) {
+        if(node.IsOptional()) {
           this.cppEmitOptionalPrimitive(wr)
-          wr.out(((" r_optional_primitive<" + intCppType) + "> ") false)
+          wr.out(((" std::optional<" + intCppType) + "> ") false)
         } {
           wr.out(intCppType false)
         }
@@ -599,7 +617,7 @@ class r_optional_primitive {
         if (t_name == "f32") { dblCppType = "float" }
         if(node.hasFlag("optional")) {
           this.cppEmitOptionalPrimitive(wr)
-          wr.out(((" r_optional_primitive<" + dblCppType) + "> ") false)
+          wr.out(((" std::optional<" + dblCppType) + "> ") false)
         } {
           wr.out(dblCppType false)
         }
@@ -608,7 +626,7 @@ class r_optional_primitive {
         wr.addImport("<string>")
         if(node.hasFlag("optional")) {
           this.cppEmitOptionalPrimitive(wr)
-          wr.out(" r_optional_primitive<std::string> " false)
+          wr.out(" std::optional<std::string> " false)
         } {
           wr.out("std::string" false)
         }
@@ -646,8 +664,8 @@ class r_optional_primitive {
             ; genuine value of that case. r_optional_union carries the
             ; presence bit beside the value and converts back to the bare
             ; union, so a non-optional destination is unchanged.
-            if (node.hasFlag("optional")) {
-              wr.out("r_optional_union<r_union_" false)
+            if (node.IsOptional()) {
+              wr.out("std::optional<r_union_" false)
               wr.out(t_name false)
               wr.out(">" false)
               return
@@ -689,15 +707,25 @@ class r_optional_primitive {
               ctx.addError(node (("the C++ target writes a `trait` as a mixin, so `" + cc.name) + "` is not a type it can name. A trait that declares only METHODS becomes an abstract base class and can be used as a type; this one carries fields, which its consumers each hold their own copy of. Use a class with subclasses (`Extends(Base)`), or give the parameter a concrete type."))
             }
           }
+
+          if( node.IsOptional() ) {
+            wr.out("std::optional<" false)
+          }
           wr.out((this.cppPtrOpen()) false)
           wr.out(cc.name false)
-          wr.out(">" false)
+          wr.out((this.cppPtrClose()) false)
+          if( node.IsOptional() ) {
+            wr.out(">" false)
+          }
           return
         }
 
         if(node.hasFlag("optional")) {
+          wr.out("std::optional<" false)
           wr.out(((this.cppPtrOpen()) + "std::vector<") false)
           wr.out((this.getTypeString2(t_name ctx)) false)
+          wr.out(">" false)
+          wr.out( (this.cppPtrClose()) false)
           wr.out(">" false)
           return
         }

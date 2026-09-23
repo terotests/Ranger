@@ -36,89 +36,7 @@ class CmdParams  {
       i = i + 1;
     };
   };
-  toDictionary () {
-    let res = {};
-    try {
-      let values_1 = {};
-      const keyList = Object.keys(this.flags);
-      // Loop start
-      for ( const keyname of keyList) {
-        const item = ( Object.prototype.hasOwnProperty.call(this.flags, keyname) ? this.flags[keyname] : undefined );
-        values_1[keyname] = item;
-      }
-      res["flags"] = values_1;
-      let values_2 = {};
-      const keyList_1 = Object.keys(this.params);
-      // Loop start
-      for ( const keyname_1 of keyList_1) {
-        const item_1 = ( Object.prototype.hasOwnProperty.call(this.params, keyname_1) ? this.params[keyname_1] : undefined );
-        values_2[keyname_1] = item_1;
-      }
-      res["params"] = values_2;
-      let values_3 = [];
-      // Loop start
-      for ( let i = 0; i < this.values.length; i++) {
-        var item_2 = this.values[i];
-        values_3.push(item_2);
-      }
-      res["values"] = values_3;
-    } catch(e) {
-    }
-    return res;
-  };
 }
-CmdParams.fromDictionary = function(dict) {
-  const obj = new CmdParams();
-  try {
-    const values = (dict["flags"] instanceof Object ) ? dict ["flags"] : undefined ;
-    if ( (typeof(values) !== "undefined" && values != null )  ) {
-      const theObjflags = values;
-      const obj_keys = Object.keys(theObjflags);
-      const key_len = obj_keys.length;
-      let key_i = 0;
-      while (key_i < key_len) {
-        const item = obj_keys[key_i];
-        const v = typeof(theObjflags [item]) === "undefined" ? undefined :(theObjflags [item]) ;
-        if ( (typeof(v) !== "undefined" && v != null )  ) {
-          obj.flags[item] = v;
-        }
-        key_i = key_i + 1;
-      };
-    }
-    const values_1 = (dict["params"] instanceof Object ) ? dict ["params"] : undefined ;
-    if ( (typeof(values_1) !== "undefined" && values_1 != null )  ) {
-      const theObjparams = values_1;
-      const obj_keys_1 = Object.keys(theObjparams);
-      const key_len_1 = obj_keys_1.length;
-      let key_i_1 = 0;
-      while (key_i_1 < key_len_1) {
-        const item_1 = obj_keys_1[key_i_1];
-        const v_1 = (typeof (theObjparams [item_1]) != "string" ) ? undefined : theObjparams [item_1] 
-        ;
-        if ( (typeof(v_1) !== "undefined" && v_1 != null )  ) {
-          obj.params[item_1] = v_1;
-        }
-        key_i_1 = key_i_1 + 1;
-      };
-    }
-    const values_2 = (dict["values"] instanceof Array ) ? dict ["values"] : undefined ;
-    if ( (typeof(values_2) !== "undefined" && values_2 != null )  ) {
-      const arr = values_2;
-      const arr_len = arr.length;
-      let arr_i = 0;
-      while (arr_i < arr_len) {
-        const item_2 = arr[arr_i];
-        if( typeof(item_2) === 'string' ) /* union case for string */ {
-          var oo = item_2;
-          obj.values.push(oo);
-        };
-        arr_i = arr_i + 1;
-      };
-    }
-  } catch(e) {
-  }
-  return obj;
-};
 class test_cmdparams  {
   constructor() {
   }
@@ -147,9 +65,9 @@ class test_cmdparams  {
 class InputFSFolder  {
   constructor() {
     this.name = "";
-    this.data = "";
-    this.is_folder = true;
-    this.base64bin = false;
+    this.data = "";     /* note: unused */
+    this.is_folder = true;     /* note: unused */
+    this.base64bin = false;     /* note: unused */
     this.folders = [];
     this.files = [];
   }
@@ -159,131 +77,15 @@ class InputFSFolder  {
       item.forTree(cb);
     }));
   };
-  toDictionary () {
-    let res = {};
-    try {
-      res["name"] = this.name;
-      res["data"] = this.data;
-      res["is_folder"] = this.is_folder;
-      res["base64bin"] = this.base64bin;
-      let values = [];
-      // Loop start
-      for ( const item of this.folders) {
-        const obj = item.toDictionary();
-        values.push(obj);
-      }
-      res["folders"] = values;
-      let values_1 = [];
-      // Loop start
-      for ( const item_1 of this.files) {
-        const obj_1 = item_1.toDictionary();
-        values_1.push(obj_1);
-      }
-      res["files"] = values_1;
-    } catch(e) {
-    }
-    return res;
-  };
 }
-InputFSFolder.fromDictionary = function(dict) {
-  const obj = new InputFSFolder();
-  try {
-    const v = (typeof (dict ["name"]) != "string" ) ? undefined : dict ["name"] 
-    ;
-    if ( (typeof(v) !== "undefined" && v != null )  ) {
-      obj.name = v;
-    }
-    const v_1 = (typeof (dict ["data"]) != "string" ) ? undefined : dict ["data"] 
-    ;
-    if ( (typeof(v_1) !== "undefined" && v_1 != null )  ) {
-      obj.data = v_1;
-    }
-    const v_2 = typeof(dict ["is_folder"]) === "undefined" ? undefined :(dict ["is_folder"]) ;
-    if ( (typeof(v_2) !== "undefined" && v_2 != null )  ) {
-      obj.is_folder = v_2;
-    }
-    const v_3 = typeof(dict ["base64bin"]) === "undefined" ? undefined :(dict ["base64bin"]) ;
-    if ( (typeof(v_3) !== "undefined" && v_3 != null )  ) {
-      obj.base64bin = v_3;
-    }
-    const values = (dict["folders"] instanceof Array ) ? dict ["folders"] : undefined ;
-    if ( (typeof(values) !== "undefined" && values != null )  ) {
-      const arr = values;
-      const arr_len = arr.length;
-      let arr_i = 0;
-      while (arr_i < arr_len) {
-        const item = arr[arr_i];
-        if( item instanceof Object ) /* union case */ {
-          var oo = item;
-          const newObj = InputFSFolder.fromDictionary(oo);
-          obj.folders.push(newObj);
-        };
-        arr_i = arr_i + 1;
-      };
-    }
-    const values_1 = (dict["files"] instanceof Array ) ? dict ["files"] : undefined ;
-    if ( (typeof(values_1) !== "undefined" && values_1 != null )  ) {
-      const arr_1 = values_1;
-      const arr_len_1 = arr_1.length;
-      let arr_i_1 = 0;
-      while (arr_i_1 < arr_len_1) {
-        const item_1 = arr_1[arr_i_1];
-        if( item_1 instanceof Object ) /* union case */ {
-          var oo_1 = item_1;
-          const newObj_1 = InputFSFile.fromDictionary(oo_1);
-          obj.files.push(newObj_1);
-        };
-        arr_i_1 = arr_i_1 + 1;
-      };
-    }
-  } catch(e) {
-  }
-  return obj;
-};
 class InputFSFile  {
   constructor() {
     this.name = "";
     this.data = "";
-    this.is_folder = false;
-    this.base64bin = false;
+    this.is_folder = false;     /* note: unused */
+    this.base64bin = false;     /* note: unused */
   }
-  toDictionary () {
-    let res = {};
-    try {
-      res["name"] = this.name;
-      res["data"] = this.data;
-      res["is_folder"] = this.is_folder;
-      res["base64bin"] = this.base64bin;
-    } catch(e) {
-    }
-    return res;
-  };
 }
-InputFSFile.fromDictionary = function(dict) {
-  const obj = new InputFSFile();
-  try {
-    const v = (typeof (dict ["name"]) != "string" ) ? undefined : dict ["name"] 
-    ;
-    if ( (typeof(v) !== "undefined" && v != null )  ) {
-      obj.name = v;
-    }
-    const v_1 = (typeof (dict ["data"]) != "string" ) ? undefined : dict ["data"] 
-    ;
-    if ( (typeof(v_1) !== "undefined" && v_1 != null )  ) {
-      obj.data = v_1;
-    }
-    const v_2 = typeof(dict ["is_folder"]) === "undefined" ? undefined :(dict ["is_folder"]) ;
-    if ( (typeof(v_2) !== "undefined" && v_2 != null )  ) {
-      obj.is_folder = v_2;
-    }
-    const v_3 = typeof(dict ["base64bin"]) === "undefined" ? undefined :(dict ["base64bin"]) ;
-    if ( (typeof(v_3) !== "undefined" && v_3 != null )  ) {
-      obj.base64bin = v_3;
-    }
-  } catch(e) {
-  }
-  return obj;
-};
 class InputFileResolver  {
   constructor() {
     this.files = {};
@@ -394,65 +196,7 @@ class InputFileResolver  {
     };
     return res;
   };
-  toDictionary () {
-    let res = {};
-    try {
-      let values = {};
-      const keyList = Object.keys(this.files);
-      // Loop start
-      for ( const keyname of keyList) {
-        const item = ( Object.prototype.hasOwnProperty.call(this.files, keyname) ? this.files[keyname] : undefined );
-        values[keyname] = item;
-      }
-      res["files"] = values;
-      let values_1 = [];
-      // Loop start
-      for ( const item_1 of this.hostDirs) {
-        values_1.push(item_1);
-      }
-      res["hostDirs"] = values_1;
-    } catch(e) {
-    }
-    return res;
-  };
 }
-InputFileResolver.fromDictionary = function(dict) {
-  const obj = new InputFileResolver();
-  try {
-    const values = (dict["files"] instanceof Object ) ? dict ["files"] : undefined ;
-    if ( (typeof(values) !== "undefined" && values != null )  ) {
-      const theObjfiles = values;
-      const obj_keys = Object.keys(theObjfiles);
-      const key_len = obj_keys.length;
-      let key_i = 0;
-      while (key_i < key_len) {
-        const item = obj_keys[key_i];
-        const v = (typeof (theObjfiles [item]) != "string" ) ? undefined : theObjfiles [item] 
-        ;
-        if ( (typeof(v) !== "undefined" && v != null )  ) {
-          obj.files[item] = v;
-        }
-        key_i = key_i + 1;
-      };
-    }
-    const values_1 = (dict["hostDirs"] instanceof Array ) ? dict ["hostDirs"] : undefined ;
-    if ( (typeof(values_1) !== "undefined" && values_1 != null )  ) {
-      const arr = values_1;
-      const arr_len = arr.length;
-      let arr_i = 0;
-      while (arr_i < arr_len) {
-        const item_1 = arr[arr_i];
-        if( typeof(item_1) === 'string' ) /* union case for string */ {
-          var oo = item_1;
-          obj.hostDirs.push(oo);
-        };
-        arr_i = arr_i + 1;
-      };
-    }
-  } catch(e) {
-  }
-  return obj;
-};
 class InputEnv  {
   constructor() {
     this.use_real = false;
@@ -467,77 +211,6 @@ class InputEnv  {
   setResolver (r) {
     this.resolver = r;
   };
-  toDictionary () {
-    let res = {};
-    try {
-      res["use_real"] = this.use_real;
-      if ( (typeof(this.filesystem) !== "undefined" && this.filesystem != null )  ) {
-        res["filesystem"] = this.filesystem.toDictionary();
-      }
-      let values = {};
-      const keyList = Object.keys(this.envVars);
-      // Loop start
-      for ( const keyname of keyList) {
-        const item = ( Object.prototype.hasOwnProperty.call(this.envVars, keyname) ? this.envVars[keyname] : undefined );
-        values[keyname] = item;
-      }
-      res["envVars"] = values;
-      if ( (typeof(this.commandLine) !== "undefined" && this.commandLine != null )  ) {
-        res["commandLine"] = this.commandLine.toDictionary();
-      }
-      if ( (typeof(this.resolver) !== "undefined" && this.resolver != null )  ) {
-        res["resolver"] = this.resolver.toDictionary();
-      }
-    } catch(e) {
-    }
-    return res;
-  };
-}
-InputEnv.fromDictionary = function(dict) {
-  const obj = new InputEnv();
-  try {
-    const v = typeof(dict ["use_real"]) === "undefined" ? undefined :(dict ["use_real"]) ;
-    if ( (typeof(v) !== "undefined" && v != null )  ) {
-      obj.use_real = v;
-    }
-    const theValue = (dict["filesystem"] instanceof Object ) ? dict ["filesystem"] : undefined ;
-    if ( (typeof(theValue) !== "undefined" && theValue != null )  ) {
-      const newObj = InputFSFolder.fromDictionary(theValue);
-      obj.filesystem = newObj;
-    }
-    const values = (dict["envVars"] instanceof Object ) ? dict ["envVars"] : undefined ;
-    if ( (typeof(values) !== "undefined" && values != null )  ) {
-      const theObjenvVars = values;
-      const obj_keys = Object.keys(theObjenvVars);
-      const key_len = obj_keys.length;
-      let key_i = 0;
-      while (key_i < key_len) {
-        const item = obj_keys[key_i];
-        const v_1 = (typeof (theObjenvVars [item]) != "string" ) ? undefined : theObjenvVars [item] 
-        ;
-        if ( (typeof(v_1) !== "undefined" && v_1 != null )  ) {
-          obj.envVars[item] = v_1;
-        }
-        key_i = key_i + 1;
-      };
-    }
-    const theValue_1 = (dict["commandLine"] instanceof Object ) ? dict ["commandLine"] : undefined ;
-    if ( (typeof(theValue_1) !== "undefined" && theValue_1 != null )  ) {
-      const newObj_1 = CmdParams.fromDictionary(theValue_1);
-      obj.commandLine = newObj_1;
-    }
-    const theValue_2 = (dict["resolver"] instanceof Object ) ? dict ["resolver"] : undefined ;
-    if ( (typeof(theValue_2) !== "undefined" && theValue_2 != null )  ) {
-      const newObj_2 = InputFileResolver.fromDictionary(theValue_2);
-      obj.resolver = newObj_2;
-    }
-  } catch(e) {
-  }
-  return obj;
-};
-class test_input_filesystem  {
-  constructor() {
-  }
 }
 class RangerAppTodo  {
   constructor() {
@@ -3740,7 +3413,7 @@ class RangerAppFunctionDesc  extends RangerAppParamDesc {
   addIndirectClassUsage (m, ctx) {
     if ( this.isUsingClasses.indexOf(m) < 0 ) {
       this.isUsingClasses.push(m);
-      operatorsOf.forEach_11(m.variables, ((item, index) => { 
+      operatorsOf.forEach_3(m.variables, ((item, index) => { 
         const nn = item.nameNode;
         if ( ctx.isDefinedClass(nn.type_name) ) {
           const cc = ctx.findClass(nn.type_name);
@@ -3757,7 +3430,7 @@ class RangerAppFunctionDesc  extends RangerAppParamDesc {
     if ( this.isUsingClasses.indexOf(m) < 0 ) {
       this.isUsingClasses.push(m);
       this.isDirectlyUsingClasses.push(m);
-      operatorsOf.forEach_11(m.variables, ((item, index) => { 
+      operatorsOf.forEach_3(m.variables, ((item, index) => { 
         const nn = item.nameNode;
         if ( ctx.isDefinedClass(nn.type_name) ) {
           const cc = ctx.findClass(nn.type_name);
@@ -3780,7 +3453,7 @@ class RangerAppFunctionDesc  extends RangerAppParamDesc {
     }
     const f = this;
     const cc = f.container_class;
-    operatorsOf.forEach_12(cc.extends_classes, ((item, index) => { 
+    operatorsOf.forEach_4(cc.extends_classes, ((item, index) => { 
       const otherClass = ctx.findClass(item);
       if ( otherClass.hasMethod(f.name) ) {
         const m = otherClass.findMethod(f.name);
@@ -3788,7 +3461,7 @@ class RangerAppFunctionDesc  extends RangerAppParamDesc {
       }
     }));
     const root = ctx.getRoot();
-    operatorsOf_13.forEach_14(root.definedClasses, ((item, index) => { 
+    operatorsOf_5.forEach_6(root.definedClasses, ((item, index) => { 
       if ( item.extends_classes.indexOf(f.container_class.name) >= 0 ) {
         if ( item.hasMethod(f.name) ) {
           const m_1 = item.findMethod(f.name);
@@ -4510,269 +4183,31 @@ class SourceCode  {
 }
 class CodeNodeLiteral  {
   constructor() {
-    this.expression = false;
-    this.vref = "";
-    this.is_block_node = false;
-    this.type_name = "";
-    this.key_type = "";
-    this.array_type = "";
-    this.ns = [];
-    this.has_vref_annotation = false;
-    this.vref_annotation = undefined;
-    this.has_type_annotation = false;
-    this.type_annotation = undefined;
-    this.parsed_type = 0;
-    this.value_type = 0;
-    this.double_value = 0.0;
-    this.string_value = "";
-    this.int_value = 0;
-    this.boolean_value = false;
-    this.expression_value = undefined;
-    this.props = {};
-    this.prop_keys = [];
-    this.comments = [];
-    this.children = [];
-    this.attrs = [];
+    this.expression = false;     /* note: unused */
+    this.vref = "";     /* note: unused */
+    this.is_block_node = false;     /* note: unused */
+    this.type_name = "";     /* note: unused */
+    this.key_type = "";     /* note: unused */
+    this.array_type = "";     /* note: unused */
+    this.ns = [];     /* note: unused */
+    this.has_vref_annotation = false;     /* note: unused */
+    this.vref_annotation = undefined;     /* note: unused */
+    this.has_type_annotation = false;     /* note: unused */
+    this.type_annotation = undefined;     /* note: unused */
+    this.parsed_type = 0;     /* note: unused */
+    this.value_type = 0;     /* note: unused */
+    this.double_value = 0.0;     /* note: unused */
+    this.string_value = "";     /* note: unused */
+    this.int_value = 0;     /* note: unused */
+    this.boolean_value = false;     /* note: unused */
+    this.expression_value = undefined;     /* note: unused */
+    this.props = {};     /* note: unused */
+    this.prop_keys = [];     /* note: unused */
+    this.comments = [];     /* note: unused */
+    this.children = [];     /* note: unused */
+    this.attrs = [];     /* note: unused */
   }
-  toDictionary () {
-    let res = {};
-    try {
-      res["expression"] = this.expression;
-      res["vref"] = this.vref;
-      res["is_block_node"] = this.is_block_node;
-      res["type_name"] = this.type_name;
-      res["key_type"] = this.key_type;
-      res["array_type"] = this.array_type;
-      let values = [];
-      // Loop start
-      for ( const item of this.ns) {
-        values.push(item);
-      }
-      res["ns"] = values;
-      res["has_vref_annotation"] = this.has_vref_annotation;
-      if ( (typeof(this.vref_annotation) !== "undefined" && this.vref_annotation != null )  ) {
-        res["vref_annotation"] = this.vref_annotation.toDictionary();
-      }
-      res["has_type_annotation"] = this.has_type_annotation;
-      if ( (typeof(this.type_annotation) !== "undefined" && this.type_annotation != null )  ) {
-        res["type_annotation"] = this.type_annotation.toDictionary();
-      }
-      res["parsed_type"] = this.parsed_type;
-      res["value_type"] = this.value_type;
-      res["double_value"] = this.double_value;
-      res["string_value"] = this.string_value;
-      res["int_value"] = this.int_value;
-      res["boolean_value"] = this.boolean_value;
-      if ( (typeof(this.expression_value) !== "undefined" && this.expression_value != null )  ) {
-        res["expression_value"] = this.expression_value.toDictionary();
-      }
-      let values_1 = {};
-      const keyList = Object.keys(this.props);
-      // Loop start
-      for ( const keyname of keyList) {
-        const item_1 = ( Object.prototype.hasOwnProperty.call(this.props, keyname) ? this.props[keyname] : undefined );
-        const obj = item_1.toDictionary();
-        values_1[keyname] = obj;
-      }
-      res["props"] = values_1;
-      let values_2 = [];
-      // Loop start
-      for ( const item_2 of this.prop_keys) {
-        values_2.push(item_2);
-      }
-      res["prop_keys"] = values_2;
-      let values_3 = [];
-      // Loop start
-      for ( const item_3 of this.comments) {
-        const obj_1 = item_3.toDictionary();
-        values_3.push(obj_1);
-      }
-      res["comments"] = values_3;
-      let values_4 = [];
-      // Loop start
-      for ( const item_4 of this.children) {
-        const obj_2 = item_4.toDictionary();
-        values_4.push(obj_2);
-      }
-      res["children"] = values_4;
-      let values_5 = [];
-      // Loop start
-      for ( const item_5 of this.attrs) {
-        const obj_3 = item_5.toDictionary();
-        values_5.push(obj_3);
-      }
-      res["attrs"] = values_5;
-    } catch(e) {
-    }
-    return res;
-  };
 }
-CodeNodeLiteral.fromDictionary = function(dict) {
-  const obj = new CodeNodeLiteral();
-  try {
-    const v = typeof(dict ["expression"]) === "undefined" ? undefined :(dict ["expression"]) ;
-    if ( (typeof(v) !== "undefined" && v != null )  ) {
-      obj.expression = v;
-    }
-    const v_1 = (typeof (dict ["vref"]) != "string" ) ? undefined : dict ["vref"] 
-    ;
-    if ( (typeof(v_1) !== "undefined" && v_1 != null )  ) {
-      obj.vref = v_1;
-    }
-    const v_2 = typeof(dict ["is_block_node"]) === "undefined" ? undefined :(dict ["is_block_node"]) ;
-    if ( (typeof(v_2) !== "undefined" && v_2 != null )  ) {
-      obj.is_block_node = v_2;
-    }
-    const v_3 = (typeof (dict ["type_name"]) != "string" ) ? undefined : dict ["type_name"] 
-    ;
-    if ( (typeof(v_3) !== "undefined" && v_3 != null )  ) {
-      obj.type_name = v_3;
-    }
-    const v_4 = (typeof (dict ["key_type"]) != "string" ) ? undefined : dict ["key_type"] 
-    ;
-    if ( (typeof(v_4) !== "undefined" && v_4 != null )  ) {
-      obj.key_type = v_4;
-    }
-    const v_5 = (typeof (dict ["array_type"]) != "string" ) ? undefined : dict ["array_type"] 
-    ;
-    if ( (typeof(v_5) !== "undefined" && v_5 != null )  ) {
-      obj.array_type = v_5;
-    }
-    const values = (dict["ns"] instanceof Array ) ? dict ["ns"] : undefined ;
-    if ( (typeof(values) !== "undefined" && values != null )  ) {
-      const arr = values;
-      const arr_len = arr.length;
-      let arr_i = 0;
-      while (arr_i < arr_len) {
-        const item = arr[arr_i];
-        if( typeof(item) === 'string' ) /* union case for string */ {
-          var oo = item;
-          obj.ns.push(oo);
-        };
-        arr_i = arr_i + 1;
-      };
-    }
-    const v_6 = typeof(dict ["has_vref_annotation"]) === "undefined" ? undefined :(dict ["has_vref_annotation"]) ;
-    if ( (typeof(v_6) !== "undefined" && v_6 != null )  ) {
-      obj.has_vref_annotation = v_6;
-    }
-    const theValue = (dict["vref_annotation"] instanceof Object ) ? dict ["vref_annotation"] : undefined ;
-    if ( (typeof(theValue) !== "undefined" && theValue != null )  ) {
-      const newObj = CodeNodeLiteral.fromDictionary(theValue);
-      obj.vref_annotation = newObj;
-    }
-    const v_7 = typeof(dict ["has_type_annotation"]) === "undefined" ? undefined :(dict ["has_type_annotation"]) ;
-    if ( (typeof(v_7) !== "undefined" && v_7 != null )  ) {
-      obj.has_type_annotation = v_7;
-    }
-    const theValue_1 = (dict["type_annotation"] instanceof Object ) ? dict ["type_annotation"] : undefined ;
-    if ( (typeof(theValue_1) !== "undefined" && theValue_1 != null )  ) {
-      const newObj_1 = CodeNodeLiteral.fromDictionary(theValue_1);
-      obj.type_annotation = newObj_1;
-    }
-    const v_8 = isNaN( parseFloat(dict ["double_value"]) ) ? undefined : parseFloat(dict ["double_value"]) 
-    ;
-    if ( (typeof(v_8) !== "undefined" && v_8 != null )  ) {
-      obj.double_value = v_8;
-    }
-    const v_9 = (typeof (dict ["string_value"]) != "string" ) ? undefined : dict ["string_value"] 
-    ;
-    if ( (typeof(v_9) !== "undefined" && v_9 != null )  ) {
-      obj.string_value = v_9;
-    }
-    const v_10 = isNaN( parseInt(dict ["int_value"]) ) ? undefined : parseInt(dict ["int_value"]) 
-    ;
-    if ( (typeof(v_10) !== "undefined" && v_10 != null )  ) {
-      obj.int_value = v_10;
-    }
-    const v_11 = typeof(dict ["boolean_value"]) === "undefined" ? undefined :(dict ["boolean_value"]) ;
-    if ( (typeof(v_11) !== "undefined" && v_11 != null )  ) {
-      obj.boolean_value = v_11;
-    }
-    const theValue_2 = (dict["expression_value"] instanceof Object ) ? dict ["expression_value"] : undefined ;
-    if ( (typeof(theValue_2) !== "undefined" && theValue_2 != null )  ) {
-      const newObj_2 = CodeNodeLiteral.fromDictionary(theValue_2);
-      obj.expression_value = newObj_2;
-    }
-    const values_1 = (dict["props"] instanceof Object ) ? dict ["props"] : undefined ;
-    if ( (typeof(values_1) !== "undefined" && values_1 != null )  ) {
-      const theObjprops = values_1;
-      const obj_keys = Object.keys(theObjprops);
-      const key_len = obj_keys.length;
-      let key_i = 0;
-      while (key_i < key_len) {
-        const item_1 = obj_keys[key_i];
-        const theValue_3 = (theObjprops[item_1] instanceof Object ) ? theObjprops [item_1] : undefined ;
-        if ( (typeof(theValue_3) !== "undefined" && theValue_3 != null )  ) {
-          const newObj_3 = CodeNodeLiteral.fromDictionary(theValue_3);
-          obj.props[item_1] = newObj_3;
-        }
-        key_i = key_i + 1;
-      };
-    }
-    const values_2 = (dict["prop_keys"] instanceof Array ) ? dict ["prop_keys"] : undefined ;
-    if ( (typeof(values_2) !== "undefined" && values_2 != null )  ) {
-      const arr_1 = values_2;
-      const arr_len_1 = arr_1.length;
-      let arr_i_1 = 0;
-      while (arr_i_1 < arr_len_1) {
-        const item_2 = arr_1[arr_i_1];
-        if( typeof(item_2) === 'string' ) /* union case for string */ {
-          var oo_1 = item_2;
-          obj.prop_keys.push(oo_1);
-        };
-        arr_i_1 = arr_i_1 + 1;
-      };
-    }
-    const values_3 = (dict["comments"] instanceof Array ) ? dict ["comments"] : undefined ;
-    if ( (typeof(values_3) !== "undefined" && values_3 != null )  ) {
-      const arr_2 = values_3;
-      const arr_len_2 = arr_2.length;
-      let arr_i_2 = 0;
-      while (arr_i_2 < arr_len_2) {
-        const item_3 = arr_2[arr_i_2];
-        if( item_3 instanceof Object ) /* union case */ {
-          var oo_2 = item_3;
-          const newObj_4 = CodeNodeLiteral.fromDictionary(oo_2);
-          obj.comments.push(newObj_4);
-        };
-        arr_i_2 = arr_i_2 + 1;
-      };
-    }
-    const values_4 = (dict["children"] instanceof Array ) ? dict ["children"] : undefined ;
-    if ( (typeof(values_4) !== "undefined" && values_4 != null )  ) {
-      const arr_3 = values_4;
-      const arr_len_3 = arr_3.length;
-      let arr_i_3 = 0;
-      while (arr_i_3 < arr_len_3) {
-        const item_4 = arr_3[arr_i_3];
-        if( item_4 instanceof Object ) /* union case */ {
-          var oo_3 = item_4;
-          const newObj_5 = CodeNodeLiteral.fromDictionary(oo_3);
-          obj.children.push(newObj_5);
-        };
-        arr_i_3 = arr_i_3 + 1;
-      };
-    }
-    const values_5 = (dict["attrs"] instanceof Array ) ? dict ["attrs"] : undefined ;
-    if ( (typeof(values_5) !== "undefined" && values_5 != null )  ) {
-      const arr_4 = values_5;
-      const arr_len_4 = arr_4.length;
-      let arr_i_4 = 0;
-      while (arr_i_4 < arr_len_4) {
-        const item_5 = arr_4[arr_i_4];
-        if( item_5 instanceof Object ) /* union case */ {
-          var oo_4 = item_5;
-          const newObj_6 = CodeNodeLiteral.fromDictionary(oo_4);
-          obj.attrs.push(newObj_6);
-        };
-        arr_i_4 = arr_i_4 + 1;
-      };
-    }
-  } catch(e) {
-  }
-  return obj;
-};
 class CodeNode  {
   constructor(source, start, end) {
     this.code = undefined;
@@ -5561,7 +4996,7 @@ class CodeNode  {
     cp.has_call = false;
     cp.type_type = this.type_type;
     cp.value_type = this.parsed_type;
-    operatorsOf.forEach_15(cp.children, ((item, index) => { 
+    operatorsOf.forEach_7(cp.children, ((item, index) => { 
       item.cleanNode();
     }));
   };
@@ -5574,7 +5009,7 @@ class CodeNode  {
   copy () {
     const match = new RangerArgMatch();
     const cp = this.rebuildWithType(match, false);
-    cp.register_expressions = operatorsOf.clone_39(this.register_expressions);
+    cp.register_expressions = operatorsOf.clone_35(this.register_expressions);
     return cp;
   };
   clone () {
@@ -5730,7 +5165,7 @@ class CodeNode  {
     newNode.value_type = this.value_type;
     newNode.parsed_type = this.parsed_type;
     newNode.copyEvalResFrom(this);
-    newNode.register_expressions = operatorsOf.clone_39(this.register_expressions);
+    newNode.register_expressions = operatorsOf.clone_35(this.register_expressions);
     if ( this.has_vref_annotation ) {
       newNode.has_vref_annotation = true;
       const ann = this.vref_annotation;
@@ -5975,7 +5410,7 @@ class CodeNode  {
       const fnNode = this.expression_value.getFirst();
       const argNode = this.expression_value.getSecond();
       s = (s + "(_:") + fnNode.buildTypeSignature();
-      s = ((s + " (") + operatorsOf.map_46(argNode.children, ((item, index) => {
+      s = ((s + " (") + operatorsOf.map_42(argNode.children, ((item, index) => {
       return "_:" + item.buildTypeSignature();
       })).join(" ")) + "))";
       return s;
@@ -6920,7 +6355,7 @@ class RangerAppWriterContext  {
     let res = [];
     const list = ( Object.prototype.hasOwnProperty.call(root.typedNodes, name) ? root.typedNodes[name] : undefined );
     if ( (typeof(list) !== "undefined" && list != null )  ) {
-      operatorsOf.forEach_15(list.items, ((item, index) => { 
+      operatorsOf.forEach_7(list.items, ((item, index) => { 
         const tmp = item;
         res.push(tmp);
       }));
@@ -6954,8 +6389,8 @@ class RangerAppWriterContext  {
   getAllOperators () {
     const root = this.getRoot();
     let res = [];
-    operatorsOf_13.forEach_16(root.op_list, ((item, index) => { 
-      operatorsOf.forEach_17(item.items, ((item, index) => { 
+    operatorsOf_5.forEach_8(root.op_list, ((item, index) => { 
+      operatorsOf.forEach_9(item.items, ((item, index) => { 
         const tmp = item;
         res.push(tmp);
       }));
@@ -6967,7 +6402,7 @@ class RangerAppWriterContext  {
     let res = [];
     const list = ( Object.prototype.hasOwnProperty.call(root.op_list, name) ? root.op_list[name] : undefined );
     if ( (typeof(list) !== "undefined" && list != null )  ) {
-      return operatorsOf.clone_18(list.items);
+      return operatorsOf.clone_10(list.items);
     }
     return res;
   };
@@ -6978,9 +6413,9 @@ class RangerAppWriterContext  {
       op.initializeOpCache();
       const foo = op.getOperators("+");
       if ( foo.length > 0 ) {
-        operatorsOf_13.forEach_19(op.opHash, ((item, index) => { 
+        operatorsOf_5.forEach_11(op.opHash, ((item, index) => { 
           const op_name = index;
-          operatorsOf.forEach_15(item.list, ((item, index) => { 
+          operatorsOf.forEach_7(item.list, ((item, index) => { 
             const fc = item.getFirst();
             const nameNode = item.getSecond();
             const args = item.getThird();
@@ -7126,7 +6561,7 @@ class RangerAppWriterContext  {
     let res = {};
     let cc = this;
     while ((typeof(cc) !== "undefined" && cc != null ) ) {
-      operatorsOf_13.forEach_20(cc.localVariables, ((item, index) => { 
+      operatorsOf_5.forEach_12(cc.localVariables, ((item, index) => { 
         if ( (typeof(item.nameNode) !== "undefined" && item.nameNode != null )  ) {
           res[item.nameNode.type_name] = true;
           res[item.nameNode.key_type] = true;
@@ -7138,7 +6573,7 @@ class RangerAppWriterContext  {
     return Object.keys(res);
   };
   writeContextVars (wr) {
-    operatorsOf_13.forEach_20(this.localVariables, ((item, index) => { 
+    operatorsOf_5.forEach_12(this.localVariables, ((item, index) => { 
       wr.out(("def " + index) + ":", false);
       if ( (typeof(item.nameNode) !== "undefined" && item.nameNode != null )  ) {
         const r = new RangerRangerClassWriter();
@@ -7249,7 +6684,7 @@ class RangerAppWriterContext  {
         if ( (typeof(cc_2.operatorFunction) !== "undefined" && cc_2.operatorFunction != null )  ) {
           const opFn = cc_2.operatorFunction;
           const suggestedOp = opFn(name);
-          operatorsOf.forEach_15(suggestedOp.children, ((item, index) => { 
+          operatorsOf.forEach_7(suggestedOp.children, ((item, index) => { 
             listOfOps.splice(0, 0, item.copy());
           }));
         }
@@ -7569,7 +7004,7 @@ class RangerAppWriterContext  {
   };
   findOperatorsWithName (name) {
     let res = [];
-    operatorsOf.forEach_15(this.getStdCommands().children, ((item, index) => { 
+    operatorsOf.forEach_7(this.getStdCommands().children, ((item, index) => { 
       if ( item.isFirstVref(name) ) {
         res.push(item);
       }
@@ -11434,7 +10869,7 @@ class RangerLispParser  {
             }
           }
           let had_type_ann = false;
-          while (this.i < this.__len && operatorsOfchar_21.isc95notc95limiter_22(c)) {
+          while (this.i < this.__len && operatorsOfchar_13.isc95notc95limiter_14(c)) {
             this.i = 1 + this.i;
             c = s[this.i];
             if ( c == (64) ) {
@@ -12848,540 +12283,6 @@ DictNode.createEmptyObject = function() {
   v.value_type = 6;
   return v;
 };
-class RangerSerializeClass  {
-  constructor() {
-  }
-  isSerializedClass (cName, ctx) {
-    if ( ctx.hasClass(cName) ) {
-      const clDecl = ctx.findClass(cName);
-      if ( clDecl.is_serialized ) {
-        return true;
-      }
-    }
-    return false;
-  };
-  canSerializeClass (cName, ctx) {
-    if ( this.isSerializedClass(cName, ctx) ) {
-      return true;
-    }
-    if ( ctx.hasClass(cName) == false ) {
-      return false;
-    }
-    const clDecl = ctx.findClass(cName);
-    if ( clDecl.isNormalClass() == false ) {
-      return false;
-    }
-    return clDecl.hasMethod("toDictionary") && clDecl.hasStaticMethod("fromDictionary");
-  };
-  missesSerializeSupport (cName, ctx) {
-    if ( ctx.hasClass(cName) == false ) {
-      return false;
-    }
-    const clDecl = ctx.findClass(cName);
-    if ( clDecl.isNormalClass() == false ) {
-      return false;
-    }
-    return this.canSerializeClass(cName, ctx) == false;
-  };
-  describeFieldType (nn) {
-    if ( nn.value_type == 6 ) {
-      return ("[" + nn.array_type) + "]";
-    }
-    if ( nn.value_type == 7 ) {
-      return ((("[" + nn.key_type) + ":") + nn.array_type) + "]";
-    }
-    return nn.type_name;
-  };
-  validateSerializedClass (cl, ctx) {
-    let is_valid = true;
-    // Loop start
-    for ( let i = 0; i < cl.variables.length; i++) {
-      var pvar = cl.variables[i];
-      if ( typeof(pvar.nameNode) === "undefined" ) {
-        continue;
-      }
-      const nn = pvar.nameNode;
-      if ( nn.value_type == 13 ) {
-        continue;
-      }
-      let refType = nn.type_name;
-      if ( nn.value_type == 6 || nn.value_type == 7 ) {
-        refType = nn.array_type;
-      }
-      if ( this.missesSerializeSupport(refType, ctx) ) {
-        ctx.addError(nn, ((((((((cl.name + ".") + pvar.name) + ": ") + this.describeFieldType(nn)) + " can not be serialized - class ") + refType) + " is not @serialize(true). Add @serialize(true) to ") + refType) + ", or implement toDictionary / fromDictionary in it.");
-        is_valid = false;
-      }
-    }
-    return is_valid;
-  };
-  createWRWriter (pvar, nn, ctx, wr) {
-    wr.out("def key@(lives):DictNode (new DictNode())", true);
-    wr.out(("key.addString(\"n\" \"" + pvar.name) + "\")", true);
-    if ( nn.value_type == 6 ) {
-      if ( this.isSerializedClass(nn.array_type, ctx) ) {
-        wr.out(("def values:DictNode (obj_keys.addArray(\"" + pvar.compiledName) + "\"))", true);
-        wr.out(((("for this." + pvar.compiledName) + " item:") + nn.array_type) + " i {", true);
-        wr.indent(1);
-        wr.out("def obj@(lives):DictNode (item.serializeToDict())", true);
-        wr.out("values.push( obj )", true);
-        wr.indent(-1);
-        wr.out("}", true);
-      }
-      return;
-    }
-    if ( nn.value_type == 7 ) {
-      if ( this.isSerializedClass(nn.array_type, ctx) ) {
-        wr.out(("def values:DictNode (obj_keys.addObject(\"" + pvar.compiledName) + "\"))", true);
-        wr.out(("for this." + pvar.compiledName) + " keyname {", true);
-        wr.indent(1);
-        wr.out(("def item:DictNode (unwrap (get this." + pvar.compiledName) + " keyname))", true);
-        wr.out("def obj@(lives):DictNode (item.serializeToDict())", true);
-        wr.out("values.setObject( obj )", true);
-        wr.indent(-1);
-        wr.out("}", true);
-      }
-      if ( nn.key_type == "string" ) {
-        wr.out(("def values:DictNode (obj_keys.addObject(\"" + pvar.compiledName) + "\"))", true);
-        wr.out(("for this." + pvar.compiledName) + " keyname {", true);
-        wr.indent(1);
-        if ( nn.array_type == "string" ) {
-          wr.out(("values.addString(keyname (unwrap (get this." + pvar.compiledName) + " keyname)))", true);
-        }
-        if ( nn.array_type == "int" ) {
-          wr.out(("values.addInt(keyname (unwrap (get this." + pvar.compiledName) + " keyname)))", true);
-        }
-        if ( nn.array_type == "boolean" ) {
-          wr.out(("values.addBoolean(keyname (unwrap (get this." + pvar.compiledName) + " keyname)))", true);
-        }
-        if ( nn.array_type == "double" ) {
-          wr.out(("values.addDouble(keyname (unwrap (get this." + pvar.compiledName) + " keyname)))", true);
-        }
-        wr.indent(-1);
-        wr.out("}", true);
-        return;
-      }
-      return;
-    }
-    if ( nn.type_name == "string" ) {
-      wr.out(((("obj_keys.addString(\"" + pvar.compiledName) + "\" (this.") + pvar.compiledName) + "))", true);
-      return;
-    }
-    if ( nn.type_name == "double" ) {
-      wr.out(((("obj_keys.addDouble(\"" + pvar.compiledName) + "\" (this.") + pvar.compiledName) + "))", true);
-      return;
-    }
-    if ( nn.type_name == "int" ) {
-      wr.out(((("obj_keys.addInt(\"" + pvar.compiledName) + "\" (this.") + pvar.compiledName) + "))", true);
-      return;
-    }
-    if ( nn.type_name == "boolean" ) {
-      wr.out(((("obj_keys.addBoolean(\"" + pvar.compiledName) + "\" (this.") + pvar.compiledName) + "))", true);
-      return;
-    }
-    if ( nn.value_type == 13 ) {
-      wr.out(((("obj_keys.addInt(\"" + pvar.compiledName) + "\" (this.") + pvar.compiledName) + "))", true);
-      return;
-    }
-    if ( this.isSerializedClass(nn.type_name, ctx) ) {
-      wr.out(("def value@(lives):DictNode (this." + pvar.compiledName) + ".serializeToDict())", true);
-      wr.out(("obj_keys.setObject(\"" + pvar.compiledName) + "\" value)", true);
-    }
-  };
-  createJSONSerializerFn (cl, ctx, wr) {
-    let declaredVariable = {};
-    wr.out("Import \"ng_DictNode.clj\"", true);
-    wr.out(("extension " + cl.name) + " {", true);
-    wr.indent(1);
-    wr.out(("fn unserializeFromDict@(strong):" + cl.name) + " (dict:DictNode) {", true);
-    wr.indent(1);
-    wr.out(((("def obj:" + cl.name) + " (new ") + cl.name) + "())", true);
-    wr.out("return obj", true);
-    wr.indent(-1);
-    wr.out("}", true);
-    wr.newline();
-    wr.out("fn serializeToDict:DictNode () {", true);
-    wr.indent(1);
-    wr.out("def res:DictNode (new DictNode ())", true);
-    wr.out(("res.addString(\"n\" \"" + cl.name) + "\")", true);
-    wr.out("def obj_keys:DictNode (res.addObject(\"data\"))", true);
-    if ( cl.extends_classes.length > 0 ) {
-      // Loop start
-      for ( let i = 0; i < cl.extends_classes.length; i++) {
-        var pName = cl.extends_classes[i];
-        const pC = ctx.findClass(pName);
-        // Loop start
-        for ( const pvar of pC.variables) {
-          declaredVariable[pvar.name] = true;
-          const nn = pvar.nameNode;
-          if ( nn.isPrimitive() ) {
-            wr.out("; extended ", true);
-            wr.out("def key@(lives):DictNode (new DictNode())", true);
-            wr.out(("key.addString(\"n\" \"" + pvar.name) + "\")", true);
-            wr.out(("key.addString(\"t\" \"" + pvar.value_type) + "\")", true);
-            wr.out("obj_keys.push(key)", true);
-          }
-        }
-      }
-    }
-    // Loop start
-    for ( const pvar_1 of cl.variables) {
-      if ( ( typeof(declaredVariable[pvar_1.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(declaredVariable, pvar_1.name) ) ) {
-        continue;
-      }
-      const nn_1 = pvar_1.nameNode;
-      if ( nn_1.hasFlag("optional") ) {
-        wr.out("; optional variable", true);
-        wr.out(("if (!null? this." + pvar_1.name) + ") {", true);
-        wr.indent(1);
-        this.createWRWriter(pvar_1, nn_1, ctx, wr);
-        wr.indent(-1);
-        wr.out("} {", true);
-        wr.indent(1);
-        wr.indent(-1);
-        wr.out("}", true);
-        continue;
-      }
-      wr.out("; not extended ", true);
-      this.createWRWriter(pvar_1, nn_1, ctx, wr);
-    }
-    wr.out("return res", true);
-    wr.indent(-1);
-    wr.out("}", true);
-    wr.indent(-1);
-    wr.out("}", true);
-  };
-  createWRWriter2 (pvar, nn, ctx, wr) {
-    if ( nn.value_type == 6 ) {
-      if ( this.canSerializeClass(nn.array_type, ctx) ) {
-        wr.out("def values:JSONArrayObject (json_array)", true);
-        wr.out(((("for this." + pvar.name) + " item:") + nn.array_type) + " i {", true);
-        wr.indent(1);
-        wr.out("def obj@(lives):JSONDataObject (item.toDictionary())", true);
-        wr.out("push values obj", true);
-        wr.indent(-1);
-        wr.out("}", true);
-        wr.out(("set res  \"" + pvar.name) + "\" values ", true);
-      } else {
-        wr.out("def values:JSONArrayObject (json_array)", true);
-        wr.out(((("for this." + pvar.name) + " item:") + nn.array_type) + " i {", true);
-        wr.indent(1);
-        wr.out("push values item", true);
-        wr.indent(-1);
-        wr.out("}", true);
-        wr.out(("set res  \"" + pvar.name) + "\" values ", true);
-      }
-      return;
-    }
-    if ( nn.value_type == 7 ) {
-      if ( this.canSerializeClass(nn.array_type, ctx) ) {
-        wr.out("def values:JSONDataObject (json_object)", true);
-        wr.out(("def keyList (keys this." + pvar.name) + ")", true);
-        wr.out("for keyList keyname:string index {", true);
-        wr.indent(1);
-        wr.out(("def item (unwrap (get this." + pvar.name) + " keyname))", true);
-        if ( ctx.isDefinedClass(nn.array_type) ) {
-          wr.out("def obj@(lives):JSONDataObject (item.toDictionary())", true);
-          wr.out("set values keyname obj ", true);
-        } else {
-          wr.out("set values keyname item ", true);
-        }
-        wr.indent(-1);
-        wr.out("}", true);
-        wr.out(("set res  \"" + pvar.name) + "\" values ", true);
-      } else {
-        if ( ctx.isDefinedClass(nn.array_type) == false ) {
-          wr.out("def values:JSONDataObject (json_object)", true);
-          wr.out(("def keyList (keys this." + pvar.name) + ")", true);
-          wr.out("for keyList keyname:string index {", true);
-          wr.indent(1);
-          wr.out(("def item (unwrap (get this." + pvar.name) + " keyname))", true);
-          wr.out("set values keyname item ", true);
-          wr.indent(-1);
-          wr.out("}", true);
-          wr.out(("set res  \"" + pvar.name) + "\" values ", true);
-        }
-      }
-      return;
-    }
-    if ( nn.hasFlag("optional") ) {
-      if ( ctx.isDefinedClass(nn.type_name) == false ) {
-        wr.out(((("set res  \"" + pvar.name) + "\" (unwrap this.") + pvar.name) + ") ", true);
-      } else {
-        wr.out(((("set res  \"" + pvar.name) + "\" (call (unwrap this.") + pvar.name) + ") toDictionary ()) ", true);
-      }
-    } else {
-      if ( ctx.isDefinedClass(nn.type_name) == false ) {
-        wr.out(((("set res  \"" + pvar.name) + "\" (this.") + pvar.name) + ") ", true);
-      } else {
-        wr.out(((("set res  \"" + pvar.name) + "\" (this.") + pvar.name) + ".toDictionary()) ", true);
-      }
-    }
-  };
-  createWRReader2 (pvar, nn, ctx, wr) {
-    if ( nn.value_type == 6 ) {
-      if ( this.canSerializeClass(nn.array_type, ctx) ) {
-        wr.out(("def values:JSONArrayObject (getArray dict \"" + pvar.name) + "\")", true);
-        wr.out("if(!null? values) {", true);
-        wr.indent(1);
-        wr.out("def arr (unwrap values)", true);
-        wr.out("def arr_len (array_length arr)", true);
-        wr.out("def arr_i 0", true);
-        wr.out("while (arr_i < arr_len) {", true);
-        wr.indent(1);
-        wr.out("def item (getValue arr arr_i)", true);
-        wr.out("case item oo:JSONDataObject {", true);
-        wr.indent(1);
-        wr.out(("def newObj (" + nn.array_type) + ".fromDictionary(oo))", true);
-        wr.out(("push obj." + pvar.name) + " newObj", true);
-        wr.indent(-1);
-        wr.out("}", true);
-        wr.out("arr_i = arr_i + 1", true);
-        wr.indent(-1);
-        wr.out("}", true);
-        wr.indent(-1);
-        wr.out("}", true);
-      } else {
-        wr.out(("def values:JSONArrayObject (getArray dict \"" + pvar.name) + "\")", true);
-        wr.out("if(!null? values) {", true);
-        wr.indent(1);
-        wr.out("def arr (unwrap values)", true);
-        wr.out("def arr_len (array_length arr)", true);
-        wr.out("def arr_i 0", true);
-        wr.out("while (arr_i < arr_len) {", true);
-        wr.indent(1);
-        wr.out("def item (getValue arr arr_i)", true);
-        wr.out(("case item oo:" + nn.array_type) + " {", true);
-        wr.indent(1);
-        wr.out(("push obj." + pvar.name) + " oo", true);
-        wr.indent(-1);
-        wr.out("}", true);
-        wr.out("arr_i = arr_i + 1", true);
-        wr.indent(-1);
-        wr.out("}", true);
-        wr.indent(-1);
-        wr.out("}", true);
-      }
-      return;
-    }
-    if ( nn.value_type == 7 ) {
-      if ( this.canSerializeClass(nn.array_type, ctx) ) {
-        wr.out(("def values (getObject dict \"" + pvar.name) + "\")", true);
-        wr.out("if(!null? values) {", true);
-        wr.indent(1);
-        wr.out(("def theObj" + pvar.name) + " (unwrap values)", true);
-        wr.out(("def obj_keys (keys theObj" + pvar.name) + ")", true);
-        wr.out("def key_len (array_length obj_keys)", true);
-        wr.out("def key_i 0", true);
-        wr.out("while (key_i < key_len) {", true);
-        wr.indent(1);
-        wr.out("def item (itemAt obj_keys key_i)", true);
-        if ( ctx.isDefinedClass(nn.array_type) ) {
-          wr.out(("def theValue (getObject theObj" + pvar.name) + " item ) ", true);
-          wr.out("if(!null? theValue) {", true);
-          wr.indent(1);
-          wr.out(("def newObj@(lives) (" + nn.array_type) + ".fromDictionary((unwrap theValue)))", true);
-          wr.out(("set obj." + pvar.name) + " item newObj ", true);
-          wr.indent(-1);
-          wr.out("}", true);
-        } else {
-        }
-        wr.out("key_i = key_i + 1", true);
-        wr.indent(-1);
-        wr.out("}", true);
-        wr.indent(-1);
-        wr.out("}", true);
-      } else {
-        wr.out(("def values (getObject dict \"" + pvar.name) + "\")", true);
-        wr.out("if(!null? values) {", true);
-        wr.indent(1);
-        wr.out(("def theObj" + pvar.name) + " (unwrap values)", true);
-        wr.out(("def obj_keys (keys theObj" + pvar.name) + ")", true);
-        wr.out("def key_len (array_length obj_keys)", true);
-        wr.out("def key_i 0", true);
-        wr.out("while (key_i < key_len) {", true);
-        wr.indent(1);
-        wr.out("def item (itemAt obj_keys key_i)", true);
-        if ( ctx.isDefinedClass(nn.array_type) ) {
-        } else {
-          switch (nn.array_type ) { 
-            case "string" : 
-              wr.out(("def v (getStr theObj" + pvar.name) + " item)", true);
-              wr.out("if(!null? v) {", true);
-              wr.indent(1);
-              wr.out(("set obj." + pvar.name) + " item (unwrap v) ", true);
-              wr.indent(-1);
-              wr.out("}", true);
-              break;
-            case "int" : 
-              wr.out(("def v (getInt theObj" + pvar.name) + " item)", true);
-              wr.out("if(!null? v) {", true);
-              wr.indent(1);
-              wr.out(("set obj." + pvar.name) + " item (unwrap v) ", true);
-              wr.indent(-1);
-              wr.out("}", true);
-              break;
-            case "double" : 
-              wr.out(("def v (getDouble theObj" + pvar.name) + " item)", true);
-              wr.out("if(!null? v) {", true);
-              wr.indent(1);
-              wr.out(("set obj." + pvar.name) + " item (unwrap v) ", true);
-              wr.indent(-1);
-              wr.out("}", true);
-              break;
-            case "boolean" : 
-              wr.out(("def v (getBoolean theObj" + pvar.name) + " item)", true);
-              wr.out("if(!null? v) {", true);
-              wr.indent(1);
-              wr.out(("set obj." + pvar.name) + " item (unwrap v) ", true);
-              wr.indent(-1);
-              wr.out("}", true);
-              break;
-          };
-        }
-        wr.out("key_i = key_i + 1", true);
-        wr.indent(-1);
-        wr.out("}", true);
-        wr.indent(-1);
-        wr.out("}", true);
-      }
-      return;
-    }
-    switch (nn.type_name ) { 
-      case "string" : 
-        wr.out(("def v (getStr dict \"" + pvar.name) + "\")", true);
-        wr.out("if(!null? v) {", true);
-        wr.indent(1);
-        wr.out(("obj." + pvar.name) + " = (unwrap v) ", true);
-        wr.indent(-1);
-        wr.out("}", true);
-        break;
-      case "int" : 
-        wr.out(("def v (getInt dict \"" + pvar.name) + "\")", true);
-        wr.out("if(!null? v) {", true);
-        wr.indent(1);
-        wr.out(("obj." + pvar.name) + " = (unwrap v) ", true);
-        wr.indent(-1);
-        wr.out("}", true);
-        break;
-      case "double" : 
-        wr.out(("def v (getDouble dict \"" + pvar.name) + "\")", true);
-        wr.out("if(!null? v) {", true);
-        wr.indent(1);
-        wr.out(("obj." + pvar.name) + " = (unwrap v) ", true);
-        wr.indent(-1);
-        wr.out("}", true);
-        break;
-      case "boolean" : 
-        wr.out(("def v (getBoolean dict \"" + pvar.name) + "\")", true);
-        wr.out("if(!null? v) {", true);
-        wr.indent(1);
-        wr.out(("obj." + pvar.name) + " = (unwrap v) ", true);
-        wr.indent(-1);
-        wr.out("}", true);
-        break;
-    };
-    if ( ctx.isDefinedClass(nn.type_name) ) {
-      wr.out(("def theValue (getObject dict \"" + pvar.name) + "\") ", true);
-      wr.out("if(!null? theValue) {", true);
-      wr.indent(1);
-      wr.out(("def newObj@(lives) (" + nn.type_name) + ".fromDictionary((unwrap theValue)))", true);
-      wr.out(("obj." + pvar.name) + " = newObj ", true);
-      wr.indent(-1);
-      wr.out("}", true);
-    } else {
-    }
-    if ( nn.value_type == 13 ) {
-      wr.out(("def v (getInt dict \"" + pvar.name) + "\")", true);
-      wr.out("if(!null? v) {", true);
-      wr.indent(1);
-      wr.out(("obj." + pvar.name) + " = (unwrap v) ", true);
-      wr.indent(-1);
-      wr.out("}", true);
-    }
-  };
-  createJSONSerializerFn2 (cl, ctx, wr) {
-    const lang = operatorsOfRangerAppWriterContext_23.getTargetLang_24(ctx);
-    const use_exceptions = lang != "swift3" && lang != "swift6";
-    let declaredVariable = {};
-    wr.out(("extension " + cl.name) + " {", true);
-    wr.indent(1);
-    wr.out(("static fn fromDictionary@(strong):" + cl.name) + " (dict:JSONDataObject) {", true);
-    wr.indent(1);
-    wr.out(((("def obj:" + cl.name) + " (new ") + cl.name) + "())", true);
-    if ( use_exceptions ) {
-      wr.out("try {", true);
-      wr.indent(1);
-    }
-    // Loop start
-    for ( const pvar of cl.variables) {
-      if ( ( typeof(declaredVariable[pvar.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(declaredVariable, pvar.name) ) ) {
-        continue;
-      }
-      const nn = pvar.nameNode;
-      this.createWRReader2(pvar, nn, ctx, wr);
-    }
-    if ( use_exceptions ) {
-      wr.indent(-1);
-      wr.out("} {", true);
-      wr.out("}", true);
-    }
-    wr.out("return obj", true);
-    wr.indent(-1);
-    wr.out("}", true);
-    wr.newline();
-    wr.out("fn toDictionary:JSONDataObject () {", true);
-    wr.indent(1);
-    wr.out("def res:JSONDataObject (json_object)", true);
-    if ( use_exceptions ) {
-      wr.out("try {", true);
-      wr.indent(1);
-    }
-    if ( cl.extends_classes.length > 0 ) {
-      // Loop start
-      for ( let i_1 = 0; i_1 < cl.extends_classes.length; i_1++) {
-        var pName = cl.extends_classes[i_1];
-        const pC = ctx.findClass(pName);
-        // Loop start
-        for ( const pvar_1 of pC.variables) {
-          declaredVariable[pvar_1.name] = true;
-          const nn_1 = pvar_1.nameNode;
-        }
-      }
-    }
-    // Loop start
-    for ( const pvar_2 of cl.variables) {
-      if ( ( typeof(declaredVariable[pvar_2.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(declaredVariable, pvar_2.name) ) ) {
-        continue;
-      }
-      const nn_2 = pvar_2.nameNode;
-      if ( nn_2.hasFlag("optional") ) {
-        wr.out("; optional variable", true);
-        wr.out(("if (!null? this." + pvar_2.name) + ") {", true);
-        wr.indent(1);
-        this.createWRWriter2(pvar_2, nn_2, ctx, wr);
-        wr.indent(-1);
-        wr.out("}", true);
-        continue;
-      }
-      wr.out("; not extended ", true);
-      this.createWRWriter2(pvar_2, nn_2, ctx, wr);
-    }
-    if ( use_exceptions ) {
-      wr.indent(-1);
-      wr.out("} {", true);
-      wr.indent(1);
-      wr.out("", true);
-      wr.indent(-1);
-      wr.out("}", true);
-    }
-    wr.out("return res", true);
-    wr.indent(-1);
-    wr.out("}", true);
-    wr.indent(-1);
-    wr.out("}", true);
-  };
-}
 class RangerImmutableExtension  {
   constructor() {
   }
@@ -14277,7 +13178,7 @@ class TFiles  {
 TFiles.searchEnv = function(env, paths, fileName) {
   // Loop start
   for ( const path of paths) {
-    if ( operatorsOf_8.filec95exists_9(env, path, fileName) ) {
+    if ( operatorsOfInputEnv_15.filec95exists_16(env, path, fileName) ) {
       return path;
     }
   }
@@ -14625,7 +13526,7 @@ PkgImport.walkUp = function(env, start) {
   let dir = start;
   let guard = 0;
   while (dir.length > 0) {
-    if ( operatorsOf_8.filec95exists_9(env, dir, "ranger.json") ) {
+    if ( operatorsOf_15.filec95exists_16(env, dir, "ranger.json") ) {
       return dir;
     }
     const parent = PkgImport.parentDir(dir);
@@ -14641,8 +13542,8 @@ PkgImport.walkUp = function(env, start) {
   return "";
 };
 PkgImport.readText = function(env, dir, name) {
-  if ( operatorsOf_8.filec95exists_9(env, dir, name) ) {
-    const c = operatorsOf_8.readc95file_9(env, dir, name);
+  if ( operatorsOf_15.filec95exists_16(env, dir, name) ) {
+    const c = operatorsOf_15.readc95file_16(env, dir, name);
     if ( (typeof(c) !== "undefined" && c != null )  ) {
       return c;
     }
@@ -14755,13 +13656,13 @@ PkgImport.resolveIn = function(env, manDir, spec) {
     }
     if ( pathDep.length > 0 && pkgRoot.length == 0 ) {
       const cand = PkgImport.foldPath(PkgImport.joinPath(manDir, pathDep));
-      if ( operatorsOf_8.filec95exists_9(env, cand, "ranger.json") ) {
+      if ( operatorsOf_15.filec95exists_16(env, cand, "ranger.json") ) {
         pkgRoot = cand;
       }
     }
     if ( pkgRoot.length == 0 ) {
       const vendorDir = PkgImport.joinPath(manDir, ("vendor/ranger/" + pkgName));
-      if ( operatorsOf_8.filec95exists_9(env, vendorDir, "ranger.json") ) {
+      if ( operatorsOf_15.filec95exists_16(env, vendorDir, "ranger.json") ) {
         pkgRoot = vendorDir;
       } else {
         const lockText = PkgImport.readText(env, manDir, "ranger.lock");
@@ -14798,7 +13699,7 @@ PkgImport.resolveIn = function(env, manDir, spec) {
   hit.dir = parts[0];
   hit.name = parts[1];
   hit.packageId = pkgName;
-  if ( operatorsOf_8.filec95exists_9(env, hit.dir, hit.name) ) {
+  if ( operatorsOf_15.filec95exists_16(env, hit.dir, hit.name) ) {
     hit.ok = true;
     return hit;
   }
@@ -15208,15 +14109,15 @@ class RangerFlowParser  {
           break;
         case "def" : 
           this.repairAssignMethodCallRhs(node);
-          operatorsOfRangerFlowParser_25.EnterVarDef_26(this, node, ctx, wr);
+          operatorsOfRangerFlowParser_19.EnterVarDef_20(this, node, ctx, wr);
           break;
         case "var" : 
           this.repairAssignMethodCallRhs(node);
-          operatorsOf_25.EnterVarDef_26(this, node, ctx, wr);
+          operatorsOf_19.EnterVarDef_20(this, node, ctx, wr);
           break;
         case "let" : 
           this.repairAssignMethodCallRhs(node);
-          operatorsOf_25.EnterVarDef_26(this, node, ctx, wr);
+          operatorsOf_19.EnterVarDef_20(this, node, ctx, wr);
           break;
         case "property" : 
           this.GetProperty(node, ctx, wr);
@@ -15309,7 +14210,7 @@ class RangerFlowParser  {
             let classDesc = ctx.findClass(fc_3.eval_type_name);
             const objExpr = fc_3.copy();
             let calledItem = CodeNode.fromList([CodeNode.vref1("property"), fc_3.copy(), CodeNode.vref1(method_name)]);
-            operatorsOf.forEach_12(parts, ((item, index) => { 
+            operatorsOf.forEach_4(parts, ((item, index) => { 
               if ( index > 0 ) {
                 try {
                   const p = classDesc.findVariable(method_name);
@@ -15682,7 +14583,7 @@ class RangerFlowParser  {
         ctx.addError(node, "Function has too few arguments");
       } else {
         let idx = 0;
-        operatorsOf.forEach_15(node.children, ((item, index) => { 
+        operatorsOf.forEach_7(node.children, ((item, index) => { 
           if ( item.vref == "static" ) {
             idx = idx + 1;
           }
@@ -15806,7 +14707,7 @@ class RangerFlowParser  {
         const newCl = currC;
         this.expandRecordCtorArgsIfNeeded(newCl, ctorFn, params, node);
       }
-      operatorsOf.forEach_11(ctorFn.params, ((item, index) => { 
+      operatorsOf.forEach_3(ctorFn.params, ((item, index) => { 
         if ( item.nameNode.hasFlag("keyword") ) {
           if ( params.children.length > index ) {
             params.children[index].setFlag("keyword");
@@ -15964,7 +14865,7 @@ class RangerFlowParser  {
   CreateCTTI (node, ctx, orig_wr) {
     const root = ctx.getRoot();
     const wr = new CodeWriter();
-    operatorsOf_13.forEach_14(root.definedClasses, ((item, index) => { 
+    operatorsOf_5.forEach_6(root.definedClasses, ((item, index) => { 
       if ( item.isNormalClass() ) {
         wr.raw(((("\n      operators {\n        class_name _:string ( " + item.name) + "@(keyword) ) {\n          templates {\n            * ( '\"") + item.name) + "\"' )\n          }\n        }\n      }    \n          ", true);
       }
@@ -15979,7 +14880,7 @@ class RangerFlowParser  {
     wr.out("fn rtti_get_classes:[string] () {", true);
     wr.indent(1);
     wr.out("return ([] ", false);
-    operatorsOf_13.forEach_14(root.definedClasses, ((item, index) => { 
+    operatorsOf_5.forEach_6(root.definedClasses, ((item, index) => { 
       if ( item.isNormalClass() ) {
         wr.out(("'" + item.name) + "' ", false);
       }
@@ -15990,11 +14891,11 @@ class RangerFlowParser  {
     wr.out("fn rtti_get_fields:[RTTIClassField] (className:string) {", true);
     wr.indent(1);
     wr.out("def fields:[RTTIClassField]", true);
-    operatorsOf_13.forEach_14(root.definedClasses, ((item, index) => { 
+    operatorsOf_5.forEach_6(root.definedClasses, ((item, index) => { 
       if ( item.isNormalClass() ) {
         wr.out(("if(className == '" + item.name) + "') {", true);
         wr.indent(1);
-        operatorsOf.forEach_11(item.variables, ((item, index) => { 
+        operatorsOf.forEach_3(item.variables, ((item, index) => { 
           wr.out("def f (new RTTIClassField)", true);
           wr.out(("f.name = `" + item.compiledName) + "`", true);
           wr.out(("f.type_name = `" + item.nameNode.type_name) + "`", true);
@@ -16016,7 +14917,7 @@ class RangerFlowParser  {
     const rootClassDef = ctx.findClass(xmlNode.vref);
     if ( rootClassDef.is_system ) {
       opBody.children.push(CodeNode.fromList([CodeNode.vref1("def"), CodeNode.vref1(regName), CodeNode.fromList([CodeNode.vref1("create"), CodeNode.vref1(xmlNode.vref)])]));
-      operatorsOf.forEach_15(xmlNode.attrs, ((item, index) => { 
+      operatorsOf.forEach_7(xmlNode.attrs, ((item, index) => { 
         if ( item.children.length > 0 ) {
           const fc = item.children[0];
           opBody.children.push(CodeNode.fromList([CodeNode.vref1("attr"), CodeNode.vref1(regName), CodeNode.vref1(item.vref), fc.copy()]));
@@ -16026,7 +14927,7 @@ class RangerFlowParser  {
           opBody.children.push(CodeNode.fromList([CodeNode.vref1("attr"), CodeNode.vref1(regName), CodeNode.vref1(item.vref), CodeNode.newStr(item.string_value)]));
         }
       }));
-      operatorsOf.forEach_15(xmlNode.children, ((item, index) => { 
+      operatorsOf.forEach_7(xmlNode.children, ((item, index) => { 
         if ( item.value_type != 22 ) {
           if ( item.expression ) {
             const itemCopy = item.copy();
@@ -16069,7 +14970,7 @@ class RangerFlowParser  {
     } else {
       const match = new RangerArgMatch();
       opBody.children.push(CodeNode.fromList([CodeNode.vref1("def"), CodeNode.vref1(regName), CodeNode.fromList([CodeNode.vref1("new"), CodeNode.vref1(xmlNode.vref)])]));
-      operatorsOf.forEach_15(xmlNode.attrs, ((item, index) => { 
+      operatorsOf.forEach_7(xmlNode.attrs, ((item, index) => { 
         if ( item.children.length > 0 ) {
           const fc_1 = item.children[0];
           opBody.children.push(CodeNode.fromList([CodeNode.vref1("="), CodeNode.vref1((regName + ".") + item.vref), fc_1.copy()]));
@@ -16082,7 +14983,7 @@ class RangerFlowParser  {
           opBody.children.push(CodeNode.fromList([CodeNode.vref1("="), CodeNode.vref1((regName + ".") + item.vref), CodeNode.newInt(item.int_value)]));
         }
       }));
-      operatorsOf.forEach_15(xmlNode.children, ((item, index) => { 
+      operatorsOf.forEach_7(xmlNode.children, ((item, index) => { 
         if ( item.value_type != 22 ) {
           if ( item.expression ) {
             const itemCopy_1 = item.copy();
@@ -16093,7 +14994,7 @@ class RangerFlowParser  {
             if ( ctx.hasClass(itemCopy_1.eval_array_type) ) {
               const paramClassDef_2 = ctx.findClass(itemCopy_1.eval_array_type);
               const chNode_2 = item;
-              operatorsOf.forEach_11(rootClassDef.variables, ((item, index) => { 
+              operatorsOf.forEach_3(rootClassDef.variables, ((item, index) => { 
                 if ( match.areEqualATypes(item.nameNode.array_type, itemCopy_1.eval_array_type, ctx) ) {
                   const t_1 = CodeNode.vref1("tmp");
                   t_1.setFlag("temp");
@@ -16109,7 +15010,7 @@ class RangerFlowParser  {
           if ( ctx.hasClass(item.vref) ) {
             const paramClassDef_3 = ctx.findClass(item.vref);
             const chNode_3 = item;
-            operatorsOf.forEach_11(rootClassDef.variables, ((item, index) => { 
+            operatorsOf.forEach_3(rootClassDef.variables, ((item, index) => { 
               if ( match.areEqualATypes(item.nameNode.array_type, chNode_3.vref, ctx) ) {
                 currCnt = currCnt + 1;
                 const regN_1 = "r" + currCnt;
@@ -16142,7 +15043,7 @@ class RangerFlowParser  {
     if ( (typeof(f.nameNode) !== "undefined" && f.nameNode != null )  ) {
       f.nameNode.setFlag("async");
     }
-    operatorsOf.forEach_28(f.isCalledBy, ((item, index) => { 
+    operatorsOf.forEach_23(f.isCalledBy, ((item, index) => { 
       this.markAsyncFrom(item, visited);
     }));
     if ( (typeof(f.insideFn) !== "undefined" && f.insideFn != null )  ) {
@@ -16160,7 +15061,7 @@ class RangerFlowParser  {
     f.forOtherVersions(ctx, ((item) => { 
       this.markAsyncFromVariant(item, visited, ctx);
     }));
-    operatorsOf.forEach_28(f.isCalledBy, ((item, index) => { 
+    operatorsOf.forEach_23(f.isCalledBy, ((item, index) => { 
       this.markAsyncFromVariant(item, visited, ctx);
     }));
     if ( (typeof(f.insideFn) !== "undefined" && f.insideFn != null )  ) {
@@ -16172,7 +15073,7 @@ class RangerFlowParser  {
       return;
     }
     f.is_called_from_main = true;
-    operatorsOf.forEach_29(f.isUsingClasses, ((item, index) => { 
+    operatorsOf.forEach_24(f.isUsingClasses, ((item, index) => { 
       item.is_used_by_main = true;
       if ( (typeof(item.constructor_fn) !== "undefined" && item.constructor_fn != null )  ) {
         this.markCalledFromMain(item.constructor_fn, ctx);
@@ -16181,10 +15082,10 @@ class RangerFlowParser  {
     f.forOtherVersions(ctx, ((item) => { 
       this.markCalledFromMain(item, ctx);
     }));
-    operatorsOf.forEach_28(f.isCalling, ((item, index) => { 
+    operatorsOf.forEach_23(f.isCalling, ((item, index) => { 
       this.markCalledFromMain(item, ctx);
     }));
-    operatorsOf.forEach_28(f.myLambdas, ((item, index) => { 
+    operatorsOf.forEach_23(f.myLambdas, ((item, index) => { 
       this.markCalledFromMain(item, ctx);
     }));
     if ( (typeof(f.container_class) !== "undefined" && f.container_class != null )  ) {
@@ -16195,13 +15096,13 @@ class RangerFlowParser  {
   };
   SolveAsyncFuncs (node, ctx, wr) {
     const root = ctx.getRoot();
-    operatorsOf_13.forEach_14(root.definedClasses, ((item, index) => { 
-      operatorsOf.forEach_28(item.static_methods, ((item, index) => { 
+    operatorsOf_5.forEach_6(root.definedClasses, ((item, index) => { 
+      operatorsOf.forEach_23(item.static_methods, ((item, index) => { 
         const thisFn = item;
         let visited = [];
         if ( (typeof(item.nameNode) !== "undefined" && item.nameNode != null )  ) {
           if ( item.nameNode.hasFlag("async") ) {
-            operatorsOf.forEach_28(item.isCalledBy, ((item, index) => { 
+            operatorsOf.forEach_23(item.isCalledBy, ((item, index) => { 
               this.markAsyncFrom(item, visited);
             }));
             item.forOtherVersions(ctx, ((item) => { 
@@ -16212,10 +15113,10 @@ class RangerFlowParser  {
             }
           }
         }
-        operatorsOf.forEach_28(item.myLambdas, ((item, index) => { 
+        operatorsOf.forEach_23(item.myLambdas, ((item, index) => { 
           if ( (typeof(item.nameNode) !== "undefined" && item.nameNode != null )  ) {
             if ( item.nameNode.hasFlag("async") ) {
-              operatorsOf.forEach_28(item.isCalledBy, ((item, index) => { 
+              operatorsOf.forEach_23(item.isCalledBy, ((item, index) => { 
                 this.markAsyncFrom(item, visited);
               }));
               if ( (typeof(item.insideFn) !== "undefined" && item.insideFn != null )  ) {
@@ -16225,13 +15126,13 @@ class RangerFlowParser  {
           }
         }));
       }));
-      operatorsOf_13.forEach_30(item.method_variants, ((item, index) => { 
-        operatorsOf.forEach_28(item.variants, ((item, index) => { 
+      operatorsOf_5.forEach_25(item.method_variants, ((item, index) => { 
+        operatorsOf.forEach_23(item.variants, ((item, index) => { 
           const thisFn_1 = item;
           let visited_1 = [];
           if ( (typeof(item.nameNode) !== "undefined" && item.nameNode != null )  ) {
             if ( item.nameNode.hasFlag("async") ) {
-              operatorsOf.forEach_28(item.isCalledBy, ((item, index) => { 
+              operatorsOf.forEach_23(item.isCalledBy, ((item, index) => { 
                 this.markAsyncFromVariant(item, visited_1, ctx);
               }));
               item.forOtherVersions(ctx, ((item) => { 
@@ -16242,10 +15143,10 @@ class RangerFlowParser  {
               }
             }
           }
-          operatorsOf.forEach_28(item.myLambdas, ((item, index) => { 
+          operatorsOf.forEach_23(item.myLambdas, ((item, index) => { 
             if ( (typeof(item.nameNode) !== "undefined" && item.nameNode != null )  ) {
               if ( item.nameNode.hasFlag("async") ) {
-                operatorsOf.forEach_28(item.isCalledBy, ((item, index) => { 
+                operatorsOf.forEach_23(item.isCalledBy, ((item, index) => { 
                   this.markAsyncFromVariant(item, visited_1, ctx);
                 }));
                 if ( (typeof(item.insideFn) !== "undefined" && item.insideFn != null )  ) {
@@ -16258,9 +15159,9 @@ class RangerFlowParser  {
       }));
     }));
     let notUsedFunctionCnt = 0;
-    operatorsOf_13.forEach_14(root.definedClasses, ((item, index) => { 
-      operatorsOf_13.forEach_30(item.method_variants, ((item, index) => { 
-        operatorsOf.forEach_28(item.variants, ((item, index) => { 
+    operatorsOf_5.forEach_6(root.definedClasses, ((item, index) => { 
+      operatorsOf_5.forEach_25(item.method_variants, ((item, index) => { 
+        operatorsOf.forEach_23(item.variants, ((item, index) => { 
           if ( item.isCalledBy.length == 0 ) {
             if ( (typeof(item.container_class) !== "undefined" && item.container_class != null )  ) {
               const cc = item.container_class;
@@ -16281,7 +15182,7 @@ class RangerFlowParser  {
     let use_dce = false;
     if ( ctx.hasCompilerFlag("dead4main") ) {
       let mainFn;
-      operatorsOf_13.forEach_14(root.definedClasses, ((item, index) => { 
+      operatorsOf_5.forEach_6(root.definedClasses, ((item, index) => { 
         const cl = item;
         // Loop start
         for ( let i = 0; i < cl.static_methods.length; i++) {
@@ -16301,7 +15202,7 @@ class RangerFlowParser  {
     if ( ctx.hasCompilerSetting("dceclass") ) {
       const dc = ctx.getCompilerSetting("dceclass");
       console.log("DCE : " + dc);
-      operatorsOf_13.forEach_14(root.definedClasses, ((item, index) => { 
+      operatorsOf_5.forEach_6(root.definedClasses, ((item, index) => { 
         const cl_1 = item;
         if ( cl_1.name == dc ) {
           use_dce = true;
@@ -16310,8 +15211,8 @@ class RangerFlowParser  {
           for ( const variant_1 of cl_1.static_methods) {
             this.markCalledFromMain(variant_1, ctx);
           }
-          operatorsOf_13.forEach_30(item.method_variants, ((item, index) => { 
-            operatorsOf.forEach_28(item.variants, ((item, index) => { 
+          operatorsOf_5.forEach_25(item.method_variants, ((item, index) => { 
+            operatorsOf.forEach_23(item.variants, ((item, index) => { 
               this.markCalledFromMain(item, ctx);
             }));
           }));
@@ -16320,11 +15221,11 @@ class RangerFlowParser  {
     }
     if ( use_dce ) {
       const verbose = ctx.hasCompilerFlag("verbose");
-      operatorsOf_13.forEach_14(root.definedClasses, ((item, index) => { 
+      operatorsOf_5.forEach_6(root.definedClasses, ((item, index) => { 
         if ( item.is_used_by_main == false && verbose ) {
           console.log("class not used by main : " + item.name);
         }
-        item.static_methods = operatorsOf.filter_31(item.static_methods, ((item, index) => { 
+        item.static_methods = operatorsOf.filter_26(item.static_methods, ((item, index) => { 
           const cc_1 = item.container_class;
           if ( item.is_called_from_main == false ) {
             if ( verbose ) {
@@ -16333,8 +15234,8 @@ class RangerFlowParser  {
           }
           return item.is_called_from_main;
         }));
-        operatorsOf_13.forEach_30(item.method_variants, ((item, index) => { 
-          item.variants = operatorsOf.filter_31(item.variants, ((item, index) => { 
+        operatorsOf_5.forEach_25(item.method_variants, ((item, index) => { 
+          item.variants = operatorsOf.filter_26(item.variants, ((item, index) => { 
             const cc_2 = item.container_class;
             if ( item.is_called_from_main == false ) {
               if ( verbose ) {
@@ -16347,9 +15248,9 @@ class RangerFlowParser  {
       }));
     }
     if ( ctx.hasCompilerFlag("deadcode") ) {
-      operatorsOf_13.forEach_14(root.definedClasses, ((item, index) => { 
-        operatorsOf_13.forEach_30(item.method_variants, ((item, index) => { 
-          item.variants = operatorsOf.filter_31(item.variants, ((item, index) => { 
+      operatorsOf_5.forEach_6(root.definedClasses, ((item, index) => { 
+        operatorsOf_5.forEach_25(item.method_variants, ((item, index) => { 
+          item.variants = operatorsOf.filter_26(item.variants, ((item, index) => { 
             return item.is_unsed == false;
           }));
         }));
@@ -16523,7 +15424,7 @@ class RangerFlowParser  {
       ctx.addError(n2, "Invalid parameter count for the lambda expression");
       return false;
     }
-    operatorsOf.forEach_15(argsExpr1.children, ((item, index) => { 
+    operatorsOf.forEach_7(argsExpr1.children, ((item, index) => { 
       const item2 = argsExpr2.children[index];
       if ( item2.value_type != item.value_type ) {
         all_matched = false;
@@ -16547,7 +15448,7 @@ class RangerFlowParser  {
       ctx.addError(n2, "Invalid lambda argument types");
       return false;
     }
-    operatorsOf.forEach_15(rvExpr1.children, ((item, index) => { 
+    operatorsOf.forEach_7(rvExpr1.children, ((item, index) => { 
       const item2_1 = rvExpr2.children[index];
       if ( item2_1.value_type != item.value_type ) {
         all_matched = false;
@@ -16585,7 +15486,7 @@ class RangerFlowParser  {
       ctx.addError(callParams, " ^ expected : " + lambdaArgs.getCode());
       all_matched = false;
     }
-    operatorsOf.forEach_15(lambdaArgs.children, ((item, index) => { 
+    operatorsOf.forEach_7(lambdaArgs.children, ((item, index) => { 
       const item2 = callParams.children[index];
       if ( item2.eval_type_name != item.type_name ) {
         if ( item.type_name != "Any" ) {
@@ -16685,7 +15586,7 @@ class RangerFlowParser  {
         this.WalkNode(fnNode, subCtx, wr);
         const callParams = node.children[1];
         let keyword_cnt = 0;
-        operatorsOf.forEach_11(vFnDef.params, ((item, index) => { 
+        operatorsOf.forEach_3(vFnDef.params, ((item, index) => { 
           if ( item.nameNode.hasFlag("keyword") ) {
             keyword_cnt = keyword_cnt + 1;
             callParams.children[index].setFlag("keyword");
@@ -17013,7 +15914,7 @@ class RangerFlowParser  {
     const method_name_1 = parts[(parts.length - 1)];
     let classDesc = ctx.findClass(fc_1.eval_type_name);
     let calledItem = preWalkChainFc;
-    operatorsOf.forEach_12(parts, ((item, index) => { 
+    operatorsOf.forEach_4(parts, ((item, index) => { 
       if ( index < parts.length - 1 ) {
         try {
           calledItem = CodeNode.fromList([CodeNode.vref1("property"), calledItem.copy(), CodeNode.vref1(item)]);
@@ -17340,7 +16241,7 @@ class RangerFlowParser  {
         this.WalkNode(fNode_2, staticCtx, wr);
       }
     }
-    operatorsOf.forEach_15(cBody.children, ((item, index) => { 
+    operatorsOf.forEach_7(cBody.children, ((item, index) => { 
       try {
         if ( item.isFirstVref("doc") ) {
           const sc = item.getSecond();
@@ -17477,7 +16378,7 @@ class RangerFlowParser  {
       };
     });
     fBody.forTree(((item, i) => { 
-      operatorsOf.forEach_15(item.attrs, ((item, index) => { 
+      operatorsOf.forEach_7(item.attrs, ((item, index) => { 
         item.forTree(((item, i) => { 
           if ( item.vref.length > 0 ) {
             if ( item.vref == "_" ) {
@@ -17590,7 +16491,7 @@ class RangerFlowParser  {
     const bodyCopy = opBody.copy();
     const newNode = opBody.rebuildWithType(am, true);
     node.children.length = 0;
-    operatorsOf.forEach_15(newNode.children, ((item, index) => { 
+    operatorsOf.forEach_7(newNode.children, ((item, index) => { 
       const tmp = item;
       node.children.push(tmp);
     }));
@@ -17747,7 +16648,7 @@ class RangerFlowParser  {
     const use_delta = true;
     let least_err_cnt = 99999;
     let least_errs = [];
-    const depth = operatorsOfstring_32.transactionc95depth_33("TransformOpFn", ctx);
+    const depth = operatorsOfstring_27.transactionc95depth_28("TransformOpFn", ctx);
     if ( depth > 20 ) {
       ctx.addError(origNode, "Error: recursive operator function detected");
       this.infinite_recursion = true;
@@ -17768,7 +16669,7 @@ class RangerFlowParser  {
     if ( fc.vref == "=" ) {
       this.repairAssignMethodCallRhs(origNode);
     }
-    const myT = operatorsOf_32.startc95transaction_34(
+    const myT = operatorsOf_27.startc95transaction_30(
       "TransformOpFn",
       fc.vref,
       ctx
@@ -17784,7 +16685,7 @@ class RangerFlowParser  {
       );
     }
     const cList = ctx.getRoot().getClasses().slice().reverse();
-    operatorsOf.forEach_29(cList, ((item, index) => { 
+    operatorsOf.forEach_24(cList, ((item, index) => { 
       if ( item.isNormalClass() || item.is_system ) {
         if ( codeStrHash.indexOf(item.name) >= 0 ) {
           tryTypes.splice(0, 0, item.name);
@@ -17793,7 +16694,7 @@ class RangerFlowParser  {
         }
       }
     }));
-    operatorsOf.forEach_15(opFnList, ((item, index) => { 
+    operatorsOf.forEach_7(opFnList, ((item, index) => { 
       let had_v = false;
       item.forTree(((item, i) => { 
         if ( (item.array_type == "?" || item.key_type == "?") || item.type_name == "?" ) {
@@ -17805,7 +16706,7 @@ class RangerFlowParser  {
         const opParams = opFn.children[2];
         const opBody = opFn.children[3];
         let typeName = "";
-        operatorsOf.forEach_12(tryTypes, ((item, index) => { 
+        operatorsOf.forEach_4(tryTypes, ((item, index) => { 
           const copyOfFn = opFn.copy();
           typeName = item;
           copyOfFn.forTree(((item, i) => { 
@@ -17825,17 +16726,17 @@ class RangerFlowParser  {
       }
     }));
     if ( newOps.length > 0 ) {
-      operatorsOf.forEach_15(newOps, ((item, index) => { 
+      operatorsOf.forEach_7(newOps, ((item, index) => { 
         const tmp = item;
         opFnList.push(item);
       }));
     }
     const oNodeParams = origNode.children.length;
-    operatorsOf.filter_35(opFnList, ((item, index) => { 
+    operatorsOf.filter_31(opFnList, ((item, index) => { 
       const opParams_1 = item.children[2];
       return oNodeParams == opParams_1.children.length - 1;
     }));
-    operatorsOf.forEach_15(opFnList, ((item, index) => { 
+    operatorsOf.forEach_7(opFnList, ((item, index) => { 
       if ( ok ) {
         return;
       } else {
@@ -17956,11 +16857,11 @@ class RangerFlowParser  {
           this.match_types[codeStrHash] = originalOpFn.matched_type;
         }
         if ( false == ctx.isTestCompile() ) {
-          operatorsOf.forEach_15(newDefNodes, ((item, index) => { 
+          operatorsOf.forEach_7(newDefNodes, ((item, index) => { 
             const tmp_3 = item;
             BlockOP.register_expressions.push(tmp_3);
           }));
-          operatorsOf.forEach_15(newRNodes, ((item, index) => { 
+          operatorsOf.forEach_7(newRNodes, ((item, index) => { 
             const tmp_4 = item;
             BlockOP.register_expressions.push(tmp_4);
           }));
@@ -18028,7 +16929,7 @@ class RangerFlowParser  {
         ctx.unsetTestCompile();
       }
     }));
-    const depth_2 = operatorsOf_32.transactionc95depth_33("TransformOpFn", ctx);
+    const depth_2 = operatorsOf_27.transactionc95depth_28("TransformOpFn", ctx);
     const errDelta_1 = rootCtx.compilerErrors.length - errCnt;
     const currentErrCnt_1 = rootCtx.compilerErrors.length;
     const errDelta_3 = currentErrCnt_1 - errCnt;
@@ -18049,7 +16950,7 @@ class RangerFlowParser  {
       };
     }
     if ( errDelta_3 > 0 ) {
-      operatorsOf.forEach_36(least_errs, ((item, index) => { 
+      operatorsOf.forEach_32(least_errs, ((item, index) => { 
         const tmp_6 = item;
         rootCtx.compilerErrors.push(tmp_6);
       }));
@@ -18059,7 +16960,7 @@ class RangerFlowParser  {
     if ( this.infinite_recursion ) {
       ctx.addError(origNode, "Error: max recursiion depth of > 20 for inline operators detected");
     }
-    operatorsOfContextTransaction_37.endc95transaction_38(myT);
+    operatorsOfContextTransaction_33.endc95transaction_34(myT);
   };
   cmdArray (node, ctx, wr) {
     if ( node.children.length == 3 ) {
@@ -18222,7 +17123,7 @@ class RangerFlowParser  {
     node.expression_value = node.copy();
     node.lambdaFnDesc = m;
     if ( ctx.isCapturing() ) {
-      operatorsOf.forEach_12(node.lambda_ctx.captured_variables, ((item, index) => { 
+      operatorsOf.forEach_4(node.lambda_ctx.captured_variables, ((item, index) => { 
         if ( ctx.isVarDefined(item) ) {
           if ( ctx.isLocalToCapture(item) == false ) {
             ctx.addCapturedVariable(item);
@@ -18579,7 +17480,7 @@ class RangerFlowParser  {
     return false;
   };
   findLanguageOper (details, ctx, opDef) {
-    const langName = operatorsOf_23.getTargetLang_24(ctx);
+    const langName = operatorsOf_21.getTargetLang_29(ctx);
     let rv;
     // Loop start
     for ( let i = 0; i < details.children.length; i++) {
@@ -18593,7 +17494,7 @@ class RangerFlowParser  {
             if ( tpl.hasExpressionProperty("flags") ) {
               const flagList = tpl.getExpressionProperty("flags");
               let b_matched = false;
-              operatorsOf.forEach_15(flagList.children, ((item, index) => { 
+              operatorsOf.forEach_7(flagList.children, ((item, index) => { 
                 console.log("FLAG " + item.vref);
                 b_matched = b_matched || ctx.hasCompilerFlag(item.vref);
               }));
@@ -18618,7 +17519,7 @@ class RangerFlowParser  {
             const opArgs = opDef.getThird();
             const rangerTpl = CodeNode.fromList([CodeNode.newStr((("(" + opNameNode.vref) + " "))]);
             let cnt = 1;
-            operatorsOf.forEach_15(opArgs.children, ((item, index) => { 
+            operatorsOf.forEach_7(opArgs.children, ((item, index) => { 
               if ( item.type_name == "block" ) {
                 rangerTpl.children.push(CodeNode.fromList([CodeNode.vref1("block"), CodeNode.newInt(cnt)]));
               } else {
@@ -18656,10 +17557,10 @@ class RangerFlowParser  {
     lang_parser.parse(ctx.hasCompilerFlag("no-op-transform"));
     const node = lang_parser.rootNode;
     if ( args.register_expressions.length > 0 ) {
-      node.register_expressions = operatorsOf.clone_39(args.register_expressions);
+      node.register_expressions = operatorsOf.clone_35(args.register_expressions);
     }
-    operatorsOf.forEach_15(args.children, ((item, index) => { 
-      operatorsOf.forEach_15(item.register_expressions, ((item, index) => { 
+    operatorsOf.forEach_7(args.children, ((item, index) => { 
+      operatorsOf.forEach_7(item.register_expressions, ((item, index) => { 
         const re = item;
         node.register_expressions.push(re);
       }));
@@ -18689,7 +17590,7 @@ class RangerFlowParser  {
     let added_ns = "";
     let missed_args = [];
     let ctx = inCtx.fork();
-    const lang_name = operatorsOf_23.getTargetLang_24(ctx);
+    const lang_name = operatorsOf_21.getTargetLang_29(ctx);
     let expects_error = false;
     const err_cnt = inCtx.getErrorCount();
     let arg_eval_start = 0;
@@ -18751,7 +17652,7 @@ class RangerFlowParser  {
         if ( ch.hasExpressionProperty("flags") ) {
           const flagList = ch.getExpressionProperty("flags");
           let b_matched = false;
-          operatorsOf.forEach_15(flagList.children, ((item, index) => { 
+          operatorsOf.forEach_7(flagList.children, ((item, index) => { 
             b_matched = b_matched || ctx.hasCompilerFlag(item.vref);
           }));
           if ( b_matched == false ) {
@@ -18956,11 +17857,11 @@ class RangerFlowParser  {
             let opCnts = {};
             let regNames = {};
             let firstRef = {};
-            operatorsOf.forEach_15(args.children, ((item, index) => { 
+            operatorsOf.forEach_7(args.children, ((item, index) => { 
               const opArg = item;
               if ( opArg.hasFlag("loopcondition") ) {
                 let loopBlock;
-                operatorsOf.forEach_15(args.children, ((item, index) => { 
+                operatorsOf.forEach_7(args.children, ((item, index) => { 
                   if ( item.hasFlag("loopblock") ) {
                     const tmp_1 = callArgs.children[(index + 1)];
                     loopBlock = tmp_1;
@@ -18992,7 +17893,7 @@ class RangerFlowParser  {
                 BlockOP_1.register_expressions.push(regExpr_1);
                 realArg.register_name = regName_1;
                 realArg.reg_compiled_name = realRegName_1;
-                operatorsOf.forEach_15(callArgs.children, ((item, index) => { 
+                operatorsOf.forEach_7(callArgs.children, ((item, index) => { 
                   if ( item.is_block_node ) {
                     const argCopy_1 = realArg.copy();
                     argCopy_1.register_name = "";
@@ -19008,7 +17909,7 @@ class RangerFlowParser  {
                 }));
               }
             }));
-            operatorsOf.forEach_15(opDef.children, ((item, index) => { 
+            operatorsOf.forEach_7(opDef.children, ((item, index) => { 
               if ( item.isFirstVref("e") ) {
                 if ( item.hasFlag("ignore") || item.hasFlag("noeval") ) {
                   return;
@@ -19116,7 +18017,7 @@ class RangerFlowParser  {
         if ( codeDef.is_block_node && all_matched ) {
           const pure_transform = ctx.hasCompilerFlag("pure");
           if ( is_pure && pure_transform ) {
-            const argDefs = CodeNode.blockFromList(operatorsOf.map_40(args.children, ((item, index) => { 
+            const argDefs = CodeNode.blockFromList(operatorsOf.map_36(args.children, ((item, index) => { 
               const callArg_1 = callArgs.children[(index + 1)];
               const arg_1 = item;
               const vName = item.copy();
@@ -21637,7 +20538,7 @@ class RangerFlowParser  {
     this.WalkCollectTemplates(node, ctx, wr);
     this.WalkCollectMethods(node, ctx, wr);
     let allTypes = [];
-    operatorsOf_13.forEach_41(this.extendedClasses, ((item, index) => { 
+    operatorsOf_5.forEach_37(this.extendedClasses, ((item, index) => { 
       if ( ctx.isDefinedClass(index) && ctx.isDefinedClass(item) ) {
         const ch = ctx.findClass(index);
         const parent = ctx.findClass(item);
@@ -21645,7 +20546,7 @@ class RangerFlowParser  {
         parent.is_inherited = true;
         parent.is_extended_by_children = true;
         parent.child_classes.push(index);
-        operatorsOf.forEach_11(parent.variables, ((item, index) => { 
+        operatorsOf.forEach_3(parent.variables, ((item, index) => { 
           ch.ctx.defineVariable(item.name, item);
         }));
       }
@@ -21740,12 +20641,12 @@ class RangerFlowParser  {
     const cClassList = this.serializedClasses.slice().sort(((left, right) => { 
       let left_had = false;
       let right_had = false;
-      operatorsOf.forEach_11(left.variables, ((item, index) => { 
+      operatorsOf.forEach_3(left.variables, ((item, index) => { 
         if ( item.nameNode.type_name == right.name || item.nameNode.array_type == right.name ) {
           left_had = true;
         }
       }));
-      operatorsOf.forEach_11(right.variables, ((item, index) => { 
+      operatorsOf.forEach_3(right.variables, ((item, index) => { 
         if ( item.nameNode.type_name == left.name || item.nameNode.array_type == left.name ) {
           right_had = true;
         }
@@ -21763,35 +20664,18 @@ class RangerFlowParser  {
       cl_1.is_serialized = true;
     }
     // Loop start
-    for ( const cl_2 of cClassList) {
-      const ser = new RangerSerializeClass();
-      if ( ser.validateSerializedClass(cl_2, cl_2.ctx) == false ) {
-        continue;
-      }
+    for ( const cl_2 of this.immutableClasses) {
+      const ser = new RangerImmutableExtension();
       const extWr = new CodeWriter();
-      ser.createJSONSerializerFn2(cl_2, cl_2.ctx, extWr);
+      ser.createImmutableExtension(cl_2, cl_2.ctx, extWr);
       const theCode = extWr.getCode();
       const code = new SourceCode(theCode);
-      code.filename = "extension " + ctx.currentClass.name;
+      code.filename = "extension " + cl_2.name;
       const parser = new RangerLispParser(code);
       parser.parse(ctx.hasCompilerFlag("no-op-transform"));
       const rn = parser.rootNode;
       this.WalkCollectMethods(rn, cl_2.ctx, wr);
       this.walkAlso.push(rn);
-    }
-    // Loop start
-    for ( const cl_3 of this.immutableClasses) {
-      const ser_1 = new RangerImmutableExtension();
-      const extWr_1 = new CodeWriter();
-      ser_1.createImmutableExtension(cl_3, cl_3.ctx, extWr_1);
-      const theCode_1 = extWr_1.getCode();
-      const code_1 = new SourceCode(theCode_1);
-      code_1.filename = "extension " + cl_3.name;
-      const parser_1 = new RangerLispParser(code_1);
-      parser_1.parse(ctx.hasCompilerFlag("no-op-transform"));
-      const rn_1 = parser_1.rootNode;
-      this.WalkCollectMethods(rn_1, cl_3.ctx, wr);
-      this.walkAlso.push(rn_1);
     }
     if ( this.processClasses.length > 0 ) {
       const baseDesc = ctx.findClass("RangerProcessBase");
@@ -21828,18 +20712,18 @@ class RangerFlowParser  {
       }
     }
     // Loop start
-    for ( let i_9 = 0; i_9 < this.processClasses.length; i_9++) {
-      var cl_4 = this.processClasses[i_9];
-      cl_4.is_process = true;
+    for ( let i_8 = 0; i_8 < this.processClasses.length; i_8++) {
+      var cl_3 = this.processClasses[i_8];
+      cl_3.is_process = true;
       let hasProcessBase = false;
       // Loop start
-      for ( const extName of cl_4.extends_classes) {
+      for ( const extName of cl_3.extends_classes) {
         if ( extName == "RangerProcessBase" ) {
           hasProcessBase = true;
         }
       }
       if ( hasProcessBase == false ) {
-        cl_4.extends_classes.push("RangerProcessBase");
+        cl_3.extends_classes.push("RangerProcessBase");
         const parentDesc = ctx.findClass("RangerProcessBase");
         if ( (typeof(parentDesc) === "undefined") == false ) {
           const parentCl = parentDesc;
@@ -21848,21 +20732,21 @@ class RangerFlowParser  {
         }
       }
       const procGen = new RangerProcessClass();
-      const extWr_2 = new CodeWriter();
-      const processTypeId = i_9 + 1;
-      procGen.createProcessExtension(cl_4, cl_4.ctx, extWr_2, processTypeId);
-      const theCode_2 = extWr_2.getCode();
-      const code_2 = new SourceCode(theCode_2);
-      code_2.filename = "extension " + cl_4.name;
-      const parser_2 = new RangerLispParser(code_2);
-      parser_2.parse(ctx.hasCompilerFlag("no-op-transform"));
-      const rn_2 = parser_2.rootNode;
-      this.WalkCollectMethods(rn_2, cl_4.ctx, wr);
-      this.walkAlso.push(rn_2);
+      const extWr_1 = new CodeWriter();
+      const processTypeId = i_8 + 1;
+      procGen.createProcessExtension(cl_3, cl_3.ctx, extWr_1, processTypeId);
+      const theCode_1 = extWr_1.getCode();
+      const code_1 = new SourceCode(theCode_1);
+      code_1.filename = "extension " + cl_3.name;
+      const parser_1 = new RangerLispParser(code_1);
+      parser_1.parse(ctx.hasCompilerFlag("no-op-transform"));
+      const rn_1 = parser_1.rootNode;
+      this.WalkCollectMethods(rn_1, cl_3.ctx, wr);
+      this.walkAlso.push(rn_1);
     }
     // Loop start
-    for ( let i_11 = 0; i_11 < ctx.definedClassList.length; i_11++) {
-      var cname = ctx.definedClassList[i_11];
+    for ( let i_10 = 0; i_10 < ctx.definedClassList.length; i_10++) {
+      var cname = ctx.definedClassList[i_10];
       allTypes.push(cname);
       const c = ( Object.prototype.hasOwnProperty.call(ctx.definedClasses, cname) ? ctx.definedClasses[cname] : undefined );
       if ( ((c.is_system || c.is_interface) || c.is_template) || c.is_trait ) {
@@ -21874,8 +20758,8 @@ class RangerFlowParser  {
         ctx.hadValidType(p.nameNode);
         varNames[p.name] = true;
       }
-      operatorsOf_13.forEach_30(c.method_variants, ((item, index) => { 
-        operatorsOf.forEach_28(item.variants, ((item, index) => { 
+      operatorsOf_5.forEach_25(c.method_variants, ((item, index) => { 
+        operatorsOf.forEach_23(item.variants, ((item, index) => { 
           if ( ( typeof(varNames[item.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(varNames, item.name) ) ) {
             ctx.addError(item.nameNode, "Class has defined method and variable of the same name.");
           }
@@ -21966,7 +20850,7 @@ class RangerFlowParser  {
     const cn = node.getSecond();
     const s = node.getVRefAt(1);
     cn.ifNoTypeSetToVoid();
-    const m = operatorsOfCodeNode_42.rc46funcdesc_43(node, ctx);
+    const m = operatorsOfCodeNode_38.rc46funcdesc_39(node, ctx);
     m.node = orig_node;
     orig_node.fnDesc = m;
     subCtx.is_function = true;
@@ -22043,7 +20927,7 @@ class RangerFlowParser  {
         nameNode.clDesc = new_class;
       }
       const b_is_void = nameNode.type_name == "void" || nameNode.is_block_node;
-      const langRef = CodeNode.vref1(operatorsOf_23.getTargetLang_24(ctx));
+      const langRef = CodeNode.vref1(operatorsOf_21.getTargetLang_29(ctx));
       if ( opRef.type_name.length > 0 ) {
         langRef.vref = opRef.type_name;
         console.log("OP type " + opRef.type_name);
@@ -22508,7 +21392,7 @@ class RangerFlowParser  {
         wi = wi + 1;
       };
       const filePathIs = TFiles.searchEnv(env, searchPaths, searchName);
-      if ( operatorsOf_8.filec95exists_9(env, filePathIs, searchName) == false ) {
+      if ( operatorsOf_15.filec95exists_16(env, filePathIs, searchName) == false ) {
         ctx.addError(node, "Could not import file " + import_file);
         return;
       }
@@ -22521,7 +21405,7 @@ class RangerFlowParser  {
         return;
       }
       ctx.already_imported[seenKey2] = true;
-      const c = operatorsOf_8.readc95file_9(env, filePathIs, searchName);
+      const c = operatorsOf_15.readc95file_16(env, filePathIs, searchName);
       const code = new SourceCode(c);
       code.filename = import_file;
       const parser = new RangerLispParser(code);
@@ -22604,7 +21488,7 @@ class RangerFlowParser  {
       const args_2 = node.children[3];
       m_1.fnBody = node.children[4];
       this.CheckTypeAnnotationOf(m_1.nameNode, ctx, wr);
-      operatorsOf.forEach_15(args_2.children, ((item, index) => { 
+      operatorsOf.forEach_7(args_2.children, ((item, index) => { 
         this.defineFunctionParam(m_1, item, ctx, wr);
       }));
       currC_6.addStaticMethod(m_1);
@@ -22625,7 +21509,7 @@ class RangerFlowParser  {
       const args_3 = node.children[2];
       m_2.fnBody = node.children[3];
       this.CheckTypeAnnotationOf(m_2.nameNode, ctx, wr);
-      operatorsOf.forEach_15(args_3.children, ((item, index) => { 
+      operatorsOf.forEach_7(args_3.children, ((item, index) => { 
         this.defineFunctionParam(m_2, item, ctx, wr);
       }));
       currC_7.addStaticMethod(m_2);
@@ -22655,7 +21539,7 @@ class RangerFlowParser  {
         return;
       }
       const currC_8 = ctx.currentClass;
-      const fnObj = operatorsOf_42.rc46func_44(node, currC_8.ctx, wr);
+      const fnObj = operatorsOf_38.rc46func_40(node, currC_8.ctx, wr);
       const cn = fnObj.nameNode;
       if ( currC_8.hasOwnMethod(fnObj.name) && false == cn.hasFlag("override") ) {
         if ( currC_8.hasDuplicateMethodSignature(fnObj) ) {
@@ -22949,14 +21833,14 @@ class RangerFlowParser  {
   };
   transformMethodToLambda (node, vFnDef, ctx, wr) {
     if ( vFnDef.isFunction() ) {
-      const args = operatorsOf.map_45(vFnDef.params, ((item, index) => { 
+      const args = operatorsOf.map_41(vFnDef.params, ((item, index) => { 
         return item.nameNode.copy();
       }));
       const fnArg = vFnDef.nameNode.copy();
       fnArg.vref = "fn";
       const subNode = node.copy();
       subNode.flow_done = false;
-      const argsExpr = operatorsOf.map_40(args, ((item, index) => { 
+      const argsExpr = operatorsOf.map_36(args, ((item, index) => { 
         return item.copy();
       }));
       if ( vFnDef.nameNode.type_name.length > 0 && vFnDef.nameNode.type_name != "void" || vFnDef.nameNode.array_type.length > 0 ) {
@@ -22999,7 +21883,7 @@ class RangerFlowParser  {
           const fc = proto.children[0];
           fc.vref = "fn";
           const eParams = n1Expr.children[1];
-          operatorsOf.forEach_15(eParams.children, ((item, index) => { 
+          operatorsOf.forEach_7(eParams.children, ((item, index) => { 
             newCall.children.push(CodeNode.vref1(item.vref));
           }));
           if ( fc.type_name != "void" ) {
@@ -23804,7 +22688,7 @@ class RangerFlowParser  {
           pi = pi + 1;
         };
         const filePathIs = TFiles.searchEnv(env, searchPaths, searchName);
-        if ( operatorsOf_8.filec95exists_9(env, filePathIs, searchName) == false ) {
+        if ( operatorsOf_15.filec95exists_16(env, filePathIs, searchName) == false ) {
           if ( ctx.hasCompilerFlag("verbose") ) {
             console.log("import did not find the file: " + import_file);
           }
@@ -23819,7 +22703,7 @@ class RangerFlowParser  {
           return;
         }
         ctx.already_imported[seenKey] = true;
-        const c = operatorsOf_8.readc95file_9(env, filePathIs, searchName);
+        const c = operatorsOf_15.readc95file_16(env, filePathIs, searchName);
         source_code = c;
         const fullPath = (filePathIs + "/") + searchName;
         importFileDir = require("path").dirname(fullPath);
@@ -23968,7 +22852,7 @@ TFactory.lambdaSignature = function(node) {
   const argNode = node.getSecond();
   let s = "";
   s = (s + "(_:") + TFactory.baseSignature(fnNode);
-  s = ((s + " (") + operatorsOf.map_46(argNode.children, ((item, index) => {
+  s = ((s + " (") + operatorsOf.map_42(argNode.children, ((item, index) => {
   return "_:" + TFactory.baseSignature(item);
   })).join(" ")) + "))";
   return s;
@@ -23996,7 +22880,7 @@ TFactory.baseSignature = function(node) {
     const fnNode = node.expression_value.getFirst();
     const argNode = node.expression_value.getSecond();
     s = (s + "(_:") + TFactory.baseSignature(fnNode);
-    s = ((s + " (") + operatorsOf.map_46(argNode.children, ((item, index) => {
+    s = ((s + " (") + operatorsOf.map_42(argNode.children, ((item, index) => {
     return "_:" + TFactory.baseSignature(item);
     })).join(" ")) + "))";
     return s;
@@ -24416,7 +23300,7 @@ class RangerGenericClassWriter  {
   };
   addSystemImport (cl, ctx, wr) {
     if ( cl.is_system ) {
-      const langName = operatorsOf_23.getTargetLang_24(ctx);
+      const langName = operatorsOf_21.getTargetLang_29(ctx);
       if ( ( typeof(cl.systemNodes[langName] ) != "undefined" && Object.prototype.hasOwnProperty.call(cl.systemNodes, langName) ) ) {
         const sNode = ( Object.prototype.hasOwnProperty.call(cl.systemNodes, langName) ? cl.systemNodes[langName] : undefined );
         if ( sNode.children.length > 2 ) {
@@ -24636,10 +23520,10 @@ class RangerGenericClassWriter  {
     return "";
   };
   WalkNode (node, ctx, wr) {
-    operatorsOf.forEach_15(node.children, ((item, index) => { 
+    operatorsOf.forEach_7(node.children, ((item, index) => { 
       if ( (typeof(item.evalCtx) !== "undefined" && item.evalCtx != null )  ) {
-        if ( operatorsOf_23.getTargetLang_24(item.evalCtx) != operatorsOf_23.getTargetLang_24(ctx) ) {
-          item.evalCtx.targetLangName = operatorsOf_23.getTargetLang_24(ctx);
+        if ( operatorsOf_21.getTargetLang_29(item.evalCtx) != operatorsOf_21.getTargetLang_29(ctx) ) {
+          item.evalCtx.targetLangName = operatorsOf_21.getTargetLang_29(ctx);
         }
       }
     }));
@@ -24753,7 +23637,7 @@ class RangerGenericClassWriter  {
       wr.outMapped(methodName, method, false, method.vref);
       wr.out("(", false);
       ctx.setInExpr();
-      const pms = operatorsOf.filter_35(args.children, ((item, index) => { 
+      const pms = operatorsOf.filter_31(args.children, ((item, index) => { 
         if ( item.hasFlag("keyword") ) {
           return false;
         }
@@ -24782,7 +23666,7 @@ class RangerGenericClassWriter  {
     ctx.unsetInExpr();
     wr.out("(", false);
     ctx.setInExpr();
-    const pms = operatorsOf.filter_35(args.children, ((item, index) => { 
+    const pms = operatorsOf.filter_31(args.children, ((item, index) => { 
       if ( item.hasFlag("keyword") ) {
         return false;
       }
@@ -24934,7 +23818,7 @@ class RangerGenericClassWriter  {
       return false;
     }
     const pc = new RangerProcessCodegen();
-    const lang = operatorsOf_23.getTargetLang_24(procNewCtx);
+    const lang = operatorsOf_21.getTargetLang_29(procNewCtx);
     pc.writeWrappedNewCall(procNewNode, procNewCtx, outWr, lang, this);
     return true;
   };
@@ -24949,7 +23833,7 @@ class RangerGenericClassWriter  {
       wr.out("(", false);
       const constr = cl.constructor_fn;
       const givenArgs = node.getThird();
-      const pms = operatorsOf.filter_35(givenArgs.children, ((item, index) => { 
+      const pms = operatorsOf.filter_31(givenArgs.children, ((item, index) => { 
         if ( item.hasFlag("keyword") ) {
           return false;
         }
@@ -24973,7 +23857,7 @@ class RangerGenericClassWriter  {
   };
   writeArrayLiteral (node, ctx, wr) {
     wr.out("[", false);
-    operatorsOf.forEach_15(node.children, ((item, index) => { 
+    operatorsOf.forEach_7(node.children, ((item, index) => { 
       if ( index > 0 ) {
         wr.out(", ", false);
       }
@@ -25809,7 +24693,7 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
             utilWr.out(");", true);
             utilWr.indent(-1);
             utilWr.out("}", true);
-            operatorsOf.forEach_12(utilWr.getImports(), ((item, index) => { 
+            operatorsOf.forEach_4(utilWr.getImports(), ((item, index) => { 
               importFork.out(("import " + item) + ";", true);
             }));
           }
@@ -25916,7 +24800,7 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
             utilWr_1.out(");", true);
             utilWr_1.indent(-1);
             utilWr_1.out("}", true);
-            operatorsOf.forEach_12(utilWr_1.getImports(), ((item, index) => { 
+            operatorsOf.forEach_4(utilWr_1.getImports(), ((item, index) => { 
               importFork_1.out(("import " + item) + ";", true);
             }));
           }
@@ -26217,7 +25101,7 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
     }
   };
   writeArgsDef (fnDesc, ctx, wr) {
-    const pms = operatorsOf.filter_47(fnDesc.params, ((item, index) => { 
+    const pms = operatorsOf.filter_43(fnDesc.params, ((item, index) => { 
       if ( item.nameNode.hasFlag("keyword") ) {
         return false;
       }
@@ -26376,7 +25260,7 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
     wr.out(">(Arrays.asList( new ", false);
     wr.out(this.getObjectTypeString2(node.eval_array_type, ctx, wr), false);
     wr.out("[] {", false);
-    operatorsOf.forEach_15(node.children, ((item, index) => { 
+    operatorsOf.forEach_7(node.children, ((item, index) => { 
       if ( index > 0 ) {
         wr.out(", ", false);
       }
@@ -26427,7 +25311,7 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
       utilWr_1.out(");", true);
       utilWr_1.indent(-1);
       utilWr_1.out("}", true);
-      operatorsOf.forEach_12(utilWr_1.getImports(), ((item, index) => { 
+      operatorsOf.forEach_4(utilWr_1.getImports(), ((item, index) => { 
         importFork.out(("import " + item) + ";", true);
       }));
     }
@@ -27384,7 +26268,7 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
     if ( elemType.length == 0 ) {
       elemType = node.array_type;
     }
-    operatorsOf.forEach_15(node.children, ((item, index) => { 
+    operatorsOf.forEach_7(node.children, ((item, index) => { 
       if ( index > 0 ) {
         wr.out(", ", false);
       }
@@ -28370,7 +27254,7 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
     }
   };
   writeArgsDef (fnDesc, ctx, wr) {
-    const pms = operatorsOf.filter_47(fnDesc.params, ((item, index) => { 
+    const pms = operatorsOf.filter_43(fnDesc.params, ((item, index) => { 
       if ( item.nameNode.hasFlag("keyword") ) {
         return false;
       }
@@ -28780,7 +27664,7 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
     if ( elemType.length == 0 ) {
       elemType = node.array_type;
     }
-    operatorsOf.forEach_15(node.children, ((item, index) => { 
+    operatorsOf.forEach_7(node.children, ((item, index) => { 
       if ( index > 0 ) {
         wr.out(", ", false);
       }
@@ -29379,7 +28263,7 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
       fnDesc = resolved;
       hasFnDesc = true;
     }
-    const pms = operatorsOf.filter_35(args.children, ((item, index) => { 
+    const pms = operatorsOf.filter_31(args.children, ((item, index) => { 
       if ( item.hasFlag("keyword") ) {
         return false;
       }
@@ -29761,6 +28645,9 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     }
     return "std::shared_ptr<";
   };
+  cppPtrClose () {
+    return ">";
+  };
   cppMakeOpen () {
     if ( this.cpp_single_thread ) {
       return "rg_make<";
@@ -30066,6 +28953,9 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
         const sec = node.expression_value.children[1];
         const fc = sec.getFirst();
         this.import_lib("<functional>", ctx, wr);
+        if ( node.IsOptional() ) {
+          wr.out("std::optional<", false);
+        }
         wr.out("std::function<", false);
         this.writeTypeDef(rv, ctx, wr);
         wr.out("(", false);
@@ -30078,12 +28968,21 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
           this.writeTypeDef(arg, ctx, wr);
         }
         wr.out(")>", false);
+        if ( node.IsOptional() ) {
+          wr.out(">", false);
+        }
         break;
       case 13 : 
+        if ( node.IsOptional() ) {
+          wr.out("std::optional<", false);
+        }
         if ( this.cppEnumIsNative(t_name, ctx) ) {
           wr.out(t_name, false);
         } else {
           wr.out("int", false);
+        }
+        if ( node.IsOptional() ) {
+          wr.out(">", false);
         }
         break;
       case 3 : 
@@ -30103,9 +29002,9 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
         if ( intCppType != "int" ) {
           wr.addImport("<cstdint>");
         }
-        if ( node.hasFlag("optional") ) {
+        if ( node.IsOptional() ) {
           this.cppEmitOptionalPrimitive(wr);
-          wr.out((" r_optional_primitive<" + intCppType) + "> ", false);
+          wr.out((" std::optional<" + intCppType) + "> ", false);
         } else {
           wr.out(intCppType, false);
         }
@@ -30137,7 +29036,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
         }
         if ( node.hasFlag("optional") ) {
           this.cppEmitOptionalPrimitive(wr);
-          wr.out((" r_optional_primitive<" + dblCppType) + "> ", false);
+          wr.out((" std::optional<" + dblCppType) + "> ", false);
         } else {
           wr.out(dblCppType, false);
         }
@@ -30146,7 +29045,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
         wr.addImport("<string>");
         if ( node.hasFlag("optional") ) {
           this.cppEmitOptionalPrimitive(wr);
-          wr.out(" r_optional_primitive<std::string> ", false);
+          wr.out(" std::optional<std::string> ", false);
         } else {
           wr.out("std::string", false);
         }
@@ -30170,8 +29069,8 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
         if ( ctx.isDefinedClass(t_name) ) {
           const cc = ctx.findClass(t_name);
           if ( cc.is_union ) {
-            if ( node.hasFlag("optional") ) {
-              wr.out("r_optional_union<r_union_", false);
+            if ( node.IsOptional() ) {
+              wr.out("std::optional<r_union_", false);
               wr.out(t_name, false);
               wr.out(">", false);
               return;
@@ -30197,14 +29096,23 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
               ctx.addError(node, ("the C++ target writes a `trait` as a mixin, so `" + cc_1.name) + "` is not a type it can name. A trait that declares only METHODS becomes an abstract base class and can be used as a type; this one carries fields, which its consumers each hold their own copy of. Use a class with subclasses (`Extends(Base)`), or give the parameter a concrete type.");
             }
           }
+          if ( node.IsOptional() ) {
+            wr.out("std::optional<", false);
+          }
           wr.out(this.cppPtrOpen(), false);
           wr.out(cc_1.name, false);
-          wr.out(">", false);
+          wr.out(this.cppPtrClose(), false);
+          if ( node.IsOptional() ) {
+            wr.out(">", false);
+          }
           return;
         }
         if ( node.hasFlag("optional") ) {
+          wr.out("std::optional<", false);
           wr.out(this.cppPtrOpen() + "std::vector<", false);
           wr.out(this.getTypeString2(t_name, ctx), false);
+          wr.out(">", false);
+          wr.out(this.cppPtrClose(), false);
           wr.out(">", false);
           return;
         }
@@ -31392,7 +30300,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     return true;
   };
   writeArgsDef (fnDesc, ctx, wr) {
-    const pms = operatorsOf.filter_47(fnDesc.params, ((item, index) => { 
+    const pms = operatorsOf.filter_43(fnDesc.params, ((item, index) => { 
       if ( item.nameNode.hasFlag("keyword") ) {
         return false;
       }
@@ -31613,7 +30521,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     wr.out("std::vector<", false);
     wr.out(this.getObjectTypeString(node.eval_array_type, ctx), false);
     wr.out(">{", false);
-    operatorsOf.forEach_15(node.children, ((item, index) => { 
+    operatorsOf.forEach_7(node.children, ((item, index) => { 
       if ( index > 0 ) {
         wr.out(", ", false);
       }
@@ -31811,7 +30719,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     let wroteOptionalUnion = false;
     const needsOptionalUnion = this.cppProgramUsesOptionalUnion(ctx);
     const anyIsUsed = this.cppProgramUsesType("Any", ctx);
-    operatorsOf_13.forEach_14(root.definedClasses, ((item, index) => { 
+    operatorsOf_5.forEach_6(root.definedClasses, ((item, index) => { 
       if ( item.is_union ) {
         if ( item.name == "Any" ) {
           if ( anyIsUsed == false ) {
@@ -31841,7 +30749,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
         if ( wr.hasTag("c++ClassDefs") ) {
           const defs = wr.getTag("c++ClassDefs");
           const ptrOpen = this.cppPtrOpen();
-          operatorsOf.forEach_12(item.is_union_of, ((item, index) => { 
+          operatorsOf.forEach_4(item.is_union_of, ((item, index) => { 
             if ( ctx.isDefinedClass(item) ) {
               const dcl = ctx.findClass(item);
               if ( dcl.isNormalClass() ) {
@@ -31856,7 +30764,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
         wr.out("typedef std::variant<", false);
         wr.indent(1);
         let cnt = 0;
-        operatorsOf.forEach_12(item.is_union_of, ((item, index) => { 
+        operatorsOf.forEach_4(item.is_union_of, ((item, index) => { 
           if ( ctx.isDefinedClass(item) ) {
             const cl = ctx.findClass(item);
             if ( false == cl.isNormalClass() ) {
@@ -34678,7 +33586,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     }
   };
   writeArgsDef (fnDesc, ctx, wr) {
-    const pms = operatorsOf.filter_47(fnDesc.params, ((item, index) => { 
+    const pms = operatorsOf.filter_43(fnDesc.params, ((item, index) => { 
       if ( item.nameNode.hasFlag("keyword") ) {
         return false;
       }
@@ -34810,7 +33718,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
   };
   writeArrayLiteral (node, ctx, wr) {
     wr.out("vec![", false);
-    operatorsOf.forEach_15(node.children, ((item, index) => { 
+    operatorsOf.forEach_7(node.children, ((item, index) => { 
       if ( index > 0 ) {
         wr.out(", ", false);
       }
@@ -36524,7 +35432,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       if ( obj_is_self_member ) {
       }
       if ( needs_arg_preevaluation && ctx.expressionLevel() == 0 ) {
-        const pms = operatorsOf.filter_35(args.children, ((item, index) => { 
+        const pms = operatorsOf.filter_31(args.children, ((item, index) => { 
           if ( item.hasFlag("keyword") ) {
             return false;
           }
@@ -36775,7 +35683,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
           }
         }
       }
-      const pms_1 = operatorsOf.filter_35(args.children, ((item, index) => { 
+      const pms_1 = operatorsOf.filter_31(args.children, ((item, index) => { 
         if ( item.hasFlag("keyword") ) {
           return false;
         }
@@ -37032,7 +35940,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     if ( obj_is_self_member ) {
     }
     if ( needs_arg_preevaluation && ctx.expressionLevel() == 0 ) {
-      const pms = operatorsOf.filter_35(args.children, ((item, index) => { 
+      const pms = operatorsOf.filter_31(args.children, ((item, index) => { 
         if ( item.hasFlag("keyword") ) {
           return false;
         }
@@ -37066,7 +35974,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     ctx.unsetInExpr();
     wr.out("(", false);
     ctx.setInExpr();
-    const pms_1 = operatorsOf.filter_35(args.children, ((item, index) => { 
+    const pms_1 = operatorsOf.filter_31(args.children, ((item, index) => { 
       if ( item.hasFlag("keyword") ) {
         return false;
       }
@@ -44138,7 +43046,7 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
       wr.out("Any", false);
     }
     wr.out(">(", false);
-    operatorsOf.forEach_15(node.children, ((item, index) => { 
+    operatorsOf.forEach_7(node.children, ((item, index) => { 
       if ( index > 0 ) {
         wr.out(", ", false);
       }
@@ -44549,7 +43457,7 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
       wr.outMapped(methodName, method, false, method.vref);
       wr.out("(", false);
       ctx.setInExpr();
-      const pms = operatorsOf.filter_35(args.children, ((item, index) => { 
+      const pms = operatorsOf.filter_31(args.children, ((item, index) => { 
         if ( item.hasFlag("keyword") ) {
           return false;
         }
@@ -44663,7 +43571,7 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
     }
   };
   writeArgsDef (fnDesc, ctx, wr) {
-    const pms = operatorsOf.filter_47(fnDesc.params, ((item, index) => { 
+    const pms = operatorsOf.filter_43(fnDesc.params, ((item, index) => { 
       if ( item.nameNode.hasFlag("keyword") ) {
         return false;
       }
@@ -45746,7 +44654,7 @@ class RangerDartClassWriter  extends RangerGenericClassWriter {
     return ctx.transformWord(arg.name);
   };
   writeArgsDef (fnDesc, ctx, wr) {
-    const pms = operatorsOf.filter_47(fnDesc.params, ((item, index) => { 
+    const pms = operatorsOf.filter_43(fnDesc.params, ((item, index) => { 
       if ( item.nameNode.hasFlag("keyword") ) {
         return false;
       }
@@ -45795,7 +44703,7 @@ class RangerDartClassWriter  extends RangerGenericClassWriter {
       wr.outMapped(methodName, method, false, method.vref);
       wr.out("(", false);
       ctx.setInExpr();
-      const pms = operatorsOf.filter_35(args.children, ((item, index) => { 
+      const pms = operatorsOf.filter_31(args.children, ((item, index) => { 
         if ( item.hasFlag("keyword") ) {
           return false;
         }
@@ -45925,7 +44833,7 @@ class RangerDartClassWriter  extends RangerGenericClassWriter {
   writePubspec (node, ctx, orig_wr) {
     const wr = orig_wr.getFileWriter(".", "pubspec.yaml");
     const opts = ["name", "version", "description"];
-    operatorsOf.forEach_12(opts, ((item, index) => { 
+    operatorsOf.forEach_4(opts, ((item, index) => { 
       if ( ctx.hasCompilerSetting(item) == false ) {
         ctx.addError(node, ("Dart pubspec requires option -" + item) + "=<value>");
       }
@@ -46829,7 +45737,7 @@ class RangerCSharpClassWriter  extends RangerGenericClassWriter {
     }
   };
   writeArgsDef (fnDesc, ctx, wr) {
-    const pms = operatorsOf.filter_47(fnDesc.params, ((item, index) => { 
+    const pms = operatorsOf.filter_43(fnDesc.params, ((item, index) => { 
       if ( item.nameNode.hasFlag("keyword") ) {
         return false;
       }
@@ -46850,7 +45758,7 @@ class RangerCSharpClassWriter  extends RangerGenericClassWriter {
     wr.out("new List<", false);
     wr.out(this.getObjectTypeString(node.eval_array_type, ctx), false);
     wr.out("> {", false);
-    operatorsOf.forEach_15(node.children, ((item, index) => { 
+    operatorsOf.forEach_7(node.children, ((item, index) => { 
       if ( index > 0 ) {
         wr.out(", ", false);
       }
@@ -47571,7 +46479,7 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
     }
   };
   writeArgsDef (fnDesc, ctx, wr) {
-    const pms = operatorsOf.filter_47(fnDesc.params, ((item, index) => { 
+    const pms = operatorsOf.filter_43(fnDesc.params, ((item, index) => { 
       if ( item.nameNode.hasFlag("keyword") ) {
         return false;
       }
@@ -47821,7 +46729,7 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
   };
   writeArrayLiteral (node, ctx, wr) {
     wr.out("collection.mutable.ArrayBuffer(", false);
-    operatorsOf.forEach_15(node.children, ((item, index) => { 
+    operatorsOf.forEach_7(node.children, ((item, index) => { 
       if ( index > 0 ) {
         wr.out(", ", false);
       }
@@ -48036,7 +46944,7 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
     let b_has_non_main_static = false;
     let b_had_app = false;
     let app_obj;
-    operatorsOf.forEach_28(cl.static_methods, ((item, index) => { 
+    operatorsOf.forEach_23(cl.static_methods, ((item, index) => { 
       if ( item.name != "main" ) {
         b_has_non_main_static = true;
       } else {
@@ -49152,7 +48060,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
       wr.out(method.vref, false);
       wr.out("(", false);
       ctx.setInExpr();
-      const pms = operatorsOf.filter_35(args.children, ((item, index) => { 
+      const pms = operatorsOf.filter_31(args.children, ((item, index) => { 
         if ( item.hasFlag("keyword") ) {
           return false;
         }
@@ -49334,7 +48242,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
     }
   };
   writeArgsDef (fnDesc, ctx, wr) {
-    const pms = operatorsOf.filter_47(fnDesc.params, ((item, index) => { 
+    const pms = operatorsOf.filter_43(fnDesc.params, ((item, index) => { 
       if ( item.nameNode.hasFlag("keyword") ) {
         return false;
       }
@@ -49421,7 +48329,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
       wr.out(("CreateNew_" + node.clDesc.name) + "(", false);
       const constr = cl.constructor_fn;
       const givenArgs = node.getThird();
-      const pms = operatorsOf.filter_35(givenArgs.children, ((item, index) => { 
+      const pms = operatorsOf.filter_31(givenArgs.children, ((item, index) => { 
         if ( item.hasFlag("keyword") ) {
           return false;
         }
@@ -49446,7 +48354,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
     if ( elemType.length == 0 ) {
       elemType = node.array_type;
     }
-    operatorsOf.forEach_15(node.children, ((item, index) => { 
+    operatorsOf.forEach_7(node.children, ((item, index) => { 
       if ( index > 0 ) {
         wr.out(", ", false);
       }
@@ -49653,8 +48561,8 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
       const tryBlock = node.getSecond();
       const catchBlock = node.getThird();
       const currFn = ctx.getCurrentMethod();
-      const ex2 = operatorsOf_23.createc95var_49(ctx, "did_return", "boolean");
-      const ex3 = operatorsOf_23.createc95var_50(
+      const ex2 = operatorsOf_21.createc95var_45(ctx, "did_return", "boolean");
+      const ex3 = operatorsOf_21.createc95var_46(
         ctx,
         "ex_result",
         currFn.nameNode
@@ -51134,7 +50042,7 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
     }
   };
   writeArgsDef (fnDesc, ctx, wr) {
-    const pms = operatorsOf.filter_47(fnDesc.params, ((item, index) => { 
+    const pms = operatorsOf.filter_43(fnDesc.params, ((item, index) => { 
       if ( item.nameNode.hasFlag("keyword") ) {
         return false;
       }
@@ -51151,7 +50059,7 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
   };
   writeArrayLiteral (node, ctx, wr) {
     wr.out("array(", false);
-    operatorsOf.forEach_15(node.children, ((item, index) => { 
+    operatorsOf.forEach_7(node.children, ((item, index) => { 
       if ( index > 0 ) {
         wr.out(", ", false);
       }
@@ -52142,7 +51050,7 @@ class RangerPythonClassWriter  extends RangerGenericClassWriter {
   writeClassVarDef (node, ctx, wr) {
   };
   writeArgsDef (fnDesc, ctx, wr) {
-    const pms = operatorsOf.filter_47(fnDesc.params, ((item, index) => { 
+    const pms = operatorsOf.filter_43(fnDesc.params, ((item, index) => { 
       if ( item.nameNode.hasFlag("keyword") ) {
         return false;
       }
@@ -52176,7 +51084,7 @@ class RangerPythonClassWriter  extends RangerGenericClassWriter {
   };
   writeArrayLiteral (node, ctx, wr) {
     wr.out("[", false);
-    operatorsOf.forEach_15(node.children, ((item, index) => { 
+    operatorsOf.forEach_7(node.children, ((item, index) => { 
       if ( index > 0 ) {
         wr.out(", ", false);
       }
@@ -52669,12 +51577,12 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
   };
   CreateTsUnions (parser, ctx, wr) {
     const root = ctx.getRoot();
-    operatorsOf_13.forEach_14(root.definedClasses, ((item, index) => { 
+    operatorsOf_5.forEach_6(root.definedClasses, ((item, index) => { 
       if ( this.unionIsSealable(item, ctx) ) {
         wr.out(("type union_" + index) + " = ", false);
         wr.indent(1);
         let cnt = 0;
-        operatorsOf.forEach_12(item.is_union_of, ((item, index) => { 
+        operatorsOf.forEach_4(item.is_union_of, ((item, index) => { 
           if ( ctx.isDefinedClass(item) ) {
             const cl = ctx.findClass(item);
             if ( false == cl.isNormalClass() ) {
@@ -53432,7 +52340,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
       wr.out("(", false);
       const constr = cl.constructor_fn;
       const givenArgs_1 = node.getThird();
-      const pms = operatorsOf.filter_35(givenArgs_1.children, ((item, index) => { 
+      const pms = operatorsOf.filter_31(givenArgs_1.children, ((item, index) => { 
         if ( item.hasFlag("keyword") ) {
           return false;
         }
@@ -53542,7 +52450,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
   };
   writeArgsDef (fnDesc, ctx, wr) {
     let cnt = 0;
-    const pms = operatorsOf.filter_47(fnDesc.params, ((item, index) => { 
+    const pms = operatorsOf.filter_43(fnDesc.params, ((item, index) => { 
       if ( item.nameNode.hasFlag("keyword") ) {
         return false;
       }
@@ -53595,7 +52503,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
       }
       if ( (ctx.hasCompilerFlag("nodemodule") && this.target_typescript == false) && this.target_esm == false ) {
         const root = ctx.getRoot();
-        operatorsOf_13.forEach_14(root.definedClasses, ((item, index) => { 
+        operatorsOf_5.forEach_6(root.definedClasses, ((item, index) => { 
           if ( ctx.hasCompilerFlag("dead4main") || ctx.hasCompilerSetting("dceclass") ) {
             if ( item.is_used_by_main == false ) {
               return;
@@ -53807,7 +52715,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
         wr.newline();
         const subCtx_1 = variant.fnCtx;
         subCtx_1.is_function = true;
-        operatorsOf_13.forEach_20(subCtx_1.localVariables, ((item, index) => { 
+        operatorsOf_5.forEach_12(subCtx_1.localVariables, ((item, index) => { 
           if ( item.is_register ) {
             wr.out("// register " + item.name, true);
           }
@@ -54060,79 +52968,12 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
     const node = lang_parser.rootNode;
     return node;
   };
-  CreateServices (parser, ctx, orig_wr) {
-    if ( ctx.hasCompilerFlag("client") ) {
-      ctx.addError(CodeNode.blockNode(), "client service writing for target JavaScript is not implemented");
-      return;
-    }
-    const root = ctx.getRoot();
-    const serviceBlock = CodeNode.blockNode();
-    const wr = new CodeWriter();
-    wr.out("class test_webservice {", true);
-    wr.indent(1);
-    wr.out("fn run () {", true);
-    wr.indent(1);
-    wr.out("def www (create_web_server)", true);
-    wr.out("prepare_server www", true);
-    operatorsOf_13.forEach_48(root.appServices, ((item, index) => { 
-      try {
-        const paramList = item.getThird();
-        const param = paramList.getFirst();
-        wr.out(("www.post_route(\"/" + item.appGUID) + "\" {", true);
-        wr.indent(1);
-        wr.out(("def obj (" + param.type_name) + ".fromDictionary( (from_string (get_post_data req ))) )", true);
-        wr.out("def service (new appServices)", true);
-        wr.out(("def data (service." + item.appGUID) + "(obj))", true);
-        wr.out("res.send((to_string (data.toDictionary())))", true);
-        wr.indent(-1);
-        wr.out("})", true);
-        const nn = item.getSecond();
-        nn.vref = item.appGUID;
-        const params = item.getThird();
-        let block_index = 3;
-        const ch_len = item.children.length - 1;
-        // Loop start
-        for ( let i = 0; i < item.children.length; i++) {
-          var cb = item.children[i];
-          if ( i > 3 ) {
-            if ( cb.vref.length > 0 ) {
-              if ( ctx.hasCompilerFlag(cb.vref) && i < ch_len ) {
-                block_index = i + 1;
-              }
-            }
-          }
-        }
-        const codeBlock = item.getChild(block_index);
-        serviceBlock.children.push(CodeNode.op3("fn", [nn, params, codeBlock]));
-      } catch(e) {
-        ctx.addError(item, "Invalid service function");
-      }
-    }));
-    wr.indent(-1);
-    wr.out("www.startServer( 1777, {", true);
-    wr.indent(1);
-    wr.out("print \"Server started\"", true);
-    wr.indent(-1);
-    wr.out("}", true);
-    wr.out("}", true);
-    wr.indent(-1);
-    wr.out("}", true);
-    const codeNode = this.BuildAST(wr.getCode());
-    const serviceClassDef = CodeNode.op3("class", [CodeNode.vref1("appServices"), serviceBlock]);
-    const subCtx = root.fork();
-    const theEnd = orig_wr.getTag("file_end");
-    parser.WalkCollectMethods(serviceClassDef, root, theEnd);
-    parser.WalkCollectMethods(codeNode, root, theEnd);
-    parser.WalkNode(serviceClassDef, root, theEnd);
-    parser.WalkNode(codeNode, root, theEnd);
-    theEnd.out("(new test_webservice).run();", true);
-  };
   writeNpmPackage (node, ctx, orig_wr) {
     const wr = orig_wr.getFileWriter(".", "package.json");
     const opts = ["name", "version", "description", "author", "license"];
     wr.out("{", true);
     wr.indent(1);
-    operatorsOf.forEach_12(opts, ((item, index) => { 
+    operatorsOf.forEach_4(opts, ((item, index) => { 
       if ( ctx.hasCompilerSetting(item) == false ) {
         ctx.addError(node, ("NPM package requires option -" + item) + "=<value>");
       } else {
@@ -54168,7 +53009,7 @@ class RangerRangerClassWriter  extends RangerGenericClassWriter {
   };
   writeArrayLiteral (node, ctx, wr) {
     wr.out("([] ", false);
-    operatorsOf.forEach_15(node.children, ((item, index) => { 
+    operatorsOf.forEach_7(node.children, ((item, index) => { 
       if ( index > 0 ) {
         wr.out(" ", false);
       }
@@ -69218,7 +68059,7 @@ class RangerActiveOperators  {
     return newOps;
   };
   initializeOpCache () {
-    operatorsOf_13.forEach_19(this.opHash, ((item, index) => { 
+    operatorsOf_5.forEach_11(this.opHash, ((item, index) => { 
       item.list.length = 0;
     }));
     // Loop start
@@ -69322,7 +68163,7 @@ class LiveCompiler  {
     if ( (typeof(this.langWriter) !== "undefined" && this.langWriter != null )  ) {
       return;
     }
-    const langName = operatorsOf_23.getTargetLang_24(ctx);
+    const langName = operatorsOf_21.getTargetLang_29(ctx);
     console.log("Livecompiler starting with language => " + langName);
     switch (langName ) { 
       case "go" : 
@@ -69469,9 +68310,9 @@ class LiveCompiler  {
     }
     const env = ctx.getEnv();
     this.installedFile[filename] = true;
-    const fName = (operatorsOf_8.installc95directory_51(env) + "/") + filename;
-    if ( operatorsOf_8.filec95exists_9(env, operatorsOf_8.installc95directory_51(env) + "/", filename) ) {
-      const fileData = (() => { try { return require('fs').readFileSync( require('path').join(operatorsOf_8.installc95directory_51(env) + "/", filename) , 'utf8'); } catch (e) { return undefined; } })();
+    const fName = (operatorsOf_15.installc95directory_47(env) + "/") + filename;
+    if ( operatorsOf_15.filec95exists_16(env, operatorsOf_15.installc95directory_47(env) + "/", filename) ) {
+      const fileData = (() => { try { return require('fs').readFileSync( require('path').join(operatorsOf_15.installc95directory_47(env) + "/", filename) , 'utf8'); } catch (e) { return undefined; } })();
       if ( (typeof(fileData) !== "undefined" && fileData != null )  ) {
         const file_wr = wr.getFileWriter(".", filename);
         file_wr.raw(fileData, false);
@@ -69479,7 +68320,7 @@ class LiveCompiler  {
         console.log("did not get contents of " + filename);
       }
     } else {
-      console.log(("did not find installed file " + operatorsOf_8.installc95directory_51(env)) + filename);
+      console.log(("did not find installed file " + operatorsOf_15.installc95directory_47(env)) + filename);
     }
   };
   findOpCode (op, node, ctx, wr) {
@@ -69580,7 +68421,7 @@ class LiveCompiler  {
   findOpTemplate (op, node, ctx, wr) {
     const fnName = op.children[1];
     const root = ctx.getRoot();
-    const langName = operatorsOf_23.getTargetLang_24(ctx);
+    const langName = operatorsOf_21.getTargetLang_29(ctx);
     let rv;
     const opDef = op;
     if ( op.children.length > 3 ) {
@@ -69618,7 +68459,7 @@ class LiveCompiler  {
               const opArgs = opDef.getThird();
               const rangerTpl = CodeNode.fromList([CodeNode.newStr((("(" + opNameNode.vref) + " "))]);
               let cnt = 1;
-              operatorsOf.forEach_15(opArgs.children, ((item, index) => { 
+              operatorsOf.forEach_7(opArgs.children, ((item, index) => { 
                 if ( item.type_name == "block" ) {
                   rangerTpl.children.push(CodeNode.fromList([CodeNode.vref1("block"), CodeNode.newInt(cnt)]));
                 } else {
@@ -69696,11 +68537,11 @@ class LiveCompiler  {
     let liveNodes = [];
     const rootItem = node;
     if ( node.register_expressions.length > 0 ) {
-      operatorsOf.forEach_15(node.register_expressions, ((item, index) => { 
+      operatorsOf.forEach_7(node.register_expressions, ((item, index) => { 
         liveNodes.push(item);
       }));
     }
-    operatorsOf.forEach_15(liveNodes, ((item, index) => { 
+    operatorsOf.forEach_7(liveNodes, ((item, index) => { 
       if ( item.register_set == false ) {
         item.register_set = true;
         this.WalkNode(item, ctx, wr);
@@ -69807,7 +68648,7 @@ class LiveCompiler  {
           let liveNodes_2 = [];
           const rootItem_2 = item;
           if ( item.register_expressions.length > 0 ) {
-            operatorsOf.forEach_15(item.register_expressions, ((item, index) => { 
+            operatorsOf.forEach_7(item.register_expressions, ((item, index) => { 
               liveNodes_2.push(item);
             }));
           }
@@ -69817,7 +68658,7 @@ class LiveCompiler  {
             }
             return true;
           }));
-          operatorsOf.forEach_15(liveNodes_2, ((item, index) => { 
+          operatorsOf.forEach_7(liveNodes_2, ((item, index) => { 
             if ( item.register_set == false ) {
               item.register_set = true;
               this.WalkNode(item, ctx, wr);
@@ -69915,7 +68756,7 @@ class LiveCompiler  {
     if ( ctx.expressionLevel() == 0 ) {
       wr.newline();
       this.langWriter.beforeOperatorStatement(node, ctx, wr);
-      if ( operatorsOf_23.getTargetLang_24(ctx) == "swift3" ) {
+      if ( operatorsOf_21.getTargetLang_29(ctx) == "swift3" ) {
         const opn = node.operator_node;
         const nn = opn.getSecond();
         if ( nn.type_name != "void" ) {
@@ -72442,10 +71283,10 @@ class InflateHuffmanTable  {
     this.counts = [];
     this.symbols = [];
     this.maxBits = 0;
-    let i_28 = 0;
-    while (i_28 < 16) {
+    let i_27 = 0;
+    while (i_27 < 16) {
       this.counts.push(0);
-      i_28 = i_28 + 1;
+      i_27 = i_27 + 1;
     };
   }
   build (lengths, numSymbols) {
@@ -74436,7 +73277,7 @@ class PkgFetch  {
           return "";
         }
         const dir = PkgImport.joinPath(this.cacheRoot, e.sha256);
-        if ( operatorsOf_8.filec95exists_9(env, dir, "ranger.json") ) {
+        if ( operatorsOf_15.filec95exists_16(env, dir, "ranger.json") ) {
           this.lastRev = e.rev;
           return e.sha256;
         }
@@ -74526,7 +73367,7 @@ class PkgFetch  {
     let childFromGit = false;
     if ( localPath.length > 0 ) {
       pkgDir = PkgImport.foldPath(PkgImport.joinPath(w.dir, localPath));
-      if ( operatorsOf_8.filec95exists_9(env, pkgDir, "ranger.json") == false ) {
+      if ( operatorsOf_15.filec95exists_16(env, pkgDir, "ranger.json") == false ) {
         this.err = (d.name + ": no ranger.json under ") + localPath;
         return false;
       }
@@ -74545,7 +73386,7 @@ class PkgFetch  {
       if ( reused ) {
         if ( this.vendor ) {
           const already = PkgImport.joinPath(this.rootDir, ("vendor/ranger/" + d.name));
-          if ( operatorsOf_8.filec95exists_9(env, already, "ranger.json") == false ) {
+          if ( operatorsOf_15.filec95exists_16(env, already, "ranger.json") == false ) {
             reused = false;
             hash = "";
           }
@@ -74605,11 +73446,11 @@ class PkgFetch  {
 }
 PkgFetch.findHttpTool = function(env) {
   const idir = __dirname;
-  if ( operatorsOf_8.filec95exists_9(env, idir, "git-http.mjs") ) {
+  if ( operatorsOf_15.filec95exists_16(env, idir, "git-http.mjs") ) {
     return idir + "/git-http.mjs";
   }
   const up = PkgImport.joinPath(PkgImport.parentDir(idir), "bin");
-  if ( operatorsOf_8.filec95exists_9(env, up, "git-http.mjs") ) {
+  if ( operatorsOf_15.filec95exists_16(env, up, "git-http.mjs") ) {
     return up + "/git-http.mjs";
   }
   return "";
@@ -74667,7 +73508,7 @@ class RangerDocGenerator  {
           const args = item.expression_value.children[1];
           this.writeTypeDef(rv, ctx, wr);
           wr.out(" (", false);
-          operatorsOf.forEach_15(args.children, ((item, index) => { 
+          operatorsOf.forEach_7(args.children, ((item, index) => { 
             if ( index > 0 ) {
               wr.out(", ", false);
             }
@@ -74688,7 +73529,7 @@ class RangerDocGenerator  {
     };
   };
   writeArgDefs (node, ctx, wr) {
-    operatorsOf.forEach_15(node.children, ((item, index) => { 
+    operatorsOf.forEach_7(node.children, ((item, index) => { 
       if ( index > 0 ) {
         wr.out(" ", false);
       }
@@ -74706,7 +73547,7 @@ class RangerDocGenerator  {
         wr.out("# Classes", true);
       }
       const root = ctx.getRoot();
-      operatorsOf_13.forEach_14(root.definedClasses, ((item, index) => { 
+      operatorsOf_5.forEach_6(root.definedClasses, ((item, index) => { 
         if ( false == item.isNormalClass() ) {
           return;
         }
@@ -74714,8 +73555,8 @@ class RangerDocGenerator  {
           wr.out("## " + index, true);
         }
         const theClass = item;
-        operatorsOf_13.forEach_30(item.method_variants, ((item, index) => { 
-          operatorsOf.forEach_28(item.variants, ((item, index) => { 
+        operatorsOf_5.forEach_25(item.method_variants, ((item, index) => { 
+          operatorsOf.forEach_23(item.variants, ((item, index) => { 
             if ( b_only_documented ) {
               if ( item.git_doc.length == 0 ) {
                 return;
@@ -74787,7 +73628,7 @@ class RangerDocGenerator  {
     wr.out("| operator | returns | arguments | description |", true);
     wr.out("| -------- | ------- | --------- | ------------| ", true);
     let cnt = 0;
-    operatorsOf.forEach_17(list, ((item, index) => { 
+    operatorsOf.forEach_9(list, ((item, index) => { 
       if ( tester(item) ) {
         if ( cnt > 0 ) {
           www.out(", ", false);
@@ -74802,7 +73643,7 @@ class RangerDocGenerator  {
     if ( ctx.hasCompilerSetting("operatordoc") ) {
       const wr = orig_wr.getFileWriter(".", ctx.getCompilerSetting("operatordoc"));
       const allOps = ctx.getAllOperators();
-      let statements = operatorsOf.filter_52(allOps, ((item, index) => { 
+      let statements = operatorsOf.filter_48(allOps, ((item, index) => { 
         let is_map_array = false;
         if ( typeof(item.firstArg) != "undefined" ) {
           is_map_array = item.firstArg.value_type == 6 || item.firstArg.value_type == 7;
@@ -74812,23 +73653,23 @@ class RangerDocGenerator  {
         }
         return item.nameNode.type_name == "void" && false == is_map_array;
       }));
-      const lang_statements = operatorsOf.filter_52(allOps, ((item, index) => { 
+      const lang_statements = operatorsOf.filter_48(allOps, ((item, index) => { 
         if ( item.name.indexOf("if_") == 0 ) {
           return true;
         }
         return false;
       }));
-      statements = operatorsOf.groupBy_53(statements, ((item) => { 
+      statements = operatorsOf.groupBy_49(statements, ((item) => { 
         return item.name;
       }));
-      const operator_list = operatorsOf.filter_52(allOps, ((item, index) => { 
+      const operator_list = operatorsOf.filter_48(allOps, ((item, index) => { 
         let is_map_array_1 = false;
         if ( typeof(item.firstArg) != "undefined" ) {
           is_map_array_1 = item.firstArg.value_type == 6 || item.firstArg.value_type == 7;
         }
         return is_map_array_1 || item.nameNode.type_name != "void";
       }));
-      const nList = operatorsOf.groupBy_53(operator_list, ((item) => { 
+      const nList = operatorsOf.groupBy_49(operator_list, ((item) => { 
         let key = item.name;
         const fc = item.firstArg;
         if ( typeof(fc) != "undefined" ) {
@@ -79097,7 +77938,7 @@ class VirtualCompiler  {
     this.envObj = undefined;
   }
   getEnvVar (name) {
-    return operatorsOf_8.envc95var_54(this.envObj, name);
+    return operatorsOf_15.envc95var_50(this.envObj, name);
   };
   possiblePaths (envVarName) {
     let res = [];
@@ -79113,13 +77954,13 @@ class VirtualCompiler  {
         res.push(theDir);
       }
     }
-    res.push(operatorsOf_8.installc95directory_51(this.envObj));
+    res.push(operatorsOf_15.installc95directory_47(this.envObj));
     return res;
   };
   searchLib (paths, libname) {
     // Loop start
     for ( const path of paths) {
-      if ( operatorsOf_8.filec95exists_9(this.envObj, path, libname) ) {
+      if ( operatorsOf_15.filec95exists_16(this.envObj, path, libname) ) {
         return path;
       }
     }
@@ -79183,7 +78024,7 @@ class VirtualCompiler  {
     return ext == "ts";
   };
   runInstall (env, params, cli) {
-    const start = operatorsOf_8.currentc95directory_51(env);
+    const start = operatorsOf_15.currentc95directory_47(env);
     const manDir = PkgImport.walkUp(env, start);
     if ( manDir.length == 0 ) {
       console.log(cli.error(("no ranger.json in " + start) + " or above it"));
@@ -79271,7 +78112,7 @@ class VirtualCompiler  {
       the_file = params.values[0];
     }
     let root_file = the_file;
-    const root_dir = require("path").normalize(((operatorsOf_8.currentc95directory_51(env) + "/") + ("./")) + "/");
+    const root_dir = require("path").normalize(((operatorsOf_15.currentc95directory_47(env) + "/") + ("./")) + "/");
     const the_lang_file = "Lang.rgr";
     let the_lang = "es6";
     let the_target_dir = root_dir + "bin";
@@ -79282,13 +78123,13 @@ class VirtualCompiler  {
     if ( (typeof(outDir) !== "undefined" && outDir != null )  ) {
       the_target = outDir;
     }
-    let langLibEnv = operatorsOf_8.envc95var_54(env, "RANGER_LIB");
+    let langLibEnv = operatorsOf_15.envc95var_50(env, "RANGER_LIB");
     const idir = __dirname;
     langLibEnv = (((((((((require("path").normalize(idir) + ";") + require("path").normalize(idir + "/lib/")) + ";") + root_dir) + ";") + require("path").normalize(idir + "/../compiler/")) + ";") + require("path").normalize(idir + "/../lib/")) + ";") + langLibEnv;
     env.setEnv("RANGER_LIB", langLibEnv);
-    const theFilePaths = this.possiblePaths(operatorsOf_8.envc95var_54(env, "RANGER_LIB"));
+    const theFilePaths = this.possiblePaths(operatorsOf_15.envc95var_50(env, "RANGER_LIB"));
     const theFilePath = this.searchLib(theFilePaths, the_file);
-    if ( operatorsOf_8.filec95exists_9(env, theFilePath, the_file) == false ) {
+    if ( operatorsOf_15.filec95exists_16(env, theFilePath, the_file) == false ) {
       cli.printHeader();
       console.log(cli.error("File not found: " + the_file));
       console.log("");
@@ -79298,7 +78139,7 @@ class VirtualCompiler  {
     }
     const langFilePaths = this.possiblePaths(this.getEnvVar("RANGER_LIB"));
     const langFilePath = this.searchLib(langFilePaths, the_lang_file);
-    if ( operatorsOf_8.filec95exists_9(env, langFilePath, the_lang_file) == false ) {
+    if ( operatorsOf_15.filec95exists_16(env, langFilePath, the_lang_file) == false ) {
       cli.printHeader();
       console.log(cli.error("Language file not found: " + the_lang_file));
       console.log("");
@@ -79312,7 +78153,7 @@ class VirtualCompiler  {
     let langFileDirs = this.possiblePaths(this.getEnvVar("RANGER_LIB"));
     const sourceFileDir = require("path").dirname((theFilePath + "/") + the_file);
     langFileDirs.push(sourceFileDir);
-    const c = operatorsOf_8.readc95file_9(env, theFilePath, the_file);
+    const c = operatorsOf_15.readc95file_16(env, theFilePath, the_file);
     const code = new SourceCode(c);
     code.filename = the_file;
     const parser = new RangerLispParser(code);
@@ -79365,7 +78206,7 @@ class VirtualCompiler  {
                     the_target_dir = sc.string_value;
                     break;
                   case "relative_output_dir" : 
-                    the_target_dir = (operatorsOf_8.currentc95directory_51(env) + "/") + sc.string_value;
+                    the_target_dir = (operatorsOf_15.currentc95directory_47(env) + "/") + sc.string_value;
                     break;
                   case "package" : 
                     package_name = sc.string_value;
@@ -79408,7 +78249,7 @@ class VirtualCompiler  {
       if ( dirGiven.length > 0 && dirGiven.charCodeAt(0 ) == 47 ) {
         the_target_dir = dirGiven;
       } else {
-        the_target_dir = (operatorsOf_8.currentc95directory_51(env) + "/") + dirGiven;
+        the_target_dir = (operatorsOf_15.currentc95directory_47(env) + "/") + dirGiven;
       }
     }
     the_target_dir = require("path").normalize(the_target_dir);
@@ -79436,18 +78277,18 @@ class VirtualCompiler  {
         console.log("include-path : " + include_path);
       }
     }
-    operatorsOf_13.forEach_55(params.flags, ((item, index) => { 
+    operatorsOf_5.forEach_51(params.flags, ((item, index) => { 
       const n = index;
       appCtx.compilerFlags[n] = true;
     }));
     if ( autoDetectedTypeScript ) {
       appCtx.compilerFlags["typescript"] = true;
     }
-    operatorsOf_13.forEach_41(params.params, ((item, index) => { 
+    operatorsOf_5.forEach_37(params.params, ((item, index) => { 
       const v = item;
       comp_attrs[index] = v;
     }));
-    operatorsOf_13.forEach_41(comp_attrs, ((item, index) => { 
+    operatorsOf_5.forEach_37(comp_attrs, ((item, index) => { 
       const n_1 = item;
       appCtx.compilerSettings[index] = n_1;
     }));
@@ -79611,7 +78452,7 @@ class VirtualCompiler  {
     console.log("");
     try {
       flowParser.mergeImports(node, appCtx, wr);
-      const lang_str = operatorsOf_8.readc95file_9(
+      const lang_str = operatorsOf_15.readc95file_16(
         env,
         langFilePath,
         the_lang_file
@@ -79946,62 +78787,61 @@ VirtualCompiler.create_env = async function() {
   const env = new InputEnv();
   env.filesystem = new InputFSFolder();
   env.commandLine = new CmdParams();
-  operatorsOf_3.createc95file_4(
+  operatorsOf_52.createc95file_53(
     env.filesystem,
     "Lang.rgr",
     (await (new Promise(resolve => { require('fs').readFile( require('path').join(".", "Lang.rgr") , 'utf8', (err,data)=>{ resolve(data) }) } )))
   );
-  operatorsOf_3.createc95file_4(
+  operatorsOf_52.createc95file_53(
     env.filesystem,
     "stdlib.rgr",
     (await (new Promise(resolve => { require('fs').readFile( require('path').join("./lib/", "stdlib.rgr") , 'utf8', (err,data)=>{ resolve(data) }) } )))
   );
-  operatorsOf_3.createc95file_4(
+  operatorsOf_52.createc95file_53(
     env.filesystem,
     "stdops.rgr",
     (await (new Promise(resolve => { require('fs').readFile( require('path').join("./lib/", "stdops.rgr") , 'utf8', (err,data)=>{ resolve(data) }) } )))
   );
-  operatorsOf_3.createc95file_4(
+  operatorsOf_52.createc95file_53(
     env.filesystem,
     "Timers.rgr",
     (await (new Promise(resolve => { require('fs').readFile( require('path').join("./lib/", "Timers.rgr") , 'utf8', (err,data)=>{ resolve(data) }) } )))
   );
-  operatorsOf_3.createc95file_4(
+  operatorsOf_52.createc95file_53(
     env.filesystem,
     "DOMLib.rgr",
     (await (new Promise(resolve => { require('fs').readFile( require('path').join("./lib/", "DOMLib.rgr") , 'utf8', (err,data)=>{ resolve(data) }) } )))
   );
-  operatorsOf_3.createc95file_4(
+  operatorsOf_52.createc95file_53(
     env.filesystem,
     "Ajax.rgr",
     (await (new Promise(resolve => { require('fs').readFile( require('path').join("./lib/", "Ajax.rgr") , 'utf8', (err,data)=>{ resolve(data) }) } )))
   );
-  operatorsOf_3.createc95file_4(
+  operatorsOf_52.createc95file_53(
     env.filesystem,
     "Crypto.rgr",
     (await (new Promise(resolve => { require('fs').readFile( require('path').join("./lib/", "Crypto.rgr") , 'utf8', (err,data)=>{ resolve(data) }) } )))
   );
-  operatorsOf_3.createc95file_4(
+  operatorsOf_52.createc95file_53(
     env.filesystem,
     "Engine3D.rgr",
     (await (new Promise(resolve => { require('fs').readFile( require('path').join("./lib/", "Engine3D.rgr") , 'utf8', (err,data)=>{ resolve(data) }) } )))
   );
-  operatorsOf_3.createc95file_4(
+  operatorsOf_52.createc95file_53(
     env.filesystem,
     "Storage.rgr",
     (await (new Promise(resolve => { require('fs').readFile( require('path').join("./lib/", "Storage.rgr") , 'utf8', (err,data)=>{ resolve(data) }) } )))
   );
-  operatorsOf_3.createc95file_4(
+  operatorsOf_52.createc95file_53(
     env.filesystem,
     "JSON.rgr",
     (await (new Promise(resolve => { require('fs').readFile( require('path').join("./lib/", "JSON.rgr") , 'utf8', (err,data)=>{ resolve(data) }) } )))
   );
-  operatorsOf_3.createc95file_4(
+  operatorsOf_52.createc95file_53(
     env.filesystem,
     "hello_world.rgr",
     "\n\nclass tester {\n  static fn main () {\n    print \"Hello World!\"\n  }\n}\n\n    "
   );
-  require("fs").writeFileSync( "." + "/"  + "compileEnv.js", "window._Ranger_compiler_environment_ = " + JSON.stringify(env.toDictionary()));
 };
 VirtualCompiler.displayCompilerErrorsWithCLI = function(appCtx, cli) {
   // Loop start
@@ -80073,348 +78913,352 @@ operatorsOf.forEach_2 = function(__self, cb) {
     cb(it, i);
   }
 };
-operatorsOf.filter_6 = function(__self, cb) {
-  let res_1 = [];
+operatorsOf.forEach_3 = function(__self, cb) {
   // Loop start
   for ( let i_1 = 0; i_1 < __self.length; i_1++) {
     var it_1 = __self[i_1];
-    if ( cb(it_1, i_1) ) {
-      res_1.push(it_1);
-    }
+    cb(it_1, i_1);
   }
-  return res_1;
 };
-operatorsOf.filter_7 = function(__self, cb) {
-  let res_2 = [];
+operatorsOf.forEach_4 = function(__self, cb) {
   // Loop start
   for ( let i_2 = 0; i_2 < __self.length; i_2++) {
     var it_2 = __self[i_2];
-    if ( cb(it_2, i_2) ) {
-      res_2.push(it_2);
-    }
+    cb(it_2, i_2);
   }
-  return res_2;
 };
-operatorsOf.forEach_10 = function(__self, cb) {
+operatorsOf.forEach_7 = function(__self, cb) {
   // Loop start
   for ( let i_4 = 0; i_4 < __self.length; i_4++) {
     var it_3 = __self[i_4];
     cb(it_3, i_4);
   }
 };
-operatorsOf.forEach_11 = function(__self, cb) {
-  // Loop start
-  for ( let i_5 = 0; i_5 < __self.length; i_5++) {
-    var it_4 = __self[i_5];
-    cb(it_4, i_5);
-  }
-};
-operatorsOf.forEach_12 = function(__self, cb) {
+operatorsOf.forEach_9 = function(__self, cb) {
   // Loop start
   for ( let i_6 = 0; i_6 < __self.length; i_6++) {
-    var it_5 = __self[i_6];
-    cb(it_5, i_6);
+    var it_4 = __self[i_6];
+    cb(it_4, i_6);
   }
 };
-operatorsOf.forEach_15 = function(__self, cb) {
+operatorsOf.clone_10 = function(__self) {
+  let res = [];
   // Loop start
-  for ( let i_8 = 0; i_8 < __self.length; i_8++) {
-    var it_6 = __self[i_8];
-    cb(it_6, i_8);
+  for ( const it_5 of __self) {
+    res.push(it_5);
   }
+  return res;
 };
-operatorsOf.forEach_17 = function(__self, cb) {
+operatorsOf.filter_17 = function(__self, cb) {
+  let res_2 = [];
   // Loop start
   for ( let i_10 = 0; i_10 < __self.length; i_10++) {
-    var it_7 = __self[i_10];
-    cb(it_7, i_10);
+    var it_6 = __self[i_10];
+    if ( cb(it_6, i_10) ) {
+      res_2.push(it_6);
+    }
   }
+  return res_2;
 };
-operatorsOf.clone_18 = function(__self) {
-  let res_5 = [];
+operatorsOf.filter_18 = function(__self, cb) {
+  let res_3 = [];
   // Loop start
-  for ( const it_8 of __self) {
-    res_5.push(it_8);
+  for ( let i_12 = 0; i_12 < __self.length; i_12++) {
+    var it_7 = __self[i_12];
+    if ( cb(it_7, i_12) ) {
+      res_3.push(it_7);
+    }
   }
-  return res_5;
+  return res_3;
 };
-operatorsOf.forEach_28 = function(__self, cb) {
+operatorsOf.forEach_23 = function(__self, cb) {
+  // Loop start
+  for ( let i_13 = 0; i_13 < __self.length; i_13++) {
+    var it_8 = __self[i_13];
+    cb(it_8, i_13);
+  }
+};
+operatorsOf.forEach_24 = function(__self, cb) {
   // Loop start
   for ( let i_14 = 0; i_14 < __self.length; i_14++) {
     var it_9 = __self[i_14];
     cb(it_9, i_14);
   }
 };
-operatorsOf.forEach_29 = function(__self, cb) {
+operatorsOf.filter_26 = function(__self, cb) {
+  let res_4 = [];
   // Loop start
-  for ( let i_15 = 0; i_15 < __self.length; i_15++) {
-    var it_10 = __self[i_15];
-    cb(it_10, i_15);
-  }
-};
-operatorsOf.filter_31 = function(__self, cb) {
-  let res_6 = [];
-  // Loop start
-  for ( let i_17 = 0; i_17 < __self.length; i_17++) {
-    var it_11 = __self[i_17];
-    if ( cb(it_11, i_17) ) {
-      res_6.push(it_11);
-    }
-  }
-  return res_6;
-};
-operatorsOf.filter_35 = function(__self, cb) {
-  let res_7 = [];
-  // Loop start
-  for ( let i_18 = 0; i_18 < __self.length; i_18++) {
-    var it_12 = __self[i_18];
-    if ( cb(it_12, i_18) ) {
-      res_7.push(it_12);
-    }
-  }
-  return res_7;
-};
-operatorsOf.forEach_36 = function(__self, cb) {
-  // Loop start
-  for ( let i_19 = 0; i_19 < __self.length; i_19++) {
-    var it_13 = __self[i_19];
-    cb(it_13, i_19);
-  }
-};
-operatorsOf.clone_39 = function(__self) {
-  let res_8 = [];
-  // Loop start
-  for ( const it_14 of __self) {
-    res_8.push(it_14);
-  }
-  return res_8;
-};
-operatorsOf.map_40 = function(__self, cb) {
-  const __len = __self.length;
-  let res_9 = [];
-  // Loop start
-  for ( let i_22 = 0; i_22 < __self.length; i_22++) {
-    var it_15 = __self[i_22];
-    res_9.push(cb(it_15, i_22));
-  }
-  return res_9;
-};
-operatorsOf.map_45 = function(__self, cb) {
-  const len_1 = __self.length;
-  let res_10 = [];
-  // Loop start
-  for ( let i_24 = 0; i_24 < __self.length; i_24++) {
-    var it_16 = __self[i_24];
-    res_10.push(cb(it_16, i_24));
-  }
-  return res_10;
-};
-operatorsOf.map_46 = function(__self, cb) {
-  const len_2 = __self.length;
-  let res_11 = [];
-  // Loop start
-  for ( let i_25 = 0; i_25 < __self.length; i_25++) {
-    var it_17 = __self[i_25];
-    res_11.push(cb(it_17, i_25));
-  }
-  return res_11;
-};
-operatorsOf.filter_47 = function(__self, cb) {
-  let res_12 = [];
-  // Loop start
-  for ( let i_26 = 0; i_26 < __self.length; i_26++) {
-    var it_18 = __self[i_26];
-    if ( cb(it_18, i_26) ) {
-      res_12.push(it_18);
-    }
-  }
-  return res_12;
-};
-operatorsOf.filter_52 = function(__self, cb) {
-  let res_13 = [];
-  // Loop start
-  for ( let i_29 = 0; i_29 < __self.length; i_29++) {
-    var it_19 = __self[i_29];
-    if ( cb(it_19, i_29) ) {
-      res_13.push(it_19);
-    }
-  }
-  return res_13;
-};
-operatorsOf.groupBy_53 = function(__self, cb) {
-  let res_14 = [];
-  let mapper = {};
-  // Loop start
-  for ( const it_20 of __self) {
-    const key = cb(it_20);
-    if ( false == ( typeof(mapper[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(mapper, key) ) ) {
-      res_14.push(it_20);
-      mapper[key] = true;
-    }
-  }
-  return res_14;
-};
-class operatorsOfInputFSFolder_3  {
-  constructor() {
-  }
-}
-operatorsOfInputFSFolder_3.createc95file_4 = function(fs, name, data) {
-  const f_1 = operatorsOf_3.createc95file_5(fs, name);
-  if ( (typeof(f_1) !== "undefined" && f_1 != null )  ) {
-    f_1.data = data;
-  }
-  return f_1;
-};
-class operatorsOf_3  {
-  constructor() {
-  }
-}
-operatorsOf_3.createc95file_5 = function(fs, name) {
-  let res;
-  const files = operatorsOf.filter_6(fs.files, ((item, index) => { 
-    return item.name == name;
-  }));
-  const folders = operatorsOf.filter_7(fs.folders, ((item, index) => { 
-    return item.name == name;
-  }));
-  if ( false == (folders.length > 0) ) {
-    if ( files.length > 0 ) {
-      res = files[0];
-    } else {
-      const f = new InputFSFile();
-      f.name = name;
-      fs.files.push(f);
-      res = f;
-    }
-  }
-  return res;
-};
-operatorsOf_3.createc95file_4 = function(fs, name, data) {
-  const f_2 = operatorsOf_3.createc95file_5(fs, name);
-  if ( (typeof(f_2) !== "undefined" && f_2 != null )  ) {
-    f_2.data = data;
-  }
-  return f_2;
-};
-operatorsOf_3.createc95folder_5 = function(fs, name) {
-  let res_3;
-  const files_1 = operatorsOf.filter_6(fs.files, ((item, index) => { 
-    return item.name == name;
-  }));
-  const folders_1 = operatorsOf.filter_7(fs.folders, ((item, index) => { 
-    return item.name == name;
-  }));
-  if ( false == (files_1.length > 0) ) {
-    if ( folders_1.length > 0 ) {
-      res_3 = folders_1[0];
-    } else {
-      const f_3 = new InputFSFolder();
-      f_3.name = name;
-      fs.folders.push(f_3);
-      res_3 = f_3;
-    }
-  }
-  return res_3;
-};
-class operatorsOfInputEnv_8  {
-  constructor() {
-  }
-}
-operatorsOfInputEnv_8.readc95file_9 = function(env, path, name) {
-  if ( env.use_real ) {
-    return (() => { try { return require('fs').readFileSync( require('path').join(path, name) , 'utf8'); } catch (e) { return undefined; } })();
-  }
-  let resStr;
-  const f_4 = operatorsOf_8.findc95file_9(env, path, name);
-  if ( (typeof(f_4) !== "undefined" && f_4 != null )  ) {
-    resStr = f_4.data;
-    return resStr;
-  }
-  if ( typeof(env.resolver) === "undefined" ) {
-    return resStr;
-  }
-  const r = env.resolver;
-  return r.tryRead(path, name);
-};
-class operatorsOf_8  {
-  constructor() {
-  }
-}
-operatorsOf_8.findc95file_9 = function(env, path, name) {
-  let res_4;
-  if ( path == "/" ) {
-    const files_2 = operatorsOf.filter_6(env.filesystem.files, ((item, index) => { 
-      return item.name == name;
-    }));
-    if ( files_2.length > 0 ) {
-      res_4 = files_2[0];
-    }
-    return res_4;
-  }
-  const parts = path.split("/");
-  let fold = env.filesystem;
-  let i_3 = 0;
-  while (parts.length > i_3 && ((typeof(fold) !== "undefined" && fold != null ) )) {
-    const pathName = parts[i_3];
-    if ( pathName.length > 0 ) {
-      const folder = operatorsOf.filter_7(fold.folders, ((item, index) => { 
-        return item.name == pathName;
-      }));
-      if ( folder.length > 0 ) {
-        fold = folder[0];
-      } else {
-        return res_4;
-      }
-    }
-    i_3 = i_3 + 1;
-  };
-  if ( (typeof(fold) !== "undefined" && fold != null )  ) {
-    const files_3 = operatorsOf.filter_6(fold.files, ((item, index) => { 
-      return item.name == name;
-    }));
-    if ( files_3.length > 0 ) {
-      res_4 = files_3[0];
+  for ( let i_16 = 0; i_16 < __self.length; i_16++) {
+    var it_10 = __self[i_16];
+    if ( cb(it_10, i_16) ) {
+      res_4.push(it_10);
     }
   }
   return res_4;
 };
-operatorsOf_8.readc95file_9 = function(env, path, name) {
-  if ( env.use_real ) {
-    return (() => { try { return require('fs').readFileSync( require('path').join(path, name) , 'utf8'); } catch (e) { return undefined; } })();
+operatorsOf.filter_31 = function(__self, cb) {
+  let res_5 = [];
+  // Loop start
+  for ( let i_17 = 0; i_17 < __self.length; i_17++) {
+    var it_11 = __self[i_17];
+    if ( cb(it_11, i_17) ) {
+      res_5.push(it_11);
+    }
   }
-  let resStr_1;
-  const f_5 = operatorsOf_8.findc95file_9(env, path, name);
-  if ( (typeof(f_5) !== "undefined" && f_5 != null )  ) {
-    resStr_1 = f_5.data;
-    return resStr_1;
-  }
-  if ( typeof(env.resolver) === "undefined" ) {
-    return resStr_1;
-  }
-  const r_1 = env.resolver;
-  return r_1.tryRead(path, name);
+  return res_5;
 };
-operatorsOf_8.filec95exists_9 = function(env, path, name) {
+operatorsOf.forEach_32 = function(__self, cb) {
+  // Loop start
+  for ( let i_18 = 0; i_18 < __self.length; i_18++) {
+    var it_12 = __self[i_18];
+    cb(it_12, i_18);
+  }
+};
+operatorsOf.clone_35 = function(__self) {
+  let res_6 = [];
+  // Loop start
+  for ( const it_13 of __self) {
+    res_6.push(it_13);
+  }
+  return res_6;
+};
+operatorsOf.map_36 = function(__self, cb) {
+  const __len = __self.length;
+  let res_7 = [];
+  // Loop start
+  for ( let i_21 = 0; i_21 < __self.length; i_21++) {
+    var it_14 = __self[i_21];
+    res_7.push(cb(it_14, i_21));
+  }
+  return res_7;
+};
+operatorsOf.map_41 = function(__self, cb) {
+  const len_1 = __self.length;
+  let res_8 = [];
+  // Loop start
+  for ( let i_23 = 0; i_23 < __self.length; i_23++) {
+    var it_15 = __self[i_23];
+    res_8.push(cb(it_15, i_23));
+  }
+  return res_8;
+};
+operatorsOf.map_42 = function(__self, cb) {
+  const len_2 = __self.length;
+  let res_9 = [];
+  // Loop start
+  for ( let i_24 = 0; i_24 < __self.length; i_24++) {
+    var it_16 = __self[i_24];
+    res_9.push(cb(it_16, i_24));
+  }
+  return res_9;
+};
+operatorsOf.filter_43 = function(__self, cb) {
+  let res_10 = [];
+  // Loop start
+  for ( let i_25 = 0; i_25 < __self.length; i_25++) {
+    var it_17 = __self[i_25];
+    if ( cb(it_17, i_25) ) {
+      res_10.push(it_17);
+    }
+  }
+  return res_10;
+};
+operatorsOf.filter_48 = function(__self, cb) {
+  let res_11 = [];
+  // Loop start
+  for ( let i_28 = 0; i_28 < __self.length; i_28++) {
+    var it_18 = __self[i_28];
+    if ( cb(it_18, i_28) ) {
+      res_11.push(it_18);
+    }
+  }
+  return res_11;
+};
+operatorsOf.groupBy_49 = function(__self, cb) {
+  let res_12 = [];
+  let mapper = {};
+  // Loop start
+  for ( const it_19 of __self) {
+    const key = cb(it_19);
+    if ( false == ( typeof(mapper[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(mapper, key) ) ) {
+      res_12.push(it_19);
+      mapper[key] = true;
+    }
+  }
+  return res_12;
+};
+class operatorsOf_5  {
+  constructor() {
+  }
+}
+operatorsOf_5.forEach_6 = function(__self, cb) {
+  const list = Object.keys(__self);
+  // Loop start
+  for ( const kk of list) {
+    const value = ( Object.prototype.hasOwnProperty.call(__self, kk) ? __self[kk] : undefined );
+    cb(value, kk);
+  }
+};
+operatorsOf_5.forEach_8 = function(__self, cb) {
+  const list_1 = Object.keys(__self);
+  // Loop start
+  for ( const kk_1 of list_1) {
+    const value_1 = ( Object.prototype.hasOwnProperty.call(__self, kk_1) ? __self[kk_1] : undefined );
+    cb(value_1, kk_1);
+  }
+};
+operatorsOf_5.forEach_11 = function(__self, cb) {
+  const list_2 = Object.keys(__self);
+  // Loop start
+  for ( const kk_2 of list_2) {
+    const value_2 = ( Object.prototype.hasOwnProperty.call(__self, kk_2) ? __self[kk_2] : undefined );
+    cb(value_2, kk_2);
+  }
+};
+operatorsOf_5.forEach_12 = function(__self, cb) {
+  const list_3 = Object.keys(__self);
+  // Loop start
+  for ( const kk_3 of list_3) {
+    const value_3 = ( Object.prototype.hasOwnProperty.call(__self, kk_3) ? __self[kk_3] : undefined );
+    cb(value_3, kk_3);
+  }
+};
+operatorsOf_5.forEach_25 = function(__self, cb) {
+  const list_4 = Object.keys(__self);
+  // Loop start
+  for ( const kk_4 of list_4) {
+    const value_4 = ( Object.prototype.hasOwnProperty.call(__self, kk_4) ? __self[kk_4] : undefined );
+    cb(value_4, kk_4);
+  }
+};
+operatorsOf_5.forEach_37 = function(__self, cb) {
+  const list_5 = Object.keys(__self);
+  // Loop start
+  for ( const kk_5 of list_5) {
+    const value_5 = ( Object.prototype.hasOwnProperty.call(__self, kk_5) ? __self[kk_5] : undefined );
+    cb(value_5, kk_5);
+  }
+};
+operatorsOf_5.forEach_44 = function(__self, cb) {
+  const list_6 = Object.keys(__self);
+  // Loop start
+  for ( const kk_6 of list_6) {
+    const value_6 = ( Object.prototype.hasOwnProperty.call(__self, kk_6) ? __self[kk_6] : undefined );
+    cb(value_6, kk_6);
+  }
+};
+operatorsOf_5.forEach_51 = function(__self, cb) {
+  const list_7 = Object.keys(__self);
+  // Loop start
+  for ( const kk_7 of list_7) {
+    const value_7 = ( Object.prototype.hasOwnProperty.call(__self, kk_7) ? __self[kk_7] : undefined );
+    cb(value_7, kk_7);
+  }
+};
+class operatorsOfchar_13  {
+  constructor() {
+  }
+}
+operatorsOfchar_13.isc95notc95limiter_14 = function(c) {
+  return ((((c > 32 && c != (59)) && c != (41)) && c != (40)) && c != (125)) && c != (44);
+};
+class operatorsOfInputEnv_15  {
+  constructor() {
+  }
+}
+operatorsOfInputEnv_15.filec95exists_16 = function(env, path, name) {
   if ( env.use_real ) {
     return require("fs").existsSync( require("path").join(path, name) );
   }
-  const fo = operatorsOf_8.findc95file_9(env, path, name);
+  const fo = operatorsOf_15.findc95file_16(env, path, name);
   if ( (typeof(fo) !== "undefined" && fo != null )  ) {
     return true;
   }
   if ( typeof(env.resolver) === "undefined" ) {
     return false;
   }
-  const r_2 = env.resolver;
-  return r_2.exists(path, name);
+  const r = env.resolver;
+  return r.exists(path, name);
 };
-operatorsOf_8.installc95directory_51 = function(env) {
+class operatorsOf_15  {
+  constructor() {
+  }
+}
+operatorsOf_15.findc95file_16 = function(env, path, name) {
+  let res_1;
+  if ( path == "/" ) {
+    const files = operatorsOf.filter_17(env.filesystem.files, ((item, index) => { 
+      return item.name == name;
+    }));
+    if ( files.length > 0 ) {
+      res_1 = files[0];
+    }
+    return res_1;
+  }
+  const parts = path.split("/");
+  let fold = env.filesystem;
+  let i_11 = 0;
+  while (parts.length > i_11 && ((typeof(fold) !== "undefined" && fold != null ) )) {
+    const pathName = parts[i_11];
+    if ( pathName.length > 0 ) {
+      const folder = operatorsOf.filter_18(fold.folders, ((item, index) => { 
+        return item.name == pathName;
+      }));
+      if ( folder.length > 0 ) {
+        fold = folder[0];
+      } else {
+        return res_1;
+      }
+    }
+    i_11 = i_11 + 1;
+  };
+  if ( (typeof(fold) !== "undefined" && fold != null )  ) {
+    const files_1 = operatorsOf.filter_17(fold.files, ((item, index) => { 
+      return item.name == name;
+    }));
+    if ( files_1.length > 0 ) {
+      res_1 = files_1[0];
+    }
+  }
+  return res_1;
+};
+operatorsOf_15.filec95exists_16 = function(env, path, name) {
+  if ( env.use_real ) {
+    return require("fs").existsSync( require("path").join(path, name) );
+  }
+  const fo_1 = operatorsOf_15.findc95file_16(env, path, name);
+  if ( (typeof(fo_1) !== "undefined" && fo_1 != null )  ) {
+    return true;
+  }
+  if ( typeof(env.resolver) === "undefined" ) {
+    return false;
+  }
+  const r_1 = env.resolver;
+  return r_1.exists(path, name);
+};
+operatorsOf_15.readc95file_16 = function(env, path, name) {
+  if ( env.use_real ) {
+    return (() => { try { return require('fs').readFileSync( require('path').join(path, name) , 'utf8'); } catch (e) { return undefined; } })();
+  }
+  let resStr;
+  const f = operatorsOf_15.findc95file_16(env, path, name);
+  if ( (typeof(f) !== "undefined" && f != null )  ) {
+    resStr = f.data;
+    return resStr;
+  }
+  if ( typeof(env.resolver) === "undefined" ) {
+    return resStr;
+  }
+  const r_2 = env.resolver;
+  return r_2.tryRead(path, name);
+};
+operatorsOf_15.installc95directory_47 = function(env) {
   if ( env.use_real ) {
     return __dirname;
   }
   return "/";
 };
-operatorsOf_8.envc95var_54 = function(env, name) {
+operatorsOf_15.envc95var_50 = function(env, name) {
   if ( env.use_real ) {
     if ( ( typeof(env.envVars[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(env.envVars, name) ) ) {
       return ( Object.prototype.hasOwnProperty.call(env.envVars, name) ? env.envVars[name] : undefined );
@@ -80427,168 +79271,17 @@ operatorsOf_8.envc95var_54 = function(env, name) {
   }
   return (( Object.prototype.hasOwnProperty.call(env.envVars, name) ? env.envVars[name] : undefined ) ?? "");
 };
-operatorsOf_8.currentc95directory_51 = function(env) {
+operatorsOf_15.currentc95directory_47 = function(env) {
   if ( env.use_real ) {
     return process.cwd();
   }
   return "/";
 };
-class operatorsOf_13  {
+class operatorsOfRangerFlowParser_19  {
   constructor() {
   }
 }
-operatorsOf_13.forEach_14 = function(__self, cb) {
-  const list = Object.keys(__self);
-  // Loop start
-  for ( const kk of list) {
-    const value = ( Object.prototype.hasOwnProperty.call(__self, kk) ? __self[kk] : undefined );
-    cb(value, kk);
-  }
-};
-operatorsOf_13.forEach_16 = function(__self, cb) {
-  const list_1 = Object.keys(__self);
-  // Loop start
-  for ( const kk_1 of list_1) {
-    const value_1 = ( Object.prototype.hasOwnProperty.call(__self, kk_1) ? __self[kk_1] : undefined );
-    cb(value_1, kk_1);
-  }
-};
-operatorsOf_13.forEach_19 = function(__self, cb) {
-  const list_2 = Object.keys(__self);
-  // Loop start
-  for ( const kk_2 of list_2) {
-    const value_2 = ( Object.prototype.hasOwnProperty.call(__self, kk_2) ? __self[kk_2] : undefined );
-    cb(value_2, kk_2);
-  }
-};
-operatorsOf_13.forEach_20 = function(__self, cb) {
-  const list_3 = Object.keys(__self);
-  // Loop start
-  for ( const kk_3 of list_3) {
-    const value_3 = ( Object.prototype.hasOwnProperty.call(__self, kk_3) ? __self[kk_3] : undefined );
-    cb(value_3, kk_3);
-  }
-};
-operatorsOf_13.forEach_30 = function(__self, cb) {
-  const list_4 = Object.keys(__self);
-  // Loop start
-  for ( const kk_4 of list_4) {
-    const value_4 = ( Object.prototype.hasOwnProperty.call(__self, kk_4) ? __self[kk_4] : undefined );
-    cb(value_4, kk_4);
-  }
-};
-operatorsOf_13.forEach_41 = function(__self, cb) {
-  const list_5 = Object.keys(__self);
-  // Loop start
-  for ( const kk_5 of list_5) {
-    const value_5 = ( Object.prototype.hasOwnProperty.call(__self, kk_5) ? __self[kk_5] : undefined );
-    cb(value_5, kk_5);
-  }
-};
-operatorsOf_13.forEach_48 = function(__self, cb) {
-  const list_6 = Object.keys(__self);
-  // Loop start
-  for ( const kk_6 of list_6) {
-    const value_6 = ( Object.prototype.hasOwnProperty.call(__self, kk_6) ? __self[kk_6] : undefined );
-    cb(value_6, kk_6);
-  }
-};
-operatorsOf_13.forEach_55 = function(__self, cb) {
-  const list_7 = Object.keys(__self);
-  // Loop start
-  for ( const kk_7 of list_7) {
-    const value_7 = ( Object.prototype.hasOwnProperty.call(__self, kk_7) ? __self[kk_7] : undefined );
-    cb(value_7, kk_7);
-  }
-};
-class operatorsOfchar_21  {
-  constructor() {
-  }
-}
-operatorsOfchar_21.isc95notc95limiter_22 = function(c) {
-  return ((((c > 32 && c != (59)) && c != (41)) && c != (40)) && c != (125)) && c != (44);
-};
-class operatorsOfRangerAppWriterContext_23  {
-  constructor() {
-  }
-}
-operatorsOfRangerAppWriterContext_23.getTargetLang_24 = function(__self) {
-  if ( __self.targetLangName.length > 0 ) {
-    return __self.targetLangName;
-  }
-  if ( typeof(__self.parent) != "undefined" ) {
-    return operatorsOf_23.getTargetLang_24(__self.parent);
-  }
-  return "ranger";
-};
-class operatorsOf_23  {
-  constructor() {
-  }
-}
-operatorsOf_23.getTargetLang_24 = function(__self) {
-  if ( __self.targetLangName.length > 0 ) {
-    return __self.targetLangName;
-  }
-  if ( typeof(__self.parent) != "undefined" ) {
-    return operatorsOf_23.getTargetLang_24(__self.parent);
-  }
-  return "ranger";
-};
-operatorsOf_23.addUsage_27 = function(__self, cn) {
-  const ctx = __self;
-  const currM = ctx.getCurrentMethod();
-  if ( ctx.isDefinedClass(cn.type_name) ) {
-    const cl = ctx.findClass(cn.type_name);
-    currM.addClassUsage(cl, ctx);
-  }
-  if ( ctx.isDefinedClass(cn.eval_type_name) ) {
-    const cl_1 = ctx.findClass(cn.eval_type_name);
-    currM.addClassUsage(cl_1, ctx);
-  }
-  if ( ctx.isDefinedClass(cn.eval_array_type) ) {
-    const cl_2 = ctx.findClass(cn.eval_array_type);
-    currM.addClassUsage(cl_2, ctx);
-  }
-};
-operatorsOf_23.getActiveTransaction_24 = function(c) {
-  let rValue;
-  if ( c.activeTransaction.length > 0 ) {
-    rValue = c.activeTransaction[(c.activeTransaction.length - 1)];
-  } else {
-    if ( (typeof(c.parent) !== "undefined" && c.parent != null )  ) {
-      return operatorsOf_23.getActiveTransaction_24(c.parent);
-    }
-  }
-  return rValue;
-};
-operatorsOf_23.createc95var_49 = function(__self, name, type_name) {
-  const fieldNode = CodeNode.vref2(name, type_name);
-  fieldNode.value_type = fieldNode.typeNameAsType(__self);
-  const p_2 = new RangerAppParamDesc();
-  p_2.name = name;
-  p_2.value_type = fieldNode.value_type;
-  p_2.node = fieldNode;
-  p_2.nameNode = fieldNode;
-  p_2.is_optional = false;
-  __self.defineVariable(p_2.name, p_2);
-  return p_2;
-};
-operatorsOf_23.createc95var_50 = function(__self, name, usingNode) {
-  const fieldNode_1 = CodeNode.vref1(name);
-  const p_3 = new RangerAppParamDesc();
-  p_3.name = name;
-  p_3.value_type = usingNode.value_type;
-  p_3.node = usingNode;
-  p_3.nameNode = usingNode;
-  p_3.is_optional = false;
-  __self.defineVariable(p_3.name, p_3);
-  return p_3;
-};
-class operatorsOfRangerFlowParser_25  {
-  constructor() {
-  }
-}
-operatorsOfRangerFlowParser_25.EnterVarDef_26 = function(__self, node, ctx, wr) {
+operatorsOfRangerFlowParser_19.EnterVarDef_20 = function(__self, node, ctx, wr) {
   if ( ctx.isInMethod() ) {
     if ( node.children.length < 2 ) {
       ctx.addError(node, "invalid variable definition");
@@ -80598,7 +79291,7 @@ operatorsOfRangerFlowParser_25.EnterVarDef_26 = function(__self, node, ctx, wr) 
     __self.CheckTypeAnnotationOf(tName, ctx, wr);
     if ( tName.expression && tName.vref.length == 0 ) {
       node.children.splice(1, 1);
-      operatorsOf.forEach_15(tName.children, ((item, index) => { 
+      operatorsOf.forEach_7(tName.children, ((item, index) => { 
         if ( index == 1 ) {
           if ( item.expression ) {
             node.children.push(item.children[0].copy());
@@ -80800,7 +79493,7 @@ operatorsOfRangerFlowParser_25.EnterVarDef_26 = function(__self, node, ctx, wr) 
         "Variable was assigned an incompatible type."
       );
     }
-    operatorsOf_23.addUsage_27(ctx, cn);
+    operatorsOfRangerAppWriterContext_21.addUsage_22(ctx, cn);
   } else {
     const cn_1 = node.children[1];
     cn_1.eval_type = cn_1.typeNameAsType(ctx);
@@ -80815,11 +79508,31 @@ operatorsOfRangerFlowParser_25.EnterVarDef_26 = function(__self, node, ctx, wr) 
     }
   }
 };
-class operatorsOf_25  {
+class operatorsOfRangerAppWriterContext_21  {
   constructor() {
   }
 }
-operatorsOf_25.EnterVarDef_26 = function(__self, node, ctx, wr) {
+operatorsOfRangerAppWriterContext_21.addUsage_22 = function(__self, cn) {
+  const ctx = __self;
+  const currM = ctx.getCurrentMethod();
+  if ( ctx.isDefinedClass(cn.type_name) ) {
+    const cl = ctx.findClass(cn.type_name);
+    currM.addClassUsage(cl, ctx);
+  }
+  if ( ctx.isDefinedClass(cn.eval_type_name) ) {
+    const cl_1 = ctx.findClass(cn.eval_type_name);
+    currM.addClassUsage(cl_1, ctx);
+  }
+  if ( ctx.isDefinedClass(cn.eval_array_type) ) {
+    const cl_2 = ctx.findClass(cn.eval_array_type);
+    currM.addClassUsage(cl_2, ctx);
+  }
+};
+class operatorsOf_19  {
+  constructor() {
+  }
+}
+operatorsOf_19.EnterVarDef_20 = function(__self, node, ctx, wr) {
   if ( ctx.isInMethod() ) {
     if ( node.children.length < 2 ) {
       ctx.addError(node, "invalid variable definition");
@@ -80829,7 +79542,7 @@ operatorsOf_25.EnterVarDef_26 = function(__self, node, ctx, wr) {
     __self.CheckTypeAnnotationOf(tName_1, ctx, wr);
     if ( tName_1.expression && tName_1.vref.length == 0 ) {
       node.children.splice(1, 1);
-      operatorsOf.forEach_15(tName_1.children, ((item, index) => { 
+      operatorsOf.forEach_7(tName_1.children, ((item, index) => { 
         if ( index == 1 ) {
           if ( item.expression ) {
             node.children.push(item.children[0].copy());
@@ -81031,7 +79744,7 @@ operatorsOf_25.EnterVarDef_26 = function(__self, node, ctx, wr) {
         "Variable was assigned an incompatible type."
       );
     }
-    operatorsOf_23.addUsage_27(ctx, cn_2);
+    operatorsOf_21.addUsage_22(ctx, cn_2);
   } else {
     const cn_3 = node.children[1];
     cn_3.eval_type = cn_3.typeNameAsType(ctx);
@@ -81046,12 +79759,75 @@ operatorsOf_25.EnterVarDef_26 = function(__self, node, ctx, wr) {
     }
   }
 };
-class operatorsOfstring_32  {
+class operatorsOf_21  {
   constructor() {
   }
 }
-operatorsOfstring_32.transactionc95depth_33 = function(name, c) {
-  let t = operatorsOf_23.getActiveTransaction_24(c);
+operatorsOf_21.addUsage_22 = function(__self, cn) {
+  const ctx_1 = __self;
+  const currM_1 = ctx_1.getCurrentMethod();
+  if ( ctx_1.isDefinedClass(cn.type_name) ) {
+    const cl_3 = ctx_1.findClass(cn.type_name);
+    currM_1.addClassUsage(cl_3, ctx_1);
+  }
+  if ( ctx_1.isDefinedClass(cn.eval_type_name) ) {
+    const cl_4 = ctx_1.findClass(cn.eval_type_name);
+    currM_1.addClassUsage(cl_4, ctx_1);
+  }
+  if ( ctx_1.isDefinedClass(cn.eval_array_type) ) {
+    const cl_5 = ctx_1.findClass(cn.eval_array_type);
+    currM_1.addClassUsage(cl_5, ctx_1);
+  }
+};
+operatorsOf_21.getActiveTransaction_29 = function(c) {
+  let rValue;
+  if ( c.activeTransaction.length > 0 ) {
+    rValue = c.activeTransaction[(c.activeTransaction.length - 1)];
+  } else {
+    if ( (typeof(c.parent) !== "undefined" && c.parent != null )  ) {
+      return operatorsOf_21.getActiveTransaction_29(c.parent);
+    }
+  }
+  return rValue;
+};
+operatorsOf_21.getTargetLang_29 = function(__self) {
+  if ( __self.targetLangName.length > 0 ) {
+    return __self.targetLangName;
+  }
+  if ( typeof(__self.parent) != "undefined" ) {
+    return operatorsOf_21.getTargetLang_29(__self.parent);
+  }
+  return "ranger";
+};
+operatorsOf_21.createc95var_45 = function(__self, name, type_name) {
+  const fieldNode = CodeNode.vref2(name, type_name);
+  fieldNode.value_type = fieldNode.typeNameAsType(__self);
+  const p_2 = new RangerAppParamDesc();
+  p_2.name = name;
+  p_2.value_type = fieldNode.value_type;
+  p_2.node = fieldNode;
+  p_2.nameNode = fieldNode;
+  p_2.is_optional = false;
+  __self.defineVariable(p_2.name, p_2);
+  return p_2;
+};
+operatorsOf_21.createc95var_46 = function(__self, name, usingNode) {
+  const fieldNode_1 = CodeNode.vref1(name);
+  const p_3 = new RangerAppParamDesc();
+  p_3.name = name;
+  p_3.value_type = usingNode.value_type;
+  p_3.node = usingNode;
+  p_3.nameNode = usingNode;
+  p_3.is_optional = false;
+  __self.defineVariable(p_3.name, p_3);
+  return p_3;
+};
+class operatorsOfstring_27  {
+  constructor() {
+  }
+}
+operatorsOfstring_27.transactionc95depth_28 = function(name, c) {
+  let t = operatorsOf_21.getActiveTransaction_29(c);
   let d = 0;
   while ((typeof(t) !== "undefined" && t != null ) ) {
     if ( t.name == name ) {
@@ -81061,16 +79837,16 @@ operatorsOfstring_32.transactionc95depth_33 = function(name, c) {
   };
   return d;
 };
-class operatorsOf_32  {
+class operatorsOf_27  {
   constructor() {
   }
 }
-operatorsOf_32.startc95transaction_34 = function(name, desc, c) {
+operatorsOf_27.startc95transaction_30 = function(name, desc, c) {
   const t_1 = new ContextTransaction();
   t_1.name = name;
   t_1.desc = desc;
   t_1.ctx = c;
-  const currC = operatorsOf_23.getActiveTransaction_24(c);
+  const currC = operatorsOf_21.getActiveTransaction_29(c);
   c.activeTransaction.push(t_1);
   c.transactions.push(t_1);
   if ( (typeof(currC) !== "undefined" && currC != null )  ) {
@@ -81079,8 +79855,8 @@ operatorsOf_32.startc95transaction_34 = function(name, desc, c) {
   }
   return t_1;
 };
-operatorsOf_32.transactionc95depth_33 = function(name, c) {
-  let t_2 = operatorsOf_23.getActiveTransaction_24(c);
+operatorsOf_27.transactionc95depth_28 = function(name, c) {
+  let t_2 = operatorsOf_21.getActiveTransaction_29(c);
   let d_1 = 0;
   while ((typeof(t_2) !== "undefined" && t_2 != null ) ) {
     if ( t_2.name == name ) {
@@ -81090,23 +79866,23 @@ operatorsOf_32.transactionc95depth_33 = function(name, c) {
   };
   return d_1;
 };
-class operatorsOfContextTransaction_37  {
+class operatorsOfContextTransaction_33  {
   constructor() {
   }
 }
-operatorsOfContextTransaction_37.endc95transaction_38 = function(t) {
+operatorsOfContextTransaction_33.endc95transaction_34 = function(t) {
   const c = t.ctx;
-  const i_20 = c.activeTransaction.indexOf(t);
-  if ( i_20 >= 0 ) {
-    c.activeTransaction.splice(i_20, 1);
+  const i_19 = c.activeTransaction.indexOf(t);
+  if ( i_19 >= 0 ) {
+    c.activeTransaction.splice(i_19, 1);
   }
   t.ended = true;
 };
-class operatorsOfCodeNode_42  {
+class operatorsOfCodeNode_38  {
   constructor() {
   }
 }
-operatorsOfCodeNode_42.rc46funcdesc_43 = function(node, ctx) {
+operatorsOfCodeNode_38.rc46funcdesc_39 = function(node, ctx) {
   const m = new RangerAppFunctionDesc();
   const cn_4 = node.getSecond();
   m.name = cn_4.vref;
@@ -81120,13 +79896,55 @@ operatorsOfCodeNode_42.rc46funcdesc_43 = function(node, ctx) {
   }
   return m;
 };
-class operatorsOf_42  {
+class operatorsOf_38  {
   constructor() {
   }
 }
-operatorsOf_42.rc46func_44 = function(node, ctx, wr) {
+operatorsOf_38.rc46func_40 = function(node, ctx, wr) {
   const parser = new RangerFlowParser();
   return parser.CreateFunctionObject(node, ctx, wr);
+};
+class operatorsOfInputFSFolder_52  {
+  constructor() {
+  }
+}
+operatorsOfInputFSFolder_52.createc95file_53 = function(fs, name, data) {
+  const f_2 = operatorsOf_52.createc95file_54(fs, name);
+  if ( (typeof(f_2) !== "undefined" && f_2 != null )  ) {
+    f_2.data = data;
+  }
+  return f_2;
+};
+class operatorsOf_52  {
+  constructor() {
+  }
+}
+operatorsOf_52.createc95file_54 = function(fs, name) {
+  let res_13;
+  const files_2 = operatorsOf.filter_17(fs.files, ((item, index) => { 
+    return item.name == name;
+  }));
+  const folders = operatorsOf.filter_18(fs.folders, ((item, index) => { 
+    return item.name == name;
+  }));
+  if ( false == (folders.length > 0) ) {
+    if ( files_2.length > 0 ) {
+      res_13 = files_2[0];
+    } else {
+      const f_1 = new InputFSFile();
+      f_1.name = name;
+      fs.files.push(f_1);
+      res_13 = f_1;
+    }
+  }
+  return res_13;
+};
+operatorsOf_52.createc95file_53 = function(fs, name, data) {
+  const f_3 = operatorsOf_52.createc95file_54(fs, name);
+  if ( (typeof(f_3) !== "undefined" && f_3 != null )  ) {
+    f_3.data = data;
+  }
+  return f_3;
 };
 
 function r_char_length(s) {

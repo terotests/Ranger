@@ -694,8 +694,8 @@ inline const rg_json_val* rg_json_find(const rg_json_obj& o, const std::string& 
 // getStr is declared optional, and every other target answers null for a key
 // that is absent or not a string. Returning a bare std::string made that the
 // empty string, which is a value.
-inline r_optional_primitive<std::string> rg_json_get_str(const rg_json_obj& o, const std::string& k) {
-    r_optional_primitive<std::string> res;
+inline std::optional<std::string> rg_json_get_str(const rg_json_obj& o, const std::string& k) {
+    std::optional<std::string> res;
     const rg_json_val* v = rg_json_find(o, k);
     if (v && std::holds_alternative<std::string>(*v)) { res = std::get<std::string>(*v); }
     return res;
@@ -1246,8 +1246,8 @@ inline const rg_json_val* rg_json_find(const rg_json_obj& o, const std::string& 
 // getStr is declared optional, and every other target answers null for a key
 // that is absent or not a string. Returning a bare std::string made that the
 // empty string, which is a value.
-inline r_optional_primitive<std::string> rg_json_get_str(const rg_json_obj& o, const std::string& k) {
-    r_optional_primitive<std::string> res;
+inline std::optional<std::string> rg_json_get_str(const rg_json_obj& o, const std::string& k) {
+    std::optional<std::string> res;
     const rg_json_val* v = rg_json_find(o, k);
     if (v && std::holds_alternative<std::string>(*v)) { res = std::get<std::string>(*v); }
     return res;
@@ -1295,8 +1295,8 @@ class r_optional_primitive {
 };
 ")
              (create_polyfill "
-inline r_optional_primitive<int> rg_json_get_int(const rg_json_obj& o, const std::string& k) {
-    r_optional_primitive<int> res;
+inline std::optional<int> rg_json_get_int(const rg_json_obj& o, const std::string& k) {
+    std::optional<int> res;
     const rg_json_val* v = rg_json_find(o, k);
     if (v) {
         if (std::holds_alternative<int>(*v)) { res.has_value = true; res.value = std::get<int>(*v); }
@@ -1304,8 +1304,8 @@ inline r_optional_primitive<int> rg_json_get_int(const rg_json_obj& o, const std
     }
     return res;
 }
-inline r_optional_primitive<double> rg_json_get_double(const rg_json_obj& o, const std::string& k) {
-    r_optional_primitive<double> res;
+inline std::optional<double> rg_json_get_double(const rg_json_obj& o, const std::string& k) {
+    std::optional<double> res;
     const rg_json_val* v = rg_json_find(o, k);
     if (v) {
         if (std::holds_alternative<double>(*v)) { res.has_value = true; res.value = std::get<double>(*v); }
@@ -1672,8 +1672,8 @@ inline const rg_json_val* rg_json_find(const rg_json_obj& o, const std::string& 
 // getStr is declared optional, and every other target answers null for a key
 // that is absent or not a string. Returning a bare std::string made that the
 // empty string, which is a value.
-inline r_optional_primitive<std::string> rg_json_get_str(const rg_json_obj& o, const std::string& k) {
-    r_optional_primitive<std::string> res;
+inline std::optional<std::string> rg_json_get_str(const rg_json_obj& o, const std::string& k) {
+    std::optional<std::string> res;
     const rg_json_val* v = rg_json_find(o, k);
     if (v && std::holds_alternative<std::string>(*v)) { res = std::get<std::string>(*v); }
     return res;
@@ -1721,8 +1721,8 @@ class r_optional_primitive {
 };
 ")
              (create_polyfill "
-inline r_optional_primitive<int> rg_json_get_int(const rg_json_obj& o, const std::string& k) {
-    r_optional_primitive<int> res;
+inline std::optional<int> rg_json_get_int(const rg_json_obj& o, const std::string& k) {
+    std::optional<int> res;
     const rg_json_val* v = rg_json_find(o, k);
     if (v) {
         if (std::holds_alternative<int>(*v)) { res.has_value = true; res.value = std::get<int>(*v); }
