@@ -1,0 +1,29 @@
+; What `if (!null? x)` does NOT narrow under -strict: an `||` condition, a
+; different variable, and the code after the if. Each read here is an error.
+class Person {
+  def name:string ""
+  def friend@(optional):Person
+}
+class NegMain {
+  fn orCond:string (p@(optional):Person q@(optional):Person) {
+    if ((!null? p) || (!null? q)) {
+      return p.name
+    }
+    return ""
+  }
+  fn otherVar:string (p@(optional):Person q@(optional):Person) {
+    if (!null? q) {
+      return p.name
+    }
+    return ""
+  }
+  fn afterIf:string (p@(optional):Person) {
+    if (!null? p) {
+      print "yes"
+    }
+    return p.name
+  }
+  sfn main@(main):void () {
+    print "x"
+  }
+}

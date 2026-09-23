@@ -169,7 +169,8 @@ extension RangerFlowParser {
               def classRefName:CodeNode (unwrap classRef.nameNode)
               if(classRefName.hasFlag("optional")) {
                 if(ctx.hasCompilerFlag('strict')) {
-                  if(false == (ctx.isTryBlock())) {
+                  ; `if (!null? x)` narrowed it for the block
+                  if((false == (ctx.isTryBlock())) && (false == (ctx.isAutomaticallyUnwrapped(strname)))) {
                     ctx.addError( obj "Optional automatically unwrapped outside try block" )
                   }
                 }
@@ -198,7 +199,17 @@ extension RangerFlowParser {
                   def variableName:CodeNode (unwrap variableDesc.nameNode)
                   if(variableName.hasFlag("optional")) {
                   if(ctx.hasCompilerFlag('strict')) {
-                    if(false == (ctx.isTryBlock())) {
+                    ; `if (!null? a.b)` narrowed the path up to this segment
+                    def narrowedPath:string ""
+                    for obj.ns pathPart:string pi {
+                      if (pi <= i) {
+                        if (pi > 0) {
+                          narrowedPath = (narrowedPath + ".")
+                        }
+                        narrowedPath = (narrowedPath + pathPart)
+                      }
+                    }
+                    if((false == (ctx.isTryBlock())) && (false == (ctx.isAutomaticallyUnwrapped(narrowedPath)))) {
                       ctx.addError( obj "Optional automatically unwrapped outside try block" )
                     }
                   }

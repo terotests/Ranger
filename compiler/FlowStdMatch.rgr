@@ -135,6 +135,60 @@ extension RangerFlowParser {
     return true
   }
 
+  ; `if (!null? x) { ... }` narrows x inside the then block: the names the
+  ; condition proves present are marked on the block's context, so the strict
+  ; optional check accepts reading through them without an `unwrap`. Only a
+  ; condition that must be true for the block to run counts -- a bare
+  ; `!null?` or an `&&` / `and` of them.
+  fn markNotNullName:void (candidate:CodeNode ctx:RangerAppWriterContext) {
+    def n:CodeNode candidate
+    while (n.expression && ((array_length n.children) == 1)) {
+      n = (n.getFirst())
+    }
+    if n.expression {
+      return
+    }
+    def name:string n.vref
+    if ((array_length n.ns) == 1) {
+      name = (itemAt n.ns 0)
+    }
+    if ((strlen name) > 0) {
+      ctx.setAutomaticallyUnwrapped(name)
+    }
+  }
+
+  fn markNotNullNarrowing:void (condition:CodeNode ctx:RangerAppWriterContext) {
+    def c:CodeNode condition
+    while (c.expression && ((array_length c.children) == 1)) {
+      c = (c.getFirst())
+    }
+    if ((array_length c.children) == 0) {
+      return
+    }
+    def head:string (c.getVRefAt(0))
+    if (head == "!null?") {
+      if ((array_length c.children) > 1) {
+        this.markNotNullName((itemAt c.children 1) ctx)
+      }
+      return
+    }
+    if ((head == "&&") || (head == "and")) {
+      for c.children part:CodeNode i {
+        if (i > 0) {
+          this.markNotNullNarrowing(part ctx)
+        }
+      }
+      return
+    }
+    if ((array_length c.children) == 3) {
+      def mid:CodeNode (itemAt c.children 1)
+      if ((mid.vref == "&&") || (mid.vref == "and")) {
+        this.markNotNullNarrowing((itemAt c.children 0) ctx)
+        this.markNotNullNarrowing((itemAt c.children 2) ctx)
+      }
+    }
+  }
+
   fn stdParamMatch:boolean (callArgs@(lives):CodeNode inCtx:RangerAppWriterContext wr:CodeWriter require_all_match:boolean) {
     stdCommands = (inCtx.getStdCommands())
     def callFnName:CodeNode (callArgs.getFirst())
@@ -313,6 +367,10 @@ extension RangerFlowParser {
                 def tmpCtx@(lives) (ctx.fork())
                 tmpCtx.newBlock()
                 callArg.evalCtx = tmpCtx            
+                ; the then block of `if`: the condition is the argument before it
+                if ((i == 1) && ((callFnName.vref == "if") && ((array_length callArgs.children) > 2))) {
+                  this.markNotNullNarrowing((itemAt callArgs.children 1) tmpCtx)
+                }
                 this.WalkNode(callArg tmpCtx wr)
               }
 

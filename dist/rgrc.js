@@ -17959,6 +17959,55 @@ class RangerFlowParser  {
     }
     return true;
   };
+  markNotNullName (candidate, ctx) {
+    let n = candidate;
+    while (n.expression && n.children.length == 1) {
+      n = n.getFirst();
+    };
+    if ( n.expression ) {
+      return;
+    }
+    let name = n.vref;
+    if ( n.ns.length == 1 ) {
+      name = n.ns[0];
+    }
+    if ( name.length > 0 ) {
+      ctx.setAutomaticallyUnwrapped(name);
+    }
+  };
+  markNotNullNarrowing (condition, ctx) {
+    let c = condition;
+    while (c.expression && c.children.length == 1) {
+      c = c.getFirst();
+    };
+    if ( c.children.length == 0 ) {
+      return;
+    }
+    const head = c.getVRefAt(0);
+    if ( head == "!null?" ) {
+      if ( c.children.length > 1 ) {
+        this.markNotNullName(c.children[1], ctx);
+      }
+      return;
+    }
+    if ( head == "&&" || head == "and" ) {
+      // Loop start
+      for ( let i = 0; i < c.children.length; i++) {
+        var part = c.children[i];
+        if ( i > 0 ) {
+          this.markNotNullNarrowing(part, ctx);
+        }
+      }
+      return;
+    }
+    if ( c.children.length == 3 ) {
+      const mid = c.children[1];
+      if ( mid.vref == "&&" || mid.vref == "and" ) {
+        this.markNotNullNarrowing(c.children[0], ctx);
+        this.markNotNullNarrowing(c.children[2], ctx);
+      }
+    }
+  };
   stdParamMatch (callArgs, inCtx, wr, require_all_match) {
     this.stdCommands = inCtx.getStdCommands();
     const callFnName = callArgs.getFirst();
@@ -18110,6 +18159,9 @@ class RangerFlowParser  {
                 const tmpCtx_1 = ctx.fork();
                 tmpCtx_1.newBlock();
                 callArg.evalCtx = tmpCtx_1;
+                if ( i == 1 && (callFnName.vref == "if" && callArgs.children.length > 2) ) {
+                  this.markNotNullNarrowing(callArgs.children[1], tmpCtx_1);
+                }
                 this.WalkNode(callArg, tmpCtx_1, wr);
               }
               last_was_block = true;
@@ -22140,7 +22192,7 @@ class RangerFlowParser  {
               const classRefName = classRef.nameNode;
               if ( classRefName.hasFlag("optional") ) {
                 if ( ctx.hasCompilerFlag("strict") ) {
-                  if ( false == ctx.isTryBlock() ) {
+                  if ( false == ctx.isTryBlock() && false == ctx.isAutomaticallyUnwrapped(strname) ) {
                     ctx.addError(obj, "Optional automatically unwrapped outside try block");
                   }
                 }
@@ -22165,7 +22217,18 @@ class RangerFlowParser  {
                   const variableName = variableDesc.nameNode;
                   if ( variableName.hasFlag("optional") ) {
                     if ( ctx.hasCompilerFlag("strict") ) {
-                      if ( false == ctx.isTryBlock() ) {
+                      let narrowedPath = "";
+                      // Loop start
+                      for ( let pi = 0; pi < obj.ns.length; pi++) {
+                        var pathPart = obj.ns[pi];
+                        if ( pi <= i ) {
+                          if ( pi > 0 ) {
+                            narrowedPath = narrowedPath + ".";
+                          }
+                          narrowedPath = narrowedPath + pathPart;
+                        }
+                      }
+                      if ( false == ctx.isTryBlock() && false == ctx.isAutomaticallyUnwrapped(narrowedPath) ) {
                         ctx.addError(obj, "Optional automatically unwrapped outside try block");
                       }
                     }
@@ -29495,12 +29558,6 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
   };
   cppEmitOptionalPrimitive (wr) {
     wr.addImport("<optional>");
-    const code = "\ntemplate <class T>\nclass r_optional_primitive {\n  public:\n    // has_value has to start false: cpp_str_to_int and its siblings leave the\n    // field untouched when the conversion throws, and an indeterminate bool\n    // made a failed str2int read back as a value on the C++ target.\n    bool has_value = false;\n    T value = T();\n    r_optional_primitive() {}\n    // a plain value placed into an optional slot: returning a bare string\n    // from a function declared @(optional):string arrives here. Declaring\n    // any constructor takes the implicit default one away, hence the pair.\n    r_optional_primitive(const T & a_value) : has_value(true), value(a_value) {}\n    r_optional_primitive<T> & operator=(const r_optional_primitive<T> & rhs) {\n        has_value = rhs.has_value;\n        value = rhs.value;\n        return *this;\n    }\n    r_optional_primitive<T> & operator=(const T a_value) {\n        has_value = true;\n        value = a_value;\n        return *this;\n    }\n    // optional int, double and string variables are std::optional; the\n    // runtime helpers (cpp_str_to_int, cpp_get_map_int_value, ...) still\n    // return this type, so their result has to convert on assignment.\n    operator std::optional<T>() const {\n        if (has_value) { return value; }\n        return std::nullopt;\n    }\n};\n";
-    const p_write = wr.getTag("utilities");
-    if ( ( typeof(p_write.compiledTags[code] ) != "undefined" && Object.prototype.hasOwnProperty.call(p_write.compiledTags, code) ) == false ) {
-      p_write.raw(code, true);
-      p_write.compiledTags[code] = true;
-    }
   };
   cppEmitArgRef (wr) {
     const code = "template <class T> inline T& rg_arg_ref(T&& v) { return v; }\n";
@@ -31000,8 +31057,8 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
           wr.addImport("<optional>");
           wr.out("std::optional<", false);
         }
-        const typeName_1 = ("r_weak<" + pnn.type_name) + ">";
-        wr.out(typeName_1, false);
+        const typeName = ("r_weak<" + pnn.type_name) + ">";
+        wr.out(typeName, false);
         if ( node.IsOptional() ) {
           wr.out(">", false);
         }
