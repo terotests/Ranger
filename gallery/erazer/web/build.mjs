@@ -31,7 +31,7 @@ const env = {
 const log = execFileSync(
   process.execPath,
   [
-    "bin/output.js",
+    "dist/rgrc.js",
     "-es6",
     "gallery/erazer/ErazerPaint.rgr",
     `-d=${path.relative(ROOT, STAGE)}`,

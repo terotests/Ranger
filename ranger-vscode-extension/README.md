@@ -96,7 +96,7 @@ ranger-vscode-extension/
 
 ### Real Ranger Compiler Integration
 
-The language server uses the **real Ranger compiler** (v2.1.71) from `bin/output.js` via the `VirtualCompiler` API. This ensures accurate parsing and type inference.
+The language server uses the **real Ranger compiler** (v2.1.71) from `dist/rgrc.js` via the `VirtualCompiler` API. This ensures accurate parsing and type inference.
 
 #### Two-Pass Compilation
 

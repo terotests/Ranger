@@ -36,7 +36,7 @@ C++ and Rust are nearly identical in performance. Swift is ~7x slower.
 
 ```bash
 # Compile the parser (from Ranger root)
-node bin/output.js gallery/js_parser/js_parser_main.rgr -o=js_parser.js -d=gallery/js_parser
+node dist/rgrc.js gallery/js_parser/js_parser_main.rgr -o=js_parser.js -d=gallery/js_parser
 
 # Parse and pretty-print a JavaScript file
 node gallery/js_parser/js_parser.js -i input.js -o output.js
@@ -55,7 +55,7 @@ node gallery/js_parser/js_parser.js -h
 
 ```bash
 # Compile to Swift (from gallery/js_parser directory)
-node ../../bin/output.js js_parser_main.rgr -l=swift6 -o js_parser.swift
+node ../../dist/rgrc.js js_parser_main.rgr -l=swift6 -o js_parser.swift
 
 # Compile Swift binary (Windows)
 swiftc -O -parse-as-library js_parser.swift -o js_parser_swift.exe
@@ -85,7 +85,7 @@ The C++ target produces a fast native binary. Compilation requires MinGW with PO
 
 ```bash
 # Compile to C++ (from Ranger root)
-node bin/output.js gallery/js_parser/js_parser_main.rgr -l=cpp -d=gallery/js_parser -o=js_parser.cpp
+node dist/rgrc.js gallery/js_parser/js_parser_main.rgr -l=cpp -d=gallery/js_parser -o=js_parser.cpp
 
 # Cross-compile from WSL to Windows
 wsl -d Ubuntu -- bash -c "

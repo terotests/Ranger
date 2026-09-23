@@ -25,7 +25,7 @@ mkdir -p "$OUT/gl" "$OUT/fonts"
 STAGE="$WEB/.stage"
 mkdir -p "$STAGE"
 rm -f "$STAGE/pptx_playground.js"
-log=$(node bin/output.js -es6 "$WEB/pptx_playground.rgr" -d="$STAGE" -o=pptx_playground.js 2>&1)
+log=$(node dist/rgrc.js -es6 "$WEB/pptx_playground.rgr" -d="$STAGE" -o=pptx_playground.js 2>&1)
 # The compiler can print [FAIL] and still exit 0.
 if echo "$log" | grep -q "\[FAIL\]"; then
   echo "$log" | grep -A3 "\[FAIL\]" | head -40

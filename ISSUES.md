@@ -556,7 +556,7 @@ running the same fixture:
 
 `vitest` is not installed in the environment this was written in, so the test
 file itself was not executed here; the fixture was compiled and run directly
-with `bin/output.js` and its output matched every assertion in the file,
+with `dist/rgrc.js` and its output matched every assertion in the file,
 line for line.
 
 `gallery/ui/demo/ControlsDemo.rgr` — the file that found the bug — is written
@@ -891,7 +891,7 @@ The `exit` operator was already defined in `compiler/Lang.clj` and generates `pr
 ### Files Changed
 
 - `compiler/VirtualCompiler.clj` - Added `exit 1` calls on error paths
-- `bin/output.js` - Recompiled with the fix
+- `dist/rgrc.js` - Recompiled with the fix
 
 ---
 
@@ -1029,13 +1029,13 @@ The compiler's `-d` (output directory) and `-o` (output filename) options have c
 
 ```bash
 # This may output to root instead of tests/.output-python/
-node bin/output.js -l=python tests/fixtures/array_push.clj -d=tests/.output-python
+node dist/rgrc.js -l=python tests/fixtures/array_push.clj -d=tests/.output-python
 
 # This creates file named "array_push" instead of "array_push.py"
-node bin/output.js -l=python tests/fixtures/array_push.clj -o=array_push
+node dist/rgrc.js -l=python tests/fixtures/array_push.clj -o=array_push
 
 # Working approach - specify full filename with extension
-node bin/output.js -l=python tests/fixtures/array_push.clj -o=array_push.py
+node dist/rgrc.js -l=python tests/fixtures/array_push.clj -o=array_push.py
 ```
 
 ### Current Behavior
@@ -1066,7 +1066,7 @@ Always specify the full output filename with extension when using `-o`:
 
 ```bash
 # Correct usage
-node bin/output.js -l=python myfile.clj -o=myfile.py -d=./output
+node dist/rgrc.js -l=python myfile.clj -o=myfile.py -d=./output
 ```
 
 ### Root Cause
@@ -1491,7 +1491,7 @@ SyntaxError: Unexpected token '*'
 
 ### Resolution
 
-Ensured all `.rgr` source files and `bin/output.js` are committed with CRLF line endings:
+Ensured all `.rgr` source files and `dist/rgrc.js` are committed with CRLF line endings:
 
 1. Convert files to CRLF locally
 2. Disable `core.autocrlf` temporarily: `git config core.autocrlf false`
@@ -1501,7 +1501,7 @@ Ensured all `.rgr` source files and `bin/output.js` are committed with CRLF line
 ### Files Affected
 
 - All `.rgr` files in `compiler/`, `lib/`, `tests/fixtures/`
-- `bin/output.js`
+- `dist/rgrc.js`
 
 ### Future Fix Needed
 
@@ -2122,7 +2122,7 @@ When compiling with `-nodemodule` flag to create a CommonJS module, the `-d` (ou
 
 ```bash
 # Expected: output to gallery/pdf_writer/bin/eval_value_module.cjs
-node bin/output.js -es6 -nodemodule ./gallery/pdf_writer/eval_value_module.rgr -d=./gallery/pdf_writer/bin -o=eval_value_module.cjs
+node dist/rgrc.js -es6 -nodemodule ./gallery/pdf_writer/eval_value_module.rgr -d=./gallery/pdf_writer/bin -o=eval_value_module.cjs
 
 # Actual: output to ./eval_value_module.js (root directory, wrong extension)
 ```
@@ -2138,7 +2138,7 @@ node bin/output.js -es6 -nodemodule ./gallery/pdf_writer/eval_value_module.rgr -
 Manually move the file after compilation:
 
 ```bash
-node bin/output.js -es6 -nodemodule ./file.rgr -o=file.cjs && move file.cjs target/dir/
+node dist/rgrc.js -es6 -nodemodule ./file.rgr -o=file.cjs && move file.cjs target/dir/
 ```
 
 ### Root Cause
@@ -2758,7 +2758,7 @@ Working example: `tests/fixtures/http_server.rgr`
 
 ```bash
 # Compile to Go
-RANGER_LIB=./compiler/Lang.rgr node bin/output.js -l=go ./tests/fixtures/http_server.rgr -d=./tests/fixtures/bin -o=http_server.go -nodecli
+RANGER_LIB=./compiler/Lang.rgr node dist/rgrc.js -l=go ./tests/fixtures/http_server.rgr -d=./tests/fixtures/bin -o=http_server.go -nodecli
 
 # Run server
 cd tests/fixtures/bin && go run http_server.go
@@ -2838,9 +2838,9 @@ file, and a big enough file runs V8 out of stack:
 
 ```
 RangeError: Maximum call stack size exceeded
-    at RangerLispParser.parseBuf (bin/output.js:6482)
-    at RangerLispParser.parseBuf (bin/output.js:6577)
-    at RangerLispParser.parseBuf (bin/output.js:6787)
+    at RangerLispParser.parseBuf (dist/rgrc.js:6482)
+    at RangerLispParser.parseBuf (dist/rgrc.js:6577)
+    at RangerLispParser.parseBuf (dist/rgrc.js:6787)
     ... 2000+ frames
 ```
 
@@ -2885,7 +2885,7 @@ reason that has nothing to do with the code being compiled.
 Pass a bigger stack to node:
 
 ```bash
-node --stack-size=60000 bin/output.js …
+node --stack-size=60000 dist/rgrc.js …
 ```
 
 `tests/es-conformance-targets.test.ts` does this. The `selfhost:*` and
@@ -3389,9 +3389,9 @@ The escape itself is needed: PHP interpolates `$name` inside a double-quoted
 string, so a Ranger string holding a `$` must come out as `\$`. The writer was
 right about escaping it and wrong about what to escape it to.
 
-`bin/output.js` was rebuilt and differs from its predecessor by exactly that one
+`dist/rgrc.js` was rebuilt and differs from its predecessor by exactly that one
 emitted line; the rebuilt compiler reproduces itself byte-identically.
-`dist/rgrc.js`, which is not a plain copy of `bin/output.js` in this tree, carries
+`dist/rgrc.js`, which is not a plain copy of `dist/rgrc.js` in this tree, carries
 the same one-line change at its own copy of the site.
 
 It was invisible until the PHP target was built, because every other target writes
@@ -3510,7 +3510,7 @@ compiler -- it passed locally for exactly the same reason `scripts/build-engine-
 already carries a comment about a stale `.cjs` reading as success. CI builds
 the module fresh on every run and caught it in seven seconds.
 
-`bin/output.js` and `compiler/Lang.rgr` are now in that dependency list. Any
+`dist/rgrc.js` and `compiler/Lang.rgr` are now in that dependency list. Any
 test that consumes a build artifact needs the tool that produced it among its
 dependencies, or the gate measures the wrong thing and reports green.
 
@@ -4111,7 +4111,7 @@ type spelling.
 `npm run compile` does not finish at the compiler. It ends with
 
 ```
-node bin/output.js … -o=output.js && npm run compile:fixcrlf
+node dist/rgrc.js … -o=output.js && npm run compile:fixcrlf
   && node scripts/patch-chain-desugar.js && npm run compile:copylibs
 ```
 
@@ -4136,7 +4136,7 @@ to exactly the `return false` the patcher then looks for and overwrites.
 
 The patch is applied in exactly two places in `package.json`:
 
-- `compile` → `bin/output.js`
+- `compile` → `dist/rgrc.js`
 - `build:dist:module` → `dist/api.js`
 
 Every other build gets the stub. In particular **none of the `selfhost:*`
@@ -4176,7 +4176,7 @@ The feature is not dead code either — `PLAN_METHOD_CHAINING.md` records phase 
 `tests/compiler-chain-kotlin-swift.test.ts` gate it with ten fixtures.
 
 It is also a trap for anyone rebuilding the compiler. Compiling
-`Compiler.rgr` and copying the result over `bin/output.js` — the obvious
+`Compiler.rgr` and copying the result over `dist/rgrc.js` — the obvious
 thing to do — removes a language feature, and the resulting compiler then
 rejects code the previous one accepted.
 
@@ -4293,7 +4293,7 @@ the EVG layout engine) compiled clean on the first attempt.
 - `gallery/pptx/android/ranger/pptx_android.rgr` → Kotlin → `kotlinc`: **zero
   errors**, and the compiled viewer opens real `.pptx` fixtures on a JVM
   (`npm run pptx:android:verify`).
-- Compiler self-host fixpoint held: rebuilding `bin/output.js` twice from the
+- Compiler self-host fixpoint held: rebuilding `dist/rgrc.js` twice from the
   patched sources produced byte-identical output.
 
 ### Status

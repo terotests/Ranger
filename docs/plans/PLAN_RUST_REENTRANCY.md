@@ -232,7 +232,7 @@ held to:
 1. generate and type-check — 0 rustc errors;
 2. build with `rustc -O`;
 3. make that binary compile `compiler/Compiler.rgr` to ES6;
-4. **diff the result against `bin/output.js`**.
+4. **diff the result against `dist/rgrc.js`**.
 
 Step 4 is the test. Two compilers that agree to the byte are the same
 compiler. It passes: 5 596 785 bytes, identical, in 7.3 s against the node

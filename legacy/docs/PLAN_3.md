@@ -904,8 +904,8 @@ full-tests:
   "main": "dist/bin/api.js",
   "types": "dist/bin/api.d.ts",
   "bin": {
-    "ranger-compiler": "bin/output.js",
-    "rgrc": "bin/output.js"
+    "ranger-compiler": "dist/rgrc.js",
+    "rgrc": "dist/rgrc.js"
   },
   "files": ["bin/", "dist/", "lib/", "compiler/Lang.rgr"],
   "keywords": [

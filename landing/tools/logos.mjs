@@ -48,7 +48,7 @@ const run = (cmd, args) =>
 
 /** The compiler exits 0 on failure, so read the log rather than the status. */
 function compile(src, outDir, outFile) {
-  const log = run("node", ["bin/output.js", "-es6", src, `-d=${outDir}`, `-o=${outFile}`, "-nodecli"]);
+  const log = run("node", ["dist/rgrc.js", "-es6", src, `-d=${outDir}`, `-o=${outFile}`, "-nodecli"]);
   if (log.includes("[FAIL]") || log.includes("Compilation FAILED")) {
     console.error(log);
     throw new Error(`failed to compile ${src}`);

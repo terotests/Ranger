@@ -18,7 +18,7 @@ npm install
 npm run dev
 ```
 
-- **`build:ranger`** — `node ../../bin/output.js -es6 -typescript -esm ranger/counter_board.rgr` → `src/generated/counter_board.ts`
+- **`build:ranger`** — `node ../../dist/rgrc.js -es6 -typescript -esm ranger/counter_board.rgr` → `src/generated/counter_board.ts`
 - **`dev`** — compile Ranger then Vite on port **5188** (avoids stale PWA/cache on 5174)
 
 ## Architecture

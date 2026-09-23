@@ -23,7 +23,7 @@ export const APP_DIR = path.join(ROOT_DIR, "tests", "syntax_app");
 export const GAPS_DIR = path.join(APP_DIR, "gaps");
 export const OUT_DIR = path.join(ROOT_DIR, "tests", ".output-syntax-app");
 
-const COMPILER = path.join(ROOT_DIR, "bin", "output.js");
+const COMPILER = path.join(ROOT_DIR, "dist", "rgrc.js");
 const RANGER_LIB = "./compiler/Lang.rgr;./lib/stdops.rgr";
 
 /** How a target is compiled, and how -- if at all -- its output is run. */

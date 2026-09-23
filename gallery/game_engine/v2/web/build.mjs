@@ -320,7 +320,7 @@ function compileEngineBundle() {
   const rawDirRel = path.relative(ROOT, rawDir);
   log("compiling engine:", RUNNER_RGR);
   sh("node", [
-    "bin/output.js",
+    "dist/rgrc.js",
     "-es6",
     RUNNER_RGR,
     "-d=" + rawDirRel,
@@ -350,7 +350,7 @@ function compileTsx3dBundle() {
   const rawDirRel = path.relative(ROOT, rawDir);
   log("compiling TSX 3D host:", TSX3D_RGR);
   sh("node", [
-    "bin/output.js",
+    "dist/rgrc.js",
     "-es6",
     TSX3D_RGR,
     "-d=" + rawDirRel,
@@ -377,7 +377,7 @@ function compileTsx3dGlBundle() {
   fs.mkdirSync(rawDir, { recursive: true });
   log("compiling tsx3d WebGL host:", TSX3D_GL_RGR);
   sh("node", [
-    "bin/output.js", "-es6", TSX3D_GL_RGR,
+    "dist/rgrc.js", "-es6", TSX3D_GL_RGR,
     "-d=" + path.relative(ROOT, rawDir), "-o=tsx3dgl.raw.js", "-nodecli",
   ], { env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr:./lib/stdops.rgr" }, stdio: "inherit" });
   let src = fs.readFileSync(path.join(rawDir, "tsx3dgl.raw.js"), "utf8").replace(/^#![^\n]*\n/, "");
@@ -395,7 +395,7 @@ function compileTeapotTsxBundle() {
   fs.mkdirSync(rawDir, { recursive: true });
   log("compiling teapot TSX host:", TEAPOT_TSX_RGR);
   sh("node", [
-    "bin/output.js", "-es6", TEAPOT_TSX_RGR,
+    "dist/rgrc.js", "-es6", TEAPOT_TSX_RGR,
     "-d=" + path.relative(ROOT, rawDir), "-o=teapottsx.raw.js", "-nodecli",
   ], { env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr:./lib/stdops.rgr" }, stdio: "inherit" });
   let src = fs.readFileSync(path.join(rawDir, "teapottsx.raw.js"), "utf8").replace(/^#![^\n]*\n/, "");
@@ -413,7 +413,7 @@ function compileSponzaTsxBundle() {
   fs.mkdirSync(rawDir, { recursive: true });
   log("compiling Sponza TSX host:", SPONZA_TSX_RGR);
   sh("node", [
-    "bin/output.js", "-es6", SPONZA_TSX_RGR,
+    "dist/rgrc.js", "-es6", SPONZA_TSX_RGR,
     "-d=" + path.relative(ROOT, rawDir), "-o=sponzatsx.raw.js", "-nodecli",
   ], { env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr:./lib/stdops.rgr" }, stdio: "inherit" });
   let src = fs.readFileSync(path.join(rawDir, "sponzatsx.raw.js"), "utf8").replace(/^#![^\n]*\n/, "");

@@ -84,10 +84,10 @@ out="$base.$ext"
 # The compiler: this repository's own when run inside it, the installed one
 # otherwise. A checkout compiles with the sources beside it; a project that
 # installed `ranger-compiler` gets `rgrc` from node_modules.
-if [ -f ./bin/output.js ] && [ -f ./compiler/Lang.rgr ]; then
+if [ -f ./dist/rgrc.js ] && [ -f ./compiler/Lang.rgr ]; then
   : "${RANGER_LIB:=./compiler/Lang.rgr:./lib/stdops.rgr}"
   export RANGER_LIB
-  compiler=(node ./bin/output.js)
+  compiler=(node ./dist/rgrc.js)
 else
   compiler=(npx --no-install rgrc)
   if ! npx --no-install rgrc --help >/dev/null 2>&1; then

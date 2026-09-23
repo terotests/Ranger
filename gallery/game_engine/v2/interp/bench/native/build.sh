@@ -77,14 +77,14 @@ fi
 # is a lock-prefixed atomic pair, a global tax with no thread to protect.
 # The flag is cpp-only and ignored elsewhere. Omitted when the selected CXX
 # is Apple clang / libc++ (see scripts/cpp-toolchain.sh).
-# `node bin/output.js` EXITS 0 EVEN WHEN COMPILATION FAILS, so `set -e` does
+# `node dist/rgrc.js` EXITS 0 EVEN WHEN COMPILATION FAILS, so `set -e` does
 # not catch it -- and the native step below would then happily rebuild the
 # previous run's stale generated source and report success. That is how a
 # benchmark starts comparing a change against itself. Tee the output and fail
 # on the compiler's own verdict.
 # The self-hosted compiler recurses over the AST; the engine source has
 # outgrown V8's default stack, so give it a bigger one.
-RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node --stack-size=8000 bin/output.js -l="$TARGET" \
+RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node --stack-size=8000 dist/rgrc.js -l="$TARGET" \
   "$SRC" -d="$OUT_DIR" -o=engine_bench."$EXT" -nodecli -native-fast-alloc \
   "${CPP_ST_FLAGS[@]}" "${EXTRA_ARGS[@]}" 2>&1 | tee /tmp/rgr_build_$$.log
 if grep -q "Compilation FAILED" /tmp/rgr_build_$$.log; then

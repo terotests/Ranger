@@ -1,6 +1,6 @@
 // Lambda / closure test (L0/L1: non-capturing) on the WASM backend.
 // Build:
-//   node bin/output.js -l=llvm -wat -freestanding -wasmrc \
+//   node dist/rgrc.js -l=llvm -wat -freestanding -wasmrc \
 //     runtime/wasm/lambda_demo.rgr -nodecli -d=tmp/lam -o=g.wat
 //   cp tmp/lam/g.wat.ll tmp/lam/g.wat && wat2wasm tmp/lam/g.wat -o tmp/lam/g.wasm
 import fs from "fs";

@@ -63,7 +63,7 @@ ComponentEngine.rgr alone has ~1200 EvValueBridge call sites. Per target:
 3. **compiler/VirtualCompiler.rgr** — flag registered in the help list.
    (CLI `-flags` auto-populate `ctx.compilerFlags`; no other plumbing.)
 
-`bin/output.js` on this branch is the rebootstrapped compiler containing the
+`dist/rgrc.js` on this branch is the rebootstrapped compiler containing the
 pass (`npm run compile` was clean).
 
 ## Verification results

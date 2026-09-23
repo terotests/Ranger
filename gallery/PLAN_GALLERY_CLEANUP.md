@@ -144,13 +144,13 @@ mv invaders.py bin/python/
 
 ```json
 {
-  "game:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr;./lib/stdops.rgr node bin/output.js -es6 ./gallery/invaders/src/invaders.rgr -d=./gallery/invaders/bin/js -o=invaders.js -nodecli",
-  "game:compile:rust": "cross-env RANGER_LIB=./compiler/Lang.rgr;./lib/stdops.rgr node bin/output.js -l=rust ./gallery/invaders/src/invaders.rgr -d=./gallery/invaders/bin/rust -o=invaders.rs -nodecli",
-  "game:compile:go": "cross-env RANGER_LIB=./compiler/Lang.rgr;./lib/stdops.rgr node bin/output.js -l=go ./gallery/invaders/src/invaders.rgr -d=./gallery/invaders/bin/go -o=invaders.go -nodecli",
-  "game:compile:swift": "cross-env RANGER_LIB=./compiler/Lang.rgr;./lib/stdops.rgr node bin/output.js -l=swift6 ./gallery/invaders/src/invaders.rgr -d=./gallery/invaders/bin/swift -o=invaders.swift -nodecli",
-  "game:compile:cpp": "cross-env RANGER_LIB=./compiler/Lang.rgr;./lib/stdops.rgr node bin/output.js -l=cpp ./gallery/invaders/src/invaders.rgr -d=./gallery/invaders/bin/cpp -o=invaders.cpp -nodecli",
-  "game:compile:kotlin": "cross-env RANGER_LIB=./compiler/Lang.rgr;./lib/stdops.rgr node bin/output.js -l=kotlin ./gallery/invaders/src/invaders.rgr -d=./gallery/invaders/bin/kotlin -o=invaders.kt -nodecli",
-  "game:compile:python": "cross-env RANGER_LIB=./compiler/Lang.rgr;./lib/stdops.rgr node bin/output.js -l=python ./gallery/invaders/src/invaders.rgr -d=./gallery/invaders/bin/python -o=invaders.py -nodecli",
+  "game:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr;./lib/stdops.rgr node dist/rgrc.js -es6 ./gallery/invaders/src/invaders.rgr -d=./gallery/invaders/bin/js -o=invaders.js -nodecli",
+  "game:compile:rust": "cross-env RANGER_LIB=./compiler/Lang.rgr;./lib/stdops.rgr node dist/rgrc.js -l=rust ./gallery/invaders/src/invaders.rgr -d=./gallery/invaders/bin/rust -o=invaders.rs -nodecli",
+  "game:compile:go": "cross-env RANGER_LIB=./compiler/Lang.rgr;./lib/stdops.rgr node dist/rgrc.js -l=go ./gallery/invaders/src/invaders.rgr -d=./gallery/invaders/bin/go -o=invaders.go -nodecli",
+  "game:compile:swift": "cross-env RANGER_LIB=./compiler/Lang.rgr;./lib/stdops.rgr node dist/rgrc.js -l=swift6 ./gallery/invaders/src/invaders.rgr -d=./gallery/invaders/bin/swift -o=invaders.swift -nodecli",
+  "game:compile:cpp": "cross-env RANGER_LIB=./compiler/Lang.rgr;./lib/stdops.rgr node dist/rgrc.js -l=cpp ./gallery/invaders/src/invaders.rgr -d=./gallery/invaders/bin/cpp -o=invaders.cpp -nodecli",
+  "game:compile:kotlin": "cross-env RANGER_LIB=./compiler/Lang.rgr;./lib/stdops.rgr node dist/rgrc.js -l=kotlin ./gallery/invaders/src/invaders.rgr -d=./gallery/invaders/bin/kotlin -o=invaders.kt -nodecli",
+  "game:compile:python": "cross-env RANGER_LIB=./compiler/Lang.rgr;./lib/stdops.rgr node dist/rgrc.js -l=python ./gallery/invaders/src/invaders.rgr -d=./gallery/invaders/bin/python -o=invaders.py -nodecli",
   "game:build:rust": "npm run game:compile:rust && rustc gallery/invaders/bin/rust/invaders.rs -o gallery/invaders/bin/rust/invaders_rust.exe",
   "game:build:go": "npm run game:compile:go && cd gallery/invaders/bin/go && go build -o invaders_go.exe invaders.go",
   "game:build:swift": "npm run game:compile:swift && swiftc -parse-as-library gallery/invaders/bin/swift/invaders.swift -o gallery/invaders/bin/swift/invaders_swift.exe",
@@ -280,12 +280,12 @@ mv js_parser*.go bin/go/ 2>/dev/null || true
 
 ```json
 {
-  "jsparser:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/js_parser/src/js_parser_main.rgr -d=./gallery/js_parser/bin/js -o=js_parser.js -nodecli",
-  "jsparser:compile:cpp": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -l=cpp ./gallery/js_parser/src/js_parser_main.rgr -d=./gallery/js_parser/bin/cpp -o=js_parser.cpp -nodecli",
-  "jsparser:compile:swift": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -l=swift6 ./gallery/js_parser/src/js_parser_main.rgr -d=./gallery/js_parser/bin/swift -o=js_parser.swift -nodecli",
-  "jsparser:compile:go": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -l=go ./gallery/js_parser/src/js_parser_main.rgr -d=./gallery/js_parser/bin/go -o=js_parser.go -nodecli",
-  "jsparser:compile:rust": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -l=rust ./gallery/js_parser/src/js_parser_main.rgr -d=./gallery/js_parser/bin/rust -o=js_parser.rs -nodecli",
-  "jsparser:module": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 -nodemodule ./gallery/js_parser/src/js_parser_main.rgr -d=./gallery/js_parser/benchmark -o=js_parser_module.cjs",
+  "jsparser:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node dist/rgrc.js -es6 ./gallery/js_parser/src/js_parser_main.rgr -d=./gallery/js_parser/bin/js -o=js_parser.js -nodecli",
+  "jsparser:compile:cpp": "cross-env RANGER_LIB=./compiler/Lang.rgr node dist/rgrc.js -l=cpp ./gallery/js_parser/src/js_parser_main.rgr -d=./gallery/js_parser/bin/cpp -o=js_parser.cpp -nodecli",
+  "jsparser:compile:swift": "cross-env RANGER_LIB=./compiler/Lang.rgr node dist/rgrc.js -l=swift6 ./gallery/js_parser/src/js_parser_main.rgr -d=./gallery/js_parser/bin/swift -o=js_parser.swift -nodecli",
+  "jsparser:compile:go": "cross-env RANGER_LIB=./compiler/Lang.rgr node dist/rgrc.js -l=go ./gallery/js_parser/src/js_parser_main.rgr -d=./gallery/js_parser/bin/go -o=js_parser.go -nodecli",
+  "jsparser:compile:rust": "cross-env RANGER_LIB=./compiler/Lang.rgr node dist/rgrc.js -l=rust ./gallery/js_parser/src/js_parser_main.rgr -d=./gallery/js_parser/bin/rust -o=js_parser.rs -nodecli",
+  "jsparser:module": "cross-env RANGER_LIB=./compiler/Lang.rgr node dist/rgrc.js -es6 -nodemodule ./gallery/js_parser/src/js_parser_main.rgr -d=./gallery/js_parser/benchmark -o=js_parser_module.cjs",
   "jsparser:build:rust": "npm run jsparser:compile:rust && rustc -O gallery/js_parser/bin/rust/js_parser.rs -o gallery/js_parser/bin/rust/js_parser_rust.exe",
   "jsparser:build:cpp": "wsl x86_64-w64-mingw32-g++-posix -std=c++17 -static -O3 gallery/js_parser/bin/cpp/js_parser.cpp -o gallery/js_parser/bin/cpp/js_parser_cpp.exe",
   "jsparser:build:swift": "swiftc -O -parse-as-library gallery/js_parser/bin/swift/js_parser.swift -o gallery/js_parser/bin/swift/js_parser_swift.exe",
@@ -378,7 +378,7 @@ mv test_jsx.js _test.js _test.cjs test/
 
 # Move JavaScript outputs
 mv ts_parser_main.js ts_lexer_main.js bin/js/
-mv bin/output.js bin/js/ 2>/dev/null || true
+mv dist/rgrc.js bin/js/ 2>/dev/null || true
 
 # Move C++ outputs
 mv bin/ts_parser_main.cpp bin/ts_parser_cpp.exe bin/variant.hpp bin/cpp/
@@ -397,12 +397,12 @@ mv bin/ts_parser_main.go bin/ts_parser_go.exe bin/go/
 
 ```json
 {
-  "tsparser:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/ts_parser/src/ts_parser_main.rgr -d=./gallery/ts_parser/bin/js -o=ts_parser_main.js -nodecli",
-  "tsparser:compile:rust": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -l=rust ./gallery/ts_parser/src/ts_parser_main.rgr -d=./gallery/ts_parser/bin/rust -o=ts_parser_main.rs -nodecli",
-  "tsparser:compile:go": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -l=go ./gallery/ts_parser/src/ts_parser_main.rgr -d=./gallery/ts_parser/bin/go -o=ts_parser_main.go -nodecli",
-  "tsparser:compile:swift": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -l=swift6 ./gallery/ts_parser/src/ts_parser_main.rgr -d=./gallery/ts_parser/bin/swift -o=ts_parser_main.swift -nodecli",
-  "tsparser:compile:cpp": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -l=cpp ./gallery/ts_parser/src/ts_parser_main.rgr -d=./gallery/ts_parser/bin/cpp -o=ts_parser_main.cpp -nodecli",
-  "tsparser:module": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 -nodemodule ./gallery/ts_parser/src/ts_parser_main.rgr -d=./gallery/ts_parser/benchmark -o=ts_parser_module.cjs",
+  "tsparser:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node dist/rgrc.js -es6 ./gallery/ts_parser/src/ts_parser_main.rgr -d=./gallery/ts_parser/bin/js -o=ts_parser_main.js -nodecli",
+  "tsparser:compile:rust": "cross-env RANGER_LIB=./compiler/Lang.rgr node dist/rgrc.js -l=rust ./gallery/ts_parser/src/ts_parser_main.rgr -d=./gallery/ts_parser/bin/rust -o=ts_parser_main.rs -nodecli",
+  "tsparser:compile:go": "cross-env RANGER_LIB=./compiler/Lang.rgr node dist/rgrc.js -l=go ./gallery/ts_parser/src/ts_parser_main.rgr -d=./gallery/ts_parser/bin/go -o=ts_parser_main.go -nodecli",
+  "tsparser:compile:swift": "cross-env RANGER_LIB=./compiler/Lang.rgr node dist/rgrc.js -l=swift6 ./gallery/ts_parser/src/ts_parser_main.rgr -d=./gallery/ts_parser/bin/swift -o=ts_parser_main.swift -nodecli",
+  "tsparser:compile:cpp": "cross-env RANGER_LIB=./compiler/Lang.rgr node dist/rgrc.js -l=cpp ./gallery/ts_parser/src/ts_parser_main.rgr -d=./gallery/ts_parser/bin/cpp -o=ts_parser_main.cpp -nodecli",
+  "tsparser:module": "cross-env RANGER_LIB=./compiler/Lang.rgr node dist/rgrc.js -es6 -nodemodule ./gallery/ts_parser/src/ts_parser_main.rgr -d=./gallery/ts_parser/benchmark -o=ts_parser_module.cjs",
   "tsparser:build:rust": "npm run tsparser:compile:rust && rustc -O gallery/ts_parser/bin/rust/ts_parser_main.rs -o gallery/ts_parser/bin/rust/ts_parser_rust.exe",
   "tsparser:build:go": "npm run tsparser:compile:go && cd gallery/ts_parser/bin/go && go build -o ts_parser_go.exe ts_parser_main.go",
   "tsparser:build:swift": "npm run tsparser:compile:swift && swiftc -O -parse-as-library gallery/ts_parser/bin/swift/ts_parser_main.swift -o gallery/ts_parser/bin/swift/ts_parser_swift.exe",
@@ -471,7 +471,7 @@ mv test_output test/
 
 ```json
 {
-  "zip:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./gallery/zip/src/zip_tool.rgr -d=./gallery/zip/bin -o=zip_tool.js -nodecli",
+  "zip:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node dist/rgrc.js -es6 ./gallery/zip/src/zip_tool.rgr -d=./gallery/zip/bin -o=zip_tool.js -nodecli",
   "zip:run": "node ./gallery/zip/bin/zip_tool.js"
 }
 ```
@@ -535,7 +535,7 @@ mv EVGTextMeasurer.rgr EVGImageMeasurer.rgr src/
 
 ```json
 {
-  "evg:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 ./lib/evg/src/evg_test.rgr -d=./lib/evg/bin -o=evg_test.js -nodecli",
+  "evg:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node dist/rgrc.js -es6 ./lib/evg/src/evg_test.rgr -d=./lib/evg/bin -o=evg_test.js -nodecli",
   "evg:run": "node ./lib/evg/bin/evg_test.js"
 }
 ```

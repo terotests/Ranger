@@ -270,7 +270,7 @@ type error between `T` and `<optional>T`. See
 [Optional variables](#optional-variables).
 
 **Extending the language does not mean recompiling the compiler.**
-`compiler/Lang.rgr` is read at compile time, not baked into `bin/output.js`.
+`compiler/Lang.rgr` is read at compile time, not baked into `dist/rgrc.js`.
 Add or change an operator template there, and the very next compile uses it —
 no `npm run compile` in between. The compiler looks for `Lang.rgr` in the
 working directory first, so a copy beside your sources overrides the installed
@@ -542,13 +542,13 @@ The compiler supports three JavaScript module output formats:
 
 ```bash
 # Standalone JavaScript (runs main function)
-node bin/output.js -es6 myfile.rgr -o=myfile.js
+node dist/rgrc.js -es6 myfile.rgr -o=myfile.js
 
 # CommonJS module (.cjs)
-node bin/output.js -es6 -nodemodule myfile.rgr -o=myfile.cjs
+node dist/rgrc.js -es6 -nodemodule myfile.rgr -o=myfile.cjs
 
 # ES6/ESM module (.mjs)
-node bin/output.js -es6 -esm myfile.rgr -o=myfile.mjs
+node dist/rgrc.js -es6 -esm myfile.rgr -o=myfile.mjs
 ```
 
 **File Extensions:**
@@ -570,7 +570,7 @@ Use `-sourcemap` with `-es6` or `-typescript` to emit a sibling `.js.map` / `.ts
 
 ```bash
 # Standalone ES module + map
-node bin/output.js -es6 -esm -nodemodule -sourcemap ./myapp/App.rgr -o=app.js
+node dist/rgrc.js -es6 -esm -nodemodule -sourcemap ./myapp/App.rgr -o=app.js
 
 # Result: bin/app.js and bin/app.js.map
 ```
@@ -608,7 +608,7 @@ class Hello {
 ```
 
 ```
-ranger-compiler hello.rgr            ; writes bin/output.js
+ranger-compiler hello.rgr            ; writes dist/rgrc.js
 ranger-compiler hello.rgr -o=hello.js
 ```
 
@@ -1625,7 +1625,7 @@ the reserved words and the compilation rules live in `compiler/Lang.rgr`, which
 the compiler reads at compile time. Adding a target to an existing operator, or
 adding a whole operator, takes effect on the next compile with no rebuild step.
 The compiler looks for `Lang.rgr` in the working directory first and falls back
-to the copy beside `bin/output.js`, so a modified copy next to your sources
+to the copy beside `dist/rgrc.js`, so a modified copy next to your sources
 overrides the installed one — which makes an experiment cheap to try and cheap
 to revert. `lib/stdops.rgr` (macros, the `ret` operator) works the same way.
 
@@ -1634,14 +1634,14 @@ are Ranger source under `compiler/`. Changing them means compiling the compiler
 with itself:
 
 ```bash
-npm run compile      # compiler/Compiler.rgr -> bin/output.js, and copies Lang.rgr to bin/
+npm run compile      # compiler/Compiler.rgr -> dist/rgrc.js, and copies Lang.rgr to bin/
 npm test             # the suite runs against the compiler you just built
 ```
 
-`npm run compile` is the self-hosting step: the current `bin/output.js` compiles
-the new sources into the next `bin/output.js`. A change that breaks codegen can
+`npm run compile` is the self-hosting step: the current `dist/rgrc.js` compiles
+the new sources into the next `dist/rgrc.js`. A change that breaks codegen can
 therefore break the compiler that builds the next one, so keep the previous
-`bin/output.js` until the tests pass -- `git checkout bin/output.js` restores
+`dist/rgrc.js` until the tests pass -- `git checkout dist/rgrc.js` restores
 the last committed build, and the git history of that one file is the rollback.
 The published CLI is `dist/rgrc.js`, built by `npm run build:dist`.
 

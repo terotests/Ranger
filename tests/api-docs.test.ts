@@ -20,7 +20,7 @@ import * as path from "path";
 import { fileURLToPath } from "url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const COMPILER = path.join(ROOT, "bin", "output.js");
+const COMPILER = path.join(ROOT, "dist", "rgrc.js");
 const OUT = path.join(ROOT, "tests", ".output-apidocs");
 
 const RANGER_LIB = [

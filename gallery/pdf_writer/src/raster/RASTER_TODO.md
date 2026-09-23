@@ -147,7 +147,7 @@ def maxR:int (to_int ((to_double w) / 2.0))
 Once all files compile:
 ```bash
 # Compile
-RANGER_LIB=./compiler/Lang.rgr node bin/output.js -es6 \
+RANGER_LIB=./compiler/Lang.rgr node dist/rgrc.js -es6 \
   ./gallery/pdf_writer/src/tools/evg_raster_test.rgr \
   -d=./gallery/pdf_writer/bin -o=evg_raster_test.js -nodecli
 

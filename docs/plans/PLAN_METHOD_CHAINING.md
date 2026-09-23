@@ -171,7 +171,7 @@ Codegen:
 2. `finalizeAsCallChainRoot` estää `hasNewOper`-skipin codegenissa
 3. `scripts/patch-chain-desugar.js` säilyttää toteutuksen `npm run compile` -jälkeen
 
-**Tiedostot:** `CodeNodeCompilerExtensions.rgr`, `RangerFlowParser.rgr` (`cmdNew`), `bin/output.js`
+**Tiedostot:** `CodeNodeCompilerExtensions.rgr`, `RangerFlowParser.rgr` (`cmdNew`), `dist/rgrc.js`
 
 ### Vaihe 2 – Tyyppipäättely ketjun läpi (1–2 pv) ✅
 
@@ -182,7 +182,7 @@ Codegen:
 2. `cmdCall`: receiverin `clDesc` → `eval_type_name` kun tyyppi puuttuu
 3. Desugar-receiver: trimmatty `this.copy()` (säilyttää `hasNewOper` / luokkatiedot)
 
-**Tiedostot:** `RangerFlowParser.rgr`, `bin/output.js`
+**Tiedostot:** `RangerFlowParser.rgr`, `dist/rgrc.js`
 
 ---
 

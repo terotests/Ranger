@@ -44,7 +44,7 @@ const out = {};
 for (const t of TARGETS) {
   const file = `Cart_${t.id}.${t.ext}`;
   const log = execFileSync("node",
-    ["bin/output.js", ...t.flag.split(" "), SRC, `-d=${path.relative(ROOT, TMP)}`, `-o=${file}`],
+    ["dist/rgrc.js", ...t.flag.split(" "), SRC, `-d=${path.relative(ROOT, TMP)}`, `-o=${file}`],
     { cwd: ROOT, env, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] });
   // The compiler exits 0 even when it failed, so the log is the status.
   if (log.includes("[FAIL]") || log.includes("Compilation FAILED")) {

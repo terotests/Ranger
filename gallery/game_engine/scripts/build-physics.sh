@@ -22,7 +22,7 @@ mkdir -p "$OUT_DIR"
 
 echo "==> Ranger -> ES6 (cannon_test_runner)"
 cd "$ROOT"
-RANGER_OUT="$(RANGER_LIB="$ROOT/compiler/Lang.rgr:$ROOT/lib/stdops.rgr" node "$ROOT/bin/output.js" \
+RANGER_OUT="$(RANGER_LIB="$ROOT/compiler/Lang.rgr:$ROOT/lib/stdops.rgr" node "$ROOT/dist/rgrc.js" \
   -es6 "$SOURCE" \
   -nodecli \
   -d="tmp/physics" \

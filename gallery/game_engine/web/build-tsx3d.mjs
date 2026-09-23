@@ -69,7 +69,7 @@ fs.mkdirSync(OUT, { recursive: true });
 const rawDir = path.join(OUT, "_raw");
 fs.mkdirSync(rawDir, { recursive: true });
 log("compiling host:", HOST_RGR);
-sh("node", ["bin/output.js", "-es6", HOST_RGR, "-d=" + path.relative(ROOT, rawDir), "-o=host.raw.js", "-nodecli"], {
+sh("node", ["dist/rgrc.js", "-es6", HOST_RGR, "-d=" + path.relative(ROOT, rawDir), "-o=host.raw.js", "-nodecli"], {
   env: { ...process.env, RANGER_LIB: "./compiler/Lang.rgr:./lib/stdops.rgr" },
 });
 let src = fs.readFileSync(path.join(rawDir, "host.raw.js"), "utf8").replace(/^#![^\n]*\n/, "");

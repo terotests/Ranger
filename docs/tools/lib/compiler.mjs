@@ -13,7 +13,7 @@ import { CACHE, ROOT, ensureDir, walk } from "./paths.mjs";
 
 const require = createRequire(import.meta.url);
 const MODULE_FILE = path.join(CACHE, "rangerapi.js");
-const CLI = path.join(ROOT, "bin", "output.js");
+const CLI = path.join(ROOT, "dist", "rgrc.js");
 
 function newestSourceTime() {
   const files = [

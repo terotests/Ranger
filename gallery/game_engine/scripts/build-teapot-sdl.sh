@@ -33,7 +33,7 @@ else echo "error: SDL2 not found (install libsdl2-dev)" >&2; exit 1; fi
 
 echo "==> 1/2 Ranger -> C++"
 cd "$ROOT"
-RANGER_OUT="$(RANGER_LIB="$ROOT/compiler/Lang.rgr:$ROOT/lib/stdops.rgr" node "$ROOT/bin/output.js" \
+RANGER_OUT="$(RANGER_LIB="$ROOT/compiler/Lang.rgr:$ROOT/lib/stdops.rgr" node "$ROOT/dist/rgrc.js" \
   -l=cpp "$SOURCE" -nodecli -d="tmp/teapot-sdl" -o="teapot_sdl.cpp" 2>&1)" || true
 echo "$RANGER_OUT" | grep -E '\[FAIL\]' && { echo "error: Ranger compile failed" >&2; exit 1; } || true
 cp "$ROOT/gallery/invaders/variant.hpp" "$OUT_DIR/variant.hpp"

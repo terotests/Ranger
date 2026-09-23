@@ -8,7 +8,7 @@ cd "$(dirname "$0")/../../../.."
 export RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr
 mkdir -p tmp/rt-ios
 
-log=$(node --max-old-space-size=8192 bin/output.js -es6 \
+log=$(node --max-old-space-size=8192 dist/rgrc.js -es6 \
   gallery/realtrainer/ios/ranger/check_rt_ios.rgr -nodecli \
   -d=tmp/rt-ios -o=check_rt_ios.js 2>&1)
 if echo "$log" | grep -q "Compilation FAILED"; then

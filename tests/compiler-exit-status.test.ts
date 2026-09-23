@@ -8,7 +8,7 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT_DIR = path.resolve(__dirname, "..");
-const COMPILER = path.join(ROOT_DIR, "bin", "output.js");
+const COMPILER = path.join(ROOT_DIR, "dist", "rgrc.js");
 
 // The compiler used to print [FAIL] and end with a status of 0, so
 // `rgrc x.rgr && node build/x.js` ran the PREVIOUS build and looked green.

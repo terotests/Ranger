@@ -56,7 +56,7 @@ npm run engine:game-sdl:launcher:v2
 ```
 
 That runs `scripts/build-sdl-v2.sh`, which (1) compiles `RgSdlMain.rgr` to C++
-(`RANGER_LIB=… node bin/output.js -l=cpp … -o RgSdlMain.cpp`) and (2) links it
+(`RANGER_LIB=… node dist/rgrc.js -l=cpp … -o RgSdlMain.cpp`) and (2) links it
 against SDL2 + OpenGL into `tmp/sdl-v2/ranger-v2`, then launches it. Unlike the
 v1 game runner, the v2 host needs **no wasm3 and no libcurl** — only the
 operators it actually calls are emitted (all `SDL2/SDL.h`); GL is pulled in only

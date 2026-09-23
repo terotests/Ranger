@@ -332,7 +332,7 @@ Measured cost on this machine, one Node process, `dist/api.js`, warm:
 
 | Path | Time per (example, target) |
 | --- | --- |
-| CLI, `node bin/output.js` per compile | 180–250 ms, plus process start |
+| CLI, `node dist/rgrc.js` per compile | 180–250 ms, plus process start |
 | In process, `VirtualCompiler.run()` | 148–250 ms |
 
 The in-process path is used. With 12 target languages and, for example, 120 example

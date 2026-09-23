@@ -52,7 +52,7 @@ taken minutes apart cannot see through it; alternating can.
 ```sh
 git archive HEAD lib/evg | tar -x -C /tmp/base
 cp lib/evg/bench/EvgLayoutBench.rgr /tmp/base/lib/evg/bench/
-RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 -nodemodule \
+RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node dist/rgrc.js -es6 -nodemodule \
   /tmp/base/lib/evg/bench/EvgLayoutBench.rgr -d=./lib/evg/bin -o=EvgLayoutBenchBase.cjs
 node --expose-gc lib/evg/bench/layout-bench.mjs --ab --min --no-browser
 ```

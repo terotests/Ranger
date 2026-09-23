@@ -90,5 +90,5 @@ Only **meriyah** (a highly optimized, dedicated fast parser) is faster.
 The js_parser module was compiled with:
 
 ```bash
-node bin/output.js -es6 -nodemodule ./gallery/js_parser/js_parser_main.rgr -o=js_parser_module.js
+node dist/rgrc.js -es6 -nodemodule ./gallery/js_parser/js_parser_main.rgr -o=js_parser_module.js
 ```

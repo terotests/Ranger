@@ -10,7 +10,7 @@ OUT_PNG="${1:-$OUT_DIR/ylos2.png}"
 mkdir -p "$OUT_DIR" "$(dirname "$OUT_PNG")"
 
 echo "==> compile ylos2_screenshot → ES6"
-node bin/output.js -es6 \
+node dist/rgrc.js -es6 \
   gallery/game_engine/v2/tests/tools/ylos2_screenshot.rgr \
   -d="$OUT_DIR" -o=ylos2_screenshot.js
 

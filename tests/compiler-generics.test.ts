@@ -90,7 +90,7 @@ function compileTo(
   const outFile = `${c.name}_${lang}.${ext}`;
   const flag = lang === "es6" ? "-es6" : `-l=${lang}`;
   const cmd = [
-    `node "${path.join(ROOT, "bin", "output.js")}"`,
+    `node "${path.join(ROOT, "dist", "rgrc.js")}"`,
     flag,
     ...extraFlags,
     `"./${c.program}"`,
@@ -138,7 +138,7 @@ describe("a flag annotation is not a type argument list", () => {
   it("compiles a flag on a plain class and on an instantiation", () => {
     const outFile = "generic_flag_annotation.js";
     const cmd = [
-      `node "${path.join(ROOT, "bin", "output.js")}"`,
+      `node "${path.join(ROOT, "dist", "rgrc.js")}"`,
       "-es6",
       `"./tests/fixtures/generic_flag_annotation.rgr"`,
       "-nodecli",

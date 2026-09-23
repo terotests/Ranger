@@ -76,7 +76,7 @@ function compile(src, out, outRel = "gallery/evg/bin") {
   }
   const log = spawnSync(
     "node",
-    ["bin/output.js", "-es6", src, `-d=${outdir}`, `-o=${out}`, "-nodecli"],
+    ["dist/rgrc.js", "-es6", src, `-d=${outdir}`, `-o=${out}`, "-nodecli"],
     { cwd: root, encoding: "utf8", env, maxBuffer: 20 * 1024 * 1024 },
   );
   const text = `${log.stdout || ""}${log.stderr || ""}`;

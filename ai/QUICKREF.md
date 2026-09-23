@@ -12,7 +12,7 @@ Repo gotchas: [`../AGENTS.md`](../AGENTS.md).
 rgrc hello.rgr -l=es6 -d=./bin -o=hello.js
 
 # From a checkout (after npm run compile)
-node bin/output.js -l=es6 ./hello.rgr -o=./bin/hello.js
+node dist/rgrc.js -l=es6 ./hello.rgr -o=./bin/hello.js
 ```
 
 | Flag | Target |

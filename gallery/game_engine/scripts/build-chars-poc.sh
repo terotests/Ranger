@@ -19,7 +19,7 @@ mkdir -p "$OUT_DIR"
 cd "$ROOT"
 
 echo "==> Ranger -> ES6 (sprite_char_poc_demo)"
-RANGER_OUT="$(RANGER_LIB="$ROOT/compiler/Lang.rgr:$ROOT/lib/stdops.rgr" node "$ROOT/bin/output.js" \
+RANGER_OUT="$(RANGER_LIB="$ROOT/compiler/Lang.rgr:$ROOT/lib/stdops.rgr" node "$ROOT/dist/rgrc.js" \
   -es6 "$SOURCE" -nodecli -d="tmp/lpc" -o="poc_demo.js" 2>&1)" || true
 echo "$RANGER_OUT" | tail -5
 if echo "$RANGER_OUT" | grep -qE '\[FAIL\]|ENOENT|Error:'; then

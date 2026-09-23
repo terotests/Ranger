@@ -24,7 +24,7 @@ function compile() {
   const log = spawnSync(
     "node",
     [
-      "bin/output.js",
+      "dist/rgrc.js",
       "-es6",
       "./gallery/evg/livebuild/EvgLiveBuildMain.rgr",
       "-d=./gallery/evg/bin",

@@ -26,7 +26,7 @@ run_one() { # lang ext case dir
   for mode in none ranger; do
     local f="$OUT/${case}_${lang}_${mode}.${ext}"
     local flags=""; [ "$lang" = es6 ] && flags="-es6"
-    node --max-old-space-size=8192 bin/output.js -l=$lang $flags "$src" \
+    node --max-old-space-size=8192 dist/rgrc.js -l=$lang $flags "$src" \
       -d="$OUT" -o="$(basename "$f")" -nodecli -format=$mode >/dev/null 2>&1 || return 2
     [ -f "$f" ] || return 2
     local got=""

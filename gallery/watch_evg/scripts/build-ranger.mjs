@@ -9,7 +9,7 @@ const galleryDir = path.resolve(__dirname, "..");
 const rangerRoot = path.resolve(galleryDir, "../..");
 const outDir = path.join(galleryDir, "generated");
 const binDir = path.join(galleryDir, "bin");
-const compiler = path.join(rangerRoot, "bin", "output.js");
+const compiler = path.join(rangerRoot, "dist", "rgrc.js");
 
 fs.mkdirSync(outDir, { recursive: true });
 fs.mkdirSync(binDir, { recursive: true });

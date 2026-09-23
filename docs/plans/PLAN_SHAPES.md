@@ -1325,24 +1325,24 @@ class Probe {
 Before S0 (the baseline this plan was written against):
 
 ```bash
-node bin/output.js -es6 probe.rgr -d=out -o=probe.js -nodecli   # OK, prints true
-node bin/output.js -l=python probe.rgr -d=out -o=probe.py       # OK, prints true
-node bin/output.js -l=cpp    probe.rgr -d=out -o=probe.cpp      # OK; g++ fails: no mpark::holds_alternative
-node bin/output.js -l=go     probe.rgr -d=out -o=probe.go       # compiles; go build fails: declared and not used
-node bin/output.js -l=kotlin probe.rgr -d=out -o=probe.kt       # compiles; emits `v : EvalV`, undeclared
-node bin/output.js -l=rust   probe.rgr -d=out -o=probe.rs       # FAILS: Could not match argument types for case
-node bin/output.js -l=dart   probe.rgr -d=out -o=probe.dart     # FAILS: same
+node dist/rgrc.js -es6 probe.rgr -d=out -o=probe.js -nodecli   # OK, prints true
+node dist/rgrc.js -l=python probe.rgr -d=out -o=probe.py       # OK, prints true
+node dist/rgrc.js -l=cpp    probe.rgr -d=out -o=probe.cpp      # OK; g++ fails: no mpark::holds_alternative
+node dist/rgrc.js -l=go     probe.rgr -d=out -o=probe.go       # compiles; go build fails: declared and not used
+node dist/rgrc.js -l=kotlin probe.rgr -d=out -o=probe.kt       # compiles; emits `v : EvalV`, undeclared
+node dist/rgrc.js -l=rust   probe.rgr -d=out -o=probe.rs       # FAILS: Could not match argument types for case
+node dist/rgrc.js -l=dart   probe.rgr -d=out -o=probe.dart     # FAILS: same
 ```
 
 After S0, every one of those seven produces code that compiles, and the four with a
 toolchain in this environment run and print `true`:
 
 ```bash
-node bin/output.js -l=rust probe.rgr -d=out -o=probe.rs
+node dist/rgrc.js -l=rust probe.rgr -d=out -o=probe.rs
 (cd out && rustc --edition 2021 -A warnings probe.rs -o probe && ./probe)   # true
-node bin/output.js -l=go   probe.rgr -d=out -o=probe.go
+node dist/rgrc.js -l=go   probe.rgr -d=out -o=probe.go
 (cd out && go run probe.go)                                                 # true
-node bin/output.js -l=cpp  probe.rgr -d=out -o=probe.cpp
+node dist/rgrc.js -l=cpp  probe.rgr -d=out -o=probe.cpp
 (cd out && g++ -std=c++17 probe.cpp -o probe && ./probe)                    # true
 ```
 
@@ -1362,7 +1362,7 @@ all build and print `ns`.
 ### A.3 `sizeof(EvHandle)` on the C++ target
 
 ```bash
-node bin/output.js -l=cpp gallery/game_engine/v2/interp/migrate/src/EvHandle.rgr \
+node dist/rgrc.js -l=cpp gallery/game_engine/v2/interp/migrate/src/EvHandle.rgr \
   -d=out -o=ev.cpp
 # append a main printing sizeof(EvHandle), then:
 g++ -std=c++17 -O2 ev.cpp -o ev_size && ./ev_size

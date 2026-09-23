@@ -69,7 +69,7 @@ sfn isNumNew:boolean (v:Value) {
 }
 ```
 
-Compiled (`node bin/output.js -l=<target> is_probe.rgr`):
+Compiled (`node dist/rgrc.js -l=<target> is_probe.rgr`):
 
 | target | emitted body |
 | --- | --- |

@@ -9,7 +9,7 @@ host and the oracles run, compiled to **Kotlin** and painted with
 gallery/pptx/src/*.rgr          the viewer: OPC/ZIP, OOXML, theme resolve,
 lib/evg/*.rgr               layout, display list — all Ranger
       │
-      │  node bin/output.js -l=kotlin       (scripts/build-ranger.sh)
+      │  node dist/rgrc.js -l=kotlin       (scripts/build-ranger.sh)
       ▼
 generated/pptx_android.kt       ~91k lines, one file, package fi.ranger.rgr
       │
@@ -56,7 +56,7 @@ this app's build from there.
 ## Build and run
 
 ```bash
-# 1. the viewer, compiled from Ranger to Kotlin   (needs bin/output.js)
+# 1. the viewer, compiled from Ranger to Kotlin   (needs dist/rgrc.js)
 bash gallery/pptx/android/scripts/build-ranger.sh
 
 # 2. four fonts and a deck into app/src/main/assets

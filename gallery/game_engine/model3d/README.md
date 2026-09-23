@@ -116,8 +116,8 @@ bash gallery/game_engine/model3d/tests/run.sh
 or individually (compile to ES6, run under Node, grep for `ALL PASS`):
 
 ```sh
-node bin/output.js -es6 gallery/game_engine/model3d/tests/Model3dTest.rgr -d=/tmp -o=m3d.js && node /tmp/m3d.js
-node bin/output.js -es6 gallery/game_engine/model3d/tests/TextureDecodeTest.rgr -d=/tmp -o=td.js && node /tmp/td.js
+node dist/rgrc.js -es6 gallery/game_engine/model3d/tests/Model3dTest.rgr -d=/tmp -o=m3d.js && node /tmp/m3d.js
+node dist/rgrc.js -es6 gallery/game_engine/model3d/tests/TextureDecodeTest.rgr -d=/tmp -o=td.js && node /tmp/td.js
 ```
 
 - `Model3dTest.rgr` — container, document, accessors, materials, embedded PNG

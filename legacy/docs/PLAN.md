@@ -416,7 +416,7 @@ test-python:
 
 ```powershell
 # After implementation, compile a file to Python
-node bin/output.js -l=python tests/fixtures/array_push.clj -d=tests/.output-python -o=array_push.py
+node dist/rgrc.js -l=python tests/fixtures/array_push.clj -d=tests/.output-python -o=array_push.py
 
 # Run the generated Python
 python tests/.output-python/array_push.py
@@ -1074,7 +1074,7 @@ const BUILT_IN_OPERATORS = [
 
 ## Overview
 
-The current VS Code extension provides basic syntax highlighting but uses a simplified mock parser. To provide accurate type information, intelligent autocomplete, and proper diagnostics, we need to integrate the real Ranger compiler (`bin/output.js`) into the language server.
+The current VS Code extension provides basic syntax highlighting but uses a simplified mock parser. To provide accurate type information, intelligent autocomplete, and proper diagnostics, we need to integrate the real Ranger compiler (`dist/rgrc.js`) into the language server.
 
 ## Current Limitations
 
@@ -1086,7 +1086,7 @@ The current VS Code extension provides basic syntax highlighting but uses a simp
 
 ## Proposed Solution
 
-Integrate `bin/output.js` (the JavaScript-compiled Ranger compiler) into the language server to:
+Integrate `dist/rgrc.js` (the JavaScript-compiled Ranger compiler) into the language server to:
 
 1. **Parse Ranger code** using the real parser → get AST (`CodeNode` tree)
 2. **Analyze symbols** → extract classes, methods, properties, variables
@@ -1101,14 +1101,14 @@ ranger-vscode-extension/
 ├── server/
 │   ├── src/
 │   │   ├── server.ts           # LSP server (existing)
-│   │   ├── rangerCompiler.ts   # NEW: Wrapper for bin/output.js
+│   │   ├── rangerCompiler.ts   # NEW: Wrapper for dist/rgrc.js
 │   │   ├── astAnalyzer.ts      # NEW: Analyze CodeNode AST
 │   │   ├── typeResolver.ts     # NEW: Type inference
 │   │   ├── completionProvider.ts # NEW: Context-aware completion
 │   │   └── symbolTable.ts      # NEW: Track symbols in scope
 │   └── package.json
 ├── compiler/
-│   └── output.js               # Copy of ../../bin/output.js
+│   └── output.js               # Copy of ../../dist/rgrc.js
 └── package.json
 ```
 
@@ -1118,7 +1118,7 @@ ranger-vscode-extension/
 
 **1.1 Copy Compiler**
 
-- Copy `bin/output.js` to `ranger-vscode-extension/compiler/output.js`
+- Copy `dist/rgrc.js` to `ranger-vscode-extension/compiler/output.js`
 - Add to `.vscodeignore` to avoid bloating the package
 
 **1.2 Create Compiler Wrapper** (`rangerCompiler.ts`)
@@ -1173,10 +1173,10 @@ export async function parseRangerCode(
 
 **1.3 Export Classes from output.js**
 
-The compiler needs to export its classes. Check if `bin/output.js` exports them, if not, we need to add:
+The compiler needs to export its classes. Check if `dist/rgrc.js` exports them, if not, we need to add:
 
 ```javascript
-// At the end of bin/output.js (before __js_main)
+// At the end of dist/rgrc.js (before __js_main)
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     CodeNode,
@@ -1639,10 +1639,10 @@ cd ranger-vscode-extension
 
 ## References
 
-- [Ranger Compiler bin/output.js](../../bin/output.js)
+- [Ranger Compiler dist/rgrc.js](../../dist/rgrc.js)
 - [Ranger README - Using TypeScript](../../README.md#compiling-using-typescript)
-- [CodeNode Class](../../bin/output.js#L1487) - AST node structure
-- [RangerFlowParser](../../bin/output.js#L7318) - Parser class
+- [CodeNode Class](../../dist/rgrc.js#L1487) - AST node structure
+- [RangerFlowParser](../../dist/rgrc.js#L7318) - Parser class
 
 ---
 

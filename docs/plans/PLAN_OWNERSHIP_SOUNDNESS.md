@@ -227,7 +227,7 @@ it has a slot; until then the docs do not list it as an output of the pass.
 ## How to check
 
 ```sh
-npm run compile                                  # rebuild bin/output.js
+npm run compile                                  # rebuild dist/rgrc.js
 npx vitest run tests/compiler-ownership.test.ts  # summary + call-site copy fixtures
 npm run test:es6                                 # nothing else regressed
 ```
@@ -235,7 +235,7 @@ npm run test:es6                                 # nothing else regressed
 The end-to-end check from PLAN_CODEGEN_OWNERSHIP still gates the C++ side:
 
 ```sh
-node bin/output.js -l=cpp ./gallery/pdf_writer/src/tools/jpeg_scaler.rgr -d=./tmp -o=x.cpp
+node dist/rgrc.js -l=cpp ./gallery/pdf_writer/src/tools/jpeg_scaler.rgr -d=./tmp -o=x.cpp
 cd tmp && g++ -std=c++17 -I. x.cpp -o jpeg
 ./jpeg -width 600 ../gallery/pdf_writer/assets/images/Example.jpg out.jpg
 md5sum out.jpg      # must match the previous compiler's output

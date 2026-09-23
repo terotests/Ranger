@@ -98,7 +98,7 @@ Operator names avoid clashing with **HttpServer** `start` / `stop`:
 **Test fixture:** `tests/fixtures/process_page_lifecycle.rgr` — switch screen page A → B; log shows `STOP TickChild` → `STOP TimerProcess` → `STOP UIPage` before page B boots.
 
 ```bash
-node bin/output.js -es6 tests/fixtures/process_page_lifecycle.rgr -nodecli -d=tests/.output -o=process_page_lifecycle.js
+node dist/rgrc.js -es6 tests/fixtures/process_page_lifecycle.rgr -nodecli -d=tests/.output -o=process_page_lifecycle.js
 node tests/.output/process_page_lifecycle.js
 ```
 

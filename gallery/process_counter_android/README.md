@@ -11,7 +11,7 @@ npm run build:ranger
 
 Output: [`generated/counter_board.kt`](generated/counter_board.kt)
 
-Requires Ranger `bin/output.js` built at repo root.
+Requires Ranger `dist/rgrc.js` built at repo root.
 
 ## Imaginary app layout
 

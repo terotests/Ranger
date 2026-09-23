@@ -4,7 +4,7 @@
  * Two traps live here, and between them they kept the whole GitHub Pages site
  * from deploying for six days without anyone getting a usable error message:
  *
- * 1. `bin/output.js` prints "Compilation FAILED" and still exits 0. A plain
+ * 1. `dist/rgrc.js` prints "Compilation FAILED" and still exits 0. A plain
  *    execFileSync therefore sees success, the build carries on, and the first
  *    thing that goes wrong is `ENOENT` on the output file that was never
  *    written. The real diagnostics scrolled past hundreds of lines earlier.
@@ -41,7 +41,7 @@ export function compileRgr({ root, src, outDir, outName, args, env, log }) {
     "node",
     [
       `--stack-size=${COMPILER_STACK_KB}`,
-      "bin/output.js",
+      "dist/rgrc.js",
       ...flags.filter((f) => f !== "-nodecli"),
       src,
       `-d=${outDir}`,

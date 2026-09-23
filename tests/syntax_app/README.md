@@ -22,7 +22,7 @@ answer to "how well does target X work" is data rather than memory.
 ```bash
 # the app, on the reference target
 RANGER_LIB="./compiler/Lang.rgr;./lib/stdops.rgr" \
-  node bin/output.js -es6 ./tests/syntax_app/syntax_app.rgr \
+  node dist/rgrc.js -es6 ./tests/syntax_app/syntax_app.rgr \
   -nodecli -d=tests/.output -o=syntax_app.js
 node tests/.output/syntax_app.js
 

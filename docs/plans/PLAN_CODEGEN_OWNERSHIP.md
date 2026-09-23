@@ -55,7 +55,7 @@ reference count, for an argument that the function only reads.
 
 ```sh
 RANGER_LIB="./compiler/Lang.rgr;./lib/stdops.rgr" \
-node bin/output.js -es6 -strict-ownership \
+node dist/rgrc.js -es6 -strict-ownership \
   ./gallery/pdf_writer/src/tools/jpeg_scaler.rgr -nodecli -d=./tmp -o=x.js
 ```
 
@@ -112,7 +112,7 @@ Built with `g++ -std=c++17` and run five times over
 ## Finding 2 — every class inherits `enable_shared_from_this`, and no class uses it
 
 ```sh
-node bin/output.js -l=cpp ./gallery/pdf_writer/src/tools/jpeg_scaler.rgr -d=./tmp -o=x.cpp
+node dist/rgrc.js -l=cpp ./gallery/pdf_writer/src/tools/jpeg_scaler.rgr -d=./tmp -o=x.cpp
 grep -c "enable_shared_from_this" tmp/x.cpp   # 22
 grep -c "shared_from_this()"      tmp/x.cpp   # 0
 ```
@@ -219,7 +219,7 @@ toolchains this machine holds.
 ## Finding 4 — a Swift class is never `final`
 
 ```sh
-node bin/output.js -l=swift6 ./gallery/pdf_writer/src/tools/jpeg_scaler.rgr -d=./tmp -o=x.swift
+node dist/rgrc.js -l=swift6 ./gallery/pdf_writer/src/tools/jpeg_scaler.rgr -d=./tmp -o=x.swift
 grep -c "^class "     tmp/x.swift   # 22
 grep -c "^final class" tmp/x.swift  # 0
 ```
@@ -382,7 +382,7 @@ writers. Measuring it did find a fault worth the work: the constructor of a
 ```sh
 npm run compile                       # build the compiler
 npm test                              # the full suite
-node bin/output.js -l=cpp <file> -d=./tmp -o=x.cpp
+node dist/rgrc.js -l=cpp <file> -d=./tmp -o=x.cpp
 ```
 
 The conformance suite in `tests/conformance/` runs the same program on several
@@ -393,7 +393,7 @@ findings 1 to 3 the C++ and the Swift galleries must still compile and run:
 The end-to-end check that findings 1 and 2 were measured against:
 
 ```sh
-node bin/output.js -l=cpp ./gallery/pdf_writer/src/tools/jpeg_scaler.rgr \
+node dist/rgrc.js -l=cpp ./gallery/pdf_writer/src/tools/jpeg_scaler.rgr \
   -d=./tmp -o=x.cpp
 cd tmp && g++ -std=c++17 -I. x.cpp -o jpeg
 ./jpeg -width 600 ../gallery/pdf_writer/assets/images/Example.jpg out.jpg
@@ -435,7 +435,7 @@ A target that falls back to such a template receives JavaScript, and the
 compilation reports success:
 
 ```sh
-node bin/output.js -l=python ceil.rgr -d=./tmp -o=x.py   # [OK]
+node dist/rgrc.js -l=python ceil.rgr -d=./tmp -o=x.py   # [OK]
 grep ceil tmp/x.py                                       # c = Math.ceil(d)
 ```
 

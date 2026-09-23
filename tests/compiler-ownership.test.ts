@@ -8,7 +8,7 @@ import { getGeneratedCppCode, getGeneratedRustCode } from "./helpers/compiler";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT_DIR = path.resolve(__dirname, "..");
-const OUTPUT_JS = path.join(ROOT_DIR, "bin", "output.js");
+const OUTPUT_JS = path.join(ROOT_DIR, "dist", "rgrc.js");
 const FIXTURES = "tests/fixtures";
 const OUT = "tests/.output-ownership";
 const GALLERY_OUT = "tests/.output-gallery-ownership";

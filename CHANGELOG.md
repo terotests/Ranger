@@ -81,7 +81,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   Measured on the Rust rendering of this compiler: **2 148 warnings → 321**,
   with 0 rustc errors, and the rendering still compiles the compiler to
-  output byte-identical to `bin/output.js`. What is left was never covered by
+  output byte-identical to `dist/rgrc.js`. What is left was never covered by
   any of these allows. A shopping-cart program of the kind the playground
   compiles now carries `#![allow(dead_code)]` alone and draws no rustc
   warning at all; `tests/codegen-rust.test.ts` keeps it that way.
@@ -141,7 +141,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `substring` index the same unit as each other on any one target, and every
   character the loop looks at (`\`, `"`, `n`, …) is ASCII. The same shape as
   the `EncodeString` fix in the six writers, in the one place that was
-  missed; the checked-in `bin/output.js` carried the damage in one of its own
+  missed; the checked-in `dist/rgrc.js` carried the damage in one of its own
   messages and needed two bootstrap passes to converge.
 
 - **A Rust `switch` over strings broke on a quote, a backslash or a
@@ -175,7 +175,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   `npm run selfhost:run:rust` is the new gate and holds Rust to what C++ and
   Go already meet: build it, make it compile `compiler/Compiler.rgr`, and
-  diff the result against `bin/output.js`. It is identical, all 5 596 785
+  diff the result against `dist/rgrc.js`. It is identical, all 5 596 785
   bytes, in 7.3 s against the node host's 7.8 s.
   `docs/plans/PLAN_RUST_REENTRANCY.md` is the write-up.
 
@@ -690,7 +690,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scripts that drove `features/` and `generated/` went with them: they pointed
   at `.rgr` files in folders that hold only `.clj`, so they had been failing.
   README no longer offers `versions/<target>/compiler.js` as the rollback; the
-  git history of `bin/output.js` is.
+  git history of `dist/rgrc.js` is.
 
 - **`compiler/` holds the compiler.** A walk of `Import` from the entry point
   reaches 76 of the 134 `.rgr` files that were in the folder. The other 57 were
@@ -3580,9 +3580,9 @@ engine, Mermaid, Figma, CodeGraph, Rave — and is not in the npm tarball.
 
 - **`prepublishOnly` no longer runs the whole repository suite** — publishing the compiler ran all 56 test files, including the gallery, game-engine and native-toolchain suites. Those need SDL2, `g++`, Cannon and game fixtures that ship with neither the repo nor the package, so `npm publish` failed on the publisher's machine for reasons unrelated to the compiler (missing `SDL2/SDL.h`, `gallery/game_engine/games/ylos/index.tsx` and `physics_race/index.tsx` are absent from the repository entirely). `prepublishOnly` and `.github/workflows/publish.yml` now run `npm run test:publish` — 44 files, 355 tests, ~90s — covering parsing, type checking and code generation for every target backend. `npm test` still runs everything, and `ci.yml` is unchanged.
 
-- **`build:dist` now includes `build:dist:module`** — `dist/api.js` was not rebuilt by the release build, which is how it drifted behind `bin/output.js`
+- **`build:dist` now includes `build:dist:module`** — `dist/api.js` was not rebuilt by the release build, which is how it drifted behind `dist/rgrc.js`
 
-- **`dist/api.js` rebuilt from current sources** — the committed programmatic-API bundle predated several compiler fixes, so `require("ranger-compiler")` shipped older behaviour than the `rgrc` CLI. `scripts/patch-chain-desugar.js` now patches `dist/api.js` as well as `bin/output.js`, and `build:dist:module` runs it after `tsc`
+- **`dist/api.js` rebuilt from current sources** — the committed programmatic-API bundle predated several compiler fixes, so `require("ranger-compiler")` shipped older behaviour than the `rgrc` CLI. `scripts/patch-chain-desugar.js` now patches `dist/api.js` as well as `dist/rgrc.js`, and `build:dist:module` runs it after `tsc`
 
 ## [3.1.1] - 2026-06-23
 
@@ -3691,7 +3691,7 @@ engine, Mermaid, Figma, CodeGraph, Rave — and is not in the npm tarball.
 - **Kotlin int/int division** — Casts operands with `.toDouble()` to avoid integer truncation (`compiler/Lang.rgr`)
 - **Kotlin `open fun` warnings** — `open` modifier now only emitted when a class actually has subclasses (`compiler/ng_RangerKotlinClassWriter.rgr`)
 - **TypeScript `instanceof` with structural types** — `typeof` in `case` context no longer emits `instanceof Record<string,any>` for mapped types; collapses to `Object`/`Array` at runtime (`compiler/ng_LiveCompiler.rgr`)
-- **npm package bin path** — Changed from `bin/output.js` to `dist/rgrc.js` so the published package contains a valid binary
+- **npm package bin path** — Changed from `dist/rgrc.js` to `dist/rgrc.js` so the published package contains a valid binary
 
 ### Changed
 

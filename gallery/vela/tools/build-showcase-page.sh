@@ -56,7 +56,7 @@ TABLES_PAGE=lib/evg/showcase/pages/tables.tsx
 DRAWING_PAGE=lib/evg/showcase/pages/drawing.tsx
 
 mkdir -p "$BIN"
-log=$(RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 \
+log=$(RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node dist/rgrc.js -es6 \
   ./gallery/vela/tools/vela_evg.rgr -d="$BIN" -o=vela_evg.js -nodecli 2>&1)
 if echo "$log" | grep -q "Compilation FAILED"; then
   echo "$log" | grep -A3 "\[FAIL\]" | head -40
@@ -123,7 +123,7 @@ node "$BIN/vela_evg.js" "$DRAWING_PAGE" --title=Piirto --compact \
 # The page with no specification behind it: every chart built by calling the
 # API, and the calls printed beside the chart. The tool reads its own source
 # for those lines, so it is given the path rather than left to guess it.
-log=$(RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node bin/output.js -es6 \
+log=$(RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node dist/rgrc.js -es6 \
   ./gallery/vela/tools/vela_chart_page.rgr -d="$BIN" -o=vela_chart_page.js -nodecli 2>&1)
 if echo "$log" | grep -q "Compilation FAILED"; then
   echo "$log" | grep -A3 "\[FAIL\]" | head -40

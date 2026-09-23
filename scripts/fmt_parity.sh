@@ -5,7 +5,7 @@
 #
 #   bash scripts/fmt_parity.sh <baseline-compiler.js> [source.rgr ...]
 #
-# The baseline is a copy of bin/output.js from before the change. Both
+# The baseline is a copy of dist/rgrc.js from before the change. Both
 # compilers read the same sources -- including compiler/Lang.rgr, so a
 # reserved-word change already applies to BOTH sides and this check isolates
 # the writer change alone. It is the check that caught a Swift visibility
@@ -31,7 +31,7 @@ for src in "${SRCS[@]}"; do
   for lang in es6 go rust cpp python dart kotlin swift6 csharp java7 php scala; do
     ext=${EXT[$lang]}
     flags=""; [ "$lang" = es6 ] && flags="-es6"
-    node --max-old-space-size=8192 bin/output.js -l=$lang $flags "$src" \
+    node --max-old-space-size=8192 dist/rgrc.js -l=$lang $flags "$src" \
         -d=$OUT -o="${name}_new.$ext" -nodecli -format=none >/dev/null 2>&1
     node --max-old-space-size=8192 "$BASE" -l=$lang $flags "$src" \
         -d=$OUT -o="${name}_old.$ext" -nodecli >/dev/null 2>&1

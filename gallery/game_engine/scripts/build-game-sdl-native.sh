@@ -108,7 +108,7 @@ echo "==> 1/3 Ranger -> C++ ($GAME)"
 cd "$ROOT"
 rm -f "$CPP_FILE" "$BIN_FILE"
 set +e
-RANGER_LIB="$ROOT/compiler/Lang.rgr:$ROOT/lib/stdops.rgr" node "$ROOT/bin/output.js" \
+RANGER_LIB="$ROOT/compiler/Lang.rgr:$ROOT/lib/stdops.rgr" node "$ROOT/dist/rgrc.js" \
   -l=cpp "$SOURCE" \
   -nodecli \
   -d="tmp/game-sdl-native" \

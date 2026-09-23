@@ -32,7 +32,7 @@ painter **z-order**, and split-screen from two cameras over one scene.
 ## Look at it
 
 ```sh
-node bin/output.js -es6 gallery/game_engine/v2/tests/tools/climber_shot.rgr -d=out -o=cshot.js
+node dist/rgrc.js -es6 gallery/game_engine/v2/tests/tools/climber_shot.rgr -d=out -o=cshot.js
 node out/cshot.js > c.txt
 node gallery/game_engine/v2/tests/tools/dump_rgb_to_png.js c.txt climber.png 4
 ```

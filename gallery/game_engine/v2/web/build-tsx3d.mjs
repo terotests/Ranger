@@ -19,12 +19,12 @@ import url from "node:url";
 import { compileRgr } from "../../build-support/rgr-compile.mjs";
 
 const HERE = path.dirname(url.fileURLToPath(import.meta.url));
-// Repo root — walk up until bin/output.js is found (robust to the web/ dir depth;
+// Repo root — walk up until dist/rgrc.js is found (robust to the web/ dir depth;
 // this file was vendored from v1 web/ into v2/web/, one level deeper).
 function findRoot(start) {
   let d = start;
   for (let i = 0; i < 8; i++) {
-    if (fs.existsSync(path.join(d, "bin", "output.js"))) return d;
+    if (fs.existsSync(path.join(d, "dist", "rgrc.js"))) return d;
     d = path.dirname(d);
   }
   return path.resolve(start, "..", "..", "..", "..");

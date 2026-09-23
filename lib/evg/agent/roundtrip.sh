@@ -34,7 +34,7 @@ for tool in evg_png_tool evg_json_tool; do
   if [ ! -f "gallery/pdf_writer/bin/$tool.js" ]; then
     echo "building $tool…"
     RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr \
-      node bin/output.js -es6 "./gallery/pdf_writer/src/tools/$tool.rgr" \
+      node dist/rgrc.js -es6 "./gallery/pdf_writer/src/tools/$tool.rgr" \
       -d=./gallery/pdf_writer/bin -o="$tool.js" -nodecli > "$work/build.log" 2>&1 \
       || { tail -20 "$work/build.log"; echo "FAILED to build $tool" >&2; exit 1; }
   fi

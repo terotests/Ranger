@@ -35,7 +35,7 @@ if [[ ! -f "$ROOT/gallery/game_engine/games/ranger_pong/logic.wasm" ]]; then
 fi
 
 echo "==> Ranger -> C++ (host demo)"
-RANGER_LIB="$ROOT/compiler/Lang.rgr:$ROOT/lib/stdops.rgr" node "$ROOT/bin/output.js" \
+RANGER_LIB="$ROOT/compiler/Lang.rgr:$ROOT/lib/stdops.rgr" node "$ROOT/dist/rgrc.js" \
   -l=cpp "$SOURCE" -nodecli -d="tmp/ranger-pong-demo" -o="ranger_pong_demo.cpp"
 
 cp "$ROOT/gallery/invaders/variant.hpp" "$OUT_DIR/variant.hpp"

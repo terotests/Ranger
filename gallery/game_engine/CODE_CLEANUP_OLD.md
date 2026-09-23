@@ -1099,7 +1099,7 @@ Each subsection: **Status now** (on disk) → **Actions** (concrete moves).
 
 ### Status now
 - Imports are relative paths, so moving one file rewrites its own `../` imports
-  *and* every importer's path to it. The Ranger compiler (`bin/output.js`) runs
+  *and* every importer's path to it. The Ranger compiler (`dist/rgrc.js`) runs
   here, so each move can be compile-verified.
 - The eval-engine spike (I.1) proved the mechanic end to end — five files
   relocated, importers repointed, both compiling from the new location —

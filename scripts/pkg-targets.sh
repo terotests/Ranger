@@ -25,7 +25,7 @@ compile_one() {
   mkdir -p "$dir"
   rm -f "$dest"
   local log
-  log=$(node bin/output.js -l="$lang" "$src" -d="$dir" -o="$name" -nodecli 2>&1) || true
+  log=$(node dist/rgrc.js -l="$lang" "$src" -d="$dir" -o="$name" -nodecli 2>&1) || true
   if echo "$log" | grep -q "Compilation FAILED"; then
     echo "COMPILE FAIL  $lang  $src"
     echo "$log" | grep -B1 -A3 "\[FAIL\]" | head -40

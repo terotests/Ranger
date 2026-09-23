@@ -21,7 +21,7 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 HERE="$ROOT/gallery/friendly/bench"
-COMPILER="$ROOT/bin/output.js"
+COMPILER="$ROOT/dist/rgrc.js"
 WORK="${BENCH_WORK:-/tmp/ranger-bench}"
 LIMIT="${BENCH_TIMEOUT:-180}"
 export RANGER_LIB="$ROOT/compiler/Lang.rgr:$ROOT/lib/stdops.rgr"

@@ -33,7 +33,7 @@ STAGE=$WEB/dist
 mkdir -p "$STAGE" "$OUT"
 
 for tool in vela_web vela_targets; do
-  log=$(node bin/output.js -es6 "gallery/vela/tools/$tool.rgr" -d="$STAGE" -o="$tool.js" 2>&1)
+  log=$(node dist/rgrc.js -es6 "gallery/vela/tools/$tool.rgr" -d="$STAGE" -o="$tool.js" 2>&1)
   if echo "$log" | grep -q "Compilation FAILED"; then
     echo "$log" | grep -A3 "\[FAIL\]" | head -40
     echo "FAILED to compile gallery/vela/tools/$tool.rgr" >&2

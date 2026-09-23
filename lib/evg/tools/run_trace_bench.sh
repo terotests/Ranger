@@ -12,7 +12,7 @@ status=0
 
 echo "### evg/bitmap_tracer (unit)"
 if ! RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr \
-     node bin/output.js -es6 lib/evg/EvgBitmapTracerTest.rgr \
+     node dist/rgrc.js -es6 lib/evg/EvgBitmapTracerTest.rgr \
        -d="$OUT" -o=EvgBitmapTracerTest.js -nodecli >"$OUT/test_compile.log" 2>&1; then
   echo "  COMPILE FAIL EvgBitmapTracerTest"
   tail -40 "$OUT/test_compile.log"
@@ -36,7 +36,7 @@ fi
 echo
 echo "### evg/bitmap_tracer (bench cases)"
 if ! RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr \
-     node bin/output.js -es6 lib/evg/tools/evg_trace_bench.rgr \
+     node dist/rgrc.js -es6 lib/evg/tools/evg_trace_bench.rgr \
        -d="$OUT" -o=evg_trace_bench.js -nodecli >"$OUT/bench_compile.log" 2>&1; then
   echo "  COMPILE FAIL evg_trace_bench"
   tail -40 "$OUT/bench_compile.log"

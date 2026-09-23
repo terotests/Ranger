@@ -25,7 +25,7 @@ mkdir -p "$OUT"
 # A previous build's bundle must not survive this one: the check below asks
 # whether a bundle is loadable, and a stale file answers yes.
 rm -f "$OUT/code_editor_web.js"
-log=$(node bin/output.js -es6 gallery/datagrid/web/code_editor_web.rgr -d="$OUT" -o=code_editor_web.js 2>&1)
+log=$(node dist/rgrc.js -es6 gallery/datagrid/web/code_editor_web.rgr -d="$OUT" -o=code_editor_web.js 2>&1)
 if echo "$log" | grep -q "Compilation FAILED"; then
   echo "$log" | grep -A3 "\[FAIL\]" | head -40
   echo "FAILED to compile gallery/datagrid/web/code_editor_web.rgr" >&2

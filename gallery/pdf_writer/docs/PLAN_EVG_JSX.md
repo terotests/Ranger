@@ -594,7 +594,7 @@ class EVGPDFTool {
 
 ```json
 {
-  "evgpdf:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node bin/output.js -l=go ./gallery/pdf_writer/evg_pdf_tool.rgr -d=./gallery/pdf_writer/bin -o=evg_pdf_tool.go -nodecli",
+  "evgpdf:compile": "cross-env RANGER_LIB=./compiler/Lang.rgr node dist/rgrc.js -l=go ./gallery/pdf_writer/evg_pdf_tool.rgr -d=./gallery/pdf_writer/bin -o=evg_pdf_tool.go -nodecli",
   "evgpdf:build": "npm run evgpdf:compile && cd gallery/pdf_writer/bin && go build -o evg_pdf_tool.exe evg_pdf_tool.go",
   "evgpdf:test": "cd gallery/pdf_writer && ./bin/evg_pdf_tool.exe sample.tsx output.pdf"
 }

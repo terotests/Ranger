@@ -11,7 +11,7 @@ cd "$(dirname "$0")/../../.."
 VELA=gallery/vela
 export RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr
 
-log=$(node bin/output.js -es6 "$VELA/tools/vela_chart.rgr" -d="$VELA/bin" -o=vela_chart.js -nodecli 2>&1)
+log=$(node dist/rgrc.js -es6 "$VELA/tools/vela_chart.rgr" -d="$VELA/bin" -o=vela_chart.js -nodecli 2>&1)
 if echo "$log" | grep -q "Compilation FAILED"; then
   echo "$log" | grep -A3 "\[FAIL\]" | head -40
   exit 1

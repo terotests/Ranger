@@ -39,7 +39,7 @@ status=0
 
 say "compile to C++"
 for tool in vela_scene vela_commands vela_evg vela_compile vela_svg vela_chart; do
-  log=$(node --max-old-space-size=8192 bin/output.js -l=cpp "$VELA/tools/$tool.rgr" \
+  log=$(node --max-old-space-size=8192 dist/rgrc.js -l=cpp "$VELA/tools/$tool.rgr" \
     -d="$OUT" -o="$tool.cpp" -nodecli 2>&1)
   if ! echo "$log" | grep -q "\[OK\]"; then
     echo "$log" | grep -A3 "\[FAIL\]" | head -40
@@ -52,7 +52,7 @@ done
 # specifications by calling the API, compiles them and runs them. Natively,
 # that is the API, the Vega-Lite compiler and the runtime with no JavaScript
 # anywhere underneath any of them.
-log=$(node --max-old-space-size=8192 bin/output.js -l=cpp "$VELA/tests/chart_test.rgr" \
+log=$(node --max-old-space-size=8192 dist/rgrc.js -l=cpp "$VELA/tests/chart_test.rgr" \
   -d="$OUT" -o="chart_test.cpp" -nodecli 2>&1)
 if ! echo "$log" | grep -q "\[OK\]"; then
   echo "$log" | grep -A3 "\[FAIL\]" | head -40

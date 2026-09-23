@@ -52,7 +52,7 @@ bash gallery/game_engine/three/src/run.sh     # prints ALL PASS per suite
 ```
 Run one feature directly:
 ```bash
-node bin/output.js -es6 \
+node dist/rgrc.js -es6 \
   gallery/game_engine/three/tests/geometry/three_geometry_parity_test.rgr \
   -d=.out -o=t.js && node .out/t.js
 ```

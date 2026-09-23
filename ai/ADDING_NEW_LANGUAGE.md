@@ -251,7 +251,7 @@ After making changes to `.rgr` files:
 npm run compile
 ```
 
-This regenerates `bin/output.js` with your new language support.
+This regenerates `dist/rgrc.js` with your new language support.
 
 ### Step 9: Test the New Target
 
@@ -260,7 +260,7 @@ This regenerates `bin/output.js` with your new language support.
 $env:RANGER_LIB="./compiler/Lang.rgr;./lib/stdops.rgr"
 
 # Compile a test file
-node bin/output.js tests/fixtures/array_push.rgr -l=kotlin -d=tests/.output-kotlin -o=array_push.kt
+node dist/rgrc.js tests/fixtures/array_push.rgr -l=kotlin -d=tests/.output-kotlin -o=array_push.kt
 
 # Run tests
 npm run test:kotlin

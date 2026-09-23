@@ -30,13 +30,13 @@ CROSS_PREFIX="aarch64-linux-gnu"
 
 mkdir -p "$OUT_DIR"
 
-if [[ ! -f "$ROOT/bin/output.js" ]]; then
+if [[ ! -f "$ROOT/dist/rgrc.js" ]]; then
   echo "==> Compiler not built — running npm run compile"
   (cd "$ROOT" && npm run compile --silent)
 fi
 
 # Rebuild compiler when LowIR target definitions change.
-if [[ "$ROOT/compiler/LowIRTarget.rgr" -nt "$ROOT/bin/output.js" ]]; then
+if [[ "$ROOT/compiler/LowIRTarget.rgr" -nt "$ROOT/dist/rgrc.js" ]]; then
   echo "==> Rebuilding Ranger compiler (target definitions changed)"
   (cd "$ROOT" && npm run compile --silent)
 fi
@@ -76,7 +76,7 @@ fi
 
 echo "==> 1/4 Ranger -> LLVM IR ($TARGET)"
 cd "$ROOT"
-RANGER_LIB="$ROOT/compiler/Lang.rgr:$ROOT/lib/stdops.rgr" node "$ROOT/bin/output.js" \
+RANGER_LIB="$ROOT/compiler/Lang.rgr:$ROOT/lib/stdops.rgr" node "$ROOT/dist/rgrc.js" \
   -l=llvm "$SOURCE" \
   -nodecli \
   -d="dist/raspberry-pi5" \
@@ -105,7 +105,7 @@ cat > "$OUT_DIR/DEPLOY.md" <<'EOF'
 | `gallery/game_engine/scripting/` | Shared TSX helpers, types, and image assets. |
 | `gallery/game_engine/*.rgr` | Engine modules for on-device SDL/native rebuilds. |
 | `lib/` | Ranger standard library (`stdops.rgr`, …) for on-device compiles. |
-| `compiler/Lang.rgr`, `bin/output.js` | Minimal Ranger compiler bundle. |
+| `compiler/Lang.rgr`, `dist/rgrc.js` | Minimal Ranger compiler bundle. |
 | `runtime/ranger_rt.c`, `runtime/ranger_mem.c` | C runtime for native/SDL links. |
 | `runtime/wasm3/`, `runtime/rg_wasm_bridge.c` | wasm3 interpreter sources for `game_sdl` (WASM games). |
 | `gallery/invaders/variant.hpp` | C++ helper header for SDL builds. |
@@ -158,7 +158,7 @@ If you prefer building on-device (no cross toolchain needed), copy this bundle
 ```bash
 cd ~/ranger-game
 # Rebuild terminal Pong (needs Node.js):
-node bin/output.js -l=llvm gallery/game_engine/ranger_games/pong.rgr -nodecli \
+node dist/rgrc.js -l=llvm gallery/game_engine/ranger_games/pong.rgr -nodecli \
   -d=. -o=pong.ll -target=aarch64-linux-gnu
 clang pong.ll runtime/ranger_rt.c runtime/ranger_mem.c -o pong -Wno-override-module
 ```

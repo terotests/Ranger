@@ -47,7 +47,7 @@ function ensureDumpTool() {
   const compile = run(
     "node",
     [
-      "bin/output.js",
+      "dist/rgrc.js",
       "-es6",
       "./gallery/docx_viewer/src/docx_oracle_dump.rgr",
       `-d=./gallery/docx_viewer/bin`,

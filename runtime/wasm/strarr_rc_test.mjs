@@ -1,6 +1,6 @@
 // [string] array element RC test (PLAN_WASM_MEMORY Phase 4b tail).
 // Build:
-//   node bin/output.js -l=llvm -wat -freestanding -wasmrc \
+//   node dist/rgrc.js -l=llvm -wat -freestanding -wasmrc \
 //     runtime/wasm/strarr_rc_demo.rgr -nodecli -d=tmp/strarr -o=g.wat
 //   cp tmp/strarr/g.wat.ll tmp/strarr/g.wat && wat2wasm tmp/strarr/g.wat -o tmp/strarr/g.wasm
 import fs from "fs";

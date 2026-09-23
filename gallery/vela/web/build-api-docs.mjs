@@ -111,7 +111,7 @@ function compile(lang, dir) {
   const inner = lang.into ? `${dir}/${lang.into}` : dir;
   fs.mkdirSync(path.join(ROOT, inner), { recursive: true });
   execFileSync(process.execPath, [
-    "--max-old-space-size=8192", "bin/output.js", lang.flag, SRC,
+    "--max-old-space-size=8192", "dist/rgrc.js", lang.flag, SRC,
     `-d=${inner}`, `-o=${lang.file}`, "-nodecli",
     "-apidoc=docs", "-apipackage",
     `-name=${lang.pkg}`, "-version=1.0.0", "-license=MIT",

@@ -16,7 +16,7 @@ mkdir -p "$OUT" "$HERE/out"
 trap 'rm -rf "$OUT"' EXIT
 
 echo "compiling render_glb_demo -> ES6"
-node bin/output.js -es6 "$HERE/render_glb_demo.rgr" -d="$OUT" -o=render.js >/dev/null 2>&1
+node dist/rgrc.js -es6 "$HERE/render_glb_demo.rgr" -d="$OUT" -o=render.js >/dev/null 2>&1
 
 render() {
   local glb="$1" ppm="$2" png="$3" w="$4" h="$5"

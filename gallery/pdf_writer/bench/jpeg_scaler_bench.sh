@@ -35,7 +35,7 @@ have() { command -v "$1" >/dev/null 2>&1; }
 
 compile_ranger() {
   local lang="$1" dest="$2" out="$3"
-  node bin/output.js -l="$lang" "$SRC" -d="$dest" -o="$out" -nodecli
+  node dist/rgrc.js -l="$lang" "$SRC" -d="$dest" -o="$out" -nodecli
 }
 
 if [[ "${SKIP_BUILD:-0}" != "1" ]]; then

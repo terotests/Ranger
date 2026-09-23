@@ -52,7 +52,7 @@ for (const src of HEAVY) {
   try {
     log = execFileSync(
       "node",
-      [`--stack-size=${HALF}`, "bin/output.js", "-es6", src, `-d=${path.relative(ROOT, out)}`, "-o=probe.js", "-nodecli"],
+      [`--stack-size=${HALF}`, "dist/rgrc.js", "-es6", src, `-d=${path.relative(ROOT, out)}`, "-o=probe.js", "-nodecli"],
       { cwd: ROOT, encoding: "utf8", maxBuffer: 1 << 28, env: { RANGER_LIB, ...process.env } }
     );
   } catch (e) {

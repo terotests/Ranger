@@ -361,7 +361,7 @@ Before marking a phase complete:
 
 ```bash
 # Compile HTTP server to Go
-RANGER_LIB=./compiler/Lang.rgr node bin/output.js -l=go ./tests/fixtures/http_server.rgr -d=./tests/fixtures/bin -o=http_server.go -nodecli
+RANGER_LIB=./compiler/Lang.rgr node dist/rgrc.js -l=go ./tests/fixtures/http_server.rgr -d=./tests/fixtures/bin -o=http_server.go -nodecli
 
 # Run HTTP server
 cd tests/fixtures/bin && go run http_server.go

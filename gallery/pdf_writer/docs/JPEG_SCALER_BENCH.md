@@ -25,7 +25,7 @@ Ranger C++ / Rust / Go / Node wrote **byte-identical** JPEGs on the Example.jpg 
 | --- | --- |
 | CPU | 4× Intel Xeon (cloud VM, 1 thread/core) |
 | OS | Linux 6.12 x86_64 |
-| Ranger | v3.3.1 (`bin/output.js`) |
+| Ranger | v3.3.1 (`dist/rgrc.js`) |
 | C++ | `g++ 13.3.0 -std=c++17 -O3 -pthread` |
 | Rust | `rustc 1.83.0 --edition 2021 -O` |
 | Go | `go 1.22.2` (default `go build`) |

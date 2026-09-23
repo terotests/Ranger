@@ -46,7 +46,7 @@ echo "BENCH target=$TARGET"
 echo "==> Ranger -> C++"
 # The compiler exits 0 on [FAIL]; rgr-suite is JS-only, so check the log.
 rm -f "$CPP_FILE"
-log=$(node --max-old-space-size=8192 bin/output.js -l=cpp "$SRC" -nodecli \
+log=$(node --max-old-space-size=8192 dist/rgrc.js -l=cpp "$SRC" -nodecli \
   -d="$OUT_DIR" -o="CodeGraphBench.cpp" 2>&1) || true
 echo "$log" | tail -20
 if echo "$log" | grep -q 'Compilation FAILED'; then

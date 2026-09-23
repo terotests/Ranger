@@ -18,8 +18,8 @@ BENCH=gallery/watch_evg/bench
 OUT=tmp/watch-native
 CXX="${CXX:-g++}"
 
-if [ ! -f bin/output.js ]; then
-  echo "bin/output.js is missing — build the compiler first (npm run compile)" >&2
+if [ ! -f dist/rgrc.js ]; then
+  echo "dist/rgrc.js is missing — build the compiler first (npm run compile)" >&2
   exit 1
 fi
 
@@ -31,7 +31,7 @@ echo "  Ranger → C++…"
 # a size-class freelist under `operator new`. Both are what CPP_ENGINE_ANALYSIS.md
 # says a C++ build should be measured with; without them this measures the
 # default allocator and a lock prefix, not EVG.
-node --max-old-space-size=8192 bin/output.js -l=cpp -cpp-single-thread -native-fast-alloc \
+node --max-old-space-size=8192 dist/rgrc.js -l=cpp -cpp-single-thread -native-fast-alloc \
   "$BENCH/WatchBench.rgr" -nodecli -d="./$OUT" -o=watch_bench.cpp > /dev/null
 
 echo "  $CXX -O2…"

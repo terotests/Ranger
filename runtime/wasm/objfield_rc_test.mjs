@@ -1,5 +1,5 @@
 // Owned object-field RC test (WASM). Build:
-//   node bin/output.js -l=llvm -wat -freestanding -wasmrc \
+//   node dist/rgrc.js -l=llvm -wat -freestanding -wasmrc \
 //     runtime/wasm/objfield_rc_demo.rgr -nodecli -d=tmp/objf -o=g.wat
 //   cp tmp/objf/g.wat.ll tmp/objf/g.wat && wat2wasm tmp/objf/g.wat -o tmp/objf/g.wasm
 import fs from "fs";

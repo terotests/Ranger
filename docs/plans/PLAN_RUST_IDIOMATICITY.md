@@ -22,8 +22,8 @@ Everything below was measured on this machine with `rustc`/`cargo`/`clippy`
 1.94.1, from the outputs of:
 
 ```sh
-node bin/output.js -l=rust [-rust-shared-classes] ./tests/fixtures/<fixture>.rgr -d=./tmp/rusteval -o=<name>.rs
-node bin/output.js -l=rust [-rust-shared-classes] ./gallery/pdf_writer/src/tools/jpeg_scaler.rgr -d=./tmp/rusteval -o=jpeg_<flag>.rs
+node dist/rgrc.js -l=rust [-rust-shared-classes] ./tests/fixtures/<fixture>.rgr -d=./tmp/rusteval -o=<name>.rs
+node dist/rgrc.js -l=rust [-rust-shared-classes] ./gallery/pdf_writer/src/tools/jpeg_scaler.rgr -d=./tmp/rusteval -o=jpeg_<flag>.rs
 ```
 
 ## The semantic layer: what the ownership model gets right
@@ -278,14 +278,14 @@ and that part now measures correct.
 ```sh
 npm run compile
 mkdir -p tmp/rusteval
-node bin/output.js -l=rust -rust-shared-classes ./gallery/pdf_writer/src/tools/jpeg_scaler.rgr -d=./tmp/rusteval -o=jpeg_on.rs
-node bin/output.js -l=rust ./gallery/pdf_writer/src/tools/jpeg_scaler.rgr -d=./tmp/rusteval -o=jpeg_off.rs
-node bin/output.js -l=rust -rust-shared-classes -strict-ownership ./gallery/pdf_writer/src/tools/jpeg_scaler.rgr -d=./tmp/rusteval -o=jpeg_diag.rs   # per-class verdicts
+node dist/rgrc.js -l=rust -rust-shared-classes ./gallery/pdf_writer/src/tools/jpeg_scaler.rgr -d=./tmp/rusteval -o=jpeg_on.rs
+node dist/rgrc.js -l=rust ./gallery/pdf_writer/src/tools/jpeg_scaler.rgr -d=./tmp/rusteval -o=jpeg_off.rs
+node dist/rgrc.js -l=rust -rust-shared-classes -strict-ownership ./gallery/pdf_writer/src/tools/jpeg_scaler.rgr -d=./tmp/rusteval -o=jpeg_diag.rs   # per-class verdicts
 
 # correctness, on an input the gate did not use
 cd tmp/rusteval
 rustc --edition 2021 -O jpeg_on.rs -o jpeg_on.bin
-node ../../bin/output.js -l=es6 ../../gallery/pdf_writer/src/tools/jpeg_scaler.rgr -d=. -o=jpeg_ref.js
+node ../../dist/rgrc.js -l=es6 ../../gallery/pdf_writer/src/tools/jpeg_scaler.rgr -d=. -o=jpeg_ref.js
 ./jpeg_on.bin  -width 200 ../../gallery/pdf_writer/assets/images/Example.jpg on.jpg
 node jpeg_ref.js -width 200 ../../gallery/pdf_writer/assets/images/Example.jpg ref.jpg
 md5sum on.jpg ref.jpg        # identical

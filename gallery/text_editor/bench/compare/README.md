@@ -16,7 +16,7 @@ is a **repeatable shared workload**, not a claim of identical paint pipelines.
 ```bash
 # from repo root — ensure the Ranger EditorApp module exists
 RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr \
-  node bin/output.js -es6 -nodemodule ./gallery/text_editor/src/EditorApp.rgr \
+  node dist/rgrc.js -es6 -nodemodule ./gallery/text_editor/src/EditorApp.rgr \
   -d=./gallery/text_editor/bin -o=editor_app_module.cjs
 
 cd gallery/text_editor/bench/compare

@@ -31,7 +31,7 @@ const run = (cmd, args) =>
   execFileSync(cmd, args, { cwd: ROOT, env, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] });
 
 console.log("compiling the display-list tool...");
-const log = run("node", ["bin/output.js", "-es6", "./gallery/pdf_writer/src/tools/evg_displaylist_tool.rgr",
+const log = run("node", ["dist/rgrc.js", "-es6", "./gallery/pdf_writer/src/tools/evg_displaylist_tool.rgr",
   "-d=./gallery/pdf_writer/bin", "-o=evg_displaylist_tool.js", "-nodecli"]);
 if (log.includes("[FAIL]") || log.includes("Compilation FAILED")) {
   console.error(log);

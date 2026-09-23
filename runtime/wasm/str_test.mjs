@@ -1,4 +1,4 @@
-// Build first:  node bin/output.js -l=llvm -wat -freestanding -wasmrc \
+// Build first:  node dist/rgrc.js -l=llvm -wat -freestanding -wasmrc \
 //   runtime/wasm/str_demo.rgr -nodecli -d=tmp/strfull -o=g.wat  &&  wat2wasm ...
 import fs from "fs";
 const x = new WebAssembly.Instance(new WebAssembly.Module(fs.readFileSync(new URL("../../tmp/strfull/g.wasm", import.meta.url)))).exports;

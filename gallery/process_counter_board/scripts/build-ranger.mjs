@@ -10,7 +10,7 @@ const rangerRoot = path.resolve(galleryDir, "../..");
 const outDir = path.join(galleryDir, "src", "generated");
 const sourceRel = path.relative(rangerRoot, path.join(galleryDir, "ranger", "counter_board.rgr"));
 const outDirRel = path.relative(rangerRoot, outDir).split(path.sep).join("/");
-const compiler = path.join(rangerRoot, "bin", "output.js");
+const compiler = path.join(rangerRoot, "dist", "rgrc.js");
 
 fs.mkdirSync(outDir, { recursive: true });
 

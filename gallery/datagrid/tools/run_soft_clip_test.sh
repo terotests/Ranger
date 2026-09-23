@@ -21,7 +21,7 @@ OUT=tmp/soft-clip
 mkdir -p "$OUT" tmp
 
 echo "==> JavaScript"
-node bin/output.js -es6 "$SRC" -d=gallery/datagrid/bin -o=SoftClipTest.js -nodecli > "$OUT/js.log" 2>&1 || {
+node dist/rgrc.js -es6 "$SRC" -d=gallery/datagrid/bin -o=SoftClipTest.js -nodecli > "$OUT/js.log" 2>&1 || {
   tail -20 "$OUT/js.log"; echo "Ranger -> JS failed" >&2; exit 1; }
 # The compiler can report [FAIL] and still exit 0, and the stale build from the
 # last run would then be what gets tested. That is worse than no test at all.
@@ -46,7 +46,7 @@ fi
 
 echo
 echo "==> C++ ($CXX)"
-node bin/output.js -l=cpp "$SRC" -nodecli -d="$OUT" -o=SoftClipTest.cpp > "$OUT/cpp.log" 2>&1 || {
+node dist/rgrc.js -l=cpp "$SRC" -nodecli -d="$OUT" -o=SoftClipTest.cpp > "$OUT/cpp.log" 2>&1 || {
   tail -20 "$OUT/cpp.log"; echo "Ranger -> C++ failed" >&2; exit 1; }
 if grep -q '\[FAIL\]' "$OUT/cpp.log"; then
   grep -A2 '\[FAIL\]' "$OUT/cpp.log" | head -20

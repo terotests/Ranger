@@ -20,7 +20,7 @@ say() { printf '\n\033[1m== %s\033[0m\n' "$1"; }
 compile() {
   local src="$1" out="$2"
   local log
-  log=$(node bin/output.js -es6 "$src" -d="$BIN" -o="$out" -nodecli 2>&1)
+  log=$(node dist/rgrc.js -es6 "$src" -d="$BIN" -o="$out" -nodecli 2>&1)
   if echo "$log" | grep -q "Compilation FAILED"; then
     echo "$log" | grep -A3 "\[FAIL\]" | head -40
     echo "FAILED to compile $src" >&2

@@ -11,7 +11,7 @@ const HERE = path.dirname(url.fileURLToPath(import.meta.url));
 function findRoot(start) {
   let d = start;
   for (let i = 0; i < 8; i++) {
-    if (fs.existsSync(path.join(d, "bin", "output.js"))) return d;
+    if (fs.existsSync(path.join(d, "dist", "rgrc.js"))) return d;
     d = path.dirname(d);
   }
   throw new Error("repo root not found");
@@ -26,7 +26,7 @@ console.log("[mesh-editor-host] compiling", HOST_RGR);
 execFileSync(
   "node",
   [
-    "bin/output.js",
+    "dist/rgrc.js",
     "-es6",
     HOST_RGR,
     "-d=" + path.relative(ROOT, RAW_DIR),

@@ -59,7 +59,7 @@ mkdir -p "$STAGE" "$HERE/build"
 echo "==> 1/4  Ranger -> Rust"
 rm -f "$HERE/build/pptx_web.rs"
 log=$(RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr \
-      node bin/output.js -l=rust ./gallery/pptx/web/pptx_web.rgr \
+      node dist/rgrc.js -l=rust ./gallery/pptx/web/pptx_web.rgr \
       -d="gallery/pptx/web/wasm-rust/build" -o=pptx_web.rs -nodecli 2>&1) || true
 if echo "$log" | grep -q "Compilation FAILED"; then
   echo "$log" | grep -A3 "\[FAIL\]" | head -40
