@@ -138,9 +138,6 @@ extension RangerFlowParser {
     this.WalkCollectMethods(node ctx wr)
     def allTypes:[string]
 
-    def serviceBuilder (new RangerServiceBuilder)
-    serviceBuilder.CreateServices( this ctx wr )
-
     extendedClasses.forEach({
       ; `extension X { … }` for an X that was never declared, or an Extends of a
       ; class the imports do not bring in: findClass answers nothing for both,
@@ -521,12 +518,6 @@ extension RangerFlowParser {
 
   fn CreateFunctionObject:RangerAppFunctionDesc (orig_node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
 
-    plugin.md "developer.md" {
-      h2 Creating new function objects
-      p 'Implemented a new, perhaps shorter way for creating new ' (b 'RangerAppFunctionDesc') 'Objects'
-      code 'RangerFlowParser::CreateFunctionObject(orig_node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter)'
-    }
-
     def subCtx (ctx.fork())
     def node (this.spliceFunctionBody( 3 orig_node subCtx wr ))    
     def cn:CodeNode (node.getSecond())
@@ -597,21 +588,7 @@ extension RangerFlowParser {
 
   fn WalkCollectMethods:void (node@(lives):CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     def find_more:boolean true
-
-    if( (size node.children) > 0) {
-      def fc (node.getFirst())
-      if( (size fc.ns) > 1) {
-        if( (at fc.ns 0) == "plugin" ) {
-          if(node.is_plugin) {
-            return
-          }
-          node.is_plugin = true
-          def pName (at fc.ns 1)
-          ctx.addPluginNode( pName node )
-          return 
-        }
-      }
-    }    
+  
     if (node.isFirstVref("defn")) {
       return 
     }    

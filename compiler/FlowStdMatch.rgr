@@ -192,9 +192,6 @@ extension RangerFlowParser {
       def fnArgCnt:int (array_length args.children)
       def has_eval_ctx:boolean false
       def is_macro:boolean false
-      def plugin_name "operator"
-      def plugin_fn ""
-      def is_plugin false
       def is_pure false
       def is_static_fn false
       def static_fn_name ""
@@ -218,15 +215,6 @@ extension RangerFlowParser {
         is_pure = ( nameNode.hasFlag("pure"))
         if( ( langOper.hasBooleanProperty("macro") ) || ( (nameNode.hasFlag("macro")))  ) {
           is_macro = true
-        }
-        if( langOper.hasStringProperty("plugin") ) {
-          plugin_name = ( langOper.getStringProperty('plugin') )
-          is_plugin = true
-          def pluginFn ( langOper.getStringProperty('fn'))
-          if( has pluginFn ) {
-            plugin_fn = pluginFn
-            print "Function : " + plugin_fn
-          }
         }
         def codeDef (langOper.getSecond())        
         def match:RangerArgMatch (new RangerArgMatch ())
@@ -855,22 +843,6 @@ extension RangerFlowParser {
             match.setRvBasedOn((unwrap static_nameNode) callArgs)        
             ctx.removeOpNs( added_ns )      
             return true
-          }
-          if is_plugin {
-            try {
-              def fileName ( (current_directory) + "/" + plugin_name)
-              print "trying to load plugin: " + fileName
-              def plugin (load_compiler_plugin fileName )
-              call_plugin plugin plugin_fn callArgs ctx wr
-              callArgs.flow_done = false
-              this.WalkNode( callArgs ctx wr)
-              match.setRvBasedOn(nameNode callArgs)       
-              ctx.removeOpNs( added_ns )      
-              print "plugin ready..."
-            } {
-              ctx.addError( callArgs ('Plugin operator failed ' + (error_msg)) )
-            }
-            return true 
           }
 
           if is_macro {

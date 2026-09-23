@@ -20,7 +20,6 @@ class RangerApiMethod {
   def name:string ""
   def compiledName:string ""
   def is_static:boolean false
-  def is_constructor:boolean false
   def is_public:boolean false
   def returnType:string ""
   def returnDoc:string ""

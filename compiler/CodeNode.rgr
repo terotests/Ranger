@@ -193,13 +193,11 @@ class CodeNode {
   def sp:int 0
   def ep:int 0
   def row 0
-  def col 0
   def has_operator:boolean false
   def disabled_node:boolean false
   def op_index:int 0
   def is_array_literal false
   def is_system_class:boolean false
-  def is_plugin false
   def is_direct_method_call false
   def mutable_def:boolean false
   def expression:boolean false
@@ -266,7 +264,6 @@ class CodeNode {
   def parsed_type:RangerNodeType RangerNodeType.NoType
   def value_type:RangerNodeType RangerNodeType.NoType
   def ref_type:RangerNodeRefType RangerNodeRefType.NoType
-  def ref_need_assign:int 0
   def double_value:double 0.0
   def string_value:string ""
   def int_value:int 0
@@ -283,7 +280,6 @@ class CodeNode {
   ; register expressions are expressions that must be moved before this expression
   def register_name:string ""
   def register_expressions:[CodeNode]
-  def after_expression:[CodeNode]
 
   Constructor (source:SourceCode start:int end:int) {
     sp = start
@@ -291,7 +287,31 @@ class CodeNode {
     code = source
   }
 
- fn childCnt:int () {
+  fn IsOptional:boolean () {
+    def node@(temp) this
+    if (node.hasFlag("optional")) {
+      return true
+    }
+    if(node.hasParamDesc) {
+      def p:RangerAppParamDesc node.paramDesc
+      if (null? p) {
+        return false
+      }
+      if(p.is_optional) {
+        return true
+      }
+    }
+    if((array_length node.nsp) > 0) {
+      def lastIdx:int ((array_length node.nsp) - 1)
+      def lp:RangerAppParamDesc (itemAt node.nsp lastIdx)
+      if(lp.is_optional) {
+        return true
+      }
+    }
+    return false
+  } 
+
+  fn childCnt:int () {
     return (array_length children)
   }
 

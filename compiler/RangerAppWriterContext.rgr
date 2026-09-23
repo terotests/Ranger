@@ -234,7 +234,6 @@ class RangerAppWriterContext {
   def counters:TypeCounts (new TypeCounts)
   def parser:RangerFlowParser
   def compiler:LiveCompiler
-  def pluginNodes:[string:RangerNodeList]
   def typedNodes:[string:RangerNodeList]
   def registered_plugins:[RangerRegisteredPlugin]
 
@@ -352,13 +351,8 @@ class RangerAppWriterContext {
   }
 
   fn isOptional:boolean (node:CodeNode) {
-
-    def desc@(optional):RangerAppParamDesc node.paramDesc
-    if (null? desc) {
-      return false
-    }
-    return desc.is_optional
-  }
+    return ( node.IsOptional() )
+  }    
 
 
   ; Asked for every call expression the analysis walks, and the answer is
@@ -493,30 +487,6 @@ class RangerAppWriterContext {
     }
   }
 
-  fn getPluginNodes:[CodeNode] (name:string) {
-    def root (this.getRoot())
-    def res:[CodeNode]
-    def list (get root.pluginNodes name)
-    if(!null? list) {
-      list.items.forEach({
-        def tmp@(lives) item
-        push res tmp
-      })
-    }
-    return res
-  }
-
-  fn addPluginNode ( name:string op@(temp):CodeNode ) {
-    def root (this.getRoot())
-    if( has root.pluginNodes name ) {
-      def orig_list (unwrap (get root.pluginNodes name))
-      push orig_list.items op
-    } {
-      def new_list (new RangerNodeList)
-      push new_list.items op
-      set root.pluginNodes name new_list
-    }
-  }
 
   ; the operator listing
   fn addOperator ( op@(temp strong):RangerAppOperatorDesc ) {

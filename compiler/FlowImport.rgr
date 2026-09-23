@@ -254,23 +254,6 @@ extension RangerFlowParser {
 
       def source_code ""
 
-      if_javascript {
-        def ppList (ctx.findPluginsFor("import_loader"))
-        if( has ppList ) {
-          try {
-            ppList.forEach({
-              def plugin (load_compiler_plugin item)
-              def ss ( call_plugin plugin "import_loader" node ctx wr )
-              case ss str:string {
-                print "--> import  " + str
-                source_code = str
-              }
-            })
-          } {
-
-          }
-        }
-      }
       set ctx.already_imported import_file true
       def rootCtx (ctx.getRoot())
       
