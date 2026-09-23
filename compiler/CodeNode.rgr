@@ -480,8 +480,10 @@ class CodeNode {
       }
       callback( left right i)
       if( (!null? left) && (!null? right)) {
-        if(has left.children) {
-          left.parallelTree( (unwrap right) callback)
+        def leftNode:CodeNode (unwrap left)
+        def rightNode:CodeNode (unwrap right)
+        if(has leftNode.children) {
+          leftNode.parallelTree(rightNode callback)
         }
       }
       i = i + 1
@@ -498,11 +500,13 @@ class CodeNode {
   }    
 
   fn getParsedString:string () {
-    return (substring code.code sp ep)
+    def source:SourceCode (unwrap code)
+    return (substring source.code sp ep)
   }
 
   fn getFilename:string () {
-    return code.filename
+    def source:SourceCode (unwrap code)
+    return source.filename
   }
   fn getFlag@(optional weak):CodeNode (flagName:string) {
 
@@ -510,7 +514,8 @@ class CodeNode {
     if (false == has_vref_annotation) {
       return res 
     }
-    for vref_annotation.children ch:CodeNode i {
+    def ann:CodeNode (unwrap vref_annotation)
+    for ann.children ch:CodeNode i {
       if (ch.vref == flagName) {
         res = ch
         return res
@@ -522,7 +527,8 @@ class CodeNode {
     if (false == has_vref_annotation) {
       return false
     }
-    for vref_annotation.children ch:CodeNode i {
+    def ann:CodeNode (unwrap vref_annotation)
+    for ann.children ch:CodeNode i {
       if (ch.vref == flagName) {
         return true
       }
@@ -546,7 +552,8 @@ class CodeNode {
     flag.vref = flagName
     flag.value_type = RangerNodeType.VRef
     flag.parsed_type = flag.value_type
-    push vref_annotation.children flag
+    def ann:CodeNode (unwrap vref_annotation)
+    push ann.children flag
     has_vref_annotation = true
   }
 
@@ -558,7 +565,7 @@ class CodeNode {
     if (null? flag) { return defaultValue }
     def uflag:CodeNode (unwrap flag)
     if (uflag.has_vref_annotation) {
-      def ann:CodeNode uflag.vref_annotation
+      def ann:CodeNode (unwrap uflag.vref_annotation)
       for ann.children ch:CodeNode i {
         if (ch.vref == paramName) {
           ; Next child is the value
@@ -592,8 +599,9 @@ class CodeNode {
   ; In this case, GET and "/path" are siblings in vref_annotation.children
   fn getFlagSiblingString:string (flagName:string defaultValue:string) {
     if (false == has_vref_annotation) { return defaultValue }
+    def ann:CodeNode (unwrap vref_annotation)
     def foundFlag:boolean false
-    for vref_annotation.children ch:CodeNode i {
+    for ann.children ch:CodeNode i {
       if foundFlag {
         ; This is the sibling after the flag - return its value
         if ((strlen ch.string_value) > 0) {
@@ -679,14 +687,16 @@ class CodeNode {
   }
   fn getSource:string () {
     if (ep > sp)  {
+      def source:SourceCode (unwrap code)
       def start:int sp
       def end:int ep
-      return (substring code.code start end)
+      return (substring source.code start end)
     }
     return ""
   }
   fn getPositionalString:string () {
     if ((ep > sp) && ((ep - sp) < 50)) {
+      def source:SourceCode (unwrap code)
       def start:int sp
       def end:int ep
       start = (start - 100)
@@ -694,10 +704,10 @@ class CodeNode {
       if (start < 0) {
         start = 0
       }
-      if (end >= (strlen code.code)) {
-        end = ((strlen code.code) - 1)
+      if (end >= (strlen source.code)) {
+        end = ((strlen source.code) - 1)
       }
-      return (substring code.code start end)
+      return (substring source.code start end)
     }
     return ""
   }
@@ -888,7 +898,8 @@ class CodeNode {
     return false
   }
   fn getString:string () {
-    return (substring code.code sp ep)
+    def source:SourceCode (unwrap code)
+    return (substring source.code sp ep)
   }
 
 
@@ -904,7 +915,8 @@ class CodeNode {
     if expression {
       print "("
     } {
-      print (substring code.code sp ep)
+      def source:SourceCode (unwrap code)
+      print (substring source.code sp ep)
     }
     for children item:CodeNode i {
       item.walk()

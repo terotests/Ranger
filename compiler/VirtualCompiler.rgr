@@ -1534,18 +1534,20 @@ class tester {
   ; New method with CLI formatting
   static fn displayCompilerErrorsWithCLI:void (appCtx@(weak):RangerAppWriterContext cli:CLIProgress) {
     for appCtx.compilerErrors e:RangerCompilerMessage i {
-        def line_index:int (e.node.getLine())
-        def col_index:int (e.node.code.getColumn(e.node.sp))
-        def filename:string (e.node.getFilename())
-        def lineContent:string (e.node.getLineString(line_index))
+        def errorNode:CodeNode (unwrap e.node)
+        def line_index:int (errorNode.getLine())
+        def sourceCode:SourceCode (unwrap errorNode.code)
+        def col_index:int (sourceCode.getColumn(errorNode.sp))
+        def filename:string (errorNode.getFilename())
+        def lineContent:string (errorNode.getLineString(line_index))
         
         ; Get previous and next lines for context
         def prevLine:string ""
         def nextLine:string ""
         if (line_index > 0) {
-            prevLine = (e.node.getLineString((line_index - 1)))
+          prevLine = (errorNode.getLineString((line_index - 1)))
         }
-        nextLine = (e.node.getLineString((line_index + 1)))
+        nextLine = (errorNode.getLineString((line_index + 1)))
         
         cli.printCompilerError(filename (line_index + 1) col_index e.description lineContent prevLine nextLine)
     }        

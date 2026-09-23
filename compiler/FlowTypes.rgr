@@ -44,7 +44,7 @@ extension RangerFlowParser {
                 continue _
               }
               classRefDesc = (ctx.getVariableDef(strname))
-              if ( (null? classRefDesc) || (null? classRefDesc.nameNode) ) {
+              if (null? classRefDesc) {
                 ; A generic class has no name of its own at runtime -- only its
                 ; instantiations do -- so there is nothing for a static call to
                 ; be addressed to. Saying "no description" sends the reader
@@ -56,11 +56,17 @@ extension RangerFlowParser {
                 }
                 break _
               }
-              classRefDesc.ref_cnt = (1 + classRefDesc.ref_cnt)
-              if set_nsp {
-                push obj.nsp (unwrap classRefDesc)
+              def classRef:RangerAppParamDesc (unwrap classRefDesc)
+              if (null? classRef.nameNode) {
+                ctx.addError(obj ('Error, no description for called object: ' + strname))
+                break _
               }
-              classDesc = (ctx.findClass(classRefDesc.nameNode.type_name))
+                def classRefName:CodeNode (unwrap classRef.nameNode)
+                classRef.ref_cnt = (1 + classRef.ref_cnt)
+              if set_nsp {
+                  push obj.nsp classRef
+              }
+                classDesc = (ctx.findClass(classRefName.type_name))
               if(null? classDesc) {
                 return varFnDesc
               }
@@ -146,20 +152,22 @@ extension RangerFlowParser {
                 ctx.addError(obj ('Error, no description for called object: ' + strname))
                 break _
               }
+              def classRef:RangerAppParamDesc (unwrap classRefDesc)
               this.checkInitializedObjectReceiver(strname obj ctx)
               if set_nsp {
-                push obj.nsp (unwrap classRefDesc)
+                push obj.nsp classRef
               }
 
               ; --> if the call is optional
               ; 
               ; o.foo.x --> optional always ...
 
-              if (null? classRefDesc.nameNode) {
+              if (null? classRef.nameNode) {
                 ctx.addError(obj ('Error, no description for called object: ' + strname))
                 break _
               }
-              if(classRefDesc.nameNode.hasFlag("optional")) {
+              def classRefName:CodeNode (unwrap classRef.nameNode)
+              if(classRefName.hasFlag("optional")) {
                 if(ctx.hasCompilerFlag('strict')) {
                   if(false == (ctx.isTryBlock())) {
                     ctx.addError( obj "Optional automatically unwrapped outside try block" )
@@ -167,8 +175,8 @@ extension RangerFlowParser {
                 }
               }
 
-              classRefDesc.ref_cnt = (1 + classRefDesc.ref_cnt)
-              classDesc = (ctx.findClass(classRefDesc.nameNode.type_name))
+              classRef.ref_cnt = (1 + classRef.ref_cnt)
+              classDesc = (ctx.findClass(classRefName.type_name))
             }            
           } {
             if (i < (cnt - 1)) {
@@ -185,11 +193,15 @@ extension RangerFlowParser {
                 break _
               }
               if( i > 0 ) {
-                if( (!null? varDesc.nameNode) && (varDesc.nameNode.hasFlag("optional")) ) {
+                def variableDesc:RangerAppParamDesc (unwrap varDesc)
+                if(!null? variableDesc.nameNode) {
+                  def variableName:CodeNode (unwrap variableDesc.nameNode)
+                  if(variableName.hasFlag("optional")) {
                   if(ctx.hasCompilerFlag('strict')) {
                     if(false == (ctx.isTryBlock())) {
                       ctx.addError( obj "Optional automatically unwrapped outside try block" )
                     }
+                  }
                   }
                 }
               }
@@ -226,7 +238,10 @@ extension RangerFlowParser {
         return varDesc
       }
       varDesc = (ctx.getVariableDef(obj.vref))
-      if (!null? varDesc.nameNode) {
+        if (!null? varDesc) {
+          def variableDesc:RangerAppParamDesc (unwrap varDesc)
+          if (!null? variableDesc.nameNode) {
+          }
       } {
 
 ;        print ('findParamDesc : description not found for ' + obj.vref)
@@ -290,11 +305,13 @@ extension RangerFlowParser {
       if(vFnDef.isFunction()) {
         ; could transform here the n2 into expression...
         ; fn myFn:int () 
+        def lambdaName:CodeNode (unwrap vFnDef.nameNode)
         def args (map vFnDef.params {
-                    return (item.nameNode.copy())
+                    def parameterName:CodeNode (unwrap item.nameNode)
+                    return (parameterName.copy())
                   } to:[CodeNode])
         ; (fn:rv () )
-        def fnArg (vFnDef.nameNode.copy())
+        def fnArg (lambdaName.copy())
         fnArg.vref = "fn"
         def subNode (node.copy())
         subNode.flow_done = false
@@ -303,8 +320,8 @@ extension RangerFlowParser {
                                     })
 
 
-        if( ( (has vFnDef.nameNode.type_name) && (vFnDef.nameNode.type_name != 'void') ) ||
-            (has vFnDef.nameNode.array_type) ) {
+        if( ( (has lambdaName.type_name) && (lambdaName.type_name != 'void') ) ||
+          (has lambdaName.array_type) ) {
           def staticLambda (r.expression
                               fnArg
                               (r.expression args )
@@ -361,13 +378,25 @@ extension RangerFlowParser {
       def n2Expr@(weak) (n2.expression_value)
 
       if(null? n1Expr) {
-        if(n1.hasParamDesc && (!null? n1.paramDesc.nameNode) && (!null? n1.paramDesc.nameNode.expression_value) ) {
-          n1Expr = n1.paramDesc.nameNode.expression_value
+        if(n1.hasParamDesc) {
+          def n1Desc:RangerAppParamDesc (unwrap n1.paramDesc)
+          if(!null? n1Desc.nameNode) {
+            def n1Name:CodeNode (unwrap n1Desc.nameNode)
+            if(!null? n1Name.expression_value) {
+              n1Expr = n1Name.expression_value
+            }
+          }
         }
       }
       if(null? n2Expr) {
-        if(n2.hasParamDesc && (!null? n2.paramDesc.nameNode) && (!null? n2.paramDesc.nameNode.expression_value) ) {
-          n2Expr = n2.paramDesc.nameNode.expression_value
+        if(n2.hasParamDesc) {
+          def n2Desc:RangerAppParamDesc (unwrap n2.paramDesc)
+          if(!null? n2Desc.nameNode) {
+            def n2Name:CodeNode (unwrap n2Desc.nameNode)
+            if(!null? n2Name.expression_value) {
+              n2Expr = n2Name.expression_value
+            }
+          }
         }
       }
       if( (!null? n1Expr) && (!null? n2Expr) ) {

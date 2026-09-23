@@ -171,22 +171,33 @@ class RangerRangerClassWriter {
       wr.out("(" false)
       def givenArgs:CodeNode (node.getSecond())
       ctx.setInExpr();
-      for node.fnDesc.params arg:RangerAppParamDesc i {
-        if (i > 0) {
-          wr.out(" " false)
-        }
-        if( (array_length givenArgs.children) <= i) {
-          def defVal@(optional):CodeNode (arg.nameNode.getFlag("default"))
-          if (!null? defVal) {
-            def fc:CodeNode (defVal.vref_annotation.getFirst())
-            this.WalkNode(fc ctx wr)
-          } {
-            ctx.addError(node "Default argument was missing")
+      def fnDescOpt@(optional):RangerAppFunctionDesc node.fnDesc
+      if (!null? fnDescOpt) {
+        def fnDesc:RangerAppFunctionDesc (unwrap fnDescOpt)
+        for fnDesc.params arg:RangerAppParamDesc i {
+          if (i > 0) {
+            wr.out(" " false)
           }
-          continue 
+          if( (array_length givenArgs.children) <= i) {
+            def argumentName:CodeNode (unwrap arg.nameNode)
+            def defVal@(optional):CodeNode (argumentName.getFlag("default"))
+            if (!null? defVal) {
+              def annotationOpt@(optional):CodeNode defVal.vref_annotation
+              if (!null? annotationOpt) {
+                def defaultAnnotation:CodeNode (unwrap annotationOpt)
+                def fc:CodeNode (defaultAnnotation.getFirst())
+                this.WalkNode(fc ctx wr)
+              } {
+                ctx.addError(node "Default argument annotation was missing")
+              }
+            } {
+              ctx.addError(node "Default argument was missing")
+            }
+            continue 
+          }
+          def n:CodeNode (itemAt givenArgs.children i)
+          this.WalkNode(n ctx wr)
         }
-        def n:CodeNode (itemAt givenArgs.children i)
-        this.WalkNode(n ctx wr)
       }
       ctx.unsetInExpr()
       wr.out(")" false)
@@ -204,7 +215,7 @@ class RangerRangerClassWriter {
     if node.hasNewOper {
       def cl:RangerAppClassDesc node.clDesc
       def fc:CodeNode (node.getSecond())
-      wr.out(("(new " + node.clDesc.name) false)
+      wr.out(("(new " + cl.name) false)
       wr.out("(" false)
       def constr:RangerAppFunctionDesc cl.constructor_fn
       def givenArgs:CodeNode (node.getThird())

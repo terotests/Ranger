@@ -2345,8 +2345,9 @@ extension LowIRBuilderPass {
     }
     def retType:string "i32"
     if (!null? node.fnDesc) {
-      if (!null? node.fnDesc.nameNode) {
-        def rn (unwrap node.fnDesc.nameNode)
+      def fnDesc:RangerAppFunctionDesc (unwrap node.fnDesc)
+      if (!null? fnDesc.nameNode) {
+        def rn (unwrap fnDesc.nameNode)
         retType = (this.llvmTypeForRanger(rn.type_name lctx.ptrType))
       }
     }

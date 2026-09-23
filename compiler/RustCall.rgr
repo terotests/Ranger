@@ -1355,7 +1355,8 @@ extension RangerRustClassWriter {
         rust_receiver_shared_known = false
         rust_path_head_mut = false
         wr.out("(" false)
-        for node.fnDesc.params arg:RangerAppParamDesc i {
+        def callFn:RangerAppFunctionDesc (unwrap node.fnDesc)
+        for callFn.params arg:RangerAppParamDesc i {
           def n@(optional):CodeNode (itemAt givenArgs.children i)
           if (i > 0) {
             wr.out(", " false)
@@ -1533,7 +1534,8 @@ extension RangerRustClassWriter {
           wr.out("(" false)
           ; a receiverless method still takes the hidden receiver handle
           def selfCallSelfRc:boolean (this.writeSelfRcReceiverArg(node fc ctx wr))
-          for node.fnDesc.params arg:RangerAppParamDesc i {
+          def callFn:RangerAppFunctionDesc (unwrap node.fnDesc)
+          for callFn.params arg:RangerAppParamDesc i {
             def n@(optional):CodeNode (itemAt givenArgs.children i)
             if ((i > 0) || selfCallSelfRc) {
               wr.out(", " false)
@@ -1707,7 +1709,8 @@ extension RangerRustClassWriter {
           ; when it is emitted without a `self` — the static SPELLING of the
           ; call still has to hand it over
           def staticSelfRc:boolean (this.writeSelfRcReceiverArg(node fc ctx wr))
-          for node.fnDesc.params arg:RangerAppParamDesc i {
+          def callFn:RangerAppFunctionDesc (unwrap node.fnDesc)
+          for callFn.params arg:RangerAppParamDesc i {
             def n@(optional):CodeNode (itemAt givenArgs.children i)
             if ((i > 0) || staticSelfRc) {
               wr.out(", " false)
@@ -1849,7 +1852,8 @@ extension RangerRustClassWriter {
           }
         }
         if stdRecvBorrows {
-          for node.fnDesc.params sarg:RangerAppParamDesc si {
+          def callFn:RangerAppFunctionDesc (unwrap node.fnDesc)
+          for callFn.params sarg:RangerAppParamDesc si {
             def sn@(optional):CodeNode (itemAt givenArgs.children si)
             if (!null? sn) {
               def snVal:CodeNode (unwrap sn)
@@ -1884,7 +1888,8 @@ extension RangerRustClassWriter {
       rust_path_head_mut = false
       wr.out("(" false)
       def std_wrote_selfrc:boolean (this.writeSelfRcReceiverArg(node fc ctx wr))
-      for node.fnDesc.params arg:RangerAppParamDesc i {
+      def callFn:RangerAppFunctionDesc (unwrap node.fnDesc)
+      for callFn.params arg:RangerAppParamDesc i {
         def n@(optional):CodeNode (itemAt givenArgs.children i)
         if ((i > 0) || std_wrote_selfrc) {
           wr.out(", " false)
@@ -2245,9 +2250,9 @@ extension RangerRustClassWriter {
 
   fn writeNewCall (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.hasNewOper {
-      def cl:RangerAppClassDesc node.clDesc
+      def cl:RangerAppClassDesc (unwrap node.clDesc)
       def fc:CodeNode (node.getSecond())
-      wr.out(node.clDesc.name false)
+      wr.out(cl.name false)
       wr.out("::new(" false)
       def constr@(optional):RangerAppFunctionDesc cl.constructor_fn
       def givenArgs:CodeNode (node.getThird())
@@ -2257,7 +2262,8 @@ extension RangerRustClassWriter {
         ; no value. The signature drops it, so the call drops it as well.
         def written 0
         for c.params arg:RangerAppParamDesc i {
-          if ((unwrap arg.nameNode).hasFlag("keyword")) {
+          def argumentName:CodeNode (unwrap arg.nameNode)
+          if (argumentName.hasFlag("keyword")) {
             continue
           }
           def n:CodeNode (itemAt givenArgs.children i)

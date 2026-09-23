@@ -224,13 +224,14 @@ class RangerFlowParser {
         if is_chaining {
           def chainResult (unwrap innerNode)
           chainResult.finalizeAsCallChainRoot()
-          if last_is_assign {
-            while ( (array_length assignNode.children) > 3 ) {
-              removeLast assignNode.children
+          if (last_is_assign && (!null? assignNode)) {
+            def assignment:CodeNode (unwrap assignNode)
+            while ( (array_length assignment.children) > 3 ) {
+              removeLast assignment.children
             }
-            if ( (array_length assignNode.children) >= 3 ) {
-              removeLast assignNode.children
-              push assignNode.children chainResult
+            if ( (array_length assignment.children) >= 3 ) {
+              removeLast assignment.children
+              push assignment.children chainResult
             }
           } {
             def kept:[CodeNode]
@@ -642,11 +643,13 @@ class RangerFlowParser {
                       ctx.addError(sec ('invalid property ' + method_name))
                       return
                     }
-                    if (null? p.nameNode) {
+                    def propertyDesc:RangerAppParamDesc (unwrap p)
+                    if (null? propertyDesc.nameNode) {
                       ctx.addError(sec ('invalid property ' + method_name))
                       return
                     }
-                    classDesc = (ctx.findClass(p.nameNode.type_name))
+                    def propertyName:CodeNode (unwrap propertyDesc.nameNode)
+                    classDesc = (ctx.findClass(propertyName.type_name))
                     calledItem = (r.expression 
                                     (r.vref 'property')
                                     (calledItem.copy())
@@ -730,11 +733,12 @@ class RangerFlowParser {
             
             def mDesc (unwrap item.paramDesc)
             ;def mDesc (cast pDesc to:RangerAppFunctionDesc)
+            def methodName:CodeNode (unwrap mDesc.nameNode)
 
-            node.eval_type = mDesc.nameNode.value_type
-            node.eval_type_name = mDesc.nameNode.type_name
-            node.eval_array_type = mDesc.nameNode.array_type
-            node.eval_key_type = mDesc.nameNode.eval_key_type
+            node.eval_type = methodName.value_type
+            node.eval_type_name = methodName.type_name
+            node.eval_array_type = methodName.array_type
+            node.eval_key_type = methodName.eval_key_type
 
             node.is_direct_method_call = true
             return true
@@ -884,6 +888,7 @@ class RangerFlowParser {
             if (vNameNode.hasFlag("optional")) {
               node.setFlag("optional")
             }
+
             node.eval_type = (vNameNode.typeNameAsType(ctx))
             node.eval_type_name = vNameNode.type_name
             if (vNameNode.value_type == RangerNodeType.Array) {
@@ -982,13 +987,16 @@ class RangerFlowParser {
       ; C5: `r.identityId` where r is a shape group union → ops getter
       if (((size node.ns) == 2) && (ctx.isVarDefined(rootObjName))) {
         def rootDef:RangerAppParamDesc (ctx.getVariableDef(rootObjName))
-        if ((!null? rootDef.nameNode) && ((strlen rootDef.nameNode.type_name) > 0)) {
-          def gType:string rootDef.nameNode.type_name
+        if (!null? rootDef.nameNode) {
+          def rootName:CodeNode (unwrap rootDef.nameNode)
+          if ((strlen rootName.type_name) > 0) {
+          def gType:string rootName.type_name
           def fieldName:string (at node.ns 1)
           if (this.shapeGroupHasField(gType fieldName)) {
             def recv:CodeNode (node.newVRefNode(rootObjName))
             this.rewriteToGroupFieldGet(node recv fieldName gType ctx wr)
             return
+          }
           }
         }
       }
@@ -1059,9 +1067,13 @@ class RangerFlowParser {
         } {
 
           ctx.addError(node ('WriteVREF -> Undefined variable ' + node.vref + ' in class ' + desc.name + ' node : ' + (node.getCode())))
-          ctx.addError(node ('WriteVREF -> Undefined variable ' + rootObjName + ' in class ' + desc.name + ' node : ' + (node.parent.getCode())))
-          if(!null? node.parent.parent) {
-            ctx.addError(node ('WriteVREF -> Undefined variable ' + rootObjName + ' in class ' + desc.name + ' node : ' + (node.parent.parent.getCode())))
+          if (!null? node.parent) {
+            def parent:CodeNode (unwrap node.parent)
+            ctx.addError(node ('WriteVREF -> Undefined variable ' + rootObjName + ' in class ' + desc.name + ' node : ' + (parent.getCode())))
+            if(!null? parent.parent) {
+              def grandparent:CodeNode (unwrap parent.parent)
+              ctx.addError(node ('WriteVREF -> Undefined variable ' + rootObjName + ' in class ' + desc.name + ' node : ' + (grandparent.getCode())))
+            }
           }
         }
 
@@ -1264,11 +1276,12 @@ class RangerFlowParser {
       }
       for ctorFn.params param:RangerAppParamDesc i {
         def has_default:boolean false
-        if (param.nameNode.hasFlag('default')) {
+        def parameterName:CodeNode (unwrap param.nameNode)
+        if (parameterName.hasFlag('default')) {
           has_default = true
         }
 
-        if( param.nameNode.hasFlag('keyword')) {
+        if( parameterName.hasFlag('keyword')) {
           continue
         }
 
@@ -1277,16 +1290,21 @@ class RangerFlowParser {
             continue _
           }
           ctx.addError(node 'Missing arguments for function')
-          ctx.addError( (unwrap param.nameNode) 'To fix the previous error: Check original function declaration')
+          ctx.addError(parameterName 'To fix the previous error: Check original function declaration')
         }
 
         def argNode:CodeNode (at params.children i)
 
-        if (false == (this.areEqualTypes( (unwrap param.nameNode) argNode ctx wr))) {
-          ctx.addError(argNode ('ERROR, invalid argument type for ' + currC.name + ' constructor '))
+        if (false == (this.areEqualTypes(parameterName argNode ctx wr))) {
+          def className:string ""
+          if (!null? currC) {
+            def currentClass:RangerAppClassDesc (unwrap currC)
+            className = currentClass.name
+          }
+          ctx.addError(argNode ('ERROR, invalid argument type for ' + className + ' constructor '))
         }
 
-        def pNode:CodeNode (unwrap param.nameNode)
+        def pNode:CodeNode parameterName
         if( pNode.hasFlag("optional")) {
           ;if ( false == (argNode.hasFlag("optional")) ) {
           ;    ctx.addError(node ( 'new parameter optionality does not match, expected optional parameter' + (argNode.getCode())) )          
@@ -1437,9 +1455,10 @@ class RangerFlowParser {
           wr.out(`if(className == '` + item.name +`') {` , true)
           wr.indent(1)
           item.variables.forEach({
+            def variableName:CodeNode (unwrap item.nameNode)
             wr.out('def f (new RTTIClassField)' true)
             wr.out('f.name = `' + item.compiledName +  '`' , true)
-            wr.out('f.type_name = `' + item.nameNode.type_name +  '`' , true)
+            wr.out('f.type_name = `' + variableName.type_name +  '`' , true)
             wr.out('push fields f' true)
           })
             ; -->
@@ -1570,8 +1589,9 @@ class RangerFlowParser {
               def paramClassDef (ctx.findClass(itemCopy.eval_array_type))
               def chNode item
               rootClassDef.variables.forEach({
+                def variableName:CodeNode (unwrap item.nameNode)
                 ; --> comparing, are the same class ?? 
-                if( match.areEqualATypes(item.nameNode.array_type itemCopy.eval_array_type ctx)) {                      ; if(item.nameNode.array_type == itemCopy.eval_array_type) {
+                if( match.areEqualATypes(variableName.array_type itemCopy.eval_array_type ctx)) {                      ; if(item.nameNode.array_type == itemCopy.eval_array_type) {
                   def t (r.vref 'tmp')
                   t.setFlag('temp')
                   push opBody.children (r.expression (r.vref 'forEach' ) (theNode.copy()) 
@@ -1593,7 +1613,8 @@ class RangerFlowParser {
             def chNode item
             ; find the variable which has this class as array...
             rootClassDef.variables.forEach({
-              if( match.areEqualATypes(item.nameNode.array_type chNode.vref ctx)) {                      
+              def variableName:CodeNode (unwrap item.nameNode)
+              if( match.areEqualATypes(variableName.array_type chNode.vref ctx)) {                      
                 ; if(item.nameNode.array_type == itemCopy.eval_array_type) {
               ; if(item.nameNode.array_type == chNode.vref) {
                 ; found the variable...
@@ -1689,8 +1710,9 @@ class RangerFlowParser {
       this.markCalledFromMain( item ctx)
     })
     if( !null? f.container_class) {
-      if(!null? f.container_class.constructor_fn) {
-        this.markCalledFromMain( (unwrap f.container_class.constructor_fn) ctx)
+      def containerClass:RangerAppClassDesc (unwrap f.container_class)
+      if(!null? containerClass.constructor_fn) {
+        this.markCalledFromMain( (unwrap containerClass.constructor_fn) ctx)
       }
     }
   }
@@ -1801,7 +1823,9 @@ class RangerFlowParser {
         def cl item
         for cl.static_methods variant@(lives):RangerAppFunctionDesc i {
           ctx.disableCurrentClass()
-          if ( (variant.nameNode.hasFlag("main")) && (variant.nameNode.code.filename == (ctx.getRootFile()))) {  
+            def variantName:CodeNode (unwrap variant.nameNode)
+            def variantSource:SourceCode (unwrap variantName.code)
+            if ( (variantName.hasFlag("main")) && (variantSource.filename == (ctx.getRootFile()))) {  
             mainFn = variant
             mainFn.addClassUsage( cl ctx )
           }
@@ -1962,7 +1986,8 @@ class RangerFlowParser {
     this.WalkNode( obj ctx wr ) 
 
     if ( (ctx.isDefinedClass(obj.eval_type_name) == false) && (!null? obj.clDesc) ) {
-      obj.eval_type_name = obj.clDesc.name
+      def objectClass:RangerAppClassDesc (unwrap obj.clDesc)
+      obj.eval_type_name = objectClass.name
     }
 
     ctx.setInExpr()
@@ -1976,10 +2001,13 @@ class RangerFlowParser {
       def m@(optional):RangerAppFunctionDesc
       if (cl.hasMethod(method.vref)) {
         def mVs@(optional):RangerAppMethodVariants (get cl.method_variants method.vref)
-        if ((!null? mVs) && ((size mVs.variants) > 0)) {
+        if (!null? mVs) {
+          def variants:RangerAppMethodVariants (unwrap mVs)
+          if ((size variants.variants) > 0) {
           m = (this.matchMethodCall(cl method.vref callArgs ctx wr node))
           if (null? m) {
             return false
+          }
           }
         }
       }
@@ -1990,19 +2018,20 @@ class RangerFlowParser {
         }
       }
       if(!null? m) {
+        def methodDesc:RangerAppFunctionDesc (unwrap m)
+        def nn:CodeNode (unwrap methodDesc.nameNode)
         node.has_call = true
-        node.fnDesc = m
+        node.fnDesc = methodDesc
 
         def currM (ctx.getCurrentMethod())
-        currM.addCallTo( (unwrap m) )
-        def nn:CodeNode m.nameNode
+        currM.addCallTo(methodDesc)
         node.eval_type = (nn.typeNameAsType(ctx))
         node.eval_type_name = nn.type_name
         node.eval_array_type = nn.array_type
         node.eval_key_type = nn.key_type
-        if(m.nameNode.hasFlag("throws")) {
+        if(nn.hasFlag("throws")) {
           if(false == (ctx.isTryBlock()) ) {
-            ctx.addError(obj ('The method ' + m.name + " potentially throws an exception, try { } block is required"))
+            ctx.addError(obj ('The method ' + methodDesc.name + " potentially throws an exception, try { } block is required"))
           }
         }              
         if(nn.value_type == RangerNodeType.ExpressionType) {
@@ -2290,7 +2319,8 @@ class RangerFlowParser {
             }
             arg.forTree({
               if(!null? item.lambdaFnDesc) {
-                item.lambdaFnDesc.insideFn = currM
+                def nestedLambda:RangerAppFunctionDesc (unwrap item.lambdaFnDesc)
+                nestedLambda.insideFn = currM
               }
               if(!null? item.fnDesc) {
                 if(!null? arg.lambdaFnDesc) {
@@ -2447,19 +2477,21 @@ class RangerFlowParser {
     ; TODO: first lambda call check comes here... continue to other variants later
     if (ctx.isVarDefined(fnNode.vref)) {
         def d (ctx.getVariableDef(fnNode.vref))
+        def lambdaName:CodeNode (unwrap d.nameNode)
 
         d.ref_cnt = (1 + d.ref_cnt)
 
-        if( d.nameNode.hasFlag('optional')) {
+        if( lambdaName.hasFlag('optional')) {
           ctx.addError( node 'Can not call optional lambda function, unwrap the function first!')
         }
 
-        if(d.nameNode.value_type == RangerNodeType.ExpressionType) {
+        if(lambdaName.value_type == RangerNodeType.ExpressionType) {
 
           def cnNode1 (at node.children 0)
           this.WalkNode(cnNode1 ctx wr)
 
-          def lambdaDefArgs (at d.nameNode.expression_value.children 1)
+          def lambdaExpr:CodeNode (unwrap lambdaName.expression_value)
+          def lambdaDefArgs (at lambdaExpr.children 1)
           def callParams:CodeNode (at node.children 1)
           
           for callParams.children arg:CodeNode i {
@@ -2468,9 +2500,9 @@ class RangerFlowParser {
             ctx.unsetInExpr()
           }
 
-          this.testLambdaCallArgs( (unwrap d.nameNode.expression_value) callParams ctx wr)
+          this.testLambdaCallArgs(lambdaExpr callParams ctx wr)
 
-          def lambdaDef (at d.nameNode.expression_value.children 0)
+          def lambdaDef (at lambdaExpr.children 0)
           node.has_lambda_call = true
           node.eval_type = (lambdaDef.typeNameAsType(ctx))
           node.eval_type_name = lambdaDef.type_name
@@ -2640,7 +2672,8 @@ class RangerFlowParser {
               ctx.addError(sec ('invalid property ' + item))
               return
             }
-            classDesc = (ctx.findClass(pDesc.nameNode.type_name))
+            def propertyName:CodeNode (unwrap pDesc.nameNode)
+            classDesc = (ctx.findClass(propertyName.type_name))
           } {
             ctx.addError(sec ('invalid property ' + item ))
           }
@@ -2797,8 +2830,10 @@ class RangerFlowParser {
       def gRoot:string (at target.ns 0)
       def gField:string (at target.ns 1)
       def gRootDef:RangerAppParamDesc (ctx.getVariableDef(gRoot))
-      if ((!null? gRootDef.nameNode) && ((strlen gRootDef.nameNode.type_name) > 0)) {
-        def gType:string gRootDef.nameNode.type_name
+      if (!null? gRootDef.nameNode) {
+        def rootName:CodeNode (unwrap gRootDef.nameNode)
+        if ((strlen rootName.type_name) > 0) {
+        def gType:string rootName.type_name
         if (this.shapeGroupHasField(gType gField)) {
           if (has shapeGroupAllValue gType) {
             if (unwrap (get shapeGroupAllValue gType)) {
@@ -2824,6 +2859,7 @@ class RangerFlowParser {
           node.getChildrenFrom(callNode)
           this.WalkNode(node ctx wr)
           return
+        }
         }
       }
     }
@@ -2856,17 +2892,22 @@ class RangerFlowParser {
 
     ; immutable check which denies assigent operation
     if(target.hasParamDesc) {
-      if( !null? target.paramDesc.propertyClass) {
-        def nn (unwrap target.paramDesc.propertyClass.nameNode)
+      def targetDesc:RangerAppParamDesc (unwrap target.paramDesc)
+      if( !null? targetDesc.propertyClass) {
+        def propertyClass:RangerAppClassDesc (unwrap targetDesc.propertyClass)
+        def nn (unwrap propertyClass.nameNode)
         if(nn.hasFlag("immutable")) {
 
           def do_transform false
-          def propC (target.paramDesc.propertyClass)
+          def propC:RangerAppClassDesc propertyClass
           def currC (ctx.getCurrentClass())
-          if( (unwrap currC) == (unwrap propC) ) {
-            if( (at target.ns 0) == "this" ) {
-              ; ctx.addError( node "Assigment to immutable class this variable")            
-              do_transform = true
+          if (!null? currC) {
+            def currentClass:RangerAppClassDesc (unwrap currC)
+            if( currentClass == propC ) {
+              if( (at target.ns 0) == "this" ) {
+                ; ctx.addError( node "Assigment to immutable class this variable")            
+                do_transform = true
+              }
             }
           } {
             ; ctx.addError( node "Assigment to immutable class node")
@@ -2909,15 +2950,17 @@ class RangerFlowParser {
     }
     ctx.unsetInExpr()
     if n1.hasParamDesc {
-      n1.paramDesc.ref_cnt = (n1.paramDesc.ref_cnt + 1)
-      n1.paramDesc.set_cnt = (n1.paramDesc.set_cnt + 1)
+      def targetDesc:RangerAppParamDesc (unwrap n1.paramDesc)
+      targetDesc.ref_cnt = (targetDesc.ref_cnt + 1)
+      targetDesc.set_cnt = (targetDesc.set_cnt + 1)
       ; The walk above counted the assignment TARGET as a mention. It is a
       ; write, not a read, so take it back out: `x = 1` alone must leave
       ; read_cnt at zero, while `x = x + 1` leaves it at one.
-      n1.paramDesc.read_cnt = (n1.paramDesc.read_cnt - 1)
+      targetDesc.read_cnt = (targetDesc.read_cnt - 1)
     }
     if n2.hasParamDesc {
-      n2.paramDesc.ref_cnt = (n2.paramDesc.ref_cnt + 1)
+      def valueDesc:RangerAppParamDesc (unwrap n2.paramDesc)
+      valueDesc.ref_cnt = (valueDesc.ref_cnt + 1)
     }
     if (n2.hasFlag("optional")) {
       if (false == (n1.hasFlag("optional"))) {
@@ -2967,8 +3010,9 @@ class RangerFlowParser {
         ctx.unsetInExpr()
       }
       p.is_class_variable = true
-      p.nameNode.eval_type = (p.nameNode.typeNameAsType(ctx))
-      p.nameNode.eval_type_name = p.nameNode.type_name
+      def variableName:CodeNode (unwrap p.nameNode)
+      variableName.eval_type = (variableName.typeNameAsType(ctx))
+      variableName.eval_type_name = variableName.type_name
     }
 
     for cBody.children fNode:CodeNode i {
@@ -3027,34 +3071,36 @@ class RangerFlowParser {
       if( false == (subCtx.isVarDefined(v.name)) ) {
         subCtx.defineVariable(v.name v)
       }
-      v.nameNode.eval_type = (v.nameNode.typeNameAsType(subCtx))
-      v.nameNode.eval_type_name = v.nameNode.type_name
-      ctx.hadValidType( (unwrap v.nameNode) )
+      def parameterName:CodeNode (unwrap v.nameNode)
+      parameterName.eval_type = (parameterName.typeNameAsType(subCtx))
+      parameterName.eval_type_name = parameterName.type_name
+      ctx.hadValidType(parameterName)
 
-      if( (ctx.isDefinedClass(v.nameNode.type_name)) ) {
-        def cl (ctx.findClass(v.nameNode.type_name))
+      if( (ctx.isDefinedClass(parameterName.type_name)) ) {
+        def cl (ctx.findClass(parameterName.type_name))
         m.addClassUsage( cl ctx )
       }
-      if( (ctx.isDefinedClass(v.nameNode.array_type)) ) {
-        def cl (ctx.findClass(v.nameNode.array_type))
+      if( (ctx.isDefinedClass(parameterName.array_type)) ) {
+        def cl (ctx.findClass(parameterName.array_type))
         m.addClassUsage( cl ctx )
       }      
     }
     subCtx.setInMethod()
     this.WalkNodeChildren(fnBody subCtx wr)
     subCtx.unsetInMethod()
+    def methodName:CodeNode (unwrap m.nameNode)
     if (fnBody.didReturnAtIndex == -1) {
-      if (m.nameNode.type_name != "void") {
+      if (methodName.type_name != "void") {
           if( false == (ctx.getFlag("in_task")) ) {
-            ctx.addError( (unwrap m.nameNode) "Function does not return any values!")
+            ctx.addError(methodName "Function does not return any values!")
           }
       }
     } {
-      if( (m.nameNode.type_name == "void") || ( (has m.nameNode.type_name) == false ) && ( (has m.nameNode.array_type) == false )  ) {
+      if( (methodName.type_name == "void") || ( (has methodName.type_name) == false ) && ( (has methodName.array_type) == false )  ) {
         if( false == (ctx.getFlag("in_task")) ) {
           def rvNode ( at fnBody.children fnBody.didReturnAtIndex)
           if( (size rvNode.children ) > 1) {
-            ctx.addError( (unwrap m.nameNode) "No return value type defined for a function which returns value")
+            ctx.addError(methodName "No return value type defined for a function which returns value")
             ctx.addError( rvNode "Returning value from a function without set return value")
           }
         }
@@ -3265,8 +3311,8 @@ class RangerFlowParser {
                 ; not inside a parenthesised receiver.
                 def realRegDesc:RangerAppParamDesc (unwrap regArg.paramDesc)
                 def realRegName ( realRegDesc.compiledName )
-                regArg.paramDesc.set_cnt = 1
-                regArg.paramDesc.ref_cnt = 1
+                realRegDesc.set_cnt = 1
+                realRegDesc.ref_cnt = 1
 
                 def BlockOP (ctx.getLastBlockOp())
                 BlockOP.register_expressions.push( regExpr )
@@ -3708,8 +3754,8 @@ class RangerFlowParser {
                   def regArg (at regExpr.children 1)
                   def realRegDesc:RangerAppParamDesc (unwrap regArg.paramDesc)
                   def realRegName ( realRegDesc.compiledName )
-                  regArg.paramDesc.set_cnt = 1
-                  regArg.paramDesc.ref_cnt = 1
+                  realRegDesc.set_cnt = 1
+                  realRegDesc.ref_cnt = 1
                   
                   if use_delta {
                     push newRNodes regExpr
@@ -3823,8 +3869,8 @@ class RangerFlowParser {
             def regArg (at regExpr.children 1)
             def realRegDesc:RangerAppParamDesc (unwrap regArg.paramDesc)
             def realRegName ( realRegDesc.compiledName )
-            regArg.paramDesc.set_cnt = 1
-            regArg.paramDesc.ref_cnt = 1
+            realRegDesc.set_cnt = 1
+            realRegDesc.ref_cnt = 1
 
             def BlockOP (ctx.getLastBlockOp())
             if(! (ctx.isTestCompile() ) ) {

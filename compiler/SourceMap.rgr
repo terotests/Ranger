@@ -96,13 +96,14 @@ class SourceMapBuilder {
     if (null? node.code) {
       return
     }
+    def source:SourceCode (unwrap node.code)
     def srcFile:string (node.getFilename())
-    def srcContent:string (node.code.code)
+    def srcContent:string source.code
     def origLine:int (node.getLine())
     if (origLine < 0) {
       origLine = node.row
     }
-    def origCol:int (node.code.getColumn(node.sp))
+    def origCol:int (source.getColumn(node.sp))
     if (origCol < 0) {
       origCol = 0
     }

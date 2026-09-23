@@ -139,7 +139,8 @@ class ForLoopShape {
     }
     def item:CodeNode (itemAt node.children 2)
     if item.hasParamDesc {
-      if (item.paramDesc.set_cnt > 0) {
+      def itemDesc:RangerAppParamDesc (unwrap item.paramDesc)
+      if (itemDesc.set_cnt > 0) {
         return true
       }
     }

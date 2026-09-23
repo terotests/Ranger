@@ -5062,6 +5062,7 @@ def r_div_f64(a, b):
 
         if!              cmdIf:void              ( condition:boolean then_block:block )  {
             templates {
+                cpp ( (custom _) )
                 * @macro(true) ('if (false == (' (e 1) ' ) ) { ' (block 2) ' } ' )
             }
         }        
@@ -5078,11 +5079,13 @@ def r_div_f64(a, b):
         }        
         
         if              cmdIf:void              ( condition:boolean then_block:block )  {
+            ; NOTE: this is triggered in normal C++ execution
             templates {
                 ranger ( "if (" (e 1) ") {" I nl (block 2) nl i "}" nl )
                 rust ( "if  " (e 1) " {" I nl (block 2) nl i "}" nl )
                 go ( "if  " (e 1) " {" I nl (block 2) nl i "}" nl )
                 python ( "if " (e 1) ":" I nl (block 2) nl i nl )
+                cpp ((custom _))
                 * ( "if ( " (e 1) " ) {" I nl (block 2) nl i "}" nl )
             }
         }

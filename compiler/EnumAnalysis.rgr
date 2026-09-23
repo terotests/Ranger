@@ -58,7 +58,8 @@ class EnumNativeAnalysis {
         return true
       }
       if (node.hasParamDesc) {
-        def pdNNe@(optional):CodeNode node.paramDesc.nameNode
+        def paramDesc:RangerAppParamDesc (unwrap node.paramDesc)
+        def pdNNe@(optional):CodeNode paramDesc.nameNode
         if (!null? pdNNe) {
           def pdNe:CodeNode (unwrap pdNNe)
           if (pdNe.type_name == enumName) {
@@ -104,7 +105,8 @@ class EnumNativeAnalysis {
       return node.eval_type_name
     }
     if (node.hasParamDesc) {
-      def pdNNn@(optional):CodeNode node.paramDesc.nameNode
+      def paramDesc:RangerAppParamDesc (unwrap node.paramDesc)
+      def pdNNn@(optional):CodeNode paramDesc.nameNode
       if (!null? pdNNn) {
         def pdNn:CodeNode (unwrap pdNNn)
         return pdNn.type_name

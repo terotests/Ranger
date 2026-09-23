@@ -250,9 +250,8 @@ class RangerDocReader {
             ; `param x int "…"` — a restated type. The compiler already knows
             ; it, and a restated type is a type that will disagree with the
             ; signature. PLAN_API_DOCS.md §3.
-            def third:CodeNode
             if (argc > 2) {
-              third = (at item.children 2)
+              def third:CodeNode (at item.children 2)
               if (third.value_type != RangerNodeType.String) {
                 ctx.addError(item ("param `" + p.name + "` restates a type. The compiler already knows it: write `param " + p.name + " \"…\"`."))
               }
@@ -277,9 +276,8 @@ class RangerDocReader {
           ; `example "…"` is a literal; `example name` names a function. The
           ; two are told apart by the node, not by looking at the text: a
           ; literal that happens to be one word is still a literal.
-          def first:CodeNode
           if (argc > 1) {
-            first = (at item.children 1)
+            def first:CodeNode (at item.children 1)
             if (first.value_type == RangerNodeType.String) {
               push doc.examples (this.textFrom(item 1))
             } {

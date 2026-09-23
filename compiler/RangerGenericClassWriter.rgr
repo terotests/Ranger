@@ -715,21 +715,22 @@ class RangerGenericClassWriter {
       if (p.ref_cnt == 0) {
         continue _
       }
+      def variableName:CodeNode (unwrap p.nameNode)
       if (p.isAllocatedType()) {
         if (1 == (p.getStrength())) {
-          if (p.nameNode.eval_type == RangerNodeType.Hash) {
+          if (variableName.eval_type == RangerNodeType.Hash) {
           }
-          if (p.nameNode.eval_type == RangerNodeType.Array) {
+          if (variableName.eval_type == RangerNodeType.Array) {
           }
-          if ((p.nameNode.eval_type != RangerNodeType.Array) && (p.nameNode.eval_type != RangerNodeType.Hash)) {
+          if ((variableName.eval_type != RangerNodeType.Array) && (variableName.eval_type != RangerNodeType.Hash)) {
           }
         }
         if (0 == (p.getStrength())) {
-          if (p.nameNode.eval_type == RangerNodeType.Hash) {
+          if (variableName.eval_type == RangerNodeType.Hash) {
           }
-          if (p.nameNode.eval_type == RangerNodeType.Array) {
+          if (variableName.eval_type == RangerNodeType.Array) {
           }
-          if ((p.nameNode.eval_type != RangerNodeType.Array) && (p.nameNode.eval_type != RangerNodeType.Hash)) {
+          if ((variableName.eval_type != RangerNodeType.Array) && (variableName.eval_type != RangerNodeType.Hash)) {
           }
         }
       }
@@ -799,9 +800,10 @@ class RangerGenericClassWriter {
     ; print "lang:" + (ctx.getTargetLang()) + " code " + (node.getCode())
     node.children.forEach({
       if(!null? item.evalCtx) {
+        def itemCtx:RangerAppWriterContext (unwrap item.evalCtx)
         ;print " - item lang:" + (item.evalCtx.getTargetLang()) + " code " + (item.getCode())
-        if( (getTargetLang (unwrap item.evalCtx ) )  != (ctx.getTargetLang())) {
-          item.evalCtx.targetLangName = (ctx.getTargetLang())
+        if( (getTargetLang itemCtx)  != (ctx.getTargetLang())) {
+          itemCtx.targetLangName = (ctx.getTargetLang())
           ;print "--> changing the code lang to " + ((ctx.getTargetLang()))
         }
       }
@@ -911,8 +913,11 @@ class RangerGenericClassWriter {
       this.writeCallReceiver(obj ctx wr)
       wr.out("." false)
       def methodName method.vref
-      if ((!null? node.fnDesc) && ((strlen node.fnDesc.compiledName) > 0)) {
-        methodName = node.fnDesc.compiledName
+      if (!null? node.fnDesc) {
+        def callFn:RangerAppFunctionDesc (unwrap node.fnDesc)
+        if ((strlen callFn.compiledName) > 0) {
+          methodName = callFn.compiledName
+        }
       }
       wr.outMapped(methodName method false method.vref)
 ;       this.WriteVRef(fc ctx wr)
@@ -1065,8 +1070,10 @@ class RangerGenericClassWriter {
       def givenArgs:CodeNode (node.getSecond())
       ctx.setInExpr();
       def cnt 0
-      for node.fnDesc.params arg:RangerAppParamDesc i {
-        if( arg.nameNode.hasFlag('keyword')) {
+      def fnDesc:RangerAppFunctionDesc (unwrap node.fnDesc)
+      for fnDesc.params arg:RangerAppParamDesc i {
+        def argumentName:CodeNode (unwrap arg.nameNode)
+        if(argumentName.hasFlag('keyword')) {
           continue
         }
         if (cnt > 0) {
@@ -1074,7 +1081,7 @@ class RangerGenericClassWriter {
         }
         cnt = cnt + 1
         if( (array_length givenArgs.children) <= i) {
-          def defVal@(optional):CodeNode (arg.nameNode.getFlag("default"))
+          def defVal@(optional):CodeNode (argumentName.getFlag("default"))
           if (!null? defVal) {
             def fc:CodeNode (defVal.vref_annotation.getFirst())
             this.WalkNode(fc ctx wr)
@@ -1096,7 +1103,8 @@ class RangerGenericClassWriter {
           wr.out("." + cc.methodName , false)
           wr.out("(" false)
           ctx.setInExpr()
-          for cc.args.children arg:CodeNode i {
+          def chainArgs:CodeNode (unwrap cc.args)
+          for chainArgs.children arg:CodeNode i {
             if (i > 0) {
               wr.out(", " false)
             }
@@ -1136,9 +1144,9 @@ class RangerGenericClassWriter {
       return
     }
     if node.hasNewOper {
-      def cl:RangerAppClassDesc node.clDesc
+      def cl:RangerAppClassDesc (unwrap node.clDesc)
       def fc:CodeNode (node.getSecond())
-      wr.out(("new " + node.clDesc.name) false)
+      wr.out(("new " + cl.name) false)
       wr.out("(" false)
       def constr:RangerAppFunctionDesc cl.constructor_fn
       def givenArgs:CodeNode (node.getThird())

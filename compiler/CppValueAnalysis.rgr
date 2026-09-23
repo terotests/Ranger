@@ -64,11 +64,15 @@ class CppValueClassAnalysis {
       return true
     }
     if node.hasParamDesc {
-      def pdNN@(optional):CodeNode node.paramDesc.nameNode
-      if (!null? pdNN) {
-        def pdN:CodeNode (unwrap pdNN)
-        if (pdN.type_name == className) {
-          return true
+      def paramDescOpt@(optional):RangerAppParamDesc node.paramDesc
+      if (!null? paramDescOpt) {
+        def paramDesc:RangerAppParamDesc (unwrap paramDescOpt)
+        def pdNN@(optional):CodeNode paramDesc.nameNode
+        if (!null? pdNN) {
+          def pdN:CodeNode (unwrap pdNN)
+          if (pdN.type_name == className) {
+            return true
+          }
         }
       }
     }
@@ -83,11 +87,15 @@ class CppValueClassAnalysis {
       return true
     }
     if node.hasParamDesc {
-      def pdNN@(optional):CodeNode node.paramDesc.nameNode
-      if (!null? pdNN) {
-        def pdN:CodeNode (unwrap pdNN)
-        if (pdN.hasFlag("optional")) {
-          return true
+      def paramDescOpt@(optional):RangerAppParamDesc node.paramDesc
+      if (!null? paramDescOpt) {
+        def paramDesc:RangerAppParamDesc (unwrap paramDescOpt)
+        def pdNN@(optional):CodeNode paramDesc.nameNode
+        if (!null? pdNN) {
+          def pdN:CodeNode (unwrap pdNN)
+          if (pdN.hasFlag("optional")) {
+            return true
+          }
         }
       }
     }

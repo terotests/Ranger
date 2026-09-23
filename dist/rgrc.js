@@ -324,19 +324,22 @@ class RangerDocBlock  {
     for ( const r of this.exampleRefs) {
       merged.exampleRefs.push(r);
     }
-    // Loop start
-    for ( const a of ov.attrs) {
-      merged.attrs.push(a);
-    }
-    if ( ov.description.length > 0 ) {
-      merged.description = ov.description;
-    }
-    if ( ov.returns.length > 0 ) {
-      merged.returns = ov.returns;
-    }
-    // Loop start
-    for ( const p_1 of ov.params) {
-      merged.params.push(p_1);
+    if ( (typeof(ov) !== "undefined" && ov != null )  ) {
+      const ovs = ov;
+      // Loop start
+      for ( const a of ovs.attrs) {
+        merged.attrs.push(a);
+      }
+      if ( ovs.description.length > 0 ) {
+        merged.description = ovs.description;
+      }
+      if ( ovs.returns.length > 0 ) {
+        merged.returns = ov.returns;
+      }
+      // Loop start
+      for ( const p_1 of ovs.params) {
+        merged.params.push(p_1);
+      }
     }
     return merged;
   };
@@ -446,9 +449,8 @@ class RangerDocReader  {
             const p = new RangerDocParam();
             p.name = this.wordAt(item, 1);
             p.node = item;
-            let third;
             if ( argc > 2 ) {
-              third = item.children[2];
+              const third = item.children[2];
               if ( third.value_type != 4 ) {
                 ctx.addError(item, ((("param `" + p.name) + "` restates a type. The compiler already knows it: write `param ") + p.name) + " \"…\"`.");
               }
@@ -470,9 +472,8 @@ class RangerDocReader  {
           doc.see.push(this.textFrom(item, 1));
           break;
         case "example" : 
-          let first;
           if ( argc > 1 ) {
-            first = item.children[1];
+            const first = item.children[1];
             if ( first.value_type == 4 ) {
               doc.examples.push(this.textFrom(item, 1));
             } else {
@@ -762,18 +763,18 @@ class RangerApiBuilder  {
     const dn = fd.node;
     if ( dn.has_doc_tail ) {
       m.doc = this.readDocOf(dn, ctx);
+      const doc = m.doc;
       m.has_doc = true;
-      m.is_public = m.doc.is_public;
-      m.returnDoc = m.doc.returns;
+      m.is_public = doc.is_public;
+      m.returnDoc = doc.returns;
       fd.has_doc = true;
-      fd.docBlock = m.doc;
-      if ( m.doc.description.length > 0 ) {
-        fd.git_doc = m.doc.description;
+      fd.docBlock = doc;
+      if ( doc.description.length > 0 ) {
+        fd.git_doc = doc.description;
       }
       // Loop start
-      for ( let j = 0; j < m.params.length; j++) {
-        var ap_1 = m.params[j];
-        ap_1.description = m.doc.paramText(ap_1.name);
+      for ( const ap_1 of m.params) {
+        ap_1.description = doc.paramText(ap_1.name);
       }
     }
     return m;
@@ -864,10 +865,11 @@ class RangerApiBuilder  {
         ac.node = cn;
         if ( cn.has_doc_tail ) {
           ac.doc = this.readDocOf(cn, ctx);
+          const doc = ac.doc;
           ac.has_doc = true;
-          ac.is_public = ac.doc.is_public;
+          ac.is_public = doc.is_public;
           cl.has_doc = true;
-          cl.docBlock = ac.doc;
+          cl.docBlock = doc;
         }
       }
       // Loop start
@@ -883,10 +885,11 @@ class RangerApiBuilder  {
           const vd = vnode;
           if ( vd.has_doc_tail ) {
             af.doc = this.readDocOf(vd, ctx);
+            const doc_1 = af.doc;
             af.has_doc = true;
-            af.is_public = af.doc.is_public;
+            af.is_public = doc_1.is_public;
             v.has_doc = true;
-            v.docBlock = af.doc;
+            v.docBlock = doc_1;
           }
         }
         if ( af.is_public ) {
@@ -3014,7 +3017,7 @@ class RangerRefForce  {
 class RangerAppParamDesc  {
   constructor() {
     this.name = "";
-    this.value = undefined;     /* note: unused */
+    this.value = undefined;
     this.compiledName = "";
     this.debugString = "";
     this.is_register = false;
@@ -3192,7 +3195,8 @@ class RangerAppParamDesc  {
           }
         } else {
           if ( false == b_disable_errors ) {
-            ctx.addError(nodeToMove, "Can not move immutable reference to a strong target, evald type " + this.nameNode.eval_type_name);
+            const nn = this.nameNode;
+            ctx.addError(nodeToMove, "Can not move immutable reference to a strong target, evald type " + nn.eval_type_name);
           }
         }
       }
@@ -3359,8 +3363,11 @@ class RangerAppParamDesc  {
     return "";
   };
   getTypeName () {
-    const s = this.nameNode.type_name;
-    return s;
+    if ( typeof(this.nameNode) === "undefined" ) {
+      return "";
+    }
+    const nn = this.nameNode;
+    return nn.type_name;
   };
 }
 class RangerAppFunctionDesc  extends RangerAppParamDesc {
@@ -3462,7 +3469,7 @@ class RangerAppFunctionDesc  extends RangerAppParamDesc {
     }));
     const root = ctx.getRoot();
     operatorsOf_5.forEach_6(root.definedClasses, ((item, index) => { 
-      if ( item.extends_classes.indexOf(f.container_class.name) >= 0 ) {
+      if ( item.extends_classes.indexOf(cc.name) >= 0 ) {
         if ( item.hasMethod(f.name) ) {
           const m_1 = item.findMethod(f.name);
           cb(m_1);
@@ -3740,7 +3747,8 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
     sig = (pc.toString());
     // Loop start
     for ( const p of fnDesc.params) {
-      let tn = p.nameNode.type_name;
+      const pn = p.nameNode;
+      let tn = pn.type_name;
       if ( tn.length == 0 ) {
         tn = "?";
       }
@@ -4008,16 +4016,17 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
         p.init_cnt = 1;
         p.def_value = node.children[2];
         p.is_optional = false;
-        if ( p.def_value.value_type == 4 ) {
+        const defValue = p.def_value;
+        if ( defValue.value_type == 4 ) {
           vDef.type_name = "string";
         }
-        if ( p.def_value.value_type == 3 ) {
+        if ( defValue.value_type == 3 ) {
           vDef.type_name = "int";
         }
-        if ( p.def_value.value_type == 2 ) {
+        if ( defValue.value_type == 2 ) {
           vDef.type_name = "double";
         }
-        if ( p.def_value.value_type == 5 ) {
+        if ( defValue.value_type == 5 ) {
           vDef.type_name = "boolean";
         }
         const valueNode = node.children[2];
@@ -4372,8 +4381,10 @@ class CodeNode  {
       }
       callback(left, right, i);
       if ( ((typeof(left) !== "undefined" && left != null ) ) && ((typeof(right) !== "undefined" && right != null ) ) ) {
-        if ( left.children.length > 0 ) {
-          left.parallelTree(right, callback);
+        const leftNode = left;
+        const rightNode = right;
+        if ( leftNode.children.length > 0 ) {
+          leftNode.parallelTree(rightNode, callback);
         }
       }
       i = i + 1;
@@ -4389,18 +4400,21 @@ class CodeNode  {
     }
   };
   getParsedString () {
-    return this.code.code.substring(this.sp, this.ep );
+    const source = this.code;
+    return source.code.substring(this.sp, this.ep );
   };
   getFilename () {
-    return this.code.filename;
+    const source = this.code;
+    return source.filename;
   };
   getFlag (flagName) {
     let res;
     if ( false == this.has_vref_annotation ) {
       return res;
     }
+    const ann = this.vref_annotation;
     // Loop start
-    for ( const ch of this.vref_annotation.children) {
+    for ( const ch of ann.children) {
       if ( ch.vref == flagName ) {
         res = ch;
         return res;
@@ -4412,8 +4426,9 @@ class CodeNode  {
     if ( false == this.has_vref_annotation ) {
       return false;
     }
+    const ann = this.vref_annotation;
     // Loop start
-    for ( const ch of this.vref_annotation.children) {
+    for ( const ch of ann.children) {
       if ( ch.vref == flagName ) {
         return true;
       }
@@ -4434,7 +4449,8 @@ class CodeNode  {
     flag.vref = flagName;
     flag.value_type = 11;
     flag.parsed_type = flag.value_type;
-    this.vref_annotation.children.push(flag);
+    const ann = this.vref_annotation;
+    ann.children.push(flag);
     this.has_vref_annotation = true;
   };
   getFlagInt (flagName, paramName, defaultValue) {
@@ -4480,9 +4496,10 @@ class CodeNode  {
     if ( false == this.has_vref_annotation ) {
       return defaultValue;
     }
+    const ann = this.vref_annotation;
     let foundFlag = false;
     // Loop start
-    for ( const ch of this.vref_annotation.children) {
+    for ( const ch of ann.children) {
       if ( foundFlag ) {
         if ( ch.string_value.length > 0 ) {
           return ch.string_value;
@@ -4568,14 +4585,16 @@ class CodeNode  {
   };
   getSource () {
     if ( this.ep > this.sp ) {
+      const source = this.code;
       const start = this.sp;
       const end = this.ep;
-      return this.code.code.substring(start, end );
+      return source.code.substring(start, end );
     }
     return "";
   };
   getPositionalString () {
     if ( this.ep > this.sp && this.ep - this.sp < 50 ) {
+      const source = this.code;
       let start = this.sp;
       let end = this.ep;
       start = start - 100;
@@ -4583,10 +4602,10 @@ class CodeNode  {
       if ( start < 0 ) {
         start = 0;
       }
-      if ( end >= this.code.code.length ) {
-        end = this.code.code.length - 1;
+      if ( end >= source.code.length ) {
+        end = source.code.length - 1;
       }
-      return this.code.code.substring(start, end );
+      return source.code.substring(start, end );
     }
     return "";
   };
@@ -4768,7 +4787,8 @@ class CodeNode  {
     return false;
   };
   getString () {
-    return this.code.code.substring(this.sp, this.ep );
+    const source = this.code;
+    return source.code.substring(this.sp, this.ep );
   };
   walk () {
     switch (this.value_type ) { 
@@ -4782,7 +4802,8 @@ class CodeNode  {
     if ( this.expression ) {
       console.log("(");
     } else {
-      console.log(this.code.code.substring(this.sp, this.ep ));
+      const source = this.code;
+      console.log(source.code.substring(this.sp, this.ep ));
     }
     // Loop start
     for ( const item of this.children) {
@@ -5476,7 +5497,8 @@ class CodeNode  {
     this.eval_type = node.eval_type;
     this.eval_type_name = node.eval_type_name;
     if ( (typeof(node.operator_node) !== "undefined" && node.operator_node != null )  ) {
-      const nn = node.operator_node.children[1];
+      const operatorNode = node.operator_node;
+      const nn = operatorNode.children[1];
       if ( nn.hasFlag("optional") ) {
         this.setFlag("optional");
       }
@@ -6088,6 +6110,8 @@ class RangerAppWriterContext  {
     this.stdCommands = undefined;
     this.operators = undefined;
     this.op_list = {};
+    this.automatically_unwrapped = {};
+    this.auto_unwrap_suppression = 0;
     this.reservedWords = undefined;
     this.intRootCounter = 1;     /* note: unused */
     this.targetLangName = "";
@@ -6180,6 +6204,41 @@ class RangerAppWriterContext  {
   }
   rustMarkMoved (varName) {
     this.rust_moved_vars[varName] = true;
+  };
+  setAutomaticallyUnwrapped (varName) {
+    this.automatically_unwrapped[varName] = true;
+  };
+  getListOfAutomaticallyUnwrapped () {
+    let result = [];
+    for( var k in this.automatically_unwrapped) {
+      if(this.automatically_unwrapped.hasOwnProperty(k)) {
+        result.push(k);
+      } 
+    };
+    return result;
+  };
+  isAutomaticallyUnwrapped (varName) {
+    if ( ( typeof(this.automatically_unwrapped[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.automatically_unwrapped, varName) ) ) {
+      return true;
+    }
+    if ( (typeof(this.parent) !== "undefined" && this.parent != null )  ) {
+      return this.parent.isAutomaticallyUnwrapped(varName);
+    }
+    return false;
+  };
+  suppressAutoUnwrap () {
+    const root = this.getRoot();
+    root.auto_unwrap_suppression = root.auto_unwrap_suppression + 1;
+  };
+  restoreAutoUnwrap () {
+    const root = this.getRoot();
+    if ( root.auto_unwrap_suppression > 0 ) {
+      root.auto_unwrap_suppression = root.auto_unwrap_suppression - 1;
+    }
+  };
+  autoUnwrapIsSuppressed () {
+    const root = this.getRoot();
+    return root.auto_unwrap_suppression > 0;
   };
   rustIsMoved (varName) {
     if ( ( typeof(this.rust_moved_vars[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.rust_moved_vars, varName) ) ) {
@@ -6561,14 +6620,16 @@ class RangerAppWriterContext  {
     let res = {};
     let cc = this;
     while ((typeof(cc) !== "undefined" && cc != null ) ) {
-      operatorsOf_5.forEach_12(cc.localVariables, ((item, index) => { 
+      const current = cc;
+      operatorsOf_5.forEach_12(current.localVariables, ((item, index) => { 
         if ( (typeof(item.nameNode) !== "undefined" && item.nameNode != null )  ) {
-          res[item.nameNode.type_name] = true;
-          res[item.nameNode.key_type] = true;
-          res[item.nameNode.array_type] = true;
+          const nameNode = item.nameNode;
+          res[nameNode.type_name] = true;
+          res[nameNode.key_type] = true;
+          res[nameNode.array_type] = true;
         }
       }));
-      cc = cc.parent;
+      cc = current.parent;
     };
     return Object.keys(res);
   };
@@ -6813,8 +6874,9 @@ class RangerAppWriterContext  {
         lang = m;
       }
     }
+    const language = lang;
     let cmds;
-    const langNodes = lang.children[1];
+    const langNodes = language.children[1];
     const targetLang = this.getTargetLangName();
     // Loop start
     for ( let i_1 = 0; i_1 < langNodes.children.length; i_1++) {
@@ -6823,9 +6885,10 @@ class RangerAppWriterContext  {
       if ( fc_1.vref == "reserved_words" ) {
         const n = lch.getSecond();
         this.reservedWords = lch.getSecond();
+        const reservedWordsNode = this.reservedWords;
         // Loop start
-        for ( let i_2 = 0; i_2 < this.reservedWords.children.length; i_2++) {
-          var langBlock = this.reservedWords.children[i_2];
+        for ( let i_2 = 0; i_2 < reservedWordsNode.children.length; i_2++) {
+          var langBlock = reservedWordsNode.children[i_2];
           const langKey = langBlock.getFirst();
           const langKeyName = langKey.vref;
           if ( langKeyName == "*" || langKeyName == targetLang ) {
@@ -6858,8 +6921,9 @@ class RangerAppWriterContext  {
         lang = m;
       }
     }
+    const language = lang;
     let cmds;
-    const langNodes = lang.children[1];
+    const langNodes = language.children[1];
     // Loop start
     for ( const lch of langNodes.children) {
       const fc_1 = lch.getFirst();
@@ -6995,7 +7059,8 @@ class RangerAppWriterContext  {
     if ( (typeof(node.operator_node) !== "undefined" && node.operator_node != null )  ) {
       return node.operator_node;
     }
-    return root.stdCommands.children[node.op_index];
+    const commands = root.stdCommands;
+    return commands.children[node.op_index];
   };
   getStdCommands () {
     const root = this.getRoot();
@@ -7113,7 +7178,8 @@ class RangerAppWriterContext  {
     code.filename = str + ".ranger";
     const parser_1 = new RangerLispParser(code);
     parser_1.parse(false);
-    const classRoot = parser_1.rootNode.children[0];
+    const parsedRoot = parser_1.rootNode;
+    const classRoot = parsedRoot.children[0];
     const classNameNode = classRoot.getSecond();
     classNameNode.vref = str;
     const new_class = new RangerAppClassDesc();
@@ -7146,7 +7212,8 @@ class RangerAppWriterContext  {
     code.filename = instanceName + ".ranger";
     const parser_1 = new RangerLispParser(code);
     parser_1.parse(false);
-    const classRoot = parser_1.rootNode.children[0];
+    const parsedRoot = parser_1.rootNode;
+    const classRoot = parsedRoot.children[0];
     const classNameNode = classRoot.getSecond();
     classNameNode.vref = instanceName;
     const new_class = new RangerAppClassDesc();
@@ -7173,7 +7240,8 @@ class RangerAppWriterContext  {
     if ( t_2.has_constructor ) {
       ctx.addError(traitClassDef, ("Can not join trait " + name) + " because it has a constructor function");
     } else {
-      const origBody = cl.node.children[2];
+      const classNode = cl.node;
+      const origBody = classNode.children[2];
       const match = new RangerArgMatch();
       const params = t_2.node.getExpressionProperty("params");
       const traitParams = new RangerTraitParams();
@@ -7305,7 +7373,8 @@ class RangerAppWriterContext  {
   createOperator (fromNode) {
     const root = this.getRoot();
     if ( root.initStdCommands() ) {
-      root.stdCommands.children.push(fromNode);
+      const commands = root.stdCommands;
+      commands.children.push(fromNode);
     }
   };
   findClassMethod (cname, fname) {
@@ -7950,13 +8019,14 @@ class SourceMapBuilder  {
     if ( typeof(node.code) === "undefined" ) {
       return;
     }
+    const source = node.code;
     const srcFile = node.getFilename();
-    const srcContent = node.code.code;
+    const srcContent = source.code;
     let origLine = node.getLine();
     if ( origLine < 0 ) {
       origLine = node.row;
     }
-    let origCol = node.code.getColumn(node.sp);
+    let origCol = source.getColumn(node.sp);
     if ( origCol < 0 ) {
       origCol = 0;
     }
@@ -8863,11 +8933,13 @@ class CodeFile  {
     return this.import_names;
   };
   getWriter () {
-    this.writer.ownerFile = this;
+    const fileWriter = this.writer;
+    fileWriter.ownerFile = this;
     return this.writer;
   };
   getCode () {
-    return this.writer.getCode();
+    const fileWriter = this.writer;
+    return fileWriter.getCode();
   };
 }
 class CodeFileSystem  {
@@ -9113,7 +9185,8 @@ class CodeWriter  {
       }
       return new CodeFileSystem();
     }
-    const fs = this.ownerFile.fileSystem;
+    const file = this.ownerFile;
+    const fs = file.fileSystem;
     return fs;
   };
   getFileWriter (path, fileName) {
@@ -9122,7 +9195,8 @@ class CodeWriter  {
         return this.parent.getFileWriter(path, fileName);
       }
     }
-    const fs = this.ownerFile.fileSystem;
+    const fileOwner = this.ownerFile;
+    const fs = fileOwner.fileSystem;
     const file = fs.getFile(path, fileName);
     const wr = file.getWriter();
     return wr;
@@ -9348,7 +9422,8 @@ class CodeWriter  {
     this.currentLine = lineBefore + str;
     this.advanceColumnForString(str);
     if ( newLine ) {
-      this.current_slice.code = (this.current_slice.code + this.currentLine) + this.nlStr;
+      const slice = this.current_slice;
+      slice.code = (slice.code + this.currentLine) + this.nlStr;
       this.currentLine = "";
       this.lineNumber = this.lineNumber + 1;
       this.columnNumber = 0;
@@ -9434,13 +9509,14 @@ class RangerLispParser  {
     this.code = code_module;
     this.__len = this.buff.length;
     this.rootNode = new CodeNode(this.code, 0, 0);
-    this.rootNode.double_value = 0.5;
-    this.rootNode.int_value = 1073741824 + 1073741824;
-    this.rootNode.double_value = 0.0;
-    this.rootNode.int_value = 0;
-    this.rootNode.is_block_node = true;
-    this.rootNode.expression = true;
-    this.curr_node = this.rootNode;
+    const root = this.rootNode;
+    root.double_value = 0.5;
+    root.int_value = 1073741824 + 1073741824;
+    root.double_value = 0.0;
+    root.int_value = 0;
+    root.is_block_node = true;
+    root.expression = true;
+    this.curr_node = root;
     this.parents.push(this.curr_node);
     this.paren_cnt = 1;
   }
@@ -9601,15 +9677,17 @@ class RangerLispParser  {
     }
     this.parents.pop();
     if ( (typeof(this.curr_node) !== "undefined" && this.curr_node != null )  ) {
-      this.curr_node.ep = this.i;
-      this.curr_node.infix_operator = false;
+      const current = this.curr_node;
+      current.ep = this.i;
+      current.infix_operator = false;
     }
     if ( this.parents.length > 0 ) {
       this.curr_node = this.parents[(this.parents.length - 1)];
     } else {
       this.curr_node = this.rootNode;
     }
-    this.curr_node.infix_operator = false;
+    const active = this.curr_node;
+    active.infix_operator = false;
     return true;
   };
   getOperator (s, disabled) {
@@ -9949,15 +10027,17 @@ class RangerLispParser  {
   };
   insertCallOrNode (p_node) {
     let push_target = this.curr_node;
-    if ( this.curr_node.infix_operator ) {
-      push_target = this.curr_node.infix_node;
+    const current = this.curr_node;
+    if ( current.infix_operator ) {
+      push_target = current.infix_node;
       if ( push_target.to_the_right ) {
         push_target = push_target.right_node;
         p_node.parent = push_target;
       }
     }
-    const cnt = push_target.children.length;
-    const inside_args = push_target.is_call_args;
+    const target = push_target;
+    const cnt = target.children.length;
+    const inside_args = target.is_call_args;
     let may_fold = cnt > 1;
     if ( inside_args && cnt == 1 ) {
       may_fold = true;
@@ -9971,12 +10051,12 @@ class RangerLispParser  {
       }
     }
     if ( may_fold ) {
-      const callee = push_target.children[(cnt - 1)];
+      const callee = target.children[(cnt - 1)];
       if ( cnt > 2 && this.isChainTailCallee(callee, this.i) ) {
-        const prevGroup = push_target.children[(cnt - 2)];
+        const prevGroup = target.children[(cnt - 2)];
         const continues = this.isCallChainOnNode(prevGroup);
         if ( continues && callee.sp == prevGroup.ep ) {
-          const movedTail = push_target.children.splice(cnt - 1, 1).pop();
+          const movedTail = target.children.splice(cnt - 1, 1).pop();
           movedTail.parent = prevGroup;
           p_node.parent = prevGroup;
           p_node.is_call_args = true;
@@ -9989,65 +10069,69 @@ class RangerLispParser  {
       if ( this.isPlainDotCallee(callee, this.i) ) {
         const callGroup = new CodeNode(this.code, callee.sp, this.i);
         callGroup.expression = true;
-        callGroup.parent = push_target;
-        const moved = push_target.children.splice(cnt - 1, 1).pop();
+        callGroup.parent = target;
+        const moved = target.children.splice(cnt - 1, 1).pop();
         moved.parent = callGroup;
         p_node.parent = callGroup;
         callGroup.children.push(moved);
         callGroup.children.push(p_node);
         p_node.is_call_args = true;
         this.last_call_group = callGroup;
-        push_target.children.push(callGroup);
+        target.children.push(callGroup);
         return true;
       }
     }
-    if ( push_target.is_block_node ) {
+    if ( target.is_block_node ) {
       this.attachPendingComments(p_node);
     }
     if ( cnt == 1 ) {
-      const onlyCh = push_target.children[0];
+      const onlyCh = target.children[0];
       if ( this.isPlainDotCallee(onlyCh, this.i) ) {
         p_node.is_call_args = true;
       }
     }
-    push_target.children.push(p_node);
+    target.children.push(p_node);
     return false;
   };
   tryCloseCallArgParenBeforeInfix () {
-    const pr = this.curr_node.parent;
+    const current = this.curr_node;
+    const pr = current.parent;
     if ( typeof(pr) === "undefined" ) {
       return false;
     }
-    if ( this.curr_node.children.length < 1 ) {
+    const parentNode = pr;
+    if ( current.children.length < 1 ) {
       return false;
     }
-    const prCnt = pr.children.length;
+    const prCnt = parentNode.children.length;
     if ( prCnt < 2 ) {
       return false;
     }
-    const prevCh = pr.children[(prCnt - 2)];
+    const prevCh = parentNode.children[(prCnt - 2)];
     if ( this.isDotVRef(prevCh) == false ) {
       return false;
     }
     this.paren_cnt = this.paren_cnt - 1;
     this.parents.pop();
-    this.curr_node.ep = this.i;
-    this.curr_node = pr;
+    current.ep = this.i;
+    this.curr_node = parentNode;
     return true;
   };
   insert_node (p_node) {
     let push_target = this.curr_node;
-    if ( this.curr_node.infix_operator ) {
-      push_target = this.curr_node.infix_node;
+    const current = this.curr_node;
+    if ( current.infix_operator ) {
+      push_target = current.infix_node;
       if ( push_target.to_the_right ) {
         push_target = push_target.right_node;
         p_node.parent = push_target;
       }
     }
-    if ( push_target.is_block_node ) {
+    const target = push_target;
+    if ( target.is_block_node ) {
       this.attachPendingComments(p_node);
     }
-    push_target.children.push(p_node);
+    target.children.push(p_node);
   };
   attachPendingComments (node) {
     if ( this.pending_comments.length == 0 ) {
@@ -10117,7 +10201,7 @@ class RangerLispParser  {
         new_attr.parsed_type = new_attr.value_type;
         new_attr.vref = r_cb_dec.decode(s.subarray(an_sp, an_ep + 1));
         new_attr.string_value = r_cb_dec.decode(s.subarray(sp, ep));
-        this.curr_node.attrs.push(new_attr);
+        cNode.attrs.push(new_attr);
         this.curr_node = new_attr;
         this.paren_cnt = this.paren_cnt + 1;
         const new_qnode = new CodeNode(this.code, this.i, this.i);
@@ -10146,7 +10230,10 @@ class RangerLispParser  {
           new_attr_1.parsed_type = new_attr_1.value_type;
           new_attr_1.vref = r_cb_dec.decode(s.subarray(an_sp, an_ep + 1));
           new_attr_1.string_value = r_cb_dec.decode(s.subarray(sp, ep));
-          this.curr_node.attrs.push(new_attr_1);
+          if ( (typeof(this.curr_node) !== "undefined" && this.curr_node != null )  ) {
+            const current = this.curr_node;
+            current.attrs.push(new_attr_1);
+          }
         }
         this.i = 1 + this.i;
       }
@@ -10240,7 +10327,17 @@ class RangerLispParser  {
         tag_depth = tag_depth + 1;
         ep = this.i;
         const new_tag = r_cb_dec.decode(s.subarray(sp, ep));
-        if ( typeof(this.curr_node) === "undefined" ) {
+        if ( (typeof(this.curr_node) !== "undefined" && this.curr_node != null )  ) {
+          const current = this.curr_node;
+          const new_node_2 = new CodeNode(this.code, sp, ep);
+          new_node_2.vref = new_tag;
+          new_node_2.value_type = 22;
+          new_node_2.parsed_type = new_node_2.value_type;
+          current.children.push(new_node_2);
+          new_node_2.parent = current;
+          this.parents.push(new_node_2);
+          this.curr_node = new_node_2;
+        } else {
           const new_rnode = new CodeNode(this.code, sp, ep);
           new_rnode.vref = new_tag;
           new_rnode.value_type = 22;
@@ -10248,15 +10345,6 @@ class RangerLispParser  {
           this.rootNode = new_rnode;
           this.parents.push(new_rnode);
           this.curr_node = new_rnode;
-        } else {
-          const new_node_2 = new CodeNode(this.code, sp, ep);
-          new_node_2.vref = new_tag;
-          new_node_2.value_type = 22;
-          new_node_2.parsed_type = new_node_2.value_type;
-          this.curr_node.children.push(new_node_2);
-          new_node_2.parent = this.curr_node;
-          this.parents.push(new_node_2);
-          this.curr_node = new_node_2;
         }
         if ( this.parse_attributes(s) ) {
           this.parents.pop();
@@ -10373,13 +10461,17 @@ class RangerLispParser  {
             break;
           }
           new_node = new CodeNode(this.code, sp, this.i);
-          new_node.parsed_type = 12;
-          new_node.value_type = 12;
-          new_node.string_value = r_cb_dec.decode(s.subarray(sp, this.i));
-          if ( this.curr_node.is_block_node ) {
-            this.pending_comments.push(new_node);
-          } else {
-            this.curr_node.comments.push(new_node);
+          const commentNode = new_node;
+          commentNode.parsed_type = 12;
+          commentNode.value_type = 12;
+          commentNode.string_value = r_cb_dec.decode(s.subarray(sp, this.i));
+          if ( (typeof(this.curr_node) !== "undefined" && this.curr_node != null )  ) {
+            const current = this.curr_node;
+            if ( current.is_block_node ) {
+              this.pending_comments.push(commentNode);
+            } else {
+              current.comments.push(commentNode);
+            }
           }
           continue;
         }
@@ -10388,10 +10480,11 @@ class RangerLispParser  {
           if ( c == 40 || c == (123) ) {
             this.paren_cnt = this.paren_cnt + 1;
             if ( typeof(this.curr_node) === "undefined" ) {
-              this.rootNode = new CodeNode(this.code, this.i, this.i);
-              this.curr_node = this.rootNode;
-              this.curr_node.expression = true;
-              this.parents.push(this.curr_node);
+              const newRoot = new CodeNode(this.code, this.i, this.i);
+              this.rootNode = newRoot;
+              this.curr_node = newRoot;
+              newRoot.expression = true;
+              this.parents.push(newRoot);
             } else {
               const new_qnode = new CodeNode(this.code, this.i, this.i);
               new_qnode.expression = true;
@@ -10407,10 +10500,11 @@ class RangerLispParser  {
               this.parents.push(new_qnode);
               this.curr_node = new_qnode;
             }
+            const current_1 = this.curr_node;
             if ( c == (123) ) {
-              this.curr_node.is_block_node = true;
+              current_1.is_block_node = true;
             }
-            const closedNode = this.curr_node;
+            const closedNode = current_1;
             const closedWasCall = did_fold_call;
             this.i = 1 + this.i;
             this.parseBuf(s, disable_ops_set);
@@ -10593,13 +10687,16 @@ class RangerLispParser  {
               const ch1 = a_node2.children[0];
               use_first = ch1.isPrimitive();
             }
-            if ( use_first ) {
-              const theNode = a_node2.children.splice(0, 1).pop();
-              this.curr_node.props[a_name] = theNode;
-            } else {
-              this.curr_node.props[a_name] = a_node2;
+            if ( (typeof(this.curr_node) !== "undefined" && this.curr_node != null )  ) {
+              const current_2 = this.curr_node;
+              if ( use_first ) {
+                const theNode = a_node2.children.splice(0, 1).pop();
+                current_2.props[a_name] = theNode;
+              } else {
+                current_2.props[a_name] = a_node2;
+              }
+              current_2.prop_keys.push(a_name);
             }
-            this.curr_node.prop_keys.push(a_name);
             continue;
           }
         }
@@ -10610,7 +10707,8 @@ class RangerLispParser  {
         let vref_ann_node;
         let vref_end = this.i;
         if ( ((((this.i < this.__len && s[this.i] > 32) && c != 58) && c != 40) && c != 41) && c != (125) ) {
-          if ( this.curr_node.is_block_node == true && s[this.i] == (46) ) {
+          const current_3 = this.curr_node;
+          if ( current_3.is_block_node == true && s[this.i] == (46) ) {
             let didRewrite65 = false;
             if ( this.i > 0 ) {
               if ( s[(this.i - 1)] == (41) ) {
@@ -10643,8 +10741,8 @@ class RangerLispParser  {
                     }
                   }
                 }
-                if ( (isAssign65 && fp_ep - fp_sp > 1) && this.curr_node.children.length > 0 ) {
-                  const blk65 = this.curr_node;
+                if ( (isAssign65 && fp_ep - fp_sp > 1) && current_3.children.length > 0 ) {
+                  const blk65 = current_3;
                   const recv65 = blk65.children.splice(blk65.children.length - 1, 1).pop();
                   this.recv_tmp_count = this.recv_tmp_count + 1;
                   const tmp65 = "__rgr_recv_" + (this.recv_tmp_count.toString());
@@ -10703,12 +10801,12 @@ class RangerLispParser  {
             this.had_error = true;
             break;
           }
-          if ( this.curr_node.is_block_node == true ) {
+          if ( current_3.is_block_node == true ) {
             const new_expr_node = new CodeNode(this.code, sp, ep);
             this.attachPendingComments(new_expr_node);
-            new_expr_node.parent = this.curr_node;
+            new_expr_node.parent = current_3;
             new_expr_node.expression = true;
-            this.curr_node.children.push(new_expr_node);
+            current_3.children.push(new_expr_node);
             this.curr_node = new_expr_node;
             this.parents.push(new_expr_node);
             this.paren_cnt = 1 + this.paren_cnt;
@@ -10785,7 +10883,8 @@ class RangerLispParser  {
               new_expr_node_1.vref_annotation = vref_ann_node;
               new_expr_node_1.has_vref_annotation = true;
             }
-            this.curr_node.children.push(new_expr_node_1);
+            const current_4 = this.curr_node;
+            current_4.children.push(new_expr_node_1);
             continue;
           }
           if ( c == (91) ) {
@@ -10839,8 +10938,9 @@ class RangerLispParser  {
                 new_hash_node.type_annotation = vann_hash;
                 new_hash_node.has_type_annotation = true;
               }
-              new_hash_node.parent = this.curr_node;
-              this.curr_node.children.push(new_hash_node);
+              const current_5 = this.curr_node;
+              new_hash_node.parent = current_5;
+              current_5.children.push(new_hash_node);
               this.i = 1 + this.i;
               continue;
             } else {
@@ -10852,8 +10952,9 @@ class RangerLispParser  {
               new_arr_node.parsed_type = 6;
               new_arr_node.value_type = 6;
               new_arr_node.array_type = type_name_1;
-              new_arr_node.parent = this.curr_node;
-              this.curr_node.children.push(new_arr_node);
+              const current_6 = this.curr_node;
+              new_arr_node.parent = current_6;
+              current_6.children.push(new_arr_node);
               if ( vref_had_type_ann ) {
                 new_arr_node.vref_annotation = vref_ann_node;
                 new_arr_node.has_vref_annotation = true;
@@ -10886,12 +10987,13 @@ class RangerLispParser  {
             new_ref_node.parsed_type = 11;
             new_ref_node.value_type = 11;
             new_ref_node.type_name = r_cb_dec.decode(s.subarray(vt_sp, vt_ep));
-            new_ref_node.parent = this.curr_node;
+            const current_7 = this.curr_node;
+            new_ref_node.parent = current_7;
             if ( vref_had_type_ann ) {
               new_ref_node.vref_annotation = vref_ann_node;
               new_ref_node.has_vref_annotation = true;
             }
-            this.curr_node.children.push(new_ref_node);
+            current_7.children.push(new_ref_node);
             if ( had_type_ann ) {
               const vann = this.parse_raw_annotation();
               new_ref_node.type_annotation = vann;
@@ -10906,26 +11008,26 @@ class RangerLispParser  {
             new_vref_node.parsed_type = 11;
             new_vref_node.value_type = 11;
             new_vref_node.ns = ns_list;
-            new_vref_node.parent = this.curr_node;
+            const current_8 = this.curr_node;
+            new_vref_node.parent = current_8;
             const op_pred = this.getOperatorPred(new_vref_node.vref, disable_ops_set);
             if ( new_vref_node.vref == "," ) {
-              this.curr_node.infix_operator = false;
+              current_8.infix_operator = false;
               continue;
             }
             if ( this.isComparisonOpPred(op_pred) ) {
               this.tryCloseCallArgParenBeforeInfix();
             }
-            if ( this.isFoldableInfixPred(op_pred) && false == this.curr_node.infix_operator ) {
-              const cn = this.curr_node;
-              if ( this.isDotCallPairOnNode(cn) ) {
-                this.foldDotCallPairToGroup(cn);
+            if ( this.isFoldableInfixPred(op_pred) && false == current_8.infix_operator ) {
+              if ( this.isDotCallPairOnNode(current_8) ) {
+                this.foldDotCallPairToGroup(current_8);
               } else {
-                this.foldCallChainToGroup(cn);
+                this.foldCallChainToGroup(current_8);
               }
             }
-            let pTarget = this.curr_node;
-            if ( this.curr_node.infix_operator ) {
-              const iNode = this.curr_node.infix_node;
+            let pTarget = current_8;
+            if ( current_8.infix_operator ) {
+              const iNode = current_8.infix_node;
               if ( op_pred > 0 || iNode.to_the_right == false ) {
                 pTarget = iNode;
               } else {
@@ -11015,37 +11117,38 @@ class RangerLispParser  {
                 }
               }
             }
-            pTarget.children.push(new_vref_node);
+            const insertionTarget = pTarget;
+            insertionTarget.children.push(new_vref_node);
             if ( vref_had_type_ann ) {
               new_vref_node.vref_annotation = vref_ann_node;
               new_vref_node.has_vref_annotation = true;
             }
             if ( this.i + 1 < this.__len ) {
               if ( s[(this.i + 1)] == (40) || s[(this.i + 0)] == (40) ) {
-                if ( (0 == op_pred && this.curr_node.infix_operator) && 1 == this.curr_node.children.length ) {
+                if ( (0 == op_pred && current_8.infix_operator) && 1 == current_8.children.length ) {
                 }
               }
             }
-            if ( op_pred > 0 && this.curr_node.infix_operator || op_pred > 0 && this.curr_node.children.length >= 2 ) {
-              if ( op_pred == 3 && 2 == this.curr_node.children.length ) {
-                const n_ch = this.curr_node.children.splice(0, 1).pop();
-                this.curr_node.children.push(n_ch);
+            if ( op_pred > 0 && current_8.infix_operator || op_pred > 0 && current_8.children.length >= 2 ) {
+              if ( op_pred == 3 && 2 == current_8.children.length ) {
+                const n_ch = current_8.children.splice(0, 1).pop();
+                current_8.children.push(n_ch);
               } else {
-                if ( false == this.curr_node.infix_operator ) {
+                if ( false == current_8.infix_operator ) {
                   const if_node = new CodeNode(this.code, sp, ep);
-                  this.curr_node.infix_node = if_node;
-                  this.curr_node.infix_operator = true;
+                  current_8.infix_node = if_node;
+                  current_8.infix_operator = true;
                   if_node.infix_subnode = true;
-                  this.curr_node.value_type = 0;
-                  this.curr_node.parsed_type = this.curr_node.value_type;
-                  this.curr_node.expression = true;
+                  current_8.value_type = 0;
+                  current_8.parsed_type = current_8.value_type;
+                  current_8.expression = true;
                   if_node.expression = true;
-                  let ch_cnt = this.curr_node.children.length;
+                  let ch_cnt = current_8.children.length;
                   let ii_1 = 0;
                   const start_from = ch_cnt - 2;
                   const keep_nodes = new CodeNode(this.code, sp, ep);
                   while (ch_cnt > 0) {
-                    const n_ch_1 = this.curr_node.children.splice(0, 1).pop();
+                    const n_ch_1 = current_8.children.splice(0, 1).pop();
                     let p_target = if_node;
                     if ( ii_1 < start_from || n_ch_1.infix_subnode ) {
                       p_target = keep_nodes;
@@ -11056,11 +11159,11 @@ class RangerLispParser  {
                   };
                   // Loop start
                   for ( const keep of keep_nodes.children) {
-                    this.curr_node.children.push(keep);
+                    current_8.children.push(keep);
                   }
-                  this.curr_node.children.push(if_node);
+                  current_8.children.push(if_node);
                 }
-                const ifNode = this.curr_node.infix_node;
+                const ifNode = current_8.infix_node;
                 const new_op_node = new CodeNode(this.code, sp, ep);
                 new_op_node.expression = true;
                 new_op_node.parent = ifNode;
@@ -11106,11 +11209,15 @@ class RangerLispParser  {
           }
         }
         if ( c == 41 || c == (125) ) {
-          if ( this.curr_node.is_block_node ) {
-            this.attachPendingComments(this.curr_node);
-          }
-          if ( (c == (125) && is_block_parent) && this.curr_node.children.length > 0 ) {
-            this.end_expression(false);
+          if ( (typeof(this.curr_node) !== "undefined" && this.curr_node != null )  ) {
+            const current_9 = this.curr_node;
+            if ( current_9.is_block_node ) {
+              this.attachPendingComments(current_9);
+            }
+            if ( (c == (125) && is_block_parent) && current_9.children.length > 0 ) {
+              this.end_expression(false);
+            }
+            current_9.ep = this.i + 1;
           }
           this.i = 1 + this.i;
           this.paren_cnt = this.paren_cnt - 1;
@@ -11118,9 +11225,6 @@ class RangerLispParser  {
             break;
           }
           this.parents.pop();
-          if ( (typeof(this.curr_node) !== "undefined" && this.curr_node != null )  ) {
-            this.curr_node.ep = this.i;
-          }
           if ( this.parents.length > 0 ) {
             this.curr_node = this.parents[(this.parents.length - 1)];
           } else {
@@ -11380,10 +11484,14 @@ class RangerArgMatch  {
       }
       if ( arg.value_type != 7 && arg.value_type != 6 ) {
         if ( (typeof(callArg.paramDesc) !== "undefined" && callArg.paramDesc != null )  ) {
-          if ( ((typeof(callArg.paramDesc.nameNode) !== "undefined" && callArg.paramDesc.nameNode != null ) ) && ((typeof(callArg.paramDesc.nameNode.expression_value) !== "undefined" && callArg.paramDesc.nameNode.expression_value != null ) ) ) {
-            this.matched[arg.type_name] = "";
-            this.matchedLambdas[arg.type_name] = callArg.paramDesc.nameNode.expression_value;
-            continue;
+          const paramDesc = callArg.paramDesc;
+          if ( (typeof(paramDesc.nameNode) !== "undefined" && paramDesc.nameNode != null )  ) {
+            const nameNode = paramDesc.nameNode;
+            if ( (typeof(nameNode.expression_value) !== "undefined" && nameNode.expression_value != null )  ) {
+              this.matched[arg.type_name] = "";
+              this.matchedLambdas[arg.type_name] = nameNode.expression_value;
+              continue;
+            }
           }
         }
         if ( callArg.eval_type == 13 ) {
@@ -12058,13 +12166,14 @@ class DictNode  {
     if ( this.value_type == 6 ) {
       const p = new DictNode();
       v = new DictNode();
+      const objectValue = v;
       p.value_type = 6;
       p.vref = key;
       p.is_property = true;
-      v.value_type = 6;
-      v.vref = key;
-      v.is_property_value = true;
-      p.object_value = v;
+      objectValue.value_type = 6;
+      objectValue.vref = key;
+      objectValue.is_property_value = true;
+      p.object_value = objectValue;
       this.dict_keys.push(key);
       this.objects[key] = p;
       return v;
@@ -12088,11 +12197,12 @@ class DictNode  {
     let v;
     if ( this.value_type == 6 ) {
       v = new DictNode();
-      v.value_type = 5;
-      v.vref = key;
-      v.is_property = true;
+      const arrayValue = v;
+      arrayValue.value_type = 5;
+      arrayValue.vref = key;
+      arrayValue.is_property = true;
       this.dict_keys.push(key);
-      this.objects[key] = v;
+      this.objects[key] = arrayValue;
       return v;
     }
     return v;
@@ -13036,16 +13146,19 @@ class RangerProcessCodegen  {
   };
   writeNewArgs (node, ctx, wr, writer) {
     const givenArgs = node.getThird();
-    const constr = node.clDesc.constructor_fn;
-    if ( (typeof(constr) === "undefined") == false ) {
-      // Loop start
-      for ( let i = 0; i < constr.params.length; i++) {
-        var arg = constr.params[i];
-        const argNode = givenArgs.children[i];
-        if ( i > 0 ) {
-          wr.out(", ", false);
+    if ( (typeof(node.clDesc) !== "undefined" && node.clDesc != null )  ) {
+      const classDesc = node.clDesc;
+      if ( (typeof(classDesc.constructor_fn) !== "undefined" && classDesc.constructor_fn != null )  ) {
+        const constr = classDesc.constructor_fn;
+        // Loop start
+        for ( let i = 0; i < constr.params.length; i++) {
+          var arg = constr.params[i];
+          const argNode = givenArgs.children[i];
+          if ( i > 0 ) {
+            wr.out(", ", false);
+          }
+          writer.walkNewArgForProcess(argNode, ctx, wr);
         }
-        writer.walkNewArgForProcess(argNode, ctx, wr);
       }
     }
   };
@@ -13888,13 +14001,14 @@ class RangerFlowParser  {
         if ( is_chaining ) {
           const chainResult = innerNode;
           chainResult.finalizeAsCallChainRoot();
-          if ( last_is_assign ) {
-            while (assignNode.children.length > 3) {
-              assignNode.children.pop();
+          if ( last_is_assign && ((typeof(assignNode) !== "undefined" && assignNode != null ) ) ) {
+            const assignment = assignNode;
+            while (assignment.children.length > 3) {
+              assignment.children.pop();
             };
-            if ( assignNode.children.length >= 3 ) {
-              assignNode.children.pop();
-              assignNode.children.push(chainResult);
+            if ( assignment.children.length >= 3 ) {
+              assignment.children.pop();
+              assignment.children.push(chainResult);
             }
           } else {
             let kept = [];
@@ -14218,11 +14332,13 @@ class RangerFlowParser  {
                     ctx.addError(sec, "invalid property " + method_name);
                     return;
                   }
-                  if ( typeof(p.nameNode) === "undefined" ) {
+                  const propertyDesc = p;
+                  if ( typeof(propertyDesc.nameNode) === "undefined" ) {
                     ctx.addError(sec, "invalid property " + method_name);
                     return;
                   }
-                  classDesc = ctx.findClass(p.nameNode.type_name);
+                  const propertyName = propertyDesc.nameNode;
+                  classDesc = ctx.findClass(propertyName.type_name);
                   calledItem = CodeNode.fromList([CodeNode.vref1("property"), calledItem.copy(), CodeNode.vref1(item)]);
                   method_name = item;
                 } catch(e) {
@@ -14291,10 +14407,11 @@ class RangerFlowParser  {
         if ( i == 0 && node.children.length == 2 ) {
           if ( item.eval_type == 31 && ((typeof(item.paramDesc) !== "undefined" && item.paramDesc != null ) ) ) {
             const mDesc = item.paramDesc;
-            node.eval_type = mDesc.nameNode.value_type;
-            node.eval_type_name = mDesc.nameNode.type_name;
-            node.eval_array_type = mDesc.nameNode.array_type;
-            node.eval_key_type = mDesc.nameNode.eval_key_type;
+            const methodName = mDesc.nameNode;
+            node.eval_type = methodName.value_type;
+            node.eval_type_name = methodName.type_name;
+            node.eval_array_type = methodName.array_type;
+            node.eval_key_type = methodName.eval_key_type;
             node.is_direct_method_call = true;
             return true;
           }
@@ -14501,13 +14618,23 @@ class RangerFlowParser  {
     if ( rootObjName == "this" || ctx.isVarDefined(rootObjName) ) {
       if ( node.ns.length == 2 && ctx.isVarDefined(rootObjName) ) {
         const rootDef = ctx.getVariableDef(rootObjName);
-        if ( ((typeof(rootDef.nameNode) !== "undefined" && rootDef.nameNode != null ) ) && rootDef.nameNode.type_name.length > 0 ) {
-          const gType = rootDef.nameNode.type_name;
-          const fieldName = node.ns[1];
-          if ( this.shapeGroupHasField(gType, fieldName) ) {
-            const recv = node.newVRefNode(rootObjName);
-            this.rewriteToGroupFieldGet(node, recv, fieldName, gType, ctx, wr);
-            return;
+        if ( (typeof(rootDef.nameNode) !== "undefined" && rootDef.nameNode != null )  ) {
+          const rootName = rootDef.nameNode;
+          if ( rootName.type_name.length > 0 ) {
+            const gType = rootName.type_name;
+            const fieldName = node.ns[1];
+            if ( this.shapeGroupHasField(gType, fieldName) ) {
+              const recv = node.newVRefNode(rootObjName);
+              this.rewriteToGroupFieldGet(
+                node,
+                recv,
+                fieldName,
+                gType,
+                ctx,
+                wr
+              );
+              return;
+            }
           }
         }
       }
@@ -14567,9 +14694,13 @@ class RangerFlowParser  {
         if ( ((opList.length > 0 || node.vref == "fun") || node.vref == "fn") || node.hasFlag("keyword") ) {
         } else {
           ctx.addError(node, (((("WriteVREF -> Undefined variable " + node.vref) + " in class ") + desc.name) + " node : ") + node.getCode());
-          ctx.addError(node, (((("WriteVREF -> Undefined variable " + rootObjName) + " in class ") + desc.name) + " node : ") + node.parent.getCode());
-          if ( (typeof(node.parent.parent) !== "undefined" && node.parent.parent != null )  ) {
-            ctx.addError(node, (((("WriteVREF -> Undefined variable " + rootObjName) + " in class ") + desc.name) + " node : ") + node.parent.parent.getCode());
+          if ( (typeof(node.parent) !== "undefined" && node.parent != null )  ) {
+            const parent = node.parent;
+            ctx.addError(node, (((("WriteVREF -> Undefined variable " + rootObjName) + " in class ") + desc.name) + " node : ") + parent.getCode());
+            if ( (typeof(parent.parent) !== "undefined" && parent.parent != null )  ) {
+              const grandparent = parent.parent;
+              ctx.addError(node, (((("WriteVREF -> Undefined variable " + rootObjName) + " in class ") + desc.name) + " node : ") + grandparent.getCode());
+            }
           }
         }
       }
@@ -14755,10 +14886,11 @@ class RangerFlowParser  {
       for ( let i_1 = 0; i_1 < ctorFn_1.params.length; i_1++) {
         var param = ctorFn_1.params[i_1];
         let has_default = false;
-        if ( param.nameNode.hasFlag("default") ) {
+        const parameterName = param.nameNode;
+        if ( parameterName.hasFlag("default") ) {
           has_default = true;
         }
-        if ( param.nameNode.hasFlag("keyword") ) {
+        if ( parameterName.hasFlag("keyword") ) {
           continue;
         }
         if ( params.children.length <= i_1 ) {
@@ -14766,13 +14898,18 @@ class RangerFlowParser  {
             continue;
           }
           ctx.addError(node, "Missing arguments for function");
-          ctx.addError(param.nameNode, "To fix the previous error: Check original function declaration");
+          ctx.addError(parameterName, "To fix the previous error: Check original function declaration");
         }
         const argNode = params.children[i_1];
-        if ( false == this.areEqualTypes(param.nameNode, argNode, ctx, wr) ) {
-          ctx.addError(argNode, ("ERROR, invalid argument type for " + currC.name) + " constructor ");
+        if ( false == this.areEqualTypes(parameterName, argNode, ctx, wr) ) {
+          let className = "";
+          if ( (typeof(currC) !== "undefined" && currC != null )  ) {
+            const currentClass = currC;
+            className = currentClass.name;
+          }
+          ctx.addError(argNode, ("ERROR, invalid argument type for " + className) + " constructor ");
         }
-        const pNode = param.nameNode;
+        const pNode = parameterName;
         if ( pNode.hasFlag("optional") ) {
         }
         if ( argNode.hasFlag("optional") ) {
@@ -14896,9 +15033,10 @@ class RangerFlowParser  {
         wr.out(("if(className == '" + item.name) + "') {", true);
         wr.indent(1);
         operatorsOf.forEach_3(item.variables, ((item, index) => { 
+          const variableName = item.nameNode;
           wr.out("def f (new RTTIClassField)", true);
           wr.out(("f.name = `" + item.compiledName) + "`", true);
-          wr.out(("f.type_name = `" + item.nameNode.type_name) + "`", true);
+          wr.out(("f.type_name = `" + variableName.type_name) + "`", true);
           wr.out("push fields f", true);
         }));
         wr.indent(-1);
@@ -14995,7 +15133,8 @@ class RangerFlowParser  {
               const paramClassDef_2 = ctx.findClass(itemCopy_1.eval_array_type);
               const chNode_2 = item;
               operatorsOf.forEach_3(rootClassDef.variables, ((item, index) => { 
-                if ( match.areEqualATypes(item.nameNode.array_type, itemCopy_1.eval_array_type, ctx) ) {
+                const variableName = item.nameNode;
+                if ( match.areEqualATypes(variableName.array_type, itemCopy_1.eval_array_type, ctx) ) {
                   const t_1 = CodeNode.vref1("tmp");
                   t_1.setFlag("temp");
                   opBody.children.push(CodeNode.fromList([CodeNode.vref1("forEach"), theNode_1.copy(), CodeNode.blockFromList([CodeNode.fromList([CodeNode.vref1("def"), t_1, CodeNode.vref1("item")]), CodeNode.fromList([CodeNode.vref1("push"), CodeNode.vref1((regName + ".") + item.name), CodeNode.vref1("tmp")])])]));
@@ -15011,7 +15150,8 @@ class RangerFlowParser  {
             const paramClassDef_3 = ctx.findClass(item.vref);
             const chNode_3 = item;
             operatorsOf.forEach_3(rootClassDef.variables, ((item, index) => { 
-              if ( match.areEqualATypes(item.nameNode.array_type, chNode_3.vref, ctx) ) {
+              const variableName_1 = item.nameNode;
+              if ( match.areEqualATypes(variableName_1.array_type, chNode_3.vref, ctx) ) {
                 currCnt = currCnt + 1;
                 const regN_1 = "r" + currCnt;
                 currCnt = this.walkXmlCreate(
@@ -15089,8 +15229,9 @@ class RangerFlowParser  {
       this.markCalledFromMain(item, ctx);
     }));
     if ( (typeof(f.container_class) !== "undefined" && f.container_class != null )  ) {
-      if ( (typeof(f.container_class.constructor_fn) !== "undefined" && f.container_class.constructor_fn != null )  ) {
-        this.markCalledFromMain(f.container_class.constructor_fn, ctx);
+      const containerClass = f.container_class;
+      if ( (typeof(containerClass.constructor_fn) !== "undefined" && containerClass.constructor_fn != null )  ) {
+        this.markCalledFromMain(containerClass.constructor_fn, ctx);
       }
     }
   };
@@ -15188,7 +15329,9 @@ class RangerFlowParser  {
         for ( let i = 0; i < cl.static_methods.length; i++) {
           var variant = cl.static_methods[i];
           ctx.disableCurrentClass();
-          if ( variant.nameNode.hasFlag("main") && variant.nameNode.code.filename == ctx.getRootFile() ) {
+          const variantName = variant.nameNode;
+          const variantSource = variantName.code;
+          if ( variantName.hasFlag("main") && variantSource.filename == ctx.getRootFile() ) {
             mainFn = variant;
             mainFn.addClassUsage(cl, ctx);
           }
@@ -15329,7 +15472,8 @@ class RangerFlowParser  {
     const callArgs_2 = node.children[3];
     this.WalkNode(obj_2, ctx, wr);
     if ( ctx.isDefinedClass(obj_2.eval_type_name) == false && ((typeof(obj_2.clDesc) !== "undefined" && obj_2.clDesc != null ) ) ) {
-      obj_2.eval_type_name = obj_2.clDesc.name;
+      const objectClass = obj_2.clDesc;
+      obj_2.eval_type_name = objectClass.name;
     }
     ctx.setInExpr();
     // Loop start
@@ -15342,17 +15486,20 @@ class RangerFlowParser  {
       let m;
       if ( cl.hasMethod(method_2.vref) ) {
         const mVs = ( Object.prototype.hasOwnProperty.call(cl.method_variants, method_2.vref) ? cl.method_variants[method_2.vref] : undefined );
-        if ( ((typeof(mVs) !== "undefined" && mVs != null ) ) && mVs.variants.length > 0 ) {
-          m = this.matchMethodCall(
-            cl,
-            method_2.vref,
-            callArgs_2,
-            ctx,
-            wr,
-            node
-          );
-          if ( typeof(m) === "undefined" ) {
-            return false;
+        if ( (typeof(mVs) !== "undefined" && mVs != null )  ) {
+          const variants = mVs;
+          if ( variants.variants.length > 0 ) {
+            m = this.matchMethodCall(
+              cl,
+              method_2.vref,
+              callArgs_2,
+              ctx,
+              wr,
+              node
+            );
+            if ( typeof(m) === "undefined" ) {
+              return false;
+            }
           }
         }
       }
@@ -15363,18 +15510,19 @@ class RangerFlowParser  {
         }
       }
       if ( (typeof(m) !== "undefined" && m != null )  ) {
+        const methodDesc = m;
+        const nn = methodDesc.nameNode;
         node.has_call = true;
-        node.fnDesc = m;
+        node.fnDesc = methodDesc;
         const currM = ctx.getCurrentMethod();
-        currM.addCallTo(m);
-        const nn = m.nameNode;
+        currM.addCallTo(methodDesc);
         node.eval_type = nn.typeNameAsType(ctx);
         node.eval_type_name = nn.type_name;
         node.eval_array_type = nn.array_type;
         node.eval_key_type = nn.key_type;
-        if ( m.nameNode.hasFlag("throws") ) {
+        if ( nn.hasFlag("throws") ) {
           if ( false == ctx.isTryBlock() ) {
-            ctx.addError(obj_2, ("The method " + m.name) + " potentially throws an exception, try { } block is required");
+            ctx.addError(obj_2, ("The method " + methodDesc.name) + " potentially throws an exception, try { } block is required");
           }
         }
         if ( nn.value_type == 20 ) {
@@ -15623,7 +15771,8 @@ class RangerFlowParser  {
             }
             arg.forTree(((item, i) => { 
               if ( (typeof(item.lambdaFnDesc) !== "undefined" && item.lambdaFnDesc != null )  ) {
-                item.lambdaFnDesc.insideFn = currM_1;
+                const nestedLambda = item.lambdaFnDesc;
+                nestedLambda.insideFn = currM_1;
               }
               if ( (typeof(item.fnDesc) !== "undefined" && item.fnDesc != null )  ) {
                 if ( (typeof(arg.lambdaFnDesc) !== "undefined" && arg.lambdaFnDesc != null )  ) {
@@ -15771,14 +15920,16 @@ class RangerFlowParser  {
     }
     if ( ctx.isVarDefined(fnNode.vref) ) {
       const d = ctx.getVariableDef(fnNode.vref);
+      const lambdaName = d.nameNode;
       d.ref_cnt = 1 + d.ref_cnt;
-      if ( d.nameNode.hasFlag("optional") ) {
+      if ( lambdaName.hasFlag("optional") ) {
         ctx.addError(node, "Can not call optional lambda function, unwrap the function first!");
       }
-      if ( d.nameNode.value_type == 20 ) {
+      if ( lambdaName.value_type == 20 ) {
         const cnNode1 = node.children[0];
         this.WalkNode(cnNode1, ctx, wr);
-        const lambdaDefArgs = d.nameNode.expression_value.children[1];
+        const lambdaExpr = lambdaName.expression_value;
+        const lambdaDefArgs = lambdaExpr.children[1];
         const callParams_1 = node.children[1];
         // Loop start
         for ( const arg_2 of callParams_1.children) {
@@ -15786,13 +15937,8 @@ class RangerFlowParser  {
           this.WalkNode(arg_2, ctx, wr);
           ctx.unsetInExpr();
         }
-        this.testLambdaCallArgs(
-          d.nameNode.expression_value,
-          callParams_1,
-          ctx,
-          wr
-        );
-        const lambdaDef = d.nameNode.expression_value.children[0];
+        this.testLambdaCallArgs(lambdaExpr, callParams_1, ctx, wr);
+        const lambdaDef = lambdaExpr.children[0];
         node.has_lambda_call = true;
         node.eval_type = lambdaDef.typeNameAsType(ctx);
         node.eval_type_name = lambdaDef.type_name;
@@ -15928,7 +16074,8 @@ class RangerFlowParser  {
             ctx.addError(sec_1, "invalid property " + item);
             return;
           }
-          classDesc = ctx.findClass(pDesc.nameNode.type_name);
+          const propertyName = pDesc.nameNode;
+          classDesc = ctx.findClass(propertyName.type_name);
         } catch(e) {
           ctx.addError(sec_1, "invalid property " + item);
         }
@@ -16069,33 +16216,36 @@ class RangerFlowParser  {
       const gRoot = target.ns[0];
       const gField = target.ns[1];
       const gRootDef = ctx.getVariableDef(gRoot);
-      if ( ((typeof(gRootDef.nameNode) !== "undefined" && gRootDef.nameNode != null ) ) && gRootDef.nameNode.type_name.length > 0 ) {
-        const gType = gRootDef.nameNode.type_name;
-        if ( this.shapeGroupHasField(gType, gField) ) {
-          if ( ( typeof(this.shapeGroupAllValue[gType] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.shapeGroupAllValue, gType) ) ) {
-            if ( ( Object.prototype.hasOwnProperty.call(this.shapeGroupAllValue, gType) ? this.shapeGroupAllValue[gType] : undefined ) ) {
-              ctx.addError(node, ("cannot assign to a field of group " + gType) + ": its members are @(value) cases and immutable");
-              return;
+      if ( (typeof(gRootDef.nameNode) !== "undefined" && gRootDef.nameNode != null )  ) {
+        const rootName = gRootDef.nameNode;
+        if ( rootName.type_name.length > 0 ) {
+          const gType = rootName.type_name;
+          if ( this.shapeGroupHasField(gType, gField) ) {
+            if ( ( typeof(this.shapeGroupAllValue[gType] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.shapeGroupAllValue, gType) ) ) {
+              if ( ( Object.prototype.hasOwnProperty.call(this.shapeGroupAllValue, gType) ? this.shapeGroupAllValue[gType] : undefined ) ) {
+                ctx.addError(node, ("cannot assign to a field of group " + gType) + ": its members are @(value) cases and immutable");
+                return;
+              }
             }
+            const rhsNode = node.getThird();
+            const opsName = gType + "__ops";
+            const callNode = node.newExpressionNode();
+            const opsRef = node.newVRefNode(((opsName + ".set_") + gField));
+            opsRef.ns.length = 0;
+            opsRef.ns.push(opsName);
+            opsRef.ns.push("set_" + gField);
+            const args = node.newExpressionNode();
+            args.children.push(node.newVRefNode(gRoot));
+            args.children.push(rhsNode.copy());
+            callNode.children.push(opsRef);
+            callNode.children.push(args);
+            node.expression = true;
+            node.flow_done = false;
+            node.value_type = 0;
+            node.getChildrenFrom(callNode);
+            this.WalkNode(node, ctx, wr);
+            return;
           }
-          const rhsNode = node.getThird();
-          const opsName = gType + "__ops";
-          const callNode = node.newExpressionNode();
-          const opsRef = node.newVRefNode(((opsName + ".set_") + gField));
-          opsRef.ns.length = 0;
-          opsRef.ns.push(opsName);
-          opsRef.ns.push("set_" + gField);
-          const args = node.newExpressionNode();
-          args.children.push(node.newVRefNode(gRoot));
-          args.children.push(rhsNode.copy());
-          callNode.children.push(opsRef);
-          callNode.children.push(args);
-          node.expression = true;
-          node.flow_done = false;
-          node.value_type = 0;
-          node.getChildrenFrom(callNode);
-          this.WalkNode(node, ctx, wr);
-          return;
         }
       }
     }
@@ -16119,15 +16269,20 @@ class RangerFlowParser  {
       }
     }
     if ( target.hasParamDesc ) {
-      if ( (typeof(target.paramDesc.propertyClass) !== "undefined" && target.paramDesc.propertyClass != null )  ) {
-        const nn = target.paramDesc.propertyClass.nameNode;
+      const targetDesc = target.paramDesc;
+      if ( (typeof(targetDesc.propertyClass) !== "undefined" && targetDesc.propertyClass != null )  ) {
+        const propertyClass = targetDesc.propertyClass;
+        const nn = propertyClass.nameNode;
         if ( nn.hasFlag("immutable") ) {
           let do_transform = false;
-          const propC = target.paramDesc.propertyClass;
+          const propC = propertyClass;
           const currC = ctx.getCurrentClass();
-          if ( currC == propC ) {
-            if ( target.ns[0] == "this" ) {
-              do_transform = true;
+          if ( (typeof(currC) !== "undefined" && currC != null )  ) {
+            const currentClass = currC;
+            if ( currentClass == propC ) {
+              if ( target.ns[0] == "this" ) {
+                do_transform = true;
+              }
             }
           } else {
             do_transform = true;
@@ -16161,12 +16316,14 @@ class RangerFlowParser  {
     }
     ctx.unsetInExpr();
     if ( n1_1.hasParamDesc ) {
-      n1_1.paramDesc.ref_cnt = n1_1.paramDesc.ref_cnt + 1;
-      n1_1.paramDesc.set_cnt = n1_1.paramDesc.set_cnt + 1;
-      n1_1.paramDesc.read_cnt = n1_1.paramDesc.read_cnt - 1;
+      const targetDesc_1 = n1_1.paramDesc;
+      targetDesc_1.ref_cnt = targetDesc_1.ref_cnt + 1;
+      targetDesc_1.set_cnt = targetDesc_1.set_cnt + 1;
+      targetDesc_1.read_cnt = targetDesc_1.read_cnt - 1;
     }
     if ( n2_1.hasParamDesc ) {
-      n2_1.paramDesc.ref_cnt = n2_1.paramDesc.ref_cnt + 1;
+      const valueDesc = n2_1.paramDesc;
+      valueDesc.ref_cnt = valueDesc.ref_cnt + 1;
     }
     if ( n2_1.hasFlag("optional") ) {
       if ( false == n1_1.hasFlag("optional") ) {
@@ -16210,8 +16367,9 @@ class RangerFlowParser  {
         ctx.unsetInExpr();
       }
       p.is_class_variable = true;
-      p.nameNode.eval_type = p.nameNode.typeNameAsType(ctx);
-      p.nameNode.eval_type_name = p.nameNode.type_name;
+      const variableName = p.nameNode;
+      variableName.eval_type = variableName.typeNameAsType(ctx);
+      variableName.eval_type_name = variableName.type_name;
     }
     // Loop start
     for ( const fNode of cBody.children) {
@@ -16270,33 +16428,35 @@ class RangerFlowParser  {
       if ( false == subCtx.isVarDefined(v.name) ) {
         subCtx.defineVariable(v.name, v);
       }
-      v.nameNode.eval_type = v.nameNode.typeNameAsType(subCtx);
-      v.nameNode.eval_type_name = v.nameNode.type_name;
-      ctx.hadValidType(v.nameNode);
-      if ( ctx.isDefinedClass(v.nameNode.type_name) ) {
-        const cl = ctx.findClass(v.nameNode.type_name);
+      const parameterName = v.nameNode;
+      parameterName.eval_type = parameterName.typeNameAsType(subCtx);
+      parameterName.eval_type_name = parameterName.type_name;
+      ctx.hadValidType(parameterName);
+      if ( ctx.isDefinedClass(parameterName.type_name) ) {
+        const cl = ctx.findClass(parameterName.type_name);
         m.addClassUsage(cl, ctx);
       }
-      if ( ctx.isDefinedClass(v.nameNode.array_type) ) {
-        const cl_1 = ctx.findClass(v.nameNode.array_type);
+      if ( ctx.isDefinedClass(parameterName.array_type) ) {
+        const cl_1 = ctx.findClass(parameterName.array_type);
         m.addClassUsage(cl_1, ctx);
       }
     }
     subCtx.setInMethod();
     this.WalkNodeChildren(fnBody, subCtx, wr);
     subCtx.unsetInMethod();
+    const methodName = m.nameNode;
     if ( fnBody.didReturnAtIndex == -1 ) {
-      if ( m.nameNode.type_name != "void" ) {
+      if ( methodName.type_name != "void" ) {
         if ( false == ctx.getFlag("in_task") ) {
-          ctx.addError(m.nameNode, "Function does not return any values!");
+          ctx.addError(methodName, "Function does not return any values!");
         }
       }
     } else {
-      if ( m.nameNode.type_name == "void" || (m.nameNode.type_name.length > 0) == false && (m.nameNode.array_type.length > 0) == false ) {
+      if ( methodName.type_name == "void" || (methodName.type_name.length > 0) == false && (methodName.array_type.length > 0) == false ) {
         if ( false == ctx.getFlag("in_task") ) {
           const rvNode = fnBody.children[fnBody.didReturnAtIndex];
           if ( rvNode.children.length > 1 ) {
-            ctx.addError(m.nameNode, "No return value type defined for a function which returns value");
+            ctx.addError(methodName, "No return value type defined for a function which returns value");
             ctx.addError(rvNode, "Returning value from a function without set return value");
           }
         }
@@ -16474,8 +16634,8 @@ class RangerFlowParser  {
                 const regArg = regExpr.children[1];
                 const realRegDesc = regArg.paramDesc;
                 const realRegName = realRegDesc.compiledName;
-                regArg.paramDesc.set_cnt = 1;
-                regArg.paramDesc.ref_cnt = 1;
+                realRegDesc.set_cnt = 1;
+                realRegDesc.ref_cnt = 1;
                 const BlockOP = ctx.getLastBlockOp();
                 BlockOP.register_expressions.push(regExpr);
                 realArg.register_name = regName;
@@ -16822,8 +16982,8 @@ class RangerFlowParser  {
                   const regArg = regExpr.children[1];
                   const realRegDesc = regArg.paramDesc;
                   const realRegName = realRegDesc.compiledName;
-                  regArg.paramDesc.set_cnt = 1;
-                  regArg.paramDesc.ref_cnt = 1;
+                  realRegDesc.set_cnt = 1;
+                  realRegDesc.ref_cnt = 1;
                   if ( use_delta ) {
                     newRNodes.push(regExpr);
                   } else {
@@ -16900,8 +17060,8 @@ class RangerFlowParser  {
             const regArg_1 = regExpr_1.children[1];
             const realRegDesc_1 = regArg_1.paramDesc;
             const realRegName_1 = realRegDesc_1.compiledName;
-            regArg_1.paramDesc.set_cnt = 1;
-            regArg_1.paramDesc.ref_cnt = 1;
+            realRegDesc_1.set_cnt = 1;
+            realRegDesc_1.ref_cnt = 1;
             const BlockOP_2 = ctx.getLastBlockOp();
             if ( false == ctx.isTestCompile() ) {
             }
@@ -17540,7 +17700,8 @@ class RangerFlowParser  {
     const wr = new CodeWriter();
     const lcc = new LiveCompiler();
     lcc.langWriter = new RangerRangerClassWriter();
-    lcc.langWriter.compiler = lcc;
+    const langWriter = lcc.langWriter;
+    langWriter.compiler = lcc;
     subCtx.targetLangName = "ranger";
     subCtx.restartExpressionLevel();
     const macroNode = langOper;
@@ -17746,12 +17907,17 @@ class RangerFlowParser  {
             }
             if ( arg.hasFlag("mutates") ) {
               if ( callArg.hasParamDesc ) {
-                if ( typeof(callArg.paramDesc) != "undefined" && ((typeof(callArg.paramDesc.propertyClass) !== "undefined" && callArg.paramDesc.propertyClass != null ) ) ) {
-                  if ( callArg.paramDesc.propertyClass.nameNode.hasFlag("immutable") ) {
-                    const propC = callArg.paramDesc.propertyClass;
-                    const currC = ctx.getCurrentClass();
-                    if ( currC != propC ) {
-                      not_enough_args = true;
+                const callArgDesc = callArg.paramDesc;
+                if ( (typeof(callArgDesc.propertyClass) !== "undefined" && callArgDesc.propertyClass != null )  ) {
+                  const propertyClass = callArgDesc.propertyClass;
+                  if ( (typeof(propertyClass.nameNode) !== "undefined" && propertyClass.nameNode != null )  ) {
+                    const propertyName = propertyClass.nameNode;
+                    if ( propertyName.hasFlag("immutable") ) {
+                      const propC = propertyClass;
+                      const currC = ctx.getCurrentClass();
+                      if ( ((typeof(currC) !== "undefined" && currC != null ) ) && currC != propC ) {
+                        not_enough_args = true;
+                      }
                     }
                   }
                 }
@@ -17790,7 +17956,8 @@ class RangerFlowParser  {
           const expr_level = ctx.expressionLevel();
           let is_last = false;
           if ( (typeof(callArgs.parent) !== "undefined" && callArgs.parent != null )  ) {
-            is_last = callArgs.parent.children.length == 1 + callArgs.parent.children.indexOf(callArgs);
+            const parent = callArgs.parent;
+            is_last = parent.children.length == 1 + parent.children.indexOf(callArgs);
           }
           if ( (fc.vref == "if" && ctx.hasCompilerFlag("voidexpr")) && (expr_level > 0 || is_last) ) {
             console.log("IF expr leve == " + ctx.expressionLevel());
@@ -17871,6 +18038,7 @@ class RangerFlowParser  {
                   ctx.addError(args, "Invalid operator: Loop condition without block ");
                   return;
                 }
+                const loopBody = loopBlock;
                 const opName = index + 1;
                 const item = callArgs.children[(index + 1)];
                 let regName_1 = "";
@@ -17887,8 +18055,8 @@ class RangerFlowParser  {
                 const regArg_1 = regExpr_1.children[1];
                 const realRegDesc_1 = regArg_1.paramDesc;
                 const realRegName_1 = realRegDesc_1.compiledName;
-                regArg_1.paramDesc.set_cnt = 1;
-                regArg_1.paramDesc.ref_cnt = 1;
+                realRegDesc_1.set_cnt = 1;
+                realRegDesc_1.ref_cnt = 1;
                 const BlockOP_1 = ctx.getLastBlockOp();
                 BlockOP_1.register_expressions.push(regExpr_1);
                 realArg.register_name = regName_1;
@@ -17901,7 +18069,7 @@ class RangerFlowParser  {
                       item.register_name = "";
                     }));
                     const eval_expr = CodeNode.fromList([CodeNode.vref1("="), CodeNode.vref1(regName_1), argCopy_1]);
-                    const lastOp = loopBlock.children[(loopBlock.children.length - 1)];
+                    const lastOp = loopBody.children[(loopBody.children.length - 1)];
                     ctx.lastBlockOp = eval_expr;
                     this.WalkNode(eval_expr, ctx, wr);
                     item.children.push(eval_expr);
@@ -17942,8 +18110,8 @@ class RangerFlowParser  {
                       const regArg_2 = regExpr_2.children[1];
                       const realRegDesc_2 = regArg_2.paramDesc;
                       const realRegName_2 = realRegDesc_2.compiledName;
-                      regArg_2.paramDesc.set_cnt = 1;
-                      regArg_2.paramDesc.ref_cnt = 1;
+                      realRegDesc_2.set_cnt = 1;
+                      realRegDesc_2.ref_cnt = 1;
                       const BlockOP_2 = ctx.getLastBlockOp();
                       BlockOP_2.register_expressions.push(regExpr_2);
                       realArg_1.register_name = regName_2;
@@ -18077,8 +18245,9 @@ class RangerFlowParser  {
             // Loop start
             for ( const v of m.params) {
               fCtx.defineVariable(v.name, v);
-              v.nameNode.eval_type = v.nameNode.typeNameAsType(fCtx);
-              v.nameNode.eval_type_name = v.nameNode.type_name;
+              const parameterName = v.nameNode;
+              parameterName.eval_type = parameterName.typeNameAsType(fCtx);
+              parameterName.eval_type_name = parameterName.type_name;
             }
             this.WalkNodeChildren(bodyCopy_1, fCtx, wr);
             fCtx.unsetInMethod();
@@ -18230,54 +18399,62 @@ class RangerFlowParser  {
               ctx.addError(callArgs, "return outside of a function");
               return false;
             }
-            if ( activeFn_2.nameNode.type_name != "void" || activeFn_2.nameNode.value_type == 20 ) {
+            const returnName = activeFn_2.nameNode;
+            if ( returnName.type_name != "void" || returnName.value_type == 20 ) {
               if ( callArgs.children.length < 2 ) {
                 ctx.addError(callArgs, " missing return value !!!");
               } else {
                 const returnedValue = callArgs.children[1];
                 let validated_returnvalue = false;
-                if ( activeFn_2.nameNode.value_type == 20 ) {
+                if ( returnName.value_type == 20 ) {
                   validated_returnvalue = true;
-                  const fnExpr = activeFn_2.nameNode.expression_value;
+                  const fnExpr = returnName.expression_value;
                   if ( typeof(fnExpr) === "undefined" ) {
-                    ctx.addError(activeFn_2.nameNode, "returned anonymous function should have a method signature");
+                    ctx.addError(returnName, "returned anonymous function should have a method signature");
                   } else {
                     if ( returnedValue.value_type != 20 && returnedValue.eval_type != 20 ) {
                       ctx.addError(returnedValue, "Function should return anonymous function!");
                     } else {
-                      if ( returnedValue.hasParamDesc && ((typeof(returnedValue.paramDesc.nameNode) !== "undefined" && returnedValue.paramDesc.nameNode != null ) ) ) {
-                        const rExpr = returnedValue.paramDesc.nameNode.expression_value;
-                        this.matchLambdaArgs(fnExpr, rExpr, ctx, wr);
+                      if ( returnedValue.hasParamDesc ) {
+                        const returnedDesc = returnedValue.paramDesc;
+                        if ( (typeof(returnedDesc.nameNode) !== "undefined" && returnedDesc.nameNode != null )  ) {
+                          const returnedName = returnedDesc.nameNode;
+                          const rExpr = returnedName.expression_value;
+                          this.matchLambdaArgs(fnExpr, rExpr, ctx, wr);
+                        } else {
+                          const rExpr_1 = returnedValue.expression_value;
+                          this.matchLambdaArgs(fnExpr, rExpr_1, ctx, wr);
+                        }
                       } else {
-                        const rExpr_1 = returnedValue.expression_value;
-                        this.matchLambdaArgs(fnExpr, rExpr_1, ctx, wr);
+                        const rExpr_2 = returnedValue.expression_value;
+                        this.matchLambdaArgs(fnExpr, rExpr_2, ctx, wr);
                       }
                     }
                   }
                 }
                 if ( validated_returnvalue == false ) {
-                  if ( match.doesMatch(activeFn_2.nameNode, returnedValue, ctx) == false ) {
-                    if ( activeFn_2.nameNode.ifNoTypeSetToEvalTypeOf(returnedValue) ) {
+                  if ( match.doesMatch(returnName, returnedValue, ctx) == false ) {
+                    if ( returnName.ifNoTypeSetToEvalTypeOf(returnedValue) ) {
                     } else {
                       ctx.addError(returnedValue, "invalid return value type!!! " + returnedValue.getCode());
                       ctx.addError(returnedValue, "^ code: " + returnedValue.getCode());
-                      ctx.addError(activeFn_2.nameNode, "^ regarding to");
+                      ctx.addError(returnName, "^ regarding to");
                       if ( returnedValue.eval_type == 31 ) {
-                        ctx.addError(activeFn_2.nameNode, "^ which was a method");
+                        ctx.addError(returnName, "^ which was a method");
                       }
-                      ctx.addError(activeFn_2.nameNode, "^ value type = " + returnedValue.eval_type);
+                      ctx.addError(returnName, "^ value type = " + returnedValue.eval_type);
                     }
                   }
                 }
-                if ( activeFn_2.nameNode.type_name.length > 0 ) {
+                if ( returnName.type_name.length > 0 ) {
                   this.convertToUnion(
-                    activeFn_2.nameNode.type_name,
+                    returnName.type_name,
                     returnedValue,
                     ctx,
                     wr
                   );
                 }
-                const argNode = activeFn_2.nameNode;
+                const argNode = returnName;
                 if ( returnedValue.hasFlag("optional") ) {
                   if ( false == argNode.hasFlag("optional") ) {
                     ctx.addError(callArgs, "function return value optionality does not match, expected non-optional return value, optional given at " + argNode.getCode());
@@ -18297,8 +18474,10 @@ class RangerFlowParser  {
             if ( typeof(callArgs.parent) === "undefined" ) {
               ctx.addError(callArgs, "did not have parent");
               console.log("no parent => " + callArgs.getCode());
+            } else {
+              const parent_1 = callArgs.parent;
+              parent_1.didReturnAtIndex = parent_1.children.indexOf(callArgs);
             }
-            callArgs.parent.didReturnAtIndex = callArgs.parent.children.indexOf(callArgs);
           }
           if ( nameNode.hasFlag("returns") == false ) {
             match.setRvBasedOn(nameNode, callArgs);
@@ -18331,7 +18510,8 @@ class RangerFlowParser  {
                 if ( ann_1.vref == "mutates" ) {
                   const theArg = callArgs.children[(arg_index + 1)];
                   if ( theArg.hasParamDesc ) {
-                    theArg.paramDesc.set_cnt = theArg.paramDesc.set_cnt + 1;
+                    const argumentDesc = theArg.paramDesc;
+                    argumentDesc.set_cnt = argumentDesc.set_cnt + 1;
                   }
                 }
               }
@@ -18436,13 +18616,19 @@ class RangerFlowParser  {
       if ( v.name != "__rangerProcessName" ) {
         continue;
       }
-      if ( v.def_value.value_type == 4 ) {
-        cl.process_path = v.def_value.string_value;
-        return;
+      if ( (typeof(v.def_value) !== "undefined" && v.def_value != null )  ) {
+        const defaultValue = v.def_value;
+        if ( defaultValue.value_type == 4 ) {
+          cl.process_path = defaultValue.string_value;
+          return;
+        }
       }
-      if ( v.value.string_value.length > 0 ) {
-        cl.process_path = v.value.string_value;
-        return;
+      if ( (typeof(v.value) !== "undefined" && v.value != null )  ) {
+        const value = v.value;
+        if ( value.string_value.length > 0 ) {
+          cl.process_path = value.string_value;
+          return;
+        }
       }
     }
   };
@@ -20516,7 +20702,8 @@ class RangerFlowParser  {
           if ( catchBlock.is_block_node ) {
             if ( catchBlock.children.length > 0 ) {
               if ( allowed ) {
-                console.log("try[rust] dropped catch block in " + node.code.filename);
+                const source = node.code;
+                console.log("try[rust] dropped catch block in " + source.filename);
               } else {
                 ctx.addError(node, "the Rust target has no exceptions and would drop this catch block. Return a value instead: a `shape` with Ok / Err cases, matched at the call site. `-rust-allow-dropped-catch` keeps the old behaviour and prints each site.");
               }
@@ -20555,7 +20742,8 @@ class RangerFlowParser  {
       // Loop start
       for ( const tpoint of this.classesWithTraits) {
         const tcl = tpoint.class_def;
-        const tNameNode = tpoint.node.children[1];
+        const traitJoinNode = tpoint.node;
+        const tNameNode = traitJoinNode.children[1];
         const tName = tNameNode.vref;
         if ( ctx.isDefinedClass(tName) ) {
           const tDef = ctx.findClass(tName);
@@ -20575,7 +20763,7 @@ class RangerFlowParser  {
       var point = this.classesWithTraits[i];
       const cl = point.class_def;
       const joinPoint = point.node;
-      const traitClassDef = point.node.children[1];
+      const traitClassDef = joinPoint.children[1];
       const name = traitClassDef.vref;
       if ( ctx.isDefinedClass(name) == false ) {
         ctx.addError(point.node, ("Can not join class " + name) + " because it is not defined");
@@ -20589,7 +20777,8 @@ class RangerFlowParser  {
       if ( t.has_constructor ) {
         ctx.addError(point.node, ("Can not join class " + name) + " because it has a constructor function");
       } else {
-        const origBody = cl.node.children[2];
+        const classNode = cl.node;
+        const origBody = classNode.children[2];
         const match = new RangerArgMatch();
         const params = t.node.getExpressionProperty("params");
         const initParams = point.node.getExpressionProperty("params");
@@ -20642,12 +20831,14 @@ class RangerFlowParser  {
       let left_had = false;
       let right_had = false;
       operatorsOf.forEach_3(left.variables, ((item, index) => { 
-        if ( item.nameNode.type_name == right.name || item.nameNode.array_type == right.name ) {
+        const fieldName = item.nameNode;
+        if ( fieldName.type_name == right.name || fieldName.array_type == right.name ) {
           left_had = true;
         }
       }));
       operatorsOf.forEach_3(right.variables, ((item, index) => { 
-        if ( item.nameNode.type_name == left.name || item.nameNode.array_type == left.name ) {
+        const fieldName_1 = item.nameNode;
+        if ( fieldName_1.type_name == left.name || fieldName_1.array_type == left.name ) {
           right_had = true;
         }
       }));
@@ -21303,16 +21494,17 @@ class RangerFlowParser  {
         p_1.init_cnt = 1;
         p_1.def_value = node.children[2];
         p_1.is_optional = false;
-        if ( p_1.def_value.value_type == 4 ) {
+        const defaultValue = p_1.def_value;
+        if ( defaultValue.value_type == 4 ) {
           vDef.type_name = "string";
         }
-        if ( p_1.def_value.value_type == 3 ) {
+        if ( defaultValue.value_type == 3 ) {
           vDef.type_name = "int";
         }
-        if ( p_1.def_value.value_type == 2 ) {
+        if ( defaultValue.value_type == 2 ) {
           vDef.type_name = "double";
         }
-        if ( p_1.def_value.value_type == 5 ) {
+        if ( defaultValue.value_type == 5 ) {
           vDef.type_name = "boolean";
         }
         const valueNode = node.children[2];
@@ -21432,7 +21624,8 @@ class RangerFlowParser  {
       this.classesWithTraits.push(joinPoint);
     }
     let b_is_main = false;
-    if ( node.code.filename == ctx.getRootFile() ) {
+    const source = node.code;
+    if ( source.filename == ctx.getRootFile() ) {
       b_is_main = true;
     }
     if ( node.isFirstVref("static") ) {
@@ -21617,7 +21810,7 @@ class RangerFlowParser  {
                 continue;
               }
               classRefDesc = ctx.getVariableDef(strname);
-              if ( (typeof(classRefDesc) === "undefined") || (typeof(classRefDesc.nameNode) === "undefined") ) {
+              if ( typeof(classRefDesc) === "undefined" ) {
                 if ( ctx.hasTemplateNode(strname) ) {
                   ctx.addError(obj, strname + " is a generic class, so it has no static side: only its instantiations exist. Move the static to a plain class.");
                 } else {
@@ -21625,11 +21818,17 @@ class RangerFlowParser  {
                 }
                 break;
               }
-              classRefDesc.ref_cnt = 1 + classRefDesc.ref_cnt;
-              if ( set_nsp ) {
-                obj.nsp.push(classRefDesc);
+              const classRef = classRefDesc;
+              if ( typeof(classRef.nameNode) === "undefined" ) {
+                ctx.addError(obj, "Error, no description for called object: " + strname);
+                break;
               }
-              classDesc = ctx.findClass(classRefDesc.nameNode.type_name);
+              const classRefName = classRef.nameNode;
+              classRef.ref_cnt = 1 + classRef.ref_cnt;
+              if ( set_nsp ) {
+                obj.nsp.push(classRef);
+              }
+              classDesc = ctx.findClass(classRefName.type_name);
               if ( typeof(classDesc) === "undefined" ) {
                 return varFnDesc;
               }
@@ -21712,23 +21911,25 @@ class RangerFlowParser  {
                 ctx.addError(obj, "Error, no description for called object: " + strname);
                 break;
               }
+              const classRef = classRefDesc;
               this.checkInitializedObjectReceiver(strname, obj, ctx);
               if ( set_nsp ) {
-                obj.nsp.push(classRefDesc);
+                obj.nsp.push(classRef);
               }
-              if ( typeof(classRefDesc.nameNode) === "undefined" ) {
+              if ( typeof(classRef.nameNode) === "undefined" ) {
                 ctx.addError(obj, "Error, no description for called object: " + strname);
                 break;
               }
-              if ( classRefDesc.nameNode.hasFlag("optional") ) {
+              const classRefName = classRef.nameNode;
+              if ( classRefName.hasFlag("optional") ) {
                 if ( ctx.hasCompilerFlag("strict") ) {
                   if ( false == ctx.isTryBlock() ) {
                     ctx.addError(obj, "Optional automatically unwrapped outside try block");
                   }
                 }
               }
-              classRefDesc.ref_cnt = 1 + classRefDesc.ref_cnt;
-              classDesc = ctx.findClass(classRefDesc.nameNode.type_name);
+              classRef.ref_cnt = 1 + classRef.ref_cnt;
+              classDesc = ctx.findClass(classRefName.type_name);
             }
           } else {
             if ( i < cnt - 1 ) {
@@ -21742,10 +21943,14 @@ class RangerFlowParser  {
                 break;
               }
               if ( i > 0 ) {
-                if ( ((typeof(varDesc.nameNode) !== "undefined" && varDesc.nameNode != null ) ) && varDesc.nameNode.hasFlag("optional") ) {
-                  if ( ctx.hasCompilerFlag("strict") ) {
-                    if ( false == ctx.isTryBlock() ) {
-                      ctx.addError(obj, "Optional automatically unwrapped outside try block");
+                const variableDesc = varDesc;
+                if ( (typeof(variableDesc.nameNode) !== "undefined" && variableDesc.nameNode != null )  ) {
+                  const variableName = variableDesc.nameNode;
+                  if ( variableName.hasFlag("optional") ) {
+                    if ( ctx.hasCompilerFlag("strict") ) {
+                      if ( false == ctx.isTryBlock() ) {
+                        ctx.addError(obj, "Optional automatically unwrapped outside try block");
+                      }
                     }
                   }
                 }
@@ -21783,7 +21988,10 @@ class RangerFlowParser  {
         return varDesc;
       }
       varDesc = ctx.getVariableDef(obj.vref);
-      if ( (typeof(varDesc.nameNode) !== "undefined" && varDesc.nameNode != null )  ) {
+      if ( (typeof(varDesc) !== "undefined" && varDesc != null )  ) {
+        const variableDesc_1 = varDesc;
+        if ( (typeof(variableDesc_1.nameNode) !== "undefined" && variableDesc_1.nameNode != null )  ) {
+        }
       } else {
       }
       return varDesc;
@@ -21833,17 +22041,19 @@ class RangerFlowParser  {
   };
   transformMethodToLambda (node, vFnDef, ctx, wr) {
     if ( vFnDef.isFunction() ) {
+      const lambdaName = vFnDef.nameNode;
       const args = operatorsOf.map_41(vFnDef.params, ((item, index) => { 
-        return item.nameNode.copy();
+        const parameterName = item.nameNode;
+        return parameterName.copy();
       }));
-      const fnArg = vFnDef.nameNode.copy();
+      const fnArg = lambdaName.copy();
       fnArg.vref = "fn";
       const subNode = node.copy();
       subNode.flow_done = false;
       const argsExpr = operatorsOf.map_36(args, ((item, index) => { 
         return item.copy();
       }));
-      if ( vFnDef.nameNode.type_name.length > 0 && vFnDef.nameNode.type_name != "void" || vFnDef.nameNode.array_type.length > 0 ) {
+      if ( lambdaName.type_name.length > 0 && lambdaName.type_name != "void" || lambdaName.array_type.length > 0 ) {
         const staticLambda = CodeNode.fromList([fnArg, CodeNode.fromList(args), CodeNode.blockFromList([CodeNode.fromList([CodeNode.vref1("return"), CodeNode.fromList([subNode, CodeNode.fromList(argsExpr)])])])]);
         node.getChildrenFrom(staticLambda);
       } else {
@@ -21862,13 +22072,25 @@ class RangerFlowParser  {
       let n1Expr = n1.expression_value;
       let n2Expr = n2.expression_value;
       if ( typeof(n1Expr) === "undefined" ) {
-        if ( (n1.hasParamDesc && ((typeof(n1.paramDesc.nameNode) !== "undefined" && n1.paramDesc.nameNode != null ) )) && ((typeof(n1.paramDesc.nameNode.expression_value) !== "undefined" && n1.paramDesc.nameNode.expression_value != null ) ) ) {
-          n1Expr = n1.paramDesc.nameNode.expression_value;
+        if ( n1.hasParamDesc ) {
+          const n1Desc = n1.paramDesc;
+          if ( (typeof(n1Desc.nameNode) !== "undefined" && n1Desc.nameNode != null )  ) {
+            const n1Name = n1Desc.nameNode;
+            if ( (typeof(n1Name.expression_value) !== "undefined" && n1Name.expression_value != null )  ) {
+              n1Expr = n1Name.expression_value;
+            }
+          }
         }
       }
       if ( typeof(n2Expr) === "undefined" ) {
-        if ( (n2.hasParamDesc && ((typeof(n2.paramDesc.nameNode) !== "undefined" && n2.paramDesc.nameNode != null ) )) && ((typeof(n2.paramDesc.nameNode.expression_value) !== "undefined" && n2.paramDesc.nameNode.expression_value != null ) ) ) {
-          n2Expr = n2.paramDesc.nameNode.expression_value;
+        if ( n2.hasParamDesc ) {
+          const n2Desc = n2.paramDesc;
+          if ( (typeof(n2Desc.nameNode) !== "undefined" && n2Desc.nameNode != null )  ) {
+            const n2Name = n2Desc.nameNode;
+            if ( (typeof(n2Name.expression_value) !== "undefined" && n2Name.expression_value != null )  ) {
+              n2Expr = n2Name.expression_value;
+            }
+          }
         }
       }
       if ( ((typeof(n1Expr) !== "undefined" && n1Expr != null ) ) && ((typeof(n2Expr) !== "undefined" && n2Expr != null ) ) ) {
@@ -22588,9 +22810,10 @@ class RangerFlowParser  {
     const cnt = cl.variables.length;
     while (i < cnt) {
       const v = cl.variables[i];
-      let tname = v.nameNode.type_name;
-      const vKeyType = v.nameNode.key_type;
-      const vArrayType = v.nameNode.array_type;
+      const fieldName = v.nameNode;
+      let tname = fieldName.type_name;
+      const vKeyType = fieldName.key_type;
+      const vArrayType = fieldName.array_type;
       if ( vKeyType.length > 0 ) {
         tname = ((("[" + vKeyType) + ":") + vArrayType) + "]";
       } else {
@@ -22892,7 +23115,7 @@ class CallChain  {
   constructor() {
     this.methodName = "";
     this.method = undefined;     /* note: unused */
-    this.args = undefined;     /* note: unused */
+    this.args = undefined;
   }
 }
 class NodeEvalState  {
@@ -23458,21 +23681,22 @@ class RangerGenericClassWriter  {
       if ( p.ref_cnt == 0 ) {
         continue;
       }
+      const variableName = p.nameNode;
       if ( p.isAllocatedType() ) {
         if ( 1 == p.getStrength() ) {
-          if ( p.nameNode.eval_type == 7 ) {
+          if ( variableName.eval_type == 7 ) {
           }
-          if ( p.nameNode.eval_type == 6 ) {
+          if ( variableName.eval_type == 6 ) {
           }
-          if ( p.nameNode.eval_type != 6 && p.nameNode.eval_type != 7 ) {
+          if ( variableName.eval_type != 6 && variableName.eval_type != 7 ) {
           }
         }
         if ( 0 == p.getStrength() ) {
-          if ( p.nameNode.eval_type == 7 ) {
+          if ( variableName.eval_type == 7 ) {
           }
-          if ( p.nameNode.eval_type == 6 ) {
+          if ( variableName.eval_type == 6 ) {
           }
-          if ( p.nameNode.eval_type != 6 && p.nameNode.eval_type != 7 ) {
+          if ( variableName.eval_type != 6 && variableName.eval_type != 7 ) {
           }
         }
       }
@@ -23522,8 +23746,9 @@ class RangerGenericClassWriter  {
   WalkNode (node, ctx, wr) {
     operatorsOf.forEach_7(node.children, ((item, index) => { 
       if ( (typeof(item.evalCtx) !== "undefined" && item.evalCtx != null )  ) {
-        if ( operatorsOf_21.getTargetLang_29(item.evalCtx) != operatorsOf_21.getTargetLang_29(ctx) ) {
-          item.evalCtx.targetLangName = operatorsOf_21.getTargetLang_29(ctx);
+        const itemCtx = item.evalCtx;
+        if ( operatorsOf_21.getTargetLang_29(itemCtx) != operatorsOf_21.getTargetLang_29(ctx) ) {
+          itemCtx.targetLangName = operatorsOf_21.getTargetLang_29(ctx);
         }
       }
     }));
@@ -23631,8 +23856,11 @@ class RangerGenericClassWriter  {
       this.writeCallReceiver(obj, ctx, wr);
       wr.out(".", false);
       let methodName = method.vref;
-      if ( ((typeof(node.fnDesc) !== "undefined" && node.fnDesc != null ) ) && node.fnDesc.compiledName.length > 0 ) {
-        methodName = node.fnDesc.compiledName;
+      if ( (typeof(node.fnDesc) !== "undefined" && node.fnDesc != null )  ) {
+        const callFn = node.fnDesc;
+        if ( callFn.compiledName.length > 0 ) {
+          methodName = callFn.compiledName;
+        }
       }
       wr.outMapped(methodName, method, false, method.vref);
       wr.out("(", false);
@@ -23757,10 +23985,12 @@ class RangerGenericClassWriter  {
       const givenArgs = node.getSecond();
       ctx.setInExpr();
       let cnt = 0;
+      const fnDesc = node.fnDesc;
       // Loop start
-      for ( let i = 0; i < node.fnDesc.params.length; i++) {
-        var arg = node.fnDesc.params[i];
-        if ( arg.nameNode.hasFlag("keyword") ) {
+      for ( let i = 0; i < fnDesc.params.length; i++) {
+        var arg = fnDesc.params[i];
+        const argumentName = arg.nameNode;
+        if ( argumentName.hasFlag("keyword") ) {
           continue;
         }
         if ( cnt > 0 ) {
@@ -23768,7 +23998,7 @@ class RangerGenericClassWriter  {
         }
         cnt = cnt + 1;
         if ( givenArgs.children.length <= i ) {
-          const defVal = arg.nameNode.getFlag("default");
+          const defVal = argumentName.getFlag("default");
           if ( (typeof(defVal) !== "undefined" && defVal != null )  ) {
             const fc_1 = defVal.vref_annotation.getFirst();
             this.WalkNode(fc_1, ctx, wr);
@@ -23789,9 +24019,10 @@ class RangerGenericClassWriter  {
           wr.out("." + cc.methodName, false);
           wr.out("(", false);
           ctx.setInExpr();
+          const chainArgs = cc.args;
           // Loop start
-          for ( let i_2 = 0; i_2 < cc.args.children.length; i_2++) {
-            var arg_1 = cc.args.children[i_2];
+          for ( let i_2 = 0; i_2 < chainArgs.children.length; i_2++) {
+            var arg_1 = chainArgs.children[i_2];
             if ( i_2 > 0 ) {
               wr.out(", ", false);
             }
@@ -23829,7 +24060,7 @@ class RangerGenericClassWriter  {
     if ( node.hasNewOper ) {
       const cl = node.clDesc;
       const fc = node.getSecond();
-      wr.out("new " + node.clDesc.name, false);
+      wr.out("new " + cl.name, false);
       wr.out("(", false);
       const constr = cl.constructor_fn;
       const givenArgs = node.getThird();
@@ -24118,7 +24349,8 @@ class ForLoopShape  {
     }
     const item = node.children[2];
     if ( item.hasParamDesc ) {
-      if ( item.paramDesc.set_cnt > 0 ) {
+      const itemDesc = item.paramDesc;
+      if ( itemDesc.set_cnt > 0 ) {
         return true;
       }
     }
@@ -24147,7 +24379,8 @@ class EnumNativeAnalysis  {
         return true;
       }
       if ( node.hasParamDesc ) {
-        const pdNNe = node.paramDesc.nameNode;
+        const paramDesc = node.paramDesc;
+        const pdNNe = paramDesc.nameNode;
         if ( (typeof(pdNNe) !== "undefined" && pdNNe != null )  ) {
           const pdNe = pdNNe;
           if ( pdNe.type_name == enumName ) {
@@ -24183,7 +24416,8 @@ class EnumNativeAnalysis  {
       return node.eval_type_name;
     }
     if ( node.hasParamDesc ) {
-      const pdNNn = node.paramDesc.nameNode;
+      const paramDesc = node.paramDesc;
+      const pdNNn = paramDesc.nameNode;
       if ( (typeof(pdNNn) !== "undefined" && pdNNn != null )  ) {
         const pdNn = pdNNn;
         return pdNn.type_name;
@@ -24658,8 +24892,9 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
             wr.addImport(package_name + ".interfaces.*");
           }
           if ( ( typeof(this.iface_created[iface_name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.iface_created, iface_name) ) == false ) {
-            const fnNode = node.expression_value.children[0];
-            const args = node.expression_value.children[1];
+            const lambdaExpression = node.expression_value;
+            const fnNode = lambdaExpression.children[0];
+            const args = lambdaExpression.children[1];
             this.iface_created[iface_name] = true;
             let iface_dir = ".";
             if ( this.isPackaged(ctx) ) {
@@ -24765,8 +25000,9 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
           wr.out(iface_name_1, false);
           const package_name_2 = ctx.getCompilerSetting("package");
           if ( ( typeof(this.iface_created[iface_name_1] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.iface_created, iface_name_1) ) == false ) {
-            const fnNode_1 = node.expression_value.children[0];
-            const args_1 = node.expression_value.children[1];
+            const lambdaExpression_1 = node.expression_value;
+            const fnNode_1 = lambdaExpression_1.children[0];
+            const args_1 = lambdaExpression_1.children[1];
             this.iface_created[iface_name_1] = true;
             let iface_dir_1 = ".";
             if ( this.isPackaged(ctx) ) {
@@ -24914,7 +25150,8 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
         var p = node.nsp[i];
         if ( i == 0 ) {
           let p_captured_mutable = (p.set_cnt > 0 && p.is_captured) && p.is_class_variable == false;
-          if ( p.nameNode.value_type == 7 || p.nameNode.value_type == 6 ) {
+          const parameterName = p.nameNode;
+          if ( parameterName.value_type == 7 || parameterName.value_type == 6 ) {
             p_captured_mutable = false;
           }
           const part = node.ns[0];
@@ -24956,9 +25193,10 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
     }
     if ( node.hasParamDesc ) {
       const p_1 = node.paramDesc;
+      const parameterName_1 = p_1.nameNode;
       wr.out(p_1.compiledName, false);
       let p_captured_mutable_1 = (p_1.set_cnt > 0 && p_1.is_captured) && p_1.is_class_variable == false;
-      if ( p_1.nameNode.value_type == 7 || p_1.nameNode.value_type == 6 ) {
+      if ( parameterName_1.value_type == 7 || parameterName_1.value_type == 6 ) {
         p_captured_mutable_1 = false;
       }
       if ( p_captured_mutable_1 ) {
@@ -25138,7 +25376,9 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
     if ( this.javaLoops.canIterate(node) ) {
       wr.out("for ( ", false);
       if ( item.hasParamDesc ) {
-        this.writeTypeDef(item.paramDesc.nameNode, ctx, wr);
+        const itemDesc = item.paramDesc;
+        const itemName = itemDesc.nameNode;
+        this.writeTypeDef(itemName, ctx, wr);
       } else {
         this.writeTypeDef(item, ctx, wr);
       }
@@ -25166,7 +25406,9 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
     wr.out("++) {", true);
     wr.indent(1);
     if ( item.hasParamDesc ) {
-      this.writeTypeDef(item.paramDesc.nameNode, ctx, wr);
+      const itemDesc_1 = item.paramDesc;
+      const itemName_1 = itemDesc_1.nameNode;
+      this.writeTypeDef(itemName_1, ctx, wr);
     } else {
       this.writeTypeDef(item, ctx, wr);
     }
@@ -25225,19 +25467,24 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
     let rv;
     let args;
     if ( (typeof(fName.expression_value) !== "undefined" && fName.expression_value != null )  ) {
-      rv = fName.expression_value.children[0];
-      args = fName.expression_value.children[1];
+      const lambdaExpression = fName.expression_value;
+      rv = lambdaExpression.children[0];
+      args = lambdaExpression.children[1];
     } else {
-      const param = ctx.getVariableDef(fName.vref);
-      rv = param.nameNode.expression_value.children[0];
-      args = param.nameNode.expression_value.children[1];
+      const paramOpt = ctx.getVariableDef(fName.vref);
+      const param = paramOpt;
+      const parameterName = param.nameNode;
+      const lambdaExpression_1 = parameterName.expression_value;
+      rv = lambdaExpression_1.children[0];
+      args = lambdaExpression_1.children[1];
     }
     this.WalkNode(fName, ctx, wr);
     wr.out(".run(", false);
     ctx.setInExpr();
+    const lambdaArgs = args;
     // Loop start
-    for ( let i = 0; i < args.children.length; i++) {
-      var arg = args.children[i];
+    for ( let i = 0; i < lambdaArgs.children.length; i++) {
+      var arg = lambdaArgs.children[i];
       const n = givenArgs.children[i];
       if ( i > 0 ) {
         wr.out(", ", false);
@@ -25531,10 +25778,12 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
     for ( let i_5 = 0; i_5 < cl.static_methods.length; i_5++) {
       var variant = cl.static_methods[i_5];
       wr.out("", true);
-      if ( variant.nameNode.hasFlag("main") && variant.nameNode.code.filename != ctx.getRootFile() ) {
+      const variantName = variant.nameNode;
+      const variantCode = variantName.code;
+      if ( variantName.hasFlag("main") && variantCode.filename != ctx.getRootFile() ) {
         continue;
       }
-      if ( variant.nameNode.hasFlag("main") ) {
+      if ( variantName.hasFlag("main") ) {
         ctx.setCompilerSetting("mainclass", cl.name);
         this.writeJavaArgsHolder(ctx, orig_wr);
         wr.out("public static void main(String [] args ) {", true);
@@ -25660,11 +25909,14 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
       }
     }
     if ( nVal.hasParamDesc ) {
-      const pd = nVal.paramDesc;
-      const pdNN = pd.nameNode;
-      if ( (typeof(pdNN) !== "undefined" && pdNN != null )  ) {
-        const pdNode = pdNN;
-        return pdNode.type_name;
+      const pdOpt = nVal.paramDesc;
+      if ( (typeof(pdOpt) !== "undefined" && pdOpt != null )  ) {
+        const pd = pdOpt;
+        const pdNN = pd.nameNode;
+        if ( (typeof(pdNN) !== "undefined" && pdNN != null )  ) {
+          const pdNode = pdNN;
+          return pdNode.type_name;
+        }
       }
     }
     if ( nVal.eval_type_name.length > 0 ) {
@@ -25788,8 +26040,9 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
     }
     switch (v_type ) { 
       case 20 : 
-        const rv = node.expression_value.children[0];
-        const sec = node.expression_value.children[1];
+        const lambdaExpression = node.expression_value;
+        const rv = lambdaExpression.children[0];
+        const sec = lambdaExpression.children[1];
         const fc = sec.getFirst();
         wr.out("(", false);
         wr.out("(", false);
@@ -25999,53 +26252,56 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
   writeVarDef (node, ctx, wr) {
     if ( node.hasParamDesc ) {
       const nn = node.children[1];
-      const p = nn.paramDesc;
-      if ( nn.hasFlag("optional") ) {
-        if ( (p.set_cnt == 1 && p.ref_cnt == 2) && p.is_class_variable == false ) {
-          ctx.addError(node, "Optional variable is only set but never read.");
+      if ( (typeof(nn.paramDesc) !== "undefined" && nn.paramDesc != null )  ) {
+        const p = nn.paramDesc;
+        const parameterName = p.nameNode;
+        if ( nn.hasFlag("optional") ) {
+          if ( (p.set_cnt == 1 && p.ref_cnt == 2) && p.is_class_variable == false ) {
+            ctx.addError(node, "Optional variable is only set but never read.");
+          }
         }
-      }
-      if ( p.ref_cnt == 0 && p.is_class_variable == false ) {
-        wr.out("/* unused:  ", false);
-      }
-      if ( p.set_cnt > 0 || p.is_class_variable ) {
-        wr.out(("var " + p.compiledName) + " : ", false);
-      } else {
-        wr.out(("let " + p.compiledName) + " : ", false);
-      }
-      this.writeTypeDef(p.nameNode, ctx, wr);
-      if ( node.children.length > 2 ) {
-        wr.out(" = ", false);
-        const value = node.getThird();
-        let slotType = p.nameNode.type_name;
-        if ( p.nameNode.eval_type_name.length > 0 ) {
-          slotType = p.nameNode.eval_type_name;
+        if ( p.ref_cnt == 0 && p.is_class_variable == false ) {
+          wr.out("/* unused:  ", false);
         }
-        if ( this.swiftWriteUnionValue(slotType, value, ctx, wr) ) {
+        if ( p.set_cnt > 0 || p.is_class_variable ) {
+          wr.out(("var " + p.compiledName) + " : ", false);
         } else {
-          ctx.setInExpr();
-          this.WalkNode(value, ctx, wr);
-          ctx.unsetInExpr();
+          wr.out(("let " + p.compiledName) + " : ", false);
         }
-      } else {
-        if ( nn.value_type == 6 ) {
+        this.writeTypeDef(parameterName, ctx, wr);
+        if ( node.children.length > 2 ) {
           wr.out(" = ", false);
-          this.writeTypeDef(p.nameNode, ctx, wr);
-          wr.out("()", false);
+          const value = node.getThird();
+          let slotType = parameterName.type_name;
+          if ( parameterName.eval_type_name.length > 0 ) {
+            slotType = parameterName.eval_type_name;
+          }
+          if ( this.swiftWriteUnionValue(slotType, value, ctx, wr) ) {
+          } else {
+            ctx.setInExpr();
+            this.WalkNode(value, ctx, wr);
+            ctx.unsetInExpr();
+          }
+        } else {
+          if ( nn.value_type == 6 ) {
+            wr.out(" = ", false);
+            this.writeTypeDef(parameterName, ctx, wr);
+            wr.out("()", false);
+          }
+          if ( nn.value_type == 7 ) {
+            wr.out(" = ", false);
+            this.writeTypeDef(parameterName, ctx, wr);
+            wr.out("()", false);
+          }
         }
-        if ( nn.value_type == 7 ) {
-          wr.out(" = ", false);
-          this.writeTypeDef(p.nameNode, ctx, wr);
-          wr.out("()", false);
+        if ( p.ref_cnt == 0 && p.is_class_variable == true ) {
+          wr.out("     /* note: unused */", false);
         }
-      }
-      if ( p.ref_cnt == 0 && p.is_class_variable == true ) {
-        wr.out("     /* note: unused */", false);
-      }
-      if ( p.ref_cnt == 0 && p.is_class_variable == false ) {
-        wr.out("   **/ ", true);
-      } else {
-        wr.newline();
+        if ( p.ref_cnt == 0 && p.is_class_variable == false ) {
+          wr.out("   **/ ", true);
+        } else {
+          wr.newline();
+        }
       }
     }
   };
@@ -26130,7 +26386,8 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
   writeFnCall (node, ctx, wr) {
     if ( node.hasFnCall ) {
       const fc = node.getFirst();
-      const fnName = node.fnDesc.nameNode;
+      const fnDesc = node.fnDesc;
+      const fnName = fnDesc.nameNode;
       if ( ctx.expressionLevel() == 0 ) {
         if ( fnName.type_name != "void" ) {
           wr.out("_ = ", false);
@@ -26141,8 +26398,8 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
       ctx.setInExpr();
       const givenArgs = node.getSecond();
       // Loop start
-      for ( let i = 0; i < node.fnDesc.params.length; i++) {
-        var arg = node.fnDesc.params[i];
+      for ( let i = 0; i < fnDesc.params.length; i++) {
+        var arg = fnDesc.params[i];
         if ( i > 0 ) {
           wr.out(", ", false);
         }
@@ -26176,24 +26433,30 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
     let rv;
     let args;
     if ( (typeof(fName.expression_value) !== "undefined" && fName.expression_value != null )  ) {
-      rv = fName.expression_value.children[0];
-      args = fName.expression_value.children[1];
+      const lambdaExpression = fName.expression_value;
+      rv = lambdaExpression.children[0];
+      args = lambdaExpression.children[1];
     } else {
-      const param = ctx.getVariableDef(fName.vref);
-      rv = param.nameNode.expression_value.children[0];
-      args = param.nameNode.expression_value.children[1];
+      const paramOpt = ctx.getVariableDef(fName.vref);
+      const param = paramOpt;
+      const parameterName = param.nameNode;
+      const lambdaExpression_1 = parameterName.expression_value;
+      rv = lambdaExpression_1.children[0];
+      args = lambdaExpression_1.children[1];
     }
     if ( ctx.expressionLevel() == 0 ) {
-      if ( rv.type_name != "void" ) {
+      const lambdaReturn = rv;
+      if ( lambdaReturn.type_name != "void" ) {
         wr.out("_ = ", false);
       }
     }
     ctx.setInExpr();
     this.WalkNode(fName, ctx, wr);
     wr.out("(", false);
+    const lambdaArgs = args;
     // Loop start
-    for ( let i = 0; i < args.children.length; i++) {
-      var arg = args.children[i];
+    for ( let i = 0; i < lambdaArgs.children.length; i++) {
+      var arg = lambdaArgs.children[i];
       const n = givenArgs.children[i];
       if ( i > 0 ) {
         wr.out(", ", false);
@@ -26209,10 +26472,26 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
     }
   };
   CreateLambda (node, ctx, wr) {
-    const lambdaCtx = node.lambda_ctx;
-    const fnNode = node.children[0];
-    const args = node.children[1];
-    const body = node.children[2];
+    const lambdaCtxOpt = node.lambda_ctx;
+    const fnNodeOpt = node.children[0];
+    const argsOpt = node.children[1];
+    const bodyOpt = node.children[2];
+    if ( typeof(lambdaCtxOpt) === "undefined" ) {
+      return;
+    }
+    if ( typeof(fnNodeOpt) === "undefined" ) {
+      return;
+    }
+    if ( typeof(argsOpt) === "undefined" ) {
+      return;
+    }
+    if ( typeof(bodyOpt) === "undefined" ) {
+      return;
+    }
+    const lambdaCtx = lambdaCtxOpt;
+    const fnNode = fnNodeOpt;
+    const args = argsOpt;
+    const body = bodyOpt;
     wr.out("({ (", false);
     // Loop start
     for ( let i = 0; i < args.children.length; i++) {
@@ -26241,25 +26520,28 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
   };
   writeNewCall (node, ctx, wr) {
     if ( node.hasNewOper ) {
-      const cl = node.clDesc;
-      const fc = node.getSecond();
-      wr.out(node.clDesc.name, false);
-      wr.out("(", false);
-      const constr = cl.constructor_fn;
-      const givenArgs = node.getThird();
-      if ( (typeof(constr) !== "undefined" && constr != null )  ) {
-        // Loop start
-        for ( let i = 0; i < constr.params.length; i++) {
-          var arg = constr.params[i];
-          const n = givenArgs.children[i];
-          if ( i > 0 ) {
-            wr.out(", ", false);
+      const clOpt = node.clDesc;
+      if ( (typeof(clOpt) !== "undefined" && clOpt != null )  ) {
+        const cl = clOpt;
+        const fc = node.getSecond();
+        wr.out(cl.name, false);
+        wr.out("(", false);
+        const constr = cl.constructor_fn;
+        const givenArgs = node.getThird();
+        if ( (typeof(constr) !== "undefined" && constr != null )  ) {
+          // Loop start
+          for ( let i = 0; i < constr.params.length; i++) {
+            var arg = constr.params[i];
+            const n = givenArgs.children[i];
+            if ( i > 0 ) {
+              wr.out(", ", false);
+            }
+            wr.out(arg.name + " : ", false);
+            this.WalkNode(n, ctx, wr);
           }
-          wr.out(arg.name + " : ", false);
-          this.WalkNode(n, ctx, wr);
         }
+        wr.out(")", false);
       }
-      wr.out(")", false);
     }
   };
   writeArrayLiteral (node, ctx, wr) {
@@ -26286,8 +26568,10 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
       return false;
     }
     const match = new RangerArgMatch();
-    const n1 = fn1.nameNode;
-    const n2 = fn1.nameNode;
+    const fn1Name = fn1.nameNode;
+    const fn2Name = fn2.nameNode;
+    const n1 = fn1Name;
+    const n2 = fn2Name;
     if ( match.doesDefsMatch(n1, n2, ctx) == false ) {
       return false;
     }
@@ -26298,7 +26582,11 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
     for ( let i = 0; i < fn1.params.length; i++) {
       var p = fn1.params[i];
       const p2 = fn2.params[i];
-      if ( match.doesDefsMatch(p.nameNode, p2.nameNode, ctx) == false ) {
+      const p1Name = p.nameNode;
+      const p2Name = p2.nameNode;
+      const n1Param = p1Name;
+      const n2Param = p2Name;
+      if ( match.doesDefsMatch(n1Param, n2Param, ctx) == false ) {
         return false;
       }
     }
@@ -26311,9 +26599,13 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
       if ( node.children.length > 1 ) {
         const rValue = node.getSecond();
         let retUnion = "";
-        const currFnRet = ctx.getCurrentMethod();
-        if ( (typeof(currFnRet.nameNode) !== "undefined" && currFnRet.nameNode != null )  ) {
-          retUnion = currFnRet.nameNode.type_name;
+        const currFnRetOpt = ctx.getCurrentMethod();
+        if ( (typeof(currFnRetOpt) !== "undefined" && currFnRetOpt != null )  ) {
+          const returnNameOpt = currFnRetOpt.nameNode;
+          if ( (typeof(returnNameOpt) !== "undefined" && returnNameOpt != null )  ) {
+            const returnName = returnNameOpt;
+            retUnion = returnName.type_name;
+          }
         }
         wr.out("return ", false);
         const wroteRet = this.swiftWriteUnionValue(retUnion, rValue, ctx, wr);
@@ -26336,10 +26628,14 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
       wr.out(" = ", false);
       let assignSlotType = "";
       if ( left.hasParamDesc ) {
-        const assignNN = left.paramDesc.nameNode;
-        if ( (typeof(assignNN) !== "undefined" && assignNN != null )  ) {
-          const assignNode = assignNN;
-          assignSlotType = assignNode.type_name;
+        const assignDescOpt = left.paramDesc;
+        if ( (typeof(assignDescOpt) !== "undefined" && assignDescOpt != null )  ) {
+          const assignDesc = assignDescOpt;
+          const assignNN = assignDesc.nameNode;
+          if ( (typeof(assignNN) !== "undefined" && assignNN != null )  ) {
+            const assignNode = assignNN;
+            assignSlotType = assignNode.type_name;
+          }
         }
       }
       let wroteAssign = false;
@@ -26400,24 +26696,27 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
       // Loop start
       for ( let i = 0; i < cl.extends_classes.length; i++) {
         var pName = cl.extends_classes[i];
-        const pC = ctx.findClass(pName);
-        // Loop start
-        for ( const pvar of pC.variables) {
-          declaredVariable[pvar.name] = true;
-        }
-        // Loop start
-        for ( let i_2 = 0; i_2 < pC.defined_variants.length; i_2++) {
-          var fnVar = pC.defined_variants[i_2];
-          const mVs = ( Object.prototype.hasOwnProperty.call(pC.method_variants, fnVar) ? pC.method_variants[fnVar] : undefined );
+        const parentClassOpt = ctx.findClass(pName);
+        if ( (typeof(parentClassOpt) !== "undefined" && parentClassOpt != null )  ) {
+          const pC = parentClassOpt;
           // Loop start
-          for ( const variant of mVs.variants) {
-            declaredFunction[variant.name] = true;
-            parentFunction[variant.name] = variant;
+          for ( const pvar of pC.variables) {
+            declaredVariable[pvar.name] = true;
           }
-        }
-        // Loop start
-        for ( const variant_1 of pC.static_methods) {
-          declaredStaticFunction[variant_1.name] = true;
+          // Loop start
+          for ( let i_2 = 0; i_2 < pC.defined_variants.length; i_2++) {
+            var fnVar = pC.defined_variants[i_2];
+            const mVs = ( Object.prototype.hasOwnProperty.call(pC.method_variants, fnVar) ? pC.method_variants[fnVar] : undefined );
+            // Loop start
+            for ( const variant of mVs.variants) {
+              declaredFunction[variant.name] = true;
+              parentFunction[variant.name] = variant;
+            }
+          }
+          // Loop start
+          for ( const variant_1 of pC.static_methods) {
+            declaredStaticFunction[variant_1.name] = true;
+          }
         }
       }
     }
@@ -26432,8 +26731,12 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
       wr.out(" : ", false);
       // Loop start
       for ( const pName_1 of cl.extends_classes) {
-        parentClass = ctx.findClass(pName_1);
-        wr.out(parentClass.compiledName, false);
+        const parentClassOpt_1 = ctx.findClass(pName_1);
+        if ( (typeof(parentClassOpt_1) !== "undefined" && parentClassOpt_1 != null )  ) {
+          const resolvedParent = parentClassOpt_1;
+          parentClass = resolvedParent;
+          wr.out(resolvedParent.compiledName, false);
+        }
       }
     } else {
       wr.out(" : Hashable ", false);
@@ -26451,12 +26754,15 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
         wr.out("// WAS DECLARED : " + pvar_1.name, true);
         continue;
       }
-      this.writeVarDef(pvar_1.node, ctx, wr);
+      if ( (typeof(pvar_1.node) !== "undefined" && pvar_1.node != null )  ) {
+        const variableNode = pvar_1.node;
+        this.writeVarDef(variableNode, ctx, wr);
+      }
     }
     if ( cl.has_constructor ) {
       const constr = cl.constructor_fn;
       let b_must_override = false;
-      if ( typeof(parentClass) != "undefined" ) {
+      if ( (typeof(parentClass) !== "undefined" && parentClass != null )  ) {
         if ( constr.params.length == 0 ) {
           b_must_override = true;
         } else {
@@ -26475,7 +26781,7 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
       this.writeArgsDef(constr, ctx, wr);
       wr.out(" ) {", true);
       wr.indent(1);
-      if ( typeof(parentClass) != "undefined" ) {
+      if ( (typeof(parentClass) !== "undefined" && parentClass != null )  ) {
         wr.out("super.init(", false);
         if ( parentClass.has_constructor ) {
           const pConstr = parentClass.constructor_fn;
@@ -26564,21 +26870,29 @@ class RangerSwift3ClassWriter  extends RangerGenericClassWriter {
     wr.out("}", true);
     // Loop start
     for ( const variant_4 of cl.static_methods) {
-      if ( variant_4.nameNode.hasFlag("main") && variant_4.nameNode.code.filename == ctx.getRootFile() ) {
-        const theEnd = wr.getTag("file_end");
-        theEnd.newline();
-        theEnd.out("func __main__swift() {", true);
-        theEnd.indent(1);
-        const subCtx_3 = variant_4.fnCtx;
-        subCtx_3.is_function = true;
-        this.WalkNode(variant_4.fnBody, subCtx_3, theEnd);
-        theEnd.newline();
-        theEnd.indent(-1);
-        theEnd.out("}", true);
-        theEnd.out("// call the main function", true);
-        theEnd.out("__main__swift()", true);
-        if ( ctx.hasCompilerFlag("forever") ) {
-          theEnd.out("CFRunLoopRun()", true);
+      const variantNameOpt = variant_4.nameNode;
+      if ( (typeof(variantNameOpt) !== "undefined" && variantNameOpt != null )  ) {
+        const variantName = variantNameOpt;
+        const variantCodeOpt = variantName.code;
+        if ( (typeof(variantCodeOpt) !== "undefined" && variantCodeOpt != null )  ) {
+          const variantCode = variantCodeOpt;
+          if ( variantName.hasFlag("main") && variantCode.filename == ctx.getRootFile() ) {
+            const theEnd = wr.getTag("file_end");
+            theEnd.newline();
+            theEnd.out("func __main__swift() {", true);
+            theEnd.indent(1);
+            const subCtx_3 = variant_4.fnCtx;
+            subCtx_3.is_function = true;
+            this.WalkNode(variant_4.fnBody, subCtx_3, theEnd);
+            theEnd.newline();
+            theEnd.indent(-1);
+            theEnd.out("}", true);
+            theEnd.out("// call the main function", true);
+            theEnd.out("__main__swift()", true);
+            if ( ctx.hasCompilerFlag("forever") ) {
+              theEnd.out("CFRunLoopRun()", true);
+            }
+          }
         }
       }
     }
@@ -26945,8 +27259,9 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
     }
     switch (v_type ) { 
       case 20 : 
-        const rv = node.expression_value.children[0];
-        const sec = node.expression_value.children[1];
+        const lambdaExpression = node.expression_value;
+        const rv = lambdaExpression.children[0];
+        const sec = lambdaExpression.children[1];
         const fc = sec.getFirst();
         wr.out("(", false);
         wr.out("(", false);
@@ -27209,13 +27524,14 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
           wr.out(("let " + p.compiledName) + " : ", false);
         }
       }
-      this.writeTypeDef(p.nameNode, ctx, wr);
+      const parameterName = p.nameNode;
+      this.writeTypeDef(parameterName, ctx, wr);
       if ( node.children.length > 2 ) {
         wr.out(" = ", false);
         const value_1 = node.getThird();
-        let slotType = p.nameNode.type_name;
-        if ( p.nameNode.eval_type_name.length > 0 ) {
-          slotType = p.nameNode.eval_type_name;
+        let slotType = parameterName.type_name;
+        if ( parameterName.eval_type_name.length > 0 ) {
+          slotType = parameterName.eval_type_name;
         }
         if ( this.swiftWriteUnionValue(slotType, value_1, ctx, wr) ) {
         } else {
@@ -27444,8 +27760,11 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
       }
       wr.out(".", false);
       let methodName = method.vref;
-      if ( ((typeof(node.fnDesc) !== "undefined" && node.fnDesc != null ) ) && node.fnDesc.compiledName.length > 0 ) {
-        methodName = node.fnDesc.compiledName;
+      if ( (typeof(node.fnDesc) !== "undefined" && node.fnDesc != null )  ) {
+        const callFn = node.fnDesc;
+        if ( callFn.compiledName.length > 0 ) {
+          methodName = callFn.compiledName;
+        }
       }
       wr.out(methodName, false);
       wr.out("(", false);
@@ -27482,7 +27801,8 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
   writeFnCall (node, ctx, wr) {
     if ( node.hasFnCall ) {
       const fc = node.getFirst();
-      const fnName = node.fnDesc.nameNode;
+      const fnDesc = node.fnDesc;
+      const fnName = fnDesc.nameNode;
       if ( ctx.expressionLevel() == 0 ) {
         if ( fnName.type_name != "void" ) {
           wr.out("_ = ", false);
@@ -27496,8 +27816,8 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
       ctx.setInExpr();
       const givenArgs = node.getSecond();
       // Loop start
-      for ( let i = 0; i < node.fnDesc.params.length; i++) {
-        var arg = node.fnDesc.params[i];
+      for ( let i = 0; i < fnDesc.params.length; i++) {
+        var arg = fnDesc.params[i];
         if ( i > 0 ) {
           wr.out(", ", false);
         }
@@ -27534,24 +27854,30 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
     let rv;
     let args;
     if ( (typeof(fName.expression_value) !== "undefined" && fName.expression_value != null )  ) {
-      rv = fName.expression_value.children[0];
-      args = fName.expression_value.children[1];
+      const lambdaExpression = fName.expression_value;
+      rv = lambdaExpression.children[0];
+      args = lambdaExpression.children[1];
     } else {
-      const param = ctx.getVariableDef(fName.vref);
-      rv = param.nameNode.expression_value.children[0];
-      args = param.nameNode.expression_value.children[1];
+      const paramOpt = ctx.getVariableDef(fName.vref);
+      const param = paramOpt;
+      const parameterName = param.nameNode;
+      const lambdaExpression_1 = parameterName.expression_value;
+      rv = lambdaExpression_1.children[0];
+      args = lambdaExpression_1.children[1];
     }
     if ( ctx.expressionLevel() == 0 ) {
-      if ( rv.type_name != "void" ) {
+      const lambdaReturn = rv;
+      if ( lambdaReturn.type_name != "void" ) {
         wr.out("_ = ", false);
       }
     }
     ctx.setInExpr();
     this.WalkNode(fName, ctx, wr);
     wr.out("(", false);
+    const lambdaArgs = args;
     // Loop start
-    for ( let i = 0; i < args.children.length; i++) {
-      var arg = args.children[i];
+    for ( let i = 0; i < lambdaArgs.children.length; i++) {
+      var arg = lambdaArgs.children[i];
       const n = givenArgs.children[i];
       if ( i > 0 ) {
         wr.out(", ", false);
@@ -27605,7 +27931,7 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
         return;
       }
       if ( cl.isSingletonClass() ) {
-        wr.out(node.clDesc.name + ".__singleton", false);
+        wr.out(cl.name + ".__singleton", false);
         wr.out("(", false);
         if ( (typeof(cl.constructor_fn) !== "undefined" && cl.constructor_fn != null )  ) {
           const constr = cl.constructor_fn;
@@ -27613,7 +27939,8 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
           // Loop start
           for ( let i = 0; i < constr.params.length; i++) {
             var arg = constr.params[i];
-            if ( arg.nameNode.hasFlag("keyword") ) {
+            const argumentName = arg.nameNode;
+            if ( argumentName.hasFlag("keyword") ) {
               continue;
             }
             const n = givenArgs.children[i];
@@ -27632,7 +27959,7 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
         return;
       }
       const fc = node.getSecond();
-      wr.out(node.clDesc.name, false);
+      wr.out(cl.name, false);
       wr.out("(", false);
       const constr_1 = cl.constructor_fn;
       if ( (typeof(constr_1) !== "undefined" && constr_1 != null )  ) {
@@ -27640,7 +27967,8 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
         // Loop start
         for ( let i_1 = 0; i_1 < constr_1.params.length; i_1++) {
           var arg_1 = constr_1.params[i_1];
-          if ( arg_1.nameNode.hasFlag("keyword") ) {
+          const argumentName_1 = arg_1.nameNode;
+          if ( argumentName_1.hasFlag("keyword") ) {
             continue;
           }
           const n_1 = givenArgs.children[i_1];
@@ -27763,9 +28091,14 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
       if ( node.children.length > 1 ) {
         const rValue = node.getSecond();
         let retUnion = "";
-        const currFnRet = ctx.getCurrentMethod();
-        if ( (typeof(currFnRet.nameNode) !== "undefined" && currFnRet.nameNode != null )  ) {
-          retUnion = currFnRet.nameNode.type_name;
+        const currFnRetOpt = ctx.getCurrentMethod();
+        if ( (typeof(currFnRetOpt) !== "undefined" && currFnRetOpt != null )  ) {
+          const currFnRet = currFnRetOpt;
+          const returnName = currFnRet.nameNode;
+          if ( (typeof(returnName) !== "undefined" && returnName != null )  ) {
+            const returnNode = returnName;
+            retUnion = returnNode.type_name;
+          }
         }
         wr.out("return ", false);
         const wroteRet = this.swiftWriteUnionValue(retUnion, rValue, ctx, wr);
@@ -27788,10 +28121,14 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
       wr.out(" = ", false);
       let assignSlotType = "";
       if ( left.hasParamDesc ) {
-        const assignNN = left.paramDesc.nameNode;
-        if ( (typeof(assignNN) !== "undefined" && assignNN != null )  ) {
-          const assignNode = assignNN;
-          assignSlotType = assignNode.type_name;
+        const assignDescOpt = left.paramDesc;
+        if ( (typeof(assignDescOpt) !== "undefined" && assignDescOpt != null )  ) {
+          const assignDesc = assignDescOpt;
+          const assignNN = assignDesc.nameNode;
+          if ( (typeof(assignNN) !== "undefined" && assignNN != null )  ) {
+            const assignNode = assignNN;
+            assignSlotType = assignNode.type_name;
+          }
         }
       }
       let wroteAssign = false;
@@ -27814,14 +28151,18 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
         elemType = arr.array_type;
       }
       if ( elemType.length == 0 && arr.hasParamDesc ) {
-        const arrNN = arr.paramDesc.nameNode;
-        if ( (typeof(arrNN) !== "undefined" && arrNN != null )  ) {
-          const arrNode = arrNN;
-          elemType = arrNode.array_type;
-          if ( elemType.length == 0 ) {
-            const tn = arrNode.type_name;
-            if ( tn.length > 2 && tn.charCodeAt(0 ) == (91) ) {
-              elemType = tn.substring(1, tn.length - 1 );
+        const arrDescOpt = arr.paramDesc;
+        if ( (typeof(arrDescOpt) !== "undefined" && arrDescOpt != null )  ) {
+          const arrDesc = arrDescOpt;
+          const arrNN = arrDesc.nameNode;
+          if ( (typeof(arrNN) !== "undefined" && arrNN != null )  ) {
+            const arrNode = arrNN;
+            elemType = arrNode.array_type;
+            if ( elemType.length == 0 ) {
+              const tn = arrNode.type_name;
+              if ( tn.length > 2 && tn.charCodeAt(0 ) == (91) ) {
+                elemType = tn.substring(1, tn.length - 1 );
+              }
             }
           }
         }
@@ -27936,9 +28277,13 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
       wr.out(" : ", false);
       // Loop start
       for ( const pName_1 of cl.extends_classes) {
-        parentClass = ctx.findClass(pName_1);
-        wr.out(parentClass.compiledName, false);
-        swConf = swConf + 1;
+        const parentClassOpt = ctx.findClass(pName_1);
+        if ( (typeof(parentClassOpt) !== "undefined" && parentClassOpt != null )  ) {
+          const resolvedParent = parentClassOpt;
+          parentClass = resolvedParent;
+          wr.out(resolvedParent.compiledName, false);
+          swConf = swConf + 1;
+        }
       }
     } else {
       wr.out(" : Hashable ", false);
@@ -27951,7 +28296,7 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
     }
     wr.out(" { ", true);
     wr.indent(1);
-    if ( typeof(parentClass) != "undefined" ) {
+    if ( (typeof(parentClass) !== "undefined" && parentClass != null )  ) {
     } else {
       wr.out(clVis, false);
       wr.out("func hash(into hasher: inout Hasher) {", true);
@@ -27973,12 +28318,15 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
       }
       const fVis = new RangerDocCommentWriter();
       wr.out(fVis.memberVisibility(cl, pvar_1, "", "public ", ""), false);
-      this.writeVarDef(pvar_1.node, ctx, wr);
+      if ( (typeof(pvar_1.node) !== "undefined" && pvar_1.node != null )  ) {
+        const variableNode = pvar_1.node;
+        this.writeVarDef(variableNode, ctx, wr);
+      }
     }
     if ( cl.has_constructor ) {
       const constr = cl.constructor_fn;
       let b_must_override = false;
-      if ( typeof(parentClass) != "undefined" ) {
+      if ( (typeof(parentClass) !== "undefined" && parentClass != null )  ) {
         if ( constr.params.length == 0 ) {
           b_must_override = true;
         } else {
@@ -27997,7 +28345,7 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
       this.writeArgsDef(constr, ctx, wr);
       wr.out(" ) {", true);
       wr.indent(1);
-      if ( typeof(parentClass) != "undefined" ) {
+      if ( (typeof(parentClass) !== "undefined" && parentClass != null )  ) {
         wr.out("super.init(", false);
         if ( parentClass.has_constructor ) {
           const pConstr = parentClass.constructor_fn;
@@ -28179,25 +28527,33 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
     wr.out("}", true);
     // Loop start
     for ( const variant_4 of cl.static_methods) {
-      if ( variant_4.nameNode.hasFlag("main") && variant_4.nameNode.code.filename == ctx.getRootFile() ) {
-        const theEnd = wr.getTag("file_end");
-        theEnd.newline();
-        theEnd.out("// Main entry point", true);
-        theEnd.out("func __main__swift() {", true);
-        theEnd.indent(1);
-        const subCtx_3 = variant_4.fnCtx;
-        subCtx_3.is_function = true;
-        subCtx_3.in_method = false;
-        subCtx_3.in_static_method = true;
-        subCtx_3.currentMethod = variant_4;
-        this.swiftWriteMutableParamCopies(variant_4, subCtx_3, theEnd);
-        this.WalkNode(variant_4.fnBody, subCtx_3, theEnd);
-        theEnd.newline();
-        theEnd.indent(-1);
-        theEnd.out("}", true);
-        theEnd.out("__main__swift()", true);
-        if ( ctx.hasCompilerFlag("forever") ) {
-          theEnd.out("CFRunLoopRun()", true);
+      const variantNameOpt = variant_4.nameNode;
+      if ( (typeof(variantNameOpt) !== "undefined" && variantNameOpt != null )  ) {
+        const variantName = variantNameOpt;
+        const variantCodeOpt = variantName.code;
+        if ( (typeof(variantCodeOpt) !== "undefined" && variantCodeOpt != null )  ) {
+          const variantCode = variantCodeOpt;
+          if ( variantName.hasFlag("main") && variantCode.filename == ctx.getRootFile() ) {
+            const theEnd = wr.getTag("file_end");
+            theEnd.newline();
+            theEnd.out("// Main entry point", true);
+            theEnd.out("func __main__swift() {", true);
+            theEnd.indent(1);
+            const subCtx_3 = variant_4.fnCtx;
+            subCtx_3.is_function = true;
+            subCtx_3.in_method = false;
+            subCtx_3.in_static_method = true;
+            subCtx_3.currentMethod = variant_4;
+            this.swiftWriteMutableParamCopies(variant_4, subCtx_3, theEnd);
+            this.WalkNode(variant_4.fnBody, subCtx_3, theEnd);
+            theEnd.newline();
+            theEnd.indent(-1);
+            theEnd.out("}", true);
+            theEnd.out("__main__swift()", true);
+            if ( ctx.hasCompilerFlag("forever") ) {
+              theEnd.out("CFRunLoopRun()", true);
+            }
+          }
         }
       }
     }
@@ -28276,8 +28632,9 @@ class RangerSwift6ClassWriter  extends RangerGenericClassWriter {
         wr.out(", ", false);
       }
       if ( hasFnDesc ) {
-        if ( i < fnDesc.params.length ) {
-          const pArg = fnDesc.params[i];
+        const resolvedFn = fnDesc;
+        if ( i < resolvedFn.params.length ) {
+          const pArg = resolvedFn.params[i];
           wr.out(pArg.compiledName + " : ", false);
         }
       }
@@ -28300,11 +28657,15 @@ class CppValueClassAnalysis  {
       return true;
     }
     if ( node.hasParamDesc ) {
-      const pdNN = node.paramDesc.nameNode;
-      if ( (typeof(pdNN) !== "undefined" && pdNN != null )  ) {
-        const pdN = pdNN;
-        if ( pdN.type_name == className ) {
-          return true;
+      const paramDescOpt = node.paramDesc;
+      if ( (typeof(paramDescOpt) !== "undefined" && paramDescOpt != null )  ) {
+        const paramDesc = paramDescOpt;
+        const pdNN = paramDesc.nameNode;
+        if ( (typeof(pdNN) !== "undefined" && pdNN != null )  ) {
+          const pdN = pdNN;
+          if ( pdN.type_name == className ) {
+            return true;
+          }
         }
       }
     }
@@ -28318,11 +28679,15 @@ class CppValueClassAnalysis  {
       return true;
     }
     if ( node.hasParamDesc ) {
-      const pdNN = node.paramDesc.nameNode;
-      if ( (typeof(pdNN) !== "undefined" && pdNN != null )  ) {
-        const pdN = pdNN;
-        if ( pdN.hasFlag("optional") ) {
-          return true;
+      const paramDescOpt = node.paramDesc;
+      if ( (typeof(paramDescOpt) !== "undefined" && paramDescOpt != null )  ) {
+        const paramDesc = paramDescOpt;
+        const pdNN = paramDesc.nameNode;
+        if ( (typeof(pdNN) !== "undefined" && pdNN != null )  ) {
+          const pdN = pdNN;
+          if ( pdN.hasFlag("optional") ) {
+            return true;
+          }
         }
       }
     }
@@ -28949,8 +29314,9 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     }
     switch (v_type ) { 
       case 20 : 
-        const rv = node.expression_value.children[0];
-        const sec = node.expression_value.children[1];
+        const lambdaExpression = node.expression_value;
+        const rv = lambdaExpression.children[0];
+        const sec = lambdaExpression.children[1];
         const fc = sec.getFirst();
         this.import_lib("<functional>", ctx, wr);
         if ( node.IsOptional() ) {
@@ -29257,6 +29623,160 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     const segCl = ctx.findClass(segNode.type_name);
     return this.cppIsValueClass(segCl, ctx);
   };
+  cppShouldAutoUnwrap (p, ctx) {
+    if ( ctx.autoUnwrapIsSuppressed() ) {
+      return false;
+    }
+    if ( ctx.isAutomaticallyUnwrapped(p.name) ) {
+      return true;
+    }
+    return ctx.isAutomaticallyUnwrapped(p.compiledName);
+  };
+  cppWriteVRefName (p, node, index, wr) {
+    if ( p.compiledName.length > 0 ) {
+      wr.out(this.adjustType(p.compiledName), false);
+      return;
+    }
+    if ( p.name.length > 0 ) {
+      wr.out(this.adjustType(p.name), false);
+      return;
+    }
+    wr.out(this.adjustType(node.ns[index]), false);
+  };
+  cppWriteVRefPath (node, fromIndex, toIndex, ctx, wr) {
+    let had_static = false;
+    // Loop start
+    for ( let i = 0; i < node.nsp.length; i++) {
+      var p = node.nsp[i];
+      if ( i < fromIndex ) {
+        continue;
+      }
+      if ( i > toIndex ) {
+        break;
+      }
+      if ( i > fromIndex ) {
+        if ( had_static ) {
+          wr.out("::", false);
+        } else {
+          if ( this.cppSegmentIsValueCase(node, i - 1, ctx) ) {
+            wr.out(".", false);
+          } else {
+            wr.out("->", false);
+          }
+        }
+      }
+      this.cppWriteVRefName(p, node, i, wr);
+      if ( p.isClass() ) {
+        had_static = true;
+      }
+    }
+  };
+  cppVRefIsAssignmentTarget (node) {
+    const parent = node.parent;
+    if ( typeof(parent) === "undefined" ) {
+      return false;
+    }
+    const pu = parent;
+    return pu.getVRefAt(0) == "=";
+  };
+  cppVRefIsCallTarget (node) {
+    const parent = node.parent;
+    if ( typeof(parent) === "undefined" ) {
+      return false;
+    }
+    const pu = parent;
+    return (pu.has_call || pu.hasFnCall) || pu.is_direct_method_call;
+  };
+  cppWriteSafeOptionalTail (node, currentIndex, ctx, wr) {
+    const lastIndex = node.nsp.length - 1;
+    let nextOptional = -1;
+    // Loop start
+    for ( let i = 0; i < node.nsp.length; i++) {
+      var p = node.nsp[i];
+      if ( i > currentIndex && i < lastIndex ) {
+        if ( p.is_optional ) {
+          nextOptional = i;
+          break;
+        }
+      }
+    }
+    if ( nextOptional >= 0 ) {
+      wr.out("rg_optional_access(__rg_value", false);
+      // Loop start
+      for ( let i_1 = 0; i_1 < node.nsp.length; i_1++) {
+        var p_1 = node.nsp[i_1];
+        if ( i_1 <= currentIndex || i_1 > nextOptional ) {
+          continue;
+        }
+        if ( this.cppSegmentIsValueCase(node, i_1 - 1, ctx) ) {
+          wr.out(".", false);
+        } else {
+          wr.out("->", false);
+        }
+        this.cppWriteVRefName(p_1, node, i_1, wr);
+      }
+      wr.out(", [](const auto& __rg_value) { return ", false);
+      this.cppWriteSafeOptionalTail(node, nextOptional, ctx, wr);
+      wr.out("; })", false);
+      return;
+    }
+    wr.out("__rg_value", false);
+    // Loop start
+    for ( let i_2 = 0; i_2 < node.nsp.length; i_2++) {
+      var p_2 = node.nsp[i_2];
+      if ( i_2 <= currentIndex ) {
+        continue;
+      }
+      if ( this.cppSegmentIsValueCase(node, i_2 - 1, ctx) ) {
+        wr.out(".", false);
+      } else {
+        wr.out("->", false);
+      }
+      this.cppWriteVRefName(p_2, node, i_2, wr);
+    }
+  };
+  cppWriteSafeOptionalAccess (node, ctx, wr) {
+    if ( (node.has_call || node.hasFnCall) || this.cppVRefIsCallTarget(node) ) {
+      return false;
+    }
+    if ( ctx.autoUnwrapIsSuppressed() ) {
+      return false;
+    }
+    let optionalIndex = -1;
+    // Loop start
+    for ( let i = 0; i < node.nsp.length; i++) {
+      var p = node.nsp[i];
+      if ( p.is_optional && this.cppShouldAutoUnwrap(p, ctx) ) {
+        return false;
+      }
+      if ( i < node.nsp.length - 1 && p.is_optional ) {
+        optionalIndex = i;
+        break;
+      }
+    }
+    if ( optionalIndex < 0 ) {
+      return false;
+    }
+    if ( optionalIndex == 0 ) {
+      const rootParam = node.nsp[0];
+      if ( this.cppShouldAutoUnwrap(rootParam, ctx) ) {
+        return false;
+      }
+    }
+    if ( ctx.hasCompilerFlag("strict-optional-access") ) {
+      ctx.addError(node, "optional property access requires `if (!null? value)` or `(unwrap value)` before reading a property");
+      return false;
+    }
+    if ( ctx.isInLhs() || this.cppVRefIsAssignmentTarget(node) ) {
+      return false;
+    }
+    wr.out("rg_optional_access(", false);
+    this.cppWriteVRefPath(node, 0, optionalIndex, ctx, wr);
+    wr.out(", [](const auto& __rg_value) { return ", false);
+    this.cppWriteSafeOptionalTail(node, optionalIndex, ctx, wr);
+    wr.out("; })", false);
+    return true;
+  };
   WriteVRef (node, ctx, wr) {
     if ( node.vref == "this" ) {
       const currC = ctx.getCurrentClass();
@@ -29287,6 +29807,9 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     }
     let had_static = false;
     if ( node.nsp.length > 0 ) {
+      if ( this.cppWriteSafeOptionalAccess(node, ctx, wr) ) {
+        return;
+      }
       // Loop start
       for ( let i = 0; i < node.nsp.length; i++) {
         var p = node.nsp[i];
@@ -29308,15 +29831,14 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
             continue;
           }
         }
-        if ( p.compiledName.length > 0 ) {
-          wr.out(this.adjustType(p.compiledName), false);
-        } else {
-          if ( p.name.length > 0 ) {
-            wr.out(this.adjustType(p.name), false);
-          } else {
-            wr.out(this.adjustType(node.ns[i]), false);
+        if ( i == 0 ) {
+          if ( this.cppShouldAutoUnwrap(p, ctx) ) {
+            const uv = ("(" + this.adjustType(p.compiledName)) + ".value())";
+            wr.out(uv, false);
+            continue;
           }
         }
+        this.cppWriteVRefName(p, node, i, wr);
         if ( p.isClass() ) {
           had_static = true;
         }
@@ -29325,7 +29847,14 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     }
     if ( node.hasParamDesc ) {
       const p_1 = node.paramDesc;
-      wr.out(p_1.compiledName, false);
+      if ( typeof(p_1) === "undefined" ) {
+        return;
+      }
+      const pu = p_1;
+      wr.out(pu.compiledName, false);
+      if ( this.cppShouldAutoUnwrap(pu, ctx) ) {
+        wr.out(".value()", false);
+      }
       return;
     }
     // Loop start
@@ -29591,11 +30120,116 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     wr.indent(-1);
     wr.out("}", true);
   };
+  markNotNullVar (candidate, ctx) {
+    let n = candidate;
+    while (n.expression && n.children.length == 1) {
+      n = n.getFirst();
+    };
+    if ( n.expression ) {
+      return;
+    }
+    let name = n.vref;
+    if ( n.ns.length == 1 ) {
+      name = n.ns[0];
+    }
+    if ( name.length == 0 ) {
+      return;
+    }
+    ctx.setAutomaticallyUnwrapped(name);
+  };
+  markNotNullName (name, ctx) {
+    if ( name.length == 0 ) {
+      return;
+    }
+    ctx.setAutomaticallyUnwrapped(name);
+  };
+  walkNotNulls (condition, ctx, wr) {
+    let c = condition;
+    while (c.expression && c.children.length == 1) {
+      c = c.getFirst();
+    };
+    if ( c.getVRefAt(0) == "!null?" ) {
+      if ( c.children.length > 1 ) {
+        this.markNotNullVar(c.children[1], ctx);
+      }
+      return;
+    }
+    if ( c.expression && c.children.length == 3 ) {
+      const mid = c.children[1];
+      if ( mid.vref == "&&" || mid.vref == "and" ) {
+        this.walkNotNulls(c.children[0], ctx, wr);
+        this.walkNotNulls(c.children[2], ctx, wr);
+        return;
+      }
+    }
+    const fc = c.getFirst();
+    if ( typeof(fc) === "undefined" ) {
+      return;
+    }
+    const firstCh = fc.getVRefAt(0);
+    if ( firstCh == "&&" || firstCh == "and" ) {
+      if ( c.children.length > 1 ) {
+        this.walkNotNulls(c.children[1], ctx, wr);
+      }
+      if ( c.children.length > 2 ) {
+        this.walkNotNulls(c.children[2], ctx, wr);
+      }
+      return;
+    }
+    if ( firstCh == "!null?" ) {
+      if ( c.children.length > 1 ) {
+        this.markNotNullVar(c.children[1], ctx);
+      }
+    }
+  };
+  cppWriteIf (node, ctx, wr) {
+    const condition = node.getSecond();
+    const body = node.children[2];
+    let blockContext = ctx.fork();
+    if ( (typeof(body.evalCtx) !== "undefined" && body.evalCtx != null )  ) {
+      blockContext = body.evalCtx;
+    }
+    this.walkNotNulls(condition, blockContext, wr);
+    wr.out("if (", false);
+    this.cppWriteOperand(condition, ctx, wr);
+    wr.out(") {", true);
+    wr.indent(1);
+    this.WalkNode(body, blockContext, wr);
+    wr.indent(-1);
+    wr.out("}", true);
+  };
+  cppWriteWhile (node, ctx, wr) {
+    if ( node.children.length < 3 ) {
+      return;
+    }
+    const condition = node.getSecond();
+    const body = node.children[2];
+    let blockContext = ctx.fork();
+    if ( (typeof(body.evalCtx) !== "undefined" && body.evalCtx != null )  ) {
+      blockContext = body.evalCtx;
+    }
+    this.walkNotNulls(condition, blockContext, wr);
+    wr.out("while (", false);
+    this.cppWriteOperand(condition, ctx, wr);
+    wr.out(") {", true);
+    wr.indent(1);
+    this.WalkNode(body, blockContext, wr);
+    wr.indent(-1);
+    wr.out("}", true);
+  };
   CustomOperator (node, ctx, wr) {
     const fc = node.getFirst();
     const cmd = fc.vref;
     if ( cmd == "for" ) {
       this.cppWriteForLoop(node, ctx, wr);
+      return;
+    }
+    if ( cmd == "if" ) {
+      this.cppWriteIf(node, ctx, wr);
+      return;
+    }
+    if ( cmd == "while" ) {
+      this.cppWriteWhile(node, ctx, wr);
       return;
     }
     if ( cmd == "==" || cmd == "!=" ) {
@@ -29744,17 +30378,22 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     const givenArgs = node.children[1];
     let args;
     if ( (typeof(fName.expression_value) !== "undefined" && fName.expression_value != null )  ) {
-      args = fName.expression_value.children[1];
+      const lambdaExpression = fName.expression_value;
+      args = lambdaExpression.children[1];
     } else {
-      const param = ctx.getVariableDef(fName.vref);
-      args = param.nameNode.expression_value.children[1];
+      const paramOpt = ctx.getVariableDef(fName.vref);
+      const param = paramOpt;
+      const parameterName = param.nameNode;
+      const lambdaExpression_1 = parameterName.expression_value;
+      args = lambdaExpression_1.children[1];
     }
     ctx.setInExpr();
     this.WalkNode(fName, ctx, wr);
     wr.out("(", false);
+    const lambdaArgs = args;
     // Loop start
-    for ( let i = 0; i < args.children.length; i++) {
-      var arg = args.children[i];
+    for ( let i = 0; i < lambdaArgs.children.length; i++) {
+      var arg = lambdaArgs.children[i];
       const n = givenArgs.children[i];
       if ( i > 0 ) {
         wr.out(", ", false);
@@ -29841,11 +30480,15 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       return true;
     }
     if ( node.hasParamDesc ) {
-      const pdNN = node.paramDesc.nameNode;
-      if ( (typeof(pdNN) !== "undefined" && pdNN != null )  ) {
-        const pdN = pdNN;
-        if ( pdN.key_type.length > 0 ) {
-          return true;
+      const paramDescOpt = node.paramDesc;
+      if ( (typeof(paramDescOpt) !== "undefined" && paramDescOpt != null )  ) {
+        const paramDesc = paramDescOpt;
+        const pdNN = paramDesc.nameNode;
+        if ( (typeof(pdNN) !== "undefined" && pdNN != null )  ) {
+          const pdN = pdNN;
+          if ( pdN.key_type.length > 0 ) {
+            return true;
+          }
         }
       }
     }
@@ -29913,11 +30556,15 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       return true;
     }
     if ( node.hasParamDesc ) {
-      const pdNN = node.paramDesc.nameNode;
-      if ( (typeof(pdNN) !== "undefined" && pdNN != null )  ) {
-        const pdN = pdNN;
-        if ( (pdN.type_name == tn || pdN.array_type == tn) || pdN.key_type == tn ) {
-          return true;
+      const paramDescOpt = node.paramDesc;
+      if ( (typeof(paramDescOpt) !== "undefined" && paramDescOpt != null )  ) {
+        const paramDesc = paramDescOpt;
+        const pdNN = paramDesc.nameNode;
+        if ( (typeof(pdNN) !== "undefined" && pdNN != null )  ) {
+          const pdN = pdNN;
+          if ( (pdN.type_name == tn || pdN.array_type == tn) || pdN.key_type == tn ) {
+            return true;
+          }
         }
       }
     }
@@ -30080,35 +30727,35 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     wr.out("    bool operator!=(std::nullptr_t) const { return !w.expired(); }", true);
     wr.out("};", true);
   };
+  writeCppOptionalAccessHelper (wr) {
+    wr.out("// reads a property through an optional object, returning the property's default value when absent", true);
+    wr.out("template <class O, class F> auto rg_optional_access(const O& value, F accessor) {", true);
+    wr.out("  using R = decltype(accessor(value.value()));", true);
+    wr.out("  if (value.has_value()) { return accessor(value.value()); }", true);
+    wr.out("  return R{};", true);
+    wr.out("}", true);
+  };
   writeCppHeaderVar (node, ctx, wr, do_initialize) {
     if ( node.hasParamDesc ) {
       const nn = node.children[1];
       const p = nn.paramDesc;
-      if ( p.ref_cnt == 0 && p.is_class_variable == false ) {
-        wr.out("/* unused:  ", false);
-      }
-      if ( p.set_cnt > 0 || p.is_class_variable ) {
-        wr.out("", false);
-      } else {
-        wr.out("", false);
-      }
       const pnn = p.nameNode;
-      if ( this.cppIsWeakField(pnn, ctx) ) {
-        wr.out(("r_weak<" + pnn.type_name) + ">", false);
+      const is_weak = this.cppIsWeakField(pnn, ctx);
+      if ( is_weak ) {
+        if ( node.IsOptional() ) {
+          wr.out("std::optional<", false);
+        }
+        const typeName_1 = ("r_weak<" + pnn.type_name) + ">";
+        wr.out(typeName_1, false);
+        if ( node.IsOptional() ) {
+          wr.out(">", false);
+        }
       } else {
         this.writeTypeDef(pnn, ctx, wr);
       }
       wr.out(" ", false);
       wr.out(p.compiledName, false);
-      if ( p.ref_cnt == 0 && p.is_class_variable == true ) {
-        wr.out("     /* note: unused */", false);
-      }
-      if ( p.ref_cnt == 0 && p.is_class_variable == false ) {
-        wr.out("   **/ ;", true);
-      } else {
-        wr.out(";", false);
-        wr.newline();
-      }
+      wr.out(";", false);
     }
   };
   cppReadonlyValueParam (arg) {
@@ -30429,9 +31076,10 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       wr.out("(", false);
       ctx.setInExpr();
       const givenArgs = node.getSecond();
+      const fnDesc = node.fnDesc;
       // Loop start
-      for ( let i = 0; i < node.fnDesc.params.length; i++) {
-        var arg = node.fnDesc.params[i];
+      for ( let i = 0; i < fnDesc.params.length; i++) {
+        var arg = fnDesc.params[i];
         if ( i > 0 ) {
           wr.out(", ", false);
         }
@@ -30446,11 +31094,11 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
           continue;
         }
         const n = givenArgs.children[i];
-        const tempCopy = this.cppNeedsCallTempCopy(node.fnDesc, arg, n, ctx);
+        const tempCopy = this.cppNeedsCallTempCopy(fnDesc, arg, n, ctx);
         let argRef = false;
         if ( tempCopy == false ) {
           if ( n.expression ) {
-            argRef = this.cppMutableRefParam(node.fnDesc, arg, ctx);
+            argRef = this.cppMutableRefParam(fnDesc, arg, ctx);
           }
         }
         if ( tempCopy ) {
@@ -30485,7 +31133,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
         wr.out("(", false);
       } else {
         wr.out(" " + this.cppMakeOpen(), false);
-        wr.out(node.clDesc.name, false);
+        wr.out(cl.name, false);
         wr.out(">(", false);
       }
       const constr = cl.constructor_fn;
@@ -31071,6 +31719,8 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
         this.writeCppWeakHelper(wr);
         wr.out("", true);
       }
+      this.writeCppOptionalAccessHelper(wr);
+      wr.out("", true);
       wr.out("// header definitions", true);
       wr.createTag("c++TraitDefs");
       wr.createTag("c++Header");
@@ -31219,20 +31869,28 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     // Loop start
     for ( let i_8 = 0; i_8 < cl.static_methods.length; i_8++) {
       var variant_2 = cl.static_methods[i_8];
-      if ( variant_2.nameNode.hasFlag("main") && variant_2.nameNode.code.filename == ctx.getRootFile() ) {
-        ctx.setCompilerSetting("mainclass", cl.name);
-        wr.out("int main(int argc, char* argv[]) {", true);
-        wr.indent(1);
-        wr.out("__g_argc = argc;", true);
-        wr.out("__g_argv = argv;", true);
-        const subCtx_3 = variant_2.fnCtx;
-        subCtx_3.in_main = true;
-        subCtx_3.is_function = true;
-        this.WalkNode(variant_2.fnBody, subCtx_3, wr);
-        wr.newline();
-        wr.out("return 0;", true);
-        wr.indent(-1);
-        wr.out("}", true);
+      const variantNameOpt = variant_2.nameNode;
+      if ( (typeof(variantNameOpt) !== "undefined" && variantNameOpt != null )  ) {
+        const variantName = variantNameOpt;
+        const variantCodeOpt = variantName.code;
+        if ( (typeof(variantCodeOpt) !== "undefined" && variantCodeOpt != null )  ) {
+          const variantCode = variantCodeOpt;
+          if ( variantName.hasFlag("main") && variantCode.filename == ctx.getRootFile() ) {
+            ctx.setCompilerSetting("mainclass", cl.name);
+            wr.out("int main(int argc, char* argv[]) {", true);
+            wr.indent(1);
+            wr.out("__g_argc = argc;", true);
+            wr.out("__g_argv = argv;", true);
+            const subCtx_3 = variant_2.fnCtx;
+            subCtx_3.in_main = true;
+            subCtx_3.is_function = true;
+            this.WalkNode(variant_2.fnBody, subCtx_3, wr);
+            wr.newline();
+            wr.out("return 0;", true);
+            wr.indent(-1);
+            wr.out("}", true);
+          }
+        }
       }
     }
   };
@@ -36458,9 +37116,10 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         this.rust_receiver_shared_known = false;
         this.rust_path_head_mut = false;
         wr.out("(", false);
+        const callFn = node.fnDesc;
         // Loop start
-        for ( let i_1 = 0; i_1 < node.fnDesc.params.length; i_1++) {
-          var arg_1 = node.fnDesc.params[i_1];
+        for ( let i_1 = 0; i_1 < callFn.params.length; i_1++) {
+          var arg_1 = callFn.params[i_1];
           const n_1 = givenArgs.children[i_1];
           if ( i_1 > 0 ) {
             wr.out(", ", false);
@@ -36625,9 +37284,10 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
           ) + "::") + this.adjustType(methodName_2), false);
           wr.out("(", false);
           const selfCallSelfRc = this.writeSelfRcReceiverArg(node, fc, ctx, wr);
+          const callFn_1 = node.fnDesc;
           // Loop start
-          for ( let i_2 = 0; i_2 < node.fnDesc.params.length; i_2++) {
-            var arg_2 = node.fnDesc.params[i_2];
+          for ( let i_2 = 0; i_2 < callFn_1.params.length; i_2++) {
+            var arg_2 = callFn_1.params[i_2];
             const n_2 = givenArgs.children[i_2];
             if ( i_2 > 0 || selfCallSelfRc ) {
               wr.out(", ", false);
@@ -36789,9 +37449,10 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
           ) + "::") + this.adjustType(methodName2), false);
           wr.out("(", false);
           const staticSelfRc = this.writeSelfRcReceiverArg(node, fc, ctx, wr);
+          const callFn_2 = node.fnDesc;
           // Loop start
-          for ( let i_3 = 0; i_3 < node.fnDesc.params.length; i_3++) {
-            var arg_3 = node.fnDesc.params[i_3];
+          for ( let i_3 = 0; i_3 < callFn_2.params.length; i_3++) {
+            var arg_3 = callFn_2.params[i_3];
             const n_3 = givenArgs.children[i_3];
             if ( i_3 > 0 || staticSelfRc ) {
               wr.out(", ", false);
@@ -36924,9 +37585,10 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
           }
         }
         if ( stdRecvBorrows ) {
+          const callFn_3 = node.fnDesc;
           // Loop start
-          for ( let si = 0; si < node.fnDesc.params.length; si++) {
-            var sarg = node.fnDesc.params[si];
+          for ( let si = 0; si < callFn_3.params.length; si++) {
+            var sarg = callFn_3.params[si];
             const sn = givenArgs.children[si];
             if ( (typeof(sn) !== "undefined" && sn != null )  ) {
               const snVal = sn;
@@ -36956,9 +37618,10 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       this.rust_path_head_mut = false;
       wr.out("(", false);
       const std_wrote_selfrc = this.writeSelfRcReceiverArg(node, fc, ctx, wr);
+      const callFn_4 = node.fnDesc;
       // Loop start
-      for ( let i_4 = 0; i_4 < node.fnDesc.params.length; i_4++) {
-        var arg_4 = node.fnDesc.params[i_4];
+      for ( let i_4 = 0; i_4 < callFn_4.params.length; i_4++) {
+        var arg_4 = callFn_4.params[i_4];
         const n_4 = givenArgs.children[i_4];
         if ( i_4 > 0 || std_wrote_selfrc ) {
           wr.out(", ", false);
@@ -37248,7 +37911,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     if ( node.hasNewOper ) {
       const cl = node.clDesc;
       const fc = node.getSecond();
-      wr.out(node.clDesc.name, false);
+      wr.out(cl.name, false);
       wr.out("::new(", false);
       const constr = cl.constructor_fn;
       const givenArgs = node.getThird();
@@ -37258,7 +37921,8 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         // Loop start
         for ( let i = 0; i < c.params.length; i++) {
           var arg = c.params[i];
-          if ( arg.nameNode.hasFlag("keyword") ) {
+          const argumentName = arg.nameNode;
+          if ( argumentName.hasFlag("keyword") ) {
             continue;
           }
           const n = givenArgs.children[i];
@@ -39320,9 +39984,10 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
                 ctx,
                 wr
               );
+              const retFn = retVal.fnDesc;
               // Loop start
-              for ( let i_1 = 0; i_1 < retVal.fnDesc.params.length; i_1++) {
-                var arg_2 = retVal.fnDesc.params[i_1];
+              for ( let i_1 = 0; i_1 < retFn.params.length; i_1++) {
+                var arg_2 = retFn.params[i_1];
                 if ( i_1 > 0 || retSelfRc ) {
                   wr.out(", ", false);
                 }
@@ -39648,7 +40313,8 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       let arr_type = "";
       if ( left_1.hasParamDesc ) {
         const pp_2 = left_1.paramDesc;
-        arr_type = pp_2.nameNode.array_type;
+        const parameterName = pp_2.nameNode;
+        arr_type = parameterName.array_type;
       }
       const moved_here = right_1.rg_moved_here;
       let needs_clone = false;
@@ -40148,7 +40814,8 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     if ( useIter ) {
       let needsMut = false;
       if ( item.hasParamDesc ) {
-        if ( item.paramDesc.set_cnt > 0 ) {
+        const itemDesc = item.paramDesc;
+        if ( itemDesc.set_cnt > 0 ) {
           needsMut = true;
         }
       }
@@ -41370,11 +42037,15 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       return true;
     }
     if ( node.hasParamDesc ) {
-      const pdNN = node.paramDesc.nameNode;
-      if ( (typeof(pdNN) !== "undefined" && pdNN != null )  ) {
-        const pdN = pdNN;
-        if ( pdN.key_type.length > 0 ) {
-          return true;
+      const paramDescOpt = node.paramDesc;
+      if ( (typeof(paramDescOpt) !== "undefined" && paramDescOpt != null )  ) {
+        const paramDesc = paramDescOpt;
+        const pdNN = paramDesc.nameNode;
+        if ( (typeof(pdNN) !== "undefined" && pdNN != null )  ) {
+          const pdN = pdNN;
+          if ( pdN.key_type.length > 0 ) {
+            return true;
+          }
         }
       }
     }
@@ -42567,46 +43238,53 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     }
     // Loop start
     for ( const variant_6 of cl.static_methods) {
-      const nn_1 = variant_6.nameNode;
-      if ( nn_1.hasFlag("main") && nn_1.code.filename == ctx.getRootFile() ) {
-        const mainReturns = nn_1.type_name.length > 0 && nn_1.type_name != "void";
-        if ( this.rustLibraryMode(ctx) ) {
-          wr.out("pub fn __rg_main_body() {", true);
-        } else {
-          wr.out("fn main() {", true);
-          wr.indent(1);
-          wr.out("let __rg_main_thread = std::thread::Builder::new().stack_size(512 * 1024 * 1024)", true);
-          wr.out("  .spawn(__rg_main_body).expect(\"could not start the main thread\");", true);
-          wr.out("__rg_main_thread.join().expect(\"main thread panicked\");", true);
-          wr.indent(-1);
-          wr.out("}", true);
-          wr.out("fn __rg_main_body() {", true);
+      const nnOpt = variant_6.nameNode;
+      if ( (typeof(nnOpt) !== "undefined" && nnOpt != null )  ) {
+        const nn_1 = nnOpt;
+        const mainCodeOpt = nn_1.code;
+        if ( (typeof(mainCodeOpt) !== "undefined" && mainCodeOpt != null )  ) {
+          const mainCode = mainCodeOpt;
+          if ( nn_1.hasFlag("main") && mainCode.filename == ctx.getRootFile() ) {
+            const mainReturns = nn_1.type_name.length > 0 && nn_1.type_name != "void";
+            if ( this.rustLibraryMode(ctx) ) {
+              wr.out("pub fn __rg_main_body() {", true);
+            } else {
+              wr.out("fn main() {", true);
+              wr.indent(1);
+              wr.out("let __rg_main_thread = std::thread::Builder::new().stack_size(512 * 1024 * 1024)", true);
+              wr.out("  .spawn(__rg_main_body).expect(\"could not start the main thread\");", true);
+              wr.out("__rg_main_thread.join().expect(\"main thread panicked\");", true);
+              wr.indent(-1);
+              wr.out("}", true);
+              wr.out("fn __rg_main_body() {", true);
+            }
+            wr.indent(1);
+            wr.newline();
+            if ( mainReturns ) {
+              wr.out("let __rg_exit_code = (|| {", true);
+              wr.indent(1);
+              wr.newline();
+            }
+            const subCtx_4 = variant_6.fnCtx;
+            if ( (typeof(subCtx_4) !== "undefined" && subCtx_4 != null )  ) {
+              const sCtx_4 = subCtx_4;
+              sCtx_4.is_function = true;
+              const fnB_4 = variant_6.fnBody;
+              this.rustFnReturnsUnion = this.rustUnionReturnOf(variant_6, ctx);
+              this.walkRustFnBody(fnB_4, sCtx_4, wr);
+              this.rustFnReturnsUnion = "";
+            }
+            if ( mainReturns ) {
+              wr.newline();
+              wr.indent(-1);
+              wr.out("})();", true);
+              wr.out("std::process::exit(__rg_exit_code as i32);", true);
+            }
+            wr.newline();
+            wr.indent(-1);
+            wr.out("}", true);
+          }
         }
-        wr.indent(1);
-        wr.newline();
-        if ( mainReturns ) {
-          wr.out("let __rg_exit_code = (|| {", true);
-          wr.indent(1);
-          wr.newline();
-        }
-        const subCtx_4 = variant_6.fnCtx;
-        if ( (typeof(subCtx_4) !== "undefined" && subCtx_4 != null )  ) {
-          const sCtx_4 = subCtx_4;
-          sCtx_4.is_function = true;
-          const fnB_4 = variant_6.fnBody;
-          this.rustFnReturnsUnion = this.rustUnionReturnOf(variant_6, ctx);
-          this.walkRustFnBody(fnB_4, sCtx_4, wr);
-          this.rustFnReturnsUnion = "";
-        }
-        if ( mainReturns ) {
-          wr.newline();
-          wr.indent(-1);
-          wr.out("})();", true);
-          wr.out("std::process::exit(__rg_exit_code as i32);", true);
-        }
-        wr.newline();
-        wr.indent(-1);
-        wr.out("}", true);
       }
     }
     if ( this.rustProgramHasMainFlag(ctx) == false ) {
@@ -42618,20 +43296,24 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
             const fmNN = variant_7.nameNode;
             if ( (typeof(fmNN) !== "undefined" && fmNN != null )  ) {
               const fmN = fmNN;
-              if ( fmN.code.filename == ctx.getRootFile() ) {
-                if ( this.rustLibraryMode(ctx) ) {
-                  continue;
+              const fmCodeOpt = fmN.code;
+              if ( (typeof(fmCodeOpt) !== "undefined" && fmCodeOpt != null )  ) {
+                const fmCode = fmCodeOpt;
+                if ( fmCode.filename == ctx.getRootFile() ) {
+                  if ( this.rustLibraryMode(ctx) ) {
+                    continue;
+                  }
+                  wr.out("fn main() {", true);
+                  wr.indent(1);
+                  if ( variant_7.rust_can_be_static ) {
+                    wr.out(cl.name + "::main();", true);
+                  } else {
+                    wr.out(("let mut __rg_main = " + cl.name) + "::new();", true);
+                    wr.out("__rg_main.main();", true);
+                  }
+                  wr.indent(-1);
+                  wr.out("}", true);
                 }
-                wr.out("fn main() {", true);
-                wr.indent(1);
-                if ( variant_7.rust_can_be_static ) {
-                  wr.out(cl.name + "::main();", true);
-                } else {
-                  wr.out(("let mut __rg_main = " + cl.name) + "::new();", true);
-                  wr.out("__rg_main.main();", true);
-                }
-                wr.indent(-1);
-                wr.out("}", true);
               }
             }
           }
@@ -42862,11 +43544,15 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
   };
   rustWriteScrutineeType (scrut, ctx, wr) {
     if ( scrut.hasParamDesc ) {
-      const sNN = scrut.paramDesc.nameNode;
-      if ( (typeof(sNN) !== "undefined" && sNN != null )  ) {
-        const sN = sNN;
-        this.writeTypeDef(sN, ctx, wr);
-        return;
+      const paramDescOpt = scrut.paramDesc;
+      if ( (typeof(paramDescOpt) !== "undefined" && paramDescOpt != null )  ) {
+        const paramDesc = paramDescOpt;
+        const sNN = paramDesc.nameNode;
+        if ( (typeof(sNN) !== "undefined" && sNN != null )  ) {
+          const sN = sNN;
+          this.writeTypeDef(sN, ctx, wr);
+          return;
+        }
       }
     }
     this.writeTypeDef(scrut, ctx, wr);
@@ -43451,8 +44137,11 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
       }
       wr.out(".", false);
       let methodName = method.vref;
-      if ( ((typeof(node.fnDesc) !== "undefined" && node.fnDesc != null ) ) && node.fnDesc.compiledName.length > 0 ) {
-        methodName = node.fnDesc.compiledName;
+      if ( (typeof(node.fnDesc) !== "undefined" && node.fnDesc != null )  ) {
+        const callFn = node.fnDesc;
+        if ( callFn.compiledName.length > 0 ) {
+          methodName = callFn.compiledName;
+        }
       }
       wr.outMapped(methodName, method, false, method.vref);
       wr.out("(", false);
@@ -43599,9 +44288,10 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
       this.WriteVRef(fc, ctx, wr);
       wr.out("(", false);
       const givenArgs = node.getSecond();
+      const fnDesc = node.fnDesc;
       // Loop start
-      for ( let i = 0; i < node.fnDesc.params.length; i++) {
-        var arg = node.fnDesc.params[i];
+      for ( let i = 0; i < fnDesc.params.length; i++) {
+        var arg = fnDesc.params[i];
         if ( i > 0 ) {
           wr.out(", ", false);
         }
@@ -43634,7 +44324,7 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
       }
       if ( cl.isSingletonClass() ) {
         wr.out(" ", false);
-        wr.out(node.clDesc.name + ".__singleton", false);
+        wr.out(cl.name + ".__singleton", false);
         wr.out("(", false);
         // Loop start
         for ( let i = 0; i < givenArgs.children.length; i++) {
@@ -43649,7 +44339,7 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
       }
       const fc = node.getSecond();
       wr.out(" ", false);
-      wr.out(node.clDesc.name, false);
+      wr.out(cl.name, false);
       wr.out("(", false);
       const constr = cl.constructor_fn;
       if ( (typeof(constr) !== "undefined" && constr != null )  ) {
@@ -44043,23 +44733,31 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
     // Loop start
     for ( const variant_3 of cl.static_methods) {
       wr.out("", true);
-      if ( variant_3.nameNode.hasFlag("main") && variant_3.nameNode.code.filename == ctx.getRootFile() ) {
-        wr.out("var __g_args : Array<String> = arrayOf()", true);
-        wr.out("", true);
-        wr.out("fun main(args : Array<String>) {", true);
-        wr.indent(1);
-        wr.out("__g_args = args", true);
-        wr.newline();
-        const subCtx_3 = variant_3.fnCtx;
-        subCtx_3.is_function = true;
-        subCtx_3.in_method = false;
-        subCtx_3.in_static_method = true;
-        subCtx_3.currentMethod = variant_3;
-        this.kotlinWriteMutableParamCopies(variant_3, subCtx_3, wr);
-        this.WalkNode(variant_3.fnBody, subCtx_3, wr);
-        wr.newline();
-        wr.indent(-1);
-        wr.out("}", true);
+      const variantNameOpt = variant_3.nameNode;
+      if ( (typeof(variantNameOpt) !== "undefined" && variantNameOpt != null )  ) {
+        const variantName = variantNameOpt;
+        const variantCodeOpt = variantName.code;
+        if ( (typeof(variantCodeOpt) !== "undefined" && variantCodeOpt != null )  ) {
+          const variantCode = variantCodeOpt;
+          if ( variantName.hasFlag("main") && variantCode.filename == ctx.getRootFile() ) {
+            wr.out("var __g_args : Array<String> = arrayOf()", true);
+            wr.out("", true);
+            wr.out("fun main(args : Array<String>) {", true);
+            wr.indent(1);
+            wr.out("__g_args = args", true);
+            wr.newline();
+            const subCtx_3 = variant_3.fnCtx;
+            subCtx_3.is_function = true;
+            subCtx_3.in_method = false;
+            subCtx_3.in_static_method = true;
+            subCtx_3.currentMethod = variant_3;
+            this.kotlinWriteMutableParamCopies(variant_3, subCtx_3, wr);
+            this.WalkNode(variant_3.fnBody, subCtx_3, wr);
+            wr.newline();
+            wr.indent(-1);
+            wr.out("}", true);
+          }
+        }
       }
     }
   };
@@ -44413,8 +45111,9 @@ class RangerDartClassWriter  extends RangerGenericClassWriter {
     }
     switch (v_type ) { 
       case 20 : 
-        const rv = node.expression_value.children[0];
-        const sec = node.expression_value.children[1];
+        const lambdaExpression = node.expression_value;
+        const rv = lambdaExpression.children[0];
+        const sec = lambdaExpression.children[1];
         this.writeTypeDef(rv, ctx, wr);
         wr.out(" Function(", false);
         // Loop start
@@ -44697,8 +45396,11 @@ class RangerDartClassWriter  extends RangerGenericClassWriter {
       }
       wr.out(".", false);
       let methodName = method.vref;
-      if ( ((typeof(node.fnDesc) !== "undefined" && node.fnDesc != null ) ) && node.fnDesc.compiledName.length > 0 ) {
-        methodName = node.fnDesc.compiledName;
+      if ( (typeof(node.fnDesc) !== "undefined" && node.fnDesc != null )  ) {
+        const callFn = node.fnDesc;
+        if ( callFn.compiledName.length > 0 ) {
+          methodName = callFn.compiledName;
+        }
       }
       wr.outMapped(methodName, method, false, method.vref);
       wr.out("(", false);
@@ -44759,9 +45461,10 @@ class RangerDartClassWriter  extends RangerGenericClassWriter {
       this.WriteVRef(fc, ctx, wr);
       wr.out("(", false);
       const givenArgs = node.getSecond();
+      const fnDesc = node.fnDesc;
       // Loop start
-      for ( let i = 0; i < node.fnDesc.params.length; i++) {
-        var arg = node.fnDesc.params[i];
+      for ( let i = 0; i < fnDesc.params.length; i++) {
+        var arg = fnDesc.params[i];
         if ( i > 0 ) {
           wr.out(", ", false);
         }
@@ -44794,7 +45497,7 @@ class RangerDartClassWriter  extends RangerGenericClassWriter {
       }
       if ( cl.isSingletonClass() ) {
         wr.out(" ", false);
-        wr.out(node.clDesc.name + ".__singleton", false);
+        wr.out(cl.name + ".__singleton", false);
         wr.out("(", false);
         // Loop start
         for ( let i = 0; i < givenArgs.children.length; i++) {
@@ -44808,7 +45511,7 @@ class RangerDartClassWriter  extends RangerGenericClassWriter {
         return;
       }
       wr.out(" ", false);
-      wr.out(node.clDesc.name, false);
+      wr.out(cl.name, false);
       wr.out("(", false);
       const constr = cl.constructor_fn;
       if ( (typeof(constr) !== "undefined" && constr != null )  ) {
@@ -45114,7 +45817,9 @@ class RangerDartClassWriter  extends RangerGenericClassWriter {
     wr.out("}", true);
     // Loop start
     for ( const variant_3 of cl.static_methods) {
-      if ( variant_3.nameNode.hasFlag("main") && variant_3.nameNode.code.filename == ctx.getRootFile() ) {
+      const variantName = variant_3.nameNode;
+      const variantCode = variantName.code;
+      if ( variantName.hasFlag("main") && variantCode.filename == ctx.getRootFile() ) {
         wr.out("", true);
         wr.out("List<String> __g_args = <String>[];", true);
         wr.out("", true);
@@ -45943,15 +46648,17 @@ class RangerCSharpClassWriter  extends RangerGenericClassWriter {
     // Loop start
     for ( let i_3 = 0; i_3 < cl.static_methods.length; i_3++) {
       var variant = cl.static_methods[i_3];
+      const variantName = variant.nameNode;
+      const variantCode = variantName.code;
       if ( variant.is_doc_example ) {
         if ( ctx.hasCompilerFlag("keep-examples") == false ) {
           continue;
         }
       }
-      if ( variant.nameNode.hasFlag("main") && variant.nameNode.code.filename != ctx.getRootFile() ) {
+      if ( variantName.hasFlag("main") && variantCode.filename != ctx.getRootFile() ) {
         continue;
       }
-      if ( variant.nameNode.hasFlag("main") ) {
+      if ( variantName.hasFlag("main") ) {
         wr.out("static void Main( string [] args ) {", true);
       } else {
         if ( variant.has_doc ) {
@@ -46182,8 +46889,9 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
     }
     switch (v_type ) { 
       case 20 : 
-        const rv = node.expression_value.children[0];
-        const sec = node.expression_value.children[1];
+        const lambdaExpression = node.expression_value;
+        const rv = lambdaExpression.children[0];
+        const sec = lambdaExpression.children[1];
         const fc = sec.getFirst();
         let is_void = false;
         if ( rv.type_name == "void" || rv.eval_type_name == "void" ) {
@@ -46286,8 +46994,9 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
     }
     switch (v_type ) { 
       case 20 : 
-        const rv = node.expression_value.children[0];
-        const sec = node.expression_value.children[1];
+        const lambdaExpression = node.expression_value;
+        const rv = lambdaExpression.children[0];
+        const sec = lambdaExpression.children[1];
         const fc = sec.getFirst();
         let is_void = false;
         if ( rv.type_name == "void" || rv.eval_type_name == "void" ) {
@@ -46453,17 +47162,18 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
         ctx.unsetInExpr();
       } else {
         let b_inited = false;
-        if ( p.nameNode.value_type == 6 ) {
+        const parameterName = p.nameNode;
+        if ( parameterName.value_type == 6 ) {
           b_inited = true;
           wr.out("= new collection.mutable.ArrayBuffer()", false);
         }
-        if ( p.nameNode.value_type == 7 ) {
+        if ( parameterName.value_type == 7 ) {
           b_inited = true;
           wr.out("= new collection.mutable.HashMap()", false);
         }
-        if ( p.nameNode.hasFlag("optional") ) {
+        if ( parameterName.hasFlag("optional") ) {
           wr.out(" = Option.empty[", false);
-          this.writeTypeDefNoOption(p.nameNode, ctx, wr);
+          this.writeTypeDefNoOption(parameterName, ctx, wr);
           wr.out("]", false);
         } else {
           if ( b_inited == false ) {
@@ -46899,11 +47609,13 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
           wr.out(variant_1.name + "(", false);
           this.writeArgsDef(variant_1, ctx, wr);
           wr.out(") : ", false);
-          this.writeTypeDef(variant_1.nameNode, ctx, wr);
+          const variantName = variant_1.nameNode;
+          this.writeTypeDef(variantName, ctx, wr);
           wr.out(" = ", false);
           let return_cnt = 0;
-          const line_cnt = variant_1.fnBody.children.length;
-          variant_1.fnBody.forTree(((item, i) => { 
+          const variantBody = variant_1.fnBody;
+          const line_cnt = variantBody.children.length;
+          variantBody.forTree(((item, i) => { 
             if ( item.isFirstVref("return") ) {
               return_cnt = return_cnt + 1;
             }
@@ -47417,8 +48129,9 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
     }
     switch (v_type ) { 
       case 20 : 
-        const rv = node.expression_value.children[0];
-        const sec = node.expression_value.children[1];
+        const lambdaExpression = node.expression_value;
+        const rv = lambdaExpression.children[0];
+        const sec = lambdaExpression.children[1];
         const fc = sec.getFirst();
         wr.out("func(", false);
         // Loop start
@@ -47627,10 +48340,13 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
             }
           }
         }
-        if ( ((typeof(p.nameNode) !== "undefined" && p.nameNode != null ) ) && ctx.isDefinedClass(p.nameNode.type_name) ) {
-          const c = ctx.findClass(p.nameNode.type_name);
-          if ( c.doesInherit() ) {
-            next_is_gs = true;
+        if ( (typeof(p.nameNode) !== "undefined" && p.nameNode != null )  ) {
+          const parameterName = p.nameNode;
+          if ( ctx.isDefinedClass(parameterName.type_name) ) {
+            const c = ctx.findClass(parameterName.type_name);
+            if ( c.doesInherit() ) {
+              next_is_gs = true;
+            }
           }
         }
         if ( i == 0 ) {
@@ -47774,10 +48490,13 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
             }
           }
         }
-        if ( ctx.isDefinedClass(p.nameNode.type_name) ) {
-          const c = ctx.findClass(p.nameNode.type_name);
-          if ( c.doesInherit() ) {
-            next_is_gs = true;
+        if ( (typeof(p.nameNode) !== "undefined" && p.nameNode != null )  ) {
+          const parameterName = p.nameNode;
+          if ( ctx.isDefinedClass(parameterName.type_name) ) {
+            const c = ctx.findClass(parameterName.type_name);
+            if ( c.doesInherit() ) {
+              next_is_gs = true;
+            }
           }
         }
         if ( i == 0 ) {
@@ -47933,8 +48652,9 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
         }
         const partDef = ctx.getVariableDef(part);
         if ( (typeof(partDef.nameNode) !== "undefined" && partDef.nameNode != null )  ) {
-          if ( ctx.isDefinedClass(partDef.nameNode.type_name) ) {
-            const c = ctx.findClass(partDef.nameNode.type_name);
+          const partName = partDef.nameNode;
+          if ( ctx.isDefinedClass(partName.type_name) ) {
+            const c = ctx.findClass(partName.type_name);
             if ( c.doesInherit() ) {
               next_is_gs = true;
             }
@@ -47956,7 +48676,8 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
         wr.out(this.adjustType(p_1.compiledName), false);
       } else {
         if ( left.hasParamDesc ) {
-          wr.out(left.paramDesc.compiledName, false);
+          const leftDesc = left.paramDesc;
+          wr.out(leftDesc.compiledName, false);
         } else {
           wr.out(this.adjustType(part), false);
         }
@@ -48040,8 +48761,9 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
         const p = obj.paramDesc;
         if ( p.is_optional ) {
           if ( (typeof(p.nameNode) !== "undefined" && p.nameNode != null )  ) {
+            const parameterName = p.nameNode;
             needs_unwrap = true;
-            obj_type_name = p.nameNode.type_name;
+            obj_type_name = parameterName.type_name;
           }
         }
       }
@@ -48119,7 +48841,8 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
         if ( node.children.length > 2 ) {
           const value_1 = node.children[2];
           if ( value_1.hasParamDesc ) {
-            const pnn = value_1.paramDesc.nameNode;
+            const valueDesc = value_1.paramDesc;
+            const pnn = valueDesc.nameNode;
             if ( pnn.hasFlag("optional") ) {
               wr.out(p.compiledName + ".value = ", false);
               ctx.setInExpr();
@@ -48175,9 +48898,10 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
           wr.out(("var " + p.compiledName) + " ", false);
         }
       }
-      const ti_ok = ctx.canUseTypeInference(p.nameNode);
-      if ( false == ti_ok || false == p.nameNode.hasFlag("optional") && node.children.length == 2 ) {
-        this.writeTypeDef2(p.nameNode, ctx, wr);
+      const parameterName = p.nameNode;
+      const ti_ok = ctx.canUseTypeInference(parameterName);
+      if ( false == ti_ok || false == parameterName.hasFlag("optional") && node.children.length == 2 ) {
+        this.writeTypeDef2(parameterName, ctx, wr);
       }
       if ( node.children.length > 2 ) {
         const value_7 = node.getThird();
@@ -48189,24 +48913,24 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
           }
         }
         wr.out("= ", false);
-        let slotType = p.nameNode.type_name;
-        if ( p.nameNode.eval_type_name.length > 0 ) {
-          slotType = p.nameNode.eval_type_name;
+        let slotType = parameterName.type_name;
+        if ( parameterName.eval_type_name.length > 0 ) {
+          slotType = parameterName.eval_type_name;
         }
         const wroteSlot = this.goWriteUnionValue(slotType, value_7, ctx, wr);
         if ( wroteSlot == false ) {
           ctx.setInExpr();
-          if ( p.nameNode.eval_type_name == "char" ) {
+          if ( parameterName.eval_type_name == "char" ) {
             wr.out("byte(", false);
           }
-          if ( p.nameNode.eval_type_name == "int" && value_7.eval_type_name == "char" ) {
+          if ( parameterName.eval_type_name == "int" && value_7.eval_type_name == "char" ) {
             wr.out("int64(", false);
           }
           this.WalkNode(value_7, ctx, wr);
-          if ( p.nameNode.eval_type_name == "char" ) {
+          if ( parameterName.eval_type_name == "char" ) {
             wr.out(")", false);
           }
-          if ( p.nameNode.eval_type_name == "int" && value_7.eval_type_name == "char" ) {
+          if ( parameterName.eval_type_name == "int" && value_7.eval_type_name == "char" ) {
             wr.out(")", false);
           }
           ctx.unsetInExpr();
@@ -48270,10 +48994,12 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
       const givenArgs = node.getSecond();
       ctx.setInExpr();
       let cnt = 0;
+      const fnDesc = node.fnDesc;
       // Loop start
-      for ( let i = 0; i < node.fnDesc.params.length; i++) {
-        var arg = node.fnDesc.params[i];
-        if ( arg.nameNode.hasFlag("keyword") ) {
+      for ( let i = 0; i < fnDesc.params.length; i++) {
+        var arg = fnDesc.params[i];
+        const argumentName = arg.nameNode;
+        if ( argumentName.hasFlag("keyword") ) {
           continue;
         }
         if ( cnt > 0 ) {
@@ -48281,7 +49007,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
         }
         cnt = cnt + 1;
         if ( givenArgs.children.length <= i ) {
-          const defVal = arg.nameNode.getFlag("default");
+          const defVal = argumentName.getFlag("default");
           if ( (typeof(defVal) !== "undefined" && defVal != null )  ) {
             const fcDef = defVal.vref_annotation.getFirst();
             this.WalkNode(fcDef, ctx, wr);
@@ -48305,9 +49031,10 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
           wr.out("." + cc.methodName, false);
           wr.out("(", false);
           ctx.setInExpr();
+          const chainArgs = cc.args;
           // Loop start
-          for ( let i_2 = 0; i_2 < cc.args.children.length; i_2++) {
-            var arg_1 = cc.args.children[i_2];
+          for ( let i_2 = 0; i_2 < chainArgs.children.length; i_2++) {
+            var arg_1 = chainArgs.children[i_2];
             if ( i_2 > 0 ) {
               wr.out(", ", false);
             }
@@ -48326,7 +49053,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
     if ( node.hasNewOper ) {
       const cl = node.clDesc;
       const fc = node.getSecond();
-      wr.out(("CreateNew_" + node.clDesc.name) + "(", false);
+      wr.out(("CreateNew_" + cl.name) + "(", false);
       const constr = cl.constructor_fn;
       const givenArgs = node.getThird();
       const pms = operatorsOf.filter_31(givenArgs.children, ((item, index) => { 
@@ -48372,18 +49099,23 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
     const givenArgs = node.children[1];
     let args;
     if ( (typeof(fName.expression_value) !== "undefined" && fName.expression_value != null )  ) {
-      args = fName.expression_value.children[1];
+      const lambdaExpression = fName.expression_value;
+      args = lambdaExpression.children[1];
     } else {
-      const param = ctx.getVariableDef(fName.vref);
-      args = param.nameNode.expression_value.children[1];
+      const paramOpt = ctx.getVariableDef(fName.vref);
+      const param = paramOpt;
+      const parameterName = param.nameNode;
+      const lambdaExpression_1 = parameterName.expression_value;
+      args = lambdaExpression_1.children[1];
     }
     ctx.setInExpr();
     this.WalkNode(fName, ctx, wr);
     wr.out("(", false);
     const subCtx = ctx.fork();
+    const lambdaArgs = args;
     // Loop start
-    for ( let i = 0; i < args.children.length; i++) {
-      var arg = args.children[i];
+    for ( let i = 0; i < lambdaArgs.children.length; i++) {
+      var arg = lambdaArgs.children[i];
       const n = givenArgs.children[i];
       if ( i > 0 ) {
         wr.out(", ", false);
@@ -48521,7 +49253,8 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
         let retUnion = "";
         const currFnRet = ctx.getCurrentMethod();
         if ( (typeof(currFnRet.nameNode) !== "undefined" && currFnRet.nameNode != null )  ) {
-          retUnion = currFnRet.nameNode.type_name;
+          const returnName = currFnRet.nameNode;
+          retUnion = returnName.type_name;
         }
         if ( ctx.isCatchBlock() || ctx.isTryBlock() ) {
           wr.out("__ex_returned = true", true);
@@ -48561,13 +49294,10 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
       const tryBlock = node.getSecond();
       const catchBlock = node.getThird();
       const currFn = ctx.getCurrentMethod();
+      const currentName = currFn.nameNode;
       const ex2 = operatorsOf_21.createc95var_45(ctx, "did_return", "boolean");
-      const ex3 = operatorsOf_21.createc95var_46(
-        ctx,
-        "ex_result",
-        currFn.nameNode
-      );
-      if ( currFn.nameNode.type_name == "void" ) {
+      const ex3 = operatorsOf_21.createc95var_46(ctx, "ex_result", currentName);
+      if ( currentName.type_name == "void" ) {
         wr.out(ex2.compiledName + ", _ := (func () ( __ex_returned bool,  __exReturn interface{}) {", true);
       } else {
         wr.out(((ex2.compiledName + ", ") + ex3.compiledName) + " := (func () ( __ex_returned bool,  __exReturn interface{}) {", true);
@@ -48590,12 +49320,12 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
       wr.out("return __ex_returned, __exReturn", true);
       wr.indent(-1);
       wr.out("})()", true);
-      if ( currFn.nameNode.type_name != "void" ) {
+      if ( currentName.type_name != "void" ) {
         wr.out(("if " + ex2.compiledName) + " {", true);
         wr.indent(1);
         wr.out("return " + ex3.compiledName, false);
         wr.out(".(", false);
-        this.writeTypeDef(currFn.nameNode, ctx, wr);
+        this.writeTypeDef(currentName, ctx, wr);
         wr.out(")", true);
         wr.indent(-1);
         wr.out("}", true);
@@ -48669,8 +49399,9 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
             partDef = left.nsp[i];
           }
           if ( (typeof(partDef.nameNode) !== "undefined" && partDef.nameNode != null )  ) {
-            if ( ctx.isDefinedClass(partDef.nameNode.type_name) ) {
-              const c = ctx.findClass(partDef.nameNode.type_name);
+            const partName = partDef.nameNode;
+            if ( ctx.isDefinedClass(partName.type_name) ) {
+              const c = ctx.findClass(partName.type_name);
               if ( c.doesInherit() ) {
                 next_is_gs = true;
               }
@@ -48681,7 +49412,8 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
             wr.out(this.adjustType(p.compiledName), false);
           } else {
             if ( left.hasParamDesc ) {
-              wr.out(left.paramDesc.compiledName, false);
+              const leftDesc = left.paramDesc;
+              wr.out(leftDesc.compiledName, false);
             } else {
               wr.out(this.adjustType(part), false);
             }
@@ -48731,7 +49463,8 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
         if ( cmd == "push" ) {
           let pushElemType = "";
           if ( left.hasParamDesc ) {
-            const pushNN = left.paramDesc.nameNode;
+            const leftDesc_1 = left.paramDesc;
+            const pushNN = leftDesc_1.nameNode;
             if ( (typeof(pushNN) !== "undefined" && pushNN != null )  ) {
               const pushNode = pushNN;
               pushElemType = pushNode.array_type;
@@ -48772,7 +49505,8 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
         }
         let assignSlotType = "";
         if ( left.hasParamDesc ) {
-          const assignNN = left.paramDesc.nameNode;
+          const leftDesc_2 = left.paramDesc;
+          const assignNN = leftDesc_2.nameNode;
           if ( (typeof(assignNN) !== "undefined" && assignNN != null )  ) {
             const assignNode = assignNN;
             assignSlotType = assignNode.type_name;
@@ -48819,7 +49553,8 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
       wr.out(" = ", false);
       let assignSlotType2 = "";
       if ( left.hasParamDesc ) {
-        const assignNN2 = left.paramDesc.nameNode;
+        const leftDesc_3 = left.paramDesc;
+        const assignNN2 = leftDesc_3.nameNode;
         if ( (typeof(assignNN2) !== "undefined" && assignNN2 != null )  ) {
           const assignNode2 = assignNN2;
           assignSlotType2 = assignNode2.type_name;
@@ -48919,10 +49654,11 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
       return true;
     }
     if ( node.hasParamDesc ) {
-      if ( node.paramDesc.is_optional ) {
+      const nodeDesc = node.paramDesc;
+      if ( nodeDesc.is_optional ) {
         return true;
       }
-      const pdNN = node.paramDesc.nameNode;
+      const pdNN = nodeDesc.nameNode;
       if ( (typeof(pdNN) !== "undefined" && pdNN != null )  ) {
         const pdN = pdNN;
         if ( pdN.hasFlag("optional") ) {
@@ -49144,7 +49880,8 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
           wr.out(("me." + pvar_2.compiledName) + " = ", false);
           let fldTypeName = "";
           if ( (typeof(pvar_2.nameNode) !== "undefined" && pvar_2.nameNode != null )  ) {
-            fldTypeName = pvar_2.nameNode.type_name;
+            const fieldName = pvar_2.nameNode;
+            fldTypeName = fieldName.type_name;
           }
           let wroteFld = false;
           if ( fldTypeName.length > 0 ) {
@@ -49191,7 +49928,8 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
         wr.out(("me." + pvar_4.compiledName) + " = ", false);
         let fldTypeName2 = "";
         if ( (typeof(pvar_4.nameNode) !== "undefined" && pvar_4.nameNode != null )  ) {
-          fldTypeName2 = pvar_4.nameNode.type_name;
+          const fieldName_1 = pvar_4.nameNode;
+          fldTypeName2 = fieldName_1.type_name;
         }
         let wroteFld2 = false;
         if ( fldTypeName2.length > 0 ) {
@@ -49420,7 +50158,9 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
     }
     // Loop start
     for ( const variant_4 of cl.static_methods) {
-      if ( variant_4.nameNode.hasFlag("main") && variant_4.nameNode.code.filename == ctx.getRootFile() ) {
+      const variantName = variant_4.nameNode;
+      const variantCode = variantName.code;
+      if ( variantName.hasFlag("main") && variantCode.filename == ctx.getRootFile() ) {
         wr.out("func main() {", true);
         wr.indent(1);
         wr.newline();
@@ -49839,17 +50579,22 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
     const givenArgs = node.children[1];
     let args;
     if ( (typeof(fName.expression_value) !== "undefined" && fName.expression_value != null )  ) {
-      args = fName.expression_value.children[1];
+      const lambdaExpression = fName.expression_value;
+      args = lambdaExpression.children[1];
     } else {
-      const param = ctx.getVariableDef(fName.vref);
-      args = param.nameNode.expression_value.children[1];
+      const paramOpt = ctx.getVariableDef(fName.vref);
+      const param = paramOpt;
+      const parameterName = param.nameNode;
+      const lambdaExpression_1 = parameterName.expression_value;
+      args = lambdaExpression_1.children[1];
     }
     ctx.setInExpr();
     wr.out("call_user_func(", false);
     this.WalkNode(fName, ctx, wr);
+    const lambdaArgs = args;
     // Loop start
-    for ( let i = 0; i < args.children.length; i++) {
-      var arg = args.children[i];
+    for ( let i = 0; i < lambdaArgs.children.length; i++) {
+      var arg = lambdaArgs.children[i];
       const n = givenArgs.children[i];
       if ( i >= 0 ) {
         wr.out(", ", false);
@@ -50043,7 +50788,8 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
   };
   writeArgsDef (fnDesc, ctx, wr) {
     const pms = operatorsOf.filter_43(fnDesc.params, ((item, index) => { 
-      if ( item.nameNode.hasFlag("keyword") ) {
+      const parameterName = item.nameNode;
+      if ( parameterName.hasFlag("keyword") ) {
         return false;
       }
       return true;
@@ -50074,24 +50820,37 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
       wr.out("(", false);
       const givenArgs = node.getSecond();
       ctx.setInExpr();
-      // Loop start
-      for ( let i = 0; i < node.fnDesc.params.length; i++) {
-        var arg = node.fnDesc.params[i];
-        if ( i > 0 ) {
-          wr.out(", ", false);
-        }
-        if ( givenArgs.children.length <= i ) {
-          const defVal = arg.nameNode.getFlag("default");
-          if ( (typeof(defVal) !== "undefined" && defVal != null )  ) {
-            const fc_1 = defVal.vref_annotation.getFirst();
-            this.WalkNode(fc_1, ctx, wr);
-          } else {
-            ctx.addError(node, "Default argument was missing");
+      const fnDescOpt = node.fnDesc;
+      if ( (typeof(fnDescOpt) !== "undefined" && fnDescOpt != null )  ) {
+        const fnDesc = fnDescOpt;
+        // Loop start
+        for ( let i = 0; i < fnDesc.params.length; i++) {
+          var arg = fnDesc.params[i];
+          if ( i > 0 ) {
+            wr.out(", ", false);
           }
-          continue;
+          if ( givenArgs.children.length <= i ) {
+            const argumentName = arg.nameNode;
+            const defVal = argumentName.getFlag("default");
+            if ( (typeof(defVal) !== "undefined" && defVal != null )  ) {
+              const defaultValue = defVal;
+              const annotationOpt = defaultValue.vref_annotation;
+              if ( (typeof(annotationOpt) !== "undefined" && annotationOpt != null )  ) {
+                const defaultAnnotation = annotationOpt;
+                const annotationNode = defaultAnnotation;
+                const fc_1 = annotationNode.children[0];
+                this.WalkNode(fc_1, ctx, wr);
+              } else {
+                ctx.addError(node, "Default argument annotation was missing");
+              }
+            } else {
+              ctx.addError(node, "Default argument was missing");
+            }
+            continue;
+          }
+          const n = givenArgs.children[i];
+          this.WalkNode(n, ctx, wr);
         }
-        const n = givenArgs.children[i];
-        this.WalkNode(n, ctx, wr);
       }
       ctx.unsetInExpr();
       wr.out(")", false);
@@ -50105,7 +50864,7 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
       const cl = node.clDesc;
       const fc = node.getSecond();
       wr.out(" new ", false);
-      wr.out(node.clDesc.name, false);
+      wr.out(cl.name, false);
       wr.out("(", false);
       const constr = cl.constructor_fn;
       const givenArgs = node.getThird();
@@ -50226,7 +50985,8 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
     wr.out("}", true);
     // Loop start
     for ( const variant of cl.static_methods) {
-      if ( variant.nameNode.hasFlag("main") ) {
+      const variantName = variant.nameNode;
+      if ( variantName.hasFlag("main") ) {
         continue;
       } else {
         wr.out("public static function ", false);
@@ -50239,7 +50999,8 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
       const subCtx_1 = variant.fnCtx;
       subCtx_1.is_function = true;
       subCtx_1.in_static_method = true;
-      this.WalkNode(variant.fnBody, subCtx_1, wr);
+      const staticBody = variant.fnBody;
+      this.WalkNode(staticBody, subCtx_1, wr);
       subCtx_1.in_static_method = false;
       wr.newline();
       wr.indent(-1);
@@ -50275,7 +51036,9 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
     for ( const variant_2 of cl.static_methods) {
       ctx.disableCurrentClass();
       ctx.in_static_method = true;
-      if ( variant_2.nameNode.hasFlag("main") && variant_2.nameNode.code.filename == ctx.getRootFile() ) {
+      const variantName_1 = variant_2.nameNode;
+      const variantCode = variantName_1.code;
+      if ( variantName_1.hasFlag("main") && variantCode.filename == ctx.getRootFile() ) {
         wr.out("/* static PHP main routine */", false);
         wr.newline();
         this.WalkNode(variant_2.fnBody, ctx, wr);
@@ -50685,17 +51448,22 @@ class RangerPythonClassWriter  extends RangerGenericClassWriter {
     const givenArgs = node.children[1];
     let args;
     if ( (typeof(fName.expression_value) !== "undefined" && fName.expression_value != null )  ) {
-      args = fName.expression_value.children[1];
+      const lambdaExpression = fName.expression_value;
+      args = lambdaExpression.children[1];
     } else {
-      const param = ctx.getVariableDef(fName.vref);
-      args = param.nameNode.expression_value.children[1];
+      const paramOpt = ctx.getVariableDef(fName.vref);
+      const param = paramOpt;
+      const parameterName = param.nameNode;
+      const lambdaExpression_1 = parameterName.expression_value;
+      args = lambdaExpression_1.children[1];
     }
     ctx.setInExpr();
     this.WalkNode(fName, ctx, wr);
     wr.out("(", false);
+    const lambdaArgs = args;
     // Loop start
-    for ( let i = 0; i < args.children.length; i++) {
-      var arg = args.children[i];
+    for ( let i = 0; i < lambdaArgs.children.length; i++) {
+      var arg = lambdaArgs.children[i];
       const n = givenArgs.children[i];
       if ( i > 0 ) {
         wr.out(", ", false);
@@ -51099,14 +51867,16 @@ class RangerPythonClassWriter  extends RangerGenericClassWriter {
       wr.out("(", false);
       const givenArgs = node.getSecond();
       ctx.setInExpr();
+      const fnDesc = node.fnDesc;
       // Loop start
-      for ( let i = 0; i < node.fnDesc.params.length; i++) {
-        var arg = node.fnDesc.params[i];
+      for ( let i = 0; i < fnDesc.params.length; i++) {
+        var arg = fnDesc.params[i];
         if ( i > 0 ) {
           wr.out(", ", false);
         }
         if ( givenArgs.children.length <= i ) {
-          const defVal = arg.nameNode.getFlag("default");
+          const argumentName = arg.nameNode;
+          const defVal = argumentName.getFlag("default");
           if ( (typeof(defVal) !== "undefined" && defVal != null )  ) {
             const fc_1 = defVal.vref_annotation.getFirst();
             this.WalkNode(fc_1, ctx, wr);
@@ -51129,7 +51899,7 @@ class RangerPythonClassWriter  extends RangerGenericClassWriter {
     if ( node.hasNewOper ) {
       const cl = node.clDesc;
       const fc = node.getSecond();
-      wr.out(node.clDesc.name, false);
+      wr.out(cl.name, false);
       wr.out("(", false);
       const constr = cl.constructor_fn;
       const givenArgs = node.getThird();
@@ -51166,8 +51936,9 @@ class RangerPythonClassWriter  extends RangerGenericClassWriter {
       }
       wr.out(".", false);
       let pyMethodName = method.vref;
-      if ( ((typeof(node.fnDesc) !== "undefined" && node.fnDesc != null ) ) && node.fnDesc.compiledName.length > 0 ) {
-        pyMethodName = node.fnDesc.compiledName;
+      const fnDesc = node.fnDesc;
+      if ( fnDesc.compiledName.length > 0 ) {
+        pyMethodName = fnDesc.compiledName;
       }
       wr.out(pyMethodName, false);
       wr.out("(", false);
@@ -51239,10 +52010,11 @@ class RangerPythonClassWriter  extends RangerGenericClassWriter {
     wr.out(") -> None:", true);
     wr.indent(1);
     let wroteSuper = false;
-    if ( typeof(parentClass) != "undefined" ) {
+    if ( (typeof(parentClass) !== "undefined" && parentClass != null )  ) {
+      const parent = parentClass;
       wroteSuper = true;
-      if ( parentClass.has_constructor ) {
-        const parentConstr = parentClass.constructor_fn;
+      if ( parent.has_constructor ) {
+        const parentConstr = parent.constructor_fn;
         wr.out("super().__init__(", false);
         // Loop start
         for ( let i_1 = 0; i_1 < parentConstr.params.length; i_1++) {
@@ -51402,7 +52174,9 @@ class RangerPythonClassWriter  extends RangerGenericClassWriter {
     for ( const variant_2 of cl.static_methods) {
       ctx.disableCurrentClass();
       ctx.in_static_method = true;
-      if ( variant_2.nameNode.hasFlag("main") && variant_2.nameNode.code.filename == ctx.getRootFile() ) {
+      const variantName = variant_2.nameNode;
+      const variantCode = variantName.code;
+      if ( variantName.hasFlag("main") && variantCode.filename == ctx.getRootFile() ) {
         wr.out("# Main entry point", true);
         wr.out("def main():", true);
         wr.indent(1);
@@ -51612,8 +52386,9 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
   writeFnCall (node, ctx, wr) {
     if ( node.hasFnCall ) {
       const fc = node.getFirst();
-      if ( ((typeof(node.fnDesc) !== "undefined" && node.fnDesc != null ) ) && ((typeof(node.fnDesc.nameNode) !== "undefined" && node.fnDesc.nameNode != null ) ) ) {
-        const fnName = node.fnDesc.nameNode;
+      const fnDesc = node.fnDesc;
+      if ( (typeof(fnDesc.nameNode) !== "undefined" && fnDesc.nameNode != null )  ) {
+        const fnName = fnDesc.nameNode;
         if ( fnName.hasFlag("async") ) {
           wr.out("await ", false);
         }
@@ -51624,9 +52399,10 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
       ctx.setInExpr();
       let cnt = 0;
       // Loop start
-      for ( let i = 0; i < node.fnDesc.params.length; i++) {
-        var arg = node.fnDesc.params[i];
-        if ( arg.nameNode.hasFlag("keyword") ) {
+      for ( let i = 0; i < fnDesc.params.length; i++) {
+        var arg = fnDesc.params[i];
+        const argumentName = arg.nameNode;
+        if ( argumentName.hasFlag("keyword") ) {
           continue;
         }
         if ( cnt > 0 ) {
@@ -51634,9 +52410,10 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
         }
         cnt = cnt + 1;
         if ( givenArgs.children.length <= i ) {
-          const defVal = arg.nameNode.getFlag("default");
+          const defVal = argumentName.getFlag("default");
           if ( (typeof(defVal) !== "undefined" && defVal != null )  ) {
-            const fc_1 = defVal.vref_annotation.getFirst();
+            const defaultAnnotation = defVal.vref_annotation;
+            const fc_1 = defaultAnnotation.getFirst();
             this.WalkNode(fc_1, ctx, wr);
           } else {
             ctx.addError(node, "Default argument was missing");
@@ -51655,9 +52432,10 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
           wr.out("." + cc.methodName, false);
           wr.out("(", false);
           ctx.setInExpr();
+          const chainArgs = cc.args;
           // Loop start
-          for ( let i_2 = 0; i_2 < cc.args.children.length; i_2++) {
-            var arg_1 = cc.args.children[i_2];
+          for ( let i_2 = 0; i_2 < chainArgs.children.length; i_2++) {
+            var arg_1 = chainArgs.children[i_2];
             if ( i_2 > 0 ) {
               wr.out(", ", false);
             }
@@ -51677,8 +52455,9 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
       const obj = node.getSecond();
       const method = node.getThird();
       const args = node.children[3];
-      if ( ((typeof(node.fnDesc) !== "undefined" && node.fnDesc != null ) ) && ((typeof(node.fnDesc.nameNode) !== "undefined" && node.fnDesc.nameNode != null ) ) ) {
-        const fnName = node.fnDesc.nameNode;
+      const fnDesc = node.fnDesc;
+      if ( (typeof(fnDesc.nameNode) !== "undefined" && fnDesc.nameNode != null )  ) {
+        const fnName = fnDesc.nameNode;
         if ( fnName.hasFlag("async") ) {
           wr.out("await ", false);
         }
@@ -51694,8 +52473,8 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
         wr.out(".", false);
       }
       let methodName = method.vref;
-      if ( ((typeof(node.fnDesc) !== "undefined" && node.fnDesc != null ) ) && node.fnDesc.compiledName.length > 0 ) {
-        methodName = node.fnDesc.compiledName;
+      if ( fnDesc.compiledName.length > 0 ) {
+        methodName = fnDesc.compiledName;
       }
       wr.outMapped(methodName, method, false, method.vref);
       wr.out("(", false);
@@ -51863,8 +52642,9 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
     }
     switch (v_type ) { 
       case 20 : 
-        const rv = node.expression_value.children[0];
-        const sec = node.expression_value.children[1];
+        const lambdaExpression = node.expression_value;
+        const rv = lambdaExpression.children[0];
+        const sec = lambdaExpression.children[1];
         const fc = sec.getFirst();
         wr.out("(", false);
         // Loop start
@@ -52323,7 +53103,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
         return;
       }
       if ( cl.isSingletonClass() ) {
-        wr.out(node.clDesc.name + ".__singleton", false);
+        wr.out(cl.name + ".__singleton", false);
         wr.out("(", false);
         // Loop start
         for ( let i = 0; i < givenArgs.children.length; i++) {
@@ -52336,7 +53116,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
         wr.out(")", false);
         return;
       }
-      wr.out("new " + node.clDesc.name, false);
+      wr.out("new " + cl.name, false);
       wr.out("(", false);
       const constr = cl.constructor_fn;
       const givenArgs_1 = node.getThird();
@@ -52738,8 +53518,9 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
             continue;
           }
         }
-        if ( variant_1.nameNode.hasFlag("test") ) {
-          console.log("Found a test function, but not writing it: " + variant_1.nameNode.vref);
+        const variantName = variant_1.nameNode;
+        if ( variantName.hasFlag("test") ) {
+          console.log("Found a test function, but not writing it: " + variantName.vref);
           continue;
         }
         if ( variant_1.has_doc ) {
@@ -52891,11 +53672,13 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
             testFile.indent(1);
             testFile.indent(-1);
             testFile.out("}", true);
-            console.log("Found a test function, but not writing it: " + variant_2.nameNode.vref);
+            const variantName_1 = variant_2.nameNode;
+            console.log("Found a test function, but not writing it: " + variantName_1.vref);
             continue;
           }
           let asyncKeyword = "";
-          if ( variant_2.nameNode.hasFlag("async") ) {
+          const variantName_2 = variant_2.nameNode;
+          if ( variantName_2.hasFlag("async") ) {
             asyncKeyword = "async ";
           }
           let useDefineProp = false;
@@ -52941,9 +53724,11 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
       // Loop start
       for ( const variant_3 of cl.static_methods) {
         ctx.disableCurrentClass();
-        if ( variant_3.nameNode.hasFlag("main") && variant_3.nameNode.code.filename == ctx.getRootFile() ) {
+        const variantName_3 = variant_3.nameNode;
+        const variantCode = variantName_3.code;
+        if ( variantName_3.hasFlag("main") && variantCode.filename == ctx.getRootFile() ) {
           let asyncKeyword_1 = "";
-          if ( variant_3.nameNode.hasFlag("async") ) {
+          if ( variantName_3.hasFlag("async") ) {
             asyncKeyword_1 = "async ";
           }
           const theEnd_1 = wr.getTag("file_end");
@@ -53148,24 +53933,35 @@ class RangerRangerClassWriter  extends RangerGenericClassWriter {
       wr.out("(", false);
       const givenArgs = node.getSecond();
       ctx.setInExpr();
-      // Loop start
-      for ( let i = 0; i < node.fnDesc.params.length; i++) {
-        var arg = node.fnDesc.params[i];
-        if ( i > 0 ) {
-          wr.out(" ", false);
-        }
-        if ( givenArgs.children.length <= i ) {
-          const defVal = arg.nameNode.getFlag("default");
-          if ( (typeof(defVal) !== "undefined" && defVal != null )  ) {
-            const fc_1 = defVal.vref_annotation.getFirst();
-            this.WalkNode(fc_1, ctx, wr);
-          } else {
-            ctx.addError(node, "Default argument was missing");
+      const fnDescOpt = node.fnDesc;
+      if ( (typeof(fnDescOpt) !== "undefined" && fnDescOpt != null )  ) {
+        const fnDesc = fnDescOpt;
+        // Loop start
+        for ( let i = 0; i < fnDesc.params.length; i++) {
+          var arg = fnDesc.params[i];
+          if ( i > 0 ) {
+            wr.out(" ", false);
           }
-          continue;
+          if ( givenArgs.children.length <= i ) {
+            const argumentName = arg.nameNode;
+            const defVal = argumentName.getFlag("default");
+            if ( (typeof(defVal) !== "undefined" && defVal != null )  ) {
+              const annotationOpt = defVal.vref_annotation;
+              if ( (typeof(annotationOpt) !== "undefined" && annotationOpt != null )  ) {
+                const defaultAnnotation = annotationOpt;
+                const fc_1 = defaultAnnotation.getFirst();
+                this.WalkNode(fc_1, ctx, wr);
+              } else {
+                ctx.addError(node, "Default argument annotation was missing");
+              }
+            } else {
+              ctx.addError(node, "Default argument was missing");
+            }
+            continue;
+          }
+          const n = givenArgs.children[i];
+          this.WalkNode(n, ctx, wr);
         }
-        const n = givenArgs.children[i];
-        this.WalkNode(n, ctx, wr);
       }
       ctx.unsetInExpr();
       wr.out(")", false);
@@ -53181,7 +53977,7 @@ class RangerRangerClassWriter  extends RangerGenericClassWriter {
     if ( node.hasNewOper ) {
       const cl = node.clDesc;
       const fc = node.getSecond();
-      wr.out("(new " + node.clDesc.name, false);
+      wr.out("(new " + cl.name, false);
       wr.out("(", false);
       const constr = cl.constructor_fn;
       const givenArgs = node.getThird();
@@ -53671,7 +54467,7 @@ LowIRSession.current = function() {
 };
 class LowIRBuilder  {
   constructor(module) {
-    this.irModule = undefined;
+    this.irModule = new LowIRModule();
     this.tempCounter = 0;
     this.blockCounter = 0;
     this.blocks = [];
@@ -55575,7 +56371,8 @@ class LowIRBuilderPass  {
     }
     const nn = fnDesc.nameNode;
     if ( nn.hasFlag("main") ) {
-      if ( nn.code.filename == ctx.getRootFile() ) {
+      const sourceCode = nn.code;
+      if ( sourceCode.filename == ctx.getRootFile() ) {
         return true;
       }
     }
@@ -57882,10 +58679,11 @@ class LowIRBuilderPass  {
     return out;
   };
   blockClosed (lctx) {
-    if ( typeof(lctx.builder.currentBlock) === "undefined" ) {
+    const builder = lctx.builder;
+    if ( typeof(builder.currentBlock) === "undefined" ) {
       return false;
     }
-    const cur = lctx.builder.currentBlock;
+    const cur = builder.currentBlock;
     return cur.termKind != "";
   };
   isAssignNode (node) {
@@ -60675,8 +61473,9 @@ class LowIRBuilderPass  {
     }
     let retType = "i32";
     if ( (typeof(node.fnDesc) !== "undefined" && node.fnDesc != null )  ) {
-      if ( (typeof(node.fnDesc.nameNode) !== "undefined" && node.fnDesc.nameNode != null )  ) {
-        const rn = node.fnDesc.nameNode;
+      const fnDesc = node.fnDesc;
+      if ( (typeof(fnDesc.nameNode) !== "undefined" && fnDesc.nameNode != null )  ) {
+        const rn = fnDesc.nameNode;
         retType = this.llvmTypeForRanger(rn.type_name, lctx.ptrType);
       }
     }
@@ -61158,8 +61957,9 @@ class LowIRBuilderPass  {
     const strMark = lctx.pendingStringTemps.length;
     const objMark = lctx.pendingObjectTemps.length;
     this.lowerStmtDispatch(node, lctx);
-    if ( (typeof(lctx.builder.currentBlock) !== "undefined" && lctx.builder.currentBlock != null )  ) {
-      const curBlock = lctx.builder.currentBlock;
+    const builder = lctx.builder;
+    if ( (typeof(builder.currentBlock) !== "undefined" && builder.currentBlock != null )  ) {
+      const curBlock = builder.currentBlock;
       if ( curBlock.termKind == "" ) {
         this.flushStringTempsFrom(strMark, lctx);
         this.flushObjectTempsFrom(objMark, lctx);
@@ -61501,8 +62301,9 @@ class LowIRBuilderPass  {
       let typeName = this.varTypeName(nameNode);
       if ( typeName.length == 0 ) {
         if ( (typeof(val.fnDesc) !== "undefined" && val.fnDesc != null )  ) {
-          if ( (typeof(val.fnDesc.nameNode) !== "undefined" && val.fnDesc.nameNode != null )  ) {
-            const retNode = val.fnDesc.nameNode;
+          const fnDesc = val.fnDesc;
+          if ( (typeof(fnDesc.nameNode) !== "undefined" && fnDesc.nameNode != null )  ) {
+            const retNode = fnDesc.nameNode;
             typeName = this.varTypeName(retNode);
           }
         }
@@ -62578,13 +63379,15 @@ class LowIRBuilderPass  {
     return heapAddr;
   };
   lowerSingletonAccessor (cl, appCtx) {
-    const builder = new LowIRBuilder(this.irModule);
+    const module = this.irModule;
+    const builder = new LowIRBuilder(module);
     builder.reset();
     const lctx = new LowIRLowerContext();
     lctx.ctx = appCtx;
     lctx.builder = builder;
     lctx.target = LowIRTarget.resolve(appCtx);
-    lctx.ptrType = lctx.target.ptrType;
+    const target = lctx.target;
+    lctx.ptrType = target.ptrType;
     let emptySlots = {};
     lctx.slots = emptySlots;
     let emptySlotTypes = {};
@@ -62724,7 +63527,8 @@ class LowIRBuilderPass  {
             if ( (typeof(node.fnDesc) !== "undefined" && node.fnDesc != null )  ) {
               const rfd2 = node.fnDesc;
               if ( (typeof(rfd2.container_class) !== "undefined" && rfd2.container_class != null )  ) {
-                const ccn = rfd2.container_class.name;
+                const containerClass = rfd2.container_class;
+                const ccn = containerClass.name;
                 if ( this.isObjectTypeName(ccn) ) {
                   opRecvCls = ccn;
                 }
@@ -63093,15 +63897,17 @@ class LowIRBuilderPass  {
       const fd = node.fnDesc;
       methName = fd.name;
       if ( className.length == 0 ) {
-        className = fd.container_class.name;
+        const containerClass = fd.container_class;
+        className = containerClass.name;
       }
     }
     const ownerCls = this.methodOwnerClass(className, methName, lctx);
     if ( ownerCls.length == 0 ) {
       let missRet = "i32";
       if ( (typeof(node.fnDesc) !== "undefined" && node.fnDesc != null )  ) {
-        if ( (typeof(node.fnDesc.nameNode) !== "undefined" && node.fnDesc.nameNode != null )  ) {
-          const mrn = node.fnDesc.nameNode;
+        const fnDesc = node.fnDesc;
+        if ( (typeof(fnDesc.nameNode) !== "undefined" && fnDesc.nameNode != null )  ) {
+          const mrn = fnDesc.nameNode;
           missRet = this.llvmTypeForRanger(mrn.type_name, lctx.ptrType);
         }
       }
@@ -63123,8 +63929,9 @@ class LowIRBuilderPass  {
     const voidType = "void";
     let retType = "i32";
     if ( (typeof(node.fnDesc) !== "undefined" && node.fnDesc != null )  ) {
-      if ( (typeof(node.fnDesc.nameNode) !== "undefined" && node.fnDesc.nameNode != null )  ) {
-        const rn = node.fnDesc.nameNode;
+      const fnDesc_1 = node.fnDesc;
+      if ( (typeof(fnDesc_1.nameNode) !== "undefined" && fnDesc_1.nameNode != null )  ) {
+        const rn = fnDesc_1.nameNode;
         retType = this.llvmTypeForRanger(rn.type_name, lctx.ptrType);
       }
     } else {
@@ -65005,13 +65812,15 @@ class LowIRBuilderPass  {
     return this.irModule;
   };
   lowerFunction (fnDesc, className, appCtx, exportFn, isMain, isInstance) {
-    const builder = new LowIRBuilder(this.irModule);
+    const module = this.irModule;
+    const builder = new LowIRBuilder(module);
     builder.reset();
     const lctx = new LowIRLowerContext();
     lctx.ctx = appCtx;
     lctx.builder = builder;
     lctx.target = LowIRTarget.resolve(appCtx);
-    lctx.ptrType = lctx.target.ptrType;
+    const target = lctx.target;
+    lctx.ptrType = target.ptrType;
     let emptySlots = {};
     lctx.slots = emptySlots;
     let emptySlotTypes = {};
@@ -65313,13 +66122,15 @@ class LowIRBuilderPass  {
     };
   };
   lowerLambdaFunction (lam, fnName, appCtx) {
-    const builder = new LowIRBuilder(this.irModule);
+    const module = this.irModule;
+    const builder = new LowIRBuilder(module);
     builder.reset();
     const lctx = new LowIRLowerContext();
     lctx.ctx = appCtx;
     lctx.builder = builder;
     lctx.target = LowIRTarget.resolve(appCtx);
-    lctx.ptrType = lctx.target.ptrType;
+    const target = lctx.target;
+    lctx.ptrType = target.ptrType;
     let emptySlots = {};
     lctx.slots = emptySlots;
     let emptySlotTypes = {};
@@ -68062,8 +68873,9 @@ class RangerActiveOperators  {
     operatorsOf_5.forEach_11(this.opHash, ((item, index) => { 
       item.list.length = 0;
     }));
+    const commands = this.stdCommands;
     // Loop start
-    for ( const lch of this.stdCommands.children) {
+    for ( const lch of commands.children) {
       const fc = lch.getFirst();
       if ( ( typeof(this.opHash[fc.vref] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.opHash, fc.vref) ) ) {
         const opList = ( Object.prototype.hasOwnProperty.call(this.opHash, fc.vref) ? this.opHash[fc.vref] : undefined );
@@ -68099,8 +68911,9 @@ class RangerActiveOperators  {
     if ( typeof(lang) === "undefined" ) {
       return;
     }
+    const languageNode = lang;
     let cmds;
-    const langNodes = lang.children[1];
+    const langNodes = languageNode.children[1];
     // Loop start
     for ( const lch of langNodes.children) {
       const fc_1 = lch.getFirst();
@@ -68213,10 +69026,12 @@ class LiveCompiler  {
         break;
     };
     if ( (typeof(this.langWriter) !== "undefined" && this.langWriter != null )  ) {
-      this.langWriter.compiler = this;
+      const selectedWriter = this.langWriter;
+      selectedWriter.compiler = this;
     } else {
-      this.langWriter = new RangerGenericClassWriter();
-      this.langWriter.compiler = this;
+      const genericWriter = new RangerGenericClassWriter();
+      this.langWriter = genericWriter;
+      genericWriter.compiler = this;
     }
   };
   EncodeString (node, ctx, wr) {
@@ -69094,7 +69909,18 @@ class LiveCompiler  {
             if ( mutTarget ) {
               ctx.setInLhs();
             }
+            let explicitUnwrap = false;
+            if ( idx_9 == 1 && node.children.length > 0 ) {
+              const opN_1 = node.getFirst();
+              if ( opN_1.vref == "unwrap" ) {
+                explicitUnwrap = true;
+                ctx.suppressAutoUnwrap();
+              }
+            }
             this.WalkNode(arg_9, ctx, wr);
+            if ( explicitUnwrap ) {
+              ctx.restoreAutoUnwrap();
+            }
             if ( mutTarget ) {
               ctx.unsetInLhs();
             }
@@ -69566,7 +70392,8 @@ class LiveCompiler  {
               }
             } else {
               if ( arg_23.hasParamDesc ) {
-                isRead = arg_23.paramDesc.ref_cnt != 0;
+                const argDesc = arg_23.paramDesc;
+                isRead = argDesc.ref_cnt != 0;
               }
             }
             if ( isRead == false ) {
@@ -69620,7 +70447,9 @@ class LiveCompiler  {
           if ( node.children.length > idx_26 ) {
             const arg_24 = node.children[idx_26];
             if ( arg_24.hasParamDesc ) {
-              const ss = this.langWriter.getObjectTypeString(arg_24.paramDesc.nameNode.key_type, ctx);
+              const argDesc_1 = arg_24.paramDesc;
+              const argumentName = argDesc_1.nameNode;
+              const ss = this.langWriter.getObjectTypeString(argumentName.key_type, ctx);
               wr.out(ss, false);
             } else {
               const ss_1 = this.langWriter.getObjectTypeString(arg_24.key_type, ctx);
@@ -69633,7 +70462,9 @@ class LiveCompiler  {
           if ( node.children.length > idx_27 ) {
             const arg_25 = node.children[idx_27];
             if ( arg_25.hasParamDesc ) {
-              const ss_2 = this.langWriter.getObjectTypeString(arg_25.paramDesc.nameNode.array_type, ctx);
+              const argDesc_2 = arg_25.paramDesc;
+              const argumentName_1 = argDesc_2.nameNode;
+              const ss_2 = this.langWriter.getObjectTypeString(argumentName_1.array_type, ctx);
               wr.out(ss_2, false);
             } else {
               const ss_3 = this.langWriter.getObjectTypeString(arg_25.array_type, ctx);
@@ -69646,7 +70477,9 @@ class LiveCompiler  {
           if ( node.children.length > idx_28 ) {
             const arg_26 = node.children[idx_28];
             if ( arg_26.hasParamDesc ) {
-              const ss_4 = this.langWriter.getObjectTypeString(arg_26.paramDesc.nameNode.array_type, ctx);
+              const argDesc_3 = arg_26.paramDesc;
+              const argumentName_2 = argDesc_3.nameNode;
+              const ss_4 = this.langWriter.getObjectTypeString(argumentName_2.array_type, ctx);
               wr.out(this.typeNameToIdentifier(ss_4), false);
             } else {
               const ss_5 = this.langWriter.getObjectTypeString(arg_26.array_type, ctx);
@@ -69838,22 +70671,26 @@ class LiveCompiler  {
                 ctx.addError(obj, "Error, no description for called object: " + strname);
                 break;
               }
+              const resolvedClassRef = classRefDesc;
               if ( set_nsp ) {
-                obj.nsp.push(classRefDesc);
+                obj.nsp.push(resolvedClassRef);
               }
-              classRefDesc.ref_cnt = 1 + classRefDesc.ref_cnt;
-              classDesc = ctx.findClass(classRefDesc.nameNode.type_name);
+              resolvedClassRef.ref_cnt = 1 + resolvedClassRef.ref_cnt;
+              const resolvedName = resolvedClassRef.nameNode;
+              classDesc = ctx.findClass(resolvedName.type_name);
             }
           } else {
             if ( i < cnt - 1 ) {
               varDesc = classDesc.findVariable(strname);
               if ( typeof(varDesc) === "undefined" ) {
                 ctx.addError(obj, "Error, no description for refenced obj: " + strname);
-              }
-              const subClass = varDesc.getTypeName();
-              classDesc = ctx.findClass(subClass);
-              if ( set_nsp ) {
-                obj.nsp.push(varDesc);
+              } else {
+                const resolvedVar = varDesc;
+                const subClass = resolvedVar.getTypeName();
+                classDesc = ctx.findClass(subClass);
+                if ( set_nsp ) {
+                  obj.nsp.push(resolvedVar);
+                }
               }
               continue;
             }
@@ -69883,12 +70720,13 @@ class LiveCompiler  {
         return varDesc;
       }
       varDesc = ctx.getVariableDef(obj.vref);
-      if ( (typeof(varDesc.nameNode) !== "undefined" && varDesc.nameNode != null )  ) {
+      if ( (typeof(varDesc) !== "undefined" && varDesc != null )  ) {
+        const resolvedVar_1 = varDesc;
+        if ( (typeof(resolvedVar_1.nameNode) !== "undefined" && resolvedVar_1.nameNode != null )  ) {
+          return varDesc;
+        }
       } else {
         console.log("findParamDesc : description not found for " + obj.vref);
-        if ( (typeof(varDesc) !== "undefined" && varDesc != null )  ) {
-          console.log("Vardesc was found though..." + varDesc.name);
-        }
         ctx.addError(obj, "Error, no description for called object: " + obj.vref);
       }
       return varDesc;
@@ -73504,8 +74342,9 @@ class RangerDocGenerator  {
       case 20 : 
         wr.out("(fn:", false);
         try {
-          const rv = item.expression_value.children[0];
-          const args = item.expression_value.children[1];
+          const lambdaExpression = item.expression_value;
+          const rv = lambdaExpression.children[0];
+          const args = lambdaExpression.children[1];
           this.writeTypeDef(rv, ctx, wr);
           wr.out(" (", false);
           operatorsOf.forEach_7(args.children, ((item, index) => { 
@@ -73563,10 +74402,11 @@ class RangerDocGenerator  {
               }
             }
             wr.out("#### ", false);
-            if ( typeof(item.nameNode) != "undefined" ) {
-              if ( item.nameNode.type_name != "void" ) {
+            if ( (typeof(item.nameNode) !== "undefined" && item.nameNode != null )  ) {
+              const methodName = item.nameNode;
+              if ( methodName.type_name != "void" ) {
                 wr.out("`", false);
-                this.writeTypeDef(item.nameNode, ctx, wr);
+                this.writeTypeDef(methodName, ctx, wr);
                 wr.out("` ", false);
               }
             }
@@ -73645,13 +74485,15 @@ class RangerDocGenerator  {
       const allOps = ctx.getAllOperators();
       let statements = operatorsOf.filter_48(allOps, ((item, index) => { 
         let is_map_array = false;
-        if ( typeof(item.firstArg) != "undefined" ) {
-          is_map_array = item.firstArg.value_type == 6 || item.firstArg.value_type == 7;
+        if ( (typeof(item.firstArg) !== "undefined" && item.firstArg != null )  ) {
+          const firstArg = item.firstArg;
+          is_map_array = firstArg.value_type == 6 || firstArg.value_type == 7;
         }
         if ( item.name.indexOf("if_") == 0 ) {
           return false;
         }
-        return item.nameNode.type_name == "void" && false == is_map_array;
+        const operatorName = item.nameNode;
+        return operatorName.type_name == "void" && false == is_map_array;
       }));
       const lang_statements = operatorsOf.filter_48(allOps, ((item, index) => { 
         if ( item.name.indexOf("if_") == 0 ) {
@@ -73664,15 +74506,17 @@ class RangerDocGenerator  {
       }));
       const operator_list = operatorsOf.filter_48(allOps, ((item, index) => { 
         let is_map_array_1 = false;
-        if ( typeof(item.firstArg) != "undefined" ) {
-          is_map_array_1 = item.firstArg.value_type == 6 || item.firstArg.value_type == 7;
+        if ( (typeof(item.firstArg) !== "undefined" && item.firstArg != null )  ) {
+          const firstArg_1 = item.firstArg;
+          is_map_array_1 = firstArg_1.value_type == 6 || firstArg_1.value_type == 7;
         }
-        return is_map_array_1 || item.nameNode.type_name != "void";
+        const operatorName_1 = item.nameNode;
+        return is_map_array_1 || operatorName_1.type_name != "void";
       }));
       const nList = operatorsOf.groupBy_49(operator_list, ((item) => { 
         let key = item.name;
-        const fc = item.firstArg;
-        if ( typeof(fc) != "undefined" ) {
+        if ( (typeof(item.firstArg) !== "undefined" && item.firstArg != null )  ) {
+          const fc = item.firstArg;
           key = key + (((((":" + fc.type_name) + ":") + fc.key_type) + ":") + fc.array_type);
         }
         return key;
@@ -73694,32 +74538,38 @@ class RangerDocGenerator  {
       wr.out("", true);
       wr.out("## Generic operators", true);
       this.writeTypeDoc(nList, ((item) => { 
-        if ( typeof(item.firstArg) != "undefined" ) {
-          return item.firstArg.type_name == "T";
+        if ( (typeof(item.firstArg) !== "undefined" && item.firstArg != null )  ) {
+          const firstArg_2 = item.firstArg;
+          return firstArg_2.type_name == "T";
         }
         return false;
       }), ctx, wr);
       wr.out("", true);
       wr.out("## Numeric operators", true);
       this.writeTypeDoc(nList, ((item) => { 
-        if ( typeof(item.firstArg) != "undefined" ) {
-          return (item.firstArg.type_name == "int" || item.firstArg.type_name == "double") && (item.nameNode.type_name == "int" || item.nameNode.type_name == "double");
+        if ( (typeof(item.firstArg) !== "undefined" && item.firstArg != null )  ) {
+          const firstArg_3 = item.firstArg;
+          const operatorName_2 = item.nameNode;
+          return (firstArg_3.type_name == "int" || firstArg_3.type_name == "double") && (operatorName_2.type_name == "int" || operatorName_2.type_name == "double");
         }
         return false;
       }), ctx, wr);
       wr.out("", true);
       wr.out("## Miscellaneous operators", true);
       this.writeTypeDoc(nList, ((item) => { 
-        if ( typeof(item.firstArg) != "undefined" ) {
-          return (item.firstArg.type_name == "int" || item.firstArg.type_name == "double") && ((item.nameNode.type_name != "int" && item.nameNode.type_name != "double") && item.nameNode.type_name != "boolean");
+        if ( (typeof(item.firstArg) !== "undefined" && item.firstArg != null )  ) {
+          const firstArg_4 = item.firstArg;
+          const operatorName_3 = item.nameNode;
+          return (firstArg_4.type_name == "int" || firstArg_4.type_name == "double") && ((operatorName_3.type_name != "int" && operatorName_3.type_name != "double") && operatorName_3.type_name != "boolean");
         }
         return false;
       }), ctx, wr);
       wr.out("", true);
       wr.out("## String operators", true);
       this.writeTypeDoc(nList, ((item) => { 
-        if ( typeof(item.firstArg) != "undefined" ) {
-          return item.firstArg.type_name == "string";
+        if ( (typeof(item.firstArg) !== "undefined" && item.firstArg != null )  ) {
+          const firstArg_5 = item.firstArg;
+          return firstArg_5.type_name == "string";
         }
         return false;
       }), ctx, wr);
@@ -73727,24 +74577,27 @@ class RangerDocGenerator  {
       wr.out("", true);
       wr.out("## Array operators", true);
       this.writeTypeDoc(nList, ((item) => { 
-        if ( typeof(item.firstArg) != "undefined" ) {
-          return item.firstArg.value_type == 6;
+        if ( (typeof(item.firstArg) !== "undefined" && item.firstArg != null )  ) {
+          const firstArg_6 = item.firstArg;
+          return firstArg_6.value_type == 6;
         }
         return false;
       }), ctx, wr);
       wr.out("", true);
       wr.out("## Map operators", true);
       this.writeTypeDoc(nList, ((item) => { 
-        if ( typeof(item.firstArg) != "undefined" ) {
-          return item.firstArg.value_type == 7;
+        if ( (typeof(item.firstArg) !== "undefined" && item.firstArg != null )  ) {
+          const firstArg_7 = item.firstArg;
+          return firstArg_7.value_type == 7;
         }
         return false;
       }), ctx, wr);
       wr.out("", true);
       wr.out("## Boolean / test operators", true);
       this.writeTypeDoc(nList, ((item) => { 
-        if ( typeof(item.firstArg) != "undefined" ) {
-          return item.nameNode.type_name == "boolean";
+        if ( (typeof(item.firstArg) !== "undefined" && item.firstArg != null )  ) {
+          const operatorName_4 = item.nameNode;
+          return operatorName_4.type_name == "boolean";
         }
         return false;
       }), ctx, wr);
@@ -78846,16 +79699,18 @@ VirtualCompiler.create_env = async function() {
 VirtualCompiler.displayCompilerErrorsWithCLI = function(appCtx, cli) {
   // Loop start
   for ( const e of appCtx.compilerErrors) {
-    const line_index = e.node.getLine();
-    const col_index = e.node.code.getColumn(e.node.sp);
-    const filename = e.node.getFilename();
-    const lineContent = e.node.getLineString(line_index);
+    const errorNode = e.node;
+    const line_index = errorNode.getLine();
+    const sourceCode = errorNode.code;
+    const col_index = sourceCode.getColumn(errorNode.sp);
+    const filename = errorNode.getFilename();
+    const lineContent = errorNode.getLineString(line_index);
     let prevLine = "";
     let nextLine = "";
     if ( line_index > 0 ) {
-      prevLine = e.node.getLineString((line_index - 1));
+      prevLine = errorNode.getLineString((line_index - 1));
     }
-    nextLine = e.node.getLineString((line_index + 1));
+    nextLine = errorNode.getLineString((line_index + 1));
     cli.printCompilerError(
       filename,
       line_index + 1,
@@ -79334,21 +80189,26 @@ operatorsOfRangerFlowParser_19.EnterVarDef_20 = function(__self, node, ctx, wr) 
       p.def_value = node.children[2];
       p.is_optional = false;
       defaultArg = node.children[2];
+      const dArg = defaultArg;
       ctx.setInExpr();
-      __self.WalkNode(defaultArg, ctx, wr);
+      __self.WalkNode(dArg, ctx, wr);
       ctx.unsetInExpr();
-      if ( defaultArg.hasFlag("optional") ) {
+      if ( dArg.hasFlag("optional") ) {
         cn.setFlag("optional");
       }
-      if ( defaultArg.hasFlag("immutable") ) {
+      if ( dArg.hasFlag("immutable") ) {
         cn.setFlag("immutable");
       }
-      if ( defaultArg.hasParamDesc ) {
-        const paramDesc = defaultArg.paramDesc;
+      if ( dArg.hasParamDesc ) {
+        const paramDesc = dArg.paramDesc;
         if ( (typeof(paramDesc.propertyClass) !== "undefined" && paramDesc.propertyClass != null )  ) {
-          if ( paramDesc.propertyClass.nameNode.hasFlag("immutable") ) {
-            if ( defaultArg.eval_type == 6 || defaultArg.eval_type == 7 ) {
-              is_immutable = true;
+          const propertyClass = paramDesc.propertyClass;
+          if ( (typeof(propertyClass.nameNode) !== "undefined" && propertyClass.nameNode != null )  ) {
+            const propertyName = propertyClass.nameNode;
+            if ( propertyName.hasFlag("immutable") ) {
+              if ( dArg.eval_type == 6 || dArg.eval_type == 7 ) {
+                is_immutable = true;
+              }
             }
           }
         }
@@ -79356,17 +80216,17 @@ operatorsOfRangerFlowParser_19.EnterVarDef_20 = function(__self, node, ctx, wr) 
           is_immutable = true;
         }
       }
-      if ( defaultArg.eval_type == 6 ) {
+      if ( dArg.eval_type == 6 ) {
         node.op_index = 1;
       }
       if ( cn.value_type == 13 ) {
-        cn.eval_type_name = defaultArg.ns[0];
+        cn.eval_type_name = dArg.ns[0];
       }
       if ( cn.value_type == 14 ) {
-        if ( defaultArg.eval_type != 3 && defaultArg.eval_type != 14 ) {
-          ctx.addError(defaultArg, "Char should be assigned char or integer value --> " + defaultArg.getCode());
+        if ( dArg.eval_type != 3 && dArg.eval_type != 14 ) {
+          ctx.addError(dArg, "Char should be assigned char or integer value --> " + dArg.getCode());
         } else {
-          defaultArg.eval_type = 14;
+          dArg.eval_type = 14;
         }
       }
     } else {
@@ -79389,11 +80249,14 @@ operatorsOfRangerFlowParser_19.EnterVarDef_20 = function(__self, node, ctx, wr) 
     cn.defineNodeTypeToSelf(ctx);
     p.name = cn.vref;
     if ( p.value_type == 0 ) {
-      if ( 0 == cn.type_name.length && ((typeof(defaultArg) !== "undefined" && defaultArg != null ) ) ) {
-        p.value_type = defaultArg.eval_type;
-        cn.type_name = defaultArg.eval_type_name;
-        cn.eval_type_name = defaultArg.eval_type_name;
-        cn.value_type = defaultArg.eval_type;
+      if ( 0 == cn.type_name.length ) {
+        if ( (typeof(defaultArg) !== "undefined" && defaultArg != null )  ) {
+          const dArg_1 = defaultArg;
+          p.value_type = dArg_1.eval_type;
+          cn.type_name = dArg_1.eval_type_name;
+          cn.eval_type_name = dArg_1.eval_type_name;
+          cn.value_type = dArg_1.eval_type;
+        }
       }
     } else {
       p.value_type = cn.value_type;
@@ -79410,26 +80273,30 @@ operatorsOfRangerFlowParser_19.EnterVarDef_20 = function(__self, node, ctx, wr) 
         "ann",
         "At a variable -> Found has_vref_annotation annotated reference "
       );
-      const ann = cn.vref_annotation;
-      if ( ann.children.length > 0 ) {
-        const fc = ann.children[0];
-        ctx.log(
-          node,
-          "ann",
-          (("value of first annotation " + fc.vref) + " and variable name ") + cn.vref
-        );
+      if ( (typeof(cn.vref_annotation) !== "undefined" && cn.vref_annotation != null )  ) {
+        const ann = cn.vref_annotation;
+        if ( ann.children.length > 0 ) {
+          const fc = ann.children[0];
+          ctx.log(
+            node,
+            "ann",
+            (("value of first annotation " + fc.vref) + " and variable name ") + cn.vref
+          );
+        }
       }
     }
     if ( cn.has_type_annotation ) {
       ctx.log(node, "ann", "At a variable -> Found annotated reference ");
-      const ann_1 = cn.type_annotation;
-      if ( ann_1.children.length > 0 ) {
-        const fc_1 = ann_1.children[0];
-        ctx.log(
-          node,
-          "ann",
-          (("value of first annotation " + fc_1.vref) + " and variable name ") + cn.vref
-        );
+      if ( (typeof(cn.type_annotation) !== "undefined" && cn.type_annotation != null )  ) {
+        const ann_1 = cn.type_annotation;
+        if ( ann_1.children.length > 0 ) {
+          const fc_1 = ann_1.children[0];
+          ctx.log(
+            node,
+            "ann",
+            (("value of first annotation " + fc_1.vref) + " and variable name ") + cn.vref
+          );
+        }
       }
     }
     cn.hasParamDesc = true;
@@ -79440,43 +80307,50 @@ operatorsOfRangerFlowParser_19.EnterVarDef_20 = function(__self, node, ctx, wr) 
     cn.eval_type = cn.typeNameAsType(ctx);
     cn.eval_type_name = cn.type_name;
     if ( node.children.length > 2 ) {
-      if ( defaultArg.register_name.length > 0 ) {
-        const rr = ctx.getVariableDef(defaultArg.register_name);
+      const dArg_2 = defaultArg;
+      if ( dArg_2.register_name.length > 0 ) {
+        const rr = ctx.getVariableDef(dArg_2.register_name);
         if ( (typeof(rr.nameNode) !== "undefined" && rr.nameNode != null )  ) {
-          if ( (typeof(rr.nameNode.expression_value) !== "undefined" && rr.nameNode.expression_value != null )  ) {
-            cn.expression_value = rr.nameNode.expression_value.copy();
+          const rrName = rr.nameNode;
+          if ( (typeof(rrName.expression_value) !== "undefined" && rrName.expression_value != null )  ) {
+            const rrExpr = rrName.expression_value;
+            cn.expression_value = rrExpr.copy();
           }
         }
       }
-      if ( defaultArg.eval_type == 20 ) {
-        if ( (typeof(defaultArg.expression_value) !== "undefined" && defaultArg.expression_value != null )  ) {
-          cn.expression_value = defaultArg.expression_value.copy();
+      if ( dArg_2.eval_type == 20 ) {
+        if ( (typeof(dArg_2.expression_value) !== "undefined" && dArg_2.expression_value != null )  ) {
+          const dExpr = dArg_2.expression_value;
+          cn.expression_value = dExpr.copy();
         } else {
-          if ( defaultArg.hasParamDesc ) {
-            if ( ((typeof(defaultArg.paramDesc.nameNode) !== "undefined" && defaultArg.paramDesc.nameNode != null ) ) && ((typeof(defaultArg.paramDesc.nameNode.expression_value) !== "undefined" && defaultArg.paramDesc.nameNode.expression_value != null ) ) ) {
-              cn.eval_type = 20;
-              cn.expression_value = defaultArg.paramDesc.nameNode.expression_value.copy();
+          if ( dArg_2.hasParamDesc ) {
+            const dParam = dArg_2.paramDesc;
+            if ( (typeof(dParam.nameNode) !== "undefined" && dParam.nameNode != null )  ) {
+              const dName = dParam.nameNode;
+              if ( (typeof(dName.expression_value) !== "undefined" && dName.expression_value != null )  ) {
+                const dNameExpr = dName.expression_value;
+                cn.eval_type = 20;
+                cn.expression_value = dNameExpr.copy();
+              }
             }
           }
         }
       }
-      if ( (typeof(defaultArg) !== "undefined" && defaultArg != null )  ) {
-        __self.convertToUnion(cn.eval_type_name, defaultArg, ctx, wr);
-        if ( (typeof(defaultArg.evalTypeClass) !== "undefined" && defaultArg.evalTypeClass != null )  ) {
-          cn.evalTypeClass = defaultArg.evalTypeClass;
-        }
+      __self.convertToUnion(cn.eval_type_name, dArg_2, ctx, wr);
+      if ( (typeof(dArg_2.evalTypeClass) !== "undefined" && dArg_2.evalTypeClass != null )  ) {
+        cn.evalTypeClass = dArg_2.evalTypeClass;
       }
-      if ( cn.eval_type != defaultArg.eval_type ) {
-        const b1 = cn.eval_type == 14 && defaultArg.eval_type == 3;
-        const b2 = cn.eval_type == 3 && defaultArg.eval_type == 14;
+      if ( cn.eval_type != dArg_2.eval_type ) {
+        const b1 = cn.eval_type == 14 && dArg_2.eval_type == 3;
+        const b2 = cn.eval_type == 3 && dArg_2.eval_type == 14;
         if ( false == (b1 || b2) ) {
           let cnTypeName = TTypes.valueAsString(cn.eval_type);
           if ( cn.eval_type_name.length > 0 ) {
             cnTypeName = cn.eval_type_name;
           }
-          let defTypeName = TTypes.valueAsString(defaultArg.eval_type);
-          if ( defaultArg.eval_type_name.length > 0 ) {
-            defTypeName = defaultArg.eval_type_name;
+          let defTypeName = TTypes.valueAsString(dArg_2.eval_type);
+          if ( dArg_2.eval_type_name.length > 0 ) {
+            defTypeName = dArg_2.eval_type_name;
           }
           ctx.addError(node, (("Variable was assigned an incompatible type. Types were " + cnTypeName) + " vs ") + defTypeName);
         }
@@ -79585,21 +80459,26 @@ operatorsOf_19.EnterVarDef_20 = function(__self, node, ctx, wr) {
       p_1.def_value = node.children[2];
       p_1.is_optional = false;
       defaultArg_1 = node.children[2];
+      const dArg_3 = defaultArg_1;
       ctx.setInExpr();
-      __self.WalkNode(defaultArg_1, ctx, wr);
+      __self.WalkNode(dArg_3, ctx, wr);
       ctx.unsetInExpr();
-      if ( defaultArg_1.hasFlag("optional") ) {
+      if ( dArg_3.hasFlag("optional") ) {
         cn_2.setFlag("optional");
       }
-      if ( defaultArg_1.hasFlag("immutable") ) {
+      if ( dArg_3.hasFlag("immutable") ) {
         cn_2.setFlag("immutable");
       }
-      if ( defaultArg_1.hasParamDesc ) {
-        const paramDesc_1 = defaultArg_1.paramDesc;
+      if ( dArg_3.hasParamDesc ) {
+        const paramDesc_1 = dArg_3.paramDesc;
         if ( (typeof(paramDesc_1.propertyClass) !== "undefined" && paramDesc_1.propertyClass != null )  ) {
-          if ( paramDesc_1.propertyClass.nameNode.hasFlag("immutable") ) {
-            if ( defaultArg_1.eval_type == 6 || defaultArg_1.eval_type == 7 ) {
-              is_immutable_1 = true;
+          const propertyClass_1 = paramDesc_1.propertyClass;
+          if ( (typeof(propertyClass_1.nameNode) !== "undefined" && propertyClass_1.nameNode != null )  ) {
+            const propertyName_1 = propertyClass_1.nameNode;
+            if ( propertyName_1.hasFlag("immutable") ) {
+              if ( dArg_3.eval_type == 6 || dArg_3.eval_type == 7 ) {
+                is_immutable_1 = true;
+              }
             }
           }
         }
@@ -79607,17 +80486,17 @@ operatorsOf_19.EnterVarDef_20 = function(__self, node, ctx, wr) {
           is_immutable_1 = true;
         }
       }
-      if ( defaultArg_1.eval_type == 6 ) {
+      if ( dArg_3.eval_type == 6 ) {
         node.op_index = 1;
       }
       if ( cn_2.value_type == 13 ) {
-        cn_2.eval_type_name = defaultArg_1.ns[0];
+        cn_2.eval_type_name = dArg_3.ns[0];
       }
       if ( cn_2.value_type == 14 ) {
-        if ( defaultArg_1.eval_type != 3 && defaultArg_1.eval_type != 14 ) {
-          ctx.addError(defaultArg_1, "Char should be assigned char or integer value --> " + defaultArg_1.getCode());
+        if ( dArg_3.eval_type != 3 && dArg_3.eval_type != 14 ) {
+          ctx.addError(dArg_3, "Char should be assigned char or integer value --> " + dArg_3.getCode());
         } else {
-          defaultArg_1.eval_type = 14;
+          dArg_3.eval_type = 14;
         }
       }
     } else {
@@ -79640,11 +80519,14 @@ operatorsOf_19.EnterVarDef_20 = function(__self, node, ctx, wr) {
     cn_2.defineNodeTypeToSelf(ctx);
     p_1.name = cn_2.vref;
     if ( p_1.value_type == 0 ) {
-      if ( 0 == cn_2.type_name.length && ((typeof(defaultArg_1) !== "undefined" && defaultArg_1 != null ) ) ) {
-        p_1.value_type = defaultArg_1.eval_type;
-        cn_2.type_name = defaultArg_1.eval_type_name;
-        cn_2.eval_type_name = defaultArg_1.eval_type_name;
-        cn_2.value_type = defaultArg_1.eval_type;
+      if ( 0 == cn_2.type_name.length ) {
+        if ( (typeof(defaultArg_1) !== "undefined" && defaultArg_1 != null )  ) {
+          const dArg_4 = defaultArg_1;
+          p_1.value_type = dArg_4.eval_type;
+          cn_2.type_name = dArg_4.eval_type_name;
+          cn_2.eval_type_name = dArg_4.eval_type_name;
+          cn_2.value_type = dArg_4.eval_type;
+        }
       }
     } else {
       p_1.value_type = cn_2.value_type;
@@ -79661,26 +80543,30 @@ operatorsOf_19.EnterVarDef_20 = function(__self, node, ctx, wr) {
         "ann",
         "At a variable -> Found has_vref_annotation annotated reference "
       );
-      const ann_2 = cn_2.vref_annotation;
-      if ( ann_2.children.length > 0 ) {
-        const fc_2 = ann_2.children[0];
-        ctx.log(
-          node,
-          "ann",
-          (("value of first annotation " + fc_2.vref) + " and variable name ") + cn_2.vref
-        );
+      if ( (typeof(cn_2.vref_annotation) !== "undefined" && cn_2.vref_annotation != null )  ) {
+        const ann_2 = cn_2.vref_annotation;
+        if ( ann_2.children.length > 0 ) {
+          const fc_2 = ann_2.children[0];
+          ctx.log(
+            node,
+            "ann",
+            (("value of first annotation " + fc_2.vref) + " and variable name ") + cn_2.vref
+          );
+        }
       }
     }
     if ( cn_2.has_type_annotation ) {
       ctx.log(node, "ann", "At a variable -> Found annotated reference ");
-      const ann_3 = cn_2.type_annotation;
-      if ( ann_3.children.length > 0 ) {
-        const fc_3 = ann_3.children[0];
-        ctx.log(
-          node,
-          "ann",
-          (("value of first annotation " + fc_3.vref) + " and variable name ") + cn_2.vref
-        );
+      if ( (typeof(cn_2.type_annotation) !== "undefined" && cn_2.type_annotation != null )  ) {
+        const ann_3 = cn_2.type_annotation;
+        if ( ann_3.children.length > 0 ) {
+          const fc_3 = ann_3.children[0];
+          ctx.log(
+            node,
+            "ann",
+            (("value of first annotation " + fc_3.vref) + " and variable name ") + cn_2.vref
+          );
+        }
       }
     }
     cn_2.hasParamDesc = true;
@@ -79691,43 +80577,50 @@ operatorsOf_19.EnterVarDef_20 = function(__self, node, ctx, wr) {
     cn_2.eval_type = cn_2.typeNameAsType(ctx);
     cn_2.eval_type_name = cn_2.type_name;
     if ( node.children.length > 2 ) {
-      if ( defaultArg_1.register_name.length > 0 ) {
-        const rr_1 = ctx.getVariableDef(defaultArg_1.register_name);
+      const dArg_5 = defaultArg_1;
+      if ( dArg_5.register_name.length > 0 ) {
+        const rr_1 = ctx.getVariableDef(dArg_5.register_name);
         if ( (typeof(rr_1.nameNode) !== "undefined" && rr_1.nameNode != null )  ) {
-          if ( (typeof(rr_1.nameNode.expression_value) !== "undefined" && rr_1.nameNode.expression_value != null )  ) {
-            cn_2.expression_value = rr_1.nameNode.expression_value.copy();
+          const rrName_1 = rr_1.nameNode;
+          if ( (typeof(rrName_1.expression_value) !== "undefined" && rrName_1.expression_value != null )  ) {
+            const rrExpr_1 = rrName_1.expression_value;
+            cn_2.expression_value = rrExpr_1.copy();
           }
         }
       }
-      if ( defaultArg_1.eval_type == 20 ) {
-        if ( (typeof(defaultArg_1.expression_value) !== "undefined" && defaultArg_1.expression_value != null )  ) {
-          cn_2.expression_value = defaultArg_1.expression_value.copy();
+      if ( dArg_5.eval_type == 20 ) {
+        if ( (typeof(dArg_5.expression_value) !== "undefined" && dArg_5.expression_value != null )  ) {
+          const dExpr_1 = dArg_5.expression_value;
+          cn_2.expression_value = dExpr_1.copy();
         } else {
-          if ( defaultArg_1.hasParamDesc ) {
-            if ( ((typeof(defaultArg_1.paramDesc.nameNode) !== "undefined" && defaultArg_1.paramDesc.nameNode != null ) ) && ((typeof(defaultArg_1.paramDesc.nameNode.expression_value) !== "undefined" && defaultArg_1.paramDesc.nameNode.expression_value != null ) ) ) {
-              cn_2.eval_type = 20;
-              cn_2.expression_value = defaultArg_1.paramDesc.nameNode.expression_value.copy();
+          if ( dArg_5.hasParamDesc ) {
+            const dParam_1 = dArg_5.paramDesc;
+            if ( (typeof(dParam_1.nameNode) !== "undefined" && dParam_1.nameNode != null )  ) {
+              const dName_1 = dParam_1.nameNode;
+              if ( (typeof(dName_1.expression_value) !== "undefined" && dName_1.expression_value != null )  ) {
+                const dNameExpr_1 = dName_1.expression_value;
+                cn_2.eval_type = 20;
+                cn_2.expression_value = dNameExpr_1.copy();
+              }
             }
           }
         }
       }
-      if ( (typeof(defaultArg_1) !== "undefined" && defaultArg_1 != null )  ) {
-        __self.convertToUnion(cn_2.eval_type_name, defaultArg_1, ctx, wr);
-        if ( (typeof(defaultArg_1.evalTypeClass) !== "undefined" && defaultArg_1.evalTypeClass != null )  ) {
-          cn_2.evalTypeClass = defaultArg_1.evalTypeClass;
-        }
+      __self.convertToUnion(cn_2.eval_type_name, dArg_5, ctx, wr);
+      if ( (typeof(dArg_5.evalTypeClass) !== "undefined" && dArg_5.evalTypeClass != null )  ) {
+        cn_2.evalTypeClass = dArg_5.evalTypeClass;
       }
-      if ( cn_2.eval_type != defaultArg_1.eval_type ) {
-        const b1_1 = cn_2.eval_type == 14 && defaultArg_1.eval_type == 3;
-        const b2_1 = cn_2.eval_type == 3 && defaultArg_1.eval_type == 14;
+      if ( cn_2.eval_type != dArg_5.eval_type ) {
+        const b1_1 = cn_2.eval_type == 14 && dArg_5.eval_type == 3;
+        const b2_1 = cn_2.eval_type == 3 && dArg_5.eval_type == 14;
         if ( false == (b1_1 || b2_1) ) {
           let cnTypeName_1 = TTypes.valueAsString(cn_2.eval_type);
           if ( cn_2.eval_type_name.length > 0 ) {
             cnTypeName_1 = cn_2.eval_type_name;
           }
-          let defTypeName_1 = TTypes.valueAsString(defaultArg_1.eval_type);
-          if ( defaultArg_1.eval_type_name.length > 0 ) {
-            defTypeName_1 = defaultArg_1.eval_type_name;
+          let defTypeName_1 = TTypes.valueAsString(dArg_5.eval_type);
+          if ( dArg_5.eval_type_name.length > 0 ) {
+            defTypeName_1 = dArg_5.eval_type_name;
           }
           ctx.addError(node, (("Variable was assigned an incompatible type. Types were " + cnTypeName_1) + " vs ") + defTypeName_1);
         }
@@ -79830,10 +80723,11 @@ operatorsOfstring_27.transactionc95depth_28 = function(name, c) {
   let t = operatorsOf_21.getActiveTransaction_29(c);
   let d = 0;
   while ((typeof(t) !== "undefined" && t != null ) ) {
-    if ( t.name == name ) {
+    const t_valid = t;
+    if ( t_valid.name == name ) {
       d = d + 1;
     }
-    t = t.parent;
+    t = t_valid.parent;
   };
   return d;
 };
@@ -79859,10 +80753,11 @@ operatorsOf_27.transactionc95depth_28 = function(name, c) {
   let t_2 = operatorsOf_21.getActiveTransaction_29(c);
   let d_1 = 0;
   while ((typeof(t_2) !== "undefined" && t_2 != null ) ) {
-    if ( t_2.name == name ) {
+    const t_valid_1 = t_2;
+    if ( t_valid_1.name == name ) {
       d_1 = d_1 + 1;
     }
-    t_2 = t_2.parent;
+    t_2 = t_valid_1.parent;
   };
   return d_1;
 };

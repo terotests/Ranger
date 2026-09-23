@@ -210,11 +210,15 @@ extension RangerRustClassWriter {
   ; a parameter emits nothing at all, which came out as `::Message_Ping`.
   fn rustWriteScrutineeType:void (scrut:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if scrut.hasParamDesc {
-      def sNN@(optional):CodeNode scrut.paramDesc.nameNode
-      if (!null? sNN) {
-        def sN:CodeNode (unwrap sNN)
-        this.writeTypeDef(sN ctx wr)
-        return
+      def paramDescOpt@(optional):RangerAppParamDesc scrut.paramDesc
+      if (!null? paramDescOpt) {
+        def paramDesc:RangerAppParamDesc (unwrap paramDescOpt)
+        def sNN@(optional):CodeNode paramDesc.nameNode
+        if (!null? sNN) {
+          def sN:CodeNode (unwrap sNN)
+          this.writeTypeDef(sN ctx wr)
+          return
+        }
       }
     }
     this.writeTypeDef(scrut ctx wr)

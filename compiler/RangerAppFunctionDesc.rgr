@@ -148,7 +148,7 @@ class RangerAppFunctionDesc {
     })
     def root (ctx.getRoot())
     root.definedClasses.forEach({
-      if( (indexOf item.extends_classes f.container_class.name) >= 0 ) {
+      if( (indexOf item.extends_classes cc.name) >= 0 ) {
         if(item.hasMethod(f.name)) {
           def m (item.findMethod(f.name))
           cb( (unwrap m) )

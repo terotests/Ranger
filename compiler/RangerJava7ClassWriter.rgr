@@ -609,8 +609,9 @@ public class RgJson {
           }
 
           if( ( has iface_created iface_name) == false ) {
-            def fnNode (itemAt node.expression_value.children 0)
-            def args (itemAt node.expression_value.children 1)
+            def lambdaExpression:CodeNode (unwrap node.expression_value)
+            def fnNode (itemAt lambdaExpression.children 0)
+            def args (itemAt lambdaExpression.children 1)
             set iface_created iface_name true
             def iface_dir "."
             if( this.isPackaged(ctx)) {
@@ -715,8 +716,9 @@ public class RgJson {
           ; wr.addImport( ((package_name) + ".interfaces.*") )
 
           if( ( has iface_created iface_name) == false ) {
-            def fnNode (itemAt node.expression_value.children 0)
-            def args (itemAt node.expression_value.children 1)
+            def lambdaExpression:CodeNode (unwrap node.expression_value)
+            def fnNode (itemAt lambdaExpression.children 0)
+            def args (itemAt lambdaExpression.children 1)
             set iface_created iface_name true
             def iface_dir "."
             if( this.isPackaged(ctx)) {
@@ -879,7 +881,8 @@ public class RgJson {
 
         if (i == 0) {
           def p_captured_mutable ( (p.set_cnt > 0 ) && (p.is_captured)  && (p.is_class_variable == false)) 
-          if( p.nameNode.value_type == RangerNodeType.Hash || p.nameNode.value_type == RangerNodeType.Array ) {
+          def parameterName:CodeNode (unwrap p.nameNode)
+          if(parameterName.value_type == RangerNodeType.Hash || parameterName.value_type == RangerNodeType.Array ) {
             p_captured_mutable = false
           }
           
@@ -923,10 +926,11 @@ public class RgJson {
       return
     }
     if node.hasParamDesc {
-      def p:RangerAppParamDesc node.paramDesc
+      def p:RangerAppParamDesc (unwrap node.paramDesc)
+      def parameterName:CodeNode (unwrap p.nameNode)
       wr.out(p.compiledName false)
       def p_captured_mutable ( (p.set_cnt > 0 ) && (p.is_captured)  && (p.is_class_variable == false) )
-      if( p.nameNode.value_type == RangerNodeType.Hash || p.nameNode.value_type == RangerNodeType.Array ) {
+      if(parameterName.value_type == RangerNodeType.Hash || parameterName.value_type == RangerNodeType.Array ) {
         p_captured_mutable = false
       }
       if( p_captured_mutable ) {
@@ -1132,7 +1136,9 @@ public class RgJson {
     if (javaLoops.canIterate(node)) {
       wr.out("for ( " false)
       if item.hasParamDesc {
-        this.writeTypeDef((unwrap item.paramDesc.nameNode) ctx wr)
+        def itemDesc:RangerAppParamDesc (unwrap item.paramDesc)
+        def itemName:CodeNode (unwrap itemDesc.nameNode)
+        this.writeTypeDef(itemName ctx wr)
       } {
         this.writeTypeDef(item ctx wr)
       }
@@ -1162,7 +1168,9 @@ public class RgJson {
     wr.out("++) {" true)
     wr.indent(1)
     if item.hasParamDesc {
-      this.writeTypeDef((unwrap item.paramDesc.nameNode) ctx wr)
+      def itemDesc:RangerAppParamDesc (unwrap item.paramDesc)
+      def itemName:CodeNode (unwrap itemDesc.nameNode)
+      this.writeTypeDef(itemName ctx wr)
     } {
       this.writeTypeDef(item ctx wr)
     }
@@ -1228,19 +1236,24 @@ public class RgJson {
     def rv:CodeNode 
     def args:CodeNode
     if( (!null? fName.expression_value) ) {
-      rv  = ( itemAt fName.expression_value.children 0)
-      args  = ( itemAt fName.expression_value.children 1)      
+      def lambdaExpression:CodeNode (unwrap fName.expression_value)
+      rv  = (itemAt lambdaExpression.children 0)
+      args  = (itemAt lambdaExpression.children 1)
     } {
-      def param (ctx.getVariableDef(fName.vref))
-      rv  = ( itemAt param.nameNode.expression_value.children 0)
-      args  = ( itemAt param.nameNode.expression_value.children 1)
+      def paramOpt@(optional):RangerAppParamDesc (ctx.getVariableDef(fName.vref))
+      def param:RangerAppParamDesc (unwrap paramOpt)
+      def parameterName:CodeNode (unwrap param.nameNode)
+      def lambdaExpression:CodeNode (unwrap parameterName.expression_value)
+      rv  = (itemAt lambdaExpression.children 0)
+      args  = (itemAt lambdaExpression.children 1)
     }
 
     this.WalkNode(fName ctx wr)
 
     wr.out(".run(" false)
     ctx.setInExpr()
-    for args.children arg:CodeNode i {
+    def lambdaArgs:CodeNode (unwrap args)
+    for lambdaArgs.children arg:CodeNode i {
         def n:CodeNode (itemAt givenArgs.children i)
         if (i > 0) {
           wr.out(", " false)
@@ -1554,10 +1567,12 @@ public class RgJson {
     }
     for cl.static_methods variant:RangerAppFunctionDesc i {
       wr.out("" true)
-      if ( (variant.nameNode.hasFlag("main")) && (variant.nameNode.code.filename != (ctx.getRootFile()))) {     
+      def variantName:CodeNode (unwrap variant.nameNode)
+      def variantCode:SourceCode (unwrap variantName.code)
+      if ((variantName.hasFlag("main")) && (variantCode.filename != (ctx.getRootFile()))) {     
         continue 
       }
-      if (variant.nameNode.hasFlag("main")) {
+      if (variantName.hasFlag("main")) {
         ctx.setCompilerSetting( 'mainclass' (cl.name) )
         this.writeJavaArgsHolder(ctx orig_wr)
         wr.out("public static void main(String [] args ) {" true)

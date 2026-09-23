@@ -85,7 +85,8 @@ extension RangerFlowParser {
       def lcc:LiveCompiler (new LiveCompiler())
 
       lcc.langWriter = (new RangerRangerClassWriter ())
-      lcc.langWriter.compiler = lcc
+      def langWriter:RangerGenericClassWriter (unwrap lcc.langWriter)
+      langWriter.compiler = lcc
 
       subCtx.targetLangName = "ranger"
       subCtx.restartExpressionLevel()
@@ -329,15 +330,20 @@ extension RangerFlowParser {
             }
             if( arg.hasFlag("mutates")) {
               if(callArg.hasParamDesc) {
-                if(callArg.paramDesc && (!null? callArg.paramDesc.propertyClass)) {
-                  if(callArg.paramDesc.propertyClass.nameNode.hasFlag("immutable")) {
-                    def propC (callArg.paramDesc.propertyClass)
+                def callArgDesc:RangerAppParamDesc (unwrap callArg.paramDesc)
+                if(!null? callArgDesc.propertyClass) {
+                  def propertyClass:RangerAppClassDesc (unwrap callArgDesc.propertyClass)
+                  if(!null? propertyClass.nameNode) {
+                    def propertyName:CodeNode (unwrap propertyClass.nameNode)
+                    if(propertyName.hasFlag("immutable")) {
+                    def propC:RangerAppClassDesc propertyClass
                     def currC (ctx.getCurrentClass())
-                    if( (unwrap currC) != (unwrap propC) ) {
+                    if( (!null? currC) && ((unwrap currC) != propC) ) {
                       ; --> skip as if error                      
                       not_enough_args = true
                       ; ctx.addError(callArg "Not possible to modify immutable class property")
                     }                 
+                    }
                   }
                 }
               }
@@ -378,7 +384,8 @@ extension RangerFlowParser {
           def is_last false
           
           if(!null? callArgs.parent) {
-            is_last = ( (size callArgs.parent.children) == ( 1 + ( indexOf callArgs.parent.children callArgs ) ) )
+            def parent:CodeNode (unwrap callArgs.parent)
+            is_last = ( (size parent.children) == ( 1 + ( indexOf parent.children callArgs ) ) )
           }
 
           if(  (fc.vref == 'if') && (ctx.hasCompilerFlag('voidexpr')) && ( expr_level > 0 || is_last) ) {
@@ -479,6 +486,7 @@ extension RangerFlowParser {
                   ctx.addError( args "Invalid operator: Loop condition without block ")
                   return
                 }
+                def loopBody:CodeNode (unwrap loopBlock)
 
                 def opName (index + 1)
                 def item (callArgs.children.at( (index + 1) ))
@@ -505,8 +513,8 @@ extension RangerFlowParser {
                 def realRegDesc:RangerAppParamDesc (unwrap regArg.paramDesc)
                 def realRegName ( realRegDesc.compiledName )
 
-                regArg.paramDesc.set_cnt = 1
-                regArg.paramDesc.ref_cnt = 1
+                realRegDesc.set_cnt = 1
+                realRegDesc.ref_cnt = 1
 
                 def BlockOP (ctx.getLastBlockOp())
                 BlockOP.register_expressions.push( regExpr )
@@ -522,7 +530,7 @@ extension RangerFlowParser {
                     })
                     def eval_expr@(lives) (r.expression (r.vref '=') (r.vref regName) argCopy)
 
-                    def lastOp@(lives) (at loopBlock.children ( (size loopBlock.children) - 1) )
+                    def lastOp@(lives) (at loopBody.children ((size loopBody.children) - 1))
                     ctx.lastBlockOp = eval_expr
 
                     this.WalkNode( eval_expr ctx wr )
@@ -576,8 +584,8 @@ extension RangerFlowParser {
                       def regArg (at regExpr.children 1)
                       def realRegDesc:RangerAppParamDesc (unwrap regArg.paramDesc)
                       def realRegName ( realRegDesc.compiledName )
-                      regArg.paramDesc.set_cnt = 1
-                      regArg.paramDesc.ref_cnt = 1
+                      realRegDesc.set_cnt = 1
+                      realRegDesc.ref_cnt = 1
 
                       def BlockOP (ctx.getLastBlockOp())
                       BlockOP.register_expressions.push( regExpr )
@@ -740,8 +748,9 @@ extension RangerFlowParser {
             fCtx.setInMethod()
             for m.params v@(lives):RangerAppParamDesc i {
               fCtx.defineVariable(v.name v)
-              v.nameNode.eval_type = (v.nameNode.typeNameAsType(fCtx))
-              v.nameNode.eval_type_name = v.nameNode.type_name
+              def parameterName:CodeNode (unwrap v.nameNode)
+              parameterName.eval_type = (parameterName.typeNameAsType(fCtx))
+              parameterName.eval_type_name = parameterName.type_name
             }
             this.WalkNodeChildren( bodyCopy fCtx wr)
             fCtx.unsetInMethod()
@@ -932,28 +941,36 @@ extension RangerFlowParser {
               ctx.addError(callArgs "return outside of a function")
               return false
             }
-            if ( (activeFn.nameNode.type_name != "void") || (activeFn.nameNode.value_type == RangerNodeType.ExpressionType)) {
+            def returnName:CodeNode (unwrap activeFn.nameNode)
+            if ( (returnName.type_name != "void") || (returnName.value_type == RangerNodeType.ExpressionType)) {
               
               if ( (array_length callArgs.children) < 2 ) {
                 ctx.addError(callArgs " missing return value !!!")
               } {
                 def returnedValue:CodeNode (itemAt callArgs.children 1)
                 def validated_returnvalue false
-                if(activeFn.nameNode.value_type == RangerNodeType.ExpressionType) {
+                if(returnName.value_type == RangerNodeType.ExpressionType) {
                   validated_returnvalue = true
                   ; lambda format of the called function
-                  def fnExpr (activeFn.nameNode.expression_value)
+                  def fnExpr returnName.expression_value
                   if(null? fnExpr) {
-                    ctx.addError( (unwrap activeFn.nameNode) "returned anonymous function should have a method signature")
+                    ctx.addError(returnName "returned anonymous function should have a method signature")
                   } {
                     if( (returnedValue.value_type != RangerNodeType.ExpressionType ) &&
                         (returnedValue.eval_type != RangerNodeType.ExpressionType) ) {
                         ctx.addError(returnedValue "Function should return anonymous function!")
                     } {
                       
-                      if( returnedValue.hasParamDesc && (!null? returnedValue.paramDesc.nameNode)) {
-                        def rExpr returnedValue.paramDesc.nameNode.expression_value
+                      if( returnedValue.hasParamDesc) {
+                        def returnedDesc:RangerAppParamDesc (unwrap returnedValue.paramDesc)
+                        if (!null? returnedDesc.nameNode) {
+                        def returnedName:CodeNode (unwrap returnedDesc.nameNode)
+                        def rExpr returnedName.expression_value
                         this.matchLambdaArgs( (unwrap fnExpr) (unwrap rExpr) ctx wr )
+                        } {
+                          def rExpr returnedValue.expression_value
+                          this.matchLambdaArgs( (unwrap fnExpr) (unwrap rExpr) ctx wr )
+                        }
                       } {
                         def rExpr returnedValue.expression_value
                         this.matchLambdaArgs( (unwrap fnExpr) (unwrap rExpr) ctx wr )
@@ -963,26 +980,26 @@ extension RangerFlowParser {
                 }
 
                 if( validated_returnvalue == false ) {
-                  if ((match.doesMatch( (unwrap activeFn.nameNode) returnedValue ctx)) == false) {
-                    if(activeFn.nameNode.ifNoTypeSetToEvalTypeOf( returnedValue)) {
+                  if ((match.doesMatch(returnName returnedValue ctx)) == false) {
+                    if(returnName.ifNoTypeSetToEvalTypeOf( returnedValue)) {
                       ; sets the type
                     } {
                       ctx.addError(returnedValue "invalid return value type!!! "  + (returnedValue.getCode()))
                       ctx.addError(returnedValue "^ code: "  + (returnedValue.getCode()))
-                      ctx.addError( (unwrap activeFn.nameNode) "^ regarding to")
+                      ctx.addError(returnName "^ regarding to")
                       if( returnedValue.eval_type == RangerNodeType.Method) {
-                        ctx.addError( (unwrap activeFn.nameNode) "^ which was a method")
+                        ctx.addError(returnName "^ which was a method")
                       }
-                      ctx.addError( (unwrap activeFn.nameNode) ( '^ value type = ' + returnedValue.eval_type) )
+                      ctx.addError(returnName ( '^ value type = ' + returnedValue.eval_type) )
                     }
                   }
                 }
                 ; C6: return Child where Parent is declared — insert widen_to_
                 ; (argument sites already do this via areEqualTypes).
-                if ((strlen activeFn.nameNode.type_name) > 0) {
-                  this.convertToUnion(activeFn.nameNode.type_name returnedValue ctx wr)
+                if ((strlen returnName.type_name) > 0) {
+                  this.convertToUnion(returnName.type_name returnedValue ctx wr)
                 }
-                def argNode:CodeNode (unwrap activeFn.nameNode)
+                def argNode:CodeNode returnName
                 if( returnedValue.hasFlag("optional")) {
                   if ( false == (argNode.hasFlag("optional")) ) {
                       ctx.addError(callArgs ( 'function return value optionality does not match, expected non-optional return value, optional given at ' + (argNode.getCode())) )      
@@ -1006,8 +1023,10 @@ extension RangerFlowParser {
             if (null? callArgs.parent) {
               ctx.addError(callArgs "did not have parent")
               print ('no parent => ' + (callArgs.getCode()))
+            } {
+              def parent:CodeNode (unwrap callArgs.parent)
+              parent.didReturnAtIndex = (indexOf parent.children callArgs)
             }
-            callArgs.parent.didReturnAtIndex = (indexOf callArgs.parent.children callArgs)
           }
           if ((nameNode.hasFlag("returns")) == false) {
             match.setRvBasedOn(nameNode callArgs)
@@ -1030,12 +1049,13 @@ extension RangerFlowParser {
           callArgs.operator_node = ch
           for args.children arg:CodeNode arg_index {
             if arg.has_vref_annotation {
-              def anns:CodeNode arg.vref_annotation
+              def anns:CodeNode (unwrap arg.vref_annotation)
               for anns.children ann:CodeNode i {
                 if (ann.vref == "mutates") {
                   def theArg:CodeNode (itemAt callArgs.children (arg_index + 1))
                   if theArg.hasParamDesc {
-                    theArg.paramDesc.set_cnt = (theArg.paramDesc.set_cnt + 1)
+                    def argumentDesc:RangerAppParamDesc (unwrap theArg.paramDesc)
+                    argumentDesc.set_cnt = (argumentDesc.set_cnt + 1)
                   }
                 }
               }

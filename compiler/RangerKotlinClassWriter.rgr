@@ -668,8 +668,11 @@ class RangerKotlinClassWriter {
       }
       wr.out("." false)
       def methodName method.vref
-      if ((!null? node.fnDesc) && ((strlen node.fnDesc.compiledName) > 0)) {
-        methodName = node.fnDesc.compiledName
+      if (!null? node.fnDesc) {
+        def callFn:RangerAppFunctionDesc (unwrap node.fnDesc)
+        if ((strlen callFn.compiledName) > 0) {
+          methodName = callFn.compiledName
+        }
       }
       wr.outMapped(methodName method false method.vref)
       wr.out("(" false)
@@ -828,7 +831,8 @@ class RangerKotlinClassWriter {
       this.WriteVRef(fc ctx wr)
       wr.out("(" false)
       def givenArgs:CodeNode (node.getSecond())
-      for node.fnDesc.params arg:RangerAppParamDesc i {
+      def fnDesc:RangerAppFunctionDesc (unwrap node.fnDesc)
+      for fnDesc.params arg:RangerAppParamDesc i {
         if (i > 0) {
           wr.out(", " false)
         }
@@ -854,14 +858,14 @@ class RangerKotlinClassWriter {
   }
   fn writeNewCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.hasNewOper {
-      def cl:RangerAppClassDesc node.clDesc
+      def cl:RangerAppClassDesc (unwrap node.clDesc)
       def givenArgs:CodeNode (node.getThird())
       if (this.tryWriteProcessNewCall(node ctx wr)) {
         return
       }
       if (cl.isSingletonClass()) {
         wr.out(" " false)
-        wr.out((node.clDesc.name + ".__singleton") false)
+        wr.out((cl.name + ".__singleton") false)
         wr.out("(" false)
         for givenArgs.children n:CodeNode i {
           if (i > 0) {
@@ -875,7 +879,7 @@ class RangerKotlinClassWriter {
 
       def fc:CodeNode (node.getSecond())
       wr.out(" " false)
-      wr.out(node.clDesc.name false)
+      wr.out(cl.name false)
       wr.out("(" false)
       def constr:RangerAppFunctionDesc cl.constructor_fn
       if (!null? constr) {
@@ -1258,7 +1262,13 @@ class RangerKotlinClassWriter {
     wr.out("}" true)
     for cl.static_methods variant:RangerAppFunctionDesc i {
       wr.out("" true)
-      if ( (variant.nameNode.hasFlag("main")) && (variant.nameNode.code.filename == (ctx.getRootFile()))) {
+      def variantNameOpt@(optional):CodeNode variant.nameNode
+      if (!null? variantNameOpt) {
+        def variantName:CodeNode (unwrap variantNameOpt)
+        def variantCodeOpt@(optional):SourceCode variantName.code
+        if (!null? variantCodeOpt) {
+          def variantCode:SourceCode (unwrap variantCodeOpt)
+          if ((variantName.hasFlag("main")) && (variantCode.filename == (ctx.getRootFile()))) {
         ; Only main() can see the array Kotlin hands it. The shell_arg
         ; operators read __g_args, so main copies it there first -- the same
         ; shape as __g_argv on C++ and __g_args on Dart. Declared here rather
@@ -1281,6 +1291,8 @@ class RangerKotlinClassWriter {
         wr.newline()
         wr.indent(-1)
         wr.out("}" true)
+          }
+        }
       }
     }
   }

@@ -204,7 +204,7 @@ class RangerCppClassWriter {
         }
       }
     }
-  }  
+  }
 
   fn getObjectTypeString:string (type_string:string ctx:RangerAppWriterContext) {
     if ((strlen type_string) >= 2) {
@@ -221,7 +221,7 @@ class RangerCppClassWriter {
       ; a comment in Lang.rgr.
       case "char" {
         return "unsigned char"
-      }   
+      }
       case "charbuffer" {
         return "const char*"
       }
@@ -233,7 +233,7 @@ class RangerCppClassWriter {
       }
       case "double_buffer" {
         return "std::vector<double>"
-      }       
+      }
       case "int" {
         return "int"
       }
@@ -267,7 +267,7 @@ class RangerCppClassWriter {
         return type_string
       }
       return "int"
-    }      
+    }
     if(ctx.isDefinedClass(type_string)) {
 
       def cc (ctx.findClass(type_string))
@@ -389,7 +389,7 @@ class RangerCppClassWriter {
       ; a comment in Lang.rgr.
       case "char" {
         return "unsigned char"
-      }   
+      }
       case "charbuffer" {
         return "const char*"
       }
@@ -401,7 +401,7 @@ class RangerCppClassWriter {
       }
       case "double_buffer" {
         return "std::vector<double>"
-      }       
+      }
       case "int" {
         return "int"
       }
@@ -516,7 +516,7 @@ class r_optional_primitive {
   }
 
   fn writeTypeDef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
-    def v_type:RangerNodeType node.value_type    
+    def v_type:RangerNodeType node.value_type
     def t_name:string node.type_name
     def a_name:string node.array_type
     def k_name:string node.key_type
@@ -540,8 +540,9 @@ class r_optional_primitive {
     ; std::function<int (int, int)>
     switch v_type {
       case RangerNodeType.ExpressionType {
-        def rv:CodeNode (itemAt node.expression_value.children 0)
-        def sec:CodeNode (itemAt node.expression_value.children 1)
+        def lambdaExpression:CodeNode (unwrap node.expression_value)
+        def rv:CodeNode (itemAt lambdaExpression.children 0)
+        def sec:CodeNode (itemAt lambdaExpression.children 1)
         def fc:CodeNode (sec.getFirst())
         this.import_lib("<functional>" ctx wr)
 
@@ -561,8 +562,8 @@ class r_optional_primitive {
         if( node.IsOptional() ) {
           wr.out(">" false)
         }
-        
-      }   
+
+      }
       case RangerNodeType.Enum {
         if( node.IsOptional() ) {
           wr.out("std::optional<" false)
@@ -594,7 +595,7 @@ class r_optional_primitive {
       }
       case RangerNodeType.Char {
         wr.out("unsigned char" false)
-      }  
+      }
       case RangerNodeType.CharBuffer {
         wr.out("const char*" false)
       }
@@ -602,7 +603,7 @@ class r_optional_primitive {
         wr.addImport("<vector>")
         wr.addImport("<cstdint>")
         wr.out("std::vector<uint8_t>" false)
-      }            
+      }
       case RangerNodeType.IntBuffer {
         wr.addImport("<vector>")
         wr.addImport("<cstdint>")
@@ -914,6 +915,160 @@ class r_optional_primitive {
     return (this.cppIsValueClass(segCl ctx))
   }
 
+  fn cppShouldAutoUnwrap:boolean (p:RangerAppParamDesc ctx:RangerAppWriterContext) {
+    if (ctx.autoUnwrapIsSuppressed()) {
+      return false
+    }
+    if (ctx.isAutomaticallyUnwrapped(p.name)) {
+      return true
+    }
+    return (ctx.isAutomaticallyUnwrapped(p.compiledName))
+  }
+
+  fn cppWriteVRefName:void (p:RangerAppParamDesc node:CodeNode index:int wr:CodeWriter) {
+    if ((strlen p.compiledName) > 0) {
+      wr.out((this.adjustType(p.compiledName)) false)
+      return
+    }
+    if ((strlen p.name) > 0) {
+      wr.out((this.adjustType(p.name)) false)
+      return
+    }
+    wr.out((this.adjustType((itemAt node.ns index))) false)
+  }
+
+  fn cppWriteVRefPath:void (node:CodeNode fromIndex:int toIndex:int ctx:RangerAppWriterContext wr:CodeWriter) {
+    def had_static:boolean false
+    for node.nsp p:RangerAppParamDesc i {
+      if (i < fromIndex) {
+        continue
+      }
+      if (i > toIndex) {
+        break _
+      }
+      if (i > fromIndex) {
+        if had_static {
+          wr.out("::" false)
+        } {
+          if (this.cppSegmentIsValueCase(node (i - 1) ctx)) {
+            wr.out("." false)
+          } {
+            wr.out("->" false)
+          }
+        }
+      }
+      this.cppWriteVRefName(p node i wr)
+      if (p.isClass()) {
+        had_static = true
+      }
+    }
+  }
+
+  fn cppVRefIsAssignmentTarget:boolean (node:CodeNode) {
+    def parent@(optional):CodeNode node.parent
+    if (null? parent) {
+      return false
+    }
+    def pu:CodeNode (unwrap parent)
+    return (pu.getVRefAt(0) == "=")
+  }
+
+  fn cppVRefIsCallTarget:boolean (node:CodeNode) {
+    def parent@(optional):CodeNode node.parent
+    if (null? parent) {
+      return false
+    }
+    def pu:CodeNode (unwrap parent)
+    return ((pu.has_call || pu.hasFnCall) || pu.is_direct_method_call)
+  }
+
+  fn cppWriteSafeOptionalTail:void (node:CodeNode currentIndex:int ctx:RangerAppWriterContext wr:CodeWriter) {
+    def lastIndex:int ((array_length node.nsp) - 1)
+    def nextOptional:int -1
+    for node.nsp p:RangerAppParamDesc i {
+      if ((i > currentIndex) && (i < lastIndex)) {
+        if p.is_optional {
+          nextOptional = i
+          break _
+        }
+      }
+    }
+
+    if (nextOptional >= 0) {
+      wr.out("rg_optional_access(__rg_value" false)
+      for node.nsp p:RangerAppParamDesc i {
+        if ((i <= currentIndex) || (i > nextOptional)) {
+          continue
+        }
+        if (this.cppSegmentIsValueCase(node (i - 1) ctx)) {
+          wr.out("." false)
+        } {
+          wr.out("->" false)
+        }
+        this.cppWriteVRefName(p node i wr)
+      }
+      wr.out(", [](const auto& __rg_value) { return " false)
+      this.cppWriteSafeOptionalTail(node nextOptional ctx wr)
+      wr.out("; })" false)
+      return
+    }
+
+    wr.out("__rg_value" false)
+    for node.nsp p:RangerAppParamDesc i {
+      if (i <= currentIndex) {
+        continue
+      }
+      if (this.cppSegmentIsValueCase(node (i - 1) ctx)) {
+        wr.out("." false)
+      } {
+        wr.out("->" false)
+      }
+      this.cppWriteVRefName(p node i wr)
+    }
+  }
+
+  fn cppWriteSafeOptionalAccess:boolean (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if ((node.has_call || node.hasFnCall) || this.cppVRefIsCallTarget(node)) {
+      return false
+    }
+    if (ctx.autoUnwrapIsSuppressed()) {
+      return false
+    }
+    def optionalIndex:int -1
+    for node.nsp p:RangerAppParamDesc i {
+      if (p.is_optional && this.cppShouldAutoUnwrap(p ctx)) {
+        return false
+      }
+      if ((i < ((array_length node.nsp) - 1)) && p.is_optional) {
+        optionalIndex = i
+        break _
+      }
+    }
+    if (optionalIndex < 0) {
+      return false
+    }
+    if (optionalIndex == 0) {
+      def rootParam:RangerAppParamDesc (itemAt node.nsp 0)
+      if (this.cppShouldAutoUnwrap(rootParam ctx)) {
+        return false
+      }
+    }
+    if (ctx.hasCompilerFlag("strict-optional-access")) {
+      ctx.addError(node "optional property access requires `if (!null? value)` or `(unwrap value)` before reading a property")
+      return false
+    }
+    if (ctx.isInLhs() || this.cppVRefIsAssignmentTarget(node)) {
+      return false
+    }
+
+    wr.out("rg_optional_access(" false)
+    this.cppWriteVRefPath(node 0 optionalIndex ctx wr)
+    wr.out(", [](const auto& __rg_value) { return " false)
+    this.cppWriteSafeOptionalTail(node optionalIndex ctx wr)
+    wr.out("; })" false)
+    return true
+  }
+
   fn WriteVRef:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if (node.vref == "this") {
       ; std::dynamic_pointer_cast<RangerAppClassDesc>
@@ -948,6 +1103,9 @@ class r_optional_primitive {
     }
     def had_static:boolean false
     if ((array_length node.nsp) > 0) {
+      if (this.cppWriteSafeOptionalAccess(node ctx wr)) {
+        return
+      }
       for node.nsp p:RangerAppParamDesc i {
         if (i > 0) {
           if(had_static) {
@@ -967,26 +1125,32 @@ class r_optional_primitive {
           if(part == "this") {
             wr.out("this" false)
             continue
-          } 
-        }
-        if ((strlen p.compiledName) > 0) {
-          wr.out((this.adjustType(p.compiledName)) false)
-        } {
-          if ((strlen p.name) > 0) {
-            wr.out((this.adjustType(p.name)) false)
-          } {
-            wr.out((this.adjustType( (itemAt node.ns i))) false)
           }
         }
+        if (i == 0) {
+          if (this.cppShouldAutoUnwrap(p ctx)) {
+            def uv:string ((("(" + this.adjustType(p.compiledName)) + ".value())"))
+            wr.out(uv false)
+            continue
+          }
+        }
+        this.cppWriteVRefName(p node i wr)
         if (p.isClass()) {
           had_static = true
-        }        
+        }
       }
       return
     }
     if node.hasParamDesc {
-      def p:RangerAppParamDesc node.paramDesc
-      wr.out(p.compiledName false)
+      def p@(optional):RangerAppParamDesc node.paramDesc
+      if (null? p) {
+        return
+      }
+      def pu:RangerAppParamDesc (unwrap p)
+      wr.out(pu.compiledName false)
+      if (this.cppShouldAutoUnwrap(pu ctx)) {
+        wr.out(".value()" false)
+      }
       return
     }
     for node.ns part:string i {
@@ -1160,7 +1324,7 @@ class r_optional_primitive {
       if ((ctx.expressionLevel()) == 0) {
         wr.out(";" true)
       }
-    }    
+    }
   }
 
   ; one side of a string comparison: a literal compares as a bare char
@@ -1326,6 +1490,125 @@ class r_optional_primitive {
     wr.out("}" true)
   }
 
+  fn markNotNullVar:void (candidate:CodeNode ctx:RangerAppWriterContext) {
+    def n:CodeNode candidate
+    while (n.expression && ((array_length n.children) == 1)) {
+      n = (n.getFirst())
+    }
+    if (n.expression) {
+      return
+    }
+    def name:string n.vref
+    if ((array_length n.ns) == 1) {
+      name = (itemAt n.ns 0)
+    }
+    if ((strlen name) == 0) {
+      return
+    }
+    ctx.setAutomaticallyUnwrapped(name)
+  }
+
+  fn markNotNullName:void (name:string ctx:RangerAppWriterContext) {
+    if ((strlen name) == 0) {
+      return
+    }
+    ctx.setAutomaticallyUnwrapped(name)
+  }
+
+  fn walkNotNulls:void (condition:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+
+    def c:CodeNode condition
+    while (c.expression && ((array_length c.children) == 1)) {
+      c = (c.getFirst())
+    }
+
+    if (c.getVRefAt(0) == "!null?") {
+      if ((array_length c.children) > 1) {
+        this.markNotNullVar((itemAt c.children 1) ctx)
+      }
+      return
+    }
+
+    if (c.expression && ((array_length c.children) == 3)) {
+      def mid:CodeNode (itemAt c.children 1)
+      if ((mid.vref == "&&") || (mid.vref == "and")) {
+        this.walkNotNulls((itemAt c.children 0) ctx wr)
+        this.walkNotNulls((itemAt c.children 2) ctx wr)
+        return
+      }
+    }
+
+    def fc@(optional) ( c.getFirst() )
+
+    if( null? fc ) {
+      return
+    }
+
+    def firstCh (fc.getVRefAt(0))
+
+    if ((firstCh == "&&") || (firstCh == "and")) {
+      if ((array_length c.children) > 1) {
+        this.walkNotNulls((itemAt c.children 1) ctx wr)
+      }
+      if ((array_length c.children) > 2) {
+        this.walkNotNulls((itemAt c.children 2) ctx wr)
+      }
+      return
+    }
+
+    if( firstCh == "!null?" ) {
+      if ((array_length c.children) > 1) {
+        this.markNotNullVar((itemAt c.children 1) ctx)
+      }
+    }
+  }
+
+  fn cppWriteIf:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def condition:CodeNode (node.getSecond())
+    def body:CodeNode (itemAt node.children 2)
+
+    ; walk conditions, if the condition includes !null? for some variable
+    ; and it is only or and limited ( must be true ), then mark this variable
+    ; as non optional during the evalation of the body
+
+    def blockContext:RangerAppWriterContext (ctx.fork())
+    if (!null? body.evalCtx) {
+      blockContext = (unwrap body.evalCtx)
+    }
+    this.walkNotNulls(condition blockContext wr)
+
+    wr.out("if (" false)
+    this.cppWriteOperand(condition ctx wr)
+    wr.out(") {" true)
+    wr.indent(1)
+
+    this.WalkNode(body blockContext wr)
+    wr.indent(-1)
+    wr.out("}" true)
+  }
+
+  fn cppWriteWhile:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if ((array_length node.children) < 3) {
+      return
+    }
+    def condition:CodeNode (node.getSecond())
+    def body:CodeNode (itemAt node.children 2)
+
+    def blockContext:RangerAppWriterContext (ctx.fork())
+    if (!null? body.evalCtx) {
+      blockContext = (unwrap body.evalCtx)
+    }
+    this.walkNotNulls(condition blockContext wr)
+
+    wr.out("while (" false)
+    this.cppWriteOperand(condition ctx wr)
+    wr.out(") {" true)
+    wr.indent(1)
+    this.WalkNode(body blockContext wr)
+    wr.indent(-1)
+    wr.out("}" true)
+  }
+
   fn CustomOperator:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
 
     def fc:CodeNode (node.getFirst())
@@ -1334,6 +1617,16 @@ class r_optional_primitive {
     ; an index loop, or a range-`for` when that is safe
     if (cmd == "for") {
       this.cppWriteForLoop(node ctx wr)
+      return
+    }
+
+    if( cmd == "if" ) {
+      this.cppWriteIf(node ctx wr)
+      return
+    }
+
+    if( cmd == "while" ) {
+      this.cppWriteWhile(node ctx wr)
       return
     }
 
@@ -1412,12 +1705,12 @@ class r_optional_primitive {
       def condition:CodeNode (node.getSecond())
       def case_nodes:CodeNode (node.getThird())
       wr.newline()
-      
+
 
       def p@(lives):RangerAppParamDesc (new RangerAppParamDesc ())
       p.name = "caseMatched"
       p.value_type = RangerNodeType.Boolean
-      ctx.defineVariable(p.name p)      
+      ctx.defineVariable(p.name p)
 
       def b_has_default false
       for case_nodes.children ch:CodeNode i {
@@ -1459,7 +1752,7 @@ class r_optional_primitive {
       }
 
     }
-  }  
+  }
 
   fn CreateMethodCall(node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     ; property access...
@@ -1493,23 +1786,28 @@ class r_optional_primitive {
 
 
   fn CreateLambdaCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
-    
+
     def fName:CodeNode (itemAt node.children 0)
     def givenArgs:CodeNode (itemAt node.children 1)
 
     def args:CodeNode
     if( (!null? fName.expression_value) ) {
-      args  = ( itemAt fName.expression_value.children 1)      
+      def lambdaExpression:CodeNode (unwrap fName.expression_value)
+      args  = (itemAt lambdaExpression.children 1)
     } {
-      def param (ctx.getVariableDef(fName.vref))
-      args  = ( itemAt param.nameNode.expression_value.children 1)
+      def paramOpt@(optional):RangerAppParamDesc (ctx.getVariableDef(fName.vref))
+      def param:RangerAppParamDesc (unwrap paramOpt)
+      def parameterName:CodeNode (unwrap param.nameNode)
+      def lambdaExpression:CodeNode (unwrap parameterName.expression_value)
+      args  = (itemAt lambdaExpression.children 1)
     }
 
     ctx.setInExpr()
     this.WalkNode(fName ctx wr)
 
     wr.out("(" false)
-    for args.children arg:CodeNode i {
+    def lambdaArgs:CodeNode (unwrap args)
+    for lambdaArgs.children arg:CodeNode i {
         def n:CodeNode (itemAt givenArgs.children i)
         if (i > 0) {
           wr.out(", " false)
@@ -1523,7 +1821,7 @@ class r_optional_primitive {
     ctx.unsetInExpr()
     if ((ctx.expressionLevel()) == 0) {
       wr.out(";" true)
-    }    
+    }
   }
   fn CreateLambda:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
 
@@ -1538,7 +1836,7 @@ class r_optional_primitive {
     ; http://en.cppreference.com/w/cpp/language/lambda
     ; [=] captures all automatic values by copy and current object by reference
     ; [&] all by reference
-    
+
     wr.out("[&" false)
 
 
@@ -1560,7 +1858,7 @@ class r_optional_primitive {
 ;      if(vD.)
 ;      wr.out(', ' false)
 ;      wr.out( ("&" + vD.compiledName) false)
-    }    
+    }
 
     ;for lambdaCtx.captured_variables cname:string i {
     ;  if(i>=0) {
@@ -1572,7 +1870,7 @@ class r_optional_primitive {
       ; [=] captures all automatic values by copy and current object by reference
       ; [&] all by reference
     ;  wr.out( ("&" + vD.compiledName) false)
-    ;}    
+    ;}
     wr.out("](" false)
 
     for args.children arg:CodeNode i {
@@ -1582,7 +1880,7 @@ class r_optional_primitive {
         this.writeTypeDef( arg ctx wr)
         wr.out(" " false)
         wr.out(arg.vref  false)
-    }    
+    }
     wr.out(") mutable { " true)
     wr.indent(1)
     lambdaCtx.restartExpressionLevel()
@@ -1592,7 +1890,7 @@ class r_optional_primitive {
     wr.newline()
     wr.indent(-1)
     wr.out("}" false)
-  } 
+  }
 
   ; A `weak` field must not keep the object alive. C++ has std::weak_ptr, but a
   ; weak pointer gives no member access: each read needs a `.lock()` first. So
@@ -1647,11 +1945,15 @@ class r_optional_primitive {
       return true
     }
     if (node.hasParamDesc) {
-      def pdNN@(optional):CodeNode node.paramDesc.nameNode
-      if (!null? pdNN) {
-        def pdN:CodeNode (unwrap pdNN)
-        if ((strlen pdN.key_type) > 0) {
-          return true
+      def paramDescOpt@(optional):RangerAppParamDesc node.paramDesc
+      if (!null? paramDescOpt) {
+        def paramDesc:RangerAppParamDesc (unwrap paramDescOpt)
+        def pdNN@(optional):CodeNode paramDesc.nameNode
+        if (!null? pdNN) {
+          def pdN:CodeNode (unwrap pdNN)
+          if ((strlen pdN.key_type) > 0) {
+            return true
+          }
         }
       }
     }
@@ -1728,11 +2030,15 @@ class r_optional_primitive {
       return true
     }
     if (node.hasParamDesc) {
-      def pdNN@(optional):CodeNode node.paramDesc.nameNode
-      if (!null? pdNN) {
-        def pdN:CodeNode (unwrap pdNN)
-        if (((pdN.type_name == tn) || (pdN.array_type == tn)) || (pdN.key_type == tn)) {
-          return true
+      def paramDescOpt@(optional):RangerAppParamDesc node.paramDesc
+      if (!null? paramDescOpt) {
+        def paramDesc:RangerAppParamDesc (unwrap paramDescOpt)
+        def pdNN@(optional):CodeNode paramDesc.nameNode
+        if (!null? pdNN) {
+          def pdN:CodeNode (unwrap pdNN)
+          if (((pdN.type_name == tn) || (pdN.array_type == tn)) || (pdN.key_type == tn)) {
+            return true
+          }
         }
       }
     }
@@ -1893,6 +2199,15 @@ class r_optional_primitive {
     wr.out("};" true)
   }
 
+  fn writeCppOptionalAccessHelper:void (wr:CodeWriter) {
+    wr.out("// reads a property through an optional object, returning the property's default value when absent" true)
+    wr.out("template <class O, class F> auto rg_optional_access(const O& value, F accessor) {" true)
+    wr.out("  using R = decltype(accessor(value.value()));" true)
+    wr.out("  if (value.has_value()) { return accessor(value.value()); }" true)
+    wr.out("  return R{};" true)
+    wr.out("}" true)
+  }
+
   fn writeCppHeaderVar:void  (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter do_initialize:boolean) {
     if node.hasParamDesc {
       def nn:CodeNode (itemAt node.children 1)
@@ -1900,31 +2215,24 @@ class r_optional_primitive {
 
       ; TODO: optionals...
 
-      if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
-        wr.out("/* unused:  " false)
-      }
-      if ((p.set_cnt > 0) || p.is_class_variable) {
-        wr.out("" false)
-      } {
-        wr.out("" false)
-      }
       def pnn:CodeNode (unwrap p.nameNode)
-      if (this.cppIsWeakField(pnn ctx)) {
-        wr.out(("r_weak<" + pnn.type_name + ">") false)
-      } {
+      def is_weak (this.cppIsWeakField(pnn ctx))
+
+      if( is_weak ) {
+        if( node.IsOptional() ) {
+          wr.out( "std::optional<" false)
+        }
+        def typeName:string (("r_weak<" + pnn.type_name) + ">")
+        wr.out( typeName false)
+        if( node.IsOptional() ) {
+          wr.out(">" false)
+        }
+      } else {
         this.writeTypeDef(pnn ctx wr)
       }
       wr.out(" " false)
       wr.out(p.compiledName false)
-      if ((p.ref_cnt == 0) && (p.is_class_variable == true)) {
-        wr.out("     /* note: unused */" false)
-      }
-      if ((p.ref_cnt == 0) && (p.is_class_variable == false)) {
-        wr.out("   **/ ;" true)
-      } {
-        wr.out(";" false)
-        wr.newline()
-      }
+      wr.out(";" false)
     }
   }
   ; Heavy value types (string / map / vector / buffers) are expensive to copy.
@@ -2336,7 +2644,8 @@ class r_optional_primitive {
       wr.out("(" false)
       ctx.setInExpr()
       def givenArgs:CodeNode (node.getSecond())
-      for node.fnDesc.params arg:RangerAppParamDesc i {
+      def fnDesc:RangerAppFunctionDesc (unwrap node.fnDesc)
+      for fnDesc.params arg:RangerAppParamDesc i {
         if (i > 0) {
           wr.out(", " false)
         }
@@ -2348,10 +2657,10 @@ class r_optional_primitive {
           } {
             ctx.addError(node "Default argument was missing")
           }
-          continue 
+          continue
         }
         def n:CodeNode (itemAt givenArgs.children i)
-        def tempCopy:boolean (this.cppNeedsCallTempCopy((unwrap node.fnDesc) arg n ctx))
+        def tempCopy:boolean (this.cppNeedsCallTempCopy(fnDesc arg n ctx))
         ; An argument written as an expression is a temporary — an array
         ; literal, a call result — and a non-const reference parameter can not
         ; bind one. rg_arg_ref passes an lvalue straight through, so only the
@@ -2359,7 +2668,7 @@ class r_optional_primitive {
         def argRef:boolean false
         if (tempCopy == false) {
           if n.expression {
-            argRef = (this.cppMutableRefParam((unwrap node.fnDesc) arg ctx))
+            argRef = (this.cppMutableRefParam(fnDesc arg ctx))
           }
         }
         if tempCopy {
@@ -2382,7 +2691,7 @@ class r_optional_primitive {
       wr.out(")" false)
       if ((ctx.expressionLevel()) == 0) {
         wr.out(";" true)
-      }      
+      }
     }
   }
   fn writeNewCall:void  (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -2396,7 +2705,7 @@ class r_optional_primitive {
         wr.out("(" false)
       } {
         wr.out((" " + (this.cppMakeOpen())) false)
-        wr.out(node.clDesc.name false)
+        wr.out(cl.name false)
         wr.out(">(" false)
       }
       def constr:RangerAppFunctionDesc cl.constructor_fn
@@ -2459,7 +2768,7 @@ class r_optional_primitive {
     })
     wr.out("}" false)
   }
-  
+
   ; std::enable_shared_from_this is only necessary for a class that the writer
   ; emits shared_from_this() for, and it emits that for `this` used as a value
   ; (see WriteVRef). The base is not free: it puts a std::weak_ptr into every
@@ -2773,13 +3082,13 @@ class r_optional_primitive {
               if( cnt > 0 ) {
                 wr.out(", " false)
               }
-              wr.out( (this.getObjectTypeString( item ctx ) ) false ) 
+              wr.out( (this.getObjectTypeString( item ctx ) ) false )
               cnt = cnt + 1
             } {
               if( cnt > 0 ) {
                 wr.out(", " false)
               }
-              wr.out( (this.getObjectTypeString( item ctx ) ) false ) 
+              wr.out( (this.getObjectTypeString( item ctx ) ) false )
               cnt = cnt + 1
             }
           })
@@ -2807,10 +3116,10 @@ class r_optional_primitive {
           if( ctx.hasCompilerFlag("dont-allow-mutate")) {
             ctx.addError( (unwrap dd.nameNode) "Mutating captured variable is not allowed")
             return
-          } 
+          }
         }
       }
-    }        
+    }
 
     if( header_created == false) {
       wr.createTag("c++Imports")
@@ -3098,6 +3407,8 @@ class r_optional_primitive {
         this.writeCppWeakHelper(wr)
         wr.out("" true)
       }
+      this.writeCppOptionalAccessHelper(wr)
+      wr.out("" true)
       ; A parameter that the callee mutates is a non-const C++ reference, and a
       ; non-const reference does not bind a temporary. Ranger call sites do pass
       ; one — `this.TransformOpFn(([] opTpl) node ctx wr)` builds the array in
@@ -3138,7 +3449,7 @@ class r_optional_primitive {
     ;    csubCtx.defineVariable(dd.name dd)
     ;    dd.is_class_variable = true
     ;  }
-    ; }      
+    ; }
 
     classWriter.out("class " + cl.name + ";" , true)
 
@@ -3150,9 +3461,9 @@ class r_optional_primitive {
       this.writeArgsDef( (unwrap constr) ctx wr)
     }
     wr.out(" ) " false )
-    
-    if ( ( array_length cl.extends_classes ) > 0 ) { 
-      
+
+    if ( ( array_length cl.extends_classes ) > 0 ) {
+
       ; wr.out(" public std::enable_shared_from_this<" + cl.name +  "> " , false)
       for cl.extends_classes pName:string i {
         def pcc (ctx.findClass(pName))
@@ -3167,7 +3478,7 @@ class r_optional_primitive {
             wr.out(((" " + arg.name) + " ") false)
           }
           wr.out(")" false)
-        }        
+        }
       }
     }
 
@@ -3285,7 +3596,13 @@ class r_optional_primitive {
     ;}
 
     for cl.static_methods variant:RangerAppFunctionDesc i {
-      if ( (variant.nameNode.hasFlag("main")) && (variant.nameNode.code.filename == (ctx.getRootFile()))) {
+      def variantNameOpt@(optional):CodeNode variant.nameNode
+      if (!null? variantNameOpt) {
+        def variantName:CodeNode (unwrap variantNameOpt)
+        def variantCodeOpt@(optional):SourceCode variantName.code
+        if (!null? variantCodeOpt) {
+          def variantCode:SourceCode (unwrap variantCodeOpt)
+          if ((variantName.hasFlag("main")) && (variantCode.filename == (ctx.getRootFile()))) {
 
         ctx.setCompilerSetting( 'mainclass' (cl.name) )
 
@@ -3294,7 +3611,7 @@ class r_optional_primitive {
 
         wr.out("__g_argc = argc;" true)
         wr.out("__g_argv = argv;" true)
-        
+
         def subCtx:RangerAppWriterContext (unwrap variant.fnCtx)
         subCtx.in_main = true
         subCtx.is_function = true
@@ -3303,6 +3620,8 @@ class r_optional_primitive {
         wr.out("return 0;" true)
         wr.indent(-1)
         wr.out("}" true)
+          }
+        }
       }
     }
 

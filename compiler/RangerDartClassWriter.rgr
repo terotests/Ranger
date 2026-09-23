@@ -328,8 +328,9 @@ class RangerDartClassWriter {
       ; lambda was declared with an EMPTY type, so `def set_async (fn:void …)`
       ; came out as a bare assignment to a name Dart had never seen.
       case RangerNodeType.ExpressionType {
-        def rv:CodeNode (itemAt node.expression_value.children 0)
-        def sec:CodeNode (itemAt node.expression_value.children 1)
+        def lambdaExpression:CodeNode (unwrap node.expression_value)
+        def rv:CodeNode (itemAt lambdaExpression.children 0)
+        def sec:CodeNode (itemAt lambdaExpression.children 1)
         this.writeTypeDef( rv ctx wr)
         wr.out(" Function(" false)
         for sec.children arg:CodeNode i {
@@ -642,8 +643,11 @@ class RangerDartClassWriter {
       }
       wr.out("." false)
       def methodName method.vref
-      if ((!null? node.fnDesc) && ((strlen node.fnDesc.compiledName) > 0)) {
-        methodName = node.fnDesc.compiledName
+      if (!null? node.fnDesc) {
+        def callFn:RangerAppFunctionDesc (unwrap node.fnDesc)
+        if ((strlen callFn.compiledName) > 0) {
+          methodName = callFn.compiledName
+        }
       }
       wr.outMapped(methodName method false method.vref)
       wr.out("(" false)
@@ -674,7 +678,7 @@ class RangerDartClassWriter {
   ; Dart program in the tests had one, which is why nothing caught it until the
   ; compiler itself was compiled for Dart -- 356 of them in one file.
   fn CreateLambda:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
-    def lambdaCtx (unwrap node.lambda_ctx)
+    def lambdaCtx:RangerAppWriterContext (unwrap node.lambda_ctx)
     def args:CodeNode (itemAt node.children 1)
     def body:CodeNode (itemAt node.children 2)
     wr.out("(" false)
@@ -705,7 +709,8 @@ class RangerDartClassWriter {
       this.WriteVRef(fc ctx wr)
       wr.out("(" false)
       def givenArgs:CodeNode (node.getSecond())
-      for node.fnDesc.params arg:RangerAppParamDesc i {
+      def fnDesc:RangerAppFunctionDesc (unwrap node.fnDesc)
+      for fnDesc.params arg:RangerAppParamDesc i {
         if (i > 0) {
           wr.out(", " false)
         }
@@ -732,14 +737,14 @@ class RangerDartClassWriter {
 
   fn writeNewCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.hasNewOper {
-      def cl:RangerAppClassDesc node.clDesc
+      def cl:RangerAppClassDesc (unwrap node.clDesc)
       def givenArgs:CodeNode (node.getThird())
       if (this.tryWriteProcessNewCall(node ctx wr)) {
         return
       }
       if (cl.isSingletonClass()) {
         wr.out(" " false)
-        wr.out((node.clDesc.name + ".__singleton") false)
+        wr.out((cl.name + ".__singleton") false)
         wr.out("(" false)
         for givenArgs.children n:CodeNode i {
           if (i > 0) {
@@ -752,7 +757,7 @@ class RangerDartClassWriter {
       }
 
       wr.out(" " false)
-      wr.out(node.clDesc.name false)
+  wr.out(cl.name false)
       wr.out("(" false)
       def constr:RangerAppFunctionDesc cl.constructor_fn
       if (!null? constr) {
@@ -1060,7 +1065,9 @@ class RangerDartClassWriter {
 
     ; Top-level main
     for cl.static_methods variant:RangerAppFunctionDesc i {
-      if ( (variant.nameNode.hasFlag("main")) && (variant.nameNode.code.filename == (ctx.getRootFile()))) {
+      def variantName:CodeNode (unwrap variant.nameNode)
+      def variantCode:SourceCode (unwrap variantName.code)
+      if ((variantName.hasFlag("main")) && (variantCode.filename == (ctx.getRootFile()))) {
         wr.out("" true)
         ; Only main() can see the list Dart hands it. The shell_arg operators
         ; read __g_args, so main copies it there first -- the same shape as

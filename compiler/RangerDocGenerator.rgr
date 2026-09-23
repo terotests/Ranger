@@ -19,8 +19,9 @@ class RangerDocGenerator {
             case RangerNodeType.ExpressionType {
                 wr.out('(fn:' false)
                 try {
-                    def rv:CodeNode (itemAt item.expression_value.children 0)
-                    def args:CodeNode (itemAt item.expression_value.children 1)
+                    def lambdaExpression:CodeNode (unwrap item.expression_value)
+                    def rv:CodeNode (itemAt lambdaExpression.children 0)
+                    def args:CodeNode (itemAt lambdaExpression.children 1)
                     this.writeTypeDef( rv ctx wr)
                     wr.out( ' (' false)
                     args.children.forEach({
@@ -89,10 +90,11 @@ class RangerDocGenerator {
                             }
                         }
                         wr.out('#### ' false)
-                        if(item.nameNode) {
-                            if(item.nameNode.type_name != "void") {
+                        if(!null? item.nameNode) {
+                            def methodName:CodeNode (unwrap item.nameNode)
+                            if(methodName.type_name != "void") {
                                 wr.out('`' false)
-                                this.writeTypeDef( (unwrap item.nameNode) ctx wr)
+                                this.writeTypeDef(methodName ctx wr)
                                 wr.out('` ' false)
                             }
                         }
@@ -178,14 +180,16 @@ class RangerDocGenerator {
 
             def statements (allOps.filter({
                 def is_map_array false
-                if(item.firstArg) {
-                    is_map_array = ( (item.firstArg.value_type == RangerNodeType.Array) ||
-                                      (item.firstArg.value_type == RangerNodeType.Hash) )                                       
+                if(!null? item.firstArg) {
+                    def firstArg:CodeNode (unwrap item.firstArg)
+                    is_map_array = ((firstArg.value_type == RangerNodeType.Array) ||
+                                    (firstArg.value_type == RangerNodeType.Hash))
                 }
                 if( (indexOf item.name "if_") == 0 ) {
                     return false
                 }
-                return ( (item.nameNode.type_name == "void") && (false == is_map_array) )
+                def operatorName:CodeNode (unwrap item.nameNode)
+                return ((operatorName.type_name == "void") && (false == is_map_array))
             }))
 
             def lang_statements (allOps.filter({
@@ -201,16 +205,18 @@ class RangerDocGenerator {
 
             def operator_list (allOps.filter({
                 def is_map_array false
-                if(item.firstArg) {
-                    is_map_array = ( (item.firstArg.value_type == RangerNodeType.Array) ||
-                                      (item.firstArg.value_type == RangerNodeType.Hash) )                                       
+                if(!null? item.firstArg) {
+                    def firstArg:CodeNode (unwrap item.firstArg)
+                    is_map_array = ((firstArg.value_type == RangerNodeType.Array) ||
+                                    (firstArg.value_type == RangerNodeType.Hash))
                 }
-                return ( is_map_array || (item.nameNode.type_name != "void") )
+                def operatorName:CodeNode (unwrap item.nameNode)
+                return (is_map_array || (operatorName.type_name != "void"))
             }))
             def nList (operator_list.groupBy({
                 def key item.name
-                def fc (item.firstArg)
-                if( fc ) {
+                if(!null? item.firstArg) {
+                    def fc:CodeNode (unwrap item.firstArg)
                     key = key + (":" + fc.type_name + ":" + fc.key_type + ":" + fc.array_type)
                 }
                 return key
@@ -236,8 +242,9 @@ class RangerDocGenerator {
             wr.out( '' true)
             wr.out('## Generic operators' true)
             this.writeTypeDoc( nList {
-                if( item.firstArg ) {
-                    return (item.firstArg.type_name == "T")
+                if(!null? item.firstArg) {
+                    def firstArg:CodeNode (unwrap item.firstArg)
+                    return (firstArg.type_name == "T")
                 }
                 return false
             } ctx wr)
@@ -245,9 +252,11 @@ class RangerDocGenerator {
 
             wr.out('## Numeric operators' true)
             this.writeTypeDoc( nList {
-                if( item.firstArg ) {
-                    return ( (item.firstArg.type_name == "int" || item.firstArg.type_name == "double"  )
-                             && (item.nameNode.type_name == "int" || item.nameNode.type_name == "double" ) )
+                if(!null? item.firstArg) {
+                    def firstArg:CodeNode (unwrap item.firstArg)
+                    def operatorName:CodeNode (unwrap item.nameNode)
+                    return ((firstArg.type_name == "int" || firstArg.type_name == "double")
+                            && (operatorName.type_name == "int" || operatorName.type_name == "double"))
                 }
                 return false
             } ctx wr)
@@ -255,9 +264,11 @@ class RangerDocGenerator {
 
             wr.out('## Miscellaneous operators' true)
             this.writeTypeDoc( nList {
-                if( item.firstArg ) {
-                    return ( (item.firstArg.type_name == "int" || item.firstArg.type_name == "double"  )
-                             && (item.nameNode.type_name != "int" && item.nameNode.type_name != "double" && item.nameNode.type_name != "boolean" ) )
+                if(!null? item.firstArg) {
+                    def firstArg:CodeNode (unwrap item.firstArg)
+                    def operatorName:CodeNode (unwrap item.nameNode)
+                    return ((firstArg.type_name == "int" || firstArg.type_name == "double")
+                            && (operatorName.type_name != "int" && operatorName.type_name != "double" && operatorName.type_name != "boolean"))
                 }
                 return false
             } ctx wr)
@@ -265,8 +276,9 @@ class RangerDocGenerator {
 
             wr.out('## String operators' true)
             this.writeTypeDoc( nList {
-                if( item.firstArg ) {
-                    return (item.firstArg.type_name == "string")
+                if(!null? item.firstArg) {
+                    def firstArg:CodeNode (unwrap item.firstArg)
+                    return (firstArg.type_name == "string")
                 }
                 return false
             } ctx wr)
@@ -274,8 +286,9 @@ class RangerDocGenerator {
             wr.out( '' true)
             wr.out('## Array operators' true)
             this.writeTypeDoc( nList {
-                if( item.firstArg ) {
-                    return (item.firstArg.value_type == RangerNodeType.Array)
+                if(!null? item.firstArg) {
+                    def firstArg:CodeNode (unwrap item.firstArg)
+                    return (firstArg.value_type == RangerNodeType.Array)
                 }
                 return false
             } ctx wr)
@@ -284,8 +297,9 @@ class RangerDocGenerator {
             wr.out('## Map operators' true)
 
             this.writeTypeDoc( nList {
-                if( item.firstArg ) {
-                    return (item.firstArg.value_type == RangerNodeType.Hash)
+                if(!null? item.firstArg) {
+                    def firstArg:CodeNode (unwrap item.firstArg)
+                    return (firstArg.value_type == RangerNodeType.Hash)
                 }
                 return false
             } ctx wr)
@@ -295,8 +309,9 @@ class RangerDocGenerator {
             wr.out('## Boolean / test operators' true)
 
             this.writeTypeDoc( nList {
-                if( item.firstArg ) {
-                    return (item.nameNode.type_name == "boolean")
+                if(!null? item.firstArg) {
+                    def operatorName:CodeNode (unwrap item.nameNode)
+                    return (operatorName.type_name == "boolean")
                 }
                 return false
             } ctx wr)

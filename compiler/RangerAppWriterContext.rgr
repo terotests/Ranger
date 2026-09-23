@@ -86,10 +86,11 @@ operator type:void all {
     def t@(weak) (getActiveTransaction c)
     def d 0
     while(!null? t) {
-      if( t.name == name ) {
+      def t_valid ( unwrap t)
+      if( t_valid.name == name ) {
         d = d + 1
       }
-      t = t.parent
+      t = t_valid.parent
     }
     return d
   }
@@ -136,6 +137,8 @@ class RangerAppWriterContext {
   def stdCommands:CodeNode 
   def operators:RangerActiveOperators
   def op_list:[string:RangerOperatorList]
+  def automatically_unwrapped:[string:boolean]
+  def auto_unwrap_suppression:int 0
   def reservedWords:CodeNode 
   def intRootCounter:int 1
   def targetLangName:string ""
@@ -262,6 +265,45 @@ class RangerAppWriterContext {
   ; Mark a variable as moved (value has been transferred)
   fn rustMarkMoved (varName:string) {
     set rust_moved_vars varName true
+  }
+
+  fn setAutomaticallyUnwrapped (varName:string) {
+    set this.automatically_unwrapped varName true
+  }
+
+  fn getListOfAutomaticallyUnwrapped:[string] () {
+    def result:[string]
+    for this.automatically_unwrapped k:string {
+      result.push(k)
+    }
+    return result
+  }
+
+  fn isAutomaticallyUnwrapped:boolean (varName:string) {
+    if (has this.automatically_unwrapped varName) {
+      return true
+    }
+    if (!null? parent) {
+      return (parent.isAutomaticallyUnwrapped(varName))
+    }
+    return false
+  }
+
+  fn suppressAutoUnwrap:void () {
+    def root:RangerAppWriterContext (this.getRoot())
+    root.auto_unwrap_suppression = (root.auto_unwrap_suppression + 1)
+  }
+
+  fn restoreAutoUnwrap:void () {
+    def root:RangerAppWriterContext (this.getRoot())
+    if (root.auto_unwrap_suppression > 0) {
+      root.auto_unwrap_suppression = (root.auto_unwrap_suppression - 1)
+    }
+  }
+
+  fn autoUnwrapIsSuppressed:boolean () {
+    def root:RangerAppWriterContext (this.getRoot())
+    return (root.auto_unwrap_suppression > 0)
   }
 
   ; Check if a variable has been moved
@@ -714,14 +756,16 @@ class RangerAppWriterContext {
     def res:[string:boolean]
     def cc@(optional weak) this
     while(!null? cc) {
-      cc.localVariables.forEach({
+      def current:RangerAppWriterContext (unwrap cc)
+      current.localVariables.forEach({
         if(!null? item.nameNode) {
-          set res item.nameNode.type_name true
-          set res item.nameNode.key_type true
-          set res item.nameNode.array_type true
+          def nameNode:CodeNode (unwrap item.nameNode)
+          set res nameNode.type_name true
+          set res nameNode.key_type true
+          set res nameNode.array_type true
         }
       })
-      cc = (cc.parent)
+      cc = (current.parent)
     }
     return (keys res)
   }
@@ -1013,16 +1057,18 @@ class RangerAppWriterContext {
         lang = m
       }
     }
+    def language:CodeNode (unwrap lang)
     def cmds:CodeNode
-    def langNodes:CodeNode (itemAt lang.children 1)
+    def langNodes:CodeNode (itemAt language.children 1)
     def targetLang (this.getTargetLangName())
     for langNodes.children lch:CodeNode i {
       def fc:CodeNode (lch.getFirst())
       if (fc.vref == "reserved_words") {
         def n:CodeNode (lch.getSecond())
         reservedWords = (lch.getSecond())
+        def reservedWordsNode:CodeNode (unwrap reservedWords)
         ; Iterate through language blocks (* or specific language)
-        for reservedWords.children langBlock:CodeNode i {
+        for reservedWordsNode.children langBlock:CodeNode i {
           def langKey (langBlock.getFirst())
           def langKeyName langKey.vref
           ; Check if this block applies to current target language
@@ -1055,8 +1101,9 @@ class RangerAppWriterContext {
         lang = m
       }
     }
+    def language:CodeNode (unwrap lang)
     def cmds:CodeNode
-    def langNodes:CodeNode (itemAt lang.children 1)
+    def langNodes:CodeNode (itemAt language.children 1)
     for langNodes.children lch:CodeNode i {
       def fc:CodeNode (lch.getFirst())
       if (fc.vref == "commands") {
@@ -1203,7 +1250,8 @@ class RangerAppWriterContext {
     if(!null? node.operator_node) {
       return (unwrap node.operator_node)
     }
-    return (itemAt root.stdCommands.children node.op_index)
+    def commands:CodeNode (unwrap root.stdCommands)
+    return (itemAt commands.children node.op_index)
   }
   fn getStdCommands@(weak):CodeNode () {
     def root:RangerAppWriterContext (this.getRoot())
@@ -1346,7 +1394,8 @@ class RangerAppWriterContext {
 
     ; this.CheckTypeAnnotationOf( (unwrap m.nameNode) ctx wr )
 
-    def classRoot@(lives) (itemAt parser.rootNode.children 0)
+    def parsedRoot:CodeNode (unwrap parser.rootNode)
+    def classRoot@(lives) (itemAt parsedRoot.children 0)
     def classNameNode@(lives) (classRoot.getSecond())
     classNameNode.vref = str
     def new_class@(lives):RangerAppClassDesc (new RangerAppClassDesc ())
@@ -1387,7 +1436,8 @@ class RangerAppWriterContext {
     def parser:RangerLispParser (new RangerLispParser (code))
     parser.parse(false)
 
-    def classRoot@(lives) (itemAt parser.rootNode.children 0)
+    def parsedRoot:CodeNode (unwrap parser.rootNode)
+    def classRoot@(lives) (itemAt parsedRoot.children 0)
     def classNameNode@(lives) (classRoot.getSecond())
     classNameNode.vref = instanceName
     def new_class@(lives):RangerAppClassDesc (new RangerAppClassDesc ())
@@ -1419,7 +1469,8 @@ class RangerAppWriterContext {
     if(t.has_constructor) {
       ctx.addError( traitClassDef ("Can not join trait " + name + " because it has a constructor function" ))
     } {
-      def origBody:CodeNode (itemAt cl.node.children 2)
+      def classNode:CodeNode (unwrap cl.node)
+      def origBody:CodeNode (itemAt classNode.children 2)
       def match:RangerArgMatch (new RangerArgMatch ())
 
       def params (t.node.getExpressionProperty("params"))
@@ -1564,7 +1615,8 @@ class RangerAppWriterContext {
   fn createOperator:void (fromNode@(strong):CodeNode) {
     def root:RangerAppWriterContext (this.getRoot())
     if (root.initStdCommands()) {
-      push root.stdCommands.children fromNode
+      def commands:CodeNode (unwrap root.stdCommands)
+      push commands.children fromNode
 
 ;      def fc:CodeNode (itemAt fromNode.children 0)
 ;      print ":: created op"  + (fromNode.getCode())

@@ -98,8 +98,9 @@ Import "ForLoopAnalysis.rgr"
     switch v_type {
 
       case RangerNodeType.ExpressionType {
-        def rv:CodeNode (itemAt node.expression_value.children 0)
-        def sec:CodeNode (itemAt node.expression_value.children 1)
+        def lambdaExpression:CodeNode (unwrap node.expression_value)
+        def rv:CodeNode (itemAt lambdaExpression.children 0)
+        def sec:CodeNode (itemAt lambdaExpression.children 1)
         def fc:CodeNode (sec.getFirst())
 ;        this.import_lib("<functional>" ctx wr)
         def is_void false
@@ -205,8 +206,9 @@ Import "ForLoopAnalysis.rgr"
     switch v_type {
 
       case RangerNodeType.ExpressionType {
-        def rv:CodeNode (itemAt node.expression_value.children 0)
-        def sec:CodeNode (itemAt node.expression_value.children 1)
+        def lambdaExpression:CodeNode (unwrap node.expression_value)
+        def rv:CodeNode (itemAt lambdaExpression.children 0)
+        def sec:CodeNode (itemAt lambdaExpression.children 1)
         def fc:CodeNode (sec.getFirst())
         def is_void false
         if(rv.type_name == "void" || rv.eval_type_name == "void") {
@@ -374,17 +376,18 @@ Import "ForLoopAnalysis.rgr"
         ctx.unsetInExpr()
       } {
         def b_inited:boolean false
-        if (p.nameNode.value_type == RangerNodeType.Array) {
+        def parameterName:CodeNode (unwrap p.nameNode)
+        if (parameterName.value_type == RangerNodeType.Array) {
           b_inited = true
           wr.out("= new collection.mutable.ArrayBuffer()" false)
         }
-        if (p.nameNode.value_type == RangerNodeType.Hash) {
+        if (parameterName.value_type == RangerNodeType.Hash) {
           b_inited = true
           wr.out("= new collection.mutable.HashMap()" false)
         }
-        if (p.nameNode.hasFlag("optional")) {
+        if (parameterName.hasFlag("optional")) {
           wr.out(" = Option.empty[" false)
-          this.writeTypeDefNoOption( ( unwrap p.nameNode ) ctx wr)
+          this.writeTypeDefNoOption(parameterName ctx wr)
           wr.out("]" false)
         } {
           if (b_inited == false) {
@@ -885,12 +888,14 @@ Import "ForLoopAnalysis.rgr"
           wr.out((variant.name + "(") false)
           this.writeArgsDef(variant ctx wr)
           wr.out(") : " false)
-          this.writeTypeDef(( unwrap variant.nameNode ) ctx wr)
+          def variantName:CodeNode (unwrap variant.nameNode)
+          this.writeTypeDef(variantName ctx wr)
           wr.out(" = " false)
 
           def return_cnt 0 
-          def line_cnt (array_length variant.fnBody.children)
-          variant.fnBody.forTree({
+          def variantBody:CodeNode (unwrap variant.fnBody)
+          def line_cnt (array_length variantBody.children)
+          variantBody.forTree({
             if(item.isFirstVref('return')) {
               return_cnt = return_cnt + 1
             }

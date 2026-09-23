@@ -306,7 +306,8 @@ class RangerAppParamDesc {
           }
         } {
           if(! b_disable_errors) {
-            ctx.addError(nodeToMove ('Can not move immutable reference to a strong target, evald type ' + nameNode.eval_type_name))
+            def nn:CodeNode (unwrap nameNode)
+            ctx.addError(nodeToMove ('Can not move immutable reference to a strong target, evald type ' + nn.eval_type_name))
           }
         }
       }
@@ -485,8 +486,11 @@ class RangerAppParamDesc {
     return ""
   }
   fn getTypeName:string () {
-    def s:string nameNode.type_name
-    return s
+    if (null? nameNode) {
+      return ""
+    }
+    def nn:CodeNode (unwrap nameNode)
+    return nn.type_name
   }
 }
 

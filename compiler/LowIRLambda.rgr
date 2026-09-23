@@ -144,13 +144,15 @@ extension LowIRBuilderPass {
   }
 
   fn lowerFunction:void (fnDesc:RangerAppFunctionDesc className:string appCtx:RangerAppWriterContext exportFn:boolean isMain:boolean isInstance:boolean) {
-    def builder@(lives):LowIRBuilder (new LowIRBuilder(this.irModule))
+    def module:LowIRModule this.irModule
+    def builder@(lives):LowIRBuilder (new LowIRBuilder(module))
     builder.reset()
     def lctx@(lives):LowIRLowerContext (new LowIRLowerContext())
     lctx.ctx = appCtx
     lctx.builder = builder
     lctx.target = (LowIRTarget.resolve(appCtx))
-    lctx.ptrType = lctx.target.ptrType
+    def target:LowIRTarget lctx.target
+    lctx.ptrType = target.ptrType
     def emptySlots:[string:string]
     lctx.slots = emptySlots
     def emptySlotTypes:[string:string]
@@ -486,13 +488,15 @@ extension LowIRBuilderPass {
   }
 
   fn lowerLambdaFunction:void (lam:RangerAppFunctionDesc fnName:string appCtx:RangerAppWriterContext) {
-    def builder@(lives):LowIRBuilder (new LowIRBuilder(this.irModule))
+    def module:LowIRModule this.irModule
+    def builder@(lives):LowIRBuilder (new LowIRBuilder(module))
     builder.reset()
     def lctx@(lives):LowIRLowerContext (new LowIRLowerContext())
     lctx.ctx = appCtx
     lctx.builder = builder
     lctx.target = (LowIRTarget.resolve(appCtx))
-    lctx.ptrType = lctx.target.ptrType
+    def target:LowIRTarget lctx.target
+    lctx.ptrType = target.ptrType
     def emptySlots:[string:string]
     lctx.slots = emptySlots
     def emptySlotTypes:[string:string]

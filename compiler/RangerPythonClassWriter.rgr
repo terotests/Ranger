@@ -471,16 +471,21 @@ class RangerPythonClassWriter {
 
     def args:CodeNode
     if( (!null? fName.expression_value) ) {
-      args = ( itemAt fName.expression_value.children 1)      
+      def lambdaExpression:CodeNode (unwrap fName.expression_value)
+      args = (itemAt lambdaExpression.children 1)
     } {
-      def param (ctx.getVariableDef(fName.vref))
-      args = ( itemAt param.nameNode.expression_value.children 1)
+      def paramOpt@(optional):RangerAppParamDesc (ctx.getVariableDef(fName.vref))
+      def param:RangerAppParamDesc (unwrap paramOpt)
+      def parameterName:CodeNode (unwrap param.nameNode)
+      def lambdaExpression:CodeNode (unwrap parameterName.expression_value)
+      args = (itemAt lambdaExpression.children 1)
     }
     ctx.setInExpr()
     this.WalkNode(fName ctx wr)
     wr.out('(' false)
 
-    for args.children arg:CodeNode i {
+    def lambdaArgs:CodeNode (unwrap args)
+    for lambdaArgs.children arg:CodeNode i {
       def n:CodeNode (itemAt givenArgs.children i)
       if (i > 0) {
         wr.out(', ' false)
@@ -950,12 +955,14 @@ class RangerPythonClassWriter {
       wr.out("(" false)
       def givenArgs:CodeNode (node.getSecond())
       ctx.setInExpr()
-      for node.fnDesc.params arg:RangerAppParamDesc i {
+      def fnDesc:RangerAppFunctionDesc (unwrap node.fnDesc)
+      for fnDesc.params arg:RangerAppParamDesc i {
         if (i > 0) {
           wr.out(", " false)
         }
         if( (array_length givenArgs.children) <= i) {
-          def defVal@(optional):CodeNode (arg.nameNode.getFlag("default"))
+          def argumentName:CodeNode (unwrap arg.nameNode)
+          def defVal@(optional):CodeNode (argumentName.getFlag("default"))
           if (!null? defVal) {
             def fc:CodeNode (defVal.vref_annotation.getFirst())
             this.WalkNode(fc ctx wr)
@@ -977,9 +984,9 @@ class RangerPythonClassWriter {
 
   fn writeNewCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.hasNewOper {
-      def cl:RangerAppClassDesc node.clDesc
+      def cl:RangerAppClassDesc (unwrap node.clDesc)
       def fc:CodeNode (node.getSecond())
-      wr.out(node.clDesc.name false)
+      wr.out(cl.name false)
       wr.out("(" false)
       def constr:RangerAppFunctionDesc cl.constructor_fn
       def givenArgs:CodeNode (node.getThird())
@@ -1025,8 +1032,9 @@ class RangerPythonClassWriter {
       ; original name, so a chained `r.str(...)` called a method that does not
       ; exist. Every other writer reads compiledName here; Python did not.
       def pyMethodName:string method.vref
-      if ((!null? node.fnDesc) && ((strlen node.fnDesc.compiledName) > 0)) {
-        pyMethodName = node.fnDesc.compiledName
+      def fnDesc:RangerAppFunctionDesc (unwrap node.fnDesc)
+      if ((strlen fnDesc.compiledName) > 0) {
+        pyMethodName = fnDesc.compiledName
       }
       wr.out(pyMethodName false)
       wr.out("(" false)
@@ -1114,11 +1122,12 @@ class RangerPythonClassWriter {
     wr.indent(1)
 
     def wroteSuper:boolean false
-    if(parentClass) {
+    if(!null? parentClass) {
+      def parent:RangerAppClassDesc (unwrap parentClass)
       wroteSuper = true
       ; Pass parent constructor arguments to super().__init__()
-      if (parentClass.has_constructor) {
-        def parentConstr:RangerAppFunctionDesc (unwrap parentClass.constructor_fn)
+      if (parent.has_constructor) {
+        def parentConstr:RangerAppFunctionDesc (unwrap parent.constructor_fn)
         wr.out("super().__init__(" false)
         for parentConstr.params arg:RangerAppParamDesc i {
           if (i > 0) {
@@ -1297,7 +1306,9 @@ class RangerPythonClassWriter {
     for cl.static_methods variant:RangerAppFunctionDesc i {
       ctx.disableCurrentClass()
       ctx.in_static_method = true
-      if ( (variant.nameNode.hasFlag("main")) && (variant.nameNode.code.filename == (ctx.getRootFile()))) {
+      def variantName:CodeNode (unwrap variant.nameNode)
+      def variantCode:SourceCode (unwrap variantName.code)
+      if ((variantName.hasFlag("main")) && (variantCode.filename == (ctx.getRootFile()))) {
         wr.out("# Main entry point" true)
         wr.out("def main():" true)
         wr.indent(1)

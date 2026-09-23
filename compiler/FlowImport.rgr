@@ -167,13 +167,14 @@ extension RangerFlowParser {
     def cnt (size cl.variables)
     while (i < cnt) {
       def v:RangerAppParamDesc (at cl.variables i)
-      def tname:string v.nameNode.type_name
+      def fieldName:CodeNode (unwrap v.nameNode)
+      def tname:string fieldName.type_name
       ; A collection field carries its element type on array_type / key_type and
       ; leaves type_name empty. Without this the parameter fell through to the
       ; "string" default below, so `record R { def xs:[int] }` generated a
       ; constructor whose assignment could not type-check.
-      def vKeyType:string v.nameNode.key_type
-      def vArrayType:string v.nameNode.array_type
+      def vKeyType:string fieldName.key_type
+      def vArrayType:string fieldName.array_type
       if ((strlen vKeyType) > 0) {
         tname = ((("[" + vKeyType) + ":") + vArrayType) + "]"
       } {

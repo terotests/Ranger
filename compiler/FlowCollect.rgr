@@ -100,7 +100,8 @@ extension RangerFlowParser {
           if catchBlock.is_block_node {
             if ((array_length catchBlock.children) > 0) {
               if allowed {
-                print ("try[rust] dropped catch block in " + node.code.filename)
+                def source:SourceCode (unwrap node.code)
+                print ("try[rust] dropped catch block in " + source.filename)
               } {
                 ctx.addError(node "the Rust target has no exceptions and would drop this catch block. Return a value instead: a `shape` with Ok / Err cases, matched at the call site. `-rust-allow-dropped-catch` keeps the old behaviour and prints each site.")
               }
@@ -174,7 +175,8 @@ extension RangerFlowParser {
     if ((ctx.getTargetLangName()) == "rust") {
       for classesWithTraits tpoint:ClassJoinPoint ti {
         def tcl:RangerAppClassDesc (unwrap tpoint.class_def)
-        def tNameNode@(lives):CodeNode (at tpoint.node.children 1)
+        def traitJoinNode:CodeNode (unwrap tpoint.node)
+        def tNameNode@(lives):CodeNode (at traitJoinNode.children 1)
         def tName:string tNameNode.vref
         if (ctx.isDefinedClass(tName)) {
           def tDef:RangerAppClassDesc (ctx.findClass(tName))
@@ -193,7 +195,7 @@ extension RangerFlowParser {
     for classesWithTraits point:ClassJoinPoint i {
       def cl:RangerAppClassDesc (unwrap point.class_def)
       def joinPoint:CodeNode (unwrap point.node)
-      def traitClassDef@(lives):CodeNode (at point.node.children 1)
+      def traitClassDef@(lives):CodeNode (at joinPoint.children 1)
       def name:string (traitClassDef.vref)
       ; print "trait " + name + " to class " + cl.name
         ; a trait whose class the imports never bring in: findClass answers
@@ -211,7 +213,8 @@ extension RangerFlowParser {
           ctx.addError( (unwrap point.node) ('Can not join class ' + name + ' because it has a constructor function' ))
         } {
           ; def clBody:CodeNode (at t.node.children 2)
-          def origBody:CodeNode (at cl.node.children 2)
+          def classNode:CodeNode (unwrap cl.node)
+          def origBody:CodeNode (at classNode.children 2)
           def match:RangerArgMatch (new RangerArgMatch ())
           def params (t.node.getExpressionProperty("params"))
           def initParams (point.node.getExpressionProperty("params"))
@@ -281,12 +284,14 @@ extension RangerFlowParser {
       def left_had false
       def right_had false
       forEach left.variables {
-        if(item.nameNode.type_name == right.name || item.nameNode.array_type == right.name) {
+        def fieldName:CodeNode (unwrap item.nameNode)
+        if(fieldName.type_name == right.name || fieldName.array_type == right.name) {
           left_had = true
         }
       } 
       forEach right.variables {
-        if(item.nameNode.type_name == left.name || item.nameNode.array_type == left.name) {
+        def fieldName:CodeNode (unwrap item.nameNode)
+        if(fieldName.type_name == left.name || fieldName.array_type == left.name) {
           right_had = true
         }
       } 
@@ -1067,16 +1072,17 @@ extension RangerFlowParser {
         p.init_cnt = 1
         p.def_value = (at node.children 2)
         p.is_optional = false
-        if(p.def_value.value_type == RangerNodeType.String) {
+        def defaultValue:CodeNode (unwrap p.def_value)
+        if(defaultValue.value_type == RangerNodeType.String) {
           vDef.type_name = "string"
         }
-        if(p.def_value.value_type == RangerNodeType.Integer) {
+        if(defaultValue.value_type == RangerNodeType.Integer) {
           vDef.type_name = "int"
         }
-        if(p.def_value.value_type == RangerNodeType.Double) {
+        if(defaultValue.value_type == RangerNodeType.Double) {
           vDef.type_name = "double"
         }
-        if(p.def_value.value_type == RangerNodeType.Boolean) {
+        if(defaultValue.value_type == RangerNodeType.Boolean) {
           vDef.type_name = "boolean"
         }
         def valueNode (at node.children 2)
@@ -1212,7 +1218,8 @@ extension RangerFlowParser {
     } 
 
     def b_is_main false
-    if ( node.code.filename == (ctx.getRootFile()) )  {
+  def source:SourceCode (unwrap node.code)
+  if ( source.filename == (ctx.getRootFile()) )  {
       b_is_main = true
     }
 

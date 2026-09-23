@@ -488,8 +488,9 @@ class RangerSwift6ClassWriter {
     }
     switch v_type {
       case RangerNodeType.ExpressionType {
-        def rv:CodeNode (itemAt node.expression_value.children 0)
-        def sec:CodeNode (itemAt node.expression_value.children 1)
+        def lambdaExpression:CodeNode (unwrap node.expression_value)
+        def rv:CodeNode (itemAt lambdaExpression.children 0)
+        def sec:CodeNode (itemAt lambdaExpression.children 1)
         def fc:CodeNode (sec.getFirst())
         wr.out("(" false)
         wr.out("(" false)
@@ -780,13 +781,14 @@ class RangerSwift6ClassWriter {
           wr.out((("let " + p.compiledName) + " : ") false)
         }
       }
-      this.writeTypeDef( (unwrap p.nameNode) ctx wr)
+      def parameterName:CodeNode (unwrap p.nameNode)
+      this.writeTypeDef(parameterName ctx wr)
       if ((array_length node.children) > 2) {
         wr.out(" = " false)
         def value:CodeNode (node.getThird())
-        def slotType:string p.nameNode.type_name
-        if ((strlen p.nameNode.eval_type_name) > 0) {
-          slotType = p.nameNode.eval_type_name
+        def slotType:string parameterName.type_name
+        if ((strlen parameterName.eval_type_name) > 0) {
+          slotType = parameterName.eval_type_name
         }
         if (this.swiftWriteUnionValue(slotType value ctx wr)) {
         } {
@@ -1078,8 +1080,11 @@ class RangerSwift6ClassWriter {
       }
       wr.out("." false)
       def methodName method.vref
-      if ((!null? node.fnDesc) && ((strlen node.fnDesc.compiledName) > 0)) {
-        methodName = node.fnDesc.compiledName
+      if (!null? node.fnDesc) {
+        def callFn:RangerAppFunctionDesc (unwrap node.fnDesc)
+        if ((strlen callFn.compiledName) > 0) {
+          methodName = callFn.compiledName
+        }
       }
       wr.out(methodName false)
       wr.out("(" false)
@@ -1119,7 +1124,8 @@ class RangerSwift6ClassWriter {
   fn writeFnCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.hasFnCall {
       def fc:CodeNode (node.getFirst())
-      def fnName:CodeNode node.fnDesc.nameNode
+      def fnDesc:RangerAppFunctionDesc (unwrap node.fnDesc)
+      def fnName:CodeNode (unwrap fnDesc.nameNode)
       if ((ctx.expressionLevel()) == 0) {
         if (fnName.type_name != "void") {
           wr.out("_ = " false)
@@ -1143,7 +1149,7 @@ class RangerSwift6ClassWriter {
       wr.out("(" false)
       ctx.setInExpr()
       def givenArgs:CodeNode (node.getSecond())
-      for node.fnDesc.params arg:RangerAppParamDesc i {
+      for fnDesc.params arg:RangerAppParamDesc i {
         
         if (i > 0) {
           wr.out(", " false)
@@ -1182,23 +1188,29 @@ class RangerSwift6ClassWriter {
     def rv:CodeNode 
     def args:CodeNode
     if( (!null? fName.expression_value) ) {
-      rv  = ( itemAt fName.expression_value.children 0)
-      args  = ( itemAt fName.expression_value.children 1)      
+      def lambdaExpression:CodeNode (unwrap fName.expression_value)
+      rv  = (itemAt lambdaExpression.children 0)
+      args  = (itemAt lambdaExpression.children 1)
     } {
-      def param (ctx.getVariableDef(fName.vref))
-      rv  = ( itemAt param.nameNode.expression_value.children 0)
-      args  = ( itemAt param.nameNode.expression_value.children 1)
+      def paramOpt@(optional):RangerAppParamDesc (ctx.getVariableDef(fName.vref))
+      def param:RangerAppParamDesc (unwrap paramOpt)
+      def parameterName:CodeNode (unwrap param.nameNode)
+      def lambdaExpression:CodeNode (unwrap parameterName.expression_value)
+      rv  = (itemAt lambdaExpression.children 0)
+      args  = (itemAt lambdaExpression.children 1)
     }
 
     if ((ctx.expressionLevel()) == 0) {
-      if (rv.type_name != "void") {
+      def lambdaReturn:CodeNode (unwrap rv)
+      if (lambdaReturn.type_name != "void") {
         wr.out("_ = " false)
       }
     }
     ctx.setInExpr()
     this.WalkNode(fName ctx wr)
     wr.out("(" false)
-    for args.children arg:CodeNode i {
+    def lambdaArgs:CodeNode (unwrap args)
+    for lambdaArgs.children arg:CodeNode i {
         def n:CodeNode (itemAt givenArgs.children i)
         if (i > 0) {
           wr.out(", " false)
@@ -1247,19 +1259,20 @@ class RangerSwift6ClassWriter {
   
   fn writeNewCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.hasNewOper {
-      def cl:RangerAppClassDesc node.clDesc
+      def cl:RangerAppClassDesc (unwrap node.clDesc)
       def givenArgs:CodeNode (node.getThird())
       if (this.tryWriteProcessNewCall(node ctx wr)) {
         return
       }
       if (cl.isSingletonClass()) {
-        wr.out((node.clDesc.name + ".__singleton") false)
+        wr.out((cl.name + ".__singleton") false)
         wr.out("(" false)
         if (!null? cl.constructor_fn) {
           def constr:RangerAppFunctionDesc (unwrap cl.constructor_fn)
           def written 0
           for constr.params arg:RangerAppParamDesc i {
-            if ((unwrap arg.nameNode).hasFlag("keyword")) {
+            def argumentName:CodeNode (unwrap arg.nameNode)
+            if (argumentName.hasFlag("keyword")) {
               continue
             }
             def n:CodeNode (itemAt givenArgs.children i)
@@ -1279,7 +1292,7 @@ class RangerSwift6ClassWriter {
       }
 
       def fc:CodeNode (node.getSecond())
-      wr.out(node.clDesc.name false)
+  wr.out(cl.name false)
       wr.out("(" false)
       def constr:RangerAppFunctionDesc cl.constructor_fn
       if (!null? constr) {
@@ -1287,7 +1300,8 @@ class RangerSwift6ClassWriter {
         ; no value. The signature drops it, so the call drops it as well.
         def written 0
         for constr.params arg:RangerAppParamDesc i {
-          if ((unwrap arg.nameNode).hasFlag("keyword")) {
+          def argumentName:CodeNode (unwrap arg.nameNode)
+          if (argumentName.hasFlag("keyword")) {
             continue
           }
           def n:CodeNode (itemAt givenArgs.children i)
@@ -1441,9 +1455,14 @@ class RangerSwift6ClassWriter {
       if ((array_length node.children) > 1) {
         def rValue:CodeNode (node.getSecond())
         def retUnion:string ""
-        def currFnRet:RangerAppFunctionDesc (ctx.getCurrentMethod())
-        if (!null? currFnRet.nameNode) {
-          retUnion = currFnRet.nameNode.type_name
+        def currFnRetOpt@(optional):RangerAppFunctionDesc (ctx.getCurrentMethod())
+        if (!null? currFnRetOpt) {
+          def currFnRet:RangerAppFunctionDesc (unwrap currFnRetOpt)
+          def returnName@(optional):CodeNode currFnRet.nameNode
+          if (!null? returnName) {
+            def returnNode:CodeNode (unwrap returnName)
+            retUnion = returnNode.type_name
+          }
         }
         wr.out("return " false)
         def wroteRet:boolean (this.swiftWriteUnionValue(retUnion rValue ctx wr))
@@ -1467,10 +1486,14 @@ class RangerSwift6ClassWriter {
       wr.out(" = " false)
       def assignSlotType:string ""
       if left.hasParamDesc {
-        def assignNN@(optional):CodeNode left.paramDesc.nameNode
-        if (!null? assignNN) {
-          def assignNode:CodeNode (unwrap assignNN)
-          assignSlotType = assignNode.type_name
+        def assignDescOpt@(optional):RangerAppParamDesc left.paramDesc
+        if (!null? assignDescOpt) {
+          def assignDesc:RangerAppParamDesc (unwrap assignDescOpt)
+          def assignNN@(optional):CodeNode assignDesc.nameNode
+          if (!null? assignNN) {
+            def assignNode:CodeNode (unwrap assignNN)
+            assignSlotType = assignNode.type_name
+          }
         }
       }
       def wroteAssign:boolean false
@@ -1498,14 +1521,18 @@ class RangerSwift6ClassWriter {
         elemType = arr.array_type
       }
       if (((strlen elemType) == 0) && arr.hasParamDesc) {
-        def arrNN@(optional):CodeNode arr.paramDesc.nameNode
-        if (!null? arrNN) {
-          def arrNode:CodeNode (unwrap arrNN)
-          elemType = arrNode.array_type
-          if ((strlen elemType) == 0) {
-            def tn:string arrNode.type_name
-            if (((strlen tn) > 2) && ((charAt tn 0) == (ccode "["))) {
-              elemType = (substring tn 1 ((strlen tn) - 1))
+        def arrDescOpt@(optional):RangerAppParamDesc arr.paramDesc
+        if (!null? arrDescOpt) {
+          def arrDesc:RangerAppParamDesc (unwrap arrDescOpt)
+          def arrNN@(optional):CodeNode arrDesc.nameNode
+          if (!null? arrNN) {
+            def arrNode:CodeNode (unwrap arrNN)
+            elemType = arrNode.array_type
+            if ((strlen elemType) == 0) {
+              def tn:string arrNode.type_name
+              if (((strlen tn) > 2) && ((charAt tn 0) == (ccode "["))) {
+                elemType = (substring tn 1 ((strlen tn) - 1))
+              }
             }
           }
         }
@@ -1624,7 +1651,7 @@ class RangerSwift6ClassWriter {
     }
     wr.out(("class " + cl.compiledName) false)
 
-    def parentClass:RangerAppClassDesc
+    def parentClass@(optional):RangerAppClassDesc
     
     ; the behaviour-only traits this class `does` that something names as a
     ; type: each is a protocol, and the mixin copies are the witnesses. A
@@ -1635,9 +1662,13 @@ class RangerSwift6ClassWriter {
     if ( ( array_length cl.extends_classes ) > 0 ) { 
       wr.out(" : " false)
       for cl.extends_classes pName:string i {
-        parentClass = (ctx.findClass(pName))
-        wr.out(parentClass.compiledName false)
-        swConf = swConf + 1
+        def parentClassOpt@(optional):RangerAppClassDesc (ctx.findClass(pName))
+        if (!null? parentClassOpt) {
+          def resolvedParent:RangerAppClassDesc (unwrap parentClassOpt)
+          parentClass = resolvedParent
+          wr.out(resolvedParent.compiledName false)
+          swConf = swConf + 1
+        }
       }
     } {
       wr.out(" : Hashable " false )
@@ -1651,7 +1682,7 @@ class RangerSwift6ClassWriter {
     wr.out( " { " true)
     wr.indent(1)
 
-    if parentClass {
+    if (!null? parentClass) {
     } {
       wr.out(clVis false)
       wr.out("func hash(into hasher: inout Hasher) {" true)
@@ -1672,12 +1703,15 @@ class RangerSwift6ClassWriter {
       }
       def fVis:RangerDocCommentWriter (new RangerDocCommentWriter)
       wr.out((fVis.memberVisibility((unwrap cl) pvar "" "public " "")) false)
-      this.writeVarDef( (unwrap pvar.node) ctx wr)
+      if (!null? pvar.node) {
+        def variableNode:CodeNode (unwrap pvar.node)
+        this.writeVarDef(variableNode ctx wr)
+      }
     }
     if cl.has_constructor {
       def constr:RangerAppFunctionDesc cl.constructor_fn
       def b_must_override:boolean false
-      if(parentClass) {
+      if (!null? parentClass) {
           if( (array_length constr.params) == 0 ) {
               b_must_override = true
           } {
@@ -1699,7 +1733,7 @@ class RangerSwift6ClassWriter {
       wr.out(" ) {" true)
       wr.indent(1)
 
-      if(parentClass) {
+      if (!null? parentClass) {
         wr.out("super.init(" false)
         if(parentClass.has_constructor) {
           def pConstr:RangerAppFunctionDesc (unwrap parentClass.constructor_fn)
@@ -1866,7 +1900,13 @@ class RangerSwift6ClassWriter {
     
     ; Swift 6 main function generation
     for cl.static_methods variant:RangerAppFunctionDesc i {
-      if ( (variant.nameNode.hasFlag("main")) && (variant.nameNode.code.filename == (ctx.getRootFile()))) {
+      def variantNameOpt@(optional):CodeNode variant.nameNode
+      if (!null? variantNameOpt) {
+        def variantName:CodeNode (unwrap variantNameOpt)
+        def variantCodeOpt@(optional):SourceCode variantName.code
+        if (!null? variantCodeOpt) {
+          def variantCode:SourceCode (unwrap variantCodeOpt)
+          if ((variantName.hasFlag("main")) && (variantCode.filename == (ctx.getRootFile()))) {
         def theEnd (wr.getTag("file_end"))
 
         theEnd.newline()
@@ -1888,6 +1928,8 @@ class RangerSwift6ClassWriter {
         theEnd.out("__main__swift()" true)
         if( ctx.hasCompilerFlag('forever')) {
           theEnd.out('CFRunLoopRun()' true)
+        }
+          }
         }
       }
     }
@@ -1969,8 +2011,9 @@ class RangerSwift6ClassWriter {
         wr.out(", " false)
       }
       if (hasFnDesc) {
-        if (i < (size fnDesc.params)) {
-          def pArg (itemAt fnDesc.params i)
+        def resolvedFn:RangerAppFunctionDesc (unwrap fnDesc)
+        if (i < (size resolvedFn.params)) {
+          def pArg:RangerAppParamDesc (itemAt resolvedFn.params i)
           wr.out((pArg.compiledName + " : ") false)
         }
       }

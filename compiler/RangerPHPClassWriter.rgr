@@ -457,16 +457,21 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
 
     def args:CodeNode
     if( (!null? fName.expression_value) ) {
-      args  = ( itemAt fName.expression_value.children 1)      
+      def lambdaExpression:CodeNode (unwrap fName.expression_value)
+      args  = (itemAt lambdaExpression.children 1)
     } {
-      def param (ctx.getVariableDef(fName.vref))
-      args  = ( itemAt param.nameNode.expression_value.children 1)
+      def paramOpt@(optional):RangerAppParamDesc (ctx.getVariableDef(fName.vref))
+      def param:RangerAppParamDesc (unwrap paramOpt)
+      def parameterName:CodeNode (unwrap param.nameNode)
+      def lambdaExpression:CodeNode (unwrap parameterName.expression_value)
+      args  = (itemAt lambdaExpression.children 1)
     }
     ctx.setInExpr()
     wr.out('call_user_func(' false)
     this.WalkNode(fName ctx wr)
 
-    for args.children arg:CodeNode i {
+    def lambdaArgs:CodeNode (unwrap args)
+    for lambdaArgs.children arg:CodeNode i {
         def n:CodeNode (itemAt givenArgs.children i)
         if (i >= 0) {
           wr.out(', ' false)
@@ -698,7 +703,8 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
   ; with four parameters, two of them without a type.
   fn writeArgsDef:void (fnDesc:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
     def pms (filter (fnDesc.params) {
-      if (item.nameNode.hasFlag("keyword")) {
+      def parameterName:CodeNode (unwrap item.nameNode)
+      if (parameterName.hasFlag("keyword")) {
         return false
       }
       return true
@@ -729,23 +735,36 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       wr.out("(" false)
       def givenArgs:CodeNode (node.getSecond())
       ctx.setInExpr()
-      for node.fnDesc.params arg:RangerAppParamDesc i {
+      def fnDescOpt@(optional):RangerAppFunctionDesc node.fnDesc
+      if (!null? fnDescOpt) {
+        def fnDesc:RangerAppFunctionDesc (unwrap fnDescOpt)
+        for fnDesc.params arg:RangerAppParamDesc i {
         
-        if (i > 0) {
-          wr.out(", " false)
-        }
-        if( (array_length givenArgs.children) <= i) {
-          def defVal@(optional):CodeNode (arg.nameNode.getFlag("default"))
-          if (!null? defVal) {
-            def fc:CodeNode (defVal.vref_annotation.getFirst())
-            this.WalkNode(fc ctx wr)
-          } {
-            ctx.addError(node "Default argument was missing")
+          if (i > 0) {
+            wr.out(", " false)
           }
-          continue 
+          if( (array_length givenArgs.children) <= i) {
+            def argumentName:CodeNode (unwrap arg.nameNode)
+            def defVal@(optional):CodeNode (argumentName.getFlag("default"))
+            if (!null? defVal) {
+              def defaultValue:CodeNode (unwrap defVal)
+              def annotationOpt@(optional):CodeNode defaultValue.vref_annotation
+              if (!null? annotationOpt) {
+                def defaultAnnotation:CodeNode (unwrap annotationOpt)
+                def annotationNode:CodeNode defaultAnnotation
+                def fc:CodeNode (itemAt annotationNode.children 0)
+                this.WalkNode(fc ctx wr)
+              } {
+                ctx.addError(node "Default argument annotation was missing")
+              }
+            } {
+              ctx.addError(node "Default argument was missing")
+            }
+            continue 
+          }
+          def n:CodeNode (itemAt givenArgs.children i)
+          this.WalkNode(n ctx wr)
         }
-        def n:CodeNode (itemAt givenArgs.children i)
-        this.WalkNode(n ctx wr)
       }
       ctx.unsetInExpr()
       wr.out(")" false)
@@ -759,7 +778,7 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       def cl:RangerAppClassDesc node.clDesc
       def fc:CodeNode (node.getSecond())
       wr.out(" new " false)
-      wr.out(node.clDesc.name false)
+      wr.out(cl.name false)
       wr.out("(" false)
       def constr:RangerAppFunctionDesc cl.constructor_fn
       def givenArgs:CodeNode (node.getThird())
@@ -884,7 +903,8 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
     wr.indent(-1)
     wr.out("}" true)
     for cl.static_methods variant:RangerAppFunctionDesc i {
-      if (variant.nameNode.hasFlag("main")) {
+      def variantName:CodeNode (unwrap variant.nameNode)
+      if (variantName.hasFlag("main")) {
         continue _
       } {
         wr.out("public static function " false)
@@ -897,7 +917,8 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       def subCtx:RangerAppWriterContext ( unwrap variant.fnCtx )
       subCtx.is_function = true
       subCtx.in_static_method = true
-      this.WalkNode(( unwrap variant.fnBody ) subCtx wr)
+      def staticBody:CodeNode (unwrap variant.fnBody)
+      this.WalkNode(staticBody subCtx wr)
       subCtx.in_static_method = false
       wr.newline()
       wr.indent(-1)
@@ -929,7 +950,9 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
     for cl.static_methods variant:RangerAppFunctionDesc i {
       ctx.disableCurrentClass()
       ctx.in_static_method = true
-      if ( (variant.nameNode.hasFlag("main")) && (variant.nameNode.code.filename == (ctx.getRootFile()))) {
+      def variantName:CodeNode (unwrap variant.nameNode)
+      def variantCode:SourceCode (unwrap variantName.code)
+      if ((variantName.hasFlag("main")) && (variantCode.filename == (ctx.getRootFile()))) {
         wr.out("/* static PHP main routine */" false)
         wr.newline()
         this.WalkNode(( unwrap variant.fnBody ) ctx wr)

@@ -903,15 +903,17 @@ class RangerCSharpClassWriter {
       wr.out("}" true)
     }
     for cl.static_methods variant:RangerAppFunctionDesc i {
+      def variantName:CodeNode (unwrap variant.nameNode)
+      def variantCode:SourceCode (unwrap variantName.code)
       if variant.is_doc_example {
         if ((ctx.hasCompilerFlag("keep-examples")) == false) {
           continue
         }
       }
-      if ( (variant.nameNode.hasFlag("main")) && (variant.nameNode.code.filename != (ctx.getRootFile()))) {
+      if ((variantName.hasFlag("main")) && (variantCode.filename != (ctx.getRootFile()))) {
         continue
       }
-      if (variant.nameNode.hasFlag("main")) {
+      if (variantName.hasFlag("main")) {
         wr.out('static void Main( string [] args ) {' true)
       } {
         if variant.has_doc {

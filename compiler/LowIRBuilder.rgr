@@ -211,7 +211,8 @@ class LowIRBuilderPass {
     }
     def nn (unwrap fnDesc.nameNode)
     if (nn.hasFlag("main")) {
-      if (nn.code.filename == (ctx.getRootFile())) {
+      def sourceCode:SourceCode (unwrap nn.code)
+      if (sourceCode.filename == (ctx.getRootFile())) {
         return true
       }
     }
@@ -3009,10 +3010,11 @@ class LowIRBuilderPass {
   ; Has the block being written already ended (return / break / continue)?
   ; Everything after that in the same statement list is unreachable.
   fn blockClosed:boolean (lctx:LowIRLowerContext) {
-    if (null? lctx.builder.currentBlock) {
+    def builder:LowIRBuilder lctx.builder
+    if (null? builder.currentBlock) {
       return false
     }
-    def cur (unwrap lctx.builder.currentBlock)
+    def cur (unwrap builder.currentBlock)
     return (cur.termKind != "")
   }
 

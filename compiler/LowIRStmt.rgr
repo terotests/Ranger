@@ -345,8 +345,9 @@ extension LowIRBuilderPass {
     def strMark (array_length lctx.pendingStringTemps)
     def objMark (array_length lctx.pendingObjectTemps)
     this.lowerStmtDispatch(node lctx)
-    if (!null? lctx.builder.currentBlock) {
-      def curBlock (unwrap lctx.builder.currentBlock)
+    def builder:LowIRBuilder lctx.builder
+    if (!null? builder.currentBlock) {
+      def curBlock (unwrap builder.currentBlock)
       if (curBlock.termKind == "") {
         this.flushStringTempsFrom(strMark lctx)
         this.flushObjectTempsFrom(objMark lctx)
@@ -716,8 +717,9 @@ extension LowIRBuilderPass {
       def typeName (this.varTypeName(nameNode))
       if ((strlen typeName) == 0) {
         if (!null? val.fnDesc) {
-          if (!null? val.fnDesc.nameNode) {
-            def retNode (unwrap val.fnDesc.nameNode)
+          def fnDesc:RangerAppFunctionDesc (unwrap val.fnDesc)
+          if (!null? fnDesc.nameNode) {
+            def retNode (unwrap fnDesc.nameNode)
             typeName = (this.varTypeName(retNode))
           }
         }

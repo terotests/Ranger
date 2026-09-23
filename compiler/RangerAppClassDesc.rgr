@@ -326,7 +326,8 @@ Tests if the `class name` is either
     def pc:int (size fnDesc.params)
     sig = (to_string pc)
     for fnDesc.params p:RangerAppParamDesc i {
-      def tn:string (p.nameNode.type_name)
+      def pn:CodeNode (unwrap p.nameNode)
+      def tn:string pn.type_name
       if ((strlen tn) == 0) {
         tn = "?"
       }
@@ -643,16 +644,17 @@ Tests if the `class name` is either
         p.init_cnt = 1
         p.def_value = (itemAt node.children 2)
         p.is_optional = false
-        if(p.def_value.value_type == RangerNodeType.String) {
+        def defValue:CodeNode (unwrap p.def_value)
+        if(defValue.value_type == RangerNodeType.String) {
           vDef.type_name = "string"
         }
-        if(p.def_value.value_type == RangerNodeType.Integer) {
+        if(defValue.value_type == RangerNodeType.Integer) {
           vDef.type_name = "int"
         }
-        if(p.def_value.value_type == RangerNodeType.Double) {
+        if(defValue.value_type == RangerNodeType.Double) {
           vDef.type_name = "double"
         }
-        if(p.def_value.value_type == RangerNodeType.Boolean) {
+        if(defValue.value_type == RangerNodeType.Boolean) {
           vDef.type_name = "boolean"
         }
         def valueNode (itemAt node.children 2)
