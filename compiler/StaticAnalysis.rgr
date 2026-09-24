@@ -7,8 +7,8 @@
 Import "RangerAppParamDesc.rgr"
 Import "RangerAppFunctionDesc.rgr"
 Import "RangerAppClassDesc.rgr"
-Import "RangerAppEnums.rgr"
-Import "CodeNode.rgr"
+Import "./ast/RangerAppEnums.rgr"
+Import "./ast/CodeNode.rgr"
 Import "RangerAppWriterContext.rgr"
 
 class StaticAnalyzer {
