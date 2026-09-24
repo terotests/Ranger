@@ -1,5 +1,9 @@
 # EVG — the layout engine
 
+> **Canonical home:** [github.com/terotests/evg](https://github.com/terotests/evg)
+> (EVG 3.0 Storm). This `lib/evg` tree is a vendor copy for gallery CI.
+> See [`CANONICAL.md`](CANONICAL.md).
+
 EVG lays a document out and hands the result to whatever draws it. It is a
 CSS-shaped box model written in Ranger, with no browser under it and no browser
 anywhere near it: flex, grid, the length units, a stylesheet with `@media` and
@@ -1202,7 +1206,9 @@ Anything under `bin/` is generated; the Ranger compiler has to be built first
 ## As a package
 
 EVG is the package `evg`. Inside this repository a gallery project names it
-by path; outside, `rgrc install` fetches it from Git by subdirectory:
+by path so CI does not fetch Git; **new work lands in
+[terotests/evg](https://github.com/terotests/evg)**. Outside, `rgrc install`
+fetches that repository:
 
 ```json
 "dependencies": {
@@ -1212,8 +1218,11 @@ by path; outside, `rgrc install` fetches it from Git by subdirectory:
 
 ```json
 "dependencies": {
-  "evg": { "git": "https://github.com/terotests/Ranger.git",
-           "rev": "<commit>", "subdir": "lib/evg" }
+  "evg": {
+    "git": "https://github.com/terotests/evg.git",
+    "rev": "<commit>",
+    "subdir": "storm"
+  }
 }
 ```
 
@@ -1224,8 +1233,9 @@ Import "pkg:evg/EVGLayout.rgr"
 
 Its own dependency is `image` (`lib/image`: the JPEG and PNG codecs behind
 `EVGImageDecode`), which depends on `zip` (`lib/zip`: DEFLATE). Both are
-sibling path dependencies, so a Git fetch of `lib/evg` brings them along at
-the same commit. Nothing under this directory imports `gallery/`.
+sibling path dependencies, so a Git fetch of `storm/` from terotests/evg
+brings them along at the same commit. Nothing under this directory imports
+`gallery/`.
 
 The window layer that used to live here — `EVGWindow`, `EVGTextFit`,
 `EVGContextMeasurer`, `EVGRulerView`, `EVGToolbarView` — needs the gallery's
