@@ -4,6 +4,34 @@ require('chalk')
 
 --> tämä on poistettu nyt
 
+-----
+
+Optionality korjaukset, koodi on nyt tämmöistä:
+
+if(!null? expressionValueOpt) {
+    def expressionValue:CodeNode (unwrap expressionValueOpt)
+
+Tämä ei ollut se mitä haettiin tuolla if(!null? expressionValueOpt) { muutoksella,
+tarkoitus oli saada aikaa type narrowing eli kun koodi on nyt:
+
+if(!null? expressionValueOpt) {
+    def expressionValue:CodeNode (unwrap expressionValueOpt)
+    cn.expression_value = (expressionValue.copy())
+} 
+
+Se oikeastaan voisi olla
+
+if(!null? expressionValueOpt) {
+    def expressionValue:CodeNode expressionValueOpt ; <- automatic unwrap.
+    cn.expression_value = (expressionValue.copy())
+} 
+
+Ja kääntyä esim. C++ kielelle niin että kielessä tehdään automaattisesti unwrap
+koska tiedetään että se on turvallista, kelissä missä on type narrowing, kuten TypeScript
+niin ei tarvitse tehdä mitään.
+
+
+
 -------------------
 
 Ranger codebasesta itsestään puuttuu koodidokumentaatio, esim tämmöinen
