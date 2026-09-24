@@ -1,0 +1,26 @@
+class RangerApiClass {
+  def name:string ""
+  def compiledName:string ""
+  def kind:string "class"
+  def is_public:boolean false
+  def extendsName:string ""
+  def fields:[RangerApiField]
+  def methods:[RangerApiMethod]
+  def doc@(optional):RangerDocBlock
+  def has_doc:boolean false
+  def node:CodeNode
+
+  fn hasPublicMember:boolean () {
+    for methods m:RangerApiMethod i {
+      if m.is_public {
+        return true
+      }
+    }
+    for fields f:RangerApiField i {
+      if f.is_public {
+        return true
+      }
+    }
+    return false
+  }
+}

@@ -3,8 +3,7 @@
 
 Import "InputFileSystem.rgr"
 Import "LiveCompiler.rgr"
-Import "ColorConsole.rgr"
-Import "CLIProgress.rgr"
+Import "./cli/CLIConsole.rgr"
 Import "PkgFetch.rgr"
 Import "DictNode.rgr"
 Import "CmdParams.rgr"
@@ -554,7 +553,7 @@ class tester {
   ; is a call, not a subprocess, and `ranger-compiler` is the only thing a
   ; project needs installed. `bin/git-http.mjs` beside rgrc moves the bytes,
   ; because Node has no synchronous HTTPS.
-  fn runInstall:boolean (env:InputEnv params:CmdParams cli:CLIProgress) {
+  fn runInstall:boolean (env:InputEnv params:CmdParams cli:CLIConsole) {
     def start:string (current_directory env)
     def manDir:string (PkgImport.walkUp(env start))
     if ((strlen manDir) == 0) {
@@ -587,7 +586,7 @@ class tester {
     def params (unwrap env.commandLine)
 
     ; Initialize CLI progress (after params is defined)
-    def cli:CLIProgress (new CLIProgress())
+    def cli:CLIConsole (new CLIConsole())
     
     ; Check for --no-color flag
     if (has params.flags "no-color") {
@@ -1532,7 +1531,7 @@ class tester {
   }
 
   ; New method with CLI formatting
-  static fn displayCompilerErrorsWithCLI:void (appCtx@(weak):RangerAppWriterContext cli:CLIProgress) {
+  static fn displayCompilerErrorsWithCLI:void (appCtx@(weak):RangerAppWriterContext cli:CLIConsole) {
     for appCtx.compilerErrors e:RangerCompilerMessage i {
         def errorNode:CodeNode (unwrap e.node)
         def line_index:int (errorNode.getLine())
@@ -1553,18 +1552,6 @@ class tester {
     }        
   }
 
-  ; Legacy method kept for compatibility
-  static fn displayCompilerErrors:void (appCtx@(weak):RangerAppWriterContext) {
-    def cons:ColorConsole (new ColorConsole())
-
-    for appCtx.compilerErrors e:RangerCompilerMessage i {
-        def line_index:int (e.node.getLine ())                      
-        cons.out( "gray" ( (e.node.getFilename ()) + " Line: " + (1 + line_index)) ) 
-        cons.out( "gray" e.description )
-        cons.out( "gray" (e.node.getLineString(line_index)) )
-        cons.out( "" ( (e.node.getColStartString()) + "^-------" ) )
-    }        
-  }
 
   static fn displayParserErrors:void (appCtx@(weak):RangerAppWriterContext) {
     if ( (array_length appCtx.parserErrors) == 0 ) {

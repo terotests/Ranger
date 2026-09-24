@@ -1,0 +1,6 @@
+class RangerApiParam {
+  def name:string ""
+  def compiledName:string ""
+  def typeName:string ""
+  def description:string ""
+}

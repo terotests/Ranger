@@ -981,6 +981,885 @@ class RangerApiBuilder  {
     }
   };
 }
+class RangerApiPackageWriter  {
+  constructor() {
+  }
+  settingOr (ctx, key, fallback) {
+    if ( ctx.hasCompilerSetting(key) ) {
+      return ctx.getCompilerSetting(key);
+    }
+    return fallback;
+  };
+  jsonEscape (value) {
+    const w = new RangerApiArtifactWriter();
+    return w.jsonEscape(value);
+  };
+  writeNpmPackage (model, ctx, orig_wr) {
+    const name = this.settingOr(ctx, "name", model.moduleName);
+    const version = this.settingOr(ctx, "version", "0.1.0");
+    const descr = this.settingOr(ctx, "description", model.description);
+    const author = this.settingOr(ctx, "author", "");
+    const license = this.settingOr(ctx, "license", "UNLICENSED");
+    const mainFile = this.settingOr(ctx, "o", "output.js");
+    const isTs = ctx.hasCompilerFlag("typescript");
+    const wr = orig_wr.getFileWriter(".", "package.json");
+    wr.out("{", true);
+    wr.indent(1);
+    wr.out(("\"name\": \"" + this.jsonEscape(name)) + "\",", true);
+    wr.out(("\"version\": \"" + this.jsonEscape(version)) + "\",", true);
+    wr.out(("\"description\": \"" + this.jsonEscape(descr)) + "\",", true);
+    if ( author.length > 0 ) {
+      wr.out(("\"author\": \"" + this.jsonEscape(author)) + "\",", true);
+    }
+    wr.out(("\"license\": \"" + this.jsonEscape(license)) + "\",", true);
+    wr.out(("\"main\": \"" + this.jsonEscape(mainFile)) + "\",", true);
+    if ( isTs ) {
+      let dts = mainFile;
+      if ( dts.endsWith(".ts") ) {
+        dts = dts.substring(0, dts.length - 3 ) + ".d.ts";
+      }
+      wr.out(("\"types\": \"" + this.jsonEscape(dts)) + "\",", true);
+    }
+    if ( ctx.hasCompilerFlag("esm") ) {
+      wr.out("\"type\": \"module\",", true);
+    }
+    wr.out("\"files\": [", true);
+    wr.indent(1);
+    wr.out(("\"" + this.jsonEscape(mainFile)) + "\",", true);
+    wr.out("\"README.md\"", true);
+    wr.indent(-1);
+    wr.out("],", true);
+    wr.out("\"scripts\": {", true);
+    wr.indent(1);
+    wr.out(("\"docs\": \"documentation build " + this.jsonEscape(mainFile)) + " -f html -o docs/api\",", true);
+    wr.out(("\"docs:md\": \"documentation build " + this.jsonEscape(mainFile)) + " -f md -o API.md\",", true);
+    wr.out(("\"docs:json\": \"documentation build " + this.jsonEscape(mainFile)) + " -f json -o docs/api.json\",", true);
+    wr.out(("\"docs:lint\": \"documentation lint " + this.jsonEscape(mainFile)) + "\"", true);
+    wr.indent(-1);
+    wr.out("},", true);
+    wr.out("\"devDependencies\": {", true);
+    wr.indent(1);
+    wr.out("\"documentation\": \"^14.0.3\"", true);
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.indent(-1);
+    wr.out("}", true);
+  };
+  xmlEscape (value) {
+    const w = new RangerDocCommentWriter();
+    return w.xmlEscape(value);
+  };
+  writeCsProject (model, ctx, orig_wr) {
+    let name = this.settingOr(ctx, "name", model.moduleName);
+    if ( name.length == 0 ) {
+      name = "RangerApi";
+    }
+    const version = this.settingOr(ctx, "version", "0.1.0");
+    const descr = this.settingOr(ctx, "description", model.description);
+    const author = this.settingOr(ctx, "author", "");
+    const license = this.settingOr(ctx, "license", "");
+    const wr = orig_wr.getFileWriter(".", (name + ".csproj"));
+    wr.out("<Project Sdk=\"Microsoft.NET.Sdk\">", true);
+    wr.indent(1);
+    wr.out("<PropertyGroup>", true);
+    wr.indent(1);
+    wr.out("<TargetFramework>netstandard2.0</TargetFramework>", true);
+    wr.out("<LangVersion>latest</LangVersion>", true);
+    wr.out(("<PackageId>" + this.xmlEscape(name)) + "</PackageId>", true);
+    wr.out(("<AssemblyName>" + this.xmlEscape(name)) + "</AssemblyName>", true);
+    wr.out(("<RootNamespace>" + this.xmlEscape(name)) + "</RootNamespace>", true);
+    wr.out(("<Version>" + this.xmlEscape(version)) + "</Version>", true);
+    if ( descr.length > 0 ) {
+      wr.out(("<Description>" + this.xmlEscape(descr)) + "</Description>", true);
+    }
+    if ( author.length > 0 ) {
+      wr.out(("<Authors>" + this.xmlEscape(author)) + "</Authors>", true);
+    }
+    if ( license.length > 0 ) {
+      wr.out(("<PackageLicenseExpression>" + this.xmlEscape(license)) + "</PackageLicenseExpression>", true);
+    }
+    wr.out("<GenerateDocumentationFile>true</GenerateDocumentationFile>", true);
+    wr.out("<PackageReadmeFile>README.md</PackageReadmeFile>", true);
+    wr.out("<IncludeSymbols>true</IncludeSymbols>", true);
+    wr.out("<SymbolPackageFormat>snupkg</SymbolPackageFormat>", true);
+    wr.out("<NoWarn>$(NoWarn);1591</NoWarn>", true);
+    wr.indent(-1);
+    wr.out("</PropertyGroup>", true);
+    wr.out("<ItemGroup>", true);
+    wr.indent(1);
+    wr.out("<None Include=\"README.md\" Pack=\"true\" PackagePath=\"\\\" />", true);
+    wr.indent(-1);
+    wr.out("</ItemGroup>", true);
+    wr.indent(-1);
+    wr.out("</Project>", true);
+  };
+  writeDocFxConfig (model, ctx, orig_wr) {
+    let name = this.settingOr(ctx, "name", model.moduleName);
+    if ( name.length == 0 ) {
+      name = "RangerApi";
+    }
+    const wr = orig_wr.getFileWriter(".", "docfx.json");
+    wr.out("{", true);
+    wr.indent(1);
+    wr.out("\"metadata\": [", true);
+    wr.indent(1);
+    wr.out("{", true);
+    wr.indent(1);
+    const projName = this.jsonEscape(name);
+    wr.out(("\"src\": [ { \"files\": [ \"" + projName) + ".csproj\" ] } ],", true);
+    wr.out("\"dest\": \"api\"", true);
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.indent(-1);
+    wr.out("],", true);
+    wr.out("\"build\": {", true);
+    wr.indent(1);
+    wr.out("\"content\": [", true);
+    wr.indent(1);
+    wr.out("{ \"files\": [ \"api/**.yml\", \"api/**.md\" ] },", true);
+    wr.out("{ \"files\": [ \"index.md\", \"toc.yml\" ] }", true);
+    wr.indent(-1);
+    wr.out("],", true);
+    wr.out("\"dest\": \"_site\"", true);
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.indent(-1);
+    wr.out("}", true);
+    this.writeDocFxHome(model, ctx, name, orig_wr);
+  };
+  writeDocFxHome (model, ctx, name, orig_wr) {
+    const descr = this.settingOr(ctx, "description", model.description);
+    const index = orig_wr.getFileWriter(".", "index.md");
+    index.out("# " + name, true);
+    index.out("", true);
+    if ( descr.length > 0 ) {
+      index.out(descr, true);
+      index.out("", true);
+    }
+    index.out("Generated from Ranger declarations. Every member below carries the", true);
+    index.out("documentation written on the Ranger source it was compiled from.", true);
+    index.out("", true);
+    index.out("- [API reference](api/)", true);
+    const toc = orig_wr.getFileWriter(".", "toc.yml");
+    toc.out("- name: API reference", true);
+    toc.out("  href: api/", true);
+  };
+  swiftModuleName (raw) {
+    const parts = raw.split(".");
+    let out = "";
+    // Loop start
+    for ( const piece of parts) {
+      out = out + piece;
+    }
+    if ( out.length == 0 ) {
+      out = "RangerApi";
+    }
+    return out;
+  };
+  writeSwiftPackage (model, ctx, orig_wr) {
+    const raw = this.settingOr(ctx, "name", model.moduleName);
+    const moduleName = this.swiftModuleName(raw);
+    const srcFile = this.settingOr(ctx, "o", "output.swift");
+    const wr = orig_wr.getFileWriter(".", "Package.swift");
+    wr.out("// swift-tools-version:5.7", true);
+    wr.out("import PackageDescription", true);
+    wr.out("", true);
+    wr.out("let package = Package(", true);
+    wr.indent(1);
+    wr.out(("name: \"" + moduleName) + "\",", true);
+    wr.out("products: [", true);
+    wr.indent(1);
+    wr.out((((".library(name: \"" + moduleName) + "\", targets: [\"") + moduleName) + "\"])", true);
+    wr.indent(-1);
+    wr.out("],", true);
+    wr.out("targets: [", true);
+    wr.indent(1);
+    wr.out(".target(", true);
+    wr.indent(1);
+    wr.out(("name: \"" + moduleName) + "\",", true);
+    wr.out("path: \".\",", true);
+    wr.out(("sources: [\"" + srcFile) + "\"]", true);
+    wr.indent(-1);
+    wr.out(")", true);
+    wr.indent(-1);
+    wr.out("]", true);
+    wr.indent(-1);
+    wr.out(")", true);
+  };
+  writeDocCCatalog (model, ctx, orig_wr) {
+    const raw = this.settingOr(ctx, "name", model.moduleName);
+    const moduleName = this.swiftModuleName(raw);
+    const dir = moduleName + ".docc";
+    const wr = orig_wr.getFileWriter(dir, (moduleName + ".md"));
+    wr.out(("# ``" + moduleName) + "``", true);
+    wr.out("", true);
+    if ( model.description.length > 0 ) {
+      wr.out(model.description, true);
+      wr.out("", true);
+    }
+    wr.out("## Topics", true);
+    let categories = [];
+    let seen = {};
+    // Loop start
+    for ( const c of model.classes) {
+      if ( c.is_public == false ) {
+        continue;
+      }
+      let cat = "Types";
+      if ( c.has_doc ) {
+        const cdoc = c.doc;
+        if ( cdoc.category.length > 0 ) {
+          cat = cdoc.category;
+        }
+      }
+      if ( ( typeof(seen[cat] ) != "undefined" && Object.prototype.hasOwnProperty.call(seen, cat) ) == false ) {
+        seen[cat] = true;
+        categories.push(cat);
+      }
+    }
+    // Loop start
+    for ( const cat_1 of categories) {
+      wr.out("", true);
+      wr.out("### " + cat_1, true);
+      wr.out("", true);
+      // Loop start
+      for ( const c_1 of model.classes) {
+        if ( c_1.is_public == false ) {
+          continue;
+        }
+        let ccat = "Types";
+        if ( c_1.has_doc ) {
+          const cdoc_1 = c_1.doc;
+          if ( cdoc_1.category.length > 0 ) {
+            ccat = cdoc_1.category;
+          }
+        }
+        if ( ccat == cat_1 ) {
+          wr.out(("- ``" + c_1.name) + "``", true);
+        }
+      }
+    }
+  };
+  writeKotlinGradle (model, ctx, orig_wr) {
+    const raw = this.settingOr(ctx, "name", model.moduleName);
+    const version = this.settingOr(ctx, "version", "0.1.0");
+    const descr = this.settingOr(ctx, "description", model.description);
+    const srcFile = this.settingOr(ctx, "o", "output.kt");
+    let groupId = "";
+    let artifactId = raw;
+    const parts = raw.split(".");
+    const n = parts.length;
+    if ( n > 1 ) {
+      artifactId = parts[(n - 1)];
+      let gi = 0;
+      while (gi < n - 1) {
+        if ( gi > 0 ) {
+          groupId = groupId + ".";
+        }
+        groupId = groupId + parts[gi];
+        gi = gi + 1;
+      };
+    }
+    const wr = orig_wr.getFileWriter(".", "build.gradle.kts");
+    wr.out("plugins {", true);
+    wr.indent(1);
+    wr.out("kotlin(\"jvm\") version \"2.0.21\"", true);
+    wr.out("id(\"org.jetbrains.dokka\") version \"1.9.20\"", true);
+    wr.out("`maven-publish`", true);
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.out("", true);
+    if ( groupId.length > 0 ) {
+      wr.out(("group = \"" + groupId) + "\"", true);
+    }
+    wr.out(("version = \"" + version) + "\"", true);
+    wr.out("", true);
+    wr.out("repositories { mavenCentral() }", true);
+    wr.out("", true);
+    wr.out("", true);
+    wr.out("sourceSets.main {", true);
+    wr.indent(1);
+    wr.out("kotlin.setSrcDirs(listOf(\".\"))", true);
+    wr.out(("kotlin.include(\"" + srcFile) + "\")", true);
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.out("", true);
+    wr.out("publishing {", true);
+    wr.indent(1);
+    wr.out("publications {", true);
+    wr.indent(1);
+    wr.out("create<MavenPublication>(\"maven\") {", true);
+    wr.indent(1);
+    wr.out(("artifactId = \"" + artifactId) + "\"", true);
+    wr.out("from(components[\"java\"])", true);
+    if ( descr.length > 0 ) {
+      wr.out(("pom { description.set(\"" + descr) + "\") }", true);
+    }
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.indent(-1);
+    wr.out("}", true);
+    wr.indent(-1);
+    wr.out("}", true);
+  };
+  writeDokkaModuleDoc (model, ctx, orig_wr) {
+    const raw = this.settingOr(ctx, "name", model.moduleName);
+    const wr = orig_wr.getFileWriter(".", "module.md");
+    wr.out("# Module " + raw, true);
+    wr.out("", true);
+    if ( model.description.length > 0 ) {
+      wr.out(model.description, true);
+    }
+  };
+  writeDartBarrel (model, ctx, orig_wr, node) {
+    let pkgName = this.settingOr(ctx, "name", model.moduleName);
+    if ( pkgName.length == 0 ) {
+      pkgName = "ranger_api";
+    }
+    const srcFile = this.settingOr(ctx, "o", "output.dart");
+    const barrelFile = pkgName + ".dart";
+    const wr = orig_wr.getFileWriter("..", barrelFile);
+    wr.out("/// " + pkgName, true);
+    if ( model.description.length > 0 ) {
+      wr.out("///", true);
+      wr.out("/// " + model.description, true);
+    }
+    wr.out(("library " + pkgName) + ";", true);
+    wr.out("", true);
+    let names = [];
+    // Loop start
+    for ( const c of model.classes) {
+      if ( c.is_public ) {
+        names.push(c.name);
+      }
+    }
+    if ( names.length == 0 ) {
+      wr.out(("// no public API: nothing in " + srcFile) + " carries `doc { public }`", true);
+      return;
+    }
+    wr.out(("export 'src/" + srcFile) + "'", false);
+    wr.out("", true);
+    wr.out("    show", false);
+    // Loop start
+    for ( let i = 0; i < names.length; i++) {
+      var n = names[i];
+      if ( i > 0 ) {
+        wr.out(",", false);
+      }
+      wr.out(" " + n, false);
+    }
+    wr.out(";", true);
+  };
+  pyModuleName (raw) {
+    let out = "";
+    let i = 0;
+    const n = raw.length;
+    while (i < n) {
+      const ch = raw.substring(i, i + 1 );
+      if ( ch == "-" ) {
+        out = out + "_";
+      } else {
+        if ( ch == "." ) {
+          out = out + "_";
+        } else {
+          out = out + ch;
+        }
+      }
+      i = i + 1;
+    };
+    return out;
+  };
+  writePyProject (model, ctx, orig_wr) {
+    let name = this.settingOr(ctx, "name", model.moduleName);
+    if ( name.length == 0 ) {
+      name = "ranger_api";
+    }
+    const version = this.settingOr(ctx, "version", "0.1.0");
+    const descr = this.settingOr(ctx, "description", model.description);
+    const author = this.settingOr(ctx, "author", "");
+    const license = this.settingOr(ctx, "license", "");
+    const srcFile = this.settingOr(ctx, "o", "output.py");
+    let modName = srcFile;
+    if ( modName.endsWith(".py") ) {
+      modName = modName.substring(0, modName.length - 3 );
+    }
+    const wr = orig_wr.getFileWriter(".", "pyproject.toml");
+    wr.out("[build-system]", true);
+    wr.out("requires = [\"setuptools>=61\"]", true);
+    wr.out("build-backend = \"setuptools.build_meta\"", true);
+    wr.out("", true);
+    wr.out("[project]", true);
+    wr.out(("name = \"" + name) + "\"", true);
+    wr.out(("version = \"" + version) + "\"", true);
+    if ( descr.length > 0 ) {
+      wr.out(("description = \"" + descr) + "\"", true);
+    }
+    if ( license.length > 0 ) {
+      wr.out(("license = \"" + license) + "\"", true);
+    }
+    if ( author.length > 0 ) {
+      wr.out(("authors = [{ name = \"" + author) + "\" }]", true);
+    }
+    wr.out("requires-python = \">=3.9\"", true);
+    wr.out("", true);
+    wr.out("[tool.setuptools]", true);
+    wr.out(("py-modules = [\"" + modName) + "\"]", true);
+  };
+  writePyAll (model, ctx, orig_wr) {
+    const srcFile = this.settingOr(ctx, "o", "output.py");
+    const wr = orig_wr.getFileWriter(".", srcFile);
+    let names = [];
+    // Loop start
+    for ( const c of model.classes) {
+      if ( c.is_public ) {
+        names.push(c.name);
+      }
+    }
+    wr.out("", true);
+    wr.out("__docformat__ = \"google\"", true);
+    wr.out("", true);
+    if ( names.length == 0 ) {
+      return;
+    }
+    wr.out("", true);
+    wr.out("# The public API surface, from the `doc { public }` declarations.", true);
+    wr.out("__all__ = [", false);
+    // Loop start
+    for ( let i = 0; i < names.length; i++) {
+      var n = names[i];
+      if ( i > 0 ) {
+        wr.out(", ", false);
+      }
+      wr.out(("\"" + n) + "\"", false);
+    }
+    wr.out("]", true);
+  };
+  writeReadme (model, ctx, orig_wr) {
+    const wr = orig_wr.getFileWriter(".", "README.md");
+    const aw = new RangerApiArtifactWriter();
+    aw.writeMarkdown(model, ctx, wr);
+  };
+  writeDartPubspec (model, ctx, orig_wr) {
+    let pkgName = this.settingOr(ctx, "name", model.moduleName);
+    if ( pkgName.length == 0 ) {
+      pkgName = "ranger_api";
+    }
+    const version = this.settingOr(ctx, "version", "0.1.0");
+    const descr = this.settingOr(ctx, "description", model.description);
+    const wr = orig_wr.getFileWriter("../..", "pubspec.yaml");
+    wr.out("name: " + pkgName, true);
+    if ( descr.length > 0 ) {
+      wr.out("description: " + descr, true);
+    }
+    wr.out("version: " + version, true);
+    wr.out("publish_to: none", true);
+    wr.out("", true);
+    wr.out("environment:", true);
+    wr.out("  sdk: '>=3.0.0 <4.0.0'", true);
+  };
+  writeAll (model, ctx, orig_wr, node) {
+    switch (ctx.targetLangName ) { 
+      case "es6" : 
+        this.writeNpmPackage(model, ctx, orig_wr);
+        this.writeReadme(model, ctx, orig_wr);
+        break;
+      case "csharp" : 
+        this.writeCsProject(model, ctx, orig_wr);
+        this.writeDocFxConfig(model, ctx, orig_wr);
+        this.writeReadme(model, ctx, orig_wr);
+        break;
+      case "swift6" : 
+        this.writeSwiftPackage(model, ctx, orig_wr);
+        this.writeDocCCatalog(model, ctx, orig_wr);
+        this.writeReadme(model, ctx, orig_wr);
+        break;
+      case "swift3" : 
+        this.writeSwiftPackage(model, ctx, orig_wr);
+        this.writeDocCCatalog(model, ctx, orig_wr);
+        this.writeReadme(model, ctx, orig_wr);
+        break;
+      case "kotlin" : 
+        this.writeKotlinGradle(model, ctx, orig_wr);
+        this.writeDokkaModuleDoc(model, ctx, orig_wr);
+        this.writeReadme(model, ctx, orig_wr);
+        break;
+      case "dart" : 
+        this.writeDartBarrel(model, ctx, orig_wr, node);
+        this.writeDartPubspec(model, ctx, orig_wr);
+        this.writeReadme(model, ctx, orig_wr);
+        break;
+      case "python" : 
+        this.writePyProject(model, ctx, orig_wr);
+        this.writePyAll(model, ctx, orig_wr);
+        this.writeReadme(model, ctx, orig_wr);
+        break;
+      default: 
+        this.writeReadme(model, ctx, orig_wr);
+        break;
+    };
+  };
+}
+class RangerApiArtifactWriter  {
+  constructor() {
+  }
+  jsonEscape (value) {
+    let out = "";
+    let i = 0;
+    const n = value.length;
+    while (i < n) {
+      const piece = value.substring(i, i + 1 );
+      switch (piece ) { 
+        case "\"" : 
+          out = out + "\\\"";
+          break;
+        case "\\" : 
+          out = out + "\\\\";
+          break;
+        case "\n" : 
+          out = out + "\\n";
+          break;
+        case "\r" : 
+          out = out + "\\r";
+          break;
+        case "\t" : 
+          out = out + "\\t";
+          break;
+        default: 
+          out = out + piece;
+          break;
+      };
+      i = i + 1;
+    };
+    return out;
+  };
+  jsonString (value) {
+    return ("\"" + this.jsonEscape(value)) + "\"";
+  };
+  jsonBool (value) {
+    if ( value ) {
+      return "true";
+    }
+    return "false";
+  };
+  jsonStringList (items) {
+    let out = "[";
+    // Loop start
+    for ( let i = 0; i < items.length; i++) {
+      var s = items[i];
+      if ( i > 0 ) {
+        out = out + ", ";
+      }
+      out = out + this.jsonString(s);
+    }
+    return out + "]";
+  };
+  docFields (doc, has) {
+    if ( has == false ) {
+      return "";
+    }
+    let out = "";
+    out = (out + ", \"description\": ") + this.jsonString(doc.description);
+    if ( doc.since.length > 0 ) {
+      out = (out + ", \"since\": ") + this.jsonString(doc.since);
+    }
+    if ( doc.category.length > 0 ) {
+      out = (out + ", \"category\": ") + this.jsonString(doc.category);
+    }
+    if ( doc.platform.length > 0 ) {
+      out = (out + ", \"platform\": ") + this.jsonString(doc.platform);
+    }
+    if ( doc.is_experimental ) {
+      out = out + ", \"experimental\": true";
+    }
+    if ( doc.see.length > 0 ) {
+      out = (out + ", \"see\": ") + this.jsonStringList(doc.see);
+    }
+    if ( doc.throws.length > 0 ) {
+      out = (out + ", \"throws\": ") + this.jsonStringList(doc.throws);
+    }
+    if ( doc.examples.length > 0 ) {
+      out = (out + ", \"examples\": ") + this.jsonStringList(doc.examples);
+    }
+    if ( doc.is_deprecated ) {
+      const dep = doc.deprecation;
+      out = (out + ", \"deprecated\": {\"since\": ") + this.jsonString(dep.since);
+      out = (out + ", \"use\": ") + this.jsonString(dep.use);
+      out = ((out + ", \"description\": ") + this.jsonString(dep.description)) + "}";
+    }
+    return out;
+  };
+  writeJson (model, ctx, wr) {
+    wr.out("{", true);
+    wr.indent(1);
+    wr.out("\"generator\": \"ranger\",", true);
+    wr.out(("\"module\": " + this.jsonString(model.moduleName)) + ",", true);
+    wr.out(("\"version\": " + this.jsonString(model.version)) + ",", true);
+    wr.out(("\"description\": " + this.jsonString(model.description)) + ",", true);
+    wr.out(("\"target\": " + this.jsonString(ctx.targetLangName)) + ",", true);
+    wr.out("\"classes\": [", true);
+    wr.indent(1);
+    let clIdx = 0;
+    // Loop start
+    for ( const c of model.classes) {
+      if ( clIdx > 0 ) {
+        wr.out(",", true);
+      }
+      clIdx = clIdx + 1;
+      wr.out("{", true);
+      wr.indent(1);
+      wr.out(("\"name\": " + this.jsonString(c.name)) + ",", true);
+      wr.out(("\"compiledName\": " + this.jsonString(c.compiledName)) + ",", true);
+      wr.out(("\"kind\": " + this.jsonString(c.kind)) + ",", true);
+      if ( c.extendsName.length > 0 ) {
+        wr.out(("\"extends\": " + this.jsonString(c.extendsName)) + ",", true);
+      }
+      wr.out(("\"public\": " + this.jsonBool(c.is_public)) + ",", true);
+      wr.out(("\"documented\": " + this.jsonBool(c.has_doc)) + "", false);
+      if ( c.has_doc ) {
+        const cdoc = c.doc;
+        wr.out(this.docFields(cdoc, true), false);
+      }
+      wr.out(",", true);
+      wr.out("\"fields\": [", false);
+      let fIdx = 0;
+      // Loop start
+      for ( const f of c.fields) {
+        if ( fIdx > 0 ) {
+          wr.out(", ", false);
+        }
+        fIdx = fIdx + 1;
+        wr.out("{", false);
+        wr.out("\"name\": " + this.jsonString(f.name), false);
+        wr.out(", \"compiledName\": " + this.jsonString(f.compiledName), false);
+        wr.out(", \"type\": " + this.jsonString(f.typeName), false);
+        wr.out(", \"static\": " + this.jsonBool(f.is_static), false);
+        wr.out(", \"public\": " + this.jsonBool(f.is_public), false);
+        wr.out(", \"documented\": " + this.jsonBool(f.has_doc), false);
+        if ( f.has_doc ) {
+          const fdoc = f.doc;
+          wr.out(this.docFields(fdoc, true), false);
+        }
+        wr.out("}", false);
+      }
+      wr.out("],", true);
+      wr.out("\"methods\": [", true);
+      wr.indent(1);
+      let mIdx = 0;
+      // Loop start
+      for ( const m of c.methods) {
+        if ( mIdx > 0 ) {
+          wr.out(",", true);
+        }
+        mIdx = mIdx + 1;
+        wr.out("{", false);
+        wr.out("\"name\": " + this.jsonString(m.name), false);
+        wr.out(", \"compiledName\": " + this.jsonString(m.compiledName), false);
+        wr.out(", \"static\": " + this.jsonBool(m.is_static), false);
+        wr.out(", \"public\": " + this.jsonBool(m.is_public), false);
+        wr.out(", \"documented\": " + this.jsonBool(m.has_doc), false);
+        wr.out(", \"returns\": {\"type\": " + this.jsonString(m.returnType), false);
+        wr.out((", \"description\": " + this.jsonString(m.returnDoc)) + "}", false);
+        wr.out(", \"params\": [", false);
+        let pIdx = 0;
+        // Loop start
+        for ( const p of m.params) {
+          if ( pIdx > 0 ) {
+            wr.out(", ", false);
+          }
+          pIdx = pIdx + 1;
+          wr.out("{", false);
+          wr.out("\"name\": " + this.jsonString(p.name), false);
+          wr.out(", \"compiledName\": " + this.jsonString(p.compiledName), false);
+          wr.out(", \"type\": " + this.jsonString(p.typeName), false);
+          wr.out(", \"description\": " + this.jsonString(p.description), false);
+          wr.out("}", false);
+        }
+        wr.out("]", false);
+        if ( m.has_doc ) {
+          const mdoc = m.doc;
+          wr.out(this.docFields(mdoc, true), false);
+        }
+        wr.out("}", false);
+      }
+      wr.out("", true);
+      wr.indent(-1);
+      wr.out("]", true);
+      wr.indent(-1);
+      wr.out("}", false);
+    }
+    wr.out("", true);
+    wr.indent(-1);
+    wr.out("]", true);
+    wr.indent(-1);
+    wr.out("}", true);
+  };
+  writeMarkdown (model, ctx, wr) {
+    let title = model.moduleName;
+    if ( title.length == 0 ) {
+      title = "API reference";
+    }
+    wr.out("# " + title, true);
+    if ( model.version.length > 0 ) {
+      wr.out("", true);
+      wr.out("Version " + model.version, true);
+    }
+    if ( model.description.length > 0 ) {
+      wr.out("", true);
+      wr.out(model.description, true);
+    }
+    // Loop start
+    for ( const c of model.classes) {
+      if ( c.is_public == false ) {
+        continue;
+      }
+      wr.out("", true);
+      wr.out("## " + c.name, true);
+      if ( c.has_doc ) {
+        const cdoc = c.doc;
+        if ( cdoc.description.length > 0 ) {
+          wr.out("", true);
+          wr.out(cdoc.description, true);
+        }
+      }
+      let wroteFields = false;
+      // Loop start
+      for ( const f of c.fields) {
+        if ( f.is_public == false ) {
+          continue;
+        }
+        if ( wroteFields == false ) {
+          wr.out("", true);
+          wr.out("### Fields", true);
+          wr.out("", true);
+          wr.out("| Name | Type | Description |", true);
+          wr.out("| --- | --- | --- |", true);
+          wroteFields = true;
+        }
+        let fdesc = "";
+        if ( f.has_doc ) {
+          const fdoc = f.doc;
+          fdesc = fdoc.description;
+        }
+        wr.out(((((("| `" + f.name) + "` | `") + f.typeName) + "` | ") + fdesc) + " |", true);
+      }
+      // Loop start
+      for ( const m of c.methods) {
+        if ( m.is_public == false ) {
+          continue;
+        }
+        wr.out("", true);
+        let sig = ("### `" + m.name) + "(";
+        // Loop start
+        for ( let pi = 0; pi < m.params.length; pi++) {
+          var p = m.params[pi];
+          if ( pi > 0 ) {
+            sig = sig + " ";
+          }
+          sig = ((sig + p.name) + ":") + p.typeName;
+        }
+        sig = ((sig + ")` → `") + m.returnType) + "`";
+        wr.out(sig, true);
+        if ( m.has_doc ) {
+          const mdoc = m.doc;
+          if ( mdoc.description.length > 0 ) {
+            wr.out("", true);
+            wr.out(mdoc.description, true);
+          }
+          if ( mdoc.is_deprecated ) {
+            const dep = mdoc.deprecation;
+            wr.out("", true);
+            wr.out((("**Deprecated** since " + dep.since) + ". ") + dep.description, true);
+          }
+          if ( m.params.length > 0 ) {
+            wr.out("", true);
+            // Loop start
+            for ( const p_1 of m.params) {
+              wr.out((("- `" + p_1.name) + "` — ") + p_1.description, true);
+            }
+          }
+          if ( mdoc.returns.length > 0 ) {
+            wr.out("", true);
+            wr.out("Returns: " + mdoc.returns, true);
+          }
+          if ( mdoc.since.length > 0 ) {
+            wr.out("", true);
+            wr.out("Since " + mdoc.since, true);
+          }
+        }
+      }
+    }
+  };
+  writeReport (model, wr) {
+    // Loop start
+    for ( const c of model.classes) {
+      if ( c.is_public == false ) {
+        continue;
+      }
+      wr.out(c.name, true);
+      // Loop start
+      for ( let fi = 0; fi < c.fields.length; fi++) {
+        var f = c.fields[fi];
+        if ( f.is_public ) {
+          wr.out((((c.name + ".") + f.name) + ": ") + f.typeName, true);
+        }
+      }
+      // Loop start
+      for ( let mi = 0; mi < c.methods.length; mi++) {
+        var m = c.methods[mi];
+        if ( m.is_public ) {
+          let line = ((c.name + ".") + m.name) + "(";
+          // Loop start
+          for ( let pi = 0; pi < m.params.length; pi++) {
+            var p = m.params[pi];
+            if ( pi > 0 ) {
+              line = line + ", ";
+            }
+            line = ((line + p.name) + ": ") + p.typeName;
+          }
+          line = (line + "): ") + m.returnType;
+          if ( m.has_doc ) {
+            const mdoc = m.doc;
+            if ( mdoc.since.length > 0 ) {
+              line = (line + "   @since ") + mdoc.since;
+            }
+            if ( mdoc.is_deprecated ) {
+              const dep = mdoc.deprecation;
+              line = (line + "   @deprecated ") + dep.since;
+            }
+          }
+          wr.out(line, true);
+        }
+      }
+    }
+  };
+  writeAll (model, ctx, orig_wr) {
+    const dirName = ctx.getCompilerSetting("apidoc");
+    let formats = "json,markdown";
+    if ( ctx.hasCompilerSetting("apiformat") ) {
+      formats = ctx.getCompilerSetting("apiformat");
+    }
+    const parts = formats.split(",");
+    // Loop start
+    for ( const fmt of parts) {
+      switch (fmt ) { 
+        case "json" : 
+          const jw = orig_wr.getFileWriter(dirName, "api.json");
+          this.writeJson(model, ctx, jw);
+          break;
+        case "markdown" : 
+          const mw = orig_wr.getFileWriter(dirName, "api.md");
+          this.writeMarkdown(model, ctx, mw);
+          break;
+        case "report" : 
+          const rw = orig_wr.getFileWriter(dirName, "api.txt");
+          this.writeReport(model, rw);
+          break;
+        default: 
+          break;
+      };
+    }
+  };
+}
 class RangerDocCommentWriter  {
   constructor() {
     this.exampleTexts = [];
@@ -2070,885 +2949,6 @@ RangerDocCommentWriter.lookupFn = function(ctx, name) {
   }
   return new RangerAppFunctionDesc();
 };
-class RangerApiArtifactWriter  {
-  constructor() {
-  }
-  jsonEscape (value) {
-    let out = "";
-    let i = 0;
-    const n = value.length;
-    while (i < n) {
-      const piece = value.substring(i, i + 1 );
-      switch (piece ) { 
-        case "\"" : 
-          out = out + "\\\"";
-          break;
-        case "\\" : 
-          out = out + "\\\\";
-          break;
-        case "\n" : 
-          out = out + "\\n";
-          break;
-        case "\r" : 
-          out = out + "\\r";
-          break;
-        case "\t" : 
-          out = out + "\\t";
-          break;
-        default: 
-          out = out + piece;
-          break;
-      };
-      i = i + 1;
-    };
-    return out;
-  };
-  jsonString (value) {
-    return ("\"" + this.jsonEscape(value)) + "\"";
-  };
-  jsonBool (value) {
-    if ( value ) {
-      return "true";
-    }
-    return "false";
-  };
-  jsonStringList (items) {
-    let out = "[";
-    // Loop start
-    for ( let i = 0; i < items.length; i++) {
-      var s = items[i];
-      if ( i > 0 ) {
-        out = out + ", ";
-      }
-      out = out + this.jsonString(s);
-    }
-    return out + "]";
-  };
-  docFields (doc, has) {
-    if ( has == false ) {
-      return "";
-    }
-    let out = "";
-    out = (out + ", \"description\": ") + this.jsonString(doc.description);
-    if ( doc.since.length > 0 ) {
-      out = (out + ", \"since\": ") + this.jsonString(doc.since);
-    }
-    if ( doc.category.length > 0 ) {
-      out = (out + ", \"category\": ") + this.jsonString(doc.category);
-    }
-    if ( doc.platform.length > 0 ) {
-      out = (out + ", \"platform\": ") + this.jsonString(doc.platform);
-    }
-    if ( doc.is_experimental ) {
-      out = out + ", \"experimental\": true";
-    }
-    if ( doc.see.length > 0 ) {
-      out = (out + ", \"see\": ") + this.jsonStringList(doc.see);
-    }
-    if ( doc.throws.length > 0 ) {
-      out = (out + ", \"throws\": ") + this.jsonStringList(doc.throws);
-    }
-    if ( doc.examples.length > 0 ) {
-      out = (out + ", \"examples\": ") + this.jsonStringList(doc.examples);
-    }
-    if ( doc.is_deprecated ) {
-      const dep = doc.deprecation;
-      out = (out + ", \"deprecated\": {\"since\": ") + this.jsonString(dep.since);
-      out = (out + ", \"use\": ") + this.jsonString(dep.use);
-      out = ((out + ", \"description\": ") + this.jsonString(dep.description)) + "}";
-    }
-    return out;
-  };
-  writeJson (model, ctx, wr) {
-    wr.out("{", true);
-    wr.indent(1);
-    wr.out("\"generator\": \"ranger\",", true);
-    wr.out(("\"module\": " + this.jsonString(model.moduleName)) + ",", true);
-    wr.out(("\"version\": " + this.jsonString(model.version)) + ",", true);
-    wr.out(("\"description\": " + this.jsonString(model.description)) + ",", true);
-    wr.out(("\"target\": " + this.jsonString(ctx.targetLangName)) + ",", true);
-    wr.out("\"classes\": [", true);
-    wr.indent(1);
-    let clIdx = 0;
-    // Loop start
-    for ( const c of model.classes) {
-      if ( clIdx > 0 ) {
-        wr.out(",", true);
-      }
-      clIdx = clIdx + 1;
-      wr.out("{", true);
-      wr.indent(1);
-      wr.out(("\"name\": " + this.jsonString(c.name)) + ",", true);
-      wr.out(("\"compiledName\": " + this.jsonString(c.compiledName)) + ",", true);
-      wr.out(("\"kind\": " + this.jsonString(c.kind)) + ",", true);
-      if ( c.extendsName.length > 0 ) {
-        wr.out(("\"extends\": " + this.jsonString(c.extendsName)) + ",", true);
-      }
-      wr.out(("\"public\": " + this.jsonBool(c.is_public)) + ",", true);
-      wr.out(("\"documented\": " + this.jsonBool(c.has_doc)) + "", false);
-      if ( c.has_doc ) {
-        const cdoc = c.doc;
-        wr.out(this.docFields(cdoc, true), false);
-      }
-      wr.out(",", true);
-      wr.out("\"fields\": [", false);
-      let fIdx = 0;
-      // Loop start
-      for ( const f of c.fields) {
-        if ( fIdx > 0 ) {
-          wr.out(", ", false);
-        }
-        fIdx = fIdx + 1;
-        wr.out("{", false);
-        wr.out("\"name\": " + this.jsonString(f.name), false);
-        wr.out(", \"compiledName\": " + this.jsonString(f.compiledName), false);
-        wr.out(", \"type\": " + this.jsonString(f.typeName), false);
-        wr.out(", \"static\": " + this.jsonBool(f.is_static), false);
-        wr.out(", \"public\": " + this.jsonBool(f.is_public), false);
-        wr.out(", \"documented\": " + this.jsonBool(f.has_doc), false);
-        if ( f.has_doc ) {
-          const fdoc = f.doc;
-          wr.out(this.docFields(fdoc, true), false);
-        }
-        wr.out("}", false);
-      }
-      wr.out("],", true);
-      wr.out("\"methods\": [", true);
-      wr.indent(1);
-      let mIdx = 0;
-      // Loop start
-      for ( const m of c.methods) {
-        if ( mIdx > 0 ) {
-          wr.out(",", true);
-        }
-        mIdx = mIdx + 1;
-        wr.out("{", false);
-        wr.out("\"name\": " + this.jsonString(m.name), false);
-        wr.out(", \"compiledName\": " + this.jsonString(m.compiledName), false);
-        wr.out(", \"static\": " + this.jsonBool(m.is_static), false);
-        wr.out(", \"public\": " + this.jsonBool(m.is_public), false);
-        wr.out(", \"documented\": " + this.jsonBool(m.has_doc), false);
-        wr.out(", \"returns\": {\"type\": " + this.jsonString(m.returnType), false);
-        wr.out((", \"description\": " + this.jsonString(m.returnDoc)) + "}", false);
-        wr.out(", \"params\": [", false);
-        let pIdx = 0;
-        // Loop start
-        for ( const p of m.params) {
-          if ( pIdx > 0 ) {
-            wr.out(", ", false);
-          }
-          pIdx = pIdx + 1;
-          wr.out("{", false);
-          wr.out("\"name\": " + this.jsonString(p.name), false);
-          wr.out(", \"compiledName\": " + this.jsonString(p.compiledName), false);
-          wr.out(", \"type\": " + this.jsonString(p.typeName), false);
-          wr.out(", \"description\": " + this.jsonString(p.description), false);
-          wr.out("}", false);
-        }
-        wr.out("]", false);
-        if ( m.has_doc ) {
-          const mdoc = m.doc;
-          wr.out(this.docFields(mdoc, true), false);
-        }
-        wr.out("}", false);
-      }
-      wr.out("", true);
-      wr.indent(-1);
-      wr.out("]", true);
-      wr.indent(-1);
-      wr.out("}", false);
-    }
-    wr.out("", true);
-    wr.indent(-1);
-    wr.out("]", true);
-    wr.indent(-1);
-    wr.out("}", true);
-  };
-  writeMarkdown (model, ctx, wr) {
-    let title = model.moduleName;
-    if ( title.length == 0 ) {
-      title = "API reference";
-    }
-    wr.out("# " + title, true);
-    if ( model.version.length > 0 ) {
-      wr.out("", true);
-      wr.out("Version " + model.version, true);
-    }
-    if ( model.description.length > 0 ) {
-      wr.out("", true);
-      wr.out(model.description, true);
-    }
-    // Loop start
-    for ( const c of model.classes) {
-      if ( c.is_public == false ) {
-        continue;
-      }
-      wr.out("", true);
-      wr.out("## " + c.name, true);
-      if ( c.has_doc ) {
-        const cdoc = c.doc;
-        if ( cdoc.description.length > 0 ) {
-          wr.out("", true);
-          wr.out(cdoc.description, true);
-        }
-      }
-      let wroteFields = false;
-      // Loop start
-      for ( const f of c.fields) {
-        if ( f.is_public == false ) {
-          continue;
-        }
-        if ( wroteFields == false ) {
-          wr.out("", true);
-          wr.out("### Fields", true);
-          wr.out("", true);
-          wr.out("| Name | Type | Description |", true);
-          wr.out("| --- | --- | --- |", true);
-          wroteFields = true;
-        }
-        let fdesc = "";
-        if ( f.has_doc ) {
-          const fdoc = f.doc;
-          fdesc = fdoc.description;
-        }
-        wr.out(((((("| `" + f.name) + "` | `") + f.typeName) + "` | ") + fdesc) + " |", true);
-      }
-      // Loop start
-      for ( const m of c.methods) {
-        if ( m.is_public == false ) {
-          continue;
-        }
-        wr.out("", true);
-        let sig = ("### `" + m.name) + "(";
-        // Loop start
-        for ( let pi = 0; pi < m.params.length; pi++) {
-          var p = m.params[pi];
-          if ( pi > 0 ) {
-            sig = sig + " ";
-          }
-          sig = ((sig + p.name) + ":") + p.typeName;
-        }
-        sig = ((sig + ")` → `") + m.returnType) + "`";
-        wr.out(sig, true);
-        if ( m.has_doc ) {
-          const mdoc = m.doc;
-          if ( mdoc.description.length > 0 ) {
-            wr.out("", true);
-            wr.out(mdoc.description, true);
-          }
-          if ( mdoc.is_deprecated ) {
-            const dep = mdoc.deprecation;
-            wr.out("", true);
-            wr.out((("**Deprecated** since " + dep.since) + ". ") + dep.description, true);
-          }
-          if ( m.params.length > 0 ) {
-            wr.out("", true);
-            // Loop start
-            for ( const p_1 of m.params) {
-              wr.out((("- `" + p_1.name) + "` — ") + p_1.description, true);
-            }
-          }
-          if ( mdoc.returns.length > 0 ) {
-            wr.out("", true);
-            wr.out("Returns: " + mdoc.returns, true);
-          }
-          if ( mdoc.since.length > 0 ) {
-            wr.out("", true);
-            wr.out("Since " + mdoc.since, true);
-          }
-        }
-      }
-    }
-  };
-  writeReport (model, wr) {
-    // Loop start
-    for ( const c of model.classes) {
-      if ( c.is_public == false ) {
-        continue;
-      }
-      wr.out(c.name, true);
-      // Loop start
-      for ( let fi = 0; fi < c.fields.length; fi++) {
-        var f = c.fields[fi];
-        if ( f.is_public ) {
-          wr.out((((c.name + ".") + f.name) + ": ") + f.typeName, true);
-        }
-      }
-      // Loop start
-      for ( let mi = 0; mi < c.methods.length; mi++) {
-        var m = c.methods[mi];
-        if ( m.is_public ) {
-          let line = ((c.name + ".") + m.name) + "(";
-          // Loop start
-          for ( let pi = 0; pi < m.params.length; pi++) {
-            var p = m.params[pi];
-            if ( pi > 0 ) {
-              line = line + ", ";
-            }
-            line = ((line + p.name) + ": ") + p.typeName;
-          }
-          line = (line + "): ") + m.returnType;
-          if ( m.has_doc ) {
-            const mdoc = m.doc;
-            if ( mdoc.since.length > 0 ) {
-              line = (line + "   @since ") + mdoc.since;
-            }
-            if ( mdoc.is_deprecated ) {
-              const dep = mdoc.deprecation;
-              line = (line + "   @deprecated ") + dep.since;
-            }
-          }
-          wr.out(line, true);
-        }
-      }
-    }
-  };
-  writeAll (model, ctx, orig_wr) {
-    const dirName = ctx.getCompilerSetting("apidoc");
-    let formats = "json,markdown";
-    if ( ctx.hasCompilerSetting("apiformat") ) {
-      formats = ctx.getCompilerSetting("apiformat");
-    }
-    const parts = formats.split(",");
-    // Loop start
-    for ( const fmt of parts) {
-      switch (fmt ) { 
-        case "json" : 
-          const jw = orig_wr.getFileWriter(dirName, "api.json");
-          this.writeJson(model, ctx, jw);
-          break;
-        case "markdown" : 
-          const mw = orig_wr.getFileWriter(dirName, "api.md");
-          this.writeMarkdown(model, ctx, mw);
-          break;
-        case "report" : 
-          const rw = orig_wr.getFileWriter(dirName, "api.txt");
-          this.writeReport(model, rw);
-          break;
-        default: 
-          break;
-      };
-    }
-  };
-}
-class RangerApiPackageWriter  {
-  constructor() {
-  }
-  settingOr (ctx, key, fallback) {
-    if ( ctx.hasCompilerSetting(key) ) {
-      return ctx.getCompilerSetting(key);
-    }
-    return fallback;
-  };
-  jsonEscape (value) {
-    const w = new RangerApiArtifactWriter();
-    return w.jsonEscape(value);
-  };
-  writeNpmPackage (model, ctx, orig_wr) {
-    const name = this.settingOr(ctx, "name", model.moduleName);
-    const version = this.settingOr(ctx, "version", "0.1.0");
-    const descr = this.settingOr(ctx, "description", model.description);
-    const author = this.settingOr(ctx, "author", "");
-    const license = this.settingOr(ctx, "license", "UNLICENSED");
-    const mainFile = this.settingOr(ctx, "o", "output.js");
-    const isTs = ctx.hasCompilerFlag("typescript");
-    const wr = orig_wr.getFileWriter(".", "package.json");
-    wr.out("{", true);
-    wr.indent(1);
-    wr.out(("\"name\": \"" + this.jsonEscape(name)) + "\",", true);
-    wr.out(("\"version\": \"" + this.jsonEscape(version)) + "\",", true);
-    wr.out(("\"description\": \"" + this.jsonEscape(descr)) + "\",", true);
-    if ( author.length > 0 ) {
-      wr.out(("\"author\": \"" + this.jsonEscape(author)) + "\",", true);
-    }
-    wr.out(("\"license\": \"" + this.jsonEscape(license)) + "\",", true);
-    wr.out(("\"main\": \"" + this.jsonEscape(mainFile)) + "\",", true);
-    if ( isTs ) {
-      let dts = mainFile;
-      if ( dts.endsWith(".ts") ) {
-        dts = dts.substring(0, dts.length - 3 ) + ".d.ts";
-      }
-      wr.out(("\"types\": \"" + this.jsonEscape(dts)) + "\",", true);
-    }
-    if ( ctx.hasCompilerFlag("esm") ) {
-      wr.out("\"type\": \"module\",", true);
-    }
-    wr.out("\"files\": [", true);
-    wr.indent(1);
-    wr.out(("\"" + this.jsonEscape(mainFile)) + "\",", true);
-    wr.out("\"README.md\"", true);
-    wr.indent(-1);
-    wr.out("],", true);
-    wr.out("\"scripts\": {", true);
-    wr.indent(1);
-    wr.out(("\"docs\": \"documentation build " + this.jsonEscape(mainFile)) + " -f html -o docs/api\",", true);
-    wr.out(("\"docs:md\": \"documentation build " + this.jsonEscape(mainFile)) + " -f md -o API.md\",", true);
-    wr.out(("\"docs:json\": \"documentation build " + this.jsonEscape(mainFile)) + " -f json -o docs/api.json\",", true);
-    wr.out(("\"docs:lint\": \"documentation lint " + this.jsonEscape(mainFile)) + "\"", true);
-    wr.indent(-1);
-    wr.out("},", true);
-    wr.out("\"devDependencies\": {", true);
-    wr.indent(1);
-    wr.out("\"documentation\": \"^14.0.3\"", true);
-    wr.indent(-1);
-    wr.out("}", true);
-    wr.indent(-1);
-    wr.out("}", true);
-  };
-  xmlEscape (value) {
-    const w = new RangerDocCommentWriter();
-    return w.xmlEscape(value);
-  };
-  writeCsProject (model, ctx, orig_wr) {
-    let name = this.settingOr(ctx, "name", model.moduleName);
-    if ( name.length == 0 ) {
-      name = "RangerApi";
-    }
-    const version = this.settingOr(ctx, "version", "0.1.0");
-    const descr = this.settingOr(ctx, "description", model.description);
-    const author = this.settingOr(ctx, "author", "");
-    const license = this.settingOr(ctx, "license", "");
-    const wr = orig_wr.getFileWriter(".", (name + ".csproj"));
-    wr.out("<Project Sdk=\"Microsoft.NET.Sdk\">", true);
-    wr.indent(1);
-    wr.out("<PropertyGroup>", true);
-    wr.indent(1);
-    wr.out("<TargetFramework>netstandard2.0</TargetFramework>", true);
-    wr.out("<LangVersion>latest</LangVersion>", true);
-    wr.out(("<PackageId>" + this.xmlEscape(name)) + "</PackageId>", true);
-    wr.out(("<AssemblyName>" + this.xmlEscape(name)) + "</AssemblyName>", true);
-    wr.out(("<RootNamespace>" + this.xmlEscape(name)) + "</RootNamespace>", true);
-    wr.out(("<Version>" + this.xmlEscape(version)) + "</Version>", true);
-    if ( descr.length > 0 ) {
-      wr.out(("<Description>" + this.xmlEscape(descr)) + "</Description>", true);
-    }
-    if ( author.length > 0 ) {
-      wr.out(("<Authors>" + this.xmlEscape(author)) + "</Authors>", true);
-    }
-    if ( license.length > 0 ) {
-      wr.out(("<PackageLicenseExpression>" + this.xmlEscape(license)) + "</PackageLicenseExpression>", true);
-    }
-    wr.out("<GenerateDocumentationFile>true</GenerateDocumentationFile>", true);
-    wr.out("<PackageReadmeFile>README.md</PackageReadmeFile>", true);
-    wr.out("<IncludeSymbols>true</IncludeSymbols>", true);
-    wr.out("<SymbolPackageFormat>snupkg</SymbolPackageFormat>", true);
-    wr.out("<NoWarn>$(NoWarn);1591</NoWarn>", true);
-    wr.indent(-1);
-    wr.out("</PropertyGroup>", true);
-    wr.out("<ItemGroup>", true);
-    wr.indent(1);
-    wr.out("<None Include=\"README.md\" Pack=\"true\" PackagePath=\"\\\" />", true);
-    wr.indent(-1);
-    wr.out("</ItemGroup>", true);
-    wr.indent(-1);
-    wr.out("</Project>", true);
-  };
-  writeDocFxConfig (model, ctx, orig_wr) {
-    let name = this.settingOr(ctx, "name", model.moduleName);
-    if ( name.length == 0 ) {
-      name = "RangerApi";
-    }
-    const wr = orig_wr.getFileWriter(".", "docfx.json");
-    wr.out("{", true);
-    wr.indent(1);
-    wr.out("\"metadata\": [", true);
-    wr.indent(1);
-    wr.out("{", true);
-    wr.indent(1);
-    const projName = this.jsonEscape(name);
-    wr.out(("\"src\": [ { \"files\": [ \"" + projName) + ".csproj\" ] } ],", true);
-    wr.out("\"dest\": \"api\"", true);
-    wr.indent(-1);
-    wr.out("}", true);
-    wr.indent(-1);
-    wr.out("],", true);
-    wr.out("\"build\": {", true);
-    wr.indent(1);
-    wr.out("\"content\": [", true);
-    wr.indent(1);
-    wr.out("{ \"files\": [ \"api/**.yml\", \"api/**.md\" ] },", true);
-    wr.out("{ \"files\": [ \"index.md\", \"toc.yml\" ] }", true);
-    wr.indent(-1);
-    wr.out("],", true);
-    wr.out("\"dest\": \"_site\"", true);
-    wr.indent(-1);
-    wr.out("}", true);
-    wr.indent(-1);
-    wr.out("}", true);
-    this.writeDocFxHome(model, ctx, name, orig_wr);
-  };
-  writeDocFxHome (model, ctx, name, orig_wr) {
-    const descr = this.settingOr(ctx, "description", model.description);
-    const index = orig_wr.getFileWriter(".", "index.md");
-    index.out("# " + name, true);
-    index.out("", true);
-    if ( descr.length > 0 ) {
-      index.out(descr, true);
-      index.out("", true);
-    }
-    index.out("Generated from Ranger declarations. Every member below carries the", true);
-    index.out("documentation written on the Ranger source it was compiled from.", true);
-    index.out("", true);
-    index.out("- [API reference](api/)", true);
-    const toc = orig_wr.getFileWriter(".", "toc.yml");
-    toc.out("- name: API reference", true);
-    toc.out("  href: api/", true);
-  };
-  swiftModuleName (raw) {
-    const parts = raw.split(".");
-    let out = "";
-    // Loop start
-    for ( const piece of parts) {
-      out = out + piece;
-    }
-    if ( out.length == 0 ) {
-      out = "RangerApi";
-    }
-    return out;
-  };
-  writeSwiftPackage (model, ctx, orig_wr) {
-    const raw = this.settingOr(ctx, "name", model.moduleName);
-    const moduleName = this.swiftModuleName(raw);
-    const srcFile = this.settingOr(ctx, "o", "output.swift");
-    const wr = orig_wr.getFileWriter(".", "Package.swift");
-    wr.out("// swift-tools-version:5.7", true);
-    wr.out("import PackageDescription", true);
-    wr.out("", true);
-    wr.out("let package = Package(", true);
-    wr.indent(1);
-    wr.out(("name: \"" + moduleName) + "\",", true);
-    wr.out("products: [", true);
-    wr.indent(1);
-    wr.out((((".library(name: \"" + moduleName) + "\", targets: [\"") + moduleName) + "\"])", true);
-    wr.indent(-1);
-    wr.out("],", true);
-    wr.out("targets: [", true);
-    wr.indent(1);
-    wr.out(".target(", true);
-    wr.indent(1);
-    wr.out(("name: \"" + moduleName) + "\",", true);
-    wr.out("path: \".\",", true);
-    wr.out(("sources: [\"" + srcFile) + "\"]", true);
-    wr.indent(-1);
-    wr.out(")", true);
-    wr.indent(-1);
-    wr.out("]", true);
-    wr.indent(-1);
-    wr.out(")", true);
-  };
-  writeDocCCatalog (model, ctx, orig_wr) {
-    const raw = this.settingOr(ctx, "name", model.moduleName);
-    const moduleName = this.swiftModuleName(raw);
-    const dir = moduleName + ".docc";
-    const wr = orig_wr.getFileWriter(dir, (moduleName + ".md"));
-    wr.out(("# ``" + moduleName) + "``", true);
-    wr.out("", true);
-    if ( model.description.length > 0 ) {
-      wr.out(model.description, true);
-      wr.out("", true);
-    }
-    wr.out("## Topics", true);
-    let categories = [];
-    let seen = {};
-    // Loop start
-    for ( const c of model.classes) {
-      if ( c.is_public == false ) {
-        continue;
-      }
-      let cat = "Types";
-      if ( c.has_doc ) {
-        const cdoc = c.doc;
-        if ( cdoc.category.length > 0 ) {
-          cat = cdoc.category;
-        }
-      }
-      if ( ( typeof(seen[cat] ) != "undefined" && Object.prototype.hasOwnProperty.call(seen, cat) ) == false ) {
-        seen[cat] = true;
-        categories.push(cat);
-      }
-    }
-    // Loop start
-    for ( const cat_1 of categories) {
-      wr.out("", true);
-      wr.out("### " + cat_1, true);
-      wr.out("", true);
-      // Loop start
-      for ( const c_1 of model.classes) {
-        if ( c_1.is_public == false ) {
-          continue;
-        }
-        let ccat = "Types";
-        if ( c_1.has_doc ) {
-          const cdoc_1 = c_1.doc;
-          if ( cdoc_1.category.length > 0 ) {
-            ccat = cdoc_1.category;
-          }
-        }
-        if ( ccat == cat_1 ) {
-          wr.out(("- ``" + c_1.name) + "``", true);
-        }
-      }
-    }
-  };
-  writeKotlinGradle (model, ctx, orig_wr) {
-    const raw = this.settingOr(ctx, "name", model.moduleName);
-    const version = this.settingOr(ctx, "version", "0.1.0");
-    const descr = this.settingOr(ctx, "description", model.description);
-    const srcFile = this.settingOr(ctx, "o", "output.kt");
-    let groupId = "";
-    let artifactId = raw;
-    const parts = raw.split(".");
-    const n = parts.length;
-    if ( n > 1 ) {
-      artifactId = parts[(n - 1)];
-      let gi = 0;
-      while (gi < n - 1) {
-        if ( gi > 0 ) {
-          groupId = groupId + ".";
-        }
-        groupId = groupId + parts[gi];
-        gi = gi + 1;
-      };
-    }
-    const wr = orig_wr.getFileWriter(".", "build.gradle.kts");
-    wr.out("plugins {", true);
-    wr.indent(1);
-    wr.out("kotlin(\"jvm\") version \"2.0.21\"", true);
-    wr.out("id(\"org.jetbrains.dokka\") version \"1.9.20\"", true);
-    wr.out("`maven-publish`", true);
-    wr.indent(-1);
-    wr.out("}", true);
-    wr.out("", true);
-    if ( groupId.length > 0 ) {
-      wr.out(("group = \"" + groupId) + "\"", true);
-    }
-    wr.out(("version = \"" + version) + "\"", true);
-    wr.out("", true);
-    wr.out("repositories { mavenCentral() }", true);
-    wr.out("", true);
-    wr.out("", true);
-    wr.out("sourceSets.main {", true);
-    wr.indent(1);
-    wr.out("kotlin.setSrcDirs(listOf(\".\"))", true);
-    wr.out(("kotlin.include(\"" + srcFile) + "\")", true);
-    wr.indent(-1);
-    wr.out("}", true);
-    wr.out("", true);
-    wr.out("publishing {", true);
-    wr.indent(1);
-    wr.out("publications {", true);
-    wr.indent(1);
-    wr.out("create<MavenPublication>(\"maven\") {", true);
-    wr.indent(1);
-    wr.out(("artifactId = \"" + artifactId) + "\"", true);
-    wr.out("from(components[\"java\"])", true);
-    if ( descr.length > 0 ) {
-      wr.out(("pom { description.set(\"" + descr) + "\") }", true);
-    }
-    wr.indent(-1);
-    wr.out("}", true);
-    wr.indent(-1);
-    wr.out("}", true);
-    wr.indent(-1);
-    wr.out("}", true);
-  };
-  writeDokkaModuleDoc (model, ctx, orig_wr) {
-    const raw = this.settingOr(ctx, "name", model.moduleName);
-    const wr = orig_wr.getFileWriter(".", "module.md");
-    wr.out("# Module " + raw, true);
-    wr.out("", true);
-    if ( model.description.length > 0 ) {
-      wr.out(model.description, true);
-    }
-  };
-  writeDartBarrel (model, ctx, orig_wr, node) {
-    let pkgName = this.settingOr(ctx, "name", model.moduleName);
-    if ( pkgName.length == 0 ) {
-      pkgName = "ranger_api";
-    }
-    const srcFile = this.settingOr(ctx, "o", "output.dart");
-    const barrelFile = pkgName + ".dart";
-    const wr = orig_wr.getFileWriter("..", barrelFile);
-    wr.out("/// " + pkgName, true);
-    if ( model.description.length > 0 ) {
-      wr.out("///", true);
-      wr.out("/// " + model.description, true);
-    }
-    wr.out(("library " + pkgName) + ";", true);
-    wr.out("", true);
-    let names = [];
-    // Loop start
-    for ( const c of model.classes) {
-      if ( c.is_public ) {
-        names.push(c.name);
-      }
-    }
-    if ( names.length == 0 ) {
-      wr.out(("// no public API: nothing in " + srcFile) + " carries `doc { public }`", true);
-      return;
-    }
-    wr.out(("export 'src/" + srcFile) + "'", false);
-    wr.out("", true);
-    wr.out("    show", false);
-    // Loop start
-    for ( let i = 0; i < names.length; i++) {
-      var n = names[i];
-      if ( i > 0 ) {
-        wr.out(",", false);
-      }
-      wr.out(" " + n, false);
-    }
-    wr.out(";", true);
-  };
-  pyModuleName (raw) {
-    let out = "";
-    let i = 0;
-    const n = raw.length;
-    while (i < n) {
-      const ch = raw.substring(i, i + 1 );
-      if ( ch == "-" ) {
-        out = out + "_";
-      } else {
-        if ( ch == "." ) {
-          out = out + "_";
-        } else {
-          out = out + ch;
-        }
-      }
-      i = i + 1;
-    };
-    return out;
-  };
-  writePyProject (model, ctx, orig_wr) {
-    let name = this.settingOr(ctx, "name", model.moduleName);
-    if ( name.length == 0 ) {
-      name = "ranger_api";
-    }
-    const version = this.settingOr(ctx, "version", "0.1.0");
-    const descr = this.settingOr(ctx, "description", model.description);
-    const author = this.settingOr(ctx, "author", "");
-    const license = this.settingOr(ctx, "license", "");
-    const srcFile = this.settingOr(ctx, "o", "output.py");
-    let modName = srcFile;
-    if ( modName.endsWith(".py") ) {
-      modName = modName.substring(0, modName.length - 3 );
-    }
-    const wr = orig_wr.getFileWriter(".", "pyproject.toml");
-    wr.out("[build-system]", true);
-    wr.out("requires = [\"setuptools>=61\"]", true);
-    wr.out("build-backend = \"setuptools.build_meta\"", true);
-    wr.out("", true);
-    wr.out("[project]", true);
-    wr.out(("name = \"" + name) + "\"", true);
-    wr.out(("version = \"" + version) + "\"", true);
-    if ( descr.length > 0 ) {
-      wr.out(("description = \"" + descr) + "\"", true);
-    }
-    if ( license.length > 0 ) {
-      wr.out(("license = \"" + license) + "\"", true);
-    }
-    if ( author.length > 0 ) {
-      wr.out(("authors = [{ name = \"" + author) + "\" }]", true);
-    }
-    wr.out("requires-python = \">=3.9\"", true);
-    wr.out("", true);
-    wr.out("[tool.setuptools]", true);
-    wr.out(("py-modules = [\"" + modName) + "\"]", true);
-  };
-  writePyAll (model, ctx, orig_wr) {
-    const srcFile = this.settingOr(ctx, "o", "output.py");
-    const wr = orig_wr.getFileWriter(".", srcFile);
-    let names = [];
-    // Loop start
-    for ( const c of model.classes) {
-      if ( c.is_public ) {
-        names.push(c.name);
-      }
-    }
-    wr.out("", true);
-    wr.out("__docformat__ = \"google\"", true);
-    wr.out("", true);
-    if ( names.length == 0 ) {
-      return;
-    }
-    wr.out("", true);
-    wr.out("# The public API surface, from the `doc { public }` declarations.", true);
-    wr.out("__all__ = [", false);
-    // Loop start
-    for ( let i = 0; i < names.length; i++) {
-      var n = names[i];
-      if ( i > 0 ) {
-        wr.out(", ", false);
-      }
-      wr.out(("\"" + n) + "\"", false);
-    }
-    wr.out("]", true);
-  };
-  writeReadme (model, ctx, orig_wr) {
-    const wr = orig_wr.getFileWriter(".", "README.md");
-    const aw = new RangerApiArtifactWriter();
-    aw.writeMarkdown(model, ctx, wr);
-  };
-  writeDartPubspec (model, ctx, orig_wr) {
-    let pkgName = this.settingOr(ctx, "name", model.moduleName);
-    if ( pkgName.length == 0 ) {
-      pkgName = "ranger_api";
-    }
-    const version = this.settingOr(ctx, "version", "0.1.0");
-    const descr = this.settingOr(ctx, "description", model.description);
-    const wr = orig_wr.getFileWriter("../..", "pubspec.yaml");
-    wr.out("name: " + pkgName, true);
-    if ( descr.length > 0 ) {
-      wr.out("description: " + descr, true);
-    }
-    wr.out("version: " + version, true);
-    wr.out("publish_to: none", true);
-    wr.out("", true);
-    wr.out("environment:", true);
-    wr.out("  sdk: '>=3.0.0 <4.0.0'", true);
-  };
-  writeAll (model, ctx, orig_wr, node) {
-    switch (ctx.targetLangName ) { 
-      case "es6" : 
-        this.writeNpmPackage(model, ctx, orig_wr);
-        this.writeReadme(model, ctx, orig_wr);
-        break;
-      case "csharp" : 
-        this.writeCsProject(model, ctx, orig_wr);
-        this.writeDocFxConfig(model, ctx, orig_wr);
-        this.writeReadme(model, ctx, orig_wr);
-        break;
-      case "swift6" : 
-        this.writeSwiftPackage(model, ctx, orig_wr);
-        this.writeDocCCatalog(model, ctx, orig_wr);
-        this.writeReadme(model, ctx, orig_wr);
-        break;
-      case "swift3" : 
-        this.writeSwiftPackage(model, ctx, orig_wr);
-        this.writeDocCCatalog(model, ctx, orig_wr);
-        this.writeReadme(model, ctx, orig_wr);
-        break;
-      case "kotlin" : 
-        this.writeKotlinGradle(model, ctx, orig_wr);
-        this.writeDokkaModuleDoc(model, ctx, orig_wr);
-        this.writeReadme(model, ctx, orig_wr);
-        break;
-      case "dart" : 
-        this.writeDartBarrel(model, ctx, orig_wr, node);
-        this.writeDartPubspec(model, ctx, orig_wr);
-        this.writeReadme(model, ctx, orig_wr);
-        break;
-      case "python" : 
-        this.writePyProject(model, ctx, orig_wr);
-        this.writePyAll(model, ctx, orig_wr);
-        this.writeReadme(model, ctx, orig_wr);
-        break;
-      default: 
-        this.writeReadme(model, ctx, orig_wr);
-        break;
-    };
-  };
-}
 class RangerParamEventHandler  {
   constructor() {
   }
@@ -71047,14 +71047,7 @@ class LiveCompiler  {
     return cc;
   };
 }
-class ColorConsole  {
-  constructor() {
-  }
-  out (color, str) {
-    console.log(str);
-  };
-}
-class CLIProgress  {
+class CLIConsole  {
   constructor() {
     this.useColors = true;
     this.totalSteps = 5;
@@ -79215,7 +79208,7 @@ class VirtualCompiler  {
     this.envObj = env;
     const allowed_languages = ["es6", "go", "scala", "java7", "swift3", "swift6", "kotlin", "dart", "cpp", "php", "csharp", "python", "rust", "llvm"];
     const params = env.commandLine;
-    const cli = new CLIProgress();
+    const cli = new CLIConsole();
     if ( ( typeof(params.flags["no-color"] ) != "undefined" && Object.prototype.hasOwnProperty.call(params.flags, "no-color") ) ) {
       cli.setUseColors(false);
     }
@@ -80032,17 +80025,6 @@ VirtualCompiler.displayCompilerErrorsWithCLI = function(appCtx, cli) {
       prevLine,
       nextLine
     );
-  }
-};
-VirtualCompiler.displayCompilerErrors = function(appCtx) {
-  const cons = new ColorConsole();
-  // Loop start
-  for ( const e of appCtx.compilerErrors) {
-    const line_index = e.node.getLine();
-    cons.out("gray", (e.node.getFilename() + " Line: ") + (1 + line_index));
-    cons.out("gray", e.description);
-    cons.out("gray", e.node.getLineString(line_index));
-    cons.out("", e.node.getColStartString() + "^-------");
   }
 };
 VirtualCompiler.displayParserErrors = function(appCtx) {

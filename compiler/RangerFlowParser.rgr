@@ -4,7 +4,7 @@
 Import "stdlib.rgr"
 Import "RangerAppMessages.rgr"
 Import "RangerDocBlock.rgr"
-Import "RangerApiDoc.rgr"
+Import "./apidoc/RangerApiDoc.rgr"
 Import "RangerAppParamDesc.rgr"
 Import "RangerAppFunctionDesc.rgr"
 Import "RangerAppClassDesc.rgr"

@@ -1,0 +1,12 @@
+class RangerApiMethod {
+  def name:string ""
+  def compiledName:string ""
+  def is_static:boolean false
+  def is_public:boolean false
+  def returnType:string ""
+  def returnDoc:string ""
+  def params:[RangerApiParam]
+  def doc@(optional):RangerDocBlock
+  def has_doc:boolean false
+  def node:CodeNode
+}

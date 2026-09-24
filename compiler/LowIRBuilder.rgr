@@ -1358,7 +1358,7 @@ class LowIRBuilderPass {
     return "int"
   }
 
-  ; The ANSI escape operators of CLIProgress. Each is a constant string; they
+  ; The ANSI escape operators of CLIConsole. Each is a constant string; they
   ; all carry a `*` template (the empty string), so they type checked here and
   ; then emitted their own name as a value. The escapes match the es6 and cpp
   ; templates rather than the empty fallback -- a native build writes to a

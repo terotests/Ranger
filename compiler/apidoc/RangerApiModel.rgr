@@ -1,0 +1,17 @@
+class RangerApiModel {
+  def moduleName:string ""
+  def version:string ""
+  def description:string ""
+  def classes:[RangerApiClass]
+  def warnings:[string]
+
+  fn publicClassCount:int () {
+    def n:int 0
+    for classes c:RangerApiClass i {
+      if c.is_public {
+        n = n + 1
+      }
+    }
+    return n
+  }
+}

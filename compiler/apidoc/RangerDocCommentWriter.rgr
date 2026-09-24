@@ -1,0 +1,1154 @@
+
+; Renders a doc block as the comment form of a target language.
+;
+; Everything that is not target syntax lives here once: the ordering of the
+; entries, the paragraph shape, and the type mapping. A language writer
+; implements only its own comment delimiters.
+class RangerDocCommentWriter {
+
+  ; Bodies of the `example`-named functions for the declaration being written,
+  ; already in this target's syntax. Set by the bridge before each render.
+  def exampleTexts:[string]
+
+  fn clearExamples:void () {
+    def empty:[string]
+    exampleTexts = empty
+  }
+
+  ; The function an `example` entry names, anywhere in the program. Answers a
+  ; descriptor with an empty name when there is none.
+  sfn lookupFn:RangerAppFunctionDesc (ctx:RangerAppWriterContext name:string) {
+    def root:RangerAppWriterContext (ctx.getRoot())
+    for root.definedClassList cname:string ci {
+      def cl:RangerAppClassDesc (unwrap (get root.definedClasses cname))
+      def m@(optional):RangerAppFunctionDesc (cl.findStaticMethod(name))
+      if ((null? m) == false) {
+        return (unwrap m)
+      }
+      def m2@(optional):RangerAppFunctionDesc (cl.findMethod(name))
+      if ((null? m2) == false) {
+        return (unwrap m2)
+      }
+    }
+    return (new RangerAppFunctionDesc)
+  }
+
+  ; Collects the rendered bodies for the declaration about to be written.
+  fn loadExamples:void (doc:RangerDocBlock ctx:RangerAppWriterContext) {
+    this.clearExamples()
+    for doc.exampleRefs name:string i {
+      def fd:RangerAppFunctionDesc (RangerDocCommentWriter.lookupFn(ctx name))
+      if ((strlen fd.docExampleText) > 0) {
+        push exampleTexts fd.docExampleText
+      }
+    }
+  }
+
+  ; The examples a doc block asks for: the literal strings it carries, then
+  ; the rendered bodies of the functions it names.
+  fn allExamples:[string] (doc:RangerDocBlock) {
+    def out:[string]
+    for doc.examples e:string i {
+      push out e
+    }
+    for exampleTexts t:string i {
+      push out t
+    }
+    return out
+  }
+
+  ; A Ranger type as JSDoc spells it. documentation.js and every other JSDoc
+  ; consumer expect JavaScript type names, not Ranger ones.
+  fn jsTypeName:string (t:string) {
+    def out:string t
+    switch t {
+      case "int" {
+        out = "number"
+      }
+      case "double" {
+        out = "number"
+      }
+      case "float" {
+        out = "number"
+      }
+      case "long" {
+        out = "number"
+      }
+      case "char" {
+        out = "number"
+      }
+      case "boolean" {
+        out = "boolean"
+      }
+      case "string" {
+        out = "string"
+      }
+      case "void" {
+        out = "void"
+      }
+      case "" {
+        out = "void"
+      }
+      default {
+        out = t
+      }
+    }
+    return out
+  }
+
+  fn jsTypeOf:string (node:CodeNode) {
+    def out:string ""
+    switch node.value_type {
+      case RangerNodeType.Array {
+        out = "Array<" + (this.jsTypeName(node.array_type)) + ">"
+      }
+      case RangerNodeType.Hash {
+        out = "Object<" + (this.jsTypeName(node.key_type)) + ", " + (this.jsTypeName(node.array_type)) + ">"
+      }
+      default {
+        out = (this.jsTypeName(node.type_name))
+      }
+    }
+    return out
+  }
+
+  ; C# XML documentation spells a type in its own names, and a generic in
+  ; angle brackets that have to be escaped when they appear in a cref.
+  fn csTypeName:string (t:string) {
+    def out:string t
+    switch t {
+      case "boolean" {
+        out = "bool"
+      }
+      case "void" {
+        out = "void"
+      }
+      case "" {
+        out = "void"
+      }
+      default {
+        out = t
+      }
+    }
+    return out
+  }
+
+  fn xmlEscape:string (value:string) {
+    def out:string ""
+    def i:int 0
+    def n:int (strlen value)
+    while (i < n) {
+      def piece:string (substring value i (i + 1))
+      ; Switch on the piece, not on its first code unit. Both read the same
+      ; on a slice of ASCII structure, and only this one keeps saying so when
+      ; the slice is part of a character the target counts in several units.
+      switch piece {
+        case "&" {
+          out = out + "&amp;"
+        }
+        case "<" {
+          out = out + "&lt;"
+        }
+        case ">" {
+          out = out + "&gt;"
+        }
+        default {
+          out = out + piece
+        }
+      }
+      i = i + 1
+    }
+    return out
+  }
+
+  ; Splits a description into lines so a multi-paragraph description does not
+  ; become one very long comment line.
+  fn linesOf:[string] (text:string) {
+    return (strsplit text "\n")
+  }
+
+  ; ---------------------------------------------------------------- JSDoc
+
+  fn writeJsDoc:void (doc:RangerDocBlock retType:string params:[RangerApiParam] wr:CodeWriter) {
+    this.writeJsDocTyped(doc retType params "" wr)
+  }
+
+  fn writeJsDocTyped:void (doc:RangerDocBlock retType:string params:[RangerApiParam] valueType:string wr:CodeWriter) {
+    wr.out("/**" true)
+    def descLines:[string] (this.linesOf(doc.description))
+    def wroteBody:boolean false
+    for descLines line:string i {
+      wr.out((" * " + line) true)
+      wroteBody = true
+    }
+    if (doc.is_experimental) {
+      if wroteBody {
+        wr.out(" *" true)
+      }
+      wr.out(" * **Experimental.** This API may change without notice." true)
+      wroteBody = true
+    }
+    if (doc.is_deprecated == false) {
+    } {
+      def dep:RangerDocDeprecation (unwrap doc.deprecation)
+      def msg:string dep.description
+      if ((strlen msg) == 0) {
+        if ((strlen dep.use) > 0) {
+          msg = "Use {@link " + dep.use + "} instead."
+        }
+      }
+      if ((strlen dep.since) > 0) {
+        msg = "Since " + dep.since + ". " + msg
+      }
+      wr.out((" * @deprecated " + msg) true)
+    }
+    if ((strlen valueType) > 0) {
+      wr.out((" * @type {" + valueType + "}") true)
+    }
+    for params p:RangerApiParam i {
+      def line:string (" * @param {" + p.typeName + "} " + p.compiledName)
+      if ((strlen p.description) > 0) {
+        line = line + " - " + p.description
+      }
+      wr.out(line true)
+    }
+    if (retType == "void") {
+    } {
+      def rline:string (" * @returns {" + retType + "}")
+      if ((strlen doc.returns) > 0) {
+        rline = rline + " " + doc.returns
+      }
+      wr.out(rline true)
+    }
+    for doc.throws t:string i {
+      wr.out((" * @throws {Error} " + t) true)
+    }
+    if ((strlen doc.since) > 0) {
+      wr.out((" * @since " + doc.since) true)
+    }
+    for doc.see s:string i {
+      wr.out((" * @see " + s) true)
+    }
+    for (this.allExamples(doc)) e:string i {
+      wr.out(" * @example" true)
+      def exLines:[string] (this.linesOf(e))
+      for exLines line:string j {
+        wr.out((" * " + line) true)
+      }
+    }
+    ; documentation.js hides @private by default and shows it under --private,
+    ; which is exactly the "documented but not API" state.
+    if doc.is_public {
+      wr.out(" * @public" true)
+    } {
+      wr.out(" * @private" true)
+    }
+    for doc.attrs a:string i {
+      wr.out((" * " + a) true)
+    }
+    wr.out(" */" true)
+  }
+
+  ; ------------------------------------------- C# XML documentation comments
+
+  fn writeXmlLines:void (tag:string attrs:string text:string wr:CodeWriter) {
+    def lines:[string] (this.linesOf(text))
+    def open:string ("/// <" + tag + attrs + ">")
+    if ((array_length lines) < 2) {
+      wr.out((open + (this.xmlEscape(text)) + "</" + tag + ">") true)
+      return
+    }
+    wr.out(open true)
+    for lines line:string i {
+      wr.out(("/// " + (this.xmlEscape(line))) true)
+    }
+    wr.out(("/// </" + tag + ">") true)
+  }
+
+  fn writeCsDoc:void (doc:RangerDocBlock retType:string params:[RangerApiParam] wr:CodeWriter) {
+    if ((strlen doc.description) > 0) {
+      this.writeXmlLines("summary" "" doc.description wr)
+    }
+    if (doc.is_experimental) {
+      this.writeXmlLines("remarks" "" "Experimental. This API may change without notice." wr)
+    }
+    for params p:RangerApiParam i {
+      def attrs:string (" name=\"" + p.compiledName + "\"")
+      this.writeXmlLines("param" attrs p.description wr)
+    }
+    if (retType == "void") {
+    } {
+      this.writeXmlLines("returns" "" doc.returns wr)
+    }
+    for doc.throws t:string i {
+      this.writeXmlLines("exception" " cref=\"System.Exception\"" t wr)
+    }
+    for doc.see s:string i {
+      wr.out(("/// <seealso cref=\"" + (this.xmlEscape(s)) + "\"/>") true)
+    }
+    for (this.allExamples(doc)) e:string i {
+      wr.out("/// <example><code>" true)
+      def exLines:[string] (this.linesOf(e))
+      for exLines line:string j {
+        wr.out(("/// " + (this.xmlEscape(line))) true)
+      }
+      wr.out("/// </code></example>" true)
+    }
+  }
+
+  ; [Obsolete] carries the message; the XML <summary> carries the prose. The
+  ; two are different things in .NET and both are needed.
+  fn writeCsAttrs:void (doc:RangerDocBlock wr:CodeWriter) {
+    if (doc.is_deprecated) {
+      def dep:RangerDocDeprecation (unwrap doc.deprecation)
+      def msg:string dep.description
+      if ((strlen msg) == 0) {
+        if ((strlen dep.use) > 0) {
+          msg = "Use " + dep.use + " instead."
+        }
+      }
+      wr.out(("[System.Obsolete(\"" + msg + "\")]") true)
+    }
+    for doc.attrs a:string i {
+      wr.out(a true)
+    }
+  }
+
+  ; ------------------------------------------- Swift / DocC markup comments
+  ;
+  ; DocC reads `- Parameter`, `- Parameters:`, `- Returns:` and `- Throws:`
+  ; sections out of `///` comments. `since` does NOT become `@available`:
+  ; that attribute is OS availability, not library version, and emitting it
+  ; would gate the symbol on a platform the author never mentioned.
+
+  fn swiftTypeName:string (t:string) {
+    def out:string t
+    switch t {
+      case "boolean" {
+        out = "Bool"
+      }
+      case "string" {
+        out = "String"
+      }
+      case "int" {
+        out = "Int"
+      }
+      case "double" {
+        out = "Double"
+      }
+      case "float" {
+        out = "Float"
+      }
+      case "void" {
+        out = "Void"
+      }
+      default {
+        out = t
+      }
+    }
+    return out
+  }
+
+  fn writeSwiftDoc:void (doc:RangerDocBlock retType:string params:[RangerApiParam] wr:CodeWriter) {
+    def wroteBody:boolean false
+    def descLines:[string] (this.linesOf(doc.description))
+    for descLines line:string i {
+      if ((strlen line) == 0) {
+        wr.out("///" true)
+      } {
+        wr.out(("/// " + line) true)
+      }
+      wroteBody = true
+    }
+    def documented:[RangerApiParam]
+    for params p:RangerApiParam i {
+      if ((strlen p.description) > 0) {
+        push documented p
+      }
+    }
+    def paramCount:int (array_length documented)
+    if (paramCount > 0) {
+      if wroteBody {
+        wr.out("///" true)
+      }
+      if (paramCount == 1) {
+        def only:RangerApiParam (itemAt documented 0)
+        wr.out(("/// - Parameter " + only.compiledName + ": " + only.description) true)
+      } {
+        wr.out("/// - Parameters:" true)
+        for documented p:RangerApiParam i {
+          wr.out(("///   - " + p.compiledName + ": " + p.description) true)
+        }
+      }
+      wroteBody = true
+    }
+    if ((strlen doc.returns) > 0) {
+      if (retType == "Void") {
+      } {
+        wr.out(("/// - Returns: " + doc.returns) true)
+        wroteBody = true
+      }
+    }
+    for doc.throws t:string i {
+      wr.out(("/// - Throws: " + t) true)
+      wroteBody = true
+    }
+    ; DocC renders `> Name: text` as a callout, which is where a library
+    ; version and a stability note belong
+    if ((strlen doc.since) > 0) {
+      if wroteBody {
+        wr.out("///" true)
+      }
+      wr.out(("/// > Since: " + doc.since) true)
+      wroteBody = true
+    }
+    if doc.is_experimental {
+      if wroteBody {
+        wr.out("///" true)
+      }
+      wr.out("/// > Experimental: This API may change without notice." true)
+      wroteBody = true
+    }
+    if ((array_length doc.see) > 0) {
+      if wroteBody {
+        wr.out("///" true)
+      }
+      for doc.see sname:string i {
+        wr.out(("/// See also: ``" + sname + "``") true)
+      }
+    }
+    for (this.allExamples(doc)) e:string i {
+      wr.out("///" true)
+      wr.out("/// ```swift" true)
+      def exLines:[string] (this.linesOf(e))
+      for exLines line:string j {
+        wr.out(("/// " + line) true)
+      }
+      wr.out("/// ```" true)
+    }
+  }
+
+  fn writeSwiftAttrs:void (doc:RangerDocBlock wr:CodeWriter) {
+    if doc.is_deprecated {
+      def dep:RangerDocDeprecation (unwrap doc.deprecation)
+      def attr:string "@available(*, deprecated"
+      if ((strlen dep.use) > 0) {
+        attr = attr + ", renamed: \"" + dep.use + "\""
+      }
+      def msg:string dep.description
+      if ((strlen msg) == 0) {
+        if ((strlen dep.since) > 0) {
+          msg = "Deprecated since " + dep.since + "."
+        }
+      } {
+        if ((strlen dep.since) > 0) {
+          msg = "Since " + dep.since + ". " + msg
+        }
+      }
+      if ((strlen msg) > 0) {
+        attr = attr + ", message: \"" + msg + "\""
+      }
+      attr = attr + ")"
+      wr.out(attr true)
+    }
+    for doc.attrs a:string i {
+      wr.out(a true)
+    }
+  }
+
+  ; ----------------------------------------------- Kotlin / KDoc comments
+  ;
+  ; KDoc spells the return tag `@return`, not `@returns`. Dokka reads these.
+
+  fn kotlinTypeName:string (t:string) {
+    def out:string t
+    switch t {
+      case "boolean" {
+        out = "Boolean"
+      }
+      case "string" {
+        out = "String"
+      }
+      case "int" {
+        out = "Int"
+      }
+      case "double" {
+        out = "Double"
+      }
+      case "float" {
+        out = "Float"
+      }
+      case "void" {
+        out = "Unit"
+      }
+      default {
+        out = t
+      }
+    }
+    return out
+  }
+
+  fn writeKotlinDoc:void (doc:RangerDocBlock retType:string params:[RangerApiParam] wr:CodeWriter) {
+    wr.out("/**" true)
+    def descLines:[string] (this.linesOf(doc.description))
+    def wroteBody:boolean false
+    for descLines line:string i {
+      if ((strlen line) == 0) {
+        wr.out(" *" true)
+      } {
+        wr.out((" * " + line) true)
+      }
+      wroteBody = true
+    }
+    if doc.is_experimental {
+      if wroteBody {
+        wr.out(" *" true)
+      }
+      wr.out(" * **Experimental.** This API may change without notice." true)
+      wroteBody = true
+    }
+    def wroteTag:boolean false
+    for params p:RangerApiParam i {
+      if ((strlen p.description) > 0) {
+        if (wroteBody && (wroteTag == false)) {
+          wr.out(" *" true)
+        }
+        wr.out((" * @param " + p.compiledName + " " + p.description) true)
+        wroteTag = true
+      }
+    }
+    if ((strlen doc.returns) > 0) {
+      if (retType == "Unit") {
+      } {
+        if (wroteBody && (wroteTag == false)) {
+          wr.out(" *" true)
+        }
+        wr.out((" * @return " + doc.returns) true)
+        wroteTag = true
+      }
+    }
+    for doc.throws t:string i {
+      wr.out((" * @throws Exception " + t) true)
+      wroteTag = true
+    }
+    if ((strlen doc.since) > 0) {
+      wr.out((" * @since " + doc.since) true)
+      wroteTag = true
+    }
+    for doc.see sname:string i {
+      wr.out((" * @see " + sname) true)
+      wroteTag = true
+    }
+    for (this.allExamples(doc)) e:string i {
+      wr.out(" *" true)
+      wr.out(" * ```kotlin" true)
+      def exLines:[string] (this.linesOf(e))
+      for exLines line:string j {
+        wr.out((" * " + line) true)
+      }
+      wr.out(" * ```" true)
+    }
+    wr.out(" */" true)
+  }
+
+  ; `replaceWith` is only ever built from the REPLACEMENT's own signature, so
+  ; a rename whose argument list differs never produces a wrong suggestion.
+  fn writeKotlinAttrs:void (doc:RangerDocBlock replaceWith:string wr:CodeWriter) {
+    if doc.is_deprecated {
+      def dep:RangerDocDeprecation (unwrap doc.deprecation)
+      def msg:string dep.description
+      if ((strlen msg) == 0) {
+        if ((strlen dep.use) > 0) {
+          msg = "Use " + dep.use + " instead."
+        }
+      }
+      if ((strlen dep.since) > 0) {
+        msg = "Since " + dep.since + ". " + msg
+      }
+      def attr:string ("@Deprecated(\"" + msg + "\"")
+      if ((strlen replaceWith) > 0) {
+        attr = attr + ", ReplaceWith(\"" + replaceWith + "\")"
+      }
+      attr = attr + ")"
+      wr.out(attr true)
+    }
+    for doc.attrs a:string i {
+      wr.out(a true)
+    }
+  }
+
+  ; ---------------------------------------------- Python / Google docstrings
+  ;
+  ; A docstring is not a comment: it goes INSIDE the def or class, as the first
+  ; statement, so the caller has to have opened the block and indented already.
+  ; Google style is used because sphinx.ext.napoleon, pdoc and mkdocstrings all
+  ; read it and it is the one that stays readable in the source.
+
+  fn pyTypeName:string (t:string) {
+    def out:string t
+    switch t {
+      case "boolean" {
+        out = "bool"
+      }
+      case "string" {
+        out = "str"
+      }
+      case "int" {
+        out = "int"
+      }
+      case "double" {
+        out = "float"
+      }
+      case "float" {
+        out = "float"
+      }
+      case "void" {
+        out = "None"
+      }
+      default {
+        out = t
+      }
+    }
+    return out
+  }
+
+  fn pyTypeOf:string (node:CodeNode) {
+    def out:string ""
+    switch node.value_type {
+      case RangerNodeType.Array {
+        out = "list[" + (this.pyTypeName(node.array_type)) + "]"
+      }
+      case RangerNodeType.Hash {
+        out = "dict[" + (this.pyTypeName(node.key_type)) + ", " + (this.pyTypeName(node.array_type)) + "]"
+      }
+      default {
+        out = (this.pyTypeName(node.type_name))
+      }
+    }
+    return out
+  }
+
+  fn writePyDoc:void (doc:RangerDocBlock retType:string params:[RangerApiParam] wr:CodeWriter) {
+    def descLines:[string] (this.linesOf(doc.description))
+    def first:string ""
+    if ((array_length descLines) > 0) {
+      first = (itemAt descLines 0)
+    }
+    ; PEP 257: the summary line sits on the same line as the opening quotes
+    wr.out(("\"\"\"" + first) true)
+    def li:int 1
+    def n:int (array_length descLines)
+    while (li < n) {
+      wr.out((itemAt descLines li) true)
+      li = li + 1
+    }
+    if doc.is_experimental {
+      wr.out("" true)
+      wr.out("Experimental. This API may change without notice." true)
+    }
+    if doc.is_deprecated {
+      def dep:RangerDocDeprecation (unwrap doc.deprecation)
+      def msg:string dep.description
+      if ((strlen msg) == 0) {
+        if ((strlen dep.use) > 0) {
+          msg = "Use " + dep.use + " instead."
+        }
+      }
+      wr.out("" true)
+      if ((strlen dep.since) > 0) {
+        wr.out((".. deprecated:: " + dep.since) true)
+      } {
+        wr.out(".. deprecated::" true)
+      }
+      if ((strlen msg) > 0) {
+        wr.out(("    " + msg) true)
+      }
+    }
+    def documented:[RangerApiParam]
+    for params p:RangerApiParam i {
+      if ((strlen p.description) > 0) {
+        push documented p
+      }
+    }
+    if ((array_length documented) > 0) {
+      wr.out("" true)
+      wr.out("Args:" true)
+      for documented p:RangerApiParam i {
+        wr.out(("    " + p.compiledName + " (" + p.typeName + "): " + p.description) true)
+      }
+    }
+    if ((strlen doc.returns) > 0) {
+      if (retType == "None") {
+      } {
+        wr.out("" true)
+        wr.out("Returns:" true)
+        wr.out(("    " + retType + ": " + doc.returns) true)
+      }
+    }
+    if ((array_length doc.throws) > 0) {
+      wr.out("" true)
+      wr.out("Raises:" true)
+      for doc.throws t:string i {
+        wr.out(("    Exception: " + t) true)
+      }
+    }
+    if ((strlen doc.since) > 0) {
+      wr.out("" true)
+      wr.out((".. versionadded:: " + doc.since) true)
+    }
+    if ((array_length doc.see) > 0) {
+      wr.out("" true)
+      wr.out("See Also:" true)
+      for doc.see sname:string i {
+        wr.out(("    " + sname) true)
+      }
+    }
+    for (this.allExamples(doc)) e:string i {
+      wr.out("" true)
+      wr.out("Example:" true)
+      def exLines:[string] (this.linesOf(e))
+      for exLines line:string j {
+        wr.out(("    " + line) true)
+      }
+    }
+    wr.out("\"\"\"" true)
+  }
+
+  ; ------------------------------------------------- Dart / dartdoc comments
+  ;
+  ; `///` with Markdown, and `[Symbol]` for a cross reference -- dartdoc
+  ; resolves those against the library, so they are real links.
+
+  fn dartTypeName:string (t:string) {
+    def out:string t
+    switch t {
+      case "boolean" {
+        out = "bool"
+      }
+      case "string" {
+        out = "String"
+      }
+      case "int" {
+        out = "int"
+      }
+      case "double" {
+        out = "double"
+      }
+      case "float" {
+        out = "double"
+      }
+      case "void" {
+        out = "void"
+      }
+      default {
+        out = t
+      }
+    }
+    return out
+  }
+
+  fn writeDartDoc:void (doc:RangerDocBlock retType:string params:[RangerApiParam] wr:CodeWriter) {
+    def descLines:[string] (this.linesOf(doc.description))
+    def wroteBody:boolean false
+    for descLines line:string i {
+      if ((strlen line) == 0) {
+        wr.out("///" true)
+      } {
+        wr.out(("/// " + line) true)
+      }
+      wroteBody = true
+    }
+    if doc.is_experimental {
+      if wroteBody {
+        wr.out("///" true)
+      }
+      wr.out("/// **Experimental.** This API may change without notice." true)
+      wroteBody = true
+    }
+    ; dartdoc has no @param tag: a parameter is documented in prose, with the
+    ; name in brackets so it resolves to the parameter
+    def documented:[RangerApiParam]
+    for params p:RangerApiParam i {
+      if ((strlen p.description) > 0) {
+        push documented p
+      }
+    }
+    if ((array_length documented) > 0) {
+      if wroteBody {
+        wr.out("///" true)
+      }
+      for documented p:RangerApiParam i {
+        wr.out(("/// [" + p.compiledName + "] " + p.description) true)
+      }
+      wroteBody = true
+    }
+    if ((strlen doc.returns) > 0) {
+      if (retType == "void") {
+      } {
+        if wroteBody {
+          wr.out("///" true)
+        }
+        wr.out(("/// Returns " + doc.returns) true)
+        wroteBody = true
+      }
+    }
+    for doc.throws t:string i {
+      wr.out(("/// Throws " + t) true)
+      wroteBody = true
+    }
+    if ((strlen doc.since) > 0) {
+      if wroteBody {
+        wr.out("///" true)
+      }
+      wr.out(("/// Since " + doc.since) true)
+      wroteBody = true
+    }
+    if ((array_length doc.see) > 0) {
+      if wroteBody {
+        wr.out("///" true)
+      }
+      for doc.see sname:string i {
+        wr.out(("/// See also [" + sname + "]." ) true)
+      }
+    }
+    for (this.allExamples(doc)) e:string i {
+      wr.out("///" true)
+      wr.out("/// ```dart" true)
+      def exLines:[string] (this.linesOf(e))
+      for exLines line:string j {
+        wr.out(("/// " + line) true)
+      }
+      wr.out("/// ```" true)
+    }
+  }
+
+  fn writeDartAttrs:void (doc:RangerDocBlock wr:CodeWriter) {
+    if doc.is_deprecated {
+      def dep:RangerDocDeprecation (unwrap doc.deprecation)
+      def msg:string dep.description
+      if ((strlen msg) == 0) {
+        if ((strlen dep.use) > 0) {
+          msg = "Use " + dep.use + " instead."
+        }
+      }
+      if ((strlen dep.since) > 0) {
+        msg = "Since " + dep.since + ". " + msg
+      }
+      wr.out(("@Deprecated('" + msg + "')") true)
+    }
+    for doc.attrs a:string i {
+      wr.out(a true)
+    }
+  }
+
+  ; ------------------------------------------------ descriptor convenience
+  ;
+  ; A language writer holds a RangerAppFunctionDesc, not an ApiIR method, so
+  ; these do the small translation once instead of in every writer.
+
+  fn paramsOf:[RangerApiParam] (fd:RangerAppFunctionDesc doc:RangerDocBlock forJs:boolean) {
+    def out:[RangerApiParam]
+    for fd.params p:RangerAppParamDesc i {
+      def ap:RangerApiParam (new RangerApiParam)
+      ap.name = p.name
+      ap.compiledName = p.compiledName
+      def pn:CodeNode (unwrap p.nameNode)
+      if forJs {
+        ap.typeName = (this.jsTypeOf(pn))
+      } {
+        ap.typeName = (this.csTypeName(pn.type_name))
+      }
+      ap.description = (doc.paramText(p.name))
+      push out ap
+    }
+    return out
+  }
+
+  fn writeJsDocForMethod:void (fd:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    if (fd.has_doc == false) {
+      return
+    }
+    def doc:RangerDocBlock (unwrap fd.docBlock)
+    def view:RangerDocBlock (doc.viewFor("es6"))
+    this.loadExamples(view ctx)
+    def ps:[RangerApiParam] (this.paramsOf(fd view true))
+    def rn:CodeNode (unwrap fd.nameNode)
+    def rt:string (this.jsTypeOf(rn))
+    this.writeJsDoc(view rt ps wr)
+  }
+
+  fn writeCsDocForMethod:void (fd:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    if (fd.has_doc == false) {
+      return
+    }
+    def doc:RangerDocBlock (unwrap fd.docBlock)
+    def view:RangerDocBlock (doc.viewFor("csharp"))
+    this.loadExamples(view ctx)
+    def ps:[RangerApiParam] (this.paramsOf(fd view false))
+    def rn:CodeNode (unwrap fd.nameNode)
+    def rt:string (this.csTypeName(rn.type_name))
+    this.writeCsDoc(view rt ps wr)
+    this.writeCsAttrs(view wr)
+  }
+
+  fn writeJsDocForClass:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    if (cl.has_doc == false) {
+      return
+    }
+    def doc:RangerDocBlock (unwrap cl.docBlock)
+    def view:RangerDocBlock (doc.viewFor("es6"))
+    this.loadExamples(view ctx)
+    def ps:[RangerApiParam]
+    this.writeJsDoc(view "void" ps wr)
+  }
+
+  fn writeCsDocForClass:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    if (cl.has_doc == false) {
+      return
+    }
+    def doc:RangerDocBlock (unwrap cl.docBlock)
+    def view:RangerDocBlock (doc.viewFor("csharp"))
+    this.loadExamples(view ctx)
+    def ps:[RangerApiParam]
+    this.writeCsDoc(view "void" ps wr)
+    this.writeCsAttrs(view wr)
+  }
+
+  fn writeSwiftDocForMethod:void (fd:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    if (fd.has_doc == false) {
+      return
+    }
+    def doc:RangerDocBlock (unwrap fd.docBlock)
+    def view:RangerDocBlock (doc.viewFor("swift6"))
+    this.loadExamples(view ctx)
+    def ps:[RangerApiParam] (this.paramsOf(fd view false))
+    def rn:CodeNode (unwrap fd.nameNode)
+    def rt:string (this.swiftTypeName(rn.type_name))
+    this.writeSwiftDoc(view rt ps wr)
+    this.writeSwiftAttrs(view wr)
+  }
+
+  fn writeSwiftDocForClass:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    if (cl.has_doc == false) {
+      return
+    }
+    def doc:RangerDocBlock (unwrap cl.docBlock)
+    def view:RangerDocBlock (doc.viewFor("swift6"))
+    this.loadExamples(view ctx)
+    def ps:[RangerApiParam]
+    this.writeSwiftDoc(view "Void" ps wr)
+    this.writeSwiftAttrs(view wr)
+  }
+
+  fn writeSwiftDocForField:void (p:RangerAppParamDesc wr:CodeWriter) {
+    this.clearExamples()
+    if (p.has_doc == false) {
+      return
+    }
+    def doc:RangerDocBlock (unwrap p.docBlock)
+    def view:RangerDocBlock (doc.viewFor("swift6"))
+    def ps:[RangerApiParam]
+    this.writeSwiftDoc(view "Void" ps wr)
+    this.writeSwiftAttrs(view wr)
+  }
+
+  ; The ReplaceWith argument list comes from the REPLACEMENT's own signature,
+  ; looked up in the class that declares it. If there is no such method the
+  ; hint is left out rather than guessed.
+  fn kotlinReplaceWith:string (cl:RangerAppClassDesc doc:RangerDocBlock) {
+    if (doc.is_deprecated == false) {
+      return ""
+    }
+    def dep:RangerDocDeprecation (unwrap doc.deprecation)
+    if ((strlen dep.use) == 0) {
+      return ""
+    }
+    def target@(optional):RangerAppFunctionDesc (cl.findMethod(dep.use))
+    if (null? target) {
+      return ""
+    }
+    def t:RangerAppFunctionDesc (unwrap target)
+    def out:string (dep.use + "(")
+    for t.params p:RangerAppParamDesc i {
+      if (i > 0) {
+        out = out + ", "
+      }
+      out = out + p.compiledName
+    }
+    return (out + ")")
+  }
+
+  fn writeKotlinDocForMethod:void (cl:RangerAppClassDesc fd:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    if (fd.has_doc == false) {
+      return
+    }
+    def doc:RangerDocBlock (unwrap fd.docBlock)
+    def view:RangerDocBlock (doc.viewFor("kotlin"))
+    this.loadExamples(view ctx)
+    def ps:[RangerApiParam] (this.paramsOf(fd view false))
+    def rn:CodeNode (unwrap fd.nameNode)
+    def rt:string (this.kotlinTypeName(rn.type_name))
+    this.writeKotlinDoc(view rt ps wr)
+    this.writeKotlinAttrs(view (this.kotlinReplaceWith(cl view)) wr)
+  }
+
+  fn writeKotlinDocForClass:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    if (cl.has_doc == false) {
+      return
+    }
+    def doc:RangerDocBlock (unwrap cl.docBlock)
+    def view:RangerDocBlock (doc.viewFor("kotlin"))
+    this.loadExamples(view ctx)
+    def ps:[RangerApiParam]
+    this.writeKotlinDoc(view "Unit" ps wr)
+    this.writeKotlinAttrs(view "" wr)
+  }
+
+  fn writeKotlinDocForField:void (p:RangerAppParamDesc wr:CodeWriter) {
+    this.clearExamples()
+    if (p.has_doc == false) {
+      return
+    }
+    def doc:RangerDocBlock (unwrap p.docBlock)
+    def view:RangerDocBlock (doc.viewFor("kotlin"))
+    def ps:[RangerApiParam]
+    this.writeKotlinDoc(view "Unit" ps wr)
+    this.writeKotlinAttrs(view "" wr)
+  }
+
+  fn writePyDocForMethod:void (fd:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    if (fd.has_doc == false) {
+      return
+    }
+    def doc:RangerDocBlock (unwrap fd.docBlock)
+    def view:RangerDocBlock (doc.viewFor("python"))
+    this.loadExamples(view ctx)
+    def ps:[RangerApiParam] (this.paramsOf(fd view false))
+    ; the Ranger type names have to become Python ones for the Args: block
+    for ps p:RangerApiParam i {
+      p.typeName = (this.pyTypeName(p.typeName))
+    }
+    def rn:CodeNode (unwrap fd.nameNode)
+    def rt:string (this.pyTypeOf(rn))
+    this.writePyDoc(view rt ps wr)
+  }
+
+  fn writePyDocForClass:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    if (cl.has_doc == false) {
+      return
+    }
+    def doc:RangerDocBlock (unwrap cl.docBlock)
+    def view:RangerDocBlock (doc.viewFor("python"))
+    this.loadExamples(view ctx)
+    def ps:[RangerApiParam]
+    this.writePyDoc(view "None" ps wr)
+  }
+
+  fn writeDartDocForMethod:void (fd:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    if (fd.has_doc == false) {
+      return
+    }
+    def doc:RangerDocBlock (unwrap fd.docBlock)
+    def view:RangerDocBlock (doc.viewFor("dart"))
+    this.loadExamples(view ctx)
+    def ps:[RangerApiParam] (this.paramsOf(fd view false))
+    def rn:CodeNode (unwrap fd.nameNode)
+    def rt:string (this.dartTypeName(rn.type_name))
+    this.writeDartDoc(view rt ps wr)
+    this.writeDartAttrs(view wr)
+  }
+
+  fn writeDartDocForClass:void (cl:RangerAppClassDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    if (cl.has_doc == false) {
+      return
+    }
+    def doc:RangerDocBlock (unwrap cl.docBlock)
+    def view:RangerDocBlock (doc.viewFor("dart"))
+    this.loadExamples(view ctx)
+    def ps:[RangerApiParam]
+    this.writeDartDoc(view "void" ps wr)
+    this.writeDartAttrs(view wr)
+  }
+
+  fn writeDartDocForField:void (p:RangerAppParamDesc wr:CodeWriter) {
+    this.clearExamples()
+    if (p.has_doc == false) {
+      return
+    }
+    def doc:RangerDocBlock (unwrap p.docBlock)
+    def view:RangerDocBlock (doc.viewFor("dart"))
+    def ps:[RangerApiParam]
+    this.writeDartDoc(view "void" ps wr)
+    this.writeDartAttrs(view wr)
+  }
+
+  ; The visibility modifier for a declaration, from its doc block.
+  ;
+  ; The gate is always the CLASS: a class with no doc block is not opted into
+  ; the API model at all and gets `whenLegacy` -- whatever the target wrote
+  ; before this feature existed, so no existing program changes. That value is
+  ; NOT the same as `whenPublic`: C# wrote `public ` on everything and Swift
+  ; and Kotlin wrote nothing, and reusing the public form for the legacy case
+  ; silently made every undocumented Swift class part of the module's API.
+  ;
+  ; `whenPublic` and `whenInternal` also differ per target because the language
+  ; defaults do: Swift and C# default to internal, Kotlin defaults to public.
+  fn memberVisibility:string (cl:RangerAppClassDesc member:RangerAppParamDesc whenLegacy:string whenPublic:string whenInternal:string) {
+    if (cl.has_doc == false) {
+      return whenLegacy
+    }
+    if (member.has_doc == false) {
+      return whenInternal
+    }
+    def md@(optional):RangerDocBlock member.docBlock
+    if (null? md) {
+      return whenInternal
+    }
+    def doc:RangerDocBlock (unwrap md)
+    if doc.is_public {
+      return whenPublic
+    }
+    return whenInternal
+  }
+
+  fn classVisibility:string (cl:RangerAppClassDesc whenLegacy:string whenPublic:string whenInternal:string) {
+    if (cl.has_doc == false) {
+      return whenLegacy
+    }
+    def cd@(optional):RangerDocBlock cl.docBlock
+    if (null? cd) {
+      return whenInternal
+    }
+    def doc:RangerDocBlock (unwrap cd)
+    if doc.is_public {
+      return whenPublic
+    }
+    return whenInternal
+  }
+
+  fn writeJsDocForField:void (p:RangerAppParamDesc wr:CodeWriter) {
+    this.clearExamples()
+    if (p.has_doc == false) {
+      return
+    }
+    def doc:RangerDocBlock (unwrap p.docBlock)
+    def view:RangerDocBlock (doc.viewFor("es6"))
+    def ps:[RangerApiParam]
+    def pn:CodeNode (unwrap p.nameNode)
+    ; the type is the compiler's, never the author's: PLAN_API_DOCS.md §3
+    this.writeJsDocTyped(view "void" ps (this.jsTypeOf(pn)) wr)
+  }
+
+  fn writeCsDocForField:void (p:RangerAppParamDesc wr:CodeWriter) {
+    this.clearExamples()
+    if (p.has_doc == false) {
+      return
+    }
+    def doc:RangerDocBlock (unwrap p.docBlock)
+    def view:RangerDocBlock (doc.viewFor("csharp"))
+    def ps:[RangerApiParam]
+    this.writeCsDoc(view "void" ps wr)
+    this.writeCsAttrs(view wr)
+  }
+}
+

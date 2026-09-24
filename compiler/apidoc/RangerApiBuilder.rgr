@@ -1,0 +1,353 @@
+; Builds the model out of the class registry and validates every doc block
+; against the signature it documents.
+class RangerApiBuilder {
+
+  def strict:boolean false
+  ; the classes this program declares, split by whether they are API. Filled
+  ; in a first pass so the leak check can look forward as well as back.
+  def publicClassNames:[string:boolean]
+  def internalClassNames:[string:boolean]
+  ; every declaration named by an `example` entry, in declaration order
+  def exampleFns@(weak):[RangerAppFunctionDesc]
+
+  fn typeNameOf:string (node:CodeNode) {
+    def base:string ""
+    switch node.value_type {
+      case RangerNodeType.Array {
+        base = "[" + node.array_type + "]"
+      }
+      case RangerNodeType.Hash {
+        base = "[" + node.key_type + ":" + node.array_type + "]"
+      }
+      default {
+        base = node.type_name
+      }
+    }
+    if ((strlen base) == 0) {
+      base = "void"
+    }
+    if (node.hasFlag("optional")) {
+      base = base + "?"
+    }
+    return base
+  }
+
+  ; Reads the doc tail off a declaration node, if it has one.
+  fn readDocOf:RangerDocBlock (node:CodeNode ctx:RangerAppWriterContext) {
+    def reader:RangerDocReader (new RangerDocReader)
+    def blockNode:CodeNode (unwrap node.docNode)
+    return (reader.read(blockNode ctx))
+  }
+
+  fn warn:void (model:RangerApiModel ctx:RangerAppWriterContext node:CodeNode msg:string) {
+    if strict {
+      ctx.addError(node msg)
+    } {
+      push model.warnings msg
+    }
+  }
+
+  ; Every param line must name a real parameter, no parameter may be
+  ; documented twice, and a void function may not document a return value.
+  ; These are the checks a comment-based system can not make.
+  fn validateMethod:void (model:RangerApiModel m:RangerApiMethod ctx:RangerAppWriterContext) {
+    if (m.has_doc == false) {
+      return
+    }
+    def docOpt@(optional):RangerDocBlock m.doc
+    if (null? docOpt) {
+      return
+    }
+    def doc:RangerDocBlock (unwrap docOpt)
+    def seen:[string:boolean]
+    for doc.params dp:RangerDocParam i {
+      def found:boolean false
+      for m.params p:RangerApiParam j {
+        if (p.name == dp.name) {
+          found = true
+        }
+      }
+      if (found == false) {
+        ctx.addError((unwrap dp.node) ("`param " + dp.name + "` does not name a parameter of `" + m.name + "`"))
+      }
+      if (has seen dp.name) {
+        ctx.addError((unwrap dp.node) ("parameter `" + dp.name + "` is documented twice"))
+      }
+      set seen dp.name true
+    }
+    if ((strlen doc.returns) > 0) {
+      if (m.returnType == "void") {
+        ctx.addError((unwrap m.node) ("`returns` on `" + m.name + "`, which returns void"))
+      }
+    }
+    if (m.is_public) {
+      if ((strlen doc.description) == 0) {
+        this.warn(model ctx (unwrap m.node) ("public `" + m.name + "` has no description"))
+      }
+      for m.params p:RangerApiParam j {
+        if ((doc.hasParamDoc(p.name)) == false) {
+          this.warn(model ctx (unwrap m.node) ("public `" + m.name + "` does not document parameter `" + p.name + "`"))
+        }
+      }
+    }
+  }
+
+  ; Every type name a declaration mentions: the type itself plus the element
+  ; and key types of a collection.
+  fn typeNamesOf:[string] (node:CodeNode) {
+    def out:[string]
+    switch node.value_type {
+      case RangerNodeType.Array {
+        push out node.array_type
+      }
+      case RangerNodeType.Hash {
+        push out node.key_type
+        push out node.array_type
+      }
+      default {
+        push out node.type_name
+      }
+    }
+    return out
+  }
+
+  ; A public declaration may not expose a type that is not itself public.
+  ; Rust rejects this (E0446) and so does Swift; the other targets accept it
+  ; and produce an API nobody outside the module can call. Checked once here,
+  ; for every target, before any of them is written.
+  fn checkNoLeak:void (ctx:RangerAppWriterContext node:CodeNode what:string role:string typeNode:CodeNode) {
+    def names:[string] (this.typeNamesOf(typeNode))
+    for names tn:string i {
+      if ((strlen tn) == 0) {
+        continue
+      }
+      if ((has publicClassNames tn) == false) {
+        if (has internalClassNames tn) {
+          ctx.addError(node ("public " + what + " " + role + " the internal type `" + tn + "`. Add `public` to its doc block, or make " + what + " internal."))
+        }
+      }
+    }
+  }
+
+  fn buildMethod:RangerApiMethod (fd:RangerAppFunctionDesc ctx:RangerAppWriterContext isStatic:boolean) {
+    def m:RangerApiMethod (new RangerApiMethod)
+    m.name = fd.name
+    m.compiledName = fd.compiledName
+    m.is_static = isStatic
+    m.node = fd.node
+    def nn:CodeNode (unwrap fd.nameNode)
+    m.returnType = (this.typeNameOf(nn))
+    for fd.params p:RangerAppParamDesc i {
+      def ap:RangerApiParam (new RangerApiParam)
+      ap.name = p.name
+      ap.compiledName = p.compiledName
+      def pn:CodeNode (unwrap p.nameNode)
+      ap.typeName = (this.typeNameOf(pn))
+      push m.params ap
+    }
+    def dn:CodeNode (unwrap fd.node)
+    if (dn.has_doc_tail) {
+      m.doc = (this.readDocOf(dn ctx))
+      def doc:RangerDocBlock (unwrap m.doc)
+      m.has_doc = true
+      m.is_public = doc.is_public
+      m.returnDoc = doc.returns
+      fd.has_doc = true
+      fd.docBlock = doc
+      if ((strlen doc.description) > 0) {
+        fd.git_doc = doc.description
+      }
+      for m.params ap:RangerApiParam j {
+        ap.description = (doc.paramText(ap.name))
+      }
+    }
+    return m
+  }
+
+  fn checkMethodLeaks:void (m:RangerApiMethod fd:RangerAppFunctionDesc ctx:RangerAppWriterContext) {
+    if (m.is_public == false) {
+      return
+    }
+    def node:CodeNode (unwrap fd.nameNode)
+    def what:string ("method `" + m.name + "`")
+    this.checkNoLeak(ctx node what "returns" node)
+    for fd.params p:RangerAppParamDesc i {
+      def pn:CodeNode (unwrap p.nameNode)
+      this.checkNoLeak(ctx node what ("takes parameter `" + p.name + "` of") pn)
+    }
+  }
+
+  fn build:RangerApiModel (ctx:RangerAppWriterContext) {
+    def model:RangerApiModel (new RangerApiModel)
+    strict = (ctx.hasCompilerFlag("apistrict"))
+    if (ctx.hasCompilerSetting("name")) {
+      model.moduleName = (ctx.getCompilerSetting("name"))
+    }
+    if (ctx.hasCompilerSetting("version")) {
+      model.version = (ctx.getCompilerSetting("version"))
+    }
+    if (ctx.hasCompilerSetting("description")) {
+      model.description = (ctx.getCompilerSetting("description"))
+    }
+    def root:RangerAppWriterContext (ctx.getRoot())
+    ; pass one: which declared classes are API. A method can name a class the
+    ; registry lists after it, so the answer has to exist before the check.
+    for root.definedClassList cname:string pi {
+      def pcl:RangerAppClassDesc (unwrap (get root.definedClasses cname))
+      if ((pcl.isNormalClass()) == false) {
+        continue
+      }
+      if pcl.is_template {
+        continue
+      }
+      def pnode@(optional):CodeNode pcl.classNode
+      def isApi:boolean false
+      if ((null? pnode) == false) {
+        def pn:CodeNode (unwrap pnode)
+        if pn.has_doc_tail {
+          def pdoc:RangerDocBlock (this.readDocOf(pn ctx))
+          isApi = pdoc.is_public
+        }
+      }
+      if isApi {
+        set publicClassNames pcl.name true
+      } {
+        set internalClassNames pcl.name true
+      }
+    }
+    for root.definedClassList cname:string ci {
+      def cl:RangerAppClassDesc (unwrap (get root.definedClasses cname))
+      if (cl.is_system) {
+        continue
+      }
+      if (cl.is_template) {
+        continue
+      }
+      if ((cl.isNormalClass()) == false) {
+        continue
+      }
+      def ac:RangerApiClass (new RangerApiClass)
+      ac.name = cl.name
+      ac.compiledName = cl.compiledName
+      if (cl.is_record) {
+        ac.kind = "record"
+      }
+      for cl.extends_classes en:string ei {
+        ac.extendsName = en
+      }
+      def cnode@(optional):CodeNode cl.classNode
+      if ((null? cnode) == false) {
+        def cn:CodeNode (unwrap cnode)
+        ac.node = cn
+        if (cn.has_doc_tail) {
+          ac.doc = (this.readDocOf(cn ctx))
+          def doc:RangerDocBlock (unwrap ac.doc)
+          ac.has_doc = true
+          ac.is_public = doc.is_public
+          cl.has_doc = true
+          cl.docBlock = doc
+        }
+      }
+      for cl.variables v:RangerAppParamDesc vi {
+        def af:RangerApiField (new RangerApiField)
+        af.name = v.name
+        af.compiledName = v.compiledName
+        af.is_static = v.is_static
+        def vn:CodeNode (unwrap v.nameNode)
+        af.typeName = (this.typeNameOf(vn))
+        def vnode@(optional):CodeNode v.node
+        if ((null? vnode) == false) {
+          def vd:CodeNode (unwrap vnode)
+          if (vd.has_doc_tail) {
+            af.doc = (this.readDocOf(vd ctx))
+            def doc:RangerDocBlock (unwrap af.doc)
+            af.has_doc = true
+            af.is_public = doc.is_public
+            v.has_doc = true
+            v.docBlock = doc
+          }
+        }
+        if af.is_public {
+          def fnode:CodeNode (unwrap v.nameNode)
+          this.checkNoLeak(ctx fnode ("field `" + af.name + "`") "is" fnode)
+        }
+        push ac.fields af
+      }
+      for cl.methods fd:RangerAppFunctionDesc mi {
+        def m:RangerApiMethod (this.buildMethod(fd ctx false))
+        this.validateMethod(model m ctx)
+        this.checkMethodLeaks(m fd ctx)
+        push ac.methods m
+      }
+      for cl.static_methods fd:RangerAppFunctionDesc si {
+        def m:RangerApiMethod (this.buildMethod(fd ctx true))
+        this.validateMethod(model m ctx)
+        this.checkMethodLeaks(m fd ctx)
+        push ac.methods m
+      }
+      ; A member may not be public when the class that holds it is not:
+      ; every target would emit an API nobody outside the module can reach.
+      if (ac.is_public == false) {
+        if (ac.hasPublicMember()) {
+          ctx.addError((unwrap ac.node) ("class `" + ac.name + "` has public members but is not itself public. Add `public` to its doc block."))
+        }
+      }
+      push model.classes ac
+    }
+    ; The example references are resolved LAST, when every class is in the
+    ; registry: an example usually lives beside the API it demonstrates, but
+    ; nothing says it has to, and a forward reference is the normal case when
+    ; the examples are gathered into one class of their own.
+    this.resolveExamples(model ctx)
+    return model
+  }
+
+  ; Finds the function an `example` entry names, anywhere in the program, and
+  ; marks it. A name that resolves to nothing is an error: a doc block that
+  ; points at a function somebody deleted would otherwise render an empty
+  ; block, which is worse than not having an example at all.
+  fn findExampleFn:RangerAppFunctionDesc (ctx:RangerAppWriterContext name:string) {
+    return (RangerDocCommentWriter.lookupFn(ctx name))
+  }
+
+  fn markExamplesOf:void (doc:RangerDocBlock owner:CodeNode ctx:RangerAppWriterContext) {
+    for doc.exampleRefs name:string i {
+      def fd:RangerAppFunctionDesc (this.findExampleFn(ctx name))
+      if ((strlen fd.name) == 0) {
+        ctx.addError(owner ("`example " + name + "` names no function in this program"))
+        continue
+      }
+      fd.is_doc_example = true
+      def seen:boolean false
+      for exampleFns known:RangerAppFunctionDesc k {
+        if (known.name == fd.name) {
+          seen = true
+        }
+      }
+      if (seen == false) {
+        push exampleFns fd
+      }
+    }
+  }
+
+  fn resolveExamples:void (model:RangerApiModel ctx:RangerAppWriterContext) {
+    for model.classes c:RangerApiClass ci {
+      if c.has_doc {
+        def cdoc:RangerDocBlock (unwrap c.doc)
+        this.markExamplesOf(cdoc (unwrap c.node) ctx)
+      }
+      for c.methods m:RangerApiMethod mi {
+        if m.has_doc {
+          def mdoc:RangerDocBlock (unwrap m.doc)
+          this.markExamplesOf(mdoc (unwrap m.node) ctx)
+        }
+      }
+      for c.fields f:RangerApiField fi {
+        if f.has_doc {
+          def fdoc:RangerDocBlock (unwrap f.doc)
+          this.markExamplesOf(fdoc (unwrap c.node) ctx)
+        }
+      }
+    }
+  }
+}
