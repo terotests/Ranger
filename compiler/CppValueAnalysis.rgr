@@ -31,7 +31,7 @@
 Import "RangerAppParamDesc.rgr"
 Import "RangerAppFunctionDesc.rgr"
 Import "RangerAppClassDesc.rgr"
-Import "CodeNode.rgr"
+Import "./ast/CodeNode.rgr"
 Import "RangerAppWriterContext.rgr"
 
 class CppValueClassAnalysis {

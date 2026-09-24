@@ -1,0 +1,60 @@
+class SourceCode {
+    def code:string ""
+    def lines:[string]
+    def filename:string ""
+    Constructor (code_str:string ) {
+      this.code = code_str
+        lines = (strsplit this.code "\n")
+    }
+    
+    fn getLineString:string (line_index:int) {
+        if (> (array_length lines) line_index) {
+            return (itemAt lines line_index)
+        }
+        return ""
+    }                
+    ; `sp` is a position the parser produced by indexing `code`, so these
+    ; three walk the same units it counted in. That is deliberate: the answer
+    ; has to line up with `sp`, not with a count of characters, and `@(units)`
+    ; says so out loud. docs/plans/PLAN_STRING_INDEXING.md 3.3.
+    fn getLine@(units):int (sp:int) {
+        def cnt:int 0
+        for lines str:string i {
+            cnt = (+ cnt (+ (strlen str) 1)))
+            if (> cnt sp) {
+              return i
+            } 
+        }
+        return -1
+    } 
+    fn getColumnStr@(units):string (sp:int) {
+        def cnt:int 0
+        def last_col:int 0
+        for lines str:string i {
+            cnt = (+ cnt (+ (strlen str) 1)))
+            if (> cnt sp) {
+              def ll:int (sp - last_col)
+              def ss:string ""
+              while (ll > 0) {
+                ss = ss + " "
+                ll = ll - 1
+              }
+              return ss
+            } 
+            last_col = cnt
+        }
+        return ""
+    } 
+    fn getColumn@(units):int (sp:int) {
+        def cnt:int 0
+        def last_col:int 0
+        for lines str:string i {
+            cnt = (+ cnt (+ (strlen str) 1)))
+            if (> cnt sp) {
+              return (sp - last_col)
+            } 
+            last_col = cnt
+        }
+        return -1
+    } 
+}

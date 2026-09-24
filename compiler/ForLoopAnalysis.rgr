@@ -32,7 +32,7 @@
 ; target's own copy semantics, not about the loop.
 
 Import "RangerAppParamDesc.rgr"
-Import "CodeNode.rgr"
+Import "./ast/CodeNode.rgr"
 
 class ForLoopShape {
 

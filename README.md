@@ -603,7 +603,7 @@ Create file `hello.rgr`
 
 ```
 class Hello {
-    sfn m@(main):void () {
+    sfn main () {
         print "Hello World"
     }
 }

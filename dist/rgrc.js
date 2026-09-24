@@ -4262,33 +4262,6 @@ class SourceCode  {
     return -1;
   };
 }
-class CodeNodeLiteral  {
-  constructor() {
-    this.expression = false;     /* note: unused */
-    this.vref = "";     /* note: unused */
-    this.is_block_node = false;     /* note: unused */
-    this.type_name = "";     /* note: unused */
-    this.key_type = "";     /* note: unused */
-    this.array_type = "";     /* note: unused */
-    this.ns = [];     /* note: unused */
-    this.has_vref_annotation = false;     /* note: unused */
-    this.vref_annotation = undefined;     /* note: unused */
-    this.has_type_annotation = false;     /* note: unused */
-    this.type_annotation = undefined;     /* note: unused */
-    this.parsed_type = 0;     /* note: unused */
-    this.value_type = 0;     /* note: unused */
-    this.double_value = 0.0;     /* note: unused */
-    this.string_value = "";     /* note: unused */
-    this.int_value = 0;     /* note: unused */
-    this.boolean_value = false;     /* note: unused */
-    this.expression_value = undefined;     /* note: unused */
-    this.props = {};     /* note: unused */
-    this.prop_keys = [];     /* note: unused */
-    this.comments = [];     /* note: unused */
-    this.children = [];     /* note: unused */
-    this.attrs = [];     /* note: unused */
-  }
-}
 class CodeNode  {
   constructor(source, start, end) {
     this.code = undefined;
@@ -31600,7 +31573,6 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
         this.writeCppHeaderVar(pvar_1.node, ctx, wr, false);
       }
     }
-    wr.out("/* class constructor */ ", true);
     wr.out(cl.name + "(", false);
     if ( cl.has_constructor ) {
       const constr = cl.constructor_fn;
@@ -31608,11 +31580,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     }
     wr.out(" );", true);
     // Loop start
-    for ( let i_3 = 0; i_3 < cl.static_methods.length; i_3++) {
-      var variant = cl.static_methods[i_3];
-      if ( i_3 == 0 ) {
-        wr.out("/* static methods */ ", true);
-      }
+    for ( const variant of cl.static_methods) {
       wr.out("static ", false);
       this.writeReturnTypeDef(variant, ctx, wr);
       wr.out((" " + variant.compiledName) + "(", false);
@@ -31631,9 +31599,6 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     // Loop start
     for ( let i_4 = 0; i_4 < cl.defined_variants.length; i_4++) {
       var fnVar = cl.defined_variants[i_4];
-      if ( i_4 == 0 ) {
-        wr.out("/* instance methods */ ", true);
-      }
       const mVs = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar) ? cl.method_variants[fnVar] : undefined );
       // Loop start
       for ( const variant_1 of mVs.variants) {
