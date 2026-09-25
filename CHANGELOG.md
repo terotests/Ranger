@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **Erazer moved to its own repository,
+  [terotests/Erazer](https://github.com/terotests/Erazer).** `gallery/erazer`,
+  its `erazer*` npm scripts, the CI layout-lab step, and the `/evg/erazer/`
+  page and its checks in the Pages deploy are gone from this repository.
+
 ### Added
 
 - **Native generic classes.** A `class History @params(Op)` whose body only

@@ -1142,10 +1142,9 @@ and the difference is what these are for.
 `html/`, `gl/`, `android/`, `apple/`, `showcase/`, `web/tracer/`,
 `web/responsive/`, `tools/`.
 
-The UI counterpart of the bitmap tracer lives one directory up as
-[`gallery/erazer`](../../gallery/erazer/README.md): a screenshot in, a nested EVG layout
-out, with widget guesses (button, field, tab, menu, checkbox, icon) instead
-of photographic paths. `npm run erazer:web:serve` is the live page.
+The UI counterpart of the bitmap tracer, Erazer (a screenshot in, a nested
+EVG layout out), lives in its own repository:
+[terotests/Erazer](https://github.com/terotests/Erazer).
 
 ---
 
@@ -1185,7 +1184,6 @@ npm run evg:blur:oracle
 npm run showcase                # the gallery -> showcase/dist/index.html
 npm run evg:responsive:web:serve   # the live responsive page
 npm run evg:trace:web:serve        # the live bitmap tracer
-npm run erazer:web:serve           # bitmap UI screenshot → EVG layout
 npm run livebuild:serve            # seed a phone; Follow up streams display lists over SSE
 npm run livebuild:withcursor       # same page, local Cursor Agent CLI (agent login)
 # Export copies one .ranger.json (ui + css + machine) onto the clipboard.
