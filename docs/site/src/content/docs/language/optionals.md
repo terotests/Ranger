@@ -62,12 +62,32 @@ In a narrowed block, `def q:Person p` gives `q` the value, not the optional.
 The compiler writes it as `def q:Person (unwrap p)`. Each target gets one
 unwrap, and the program can also write the `unwrap`: the result is the same.
 
+The value is also not empty in these places:
+
+- the else branch of `if (null? p)`
+- the code after `if (null? p) { return … }`. The block can also end with
+  `throw`, `break` or `continue`.
+- the code after `if (!null? p) { … } { return … }`
+- the code after `p = (new Person)`
+
+```lisp
+fn describe:string (p@(optional):Person) {
+    if (null? p) {
+        return "nobody"
+    }
+    return p.name
+}
+```
+
+`if ((null? a) || (null? b)) { return … }` is true when one of the values is
+empty, so after it both values are not empty.
+
 These are not narrowed at this time:
 
-- a condition with `||`
-- the code after `if (null? p) { return … }`
-- the else branch of `if (null? p)`
+- `!null?` tests joined with `||`
 - an optional `int` or `double`: use `(unwrap n)`
+
+`p = q`, when `q` can be empty, stops the narrowing of `p`.
 
 ## Fields
 

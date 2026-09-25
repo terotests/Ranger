@@ -1292,9 +1292,21 @@ A condition narrows only when it must be true for the block to run — a single
 value: the compiler writes one unwrap for it, the same code as
 `def q:Person (unwrap p)`.
 
-Not narrowed (yet): an `||` condition, the code after an early
-`if (null? p) { return … }`, the else branch of `if (null? p)`, and optional
-scalars — `(n + 1)` on an optional int still needs `(unwrap n)`.
+The flow narrows as well: the else branch of `if (null? p)`, the code after
+`if (null? p) { return … }` (also `throw`, `break` and `continue`), and the
+code after `p = <a value>`:
+
+```
+    fn describe:string (p@(optional):Person) {
+        if (null? p) {
+            return "nobody"
+        }
+        return p.name
+    }
+```
+
+Not narrowed: an `||` of `!null?` tests, and optional scalars — `(n + 1)` on
+an optional int still needs `(unwrap n)`.
 
 A field declared without a value is optional too. Under `-strict` it counts
 as present when the constructor assigns it at its top level, and a field that

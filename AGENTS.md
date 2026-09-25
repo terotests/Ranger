@@ -95,10 +95,19 @@ follow them exactly.
   it is read, like Kotlin's `lateinit`. `-strict` accepts reading it; the type
   and the generated code stay optional. Use it only when the program really
   sets it first; a field that may stay empty is `@(optional)` with checks.
-- Not narrowed yet: `||`, the code after an early
-  `if (null? x) { return … }`, the else branch, and optional `int` / `double`
-  values (`(unwrap n)` is still needed for arithmetic). Extending narrowing to
-  early returns and else branches is planned.
+- The flow narrows too: the else branch of `if (null? x)`, the rest of the
+  block after `if (null? x) { return … }` (or `throw` / `break` / `continue`,
+  or an if/else that exits both ways), the rest after
+  `if (!null? x) { … } { return … }`, and after `x = <a value>`.
+  `(null? a) || (null? b)` narrows both. `x = <an optional>` ends it. This
+  narrowing is read by `-strict` and `def y:T x` only; generated code above
+  the check is unchanged. After `x = <a value>` only `-strict` relies on it:
+  `def y:T x` there keeps `y` optional, so an existing `(unwrap y)` still
+  compiles.
+- Not narrowed: `||` of `!null?` tests, `&&` of `null?` tests, and optional
+  `int` / `double` values (`(unwrap n)` is still needed for arithmetic).
+- A function whose body ends in an if/else that returns on both branches no
+  longer reports "Function does not return any values!".
 - Without `-strict` the compiler unwraps optionals automatically wherever
   they are read, so a missing check is not reported. Use `-strict` to find
   them. Every gallery entry point that compiles also compiles under `-strict`.

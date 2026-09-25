@@ -35,6 +35,10 @@ sisäisesti muotoon `def y:T (unwrap x)`, joten y ei ole optional ja jokainen
 kohde saa yhden unwrapin omalla tavallaan (C++ `.value()`, Swift `!`, Kotlin
 `!!`). Eksplisiittinen `(unwrap x)` tuottaa saman koodin, tuplaunwrappia ei
 tule (tests/strict-narrowing.test.ts tarkistaa C++/Swift/Kotlin).
+Lisäksi rajaus toimii nyt myös else-haarassa (`if (null? x) {..} {x on
+tässä}`), early returnin jälkeen (`if (null? x) { return }` + return/throw/
+break/continue) ja sijoituksen `x = <arvo>` jälkeen; `x = <optional>` lopettaa
+rajauksen.
 
 
 

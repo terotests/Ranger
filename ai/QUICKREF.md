@@ -229,8 +229,9 @@ Prefix form only:
 
 Inside `if (!null? obj) { … }` (or `if obj`, or an `&&` of `!null?` checks)
 `obj.field` and `obj.method()` need no `unwrap`, also under `-strict`, and
-`def o:T obj` takes the value. Not narrowed yet: `||`, code after an early
-`return`, the else branch, and optional int/double values.
+`def o:T obj` takes the value. The else branch of `if (null? obj)` and the
+code after `if (null? obj) { return … }` are narrowed too. Not narrowed:
+optional int/double values.
 
 ```ranger
 def model@(late):Model     ; set by attach() before use; -strict accepts reads
