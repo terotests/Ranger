@@ -40,6 +40,17 @@ export const EXAMPLES = [
     description: "Optionals and unwrap patterns.",
   },
   {
+    id: "serialize",
+    title: "toDictionary / fromDictionary",
+    file: "serialize_to_dictionary.rgr",
+    description: "@serialize(true) turns an object into JSON and back.",
+    unsupported: {
+      rust: "The Rust target has no exceptions, and from_string needs a try block",
+      scala: "The Scala target has no to_string for JSON",
+      php: "The PHP target drops arrays in fromDictionary",
+    },
+  },
+  {
     id: "shape-value",
     title: "Shape: closed variant family",
     file: "shape_value.rgr",
