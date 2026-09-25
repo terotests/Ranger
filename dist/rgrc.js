@@ -26607,7 +26607,8 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
     return cl.name;
   };
   genericClassRef (cl, ctx) {
-    return this.javaClassRef(cl, ctx, new CodeWriter());
+    const scratchWr = new CodeWriter();
+    return this.javaClassRef(cl, ctx, scratchWr);
   };
   javaDeclName (cl) {
     if ( cl.is_generic_form ) {

@@ -486,7 +486,9 @@ public class RgJson {
     return cl.name
   }
   fn genericClassRef:string (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
-    return (this.javaClassRef(cl ctx (new CodeWriter ())))
+    ; a type argument's system import has no writer to land in here
+    def scratchWr:CodeWriter (new CodeWriter ())
+    return (this.javaClassRef(cl ctx scratchWr))
   }
   fn javaDeclName:string (cl:RangerAppClassDesc) {
     if cl.is_generic_form {
