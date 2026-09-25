@@ -202,7 +202,7 @@ $ node lib/evg/bin/evg_image_tool.js photo.png --out=photo --width=180
 ```
 
 A model handed a photograph can describe it and cannot put it on a screen. The
-bridge — `EvgBitmapTracer`, the same one the live tracer page and erazer use —
+bridge — `EvgBitmapTracer`, the same one the live tracer page uses —
 has been here all along with nothing pointing an agent at it. This turns an
 image into the two things an agent can act on:
 

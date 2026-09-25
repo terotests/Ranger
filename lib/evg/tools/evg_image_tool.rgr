@@ -9,8 +9,8 @@
 ;
 ; A model handed a photograph can describe it and cannot put it on a screen.
 ; The picture is pixels; an EVG document is boxes and paths; and the bridge —
-; `EvgBitmapTracer`, the same one `npm run evg:trace:cli` and the erazer page
-; use — has been here all along with nothing pointing an agent at it.
+; `EvgBitmapTracer`, the same one `npm run evg:trace:cli` uses — has been
+; here all along with nothing pointing an agent at it.
 ;
 ; So this turns an image into the two things an agent can act on:
 ;

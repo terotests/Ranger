@@ -422,18 +422,6 @@ jobs:
         if: matrix.shard == 1
         run: npm run pptx:cpp:check
 
-      # The Erazer layout lab lives entirely in the browser: IndexedDB, an HTML
-      # fixture measured in the DOM, `foreignObject` rasterised to a canvas, and
-      # a training run that writes weights the page keeps. `erazer:web:smoke`
-      # runs the bundle under `vm` and cannot reach any of it — it passed while
-      # one click on "Kouluta" took the model from 8/8 archetypes to 2/8 and
-      # saved that to IndexedDB. Chromium is already installed for this job, so
-      # the page-driven half rides along on the first shard, like the C++ check
-      # above. ~40 seconds.
-      - name: The Erazer layout lab still trains
-        if: matrix.shard == 1
-        run: npm run erazer:web:lab
-
   # The interpreter realm is gallery code but its tests live in tests/, so this
   # job is deliberately ungated: a change on either side must re-check that the
   # evaluator still produces the values Node produces. A parser score alone says

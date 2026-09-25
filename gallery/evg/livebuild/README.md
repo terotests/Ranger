@@ -99,8 +99,7 @@ npm run livebuild:web                  # Chromium: paint, click chips, type a pr
 
 **Picture** in the header attaches a PNG or JPEG — or paste one from the
 clipboard. The host traces it with Ranger's own bitmap tracer
-(`EvgBitmapTracer`, the same engine as `npm run evg:trace:web:serve` and
-erazer) the moment it arrives, and leaves three things beside the document
+(`EvgBitmapTracer`, the same engine as `npm run evg:trace:web:serve`) the moment it arrives, and leaves three things beside the document
 in the agent's workspace:
 
 | | |
