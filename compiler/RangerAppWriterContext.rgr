@@ -205,6 +205,8 @@ class RangerAppWriterContext {
   def classSignatures:[string:string]
   def classToSignature:[string:string]
   def templateClasses:[string:RangerAppClassDesc]
+  def nativeGenerics:[string:boolean]
+  def genericFormUses:[string:[string]]
   def classStaticWriters@(weak):[string:CodeWriter]
   def localVariables:[string:RangerAppParamDesc]
   def localVarNames:[string]
@@ -1724,11 +1726,68 @@ class RangerAppWriterContext {
 
     def subCtx@(lives):RangerAppWriterContext (root.fork())
     flowParser.WalkCollectMethods( instNode subCtx wr )
+    ; recorded before the body is walked: a class that names itself at its
+    ; own parameter (`Tree@(T)` inside Tree) reads these while it is walked
+    if (root.isDefinedClass(instanceName)) {
+      def made:RangerAppClassDesc (root.findClass(instanceName))
+      this.markGenericInstance(made templateName typeArgs)
+    }
     flowParser.WalkNode( instNode subCtx wr )
     if (root.isDefinedClass(instanceName)) {
       res = (root.findClass(instanceName))
     }
     return res
+  }
+
+  fn markGenericInstance:void (made:RangerAppClassDesc templateName:string typeArgs:CodeNode) {
+    made.generic_template = templateName
+    clear made.generic_args
+    for typeArgs.children ta:CodeNode i {
+      push made.generic_args ta.vref
+      if ((indexOf ta.vref "__tp_") >= 0) {
+        made.generic_has_placeholder = true
+      }
+    }
+  }
+
+  ; --- native generics ------------------------------------------------------
+  ; A template is NATIVE for this compile when its generic form checked with
+  ; the parameters as opaque placeholders and the target writes generics.
+  ; RangerFlowParser.checkNativeGenerics decides; the writers only ask.
+  fn setNativeGeneric:void (templateName:string isNative:boolean) {
+    def root:RangerAppWriterContext (this.getRoot())
+    set root.nativeGenerics templateName isNative
+  }
+  fn isNativeGeneric:boolean (templateName:string) {
+    def root:RangerAppWriterContext (this.getRoot())
+    if (has root.nativeGenerics templateName) {
+      def v:boolean (unwrap (get root.nativeGenerics templateName))
+      return v
+    }
+    return false
+  }
+  ; The class is an instance of a native template: written as History<int>.
+  fn isNativeGenericInstance:boolean (cl:RangerAppClassDesc) {
+    if ((strlen cl.generic_template) == 0) {
+      return false
+    }
+    return (this.isNativeGeneric(cl.generic_template))
+  }
+  ; Whether a class is written at all. Every instance of a native template
+  ; is written through the one generic form; a placeholder instance of a
+  ; template that is not native exists only for the check.
+  fn isWrittenClass:boolean (cl:RangerAppClassDesc) {
+    if cl.is_type_param {
+      return false
+    }
+    if ((strlen cl.generic_template) == 0) {
+      return true
+    }
+    def native:boolean (this.isNativeGeneric(cl.generic_template))
+    if cl.generic_has_placeholder {
+      return (native && cl.is_generic_form)
+    }
+    return (native == false)
   }
 
   fn createOperator:void (fromNode@(strong):CodeNode) {

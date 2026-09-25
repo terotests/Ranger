@@ -9,6 +9,9 @@ class RangerPythonClassWriter {
   def compiler:LiveCompiler
   def thisName:string "self"
   def wrote_header:boolean false
+  ; TypeVars already declared for native generic classes
+  def pyTypeVarsWritten:[string]
+  def pyGenericImported:boolean false
 
   ; which Ranger `Enum`s survive as a Python `IntEnum` rather than a bare int.
   ; Same question Rust and C++ ask: compiler/EnumAnalysis.rgr.
@@ -762,6 +765,24 @@ class RangerPythonClassWriter {
       if cc.is_generic_instance {
         return ""
       }
+      ; native generics: `History[int]`, and a type parameter by its name
+      if cc.is_type_param {
+        return cc.type_param_name
+      }
+      if (ctx.isNativeGenericInstance(cc)) {
+        def gres:string (cc.generic_template + "[")
+        for cc.generic_args ga:string gai {
+          def gp:string (this.pyTypeNameFor(ga ctx))
+          if ((strlen gp) == 0) {
+            return cc.generic_template
+          }
+          if (gai > 0) {
+            gres = (gres + ", ")
+          }
+          gres = (gres + gp)
+        }
+        return (gres + "]")
+      }
       return tn
     }
     def eDef@(optional):RangerAppEnum ((ctx.getRoot()).getEnum(tn))
@@ -986,7 +1007,12 @@ class RangerPythonClassWriter {
     if node.hasNewOper {
       def cl:RangerAppClassDesc (unwrap node.clDesc)
       def fc:CodeNode (node.getSecond())
-      wr.out(cl.name false)
+      ; every instance of a native generic class is the one class
+      if (ctx.isNativeGenericInstance(cl)) {
+        wr.out(cl.generic_template false)
+      } {
+        wr.out(cl.name false)
+      }
       wr.out("(" false)
       def constr:RangerAppFunctionDesc cl.constructor_fn
       def givenArgs:CodeNode (node.getThird())
@@ -1084,7 +1110,30 @@ class RangerPythonClassWriter {
     this.writePythonNativeEnums(ctx wr)
     this.writePythonTraitProtocols(ctx wr)
 
-    wr.out(("class " + cl.name) false)
+    ; a generic form is `class History(Generic[Op])`, its parameters TypeVars
+    def pyGenericBase:string ""
+    if cl.is_generic_form {
+      if (pyGenericImported == false) {
+        wr.out("from typing import Generic, TypeVar" true)
+        pyGenericImported = true
+      }
+      pyGenericBase = "Generic["
+      for cl.generic_args ga:string gai {
+        def tvName:string (this.pyTypeNameFor(ga ctx))
+        if ((indexOf pyTypeVarsWritten tvName) < 0) {
+          push pyTypeVarsWritten tvName
+          wr.out((((tvName + " = TypeVar(\"") + tvName) + "\")") true)
+        }
+        if (gai > 0) {
+          pyGenericBase = (pyGenericBase + ", ")
+        }
+        pyGenericBase = (pyGenericBase + tvName)
+      }
+      pyGenericBase = (pyGenericBase + "]")
+      wr.out(("class " + cl.generic_template) false)
+    } {
+      wr.out(("class " + cl.name) false)
+    }
     def parentClass:RangerAppClassDesc  
     if ( ( array_length cl.extends_classes ) > 0 ) { 
       wr.out("(" false)
@@ -1092,7 +1141,14 @@ class RangerPythonClassWriter {
         wr.out(pName false)
         parentClass = (ctx.findClass(pName))
       }
+      if ((strlen pyGenericBase) > 0) {
+        wr.out((", " + pyGenericBase) false)
+      }
       wr.out(")" false)
+    } {
+      if ((strlen pyGenericBase) > 0) {
+        wr.out((("(" + pyGenericBase) + ")") false)
+      }
     }    
     wr.out(":" true)
     wr.indent(1)

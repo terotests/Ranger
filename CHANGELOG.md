@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Native generic classes.** A `class History @params(Op)` whose body only
+  stores, moves and returns its parameter values is written once, as a
+  generic class of the target: `template <class Op> class History` on C++,
+  `class History<Op>` on Java, C#, Kotlin, Dart and TypeScript,
+  `class History[Op]` on Scala, `type History[Op any] struct` on Go,
+  `class History(Generic[Op])` on Python, and one `History` class on
+  JavaScript and PHP. Uses are spelled `History<int>`, `*History[int64]` and
+  so on. The type checker still checks one class per argument list. A body
+  that needs to know its parameter, and every generic class on Rust, Swift
+  and LLVM, keeps the copies (`History_int`). `-generics-report` prints the
+  choice, `-no-native-generics` turns it off.
+
 - **`char_length`: how many characters, on all fourteen targets.** `strlen`
   counts the target's own unit — UTF-16 code units on JavaScript, Java,
   Kotlin, C#, Scala and Swift, UTF-8 bytes on Rust, Go, C++ and PHP, code

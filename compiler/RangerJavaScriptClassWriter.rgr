@@ -302,6 +302,35 @@ class RangerJavaScriptClassWriter {
   }
 
   ; typescript type 
+  ; --- native generics ------------------------------------------------------
+  ; JavaScript has one class for every instance anyway: `History`. With
+  ; -typescript it is `class History<Op>`, used as `History<number>`.
+  fn jsClassRef:string (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    if cl.is_type_param {
+      return cl.type_param_name
+    }
+    if (ctx.isNativeGenericInstance(cl)) {
+      if (target_typescript == false) {
+        return cl.generic_template
+      }
+      def res:string (cl.generic_template + "<")
+      for cl.generic_args a:string i {
+        if (i > 0) {
+          res = (res + ", ")
+        }
+        res = (res + (this.getObjectTypeString(a ctx)))
+      }
+      return (res + ">")
+    }
+    return cl.name
+  }
+  fn jsDeclName:string (cl:RangerAppClassDesc) {
+    if cl.is_generic_form {
+      return cl.generic_template
+    }
+    return cl.name
+  }
+
   fn getObjectTypeString:string (type_string:string ctx:RangerAppWriterContext) {
     if ((strlen type_string) >= 2) {
       if ((charAt type_string 0) == (ccode "[")) {
@@ -344,6 +373,9 @@ class RangerJavaScriptClassWriter {
     }
     if(ctx.isDefinedClass(type_string)) {
       def cc (ctx.findClass(type_string))
+      if (cc.is_type_param || (ctx.isNativeGenericInstance(cc))) {
+        return (this.jsClassRef(cc ctx))
+      }
       if(cc.is_system) {
         def sName ""
         if target_typescript {
@@ -601,7 +633,7 @@ class RangerJavaScriptClassWriter {
             }
           }
           def cc:RangerAppClassDesc (ctx.findClass(t_name))
-          wr.out(cc.name false)
+          wr.out((this.jsClassRef(cc ctx)) false)
           return
         }
         wr.out((this.getTypeString(t_name)) false))
@@ -1000,7 +1032,7 @@ class RangerJavaScriptClassWriter {
         return
       }
 
-      wr.out(("new " + cl.name) false)
+      wr.out(("new " + (this.jsClassRef(cl ctx))) false)
       wr.out("(" false)
       def constr:RangerAppFunctionDesc cl.constructor_fn
       def givenArgs:CodeNode (node.getThird())
@@ -1247,7 +1279,17 @@ class RangerJavaScriptClassWriter {
       }
     }
 
-    wr.out("class " + cl.name +" " , false)
+    ; a generic form is declared as the template, over its parameters with
+    ; -typescript
+    if cl.is_generic_form {
+      if target_typescript {
+        wr.out("class " + (this.jsClassRef((unwrap cl) ctx)) + " " , false)
+      } {
+        wr.out("class " + (this.jsDeclName((unwrap cl))) + " " , false)
+      }
+    } {
+      wr.out("class " + cl.name +" " , false)
+    }
     
     if is_react_native {
       wr.out(" extends Component " false)

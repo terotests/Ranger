@@ -166,6 +166,24 @@ class RangerKotlinClassWriter {
     }
     return tn
   }
+  ; --- native generics: `class History<Op>`, used as `History<Int>` ---
+  fn ktClassRef:string (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    if cl.is_type_param {
+      return cl.type_param_name
+    }
+    if (ctx.isNativeGenericInstance(cl)) {
+      def res:string (cl.generic_template + "<")
+      for cl.generic_args a:string i {
+        if (i > 0) {
+          res = (res + ", ")
+        }
+        res = (res + (this.getObjectTypeString(a ctx)))
+      }
+      return (res + ">")
+    }
+    return cl.name
+  }
+
   fn getObjectTypeString:string (type_string:string ctx:RangerAppWriterContext) {
     if ((strlen type_string) >= 2) {
       if ((charAt type_string 0) == (ccode "[")) {
@@ -179,6 +197,9 @@ class RangerKotlinClassWriter {
     ; what `shape` should generate; see PLAN_SHAPES.md.)
     if (ctx.isDefinedClass(type_string)) {
       def cc:RangerAppClassDesc (ctx.findClass(type_string))
+      if (cc.is_type_param || (ctx.isNativeGenericInstance(cc))) {
+        return (this.ktClassRef(cc ctx))
+      }
       if (cc.is_union) {
         ; a union of classes is a sealed interface; anything else (the
         ; compiler's own `Any`, a union over primitives) stays the top type
@@ -879,7 +900,7 @@ class RangerKotlinClassWriter {
 
       def fc:CodeNode (node.getSecond())
       wr.out(" " false)
-      wr.out(cl.name false)
+      wr.out((this.ktClassRef(cl ctx)) false)
       wr.out("(" false)
       def constr:RangerAppFunctionDesc cl.constructor_fn
       if (!null? constr) {
@@ -950,10 +971,12 @@ class RangerKotlinClassWriter {
     }
     def ktVis:RangerDocCommentWriter (new RangerDocCommentWriter)
     wr.out((ktVis.classVisibility((unwrap cl) "" "" "internal ")) false)
+    ; a generic form is declared as the template over its parameters
+    def ktDecl:string (this.ktClassRef((unwrap cl) ctx))
     if (cl.is_extended_by_children || (cl.name == "RangerProcessBase")) {
-      wr.out(("open class " + cl.name) false)
+      wr.out(("open class " + ktDecl) false)
     } {
-      wr.out(("class " + cl.name) false)
+      wr.out(("class " + ktDecl) false)
     }
     if cl.has_constructor {
       def constr:RangerAppFunctionDesc (unwrap cl.constructor_fn)

@@ -3884,6 +3884,12 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
     this.is_operator_class = false;
     this.is_generic_instance = false;
     this.is_union = false;
+    this.generic_template = "";
+    this.generic_args = [];
+    this.generic_has_placeholder = false;
+    this.is_generic_form = false;
+    this.is_type_param = false;
+    this.type_param_name = "";
     this.is_used_by_main = false;
     this.is_not_used = false;     /* note: unused */
     this.generic_params = undefined;     /* note: unused */
@@ -3955,7 +3961,7 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
     return anyMember;
   };
   isNormalClass () {
-    const special = ((((this.is_operator_class || this.is_trait) || this.is_system) || this.is_generic_instance) || this.is_system_union) || this.is_union;
+    const special = ((((((this.is_operator_class || this.is_trait) || this.is_system) || this.is_generic_instance) || this.is_system_union) || this.is_union) || this.is_type_param) || this.generic_has_placeholder;
     return special == false;
   };
   getSystemclassType () {
@@ -6641,6 +6647,8 @@ class RangerAppWriterContext  {
     this.classSignatures = {};
     this.classToSignature = {};
     this.templateClasses = {};     /* note: unused */
+    this.nativeGenerics = {};
+    this.genericFormUses = {};
     this.classStaticWriters = {};
     this.localVariables = {};
     this.localVarNames = [];
@@ -7942,11 +7950,57 @@ class RangerAppWriterContext  {
     cName.has_vref_annotation = false;
     const subCtx = root.fork();
     flowParser.WalkCollectMethods(instNode, subCtx, wr);
+    if ( root.isDefinedClass(instanceName) ) {
+      const made = root.findClass(instanceName);
+      this.markGenericInstance(made, templateName, typeArgs);
+    }
     flowParser.WalkNode(instNode, subCtx, wr);
     if ( root.isDefinedClass(instanceName) ) {
       res = root.findClass(instanceName);
     }
     return res;
+  };
+  markGenericInstance (made, templateName, typeArgs) {
+    made.generic_template = templateName;
+    made.generic_args.length = 0;
+    // Loop start
+    for ( const ta of typeArgs.children) {
+      made.generic_args.push(ta.vref);
+      if ( ta.vref.indexOf("__tp_") >= 0 ) {
+        made.generic_has_placeholder = true;
+      }
+    }
+  };
+  setNativeGeneric (templateName, isNative) {
+    const root = this.getRoot();
+    root.nativeGenerics[templateName] = isNative;
+  };
+  isNativeGeneric (templateName) {
+    const root = this.getRoot();
+    if ( ( typeof(root.nativeGenerics[templateName] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.nativeGenerics, templateName) ) ) {
+      const v = ( Object.prototype.hasOwnProperty.call(root.nativeGenerics, templateName) ? root.nativeGenerics[templateName] : undefined );
+      return v;
+    }
+    return false;
+  };
+  isNativeGenericInstance (cl) {
+    if ( cl.generic_template.length == 0 ) {
+      return false;
+    }
+    return this.isNativeGeneric(cl.generic_template);
+  };
+  isWrittenClass (cl) {
+    if ( cl.is_type_param ) {
+      return false;
+    }
+    if ( cl.generic_template.length == 0 ) {
+      return true;
+    }
+    const native = this.isNativeGeneric(cl.generic_template);
+    if ( cl.generic_has_placeholder ) {
+      return native && cl.is_generic_form;
+    }
+    return native == false;
   };
   createOperator (fromNode) {
     const root = this.getRoot();
@@ -15006,6 +15060,7 @@ class RangerFlowParser  {
     this.lastProcessedNode = undefined;
     this.collectWalkAtEnd = [];     /* note: unused */
     this.walkAlso = [];
+    this.genericCheckNodes = [];
     this.serializedClasses = [];
     this.immutableClasses = [];
     this.processClasses = [];
@@ -18474,6 +18529,286 @@ class RangerFlowParser  {
       tstr = (tstr + "_") + part;
     }
     return baseName + tstr;
+  };
+  nativeGenericsTarget (ctx) {
+    if ( ctx.hasCompilerFlag("no-native-generics") ) {
+      return false;
+    }
+    const lang = ctx.getTargetLangName();
+    const langs = ["cpp", "java7", "go", "es6", "python", "php", "csharp", "dart", "kotlin", "scala"];
+    return langs.indexOf(lang) >= 0;
+  };
+  genericOpaqueOperator (name, ctx) {
+    const lang = ctx.getTargetLangName();
+    if ( lang == "go" && name == "get" ) {
+      return false;
+    }
+    const ok = ["push", "clear", "itemAt", "at", "set_at", "remove_index", "removeLast", "insert", "last", "first", "array_length", "size", "set", "get", "has", "unwrap", "=", "def", "let", "var", "return", "null?", "!null?", "??", "call", "new"];
+    return ok.indexOf(name) >= 0;
+  };
+  genericFormFitsTarget (form, ctx) {
+    const lang = ctx.getTargetLangName();
+    if ( lang == "go" ) {
+      if ( form.extends_classes.length > 0 ) {
+        return false;
+      }
+    }
+    if ( lang == "csharp" ) {
+      const fnOpt = form.classNode;
+      if ( (typeof(fnOpt) !== "undefined" && fnOpt != null )  ) {
+        if ( this.genericUsesOptionalParam(fnOpt) ) {
+          return false;
+        }
+      }
+    }
+    return true;
+  };
+  genericUsesOptionalParam (node) {
+    if ( node.hasFlag("optional") ) {
+      if ( node.type_name.indexOf("__tp_") >= 0 || node.eval_type_name.indexOf("__tp_") >= 0 ) {
+        return true;
+      }
+    }
+    // Loop start
+    for ( const c of node.children) {
+      if ( this.genericUsesOptionalParam(c) ) {
+        return true;
+      }
+    }
+    return false;
+  };
+  genericTypeIsPlaceholder (n) {
+    if ( n.eval_type_name.indexOf("__tp_") >= 0 ) {
+      return true;
+    }
+    if ( n.eval_array_type.indexOf("__tp_") >= 0 ) {
+      return true;
+    }
+    if ( n.eval_key_type.indexOf("__tp_") >= 0 ) {
+      return true;
+    }
+    return false;
+  };
+  genericBodyIsOpaque (node, ctx) {
+    const cnt = node.children.length;
+    if ( node.expression && cnt > 1 ) {
+      const fc = node.getFirst();
+      const opName = fc.vref;
+      if ( opName.length > 0 ) {
+        if ( fc.ns.length <= 1 && this.genericOpaqueOperator(opName, ctx) == false ) {
+          const ops = ctx.getOperators(opName);
+          if ( ops.length > 0 ) {
+            // Loop start
+            for ( let i = 0; i < node.children.length; i++) {
+              var ch = node.children[i];
+              if ( i == 0 ) {
+                continue;
+              }
+              if ( this.genericTypeIsPlaceholder(ch) ) {
+                return false;
+              }
+            }
+          }
+        }
+      }
+    }
+    // Loop start
+    for ( const c of node.children) {
+      if ( this.genericBodyIsOpaque(c, ctx) == false ) {
+        return false;
+      }
+    }
+    return true;
+  };
+  makeGenericPlaceholder (templateName, paramName, ctx, wr) {
+    const cname = (("__tp_" + templateName) + "_") + paramName;
+    if ( ctx.isDefinedClass(cname) ) {
+      return cname;
+    }
+    const theCode = ("class " + cname) + " {\n}\n";
+    const code = new SourceCode(theCode);
+    code.filename = "generic parameter " + paramName;
+    const parser = new RangerLispParser(code);
+    parser.parse(ctx.hasCompilerFlag("no-op-transform"));
+    const rn = parser.rootNode;
+    this.genericCheckNodes.push(rn);
+    this.WalkCollectMethods(rn, ctx, wr);
+    this.WalkNode(rn, ctx, wr);
+    if ( ctx.isDefinedClass(cname) ) {
+      const pc = ctx.findClass(cname);
+      pc.is_type_param = true;
+      pc.type_param_name = paramName;
+    }
+    return cname;
+  };
+  genericArgsFitTarget (templateName, ctx) {
+    const lang = ctx.getTargetLangName();
+    const root = ctx.getRoot();
+    // Loop start
+    for ( let i = 0; i < root.definedClassList.length; i++) {
+      var cn = root.definedClassList[i];
+      const cl = root.findClass(cn);
+      if ( cl.generic_template != templateName ) {
+        continue;
+      }
+      // Loop start
+      for ( const a of cl.generic_args) {
+        if ( lang == "cpp" ) {
+          if ( a == "boolean" || a == "charbuffer" ) {
+            return false;
+          }
+        }
+      }
+    }
+    return true;
+  };
+  checkNativeGenerics (ctx, wr) {
+    if ( this.nativeGenericsTarget(ctx) == false ) {
+      return;
+    }
+    const root = ctx.getRoot();
+    if ( root.compilerErrors.length > 0 ) {
+      return;
+    }
+    let checked = {};
+    let madeBy = {};
+    let progress = true;
+    while (progress) {
+      progress = false;
+      let todo = [];
+      // Loop start
+      for ( let i = 0; i < root.definedClassList.length; i++) {
+        var cn = root.definedClassList[i];
+        const cl = root.findClass(cn);
+        const tn = cl.generic_template;
+        if ( tn.length == 0 ) {
+          continue;
+        }
+        if ( ( typeof(checked[tn] ) != "undefined" && Object.prototype.hasOwnProperty.call(checked, tn) ) ) {
+          continue;
+        }
+        if ( todo.indexOf(tn) < 0 ) {
+          todo.push(tn);
+        }
+      }
+      // Loop start
+      for ( const tpl of todo) {
+        checked[tpl] = true;
+        progress = true;
+        const native = this.checkGenericForm(tpl, ctx, wr);
+        root.setNativeGeneric(tpl, native);
+        if ( ctx.hasCompilerFlag("generics-report") ) {
+          let nv = "no";
+          if ( native ) {
+            nv = "yes";
+          }
+          console.log((("generic " + tpl) + " native=") + nv);
+        }
+      }
+    };
+    let changed = true;
+    while (changed) {
+      changed = false;
+      // Loop start
+      for ( let i_1 = 0; i_1 < root.definedClassList.length; i_1++) {
+        var cn_1 = root.definedClassList[i_1];
+        const cl_1 = root.findClass(cn_1);
+        if ( cl_1.generic_has_placeholder == false || cl_1.is_generic_form ) {
+          continue;
+        }
+        if ( root.isNativeGeneric(cl_1.generic_template) ) {
+          continue;
+        }
+        // Loop start
+        for ( let oi = 0; oi < root.templateClassList.length; oi++) {
+          var owner = root.templateClassList[oi];
+          if ( root.isNativeGeneric(owner) == false ) {
+            continue;
+          }
+          const ownerForm = "__gf_" + owner;
+          if ( ( typeof(root.genericFormUses[ownerForm] ) != "undefined" && Object.prototype.hasOwnProperty.call(root.genericFormUses, ownerForm) ) ) {
+            const uses = ( Object.prototype.hasOwnProperty.call(root.genericFormUses, ownerForm) ? root.genericFormUses[ownerForm] : undefined );
+            if ( uses.indexOf(cn_1) >= 0 ) {
+              root.setNativeGeneric(owner, false);
+              changed = true;
+            }
+          }
+        }
+      }
+    };
+  };
+  checkGenericForm (tpl, ctx, wr) {
+    const root = ctx.getRoot();
+    if ( root.hasTemplateNode(tpl) == false ) {
+      return false;
+    }
+    const tplNode = root.findTemplateNode(tpl);
+    const paramsOpt = tplNode.getExpressionProperty("params");
+    if ( typeof(paramsOpt) === "undefined" ) {
+      return false;
+    }
+    const params = paramsOpt;
+    // Loop start
+    for ( const pn of params.children) {
+      if ( root.isDefinedType(pn.vref) || root.hasTemplateNode(pn.vref) ) {
+        return false;
+      }
+    }
+    if ( this.genericArgsFitTarget(tpl, ctx) == false ) {
+      return false;
+    }
+    const typeArgs = tplNode.newExpressionNode();
+    let formName = tpl;
+    // Loop start
+    for ( const pn_1 of params.children) {
+      const ph = this.makeGenericPlaceholder(tpl, pn_1.vref, ctx, wr);
+      typeArgs.add(tplNode.newVRefNode(ph));
+      formName = (formName + "_") + ph;
+    }
+    this.genericCheckNodes.push(typeArgs);
+    const errBefore = root.compilerErrors.length;
+    const classesBefore = root.definedClassList.length;
+    const made = ctx.createGenericClassInstance(
+      tpl,
+      formName,
+      typeArgs,
+      this,
+      wr
+    );
+    let ok = root.compilerErrors.length == errBefore;
+    while (root.compilerErrors.length > errBefore) {
+      root.compilerErrors.pop();
+    };
+    if ( typeof(made) === "undefined" ) {
+      return false;
+    }
+    const form = made;
+    form.is_generic_form = true;
+    if ( form.static_methods.length > 0 ) {
+      ok = false;
+    }
+    if ( this.genericFormFitsTarget(form, ctx) == false ) {
+      ok = false;
+    }
+    if ( form.isSingletonClass() ) {
+      ok = false;
+    }
+    let uses = [];
+    const classesAfter = root.definedClassList.length;
+    let k = classesBefore;
+    while (k < classesAfter) {
+      uses.push(root.definedClassList[k]);
+      k = k + 1;
+    };
+    root.genericFormUses["__gf_" + tpl] = uses;
+    if ( ok == false ) {
+      return false;
+    }
+    const formNodeOpt = form.classNode;
+    if ( typeof(formNodeOpt) === "undefined" ) {
+      return false;
+    }
+    return this.genericBodyIsOpaque(formNodeOpt, ctx);
   };
   typeArgKey (spelling) {
     let res = "";
@@ -25516,6 +25851,9 @@ class RangerGenericClassWriter  {
     pc.writeWrappedNewCall(procNewNode, procNewCtx, outWr, lang, this);
     return true;
   };
+  genericClassRef (cl, ctx) {
+    return cl.name;
+  };
   writeNewCall (node, ctx, wr) {
     if ( this.tryWriteProcessNewCall(node, ctx, wr) ) {
       return;
@@ -25523,7 +25861,7 @@ class RangerGenericClassWriter  {
     if ( node.hasNewOper ) {
       const cl = node.clDesc;
       const fc = node.getSecond();
-      wr.out("new " + cl.name, false);
+      wr.out("new " + this.genericClassRef(cl, ctx), false);
       wr.out("(", false);
       const constr = cl.constructor_fn;
       const givenArgs = node.getThird();
@@ -26250,6 +26588,33 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
     }
     w_RgJson.raw("import java.util.*;\n\n// Java has no JSON in the standard library, and the generated files have to\n// build with a plain javac line and no dependency, so the object, the array,\n// the reader and the writer all live here. org.json is deliberately NOT\n// imported on top of these -- nothing puts that package on the classpath.\n// Kotlin carries the same set for the same reason; see lib/JSON.rgr.\npublic class RgJson { \n  static void writeStr(String s, StringBuilder o) {\n    o.append((char)34);\n    for (int i = 0; i < s.length(); i++) {\n      char c = s.charAt(i);\n      if (c == (char)34 || c == (char)92) { o.append((char)92); o.append(c); }\n      else if (c == (char)10) { o.append((char)92); o.append('n'); }\n      else if (c == (char)13) { o.append((char)92); o.append('r'); }\n      else if (c == (char)9) { o.append((char)92); o.append('t'); }\n      else if (c < 32) { o.append((char)92); o.append('u'); o.append(String.format(\"%04x\", (int)c)); }\n      else { o.append(c); }\n    }\n    o.append((char)34);\n  }\n  static void writeVal(Object v, StringBuilder o) {\n    if (v == null) { o.append(\"null\"); return; }\n    if (v instanceof String) { writeStr((String)v, o); return; }\n    if (v instanceof Boolean) { o.append(((Boolean)v).booleanValue() ? \"true\" : \"false\"); return; }\n    if (v instanceof Integer) { o.append(v.toString()); return; }\n    if (v instanceof Long) { o.append(v.toString()); return; }\n    if (v instanceof Double) {\n      String t = v.toString();\n      if (t.indexOf('.') < 0 && t.indexOf('e') < 0 && t.indexOf('E') < 0) { t = t + \".0\"; }\n      o.append(t);\n      return;\n    }\n    if (v instanceof JSONObject) {\n      o.append('{');\n      boolean first = true;\n      for (Map.Entry<String, Object> e : ((JSONObject)v).values.entrySet()) {\n        if (!first) { o.append(','); }\n        first = false;\n        writeStr(e.getKey(), o);\n        o.append(':');\n        writeVal(e.getValue(), o);\n      }\n      o.append('}');\n      return;\n    }\n    if (v instanceof JSONArray) {\n      o.append('[');\n      ArrayList<Object> items = ((JSONArray)v).values;\n      for (int i = 0; i < items.size(); i++) {\n        if (i > 0) { o.append(','); }\n        writeVal(items.get(i), o);\n      }\n      o.append(']');\n      return;\n    }\n    o.append(\"null\");\n  }\n  public static String write(Object v) {\n    StringBuilder o = new StringBuilder();\n    writeVal(v, o);\n    return o.toString();\n  }\n  static class Pos { int i; Pos(int start) { i = start; } }\n  static void skipWs(String s, Pos p) {\n    while (p.i < s.length()) {\n      char c = s.charAt(p.i);\n      if (c == ' ' || c == (char)9 || c == (char)10 || c == (char)13) { p.i++; } else { break; }\n    }\n  }\n  static String readStr(String s, Pos p) {\n    StringBuilder o = new StringBuilder();\n    if (p.i < s.length() && s.charAt(p.i) == (char)34) { p.i++; }\n    while (p.i < s.length() && s.charAt(p.i) != (char)34) {\n      char c = s.charAt(p.i);\n      if (c == (char)92 && (p.i + 1) < s.length()) {\n        p.i++;\n        char e = s.charAt(p.i);\n        if (e == 'n') { o.append((char)10); }\n        else if (e == 'r') { o.append((char)13); }\n        else if (e == 't') { o.append((char)9); }\n        else if (e == 'b') { o.append((char)8); }\n        else if (e == 'f') { o.append((char)12); }\n        else if (e == 'u') {\n          if ((p.i + 4) < s.length()) {\n            o.append((char)Integer.parseInt(s.substring(p.i + 1, p.i + 5), 16));\n            p.i += 4;\n          }\n        }\n        else { o.append(e); }\n        p.i++;\n        continue;\n      }\n      o.append(c);\n      p.i++;\n    }\n    if (p.i < s.length()) { p.i++; }\n    return o.toString();\n  }\n  static Object readVal(String s, Pos p) {\n    skipWs(s, p);\n    if (p.i >= s.length()) { return null; }\n    char c = s.charAt(p.i);\n    if (c == '{') {\n      p.i++;\n      JSONObject o = new JSONObject();\n      while (true) {\n        skipWs(s, p);\n        if (p.i >= s.length()) { break; }\n        if (s.charAt(p.i) == '}') { p.i++; break; }\n        if (s.charAt(p.i) == ',') { p.i++; continue; }\n        String k = readStr(s, p);\n        skipWs(s, p);\n        if (p.i < s.length() && s.charAt(p.i) == ':') { p.i++; }\n        o.put(k, readVal(s, p));\n      }\n      return o;\n    }\n    if (c == '[') {\n      p.i++;\n      JSONArray a = new JSONArray();\n      while (true) {\n        skipWs(s, p);\n        if (p.i >= s.length()) { break; }\n        if (s.charAt(p.i) == ']') { p.i++; break; }\n        if (s.charAt(p.i) == ',') { p.i++; continue; }\n        a.put(readVal(s, p));\n      }\n      return a;\n    }\n    if (c == (char)34) { return readStr(s, p); }\n    if (c == 't') { p.i += 4; return Boolean.TRUE; }\n    if (c == 'f') { p.i += 5; return Boolean.FALSE; }\n    if (c == 'n') { p.i += 4; return null; }\n    int start = p.i;\n    boolean isDouble = false;\n    while (p.i < s.length()) {\n      char d = s.charAt(p.i);\n      if (d == '.' || d == 'e' || d == 'E') { isDouble = true; }\n      else if (!(d == '-' || d == '+' || (d >= '0' && d <= '9'))) { break; }\n      p.i++;\n    }\n    String text = s.substring(start, p.i);\n    if (text.length() == 0) { p.i++; return null; }\n    try {\n      if (isDouble) { return Double.valueOf(text); }\n      return Integer.valueOf(text);\n    } catch (Exception e) {\n      return isDouble ? (Object)Double.valueOf(0.0) : (Object)Integer.valueOf(0);\n    }\n  }\n  public static Object readText(String s) { return readVal(s, new Pos(0)); }\n}\n", true);
   };
+  javaClassRef (cl, ctx, wr) {
+    if ( cl.is_type_param ) {
+      return cl.type_param_name;
+    }
+    if ( ctx.isNativeGenericInstance(cl) ) {
+      let res = cl.generic_template + "<";
+      // Loop start
+      for ( let i = 0; i < cl.generic_args.length; i++) {
+        var a = cl.generic_args[i];
+        if ( i > 0 ) {
+          res = res + ", ";
+        }
+        res = res + this.getObjectTypeString2(a, ctx, wr);
+      }
+      return res + ">";
+    }
+    return cl.name;
+  };
+  genericClassRef (cl, ctx) {
+    return this.javaClassRef(cl, ctx, new CodeWriter());
+  };
+  javaDeclName (cl) {
+    if ( cl.is_generic_form ) {
+      return cl.generic_template;
+    }
+    return cl.name;
+  };
   getObjectTypeString2 (type_string, ctx, wr) {
     if ( type_string.length > 2 ) {
       if ( type_string.indexOf("[") == 0 ) {
@@ -26287,6 +26652,9 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
     };
     if ( ctx.isDefinedClass(type_string) ) {
       const cc = ctx.findClass(type_string);
+      if ( cc.is_type_param || ctx.isNativeGenericInstance(cc) ) {
+        return this.javaClassRef(cc, ctx, wr);
+      }
       if ( cc.is_system ) {
         const current_sys = ctx;
         const sName = ( Object.prototype.hasOwnProperty.call(cc.systemNames, "java7") ? cc.systemNames["java7"] : undefined );
@@ -26551,6 +26919,10 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
           let b_object_set = false;
           if ( ctx.isDefinedClass(t_name) ) {
             const cc_1 = ctx.findClass(t_name);
+            if ( cc_1.is_type_param || ctx.isNativeGenericInstance(cc_1) ) {
+              wr.out(this.javaClassRef(cc_1, ctx, wr), false);
+              return;
+            }
             if ( cc_1.is_union ) {
               wr.out("Object", false);
               b_object_set = true;
@@ -26582,7 +26954,7 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
     if ( node.vref == "this" ) {
       if ( ctx.inLambda() ) {
         const currC = ctx.getCurrentClass();
-        wr.out(currC.name + ".this", false);
+        wr.out(this.javaDeclName(currC) + ".this", false);
       } else {
         wr.out("this", false);
       }
@@ -26619,10 +26991,10 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
           if ( part == "this" ) {
             if ( ctx.inLambda() ) {
               const currC_1 = ctx.getCurrentClass();
-              wr.out(currC_1.name + ".this", false);
+              wr.out(this.javaDeclName(currC_1) + ".this", false);
             } else {
               const currC_2 = ctx.getCurrentClass();
-              wr.out(currC_2.name + ".this", false);
+              wr.out(this.javaDeclName(currC_2) + ".this", false);
             }
             continue;
           }
@@ -26674,7 +27046,7 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
       if ( part_1 == "this" ) {
         if ( ctx.inLambda() ) {
           const currC_3 = ctx.getCurrentClass();
-          wr.out(currC_3.name + ".this", false);
+          wr.out(this.javaDeclName(currC_3) + ".this", false);
           continue;
         }
       }
@@ -27111,7 +27483,7 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
         package_end = ".immutables";
       }
     }
-    const wr = orig_wr.getFileWriter(class_dir, (cl.name + ".java"));
+    const wr = orig_wr.getFileWriter(class_dir, (this.javaDeclName(cl) + ".java"));
     const package_name = ctx.getCompilerSetting("package");
     if ( this.isPackaged(ctx) ) {
       if ( package_name.length > 0 ) {
@@ -27148,7 +27520,7 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
     this.writeJavaTraitInterfaces(ctx, orig_wr);
     this.writeJavaJsonSupport(ctx, orig_wr);
     wr.out("", true);
-    wr.out("public class " + cl.name, false);
+    wr.out("public class " + this.javaClassRef(cl, ctx, wr), false);
     if ( cl.extends_classes.length > 0 ) {
       wr.out(" extends ", false);
       // Loop start
@@ -27182,7 +27554,7 @@ class RangerJava7ClassWriter  extends RangerGenericClassWriter {
     if ( cl.has_constructor ) {
       const constr = cl.constructor_fn;
       wr.out("", true);
-      wr.out(cl.name + "(", false);
+      wr.out(this.javaDeclName(cl) + "(", false);
       this.writeArgsDef(constr, ctx, wr);
       wr.out(" ) {", true);
       wr.indent(1);
@@ -30553,6 +30925,46 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
         break;
     };
   };
+  cppClassRef (cl, ctx) {
+    if ( cl.is_type_param ) {
+      return cl.type_param_name;
+    }
+    if ( ctx.isNativeGenericInstance(cl) ) {
+      let res = cl.generic_template + "<";
+      // Loop start
+      for ( let i = 0; i < cl.generic_args.length; i++) {
+        var a = cl.generic_args[i];
+        if ( i > 0 ) {
+          res = res + ", ";
+        }
+        res = res + this.getObjectTypeString(a, ctx);
+      }
+      return res + ">";
+    }
+    return cl.name;
+  };
+  cppDeclName (cl) {
+    if ( cl.is_generic_form ) {
+      return cl.generic_template;
+    }
+    return cl.name;
+  };
+  cppTemplatePrefix (cl, ctx) {
+    if ( cl.is_generic_form == false ) {
+      return "";
+    }
+    let res = "template <";
+    // Loop start
+    for ( let i = 0; i < cl.generic_args.length; i++) {
+      var a = cl.generic_args[i];
+      if ( i > 0 ) {
+        res = res + ", ";
+      }
+      res = res + "class ";
+      res = res + this.getObjectTypeString(a, ctx);
+    }
+    return res + "> ";
+  };
   getObjectTypeString (type_string, ctx) {
     if ( type_string.length >= 2 ) {
       if ( type_string.charCodeAt(0 ) == (91) ) {
@@ -30597,6 +31009,12 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     }
     if ( ctx.isDefinedClass(type_string) ) {
       const cc = ctx.findClass(type_string);
+      if ( cc.is_type_param ) {
+        return cc.type_param_name;
+      }
+      if ( ctx.isNativeGenericInstance(cc) ) {
+        return this.cppPtr(this.cppClassRef(cc, ctx));
+      }
       if ( cc.is_union ) {
         return "r_union_" + type_string;
       }
@@ -30723,6 +31141,9 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     }
     if ( ctx.isDefinedClass(type_string) ) {
       const scc = ctx.findClass(type_string);
+      if ( scc.is_type_param || ctx.isNativeGenericInstance(scc) ) {
+        return this.cppClassRef(scc, ctx);
+      }
       if ( scc.is_system ) {
         const sysName = ( Object.prototype.hasOwnProperty.call(scc.systemNames, "cpp") ? scc.systemNames["cpp"] : undefined );
         if ( (typeof(sysName) !== "undefined" && sysName != null )  ) {
@@ -30908,6 +31329,16 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
             return;
           }
           const cc_1 = ctx.findClass(t_name);
+          if ( cc_1.is_type_param || ctx.isNativeGenericInstance(cc_1) ) {
+            const gts = this.getObjectTypeString(t_name, ctx);
+            if ( node.IsOptional() ) {
+              wr.addImport("<optional>");
+              wr.out(("std::optional<" + gts) + ">", false);
+              return;
+            }
+            wr.out(gts, false);
+            return;
+          }
           if ( this.cppIsValueClass(cc_1, ctx) ) {
             wr.out(cc_1.name, false);
             return;
@@ -31336,14 +31767,18 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
   WriteVRef (node, ctx, wr) {
     if ( node.vref == "this" ) {
       const currC = ctx.getCurrentClass();
+      let sft = "shared_from_this()";
       if ( (typeof(currC) !== "undefined" && currC != null )  ) {
         const cc = currC;
+        if ( cc.is_generic_form ) {
+          sft = "this->shared_from_this()";
+        }
         if ( cc.extends_classes.length > 0 ) {
-          wr.out(("std::dynamic_pointer_cast<" + cc.name) + ">(shared_from_this())", false);
+          wr.out(((("std::dynamic_pointer_cast<" + this.cppClassRef(cc, ctx)) + ">(") + sft) + ")", false);
           return;
         }
       }
-      wr.out("shared_from_this()", false);
+      wr.out(sft, false);
       return;
     }
     if ( node.eval_type == 13 ) {
@@ -32696,7 +33131,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
         wr.out("(", false);
       } else {
         wr.out(" " + this.cppMakeOpen(), false);
-        wr.out(cl.name, false);
+        wr.out(this.cppClassRef(cl, ctx), false);
         wr.out(">(", false);
       }
       const constr = cl.constructor_fn;
@@ -32793,7 +33228,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       return;
     }
     let inheritedVars = {};
-    wr.out("class " + cl.name, false);
+    wr.out((this.cppTemplatePrefix(cl, ctx) + "class ") + this.cppDeclName(cl), false);
     const ifaceBases = this.cppClassIfaceBases(cl, ctx);
     let baseCnt = 0;
     if ( cl.extends_classes.length > 0 ) {
@@ -32832,12 +33267,12 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
           baseCnt = baseCnt + 1;
         }
         if ( this.cppNeedsSharedFromThis(node) ) {
-          wr.out(", public " + this.cppEsft(cl.name), false);
+          wr.out(", public " + this.cppEsft(this.cppClassRef(cl, ctx)), false);
         }
         wr.out(" ", false);
       } else {
         if ( this.cppNeedsSharedFromThis(node) ) {
-          wr.out((" : public " + this.cppEsft(cl.name)) + " ", false);
+          wr.out((" : public " + this.cppEsft(this.cppClassRef(cl, ctx))) + " ", false);
         }
       }
     }
@@ -32851,7 +33286,7 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
         this.writeCppHeaderVar(pvar_1.node, ctx, wr, false);
       }
     }
-    wr.out(cl.name + "(", false);
+    wr.out(this.cppDeclName(cl) + "(", false);
     if ( cl.has_constructor ) {
       const constr = cl.constructor_fn;
       this.writeArgsDef(constr, ctx, wr);
@@ -33289,9 +33724,11 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     const classWriter = orig_wr.getTag("c++ClassDefs");
     const headerWriter = orig_wr.getTag("c++Header");
     const projectName = "project";
-    classWriter.out(("class " + cl.name) + ";", true);
+    const tplPrefix = this.cppTemplatePrefix(cl, ctx);
+    const clRef = this.cppClassRef(cl, ctx);
+    classWriter.out(((tplPrefix + "class ") + this.cppDeclName(cl)) + ";", true);
     this.writeClassHeader(node, ctx, headerWriter);
-    wr.out(((cl.name + "::") + cl.name) + "(", false);
+    wr.out((((tplPrefix + clRef) + "::") + this.cppDeclName(cl)) + "(", false);
     if ( cl.has_constructor ) {
       const constr = cl.constructor_fn;
       this.writeArgsDef(constr, ctx, wr);
@@ -33379,14 +33816,14 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       wr.out("}", true);
     }
     // Loop start
-    for ( let i_5 = 0; i_5 < cl.static_methods.length; i_5++) {
-      var variant = cl.static_methods[i_5];
+    for ( const variant of cl.static_methods) {
       if ( variant.nameNode.hasFlag("main") ) {
         continue;
       }
+      wr.out(tplPrefix, false);
       this.writeReturnTypeDef(variant, ctx, wr);
       wr.out(" ", false);
-      wr.out((" " + cl.name) + "::", false);
+      wr.out((" " + clRef) + "::", false);
       wr.out(variant.compiledName + "(", false);
       this.writeArgsDef(variant, ctx, wr);
       wr.out(") {", true);
@@ -33405,9 +33842,10 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       const mVs = ( Object.prototype.hasOwnProperty.call(cl.method_variants, fnVar) ? cl.method_variants[fnVar] : undefined );
       // Loop start
       for ( const variant_1 of mVs.variants) {
+        wr.out(tplPrefix, false);
         this.writeReturnTypeDef(variant_1, ctx, wr);
         wr.out(" ", false);
-        wr.out((" " + cl.name) + "::", false);
+        wr.out((" " + clRef) + "::", false);
         wr.out(variant_1.compiledName + "(", false);
         this.writeArgsDef(variant_1, ctx, wr);
         wr.out(") {", true);
@@ -45301,6 +45739,24 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
     }
     return tn;
   };
+  ktClassRef (cl, ctx) {
+    if ( cl.is_type_param ) {
+      return cl.type_param_name;
+    }
+    if ( ctx.isNativeGenericInstance(cl) ) {
+      let res = cl.generic_template + "<";
+      // Loop start
+      for ( let i = 0; i < cl.generic_args.length; i++) {
+        var a = cl.generic_args[i];
+        if ( i > 0 ) {
+          res = res + ", ";
+        }
+        res = res + this.getObjectTypeString(a, ctx);
+      }
+      return res + ">";
+    }
+    return cl.name;
+  };
   getObjectTypeString (type_string, ctx) {
     if ( type_string.length >= 2 ) {
       if ( type_string.charCodeAt(0 ) == (91) ) {
@@ -45309,6 +45765,9 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
     }
     if ( ctx.isDefinedClass(type_string) ) {
       const cc = ctx.findClass(type_string);
+      if ( cc.is_type_param || ctx.isNativeGenericInstance(cc) ) {
+        return this.ktClassRef(cc, ctx);
+      }
       if ( cc.is_union ) {
         if ( this.unionIsSealable(cc, ctx) ) {
           return this.unionInterfaceName(type_string);
@@ -45894,7 +46353,7 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
       }
       const fc = node.getSecond();
       wr.out(" ", false);
-      wr.out(cl.name, false);
+      wr.out(this.ktClassRef(cl, ctx), false);
       wr.out("(", false);
       const constr = cl.constructor_fn;
       if ( (typeof(constr) !== "undefined" && constr != null )  ) {
@@ -45953,10 +46412,11 @@ class RangerKotlinClassWriter  extends RangerGenericClassWriter {
     }
     const ktVis = new RangerDocCommentWriter();
     wr.out(ktVis.classVisibility(cl, "", "", "internal "), false);
+    const ktDecl = this.ktClassRef(cl, ctx);
     if ( cl.is_extended_by_children || cl.name == "RangerProcessBase" ) {
-      wr.out("open class " + cl.name, false);
+      wr.out("open class " + ktDecl, false);
     } else {
-      wr.out("class " + cl.name, false);
+      wr.out("class " + ktDecl, false);
     }
     if ( cl.has_constructor ) {
       const constr = cl.constructor_fn;
@@ -46561,6 +47021,24 @@ class RangerDartClassWriter  extends RangerGenericClassWriter {
     }
     return tn;
   };
+  dartClassRef (cl, ctx) {
+    if ( cl.is_type_param ) {
+      return cl.type_param_name;
+    }
+    if ( ctx.isNativeGenericInstance(cl) ) {
+      let res = cl.generic_template + "<";
+      // Loop start
+      for ( let i = 0; i < cl.generic_args.length; i++) {
+        var a = cl.generic_args[i];
+        if ( i > 0 ) {
+          res = res + ", ";
+        }
+        res = res + this.getObjectTypeString(a, ctx);
+      }
+      return res + ">";
+    }
+    return cl.name;
+  };
   getObjectTypeString (type_string, ctx) {
     if ( type_string.length >= 2 ) {
       if ( type_string.charCodeAt(0 ) == (91) ) {
@@ -46569,6 +47047,9 @@ class RangerDartClassWriter  extends RangerGenericClassWriter {
     }
     if ( ctx.isDefinedClass(type_string) ) {
       const cc = ctx.findClass(type_string);
+      if ( cc.is_type_param || ctx.isNativeGenericInstance(cc) ) {
+        return this.dartClassRef(cc, ctx);
+      }
       if ( cc.is_union ) {
         if ( this.unionIsSealable(cc, ctx) ) {
           return this.unionInterfaceName(type_string);
@@ -47066,7 +47547,7 @@ class RangerDartClassWriter  extends RangerGenericClassWriter {
         return;
       }
       wr.out(" ", false);
-      wr.out(cl.name, false);
+      wr.out(this.dartClassRef(cl, ctx), false);
       wr.out("(", false);
       const constr = cl.constructor_fn;
       if ( (typeof(constr) !== "undefined" && constr != null )  ) {
@@ -47137,7 +47618,7 @@ class RangerDartClassWriter  extends RangerGenericClassWriter {
       const clDocWr = new RangerDocCommentWriter();
       clDocWr.writeDartDocForClass(cl, ctx, wr);
     }
-    wr.out("class " + cl.name, false);
+    wr.out("class " + this.dartClassRef(cl, ctx), false);
     const dartUnions = this.unionInterfacesOf(cl, ctx);
     if ( cl.extends_classes.length > 0 ) {
       wr.out(" extends ", false);
@@ -47209,7 +47690,11 @@ class RangerDartClassWriter  extends RangerGenericClassWriter {
     if ( cl.has_constructor ) {
       const constr = cl.constructor_fn;
       wr.out("", true);
-      wr.out(cl.name + "(", false);
+      if ( cl.is_generic_form ) {
+        wr.out(cl.generic_template + "(", false);
+      } else {
+        wr.out(cl.name + "(", false);
+      }
       this.writeArgsDef(constr, ctx, wr);
       wr.out(")", false);
       if ( cl.extends_classes.length > 0 ) {
@@ -47547,6 +48032,27 @@ class RangerCSharpClassWriter  extends RangerGenericClassWriter {
       wr.out(("public interface " + this.unionInterfaceName(uname)) + " { }", true);
     }
   };
+  csClassRef (cl, ctx) {
+    if ( cl.is_type_param ) {
+      return cl.type_param_name;
+    }
+    if ( ctx.isNativeGenericInstance(cl) ) {
+      let res = cl.generic_template + "<";
+      // Loop start
+      for ( let i = 0; i < cl.generic_args.length; i++) {
+        var a = cl.generic_args[i];
+        if ( i > 0 ) {
+          res = res + ", ";
+        }
+        res = res + this.getObjectTypeString(a, ctx);
+      }
+      return res + ">";
+    }
+    return cl.name;
+  };
+  genericClassRef (cl, ctx) {
+    return this.csClassRef(cl, ctx);
+  };
   getObjectTypeString (type_string, ctx) {
     if ( type_string.length >= 2 ) {
       if ( type_string.charCodeAt(0 ) == (91) ) {
@@ -47555,6 +48061,9 @@ class RangerCSharpClassWriter  extends RangerGenericClassWriter {
     }
     if ( ctx.isDefinedClass(type_string) ) {
       const cc = ctx.findClass(type_string);
+      if ( cc.is_type_param || ctx.isNativeGenericInstance(cc) ) {
+        return this.csClassRef(cc, ctx);
+      }
       if ( cc.is_union ) {
         if ( this.unionIsSealable(cc, ctx) ) {
           return this.unionInterfaceName(type_string);
@@ -47766,6 +48275,10 @@ class RangerCSharpClassWriter  extends RangerGenericClassWriter {
         }
         if ( ctx.isDefinedClass(t_name) ) {
           const cc = ctx.findClass(t_name);
+          if ( cc.is_type_param || ctx.isNativeGenericInstance(cc) ) {
+            wr.out(this.csClassRef(cc, ctx), false);
+            return;
+          }
           if ( cc.is_union ) {
             if ( this.unionIsSealable(cc, ctx) ) {
               wr.out(this.unionInterfaceName(t_name), false);
@@ -48089,7 +48602,7 @@ class RangerCSharpClassWriter  extends RangerGenericClassWriter {
         wr.out("public ", false);
       }
     }
-    wr.out(("class " + cl.name) + " ", false);
+    wr.out(("class " + this.csClassRef(cl, ctx)) + " ", false);
     const csUnions = this.unionInterfacesOf(cl, ctx);
     const csIfaces = this.csTraits.basesOf(cl, ctx);
     let csBases = 0;
@@ -48147,7 +48660,11 @@ class RangerCSharpClassWriter  extends RangerGenericClassWriter {
     if ( cl.has_constructor ) {
       const constr = cl.constructor_fn;
       wr.out("public ", false);
-      wr.out(cl.name + "(", false);
+      if ( cl.is_generic_form ) {
+        wr.out(cl.generic_template + "(", false);
+      } else {
+        wr.out(cl.name + "(", false);
+      }
       this.writeArgsDef(constr, ctx, wr);
       wr.out(" ) {", true);
       wr.indent(1);
@@ -48373,9 +48890,65 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
     this.scala_enums_written = false;
     this.scLoops = new ForLoopShape();
   }
+  scClassRef (cl, ctx) {
+    if ( cl.is_type_param ) {
+      return cl.type_param_name;
+    }
+    if ( ctx.isNativeGenericInstance(cl) ) {
+      let res = cl.generic_template + "[";
+      // Loop start
+      for ( let i = 0; i < cl.generic_args.length; i++) {
+        var a = cl.generic_args[i];
+        if ( i > 0 ) {
+          res = res + ", ";
+        }
+        res = res + this.getObjectTypeString(a, ctx);
+      }
+      return res + "]";
+    }
+    return cl.name;
+  };
+  genericClassRef (cl, ctx) {
+    return this.scClassRef(cl, ctx);
+  };
+  collectionTypeStringToScala (type_string, ctx) {
+    const n = type_string.length;
+    const inner = type_string.substring(1, n - 1 );
+    const il = inner.length;
+    let depth = 0;
+    let sep = 0 - 1;
+    let i = 0;
+    while (i < il) {
+      const c = inner.charCodeAt(i );
+      if ( c == (91) ) {
+        depth = depth + 1;
+      }
+      if ( c == (93) ) {
+        depth = depth - 1;
+      }
+      if ( c == (58) && depth == 0 ) {
+        sep = i;
+      }
+      i = i + 1;
+    };
+    if ( sep >= 0 ) {
+      const kt = inner.substring(0, sep );
+      const vt = inner.substring(sep + 1, il );
+      return ((("collection.mutable.HashMap[" + this.getObjectTypeString(kt, ctx)) + ", ") + this.getObjectTypeString(vt, ctx)) + "]";
+    }
+    return ("collection.mutable.ArrayBuffer[" + this.getObjectTypeString(inner, ctx)) + "]";
+  };
   getObjectTypeString (type_string, ctx) {
+    if ( type_string.length >= 2 ) {
+      if ( type_string.charCodeAt(0 ) == (91) ) {
+        return this.collectionTypeStringToScala(type_string, ctx);
+      }
+    }
     if ( ctx.isDefinedClass(type_string) ) {
       const cc = ctx.findClass(type_string);
+      if ( cc.is_type_param || ctx.isNativeGenericInstance(cc) ) {
+        return this.scClassRef(cc, ctx);
+      }
       if ( cc.is_union ) {
         return "Any";
       }
@@ -48529,6 +49102,13 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
         }
         if ( ctx.isDefinedClass(t_name) ) {
           const scTC = ctx.findClass(t_name);
+          if ( scTC.is_type_param || ctx.isNativeGenericInstance(scTC) ) {
+            wr.out(this.scClassRef(scTC, ctx), false);
+            if ( node.hasFlag("optional") ) {
+              wr.out("]", false);
+            }
+            return;
+          }
           if ( scTC.is_trait ) {
             if ( this.scalaTraits.isInterface(t_name, ctx) == false ) {
               ctx.addError(node, ("the Scala target writes a `trait` as a mixin, so `" + t_name) + "` is not a type it can name. A trait that declares only METHODS becomes a Scala trait and can be used as a type; this one carries fields, which its consumers each hold their own copy of. Use a class with subclasses, or give the parameter a concrete type.");
@@ -48621,6 +49201,13 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
         if ( node.type_name == "void" ) {
           wr.out("Unit", false);
           return;
+        }
+        if ( ctx.isDefinedClass(node.type_name) ) {
+          const scNC = ctx.findClass(node.type_name);
+          if ( scNC.is_type_param || ctx.isNativeGenericInstance(scNC) ) {
+            wr.out(this.scClassRef(scNC, ctx), false);
+            return;
+          }
         }
         wr.out(this.getTypeString(node.type_name), false);
         break;
@@ -49097,7 +49684,7 @@ class RangerScalaClassWriter  extends RangerGenericClassWriter {
           }
         }
       }
-      wr.out(("class " + cl.name) + " ", false);
+      wr.out(("class " + this.scClassRef(cl, ctx)) + " ", false);
       if ( cl.has_constructor ) {
         wr.out("(", false);
         const constr = cl.constructor_fn;
@@ -49515,7 +50102,35 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
     if ( ctx.isPrimitiveType(type_string) ) {
       return this.getObjectTypeString(type_string, ctx);
     }
+    if ( this.goIsTypeParam(type_string, ctx) ) {
+      return this.getObjectTypeString(type_string, ctx);
+    }
     return "*" + this.getObjectTypeString(type_string, ctx);
+  };
+  goClassRef (cl, ctx) {
+    if ( cl.is_type_param ) {
+      return cl.type_param_name;
+    }
+    if ( ctx.isNativeGenericInstance(cl) ) {
+      let res = cl.generic_template + "[";
+      // Loop start
+      for ( let i = 0; i < cl.generic_args.length; i++) {
+        var a = cl.generic_args[i];
+        if ( i > 0 ) {
+          res = res + ", ";
+        }
+        res = res + this.goElementTypeString(a, ctx);
+      }
+      return res + "]";
+    }
+    return ctx.transformTypeName(cl.name);
+  };
+  goIsTypeParam (type_string, ctx) {
+    if ( ctx.isDefinedClass(type_string) ) {
+      const cc = ctx.findClass(type_string);
+      return cc.is_type_param;
+    }
+    return false;
   };
   getObjectTypeString (type_string, ctx) {
     if ( type_string == "this" ) {
@@ -49526,6 +50141,9 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
     }
     if ( ctx.isDefinedClass(type_string) ) {
       const cc = ctx.findClass(type_string);
+      if ( cc.is_type_param || ctx.isNativeGenericInstance(cc) ) {
+        return this.goClassRef(cc, ctx);
+      }
       if ( cc.is_union ) {
         return this.sealableUnionTypeOr(type_string, "interface{}", ctx);
       }
@@ -49597,6 +50215,9 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
     };
     if ( ctx.isDefinedClass(type_string) ) {
       const cc = ctx.findClass(type_string);
+      if ( cc.is_type_param || ctx.isNativeGenericInstance(cc) ) {
+        return this.goClassRef(cc, ctx);
+      }
       if ( cc.is_union ) {
         return this.sealableUnionTypeOr(type_string, "interface{}", ctx);
       }
@@ -49653,7 +50274,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
             return;
           }
         }
-        if ( (this.write_raw_type == false && ctx.isPrimitiveType(a_name) == false) && this.isCollectionTypeString(a_name) == false ) {
+        if ( ((this.write_raw_type == false && ctx.isPrimitiveType(a_name) == false) && this.isCollectionTypeString(a_name) == false) && this.goIsTypeParam(a_name, ctx) == false ) {
           wr.out("*", false);
         }
         wr.out(this.getObjectTypeString(a_name, ctx) + "", false);
@@ -49759,7 +50380,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
               return;
             }
           }
-          if ( (this.write_raw_type == false && ctx.isPrimitiveType(a_name) == false) && this.isCollectionTypeString(a_name) == false ) {
+          if ( ((this.write_raw_type == false && ctx.isPrimitiveType(a_name) == false) && this.isCollectionTypeString(a_name) == false) && this.goIsTypeParam(a_name, ctx) == false ) {
             wr.out("*", false);
           }
           wr.out(this.getObjectTypeString(a_name, ctx) + "", false);
@@ -49780,7 +50401,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
             return;
           }
         }
-        if ( (this.write_raw_type == false && ctx.isPrimitiveType(a_name) == false) && this.isCollectionTypeString(a_name) == false ) {
+        if ( ((this.write_raw_type == false && ctx.isPrimitiveType(a_name) == false) && this.isCollectionTypeString(a_name) == false) && this.goIsTypeParam(a_name, ctx) == false ) {
           wr.out("*", false);
         }
         wr.out(this.getObjectTypeString(a_name, ctx) + "", false);
@@ -49841,7 +50462,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
             ctx.addError(node, ("the Go target writes a `trait` as a mixin, so `" + t_name) + "` is not a type it can name. A trait that declares only METHODS becomes a Go interface and can be used as a type; this one carries fields, which its consumers each hold their own copy of. Use a class with subclasses, or give the parameter a concrete type.");
           }
         }
-        if ( (this.write_raw_type == false && node.isPrimitiveType() == false) && b_iface == false ) {
+        if ( ((this.write_raw_type == false && node.isPrimitiveType() == false) && b_iface == false) && this.goIsTypeParam(t_name, ctx) == false ) {
           wr.out("*", false);
         }
         wr.out(this.getTypeString2(t_name, ctx), false);
@@ -50608,7 +51229,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
     if ( node.hasNewOper ) {
       const cl = node.clDesc;
       const fc = node.getSecond();
-      wr.out(("CreateNew_" + cl.name) + "(", false);
+      wr.out(("CreateNew_" + this.goClassRef(cl, ctx)) + "(", false);
       const constr = cl.constructor_fn;
       const givenArgs = node.getThird();
       const pms = operatorsOf.filter_31(givenArgs.children, ((item, index) => { 
@@ -51326,7 +51947,21 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
     let declaredVariable = {};
     let declaredFunction = {};
     let declaredIfFunction = {};
-    wr.out(("type " + cl.name) + " struct { ", true);
+    const goName = this.goClassRef(cl, ctx);
+    let goDecl = cl.name;
+    if ( cl.is_generic_form ) {
+      goDecl = cl.generic_template + "[";
+      // Loop start
+      for ( let gai = 0; gai < cl.generic_args.length; gai++) {
+        var ga = cl.generic_args[gai];
+        if ( gai > 0 ) {
+          goDecl = goDecl + ", ";
+        }
+        goDecl = (goDecl + this.goClassRef(ctx.findClass(ga), ctx)) + " any";
+      }
+      goDecl = goDecl + "]";
+    }
+    wr.out(("type " + goDecl) + " struct { ", true);
     wr.indent(1);
     // Loop start
     for ( const pvar of cl.variables) {
@@ -51397,7 +52032,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
     }
     this.thisName = "me";
     wr.out("", true);
-    wr.out(("func CreateNew_" + cl.name) + "(", false);
+    wr.out(("func CreateNew_" + goDecl) + "(", false);
     if ( cl.has_constructor ) {
       const constr = cl.constructor_fn;
       let written = 0;
@@ -51414,10 +52049,10 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
         this.writeTypeDef(arg.nameNode, ctx, wr);
       }
     }
-    wr.out((") *" + cl.name) + " {", true);
+    wr.out((") *" + goName) + " {", true);
     wr.indent(1);
     wr.newline();
-    wr.out(("me := new(" + cl.name) + ")", true);
+    wr.out(("me := new(" + goName) + ")", true);
     let initedVariable = {};
     // Loop start
     for ( let ai_1 = 0; ai_1 < this.goAncestors(cl, ctx).length; ai_1++) {
@@ -51574,7 +52209,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
         }
         declaredFunction[variant_2.name] = true;
         declaredFn[variant_2.name] = true;
-        wr.out(((("func (this *" + cl.name) + ") ") + variant_2.compiledName) + " (", false);
+        wr.out(((("func (this *" + goName) + ") ") + variant_2.compiledName) + " (", false);
         this.writeArgsDef(variant_2, ctx, wr);
         wr.out(") ", false);
         if ( variant_2.nameNode.hasFlag("optional") ) {
@@ -51608,7 +52243,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
             continue;
           }
           declaredFn[variant_3.name] = true;
-          wr.out(((("func (this *" + cl.name) + ") ") + variant_3.compiledName) + " (", false);
+          wr.out(((("func (this *" + goName) + ") ") + variant_3.compiledName) + " (", false);
           this.writeArgsDef(variant_3, ctx, wr);
           wr.out(") ", false);
           if ( variant_3.nameNode.hasFlag("optional") ) {
@@ -51631,12 +52266,11 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
     let declaredGetter = {};
     if ( cl.doesInherit() || cl.extends_classes.length > 0 ) {
       // Loop start
-      for ( let i_15 = 0; i_15 < cl.variables.length; i_15++) {
-        var p_1 = cl.variables[i_15];
+      for ( const p_1 of cl.variables) {
         declaredGetter[p_1.name] = true;
         wr.newline();
         wr.out("// getter for variable " + p_1.name, true);
-        wr.out(("func (this *" + cl.name) + ") ", false);
+        wr.out(("func (this *" + goName) + ") ", false);
         wr.out("Get_", false);
         wr.out(p_1.compiledName + "() ", false);
         if ( p_1.nameNode.hasFlag("optional") ) {
@@ -51651,7 +52285,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
         wr.out("}", true);
         wr.newline();
         wr.out("// setter for variable " + p_1.name, true);
-        wr.out(("func (this *" + cl.name) + ") ", false);
+        wr.out(("func (this *" + goName) + ") ", false);
         wr.out("Set_", false);
         wr.out(p_1.compiledName + "( value ", false);
         if ( p_1.nameNode.hasFlag("optional") ) {
@@ -51678,7 +52312,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
           }
           wr.newline();
           wr.out("// getter for variable " + p_2.name, true);
-          wr.out(("func (this *" + cl.name) + ") ", false);
+          wr.out(("func (this *" + goName) + ") ", false);
           wr.out("Get_", false);
           wr.out(p_2.compiledName + "() ", false);
           if ( p_2.nameNode.hasFlag("optional") ) {
@@ -51693,7 +52327,7 @@ class RangerGolangClassWriter  extends RangerGenericClassWriter {
           wr.out("}", true);
           wr.newline();
           wr.out("// getter for variable " + p_2.name, true);
-          wr.out(("func (this *" + cl.name) + ") ", false);
+          wr.out(("func (this *" + goName) + ") ", false);
           wr.out("Set_", false);
           wr.out(p_2.compiledName + "( value ", false);
           if ( p_2.nameNode.hasFlag("optional") ) {
@@ -52419,7 +53053,11 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
       const cl = node.clDesc;
       const fc = node.getSecond();
       wr.out(" new ", false);
-      wr.out(cl.name, false);
+      if ( ctx.isNativeGenericInstance(cl) ) {
+        wr.out(cl.generic_template, false);
+      } else {
+        wr.out(cl.name, false);
+      }
       wr.out("(", false);
       const constr = cl.constructor_fn;
       const givenArgs = node.getThird();
@@ -52498,7 +53136,11 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
       this.wrote_header = true;
     }
     this.writePhpNativeEnums(ctx, wr);
-    wr.out("class " + cl.name, false);
+    if ( cl.is_generic_form ) {
+      wr.out("class " + cl.generic_template, false);
+    } else {
+      wr.out("class " + cl.name, false);
+    }
     let parentClass;
     if ( cl.extends_classes.length > 0 ) {
       wr.out(" extends ", false);
@@ -52609,6 +53251,8 @@ class RangerPythonClassWriter  extends RangerGenericClassWriter {
     this.compiler = undefined;     /* note: unused */
     this.thisName = "self";
     this.wrote_header = false;
+    this.pyTypeVarsWritten = [];
+    this.pyGenericImported = false;
     this.pyEnums = new EnumNativeAnalysis();
     this.python_enums_written = false;
     this.pyTraits = new TraitInterfaceAnalysis();
@@ -53247,6 +53891,25 @@ class RangerPythonClassWriter  extends RangerGenericClassWriter {
       if ( cc.is_generic_instance ) {
         return "";
       }
+      if ( cc.is_type_param ) {
+        return cc.type_param_name;
+      }
+      if ( ctx.isNativeGenericInstance(cc) ) {
+        let gres = cc.generic_template + "[";
+        // Loop start
+        for ( let gai = 0; gai < cc.generic_args.length; gai++) {
+          var ga = cc.generic_args[gai];
+          const gp = this.pyTypeNameFor(ga, ctx);
+          if ( gp.length == 0 ) {
+            return cc.generic_template;
+          }
+          if ( gai > 0 ) {
+            gres = gres + ", ";
+          }
+          gres = gres + gp;
+        }
+        return gres + "]";
+      }
       return tn;
     }
     const eDef = ctx.getRoot().getEnum(tn);
@@ -53454,7 +54117,11 @@ class RangerPythonClassWriter  extends RangerGenericClassWriter {
     if ( node.hasNewOper ) {
       const cl = node.clDesc;
       const fc = node.getSecond();
-      wr.out(cl.name, false);
+      if ( ctx.isNativeGenericInstance(cl) ) {
+        wr.out(cl.generic_template, false);
+      } else {
+        wr.out(cl.name, false);
+      }
       wr.out("(", false);
       const constr = cl.constructor_fn;
       const givenArgs = node.getThird();
@@ -53534,7 +54201,31 @@ class RangerPythonClassWriter  extends RangerGenericClassWriter {
     }
     this.writePythonNativeEnums(ctx, wr);
     this.writePythonTraitProtocols(ctx, wr);
-    wr.out("class " + cl.name, false);
+    let pyGenericBase = "";
+    if ( cl.is_generic_form ) {
+      if ( this.pyGenericImported == false ) {
+        wr.out("from typing import Generic, TypeVar", true);
+        this.pyGenericImported = true;
+      }
+      pyGenericBase = "Generic[";
+      // Loop start
+      for ( let gai = 0; gai < cl.generic_args.length; gai++) {
+        var ga = cl.generic_args[gai];
+        const tvName = this.pyTypeNameFor(ga, ctx);
+        if ( this.pyTypeVarsWritten.indexOf(tvName) < 0 ) {
+          this.pyTypeVarsWritten.push(tvName);
+          wr.out(((tvName + " = TypeVar(\"") + tvName) + "\")", true);
+        }
+        if ( gai > 0 ) {
+          pyGenericBase = pyGenericBase + ", ";
+        }
+        pyGenericBase = pyGenericBase + tvName;
+      }
+      pyGenericBase = pyGenericBase + "]";
+      wr.out("class " + cl.generic_template, false);
+    } else {
+      wr.out("class " + cl.name, false);
+    }
     let parentClass;
     if ( cl.extends_classes.length > 0 ) {
       wr.out("(", false);
@@ -53543,7 +54234,14 @@ class RangerPythonClassWriter  extends RangerGenericClassWriter {
         wr.out(pName, false);
         parentClass = ctx.findClass(pName);
       }
+      if ( pyGenericBase.length > 0 ) {
+        wr.out(", " + pyGenericBase, false);
+      }
       wr.out(")", false);
+    } else {
+      if ( pyGenericBase.length > 0 ) {
+        wr.out(("(" + pyGenericBase) + ")", false);
+      }
     }
     wr.out(":", true);
     wr.indent(1);
@@ -54049,6 +54747,33 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
       }
     }
   };
+  jsClassRef (cl, ctx) {
+    if ( cl.is_type_param ) {
+      return cl.type_param_name;
+    }
+    if ( ctx.isNativeGenericInstance(cl) ) {
+      if ( this.target_typescript == false ) {
+        return cl.generic_template;
+      }
+      let res = cl.generic_template + "<";
+      // Loop start
+      for ( let i = 0; i < cl.generic_args.length; i++) {
+        var a = cl.generic_args[i];
+        if ( i > 0 ) {
+          res = res + ", ";
+        }
+        res = res + this.getObjectTypeString(a, ctx);
+      }
+      return res + ">";
+    }
+    return cl.name;
+  };
+  jsDeclName (cl) {
+    if ( cl.is_generic_form ) {
+      return cl.generic_template;
+    }
+    return cl.name;
+  };
   getObjectTypeString (type_string, ctx) {
     if ( type_string.length >= 2 ) {
       if ( type_string.charCodeAt(0 ) == (91) ) {
@@ -54081,6 +54806,9 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
     };
     if ( ctx.isDefinedClass(type_string) ) {
       const cc = ctx.findClass(type_string);
+      if ( cc.is_type_param || ctx.isNativeGenericInstance(cc) ) {
+        return this.jsClassRef(cc, ctx);
+      }
       if ( cc.is_system ) {
         let sName = "";
         if ( this.target_typescript ) {
@@ -54313,7 +55041,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
             }
           }
           const cc_1 = ctx.findClass(t_name);
-          wr.out(cc_1.name, false);
+          wr.out(this.jsClassRef(cc_1, ctx), false);
           return;
         }
         wr.out(this.getTypeString(t_name), false);
@@ -54671,7 +55399,7 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
         wr.out(")", false);
         return;
       }
-      wr.out("new " + cl.name, false);
+      wr.out("new " + this.jsClassRef(cl, ctx), false);
       wr.out("(", false);
       const constr = cl.constructor_fn;
       const givenArgs_1 = node.getThird();
@@ -54884,7 +55612,15 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
         wr.out(" default ", false);
       }
     }
-    wr.out(("class " + cl.name) + " ", false);
+    if ( cl.is_generic_form ) {
+      if ( this.target_typescript ) {
+        wr.out(("class " + this.jsClassRef(cl, ctx)) + " ", false);
+      } else {
+        wr.out(("class " + this.jsDeclName(cl)) + " ", false);
+      }
+    } else {
+      wr.out(("class " + cl.name) + " ", false);
+    }
     if ( is_react_native ) {
       wr.out(" extends Component ", false);
     } else {
@@ -80883,6 +81619,7 @@ class VirtualCompiler  {
       cli.step(2, "Analyzing code");
       flowParser.StartWalk(node, appCtx, wr);
       flowParser.SolveAsyncFuncs(root, appCtx, wr);
+      flowParser.checkNativeGenerics(appCtx, wr);
       const apiBuilder = new RangerApiBuilder();
       const apiModel = apiBuilder.build(appCtx);
       if ( appCtx.compilerErrors.length > 0 ) {
@@ -80994,6 +81731,9 @@ class VirtualCompiler  {
         if ( cl.is_union ) {
           continue;
         }
+        if ( appCtx.isWrittenClass(cl) == false ) {
+          continue;
+        }
         if ( ( typeof(handledClasses[cName] ) != "undefined" && Object.prototype.hasOwnProperty.call(handledClasses, cName) ) ) {
           continue;
         }
@@ -81031,6 +81771,9 @@ class VirtualCompiler  {
         }
         const cl_1 = ( Object.prototype.hasOwnProperty.call(appCtx.definedClasses, cName_1) ? appCtx.definedClasses[cName_1] : undefined );
         if ( cl_1.is_operator_class ) {
+          continue;
+        }
+        if ( appCtx.isWrittenClass(cl_1) == false ) {
           continue;
         }
         if ( cl_1.is_generic_instance ) {

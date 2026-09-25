@@ -206,6 +206,50 @@ class RangerCppClassWriter {
     }
   }
 
+  ; --- native generics ------------------------------------------------------
+  ; A template whose generic form checked (RangerFlowParser.checkNativeGenerics)
+  ; is written once, as `template <class Op> class History`, and each of its
+  ; instances is spelled `History<int>`. The instances are still separate
+  ; classes to the type checker; only their spelling changes here.
+  fn cppClassRef:string (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    if cl.is_type_param {
+      return cl.type_param_name
+    }
+    if (ctx.isNativeGenericInstance(cl)) {
+      def res:string (cl.generic_template + "<")
+      for cl.generic_args a:string i {
+        if (i > 0) {
+          res = (res + ", ")
+        }
+        res = (res + (this.getObjectTypeString(a ctx)))
+      }
+      return (res + ">")
+    }
+    return cl.name
+  }
+  ; the name a class is DECLARED with: the template's own name for a generic form
+  fn cppDeclName:string (cl:RangerAppClassDesc) {
+    if cl.is_generic_form {
+      return cl.generic_template
+    }
+    return cl.name
+  }
+  ; `template <class Op> ` ahead of a generic form and each of its members
+  fn cppTemplatePrefix:string (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    if (cl.is_generic_form == false) {
+      return ""
+    }
+    def res:string "template <"
+    for cl.generic_args a:string i {
+      if (i > 0) {
+        res = (res + ", ")
+      }
+      res = (res + "class ")
+      res = (res + (this.getObjectTypeString(a ctx)))
+    }
+    return (res + "> ")
+  }
+
   fn getObjectTypeString:string (type_string:string ctx:RangerAppWriterContext) {
     if ((strlen type_string) >= 2) {
       if ((charAt type_string 0) == (ccode "[")) {
@@ -271,6 +315,12 @@ class RangerCppClassWriter {
     if(ctx.isDefinedClass(type_string)) {
 
       def cc (ctx.findClass(type_string))
+      if cc.is_type_param {
+        return cc.type_param_name
+      }
+      if (ctx.isNativeGenericInstance(cc)) {
+        return (this.cppPtr((this.cppClassRef(cc ctx))))
+      }
       if(cc.is_union) {
         ; TODO: how about optionals?
         return ("r_union_" + type_string)
@@ -440,6 +490,9 @@ class RangerCppClassWriter {
     ; type name, and this path writes the bare name of a value.
     if(ctx.isDefinedClass(type_string)) {
       def scc (ctx.findClass(type_string))
+      if (scc.is_type_param || (ctx.isNativeGenericInstance(scc))) {
+        return (this.cppClassRef(scc ctx))
+      }
       if scc.is_system {
         def sysName@(optional):string (get scc.systemNames "cpp")
         if (!null? sysName) {
@@ -647,6 +700,16 @@ class RangerCppClassWriter {
             return
           }
           def cc:RangerAppClassDesc (ctx.findClass(t_name))
+          if (cc.is_type_param || (ctx.isNativeGenericInstance(cc))) {
+            def gts:string (this.getObjectTypeString(t_name ctx))
+            if (node.IsOptional()) {
+              wr.addImport("<optional>")
+              wr.out((("std::optional<" + gts) + ">") false)
+              return
+            }
+            wr.out(gts false)
+            return
+          }
           ; a value case of a closed family is carried by value — the same rule
           ; getObjectTypeString applies, so a narrowing binds what the variant
           ; actually holds
@@ -1152,14 +1215,20 @@ class RangerCppClassWriter {
       ; std::dynamic_pointer_cast<RangerAppClassDesc>
 
       def currC (ctx.getCurrentClass())
+      ; in a class template enable_shared_from_this is a dependent base, so
+      ; its member is only found through `this->`
+      def sft:string "shared_from_this()"
       if(!null? currC) {
         def cc (unwrap currC)
+        if cc.is_generic_form {
+          sft = "this->shared_from_this()"
+        }
         if( (array_length cc.extends_classes) > 0 ) {
-          wr.out("std::dynamic_pointer_cast<" + cc.name + ">(shared_from_this())" , false)
+          wr.out("std::dynamic_pointer_cast<" + (this.cppClassRef(cc ctx)) + ">(" + sft + ")" , false)
           return
         }
       }
-      wr.out("shared_from_this()" false)
+      wr.out(sft false)
       return
     }
     if (node.eval_type == RangerNodeType.Enum) {
@@ -2793,7 +2862,7 @@ class RangerCppClassWriter {
         wr.out("(" false)
       } {
         wr.out((" " + (this.cppMakeOpen())) false)
-        wr.out(cl.name false)
+        wr.out((this.cppClassRef((unwrap cl) ctx)) false)
         wr.out(">(" false)
       }
       def constr:RangerAppFunctionDesc cl.constructor_fn
@@ -2917,7 +2986,7 @@ class RangerCppClassWriter {
       return
     }
     def inheritedVars:[string:boolean]
-    wr.out(("class " + cl.name) , false)
+    wr.out((((this.cppTemplatePrefix((unwrap cl) ctx)) + "class ") + (this.cppDeclName((unwrap cl)))) , false)
     ; the behaviour-only traits this class `does` that some signature names as
     ; a type: each is an abstract base, and the mixin copies are the overrides
     def ifaceBases:[string] (this.cppClassIfaceBases((unwrap cl) ctx))
@@ -2953,12 +3022,12 @@ class RangerCppClassWriter {
           baseCnt = baseCnt + 1
         }
         if (this.cppNeedsSharedFromThis(node)) {
-          wr.out((", public " + (this.cppEsft(cl.name))) , false)
+          wr.out((", public " + (this.cppEsft((this.cppClassRef((unwrap cl) ctx))))) , false)
         }
         wr.out(" " false)
       } {
         if (this.cppNeedsSharedFromThis(node)) {
-          wr.out(((" : public " + (this.cppEsft(cl.name))) + " ") , false)
+          wr.out(((" : public " + (this.cppEsft((this.cppClassRef((unwrap cl) ctx))))) + " ") , false)
         }
       }
     }
@@ -2972,7 +3041,7 @@ class RangerCppClassWriter {
         this.writeCppHeaderVar( (unwrap pvar.node) ctx wr false)
       }
     }
-    wr.out((cl.name + "(") false)
+    wr.out(((this.cppDeclName((unwrap cl))) + "(") false)
     if cl.has_constructor {
       def constr:RangerAppFunctionDesc cl.constructor_fn
       this.writeArgsDef((unwrap constr) ctx wr)
@@ -3532,11 +3601,13 @@ class RangerCppClassWriter {
     ;  }
     ; }
 
-    classWriter.out("class " + cl.name + ";" , true)
+    def tplPrefix:string (this.cppTemplatePrefix((unwrap cl) ctx))
+    def clRef:string (this.cppClassRef((unwrap cl) ctx))
+    classWriter.out(((tplPrefix + "class ") + (this.cppDeclName((unwrap cl)))) + ";" , true)
 
     this.writeClassHeader(node ctx headerWriter)
 
-    wr.out((((cl.name + "::") + cl.name) + "(") false)
+    wr.out(((((tplPrefix + clRef) + "::") + (this.cppDeclName((unwrap cl)))) + "(") false)
     if cl.has_constructor {
       def constr:RangerAppFunctionDesc cl.constructor_fn
       this.writeArgsDef( (unwrap constr) ctx wr)
@@ -3634,9 +3705,10 @@ class RangerCppClassWriter {
         continue _
       }
       ; wr.out("static " false)
+      wr.out(tplPrefix false)
       this.writeReturnTypeDef(variant ctx wr)
       wr.out(" " false)
-      wr.out(((" " + cl.name) + "::") false)
+      wr.out(((" " + clRef) + "::") false)
       wr.out((variant.compiledName + "(") false)
       this.writeArgsDef(variant ctx wr)
       wr.out(") {" true)
@@ -3652,10 +3724,11 @@ class RangerCppClassWriter {
     for cl.defined_variants fnVar:string i {
       def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
       for mVs.variants variant:RangerAppFunctionDesc i {
+        wr.out(tplPrefix false)
         this.writeReturnTypeDef(variant ctx wr)
         ;this.writePtr((unwrap variant.nameNode ) ctx wr)
         wr.out(" " false)
-        wr.out(((" " + cl.name) + "::") false)
+        wr.out(((" " + clRef) + "::") false)
         wr.out((variant.compiledName + "(") false)
         this.writeArgsDef(variant ctx wr)
         wr.out(") {" true)

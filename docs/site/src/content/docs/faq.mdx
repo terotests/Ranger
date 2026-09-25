@@ -69,11 +69,26 @@ Declare the class with `@params(...)` and give the arguments with `@(...)`.
 
 <TargetOutput example={ex("faq/generic-class")} targets={model.generated.targets} />
 
-The target code holds `History_int` and `History_string`, two separate
-classes. The compiler makes one class for each set of arguments before it
-writes the target, so a target language does not need generics of its own and
-no target writes the type parameter. Neither class can see the fields of the
-other.
+The compiler checks `History@(int)` and `History@(string)` as two separate
+classes. What it writes depends on the class and the target:
+
+- On C++, Java, C#, Kotlin, Scala, Dart, Go, TypeScript, JavaScript, Python
+  and PHP the class is written once, as a generic class of that language:
+  `template <class Op> class History` on C++, `class History<Op>` on Java,
+  `type History[Op any] struct` on Go, `class History(Generic[Op])` on Python.
+  Each use is spelled with its argument: `History<int>`, `*History[int64]`.
+- This needs a body that only stores, moves and returns its parameter values.
+  A class that does arithmetic on a parameter, calls a method on it or puts it
+  in a string is written as one class per argument list instead:
+  `History_int` and `History_string`. So is every class on Rust, Swift and
+  LLVM.
+- A few target rules also keep the copies. On Go, a class that extends another
+  class, or that reads a `[K:T]` map, is written as copies. On C#, a class with
+  an optional `T` is written as copies. On C++, a class used with `boolean` or
+  `charbuffer` as the argument is written as copies.
+
+`-no-native-generics` writes the copies on every target. `-generics-report`
+prints the decision for each generic class.
 
 A type parameter is usable as an array element, as a map value, as a parameter
 type and as a return type. The argument can be a primitive, a class, a record,

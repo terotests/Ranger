@@ -118,6 +118,19 @@ follow them exactly.
   more. Tests and docs that expect `NULL` checks or `r_optional_primitive`
   describe the old output.
 
+## Generic classes
+
+- `class History @params(Op)` is type checked once per argument list
+  (`History@(int)` is the class `History_int` to the checker). On C++, Java,
+  C#, Kotlin, Scala, Dart, Go, TypeScript/JS, Python and PHP a template whose
+  body only stores, moves and returns its parameter values is written ONCE as
+  a generic class of the target (`template <class Op> class History`,
+  `History<int>`). Other templates, and every template on Rust, Swift and
+  LLVM, are written as one class per argument list.
+- `-generics-report` prints the decision per template; `-no-native-generics`
+  forces the copies. The check is `RangerFlowParser.checkNativeGenerics`; a
+  writer asks `ctx.isNativeGenericInstance(cl)` / `ctx.isWrittenClass(cl)`.
+
 ## Ranger language gotchas
 
 Ranger is **LISP / S-expression based**. Full answers with compiled output are in

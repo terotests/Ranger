@@ -63,6 +63,22 @@ class RangerAppClassDesc {
   def is_generic_instance false
   def is_union false
 
+  ; A class made from `class History @params(Op)`. generic_template names the
+  ; template, generic_args the type arguments as Ranger spells them ("int",
+  ; "[string]", "NamedThing", or a placeholder). A writer that emits native
+  ; generics spells this class `History<int>` when the template is native.
+  def generic_template:string ""
+  def generic_args:[string]
+  ; An argument is a placeholder, so this class only exists for the
+  ; generic-form check and is written, if at all, as the template itself.
+  def generic_has_placeholder:boolean false
+  ; The generic form: every argument is the template's own placeholder.
+  def is_generic_form:boolean false
+  ; The stand-in for a type parameter while the generic form is checked.
+  ; type_param_name is the parameter's own name, `Op`.
+  def is_type_param:boolean false
+  def type_param_name:string ""
+
   def is_used_by_main false
   def is_not_used false
 
@@ -174,7 +190,7 @@ class RangerAppClassDesc {
   }
 
   fn isNormalClass:boolean () {
-    def special ( is_operator_class || is_trait || is_system || is_generic_instance || is_system_union || is_union )
+    def special ( is_operator_class || is_trait || is_system || is_generic_instance || is_system_union || is_union || is_type_param || generic_has_placeholder )
     return (special == false)
   }
   

@@ -1139,6 +1139,13 @@ class RangerGenericClassWriter {
     return true
   }
 
+  ; How a class is named where it is used. A writer that emits native
+  ; generics spells an instance of a native template as the template applied
+  ; to its arguments (`History<Integer>`) and a type parameter by its own
+  ; name; every other class is its name.
+  fn genericClassRef:string (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    return cl.name
+  }
   fn writeNewCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if (this.tryWriteProcessNewCall(node ctx wr)) {
       return
@@ -1146,7 +1153,7 @@ class RangerGenericClassWriter {
     if node.hasNewOper {
       def cl:RangerAppClassDesc (unwrap node.clDesc)
       def fc:CodeNode (node.getSecond())
-      wr.out(("new " + cl.name) false)
+      wr.out(("new " + (this.genericClassRef(cl ctx))) false)
       wr.out("(" false)
       def constr:RangerAppFunctionDesc cl.constructor_fn
       def givenArgs:CodeNode (node.getThird())

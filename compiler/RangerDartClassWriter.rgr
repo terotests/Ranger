@@ -187,6 +187,24 @@ class RangerDartClassWriter {
     return tn
   }
 
+  ; --- native generics: `class History<Op>`, used as `History<int>` ---
+  fn dartClassRef:string (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    if cl.is_type_param {
+      return cl.type_param_name
+    }
+    if (ctx.isNativeGenericInstance(cl)) {
+      def res:string (cl.generic_template + "<")
+      for cl.generic_args a:string i {
+        if (i > 0) {
+          res = (res + ", ")
+        }
+        res = (res + (this.getObjectTypeString(a ctx)))
+      }
+      return (res + ">")
+    }
+    return cl.name
+  }
+
   fn getObjectTypeString:string (type_string:string ctx:RangerAppWriterContext) {
     if ((strlen type_string) >= 2) {
       if ((charAt type_string 0) == (ccode "[")) {
@@ -198,6 +216,9 @@ class RangerDartClassWriter {
     ; of its own and stays dynamic, which the `is` narrowing can still test.
     if (ctx.isDefinedClass(type_string)) {
       def cc:RangerAppClassDesc (ctx.findClass(type_string))
+      if (cc.is_type_param || (ctx.isNativeGenericInstance(cc))) {
+        return (this.dartClassRef(cc ctx))
+      }
       if (cc.is_union) {
         if (this.unionIsSealable(cc ctx)) {
           return (this.unionInterfaceName(type_string))
@@ -757,7 +778,7 @@ class RangerDartClassWriter {
       }
 
       wr.out(" " false)
-  wr.out(cl.name false)
+      wr.out((this.dartClassRef(cl ctx)) false)
       wr.out("(" false)
       def constr:RangerAppFunctionDesc cl.constructor_fn
       if (!null? constr) {
@@ -830,7 +851,8 @@ class RangerDartClassWriter {
       def clDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
       clDocWr.writeDartDocForClass((unwrap cl) ctx wr)
     }
-    wr.out(("class " + cl.name) false)
+    ; a generic form is declared as the template over its parameters
+    wr.out(("class " + (this.dartClassRef((unwrap cl) ctx))) false)
     def dartUnions:[string] (this.unionInterfacesOf((unwrap cl) ctx))
     if ((array_length cl.extends_classes) > 0) {
       wr.out(" extends " false)
@@ -903,7 +925,11 @@ class RangerDartClassWriter {
     if cl.has_constructor {
       def constr:RangerAppFunctionDesc (unwrap cl.constructor_fn)
       wr.out("" true)
-      wr.out((cl.name + "(") false)
+      if cl.is_generic_form {
+        wr.out((cl.generic_template + "(") false)
+      } {
+        wr.out((cl.name + "(") false)
+      }
       this.writeArgsDef(constr ctx wr)
       wr.out(")" false)
       if ((array_length cl.extends_classes) > 0) {

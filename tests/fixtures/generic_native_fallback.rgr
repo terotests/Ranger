@@ -1,0 +1,66 @@
+; Generic classes whose body needs to know what its parameter is. Each one
+; keeps its expanded copies (`Sum_int`, `Greeter_Named`, `Show_int`) on every
+; target, because a native generic class could not be written for it:
+;
+;   Sum      arithmetic on the parameter
+;   Greeter  a method called on the parameter
+;   Show     the parameter in a string concatenation
+;
+; `Box` next to them only stores and returns its parameter, so it is written
+; as a generic class of the target's own where the target has one.
+
+class Sum @params(T) {
+    fn twice:T (v:T) {
+        return (v + v)
+    }
+}
+
+class Named {
+    def name:string "n"
+    fn hello:string () {
+        return name
+    }
+}
+
+class Greeter @params(T) {
+    def items:[T]
+    fn put:void (v:T) {
+        push items v
+    }
+    fn first:string () {
+        def v:T (itemAt items 0)
+        return (v.hello())
+    }
+}
+
+class Show @params(T) {
+    fn show:string (v:T) {
+        return ("v=" + v)
+    }
+}
+
+class Box @params(T) {
+    def held:[T]
+    fn put:void (v:T) {
+        push held v
+    }
+    fn top:T () {
+        def v:T (last held)
+        return v
+    }
+}
+
+class FallbackMain {
+    sfn main:void () {
+        def s:Sum@(int) (new Sum@(int) ())
+        print (to_string (s.twice(3)))
+        def g:Greeter@(Named) (new Greeter@(Named) ())
+        g.put((new Named ()))
+        print (g.first())
+        def sh:Show@(int) (new Show@(int) ())
+        print (sh.show(4))
+        def b:Box@(string) (new Box@(string) ())
+        b.put("boxed")
+        print (b.top())
+    }
+}

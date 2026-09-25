@@ -304,6 +304,8 @@ and pointless before it.
 ## Tier 2 — the expensive one, and the one after it
 
 **L5. Generics that survive to the writer.** `Stack<T>`, not `Stack_int`.
+*Done in September 2026 for C++ and ten other targets, not Rust or Swift. See
+the native generics note at the top of [PLAN_GENERICS](PLAN_GENERICS.md).*
 `generics` is 16–30 on every target; this is the only item that lifts the whole
 table at once. It is also the most expensive: monomorphization happens *before
 any writer runs* and that was a deliberate choice —

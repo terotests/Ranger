@@ -468,6 +468,33 @@ public class RgJson {
 " true)
   }
 
+  ; --- native generics: `class History<Op>`, used as `History<Integer>` ---
+  fn javaClassRef:string (cl:RangerAppClassDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    if cl.is_type_param {
+      return cl.type_param_name
+    }
+    if (ctx.isNativeGenericInstance(cl)) {
+      def res:string (cl.generic_template + "<")
+      for cl.generic_args a:string i {
+        if (i > 0) {
+          res = (res + ", ")
+        }
+        res = (res + (this.getObjectTypeString2(a ctx wr)))
+      }
+      return (res + ">")
+    }
+    return cl.name
+  }
+  fn genericClassRef:string (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    return (this.javaClassRef(cl ctx (new CodeWriter ())))
+  }
+  fn javaDeclName:string (cl:RangerAppClassDesc) {
+    if cl.is_generic_form {
+      return cl.generic_template
+    }
+    return cl.name
+  }
+
   fn getObjectTypeString2:string (type_string:string ctx:RangerAppWriterContext wr:CodeWriter) {
     ; A map whose VALUE is itself a collection arrives here in the RANGER
     ; spelling -- `[string]` for an array, `[string:int]` for a map -- because
@@ -517,6 +544,9 @@ public class RgJson {
     }
     if(ctx.isDefinedClass(type_string)) {
       def cc (ctx.findClass(type_string))
+      if (cc.is_type_param || (ctx.isNativeGenericInstance(cc))) {
+        return (this.javaClassRef(cc ctx wr))
+      }
       if(cc.is_system) {
         def current_sys (ctx)
         def sName (unwrap (get cc.systemNames "java7"))
@@ -803,6 +833,10 @@ public class RgJson {
   ;        print "Type == " + t_name
           if(ctx.isDefinedClass(t_name)) {
             def cc (ctx.findClass(t_name))
+            if (cc.is_type_param || (ctx.isNativeGenericInstance(cc))) {
+              wr.out((this.javaClassRef(cc ctx wr)) false)
+              return
+            }
             if(cc.is_union) {
               wr.out("Object" false)
               b_object_set = true
@@ -846,7 +880,7 @@ public class RgJson {
     if (node.vref == "this") {
       if( ctx.inLambda() ) {
         def currC (ctx.getCurrentClass())
-        wr.out( (currC.name + ".this") false)
+        wr.out( ((this.javaDeclName((unwrap currC))) + ".this") false)
       } {
         wr.out("this" false)
       } 
@@ -890,10 +924,10 @@ public class RgJson {
           if(part == "this") {
             if( ctx.inLambda() ) {
               def currC (ctx.getCurrentClass())
-              wr.out( (currC.name + ".this") false)
+              wr.out( ((this.javaDeclName((unwrap currC))) + ".this") false)
             } {
               def currC (ctx.getCurrentClass())
-              wr.out( (currC.name + ".this") false)
+              wr.out( ((this.javaDeclName((unwrap currC))) + ".this") false)
             }            
             continue
           } 
@@ -946,7 +980,7 @@ public class RgJson {
       if(part == "this") {
         if( ctx.inLambda() ) {
           def currC (ctx.getCurrentClass())
-          wr.out( (currC.name + ".this") false)
+          wr.out( ((this.javaDeclName((unwrap currC))) + ".this") false)
           continue
         }  
       }          
@@ -1429,7 +1463,7 @@ public class RgJson {
         package_end = ".immutables"
       }
     }
-    def wr:CodeWriter (orig_wr.getFileWriter(class_dir (cl.name + ".java")))
+    def wr:CodeWriter (orig_wr.getFileWriter(class_dir ((this.javaDeclName((unwrap cl))) + ".java")))
     def package_name (ctx.getCompilerSetting("package"))
 
     if( this.isPackaged(ctx)) {
@@ -1477,7 +1511,8 @@ public class RgJson {
     this.writeJavaTraitInterfaces(ctx orig_wr)
     this.writeJavaJsonSupport(ctx orig_wr)
     wr.out("" true)
-    wr.out(("public class " + cl.name) false)
+    ; a generic form is declared as the template over its parameters
+    wr.out(("public class " + (this.javaClassRef((unwrap cl) ctx wr))) false)
     if ( ( array_length cl.extends_classes ) > 0 ) { 
       wr.out(" extends " false)
       for cl.extends_classes pName:string i {
@@ -1509,7 +1544,7 @@ public class RgJson {
     if cl.has_constructor {
       def constr:RangerAppFunctionDesc cl.constructor_fn
       wr.out("" true)
-      wr.out((cl.name + "(") false)
+      wr.out(((this.javaDeclName((unwrap cl))) + "(") false)
       this.writeArgsDef( (unwrap constr) ctx wr)
       wr.out(" ) {" true)
       wr.indent(1)

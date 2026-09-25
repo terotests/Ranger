@@ -778,7 +778,12 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       def cl:RangerAppClassDesc node.clDesc
       def fc:CodeNode (node.getSecond())
       wr.out(" new " false)
-      wr.out(cl.name false)
+      ; every instance of a native generic class is the one class
+      if (ctx.isNativeGenericInstance((unwrap cl))) {
+        wr.out(cl.generic_template false)
+      } {
+        wr.out(cl.name false)
+      }
       wr.out("(" false)
       def constr:RangerAppFunctionDesc cl.constructor_fn
       def givenArgs:CodeNode (node.getThird())
@@ -863,7 +868,11 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
       wrote_header = true
     }
     this.writePhpNativeEnums(ctx wr)
-    wr.out(("class " + cl.name) false)
+    if cl.is_generic_form {
+      wr.out(("class " + cl.generic_template) false)
+    } {
+      wr.out(("class " + cl.name) false)
+    }
     def parentClass:RangerAppClassDesc  
     if ( ( array_length cl.extends_classes ) > 0 ) { 
       wr.out(" extends " false)

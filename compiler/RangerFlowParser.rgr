@@ -125,6 +125,9 @@ class RangerFlowParser {
   def lastProcessedNode@(weak):CodeNode
   def collectWalkAtEnd:[CodeNode]
   def walkAlso@(weak):[CodeNode]
+  ; placeholder classes and generic forms made by checkNativeGenerics; held
+  ; here because nothing else in the tree owns them
+  def genericCheckNodes:[CodeNode]
   def serializedClasses@(weak):[RangerAppClassDesc]
   def immutableClasses@(weak):[RangerAppClassDesc]
   def processClasses@(weak):[RangerAppClassDesc]
@@ -4250,6 +4253,314 @@ class RangerFlowParser {
       tstr = ((tstr + "_") + part)
     }
     return (baseName + tstr)
+  }
+
+  ; --- native generics ------------------------------------------------------
+  ;
+  ; Every `History@(int)` is still expanded into `History_int` and type
+  ; checked as a class of its own: that is what the call sites are checked
+  ; against. A target that has generics of its own can instead be handed ONE
+  ; class, `History<Op>`, when the body is the same for every argument.
+  ;
+  ; That is decided here, once per template, after the whole program has been
+  ; walked. The template is expanded one more time with each parameter bound
+  ; to an empty placeholder class (`__tp_History_Op`), its GENERIC FORM. A
+  ; body that only stores, moves and returns its parameter values checks
+  ; cleanly against a class with no fields and no methods; anything that
+  ; needs to know what the value is -- arithmetic, `+` on strings, a method,
+  ; a comparison -- either fails to check or uses an operator outside the
+  ; list below, and the template keeps its expanded copies. The errors of a
+  ; failed check are taken back: they describe the check, not the program.
+  fn nativeGenericsTarget:boolean (ctx:RangerAppWriterContext) {
+    if (ctx.hasCompilerFlag("no-native-generics")) {
+      return false
+    }
+    def lang:string (ctx.getTargetLangName())
+    def langs:[string] ([] _:string ( "cpp" "java7" "go" "es6" "python" "php" "csharp" "dart" "kotlin" "scala" ))
+    return ((indexOf langs lang) >= 0)
+  }
+
+  ; Operators that treat a value of a parameter type as an opaque value.
+  ; Go writes a map read through a helper named and typed after the map
+  ; (`r_get_string_int`), which a type parameter cannot be.
+  fn genericOpaqueOperator:boolean (name:string ctx:RangerAppWriterContext) {
+    def lang:string (ctx.getTargetLangName())
+    if ((lang == "go") && (name == "get")) {
+      return false
+    }
+    def ok:[string] ([] _:string ( "push" "clear" "itemAt" "at" "set_at" "remove_index" "removeLast" "insert" "last" "first" "array_length" "size" "set" "get" "has" "unwrap" "=" "def" "let" "var" "return" "null?" "!null?" "??" "call" "new" ))
+    return ((indexOf ok name) >= 0)
+  }
+
+  ; What the target can not write generically whatever the body says. Go
+  ; gives a class that extends an interface of its own, spelled after the
+  ; class name.
+  ; C# spells an optional int `int?` and an optional class bare, and an
+  ; unconstrained type parameter has neither, so an optional one is not
+  ; written generically there.
+  fn genericFormFitsTarget:boolean (form:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    def lang:string (ctx.getTargetLangName())
+    if (lang == "go") {
+      if ((array_length form.extends_classes) > 0) {
+        return false
+      }
+    }
+    if (lang == "csharp") {
+      def fnOpt@(optional):CodeNode form.classNode
+      if (!null? fnOpt) {
+        if (this.genericUsesOptionalParam((unwrap fnOpt))) {
+          return false
+        }
+      }
+    }
+    return true
+  }
+
+  fn genericUsesOptionalParam:boolean (node:CodeNode) {
+    if (node.hasFlag("optional")) {
+      if (((indexOf node.type_name "__tp_") >= 0) || ((indexOf node.eval_type_name "__tp_") >= 0)) {
+        return true
+      }
+    }
+    for node.children c:CodeNode i {
+      if (this.genericUsesOptionalParam(c)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn genericTypeIsPlaceholder:boolean (n:CodeNode) {
+    if ((indexOf n.eval_type_name "__tp_") >= 0) {
+      return true
+    }
+    if ((indexOf n.eval_array_type "__tp_") >= 0) {
+      return true
+    }
+    if ((indexOf n.eval_key_type "__tp_") >= 0) {
+      return true
+    }
+    return false
+  }
+
+  ; True when the generic form uses a parameter value only opaquely.
+  fn genericBodyIsOpaque:boolean (node:CodeNode ctx:RangerAppWriterContext) {
+    def cnt:int (array_length node.children)
+    if (node.expression && (cnt > 1)) {
+      def fc:CodeNode (node.getFirst())
+      def opName:string fc.vref
+      if ((strlen opName) > 0) {
+        if (((array_length fc.ns) <= 1) && ((this.genericOpaqueOperator(opName ctx)) == false)) {
+          def ops:[CodeNode] (ctx.getOperators(opName))
+          if ((array_length ops) > 0) {
+            for node.children ch:CodeNode i {
+              if (i == 0) {
+                continue
+              }
+              if (this.genericTypeIsPlaceholder(ch)) {
+                return false
+              }
+            }
+          }
+        }
+      }
+    }
+    for node.children c:CodeNode ci {
+      if ((this.genericBodyIsOpaque(c ctx)) == false) {
+        return false
+      }
+    }
+    return true
+  }
+
+  fn makeGenericPlaceholder:string (templateName:string paramName:string ctx:RangerAppWriterContext wr:CodeWriter) {
+    def cname:string ((("__tp_" + templateName) + "_") + paramName)
+    if (ctx.isDefinedClass(cname)) {
+      return cname
+    }
+    def theCode:string (("class " + cname) + " {\n}\n")
+    def code:SourceCode (new SourceCode(theCode))
+    code.filename = ("generic parameter " + paramName)
+    def parser:RangerLispParser (new RangerLispParser(code))
+    parser.parse((ctx.hasCompilerFlag("no-op-transform")))
+    def rn@(lives):CodeNode (unwrap parser.rootNode)
+    push genericCheckNodes rn
+    this.WalkCollectMethods(rn ctx wr)
+    this.WalkNode(rn ctx wr)
+    if (ctx.isDefinedClass(cname)) {
+      def pc:RangerAppClassDesc (ctx.findClass(cname))
+      pc.is_type_param = true
+      pc.type_param_name = paramName
+    }
+    return cname
+  }
+
+  ; C++ writes a parameter bound to boolean or charbuffer differently from
+  ; the same type written out: an optional one of those is a bare value
+  ; there, and std::optional<T> in a template.
+  fn genericArgsFitTarget:boolean (templateName:string ctx:RangerAppWriterContext) {
+    def lang:string (ctx.getTargetLangName())
+    def root:RangerAppWriterContext (ctx.getRoot())
+    for root.definedClassList cn:string i {
+      def cl:RangerAppClassDesc (root.findClass(cn))
+      if (cl.generic_template != templateName) {
+        continue
+      }
+      for cl.generic_args a:string ai {
+        if (lang == "cpp") {
+          if ((a == "boolean") || (a == "charbuffer")) {
+            return false
+          }
+        }
+      }
+    }
+    return true
+  }
+
+  fn checkNativeGenerics:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+    if ((this.nativeGenericsTarget(ctx)) == false) {
+      return
+    }
+    def root:RangerAppWriterContext (ctx.getRoot())
+    if ((array_length root.compilerErrors) > 0) {
+      return
+    }
+    def checked:[string:boolean]
+    ; template -> the classes its generic form brought into being
+    def madeBy:[string:[string]]
+    def progress:boolean true
+    while progress {
+      progress = false
+      def todo:[string]
+      for root.definedClassList cn:string i {
+        def cl:RangerAppClassDesc (root.findClass(cn))
+        def tn:string cl.generic_template
+        if ((strlen tn) == 0) {
+          continue
+        }
+        if (has checked tn) {
+          continue
+        }
+        if ((indexOf todo tn) < 0) {
+          push todo tn
+        }
+      }
+      for todo tpl:string ti {
+        set checked tpl true
+        progress = true
+        def native:boolean (this.checkGenericForm(tpl ctx wr))
+        root.setNativeGeneric(tpl native)
+        if (ctx.hasCompilerFlag("generics-report")) {
+          def nv:string "no"
+          if native {
+            nv = "yes"
+          }
+          print ((("generic " + tpl) + " native=") + nv)
+        }
+      }
+    }
+    ; a generic form naming another template's placeholder instance
+    ; (`Slot<T>` inside Holder) is only as native as that template
+    def changed:boolean true
+    while changed {
+      changed = false
+      for root.definedClassList cn:string i {
+        def cl:RangerAppClassDesc (root.findClass(cn))
+        if ((cl.generic_has_placeholder == false) || cl.is_generic_form) {
+          continue
+        }
+        if (root.isNativeGeneric(cl.generic_template)) {
+          continue
+        }
+        ; this placeholder instance is not native: every template whose
+        ; generic form uses it falls back too
+        for root.templateClassList owner:string oi {
+          if ((root.isNativeGeneric(owner)) == false) {
+            continue
+          }
+          def ownerForm:string ("__gf_" + owner)
+          if (has root.genericFormUses ownerForm) {
+            def uses:[string] (unwrap (get root.genericFormUses ownerForm))
+            if ((indexOf uses cn) >= 0) {
+              root.setNativeGeneric(owner false)
+              changed = true
+            }
+          }
+        }
+      }
+    }
+  }
+
+  ; Expand `tpl` at its own placeholders and answer whether it is native.
+  fn checkGenericForm:boolean (tpl:string ctx:RangerAppWriterContext wr:CodeWriter) {
+    def root:RangerAppWriterContext (ctx.getRoot())
+    if ((root.hasTemplateNode(tpl)) == false) {
+      return false
+    }
+    def tplNode:CodeNode (root.findTemplateNode(tpl))
+    def paramsOpt@(optional):CodeNode (tplNode.getExpressionProperty("params"))
+    if (null? paramsOpt) {
+      return false
+    }
+    def params:CodeNode (unwrap paramsOpt)
+    ; a parameter spelled like a type the program already has would shadow
+    ; it inside the generic class on every target
+    for params.children pn:CodeNode pi {
+      if ((root.isDefinedType(pn.vref)) || (root.hasTemplateNode(pn.vref))) {
+        return false
+      }
+    }
+    if ((this.genericArgsFitTarget(tpl ctx)) == false) {
+      return false
+    }
+    def typeArgs:CodeNode (tplNode.newExpressionNode())
+    def formName:string tpl
+    for params.children pn:CodeNode pi {
+      def ph:string (this.makeGenericPlaceholder(tpl pn.vref ctx wr))
+      typeArgs.add((tplNode.newVRefNode(ph)))
+      formName = ((formName + "_") + ph)
+    }
+    push genericCheckNodes typeArgs
+    def errBefore:int (array_length root.compilerErrors)
+    def classesBefore:int (array_length root.definedClassList)
+    def made@(optional):RangerAppClassDesc (ctx.createGenericClassInstance(tpl formName typeArgs this wr))
+    def ok:boolean ((array_length root.compilerErrors) == errBefore)
+    while ((array_length root.compilerErrors) > errBefore) {
+      removeLast root.compilerErrors
+    }
+    if (null? made) {
+      return false
+    }
+    def form:RangerAppClassDesc (unwrap made)
+    form.is_generic_form = true
+    ; a static of a generic class has no instance to take its parameter from,
+    ; and none can be called (FlowTypes says so), so a template carrying one
+    ; keeps its copies
+    if ((array_length form.static_methods) > 0) {
+      ok = false
+    }
+    if ((this.genericFormFitsTarget(form ctx)) == false) {
+      ok = false
+    }
+    if (form.isSingletonClass()) {
+      ok = false
+    }
+    def uses:[string]
+    def classesAfter:int (array_length root.definedClassList)
+    def k:int classesBefore
+    while (k < classesAfter) {
+      push uses (itemAt root.definedClassList k)
+      k = (k + 1)
+    }
+    set root.genericFormUses ("__gf_" + tpl) uses
+    if (ok == false) {
+      return false
+    }
+    def formNodeOpt@(optional):CodeNode form.classNode
+    if (null? formNodeOpt) {
+      return false
+    }
+    return (this.genericBodyIsOpaque((unwrap formNodeOpt) ctx))
   }
 
   ; A type argument as a piece of an identifier. `[string]` and `[string:int]`

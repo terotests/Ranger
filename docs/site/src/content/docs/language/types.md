@@ -183,10 +183,23 @@ There are no bounds and no constraints. Nothing is asked of the argument type.
 When a generic class must compare two values, give it the comparison function
 at construction.
 
-The compiler makes one concrete class for each set of arguments before it
-writes the target code. `History@(int)` becomes the class `History_int`. Two
-instantiations are two separate classes. A target language does not need
-generics of its own, and no target writes the type parameter.
+The compiler type checks each set of arguments as a class of its own.
+`History@(int)` is the class `History_int` to the type checker. What reaches
+the target depends on the body:
+
+- When the body only stores, moves and returns its parameter values, targets
+  with generics of their own get one generic class: `template <class Op>
+  class History` on C++, `class History<Op>` on Java, C#, Kotlin, Dart and
+  TypeScript, `class History[Op]` on Scala, `type History[Op any] struct` on
+  Go, `class History(Generic[Op])` on Python, and one `History` class on
+  JavaScript and PHP. A use is spelled `History<int>`, `*History[int64]`, and
+  so on.
+- When the body needs to know what its parameter is (arithmetic, a method call
+  on it, a string concatenation), and on Rust, Swift and LLVM, each set of
+  arguments is written as a class of its own: `History_int`, `History_string`.
+
+`-no-native-generics` turns the first case off. `-generics-report` prints what
+the compiler chose for each generic class.
 
 A generic class has no static side. Only the instantiations exist, so a `sfn`
 in a generic class is not reachable. Put the static functions in a plain class.
