@@ -234,9 +234,20 @@ Prefix form only:
 
 Inside `if (!null? obj) { … }` (or `if obj`, or an `&&` of `!null?` checks)
 `obj.field` and `obj.method()` need no `unwrap`, also under `-strict`, and
-`def o:T obj` takes the value. The else branch of `if (null? obj)` and the
-code after `if (null? obj) { return … }` are narrowed too. Not narrowed:
-optional int/double values.
+`def o:T obj` takes the value. Also narrowed:
+
+- the else branch of `if (null? obj) { … } { … }`; `(null? a) || (null? b)`
+  narrows both
+- the rest of the block after `if (null? obj) { return … }` (or `throw`,
+  `break`, `continue`, or an if/else exiting both ways), and after
+  `if (!null? obj) { … } { return … }`
+- a path, also in a loop: `if (null? p.friend) { continue }`
+- after `obj = <a value>` (`-strict` only); `obj = <an optional>` ends it
+
+Not narrowed: reads above the check, a then block that exits on some paths
+only, `&&` of `null?` tests, the else branch of `!null?`, optional int/double
+values. A function ending in an if/else that returns on both branches needs
+no trailing return.
 
 ```ranger
 def model@(late):Model     ; set by attach() before use; -strict accepts reads
