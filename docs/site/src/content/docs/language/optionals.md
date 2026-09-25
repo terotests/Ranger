@@ -64,11 +64,14 @@ unwrap, and the program can also write the `unwrap`: the result is the same.
 
 The value is also not empty in these places:
 
-- the else branch of `if (null? p)`
-- the code after `if (null? p) { return … }`. The block can also end with
-  `throw`, `break` or `continue`.
+- the else branch of `if (null? p) { … } { … }`
+- the code after `if (null? p) { return … }`, to the end of the block. The
+  then block can also end with `throw`, `break` or `continue`, or with an
+  if/else that exits on both branches.
 - the code after `if (!null? p) { … } { return … }`
-- the code after `p = (new Person)`
+- the code after `p = (new Person)`. Only `-strict` relies on this one:
+  `def q:Person p` there keeps `q` optional, so an existing `(unwrap q)`
+  still compiles.
 
 ```lisp
 fn describe:string (p@(optional):Person) {
@@ -82,12 +85,45 @@ fn describe:string (p@(optional):Person) {
 `if ((null? a) || (null? b)) { return … }` is true when one of the values is
 empty, so after it both values are not empty.
 
+A path is narrowed in the same way, also inside a loop:
+
+```lisp
+for people p:Person i {
+    if (null? p.friend) {
+        continue
+    }
+    print p.friend.name
+}
+```
+
+The narrowing is read by `-strict` and by `def q:Person p`. It does not change
+the code the compiler writes for reads above the check.
+
 These are not narrowed at this time:
 
-- `!null?` tests joined with `||`
+- reads above the check
+- the code after a then block that exits on some paths only
+- `!null?` tests joined with `||`, and `null?` tests joined with `&&`
+- the else branch of `if (!null? p)`: there `p` is empty
 - an optional `int` or `double`: use `(unwrap n)`
 
 `p = q`, when `q` can be empty, stops the narrowing of `p`.
+
+## Functions that return from both branches
+
+A function whose body ends in an if/else that returns on both branches does
+not need a return after it. The compiler no longer reports "Function does not
+return any values!" for it:
+
+```lisp
+fn nameOf:string (p@(optional):Person) {
+    if (null? p) {
+        return "nobody"
+    } {
+        return p.name
+    }
+}
+```
 
 ## Fields
 
