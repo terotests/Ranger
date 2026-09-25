@@ -839,7 +839,7 @@ comment starts with `;`.
 ```
 ; here is a comment
 class Hello {
-    sfn main@(main):void () {
+    sfn main () {
         def o (new Hello)
         o.SomeNonStaticFn()
     }
@@ -1200,7 +1200,7 @@ class childClass {
     Extends( fatherClass )
 }
 class mainProgram {
-    sfn m@(main) {
+    sfn main () {
         ; invoke the class
         def cc (new childClass)
         cc.foo("World!")
@@ -1288,10 +1288,18 @@ A condition narrows only when it must be true for the block to run — a single
     }
 ```
 
+`if p { … }` is the same test. Inside the block `def q:Person p` takes the
+value: the compiler writes one unwrap for it, the same code as
+`def q:Person (unwrap p)`.
+
 Not narrowed (yet): an `||` condition, the code after an early
 `if (null? p) { return … }`, the else branch of `if (null? p)`, and optional
-scalars — `(n + 1)` on an optional int still needs `(unwrap n)`. Binding
-`def q:Person p` keeps `q` optional.
+scalars — `(n + 1)` on an optional int still needs `(unwrap n)`.
+
+A field declared without a value is optional too. Under `-strict` it counts
+as present when the constructor assigns it at its top level, and a field that
+an attach or init method sets before use is declared `@(late)`
+(`def model@(late):SheetModel`), like Kotlin's `lateinit`.
 
 [Optional values](https://terotests.github.io/Ranger/docs/language/optionals/)
 lists the operators (`??`, `!!`, `unwrap`, `null?`, `!null?`, `wrap`,
@@ -1520,7 +1528,7 @@ class Main {
         }))
         print (join n.items " ")
     }
-    sfn hello@(main):void () {
+    sfn main () {
         def hello (new Main ())
         hello.testCollection()
     }
@@ -1672,7 +1680,10 @@ Compiler is using annotation syntax for specifying some parameters for class, tr
 
 ## sfn someFn@(main)
 
-Static functions can be annotated to be the start point of compiled application using `@(main)` annotation.
+A static function named `main` is the start point of the compiled application:
+`sfn main () { … }`. A static function with another name can be made the start
+point with the `@(main)` annotation, `sfn start@(main):void ()`, which is what
+older code does.
 
 ## trait myTrait @params(...)
 

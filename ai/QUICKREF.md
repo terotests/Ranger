@@ -227,9 +227,17 @@ Prefix form only:
 (?? opt default)
 ```
 
-Inside `if (!null? obj) { … }` (or an `&&` of `!null?` checks) `obj.field` and
-`obj.method()` need no `unwrap`, also under `-strict`. Not narrowed yet: `||`,
-code after an early `return`, the else branch, and optional int/double values.
+Inside `if (!null? obj) { … }` (or `if obj`, or an `&&` of `!null?` checks)
+`obj.field` and `obj.method()` need no `unwrap`, also under `-strict`, and
+`def o:T obj` takes the value. Not narrowed yet: `||`, code after an early
+`return`, the else branch, and optional int/double values.
+
+```ranger
+def model@(late):Model     ; set by attach() before use; -strict accepts reads
+```
+
+A field without a value that the constructor always assigns needs no
+`@(late)`: `-strict` sees the assignment.
 
 ## Strings
 

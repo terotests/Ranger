@@ -55,7 +55,12 @@ fn describe:string (p@(optional):Person) {
 
 A condition narrows the value only when it must be true for the block to run:
 one `!null?`, or `!null?` checks joined with `&&`. A path such as `a.friend`
-is narrowed in the same way.
+is narrowed in the same way. `if x { … }` on an optional object is the same
+test as `if (!null? x) { … }`.
+
+In a narrowed block, `def q:Person p` gives `q` the value, not the optional.
+The compiler writes it as `def q:Person (unwrap p)`. Each target gets one
+unwrap, and the program can also write the `unwrap`: the result is the same.
 
 These are not narrowed at this time:
 
@@ -63,7 +68,47 @@ These are not narrowed at this time:
 - the code after `if (null? p) { return … }`
 - the else branch of `if (null? p)`
 - an optional `int` or `double`: use `(unwrap n)`
-- a copy such as `def q:Person p`: `q` is optional
+
+## Fields
+
+A field without a value is optional:
+
+```lisp
+class Encoder {
+    def output:Buffer
+    Constructor () {
+        output = (new Buffer)
+    }
+    fn write:void (b:int) {
+        output.writeByte(b)
+    }
+}
+```
+
+When the constructor assigns the field in its own body, not in an `if` or a
+loop, the object always has the value. The flag `-strict` accepts
+`output.writeByte(b)` without `unwrap`. In the constructor, the value is there
+after the statement that assigns it.
+
+A field that a method sets before the program reads it has the annotation
+`@(late)`:
+
+```lisp
+class SheetView {
+    def model@(late):SheetModel
+    fn attach:void (m:SheetModel) {
+        model = m
+    }
+    fn rowCount:int () {
+        return model.rowCount
+    }
+}
+```
+
+The flag `-strict` accepts `model.rowCount`. The field stays optional in the
+generated code. Use `@(late)` only when the program sets the field first. A
+field that can stay empty is `@(optional)`, and the program examines it with
+`!null?`.
 
 ## What the compiler writes
 
@@ -86,5 +131,6 @@ the generated code of each operator for each target.
 
 Without a flag, the compiler reads an optional value automatically where the
 program uses it. The flag `-strict` stops the automatic read of an optional
-value outside of a `try` block or a narrowed `if (!null? …)` block. Use the
-flag when the program must handle each empty value.
+value outside of a `try` block, a narrowed `if (!null? …)` block, a field
+that the constructor assigns and a `@(late)` field. Use the flag when the
+program must handle each empty value.

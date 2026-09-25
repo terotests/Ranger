@@ -81,13 +81,27 @@ follow them exactly.
 - `if (!null? x) { … }` narrows `x` in the then block: `x.field` and
   `x.method()` need no `unwrap` there, also under `-strict`. `&&` of `!null?`
   checks narrows each one, and a path (`a.friend`) is narrowed as a whole.
+  `if x { … }` on an optional object is the same test.
+- Inside a narrowed block `def y:T x` takes the value: the compiler writes it
+  as `def y:T (unwrap x)`, so `y` is not optional and every target gets one
+  unwrap in its own spelling (`.value()`, `!`, `!!`, …). Writing
+  `(unwrap x)` yourself gives the same code; the unwrap is never doubled.
+- A class field declared without a value (`def output:Buffer`) is optional,
+  but `-strict` treats it as present when the constructor assigns it at its
+  top level (`output = …` or `this.output = …`, not inside an `if` or loop).
+  Inside the constructor that holds after the assigning statement. A local
+  copied from such a field (`def u:EVGUnit box.width`) counts as present too.
+- `def model@(late):T` is a field set by an attach / bind / init method before
+  it is read, like Kotlin's `lateinit`. `-strict` accepts reading it; the type
+  and the generated code stay optional. Use it only when the program really
+  sets it first; a field that may stay empty is `@(optional)` with checks.
 - Not narrowed yet: `||`, the code after an early
   `if (null? x) { return … }`, the else branch, and optional `int` / `double`
-  values (`(unwrap n)` is still needed for arithmetic). `def q:T x` keeps `q`
-  optional. Extending narrowing to early returns and else branches is planned.
+  values (`(unwrap n)` is still needed for arithmetic). Extending narrowing to
+  early returns and else branches is planned.
 - Without `-strict` the compiler unwraps optionals automatically wherever
   they are read, so a missing check is not reported. Use `-strict` to find
-  them.
+  them. Every gallery entry point that compiles also compiles under `-strict`.
 - On C++ every `@(optional)` is a `std::optional<T>` (objects are
   `std::optional<std::shared_ptr<T>>`). There is no `r_optional_primitive` any
   more. Tests and docs that expect `NULL` checks or `r_optional_primitive`
@@ -119,17 +133,10 @@ Short form:
   not `([] _:T a b c)` (ISSUES.md #67). Untyped: `([] a b c)`.
 - **Integer division is `idiv`**, not `/` (real division).
 - **Elvis is prefix:** `(?? value fallback)`, not `(value ?? fallback)`.
-- **Do not name a method `toString`** — it can crash the compiler; use
-  `asString` / `getSymbol` instead (ISSUES.md).
-- **Some method names are reserved.** Defining `contains`, `startsWith`,
-  `endsWith`, `trim`, `first`, `last`, `remove`, `insert`, `write`, `read`,
-  `normalize`, `has` or `sqrt` on your own class compiles, but every call site
-  fails with `Class X does not have method …` — the compiler resolves those
-  names elsewhere. Rename (`hasSub`, `beginsWith`, `finishesWith`, `trimWs`,
-  `lowest`, `highest`, `removeNode`, `insertNode`, `toText`, `fromText`,
-  `collapse`, `mentions`, `squareRoot`). They were found one compile at a time
-  while writing `lib/evg/EVGPatch.rgr` and the Vega chart door; the list is
-  what has been hit, not what exists.
+- **Method names are not reserved any more.** `contains`, `startsWith`, `endsWith`, `trim`, `first`, `last`, `remove`, `insert`, `write`, `read`, `normalize`, `toString`, `has` and `sqrt` used to
+  compile on a class and then fail at every call site with
+  `Class X does not have method …`. They work now, with or without
+  arguments and through `this.` (checked on es6, C++, Go, Python and Rust).
 - **Arithmetic on a call result works** when the receiver is dotted:
   `(w - (Foo.bar() + 8))` parses. `(obj.method()).field` still does not — bind
   the object, then read the field.

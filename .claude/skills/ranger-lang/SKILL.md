@@ -1,6 +1,6 @@
 ---
 name: ranger-lang
-description: Write or edit Ranger source (`.rgr`) without walking into the compiler errors that cost the most time — a call that needs its own parentheses, two statements on a line, a reserved method name, a parenthesised receiver. Use whenever creating or changing a `.rgr` file, and especially when a Ranger compile fails with an error that points at the wrong place ("function variable not found", "Class X does not have method Y", "Could not match argument types").
+description: Write or edit Ranger source (`.rgr`) without walking into the compiler errors that cost the most time — a call that needs its own parentheses, two statements on a line, a parenthesised receiver. Use whenever creating or changing a `.rgr` file, and especially when a Ranger compile fails with an error that points at the wrong place ("function variable not found", "Class X does not have method Y", "Could not match argument types").
 ---
 
 # Writing Ranger
@@ -47,24 +47,16 @@ which the compiler refuses with a message naming the fix.
 **Never start a statement with a parenthesised receiver.** Bind first:
 `def recv:T (expr)` then `recv.method()`.
 
-## Reserved method names
+## Method names that used to be reserved
 
-Defining one of these on your own class compiles, and then **every call site
-fails** with `Class X does not have method …`, because the compiler resolves the
-name elsewhere:
+Earlier compilers resolved some method names elsewhere, so a class could define
+one and every call to it failed with `Class X does not have method …`. The
+current compiler does not: `contains`, `startsWith`, `endsWith`, `trim`, `first`, `last`, `remove`, `insert`, `write`, `read`, `normalize`, `toString`, `has` and `sqrt` all work as method names, with or
+without arguments and through `this.` -- checked on es6, C++, Go, Python and
+Rust. Code that renamed them (`hasSub`, `beginsWith`, `squareRoot`, …) can
+keep the names it has.
 
-```
-contains  startsWith  endsWith  trim  first  last
-remove    insert      write     read   normalize  toString
-has       sqrt
-```
-
-Rename: `hasSub`, `beginsWith`, `finishesWith`, `trimWs`, `lowest`, `highest`,
-`removeNode`, `insertNode`, `toText`, `fromText`, `collapse`, `asString`,
-`mentions`, `squareRoot`.
-
-The list is what has been hit, not what exists: `sqrt` and `has` were found one
-compile at a time while writing the Vega chart door and its test.
+If that message does appear, check the argument count and types first.
 
 ## Optionals
 

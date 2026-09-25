@@ -247,29 +247,17 @@ an integer and truncates toward zero.
 
 ## Why does the compiler say that a class does not have a method that I wrote?
 
-The compiler resolves some method names in another place. A class can define
-one of these names, and the class compiles. Each call to that method then
-fails with `Class X does not have method …`.
+Examine the number and the types of the arguments first. The compiler
+finds a method by its name and by its arguments. A call that gives a
+different number of arguments, or an argument of a different type, does
+not find the method.
 
-| Do not use as a method name | A name that works |
-| --- | --- |
-| `contains` | `hasSub` |
-| `startsWith` | `beginsWith` |
-| `endsWith` | `finishesWith` |
-| `trim` | `trimWs` |
-| `first` | `lowest` |
-| `last` | `highest` |
-| `remove` | `removeNode` |
-| `insert` | `insertNode` |
-| `write` | `toText` |
-| `read` | `fromText` |
-| `normalize` | `collapse` |
-| `toString` | `asString` |
-| `has` | `mentions` |
-| `sqrt` | `squareRoot` |
+Earlier compilers also resolved some method names in another place, and
+a call to one of these methods failed. The current compiler does not.
+These names work as method names:
 
-The list is the names that programs have hit. It is not a complete list of
-reserved names.
+`contains`, `startsWith`, `endsWith`, `trim`, `first`, `last`, `remove`,
+`insert`, `write`, `read`, `normalize`, `toString`, `has` and `sqrt`.
 
 ## What license does Ranger use?
 

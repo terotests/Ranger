@@ -30,6 +30,12 @@ Ja kääntyä esim. C++ kielelle niin että kielessä tehdään automaattisesti 
 koska tiedetään että se on turvallista, kelissä missä on type narrowing, kuten TypeScript
 niin ei tarvitse tehdä mitään.
 
+--> korjattu: `if (!null? x)` (ja `if x`) -lohkossa `def y:T x` kirjoitetaan
+sisäisesti muotoon `def y:T (unwrap x)`, joten y ei ole optional ja jokainen
+kohde saa yhden unwrapin omalla tavallaan (C++ `.value()`, Swift `!`, Kotlin
+`!!`). Eksplisiittinen `(unwrap x)` tuottaa saman koodin, tuplaunwrappia ei
+tule (tests/strict-narrowing.test.ts tarkistaa C++/Swift/Kotlin).
+
 
 
 -------------------
@@ -88,6 +94,9 @@ class CLIConsole  on aika geneerinen, se voisi olla ihan oma Ranger kirjastonsa,
 kirjastonsa.
 
 --- varmistettava et tää optional primitive on poissa
+
+--> poissa: Lang.rgr, lib/JSON.rgr ja C++-kirjoitin käyttävät std::optional,
+`r_optional_primitive` ei esiinny generoidussa koodissa.
 
 
 template <class T>
@@ -458,12 +467,19 @@ class Main {
     }
 }
 
+--> ei tehty: `@serialize` ei tällä haaralla generoi `toDictionary`-metodia
+(5d01ed9 poisti serialisoijan kytkennän FlowCollectista), joten esimerkki ei
+käänny. Palaa tähän kun serialisoija on takaisin.
+
 
 HUOM! Vanhoissa koodeissa esimerkki menee:
 
   sfn m@(main):void () {
 
 README.md korjattu yksinkertaisin esimerkki, voisi korjata kaikkiin muihinkin:
+
+--> README:n muut `sfn m@(main)` -esimerkit vaihdettu muotoon `sfn main ()`,
+ja `@(main)`-kappale kertoo nyt kumpikin tavan. docs/examples käytti jo uutta.
 
 class Hello {
     sfn main () {
@@ -474,6 +490,8 @@ class Hello {
 ---- playgroundin target lista
 
 TypeScript näemmä puuttuu vaikka se on mm. idiomacy listassa mukana....
+
+--> lisätty: playgroundin Target-listassa on TypeScript (es6 + typescript-lippu).
 
 -- alla olevat ei pidä paikkaansa, esim. tää koodi kääntyy ihan hyvin
 
@@ -502,6 +520,10 @@ last	highest
 remove	removeNode
 insert	insertNode
 
+--> tarkistettu: kaikki listan nimet (myös toString, write, read, normalize,
+has, sqrt) toimivat metodeina argumenttien kanssa ja `this.`-kutsuna es6-, C++-,
+Go-, Python- ja Rust-kohteilla. FAQ, AGENTS.md ja ranger-lang-skill päivitetty.
+
 
 
 --- luokkiin tulee tarpeettomia metodeja, esim. konstructori vaikka se on tyhjä
@@ -519,6 +541,10 @@ class HelloWorld  {
     return "Hello World my friend";
   };
 }
+
+--> korjattu JS/TS-kirjoittimeen: konstruktoria ei kirjoiteta, kun luokalla ei
+ole konstruktoria, yliluokkaa, ei-staattisia kenttiä, singletonia eikä
+unionin tunnistetta.
 
 --- havainto, dokumentointi enginestä ei ole paljoa...
 
