@@ -69,6 +69,14 @@ if (null? hit) { return }
 def el:EVGElement (unwrap hit)
 ```
 
+After `if (null? hit) { return }` the rest of the block sees `hit` as present,
+so `def el:EVGElement hit` takes the value and `hit.method()` needs no
+`unwrap` (also under `-strict`). The same holds in the then block of
+`if (!null? hit)`, the else branch of `if (null? hit)`, after `throw` /
+`break` / `continue` exits, and for paths (`if (null? p.friend) { continue }`).
+Not narrowed: reads above the check, `&&` of `null?` tests, optional
+`int` / `double` values. The full list is in AGENTS.md under "Optionals".
+
 A class field read back as a return value types as optional — build the value in
 a local and return the local.
 

@@ -104,8 +104,11 @@ follow them exactly.
   the check is unchanged. After `x = <a value>` only `-strict` relies on it:
   `def y:T x` there keeps `y` optional, so an existing `(unwrap y)` still
   compiles.
-- Not narrowed: `||` of `!null?` tests, `&&` of `null?` tests, and optional
-  `int` / `double` values (`(unwrap n)` is still needed for arithmetic).
+- Paths narrow inside loops too: `if (null? p.friend) { continue }`.
+- Not narrowed: reads above the check, the code after a then block that exits
+  on some paths only, `||` of `!null?` tests, `&&` of `null?` tests, the else
+  branch of `!null?`, and optional `int` / `double` values (`(unwrap n)` is
+  still needed for arithmetic).
 - A function whose body ends in an if/else that returns on both branches no
   longer reports "Function does not return any values!".
 - Without `-strict` the compiler unwraps optionals automatically wherever
