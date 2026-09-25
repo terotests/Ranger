@@ -91,10 +91,11 @@ for (const line of fs.readFileSync(APP_CJS, "utf8").split("\n")) {
   appNames.push(m[1]);
 }
 
-// AND NO `require`. The compiled app asks `require("fs")` in exactly one
-// place — the text engine looking for font FILES, which a browser does not
-// have. One CommonJS call in an ES module is enough for esbuild to treat the
-// whole file as having CommonJS features and wrap it in a lazy initialiser,
+// AND NO `require`. The compiled app asks `require("fs")`, and
+// `require("path")` to join the file name, in exactly one place — the text
+// engine looking for font FILES, which a browser does not have. One CommonJS
+// call in an ES module is enough for esbuild to treat the whole file as
+// having CommonJS features and wrap it in a lazy initialiser,
 // and a wrapped module is one blob: nothing inside it can be dropped. So the
 // call becomes a reference to a stub declared here, which is the same answer
 // the bundler's `no-filesystem` plugin gives and is what makes the module
@@ -105,13 +106,20 @@ const FS_STUB = [
   "  readFileSync: () => { throw new Error('no filesystem in the browser'); },",
   "  readdirSync: () => [],",
   "};",
+  "const __rgr_no_path = {",
+  "  join: (...parts) => parts.filter(Boolean).join('/').replace(/\\/+/g, '/'),",
+  "};",
 ].join("\n");
 const appSource = appBody
   .join("\n")
   .split('require("fs")')
   .join("__rgr_no_fs")
   .split("require('fs')")
-  .join("__rgr_no_fs");
+  .join("__rgr_no_fs")
+  .split('require("path")')
+  .join("__rgr_no_path")
+  .split("require('path')")
+  .join("__rgr_no_path");
 if (appSource.includes("require(")) {
   console.error("build.mjs: the compiled app still calls require() — see the note above");
   process.exit(3);
