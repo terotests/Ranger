@@ -13,48 +13,61 @@ class SourceCode {
         }
         return ""
     }                
-    ; `sp` is a position the parser produced by indexing `code`, so these
-    ; three walk the same units it counted in. That is deliberate: the answer
-    ; has to line up with `sp`, not with a count of characters, and `@(units)`
-    ; says so out loud. docs/plans/PLAN_STRING_INDEXING.md 3.3.
+    ; `sp` is a position the parser produced by indexing the UTF-8 bytes of
+    ; `code` (RangerLispParser reads `to_charbuffer`), so these three count
+    ; bytes too. Counting with `strlen` gave UTF-16 units on JavaScript and
+    ; code points on Python: every multibyte character before a node -- an em
+    ; dash in a comment is enough -- moved its reported line and column, and
+    ; errors pointed at the wrong line. docs/plans/PLAN_STRING_INDEXING.md 3.3.
+    def lineStarts:[int]
+    def lineStartsReady:boolean false
+
+    fn ensureLineStarts:void () {
+      if lineStartsReady {
+        return
+      }
+      def pos:int 0
+      for lines str:string i {
+        push lineStarts pos
+        pos = (pos + ((length (to_charbuffer str)) + 1))
+      }
+      push lineStarts pos
+      lineStartsReady = true
+    }
+
+    ; The index of the line holding byte offset `sp`, -1 past the end.
     fn getLine@(units):int (sp:int) {
-        def cnt:int 0
-        for lines str:string i {
-            cnt = (+ cnt (+ (strlen str) 1)))
-            if (> cnt sp) {
-              return i
-            } 
-        }
+      this.ensureLineStarts()
+      def n:int (array_length lines)
+      if ((sp < 0) || (sp >= (itemAt lineStarts n))) {
         return -1
-    } 
+      }
+      def lo:int 0
+      def hi:int (n - 1)
+      while (lo < hi) {
+        def mid:int (idiv (lo + hi + 1) 2)
+        if ((itemAt lineStarts mid) <= sp) {
+          lo = mid
+        } {
+          hi = (mid - 1)
+        }
+      }
+      return lo
+    }
     fn getColumnStr@(units):string (sp:int) {
-        def cnt:int 0
-        def last_col:int 0
-        for lines str:string i {
-            cnt = (+ cnt (+ (strlen str) 1)))
-            if (> cnt sp) {
-              def ll:int (sp - last_col)
-              def ss:string ""
-              while (ll > 0) {
-                ss = ss + " "
-                ll = ll - 1
-              }
-              return ss
-            } 
-            last_col = cnt
-        }
-        return ""
-    } 
+      def col:int (this.getColumn(sp))
+      def ss:string ""
+      while (col > 0) {
+        ss = ss + " "
+        col = col - 1
+      }
+      return ss
+    }
     fn getColumn@(units):int (sp:int) {
-        def cnt:int 0
-        def last_col:int 0
-        for lines str:string i {
-            cnt = (+ cnt (+ (strlen str) 1)))
-            if (> cnt sp) {
-              return (sp - last_col)
-            } 
-            last_col = cnt
-        }
+      def line:int (this.getLine(sp))
+      if (line < 0) {
         return -1
-    } 
+      }
+      return (sp - (itemAt lineStarts line))
+    }
 }
