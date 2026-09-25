@@ -1234,7 +1234,14 @@ class RangerJavaScriptClassWriter {
               return
             }
           }
-          if(item.isNormalClass()) {
+          ; the instances of a native generic class are the one class the
+          ; generic form writes, and that is exported under its own name
+          if (item.is_generic_form && (ctx.isWrittenClass(item))) {
+              def theEndG (wr.getTag("file_end"))
+              theEndG.out( ("module.exports." + item.generic_template + " = " + item.generic_template + ";") true )
+              return
+          }
+          if ((item.isNormalClass()) && (ctx.isWrittenClass(item))) {
               def theEnd (wr.getTag("file_end"))
               theEnd.out( ("module.exports." + item.name + " = " + item.name + ";") true )
           }

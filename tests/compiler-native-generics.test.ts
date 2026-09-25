@@ -141,6 +141,21 @@ describe("native generics", () => {
     }
   });
 
+  // -nodemodule exports every class by name; the instances are no longer
+  // classes of their own, so the export has to name the one generic class
+  // (it named `History_int`, and the module failed to load).
+  it("-nodemodule exports the generic class, not its instances", () => {
+    const dir = compile(HISTORY, "es6", "main.js", ["-nodemodule"]);
+    const text = allText(dir);
+    expect(text).toContain("module.exports.History = History;");
+    expect(text).not.toMatch(/module\.exports\.History_/);
+    const out = execSync(
+      `node -e "const m = require('${path.join(dir, "main.js")}'); console.log(typeof m.History)"`,
+      { encoding: "utf-8" }
+    );
+    expect(out.trim().split("\n").pop()).toBe("function");
+  });
+
   it("-no-native-generics keeps the copies", () => {
     const text = allText(compile(HISTORY, "cpp", "main.cpp", ["-no-native-generics"]));
     expect(text).toContain("class History_int");
