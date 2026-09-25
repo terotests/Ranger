@@ -8,6 +8,7 @@ import { loadCompileEnv, loadRangerCompiler } from "./loadCompiler.js";
  */
 export type TargetLanguage =
   | "es6"
+  | "typescript"
   | "python"
   | "go"
   | "rust"
@@ -36,6 +37,7 @@ export interface CompileResponse {
 
 const OUTPUT_NAMES: Record<TargetLanguage, string> = {
   es6: "output.js",
+  typescript: "output.ts",
   python: "output.py",
   go: "output.go",
   rust: "output.rs",
@@ -52,6 +54,7 @@ const OUTPUT_NAMES: Record<TargetLanguage, string> = {
 /** Line-comment prefix used for the file banners of a multi-file target. */
 const COMMENT_PREFIX: Record<TargetLanguage, string> = {
   es6: "//",
+  typescript: "//",
   python: "#",
   go: "//",
   rust: "//",
@@ -135,15 +138,18 @@ export async function compileRanger(req: CompileRequest): Promise<CompileRespons
 
   const params = new CmdParams();
   params.values = [SOURCE_NAME];
+  // TypeScript is the JavaScript writer with its `typescript` flag on.
+  const typescript = req.typescript || req.language === "typescript";
+  const writerLanguage = req.language === "typescript" ? "es6" : req.language;
   params.params = {
-    l: req.language,
+    l: writerLanguage,
     o: OUTPUT_NAMES[req.language],
   };
   params.flags = {};
-  if (req.typescript) {
+  if (typescript) {
     params.flags.typescript = true;
   }
-  if (req.language === "es6") {
+  if (writerLanguage === "es6") {
     params.flags["no-color"] = true;
   }
   env.commandLine = params;
