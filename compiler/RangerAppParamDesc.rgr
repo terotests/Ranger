@@ -98,6 +98,11 @@ class RangerAppParamDesc {
   def isParam:boolean
   def paramIndex:int 0
   def is_optional:boolean false
+  ; A class field declared without a value and without @(optional): it is
+  ; optional only because nothing initialised it. The strict check treats it
+  ; as present when the constructor assigns it (RangerAppClassDesc
+  ; .isAssignedInConstructor).
+  def implicit_optional:boolean false
   def is_mutating:boolean false
   def is_set:boolean false
   def is_class_variable:boolean false

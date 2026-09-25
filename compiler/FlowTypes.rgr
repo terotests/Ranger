@@ -120,6 +120,164 @@ extension RangerFlowParser {
     return varFnDesc
   }
 
+  ; A field that is optional only because it was declared without a value, and
+  ; that its class's constructor assigns unconditionally, is present once the
+  ; object exists -- the strict check does not ask for an unwrap. Inside the
+  ; constructor it is present after the top-level statement that assigns it.
+  fn isConstructorAssignedField:boolean (field:RangerAppParamDesc obj:CodeNode ctx:RangerAppWriterContext) {
+    ; `def model@(late):T` -- set by an attach / bind / init method before it
+    ; is read, the way Kotlin's lateinit is. The program takes the
+    ; responsibility; the strict check takes its word for it.
+    if (!null? field.nameNode) {
+      def fieldName:CodeNode (unwrap field.nameNode)
+      if (fieldName.hasFlag("late")) {
+        return true
+      }
+    }
+    if (field.implicit_optional == false) {
+      return false
+    }
+    if (null? field.propertyClass) {
+      return false
+    }
+    def owner:RangerAppClassDesc (unwrap field.propertyClass)
+    def currFn@(optional):RangerAppFunctionDesc (ctx.getCurrentMethod())
+    if (!null? currFn) {
+      def fnU:RangerAppFunctionDesc (unwrap currFn)
+      if (fnU.name == "Constructor") {
+        return (owner.isAssignedInConstructorBefore(field.name obj.sp))
+      }
+    }
+    return (owner.isAssignedInConstructor(field.name))
+  }
+
+  ; Is `n` a bare name or path (`x`, `a.b`) that `if (!null? ...)` narrowed in
+  ; this block, and whose declaration is optional?
+  fn isNarrowedOptionalRead:boolean (n:CodeNode ctx:RangerAppWriterContext) {
+    if n.expression {
+      return false
+    }
+    if (n.value_type != RangerNodeType.VRef) {
+      return false
+    }
+    def cnt:int (array_length n.ns)
+    if (cnt == 0) {
+      return false
+    }
+    def name:string n.vref
+    if (cnt == 1) {
+      name = (itemAt n.ns 0)
+    }
+    if ((ctx.isAutomaticallyUnwrapped(name)) == false) {
+      return false
+    }
+    return (this.isOptionalPath(n ctx))
+  }
+
+  ; The declared type of the optional path `n` is one every target wraps: not
+  ; a boolean and not a charbuffer, which C++ keeps as bare values.
+  fn optionalPathIsWrapped:boolean (n:CodeNode ctx:RangerAppWriterContext) {
+    if ((array_length n.ns) != 1) {
+      return true
+    }
+    def name:string (itemAt n.ns 0)
+    if ((ctx.isVarDefined(name)) == false) {
+      return true
+    }
+    def d:RangerAppParamDesc (ctx.getVariableDef(name))
+    if (null? d.nameNode) {
+      return true
+    }
+    def dn:CodeNode (unwrap d.nameNode)
+    if ((dn.value_type == RangerNodeType.Boolean) || (dn.value_type == RangerNodeType.CharBuffer)) {
+      return false
+    }
+    return true
+  }
+
+  ; Is the name or path `n` (`x`, `this.f`, `a.b`) declared optional? Resolved
+  ; from the variable and the class fields along the path, without walking n.
+  fn isOptionalPath:boolean (n:CodeNode ctx:RangerAppWriterContext) {
+    if n.expression {
+      return false
+    }
+    def cnt:int (array_length n.ns)
+    if (cnt == 0) {
+      return false
+    }
+    def rootName:string (itemAt n.ns 0)
+    def desc@(optional):RangerAppParamDesc
+    def cl@(optional):RangerAppClassDesc
+    def start:int 1
+    if (rootName == "this") {
+      cl = (ctx.getCurrentClass())
+      if (cnt < 2) {
+        return false
+      }
+    } {
+      if ((ctx.isVarDefined(rootName)) == false) {
+        return false
+      }
+      desc = (ctx.getVariableDef(rootName))
+    }
+    for n.ns seg:string i {
+      if (i < start) {
+        continue
+      }
+      if (!null? desc) {
+        def d:RangerAppParamDesc (unwrap desc)
+        if (null? d.nameNode) {
+          return false
+        }
+        def dn:CodeNode (unwrap d.nameNode)
+        if ((ctx.isDefinedClass(dn.type_name)) == false) {
+          return false
+        }
+        cl = (ctx.findClass(dn.type_name))
+      }
+      if (null? cl) {
+        return false
+      }
+      def c:RangerAppClassDesc (unwrap cl)
+      desc = (c.findVariable(seg))
+      if (null? desc) {
+        return false
+      }
+    }
+    if (null? desc) {
+      return false
+    }
+    def last:RangerAppParamDesc (unwrap desc)
+    if (null? last.nameNode) {
+      return false
+    }
+    def lastName:CodeNode (unwrap last.nameNode)
+    return (lastName.hasFlag("optional"))
+  }
+
+  ; Is `n` a plain read of a constructor-assigned field (`field`, `this.field`
+  ; or `obj.field`)? The description of the last segment decides.
+  fn isConstructorAssignedRead:boolean (n:CodeNode ctx:RangerAppWriterContext) {
+    def v:CodeNode n
+    while (v.expression && ((array_length v.children) == 1)) {
+      v = (v.getFirst())
+    }
+    if v.expression {
+      return false
+    }
+    if ((array_length v.nsp) > 0) {
+      def last:RangerAppParamDesc (itemAt v.nsp ((array_length v.nsp) - 1))
+      return (this.isConstructorAssignedField(last v ctx))
+    }
+    if v.hasParamDesc {
+      def pdOpt@(optional):RangerAppParamDesc v.paramDesc
+      if (!null? pdOpt) {
+        return (this.isConstructorAssignedField((unwrap pdOpt) v ctx))
+      }
+    }
+    return false
+  }
+
   fn findParamDesc@(weak optional):RangerAppParamDesc (obj:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
 
     def varDesc@(lives):RangerAppParamDesc
@@ -170,7 +328,7 @@ extension RangerFlowParser {
               if(classRefName.hasFlag("optional")) {
                 if(ctx.hasCompilerFlag('strict')) {
                   ; `if (!null? x)` narrowed it for the block
-                  if((false == (ctx.isTryBlock())) && (false == (ctx.isAutomaticallyUnwrapped(strname)))) {
+                  if((false == (ctx.isTryBlock())) && (false == (ctx.isAutomaticallyUnwrapped(strname))) && (false == (ctx.isKnownPresent(strname))) && (false == (this.isConstructorAssignedField(classRef obj ctx)))) {
                     ctx.addError( obj "Optional automatically unwrapped outside try block" )
                   }
                 }
@@ -209,7 +367,7 @@ extension RangerFlowParser {
                         narrowedPath = (narrowedPath + pathPart)
                       }
                     }
-                    if((false == (ctx.isTryBlock())) && (false == (ctx.isAutomaticallyUnwrapped(narrowedPath)))) {
+                    if((false == (ctx.isTryBlock())) && (false == (ctx.isAutomaticallyUnwrapped(narrowedPath))) && (false == (this.isConstructorAssignedField(variableDesc obj ctx)))) {
                       ctx.addError( obj "Optional automatically unwrapped outside try block" )
                     }
                   }

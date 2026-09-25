@@ -706,6 +706,9 @@ Tests if the `class name` is either
       } {
         p.is_optional = true
         if (false == ((vDef.value_type == RangerNodeType.Array) || (vDef.value_type == RangerNodeType.Hash))) {         
+          if (false == (vDef.hasFlag("optional"))) {
+            p.implicit_optional = true
+          }
           vDef.setFlag("optional")
         }
       }
@@ -722,6 +725,51 @@ Tests if the `class name` is either
     } {
       ctx.addError( node ('Could not add variable into class ' + this.name) )
     }
+  }
+
+  ; Does the constructor assign the field on every path? Only a statement at
+  ; the top level of the constructor body counts -- `name = value` or
+  ; `this.name = value` -- not one inside an if, a loop or a lambda.
+  fn isAssignedInConstructor:boolean (fieldName:string) {
+    return (this.isAssignedInConstructorBefore(fieldName -1))
+  }
+
+  ; The same, for a read inside the constructor at source offset `readPos`:
+  ; the assignment has to be a top-level statement that ends before the
+  ; statement holding the read begins. A negative `readPos` means "after the
+  ; constructor has run".
+  fn isAssignedInConstructorBefore:boolean (fieldName:string readPos:int) {
+    if (null? constructor_fn) {
+      return false
+    }
+    def constr:RangerAppFunctionDesc (unwrap constructor_fn)
+    if (null? constr.fnBody) {
+      return false
+    }
+    def body:CodeNode (unwrap constr.fnBody)
+    def thisName:string ("this." + fieldName)
+    for body.children st:CodeNode i {
+      if ((readPos >= 0) && (st.ep >= readPos)) {
+        return false
+      }
+      if ((array_length st.children) < 3) {
+        continue
+      }
+      def target:string ""
+      def c0:CodeNode (itemAt st.children 0)
+      def c1:CodeNode (itemAt st.children 1)
+      if (c0.vref == "=") {
+        target = c1.vref
+      } {
+        if (c1.vref == "=") {
+          target = c0.vref
+        }
+      }
+      if ((target == fieldName) || (target == thisName)) {
+        return true
+      }
+    }
+    return false
   }
 
   fn addVariable:void (desc@(strong):RangerAppParamDesc) {

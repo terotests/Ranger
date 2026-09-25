@@ -138,6 +138,7 @@ class RangerAppWriterContext {
   def operators:RangerActiveOperators
   def op_list:[string:RangerOperatorList]
   def automatically_unwrapped:[string:boolean]
+  def known_present:[string:boolean]
   def auto_unwrap_suppression:int 0
   def reservedWords:CodeNode 
   def intRootCounter:int 1
@@ -265,6 +266,24 @@ class RangerAppWriterContext {
   ; Mark a variable as moved (value has been transferred)
   fn rustMarkMoved (varName:string) {
     set rust_moved_vars varName true
+  }
+
+  ; A local initialised from a field the constructor always assigns (or a
+  ; `@(late)` one). It keeps its optional type -- only the strict check reads
+  ; this, so nothing is unwrapped for it and it narrows nothing.
+  fn setKnownPresent (varName:string) {
+    set this.known_present varName true
+  }
+
+  fn isKnownPresent:boolean (varName:string) {
+    if (has this.known_present varName) {
+      return true
+    }
+    if (!null? parent) {
+      def parentCtx:RangerAppWriterContext (unwrap parent)
+      return (parentCtx.isKnownPresent(varName))
+    }
+    return false
   }
 
   fn setAutomaticallyUnwrapped (varName:string) {

@@ -1,0 +1,50 @@
+; What -strict accepts without an `unwrap`, besides `if (!null? x)`:
+; a field the constructor always assigns, a `@(late)` field, a local copied
+; from either, `if x { ... }` on an optional, and `def y:T x` inside a
+; narrowed block (written as one unwrap for every target).
+class Unit {
+  def n:int 1
+}
+class Box {
+  def r:Unit
+  def later@(late):Unit
+  Constructor () {
+    r = (new Unit)
+    r.n = 2
+  }
+  fn attach:void (u:Unit) {
+    later = u
+  }
+  fn total:int () {
+    def copy:Unit r
+    return ((r.n + copy.n) + later.n)
+  }
+}
+class Person {
+  def name:string ""
+  def friend@(optional):Person
+}
+class FieldsMain {
+  fn friendName:string (p:Person) {
+    if p.friend {
+      def f:Person p.friend
+      def g:Person (unwrap p.friend)
+      return (f.name + g.name)
+    }
+    return "none"
+  }
+  sfn main@(main):void () {
+    def b (new Box)
+    def u (new Unit)
+    u.n = 5
+    b.attach(u)
+    print ("total=" + (b.total()))
+    def m (new FieldsMain)
+    def a (new Person)
+    def c (new Person)
+    c.name = "C"
+    a.friend = c
+    print (m.friendName(a))
+    print (m.friendName(c))
+  }
+}

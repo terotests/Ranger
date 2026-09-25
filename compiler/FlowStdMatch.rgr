@@ -162,6 +162,18 @@ extension RangerFlowParser {
     while (c.expression && ((array_length c.children) == 1)) {
       c = (c.getFirst())
     }
+    ; `if x { ... }` on an optional is the same test as `if (!null? x)`. A
+    ; boolean `if flag` is not a presence test and narrows nothing.
+    if ((c.expression == false) && (c.value_type == RangerNodeType.VRef)) {
+      ; an optional boolean or charbuffer is a bare value on C++, with no
+      ; optional to read through
+      if ((c.value_type == RangerNodeType.VRef) && (this.isOptionalPath(c ctx))) {
+        if (this.optionalPathIsWrapped(c ctx)) {
+          this.markNotNullName(c ctx)
+        }
+      }
+      return
+    }
     if ((array_length c.children) == 0) {
       return
     }

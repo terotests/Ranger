@@ -65,6 +65,22 @@ operator type:RangerFlowParser all {
       node.hasVarDef = true
       if ((size node.children) > 2) {
         p.init_cnt = 1
+        ; `def y:T x` inside `if (!null? x)`: x is known to hold a value, so y
+        ; takes the value, not the optional. The initializer is written as
+        ; `(unwrap x)` for every target -- one unwrap, however the target
+        ; spells it (.value(), !, .unwrap(), ...) and never two: an explicit
+        ; `(unwrap x)` in the source is already an expression and is left as
+        ; it is.
+        if (false == (cn.hasFlag("optional"))) {
+          def initNode:CodeNode (at node.children 2)
+          if (self.isNarrowedOptionalRead(initNode ctx)) {
+            def unwrapNode@(lives):CodeNode (node.newExpressionNode())
+            unwrapNode.add((node.newVRefNode("unwrap")))
+            unwrapNode.add(initNode)
+            unwrapNode.parent = node
+            set node.children 2 unwrapNode
+          }
+        }
         p.def_value = (at node.children 2)
         p.is_optional = false
         defaultArg = (at node.children 2)
@@ -76,6 +92,19 @@ operator type:RangerFlowParser all {
 
         if (dArg.hasFlag("optional")) {
           cn.setFlag("optional")
+          ; `def u:T obj.field` where the field is one the constructor always
+          ; assigns: the local keeps the optional type, but the strict check
+          ; knows it holds a value (as inside `if (!null? u)`)
+          if (self.isConstructorAssignedRead(dArg ctx)) {
+            ctx.setKnownPresent(cn.vref)
+          } {
+            ; a copy of a local that is known to hold a value holds one too
+            if ((dArg.expression == false) && ((array_length dArg.ns) == 1)) {
+              if (ctx.isKnownPresent((itemAt dArg.ns 0))) {
+                ctx.setKnownPresent(cn.vref)
+              }
+            }
+          }
         }
         if (dArg.hasFlag("immutable")) {
           cn.setFlag("immutable")

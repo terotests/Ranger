@@ -1096,6 +1096,9 @@ extension RangerFlowParser {
       } {
         p.is_optional = true
         if (false == ((vDef.value_type == RangerNodeType.Array) || (vDef.value_type == RangerNodeType.Hash))) {         
+          if (false == (vDef.hasFlag("optional"))) {
+            p.implicit_optional = true
+          }
           vDef.setFlag("optional")
         }
       }
