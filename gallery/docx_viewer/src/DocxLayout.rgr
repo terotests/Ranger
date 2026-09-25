@@ -130,7 +130,7 @@ class LaidPage {
 
 class DocxLayout {
     def pages:[LaidPage]
-    def tr:UITextRenderer
+    def tr@(late):UITextRenderer
     def contentW:int 500
     def numbering:WordNumbering (new WordNumbering)
     def listCounters:[int:int]

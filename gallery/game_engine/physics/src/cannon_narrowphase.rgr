@@ -14,7 +14,7 @@ Import "cannon_equation.rgr"
 Import "cannon_contact_material.rgr"
 
 class CannonNarrowphase {
-    def currentContactMaterial:CannonContactMaterial
+    def currentContactMaterial@(late):CannonContactMaterial
     def result:[CannonEquation]
     def tmpQuatI:CannonQuaternion (new CannonQuaternion)
     def tmpQuatJ:CannonQuaternion (new CannonQuaternion)
@@ -43,8 +43,8 @@ class CannonNarrowphase {
     def bbPosDiff:CannonVec3 (new CannonVec3)
     def bbBestAxis:CannonVec3 (new CannonVec3)
     def bbBestOverlap:double 0.0
-    def bbHeA:CannonVec3
-    def bbHeB:CannonVec3
+    def bbHeA@(late):CannonVec3
+    def bbHeB@(late):CannonVec3
     def bbCorner:CannonVec3 (new CannonVec3)
     def bbLocal:CannonVec3 (new CannonVec3)
     def bbConj:CannonQuaternion (new CannonQuaternion)

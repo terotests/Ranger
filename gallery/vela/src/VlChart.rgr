@@ -1223,7 +1223,7 @@ for."
 }
 
 class VlChart {
-    def data:VlDataset
+    def data@(late):VlDataset
     def marks:[VlChartMark]
     ; Channels said once for the whole view; a mark that names the same channel
     ; wins over them.

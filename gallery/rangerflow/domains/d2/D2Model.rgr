@@ -708,7 +708,7 @@ class D2Model {
     def classNames:[string]
     def classBodies:[[D2Decl]]
     def order:int 0
-    def board:D2Board
+    def board@(late):D2Board
     ; The directory the file being read lives in. Imports resolve against it,
     ; and may not leave it — see `importPath`.
     def baseDir:string ""

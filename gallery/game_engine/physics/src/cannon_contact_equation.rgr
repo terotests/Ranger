@@ -9,8 +9,8 @@ Import "cannon_body.rgr"
 Import "cannon_shape.rgr"
 
 class CannonContactEquation {
-    def bi:CannonBody
-    def bj:CannonBody
+    def bi@(late):CannonBody
+    def bj@(late):CannonBody
     def si:CannonShape
     def sj:CannonShape
     def enabled:boolean true

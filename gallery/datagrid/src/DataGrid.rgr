@@ -85,35 +85,35 @@ class DataGrid {
     }
 
     fn viewRowCount:int (model:SpreadsheetModel) {
-        if hasView {
+        if (!null? sheetView) {
             return (sheetView.rowCount())
         }
         return model.rowCount
     }
 
     fn viewColCount:int (model:SpreadsheetModel) {
-        if hasView {
+        if (!null? sheetView) {
             return (sheetView.colCount())
         }
         return model.colCount
     }
 
     fn mapRow:int (viewOrModelRow:int) {
-        if hasView {
+        if (!null? sheetView) {
             return (sheetView.modelRow(viewOrModelRow))
         }
         return viewOrModelRow
     }
 
     fn mapCol:int (viewOrModelCol:int) {
-        if hasView {
+        if (!null? sheetView) {
             return (sheetView.modelCol(viewOrModelCol))
         }
         return viewOrModelCol
     }
 
     fn geoRowToY:int (model:SpreadsheetModel row:int) {
-        if hasView {
+        if (!null? sheetView) {
             def vr:int (sheetView.viewRowOf(row))
             if (vr < 0) {
                 return -100000
@@ -124,7 +124,7 @@ class DataGrid {
     }
 
     fn geoColToX:int (model:SpreadsheetModel col:int) {
-        if hasView {
+        if (!null? sheetView) {
             def vc:int (sheetView.viewColOf(col))
             if (vc < 0) {
                 return -100000
@@ -135,21 +135,21 @@ class DataGrid {
     }
 
     fn geoTotalH:int (model:SpreadsheetModel) {
-        if hasView {
+        if (!null? sheetView) {
             return (sheetView.totalHeight())
         }
         return (model.totalHeight())
     }
 
     fn geoTotalW:int (model:SpreadsheetModel) {
-        if hasView {
+        if (!null? sheetView) {
             return (sheetView.totalWidth())
         }
         return (model.totalWidth())
     }
 
     fn geoFrozenH:int (model:SpreadsheetModel) {
-        if hasView {
+        if (!null? sheetView) {
             def fz:int model.freezeRows
             if (fz <= 0) {
                 return 0
@@ -173,7 +173,7 @@ class DataGrid {
     }
 
     fn geoFrozenW:int (model:SpreadsheetModel) {
-        if hasView {
+        if (!null? sheetView) {
             def fz:int model.freezeCols
             if (fz <= 0) {
                 return 0
@@ -196,21 +196,21 @@ class DataGrid {
     }
 
     fn geoYToRow:int (model:SpreadsheetModel y:int) {
-        if hasView {
+        if (!null? sheetView) {
             return (sheetView.yToRow(y))
         }
         return (model.yToRow(y))
     }
 
     fn geoXToCol:int (model:SpreadsheetModel x:int) {
-        if hasView {
+        if (!null? sheetView) {
             return (sheetView.xToCol(x))
         }
         return (model.xToCol(x))
     }
 
     fn freezeViewRows:int (model:SpreadsheetModel) {
-        if hasView {
+        if (!null? sheetView) {
             def fz:int model.freezeRows
             def n:int 0
             def i:int 0
@@ -229,7 +229,7 @@ class DataGrid {
     }
 
     fn freezeViewCols:int (model:SpreadsheetModel) {
-        if hasView {
+        if (!null? sheetView) {
             def fz:int model.freezeCols
             def n:int 0
             def i:int 0
@@ -313,7 +313,7 @@ class DataGrid {
 
     fn clampScroll:void (model:SpreadsheetModel) {
         model.ensureGeometry()
-        if hasView {
+        if (!null? sheetView) {
             sheetView.ensure()
         }
         def fzW:int (this.geoFrozenW(model))
@@ -348,13 +348,13 @@ class DataGrid {
         def vrc:int (this.viewRowCount(model))
         def vcc:int (this.viewColCount(model))
         def baseY:int 0
-        if hasView {
+        if (!null? sheetView) {
             baseY = (sheetView.rowToY(fzR))
         } {
             baseY = (model.rowToY(fzR))
         }
         def baseX:int 0
-        if hasView {
+        if (!null? sheetView) {
             baseX = (sheetView.colToX(fzC))
         } {
             baseX = (model.colToX(fzC))
@@ -429,7 +429,7 @@ class DataGrid {
         def fzC:int (this.freezeViewCols(model))
         def x0:int (this.geoColToX(model col))
         def vc:int col
-        if hasView {
+        if (!null? sheetView) {
             vc = (sheetView.viewColOf(col))
             if (vc < 0) {
                 return -100000
@@ -439,7 +439,7 @@ class DataGrid {
             return (ox + x0)
         }
         def base:int 0
-        if hasView {
+        if (!null? sheetView) {
             base = (sheetView.colToX(fzC))
         } {
             base = (model.colToX(fzC))
@@ -452,7 +452,7 @@ class DataGrid {
         def fzR:int (this.freezeViewRows(model))
         def y0:int (this.geoRowToY(model row))
         def vr:int row
-        if hasView {
+        if (!null? sheetView) {
             vr = (sheetView.viewRowOf(row))
             if (vr < 0) {
                 return -100000
@@ -462,7 +462,7 @@ class DataGrid {
             return (oy + y0)
         }
         def base:int 0
-        if hasView {
+        if (!null? sheetView) {
             base = (sheetView.rowToY(fzR))
         } {
             base = (model.rowToY(fzR))
@@ -486,7 +486,7 @@ class DataGrid {
         def w:int 0
         def c:int c1
         while (c <= c2) {
-            if hasView {
+            if (!null? sheetView) {
                 if ((sheetView.viewColOf(c)) >= 0) {
                     w = (w + (model.colWidth(c)))
                 }
@@ -502,7 +502,7 @@ class DataGrid {
         def h:int 0
         def r:int r1
         while (r <= r2) {
-            if hasView {
+            if (!null? sheetView) {
                 if ((sheetView.viewRowOf(r)) >= 0) {
                     h = (h + (model.rowHeight(r)))
                 }
@@ -793,7 +793,7 @@ class DataGrid {
         model.clampPos(p)
         ; Scroll in VIEW coordinates when SheetView is bound — a sorted/filtered
         ; model-row 500 may be the first body row on screen.
-        if hasView {
+        if (!null? sheetView) {
             def vr:int (sheetView.viewRowOf(p.row))
             def vc:int (sheetView.viewColOf(p.col))
             def fzR:int (this.freezeViewRows(model))
@@ -899,7 +899,7 @@ class DataGrid {
             def contentX:int localX
             if (localX >= fzW) {
                 def baseX:int 0
-                if hasView {
+                if (!null? sheetView) {
                     baseX = (sheetView.colToX(fzC))
                 } {
                     baseX = (model.colToX(fzC))
@@ -915,7 +915,7 @@ class DataGrid {
             def contentY:int localY
             if (localY >= fzH) {
                 def baseY:int 0
-                if hasView {
+                if (!null? sheetView) {
                     baseY = (sheetView.rowToY(fzR))
                 } {
                     baseY = (model.rowToY(fzR))
@@ -932,7 +932,7 @@ class DataGrid {
         def cy:int ly
         if (lx >= fzW) {
             def baseX2:int 0
-            if hasView {
+            if (!null? sheetView) {
                 baseX2 = (sheetView.colToX(fzC))
             } {
                 baseX2 = (model.colToX(fzC))
@@ -941,7 +941,7 @@ class DataGrid {
         }
         if (ly >= fzH) {
             def baseY2:int 0
-            if hasView {
+            if (!null? sheetView) {
                 baseY2 = (sheetView.rowToY(fzR))
             } {
                 baseY2 = (model.rowToY(fzR))

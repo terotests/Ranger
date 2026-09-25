@@ -480,7 +480,7 @@ class SoundScoreParser {
 }
 
 class SoundScorePlayer {
-    def audio:GameAudio
+    def audio@(late):GameAudio
     def parser:SoundScoreParser (new SoundScoreParser)
     def score:SoundScore (new SoundScore)
     def schedule:[ScheduledNote]

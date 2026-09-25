@@ -41,7 +41,7 @@ class OfficeShapePicker {
     ; The catalogue is BORROWED. Each editor owns one, fills it with what it
     ; wants — the book adds the emoji, the deck does not — and hands it here.
     ; A picker that built its own would show shapes its host cannot insert.
-    def cat:OfficeShapeCatalog
+    def cat@(late):OfficeShapeCatalog
     def hasCat:boolean false
 
     def win:EVGWindow (new EVGWindow)

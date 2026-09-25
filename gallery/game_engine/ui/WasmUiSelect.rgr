@@ -50,7 +50,7 @@ class WasmFxDone {
     def handle:int 0
     def node:int 0
     def tag:int 0
-    def anim:UIAnim            ; the effect this binding completes with
+    def anim@(late):UIAnim            ; the effect this binding completes with
     def fired:boolean false    ; rg_ui_effect_done called exactly once
 
     Constructor () {
@@ -248,7 +248,7 @@ class WasmUiRenderer {
 
     ; Optional host effect timeline. When set, drawElement overlays the animated
     ; glow from guest-requested effects on top of any doc-declared glow.
-    def fx:WasmUiEffects
+    def fx@(late):WasmUiEffects
     def hasFx:boolean false
     ; When true the live effects are drawn on the GPU (gfx_fx overlay), so the
     ; software renderer skips them here to avoid drawing them twice. Doc-declared

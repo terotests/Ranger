@@ -27,10 +27,10 @@ class CannonEquation {
     def kind:int 1
     def minForce:double (0.0 - 1000000.0)
     def maxForce:double 1000000.0
-    def bi:CannonBody
-    def bj:CannonBody
-    def si:CannonShape
-    def sj:CannonShape
+    def bi@(late):CannonBody
+    def bj@(late):CannonBody
+    def si@(late):CannonShape
+    def sj@(late):CannonShape
     def a:double 0.0
     def b:double 0.0
     def eps:double 0.0

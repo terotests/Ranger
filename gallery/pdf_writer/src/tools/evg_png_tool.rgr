@@ -42,14 +42,14 @@ class EVGPNGTool {
     def scale:double 1.0
     def debug:boolean false
     
-    def renderer:EVGRasterRenderer
-    def textRenderer:RasterText
-    def fontManager:FontManager
-    def layout:EVGLayout
+    def renderer@(late):EVGRasterRenderer
+    def textRenderer@(late):RasterText
+    def fontManager@(late):FontManager
+    def layout@(late):EVGLayout
     def baseDir:string ""
     ; The raster target had no stylesheet path at all, so the same TSX rendered
     ; with -css produced a themed PDF and an unthemed image.
-    def styles:EVGStyleLoader
+    def styles@(late):EVGStyleLoader
     ; The clip in force for the element being drawn, in device pixels.
     ; `overflow: hidden` on an ancestor sets it; a chart's plot area is the
     ; reason it exists. It applies to what goes through the shared rasterizer,

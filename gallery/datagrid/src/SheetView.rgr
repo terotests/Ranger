@@ -12,7 +12,7 @@
 Import "SpreadsheetModel.rgr"
 
 class SheetView {
-    def model:SpreadsheetModel
+    def model@(late):SpreadsheetModel
     def rowOrder:[int]
     def colOrder:[int]
     ; Frozen rows, plus an inferred table header while sorting.
