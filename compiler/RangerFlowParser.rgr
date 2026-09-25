@@ -2967,6 +2967,28 @@ class RangerFlowParser {
         ctx.addError(node "Can not assign optional to non-optional type")
       }
     }
+    ; `x = <a value>` narrows x from here on, `x = <an optional>` ends it
+    if ((n1.expression == false) && ((strlen n1.vref) > 0)) {
+      def target:string n1.vref
+      if ((array_length n1.ns) == 1) {
+        target = (itemAt n1.ns 0)
+      }
+      def valuePresent:boolean (false == (n2.hasFlag("optional")))
+      if ((n2.expression == false) && ((strlen n2.vref) > 0)) {
+        def source:string n2.vref
+        if ((array_length n2.ns) == 1) {
+          source = (itemAt n2.ns 0)
+        }
+        if (ctx.isPresentForStrict(source)) {
+          valuePresent = true
+        }
+      }
+      if valuePresent {
+        ctx.setFlowNarrowed(target 2)
+      } {
+        ctx.setFlowNarrowed(target 0)
+      }
+    }
     this.stdParamMatch(node ctx wr true)
     this.convertToUnion( n1.eval_type_name n2 ctx wr) 
     this.shouldBeEqualTypes( n1 n2 ctx "Can not assign variable.")
@@ -3089,7 +3111,8 @@ class RangerFlowParser {
     this.WalkNodeChildren(fnBody subCtx wr)
     subCtx.unsetInMethod()
     def methodName:CodeNode (unwrap m.nameNode)
-    if (fnBody.didReturnAtIndex == -1) {
+    ; an if/else whose two blocks both return also ends every path
+    if ((fnBody.didReturnAtIndex == -1) && (false == (this.blockAlwaysExits(fnBody)))) {
       if (methodName.type_name != "void") {
           if( false == (ctx.getFlag("in_task")) ) {
             ctx.addError(methodName "Function does not return any values!")

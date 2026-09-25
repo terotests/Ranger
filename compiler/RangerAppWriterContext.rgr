@@ -139,6 +139,7 @@ class RangerAppWriterContext {
   def op_list:[string:RangerOperatorList]
   def automatically_unwrapped:[string:boolean]
   def known_present:[string:boolean]
+  def flow_narrowed:[string:int]
   def auto_unwrap_suppression:int 0
   def reservedWords:CodeNode 
   def intRootCounter:int 1
@@ -282,6 +283,54 @@ class RangerAppWriterContext {
     if (!null? parent) {
       def parentCtx:RangerAppWriterContext (unwrap parent)
       return (parentCtx.isKnownPresent(varName))
+    }
+    return false
+  }
+
+  ; Narrowing that holds from a point in the block onwards. The flow pass
+  ; reads it statement by statement; the writers never see it, so nothing
+  ; before the point is unwrapped in generated code.
+  ;   1  a check proved it: after `if (null? x) { return }`
+  ;   2  `x = <a value>` -- present, but only the strict check relies on it;
+  ;      `def y:T x` is not rewritten to an unwrap, so code that unwraps y
+  ;      later keeps compiling
+  ;   0  `x = <an optional>` ends either
+  fn setFlowNarrowed (varName:string state:int) {
+    set this.flow_narrowed varName state
+  }
+
+  ; Narrowed here: by an enclosing `if (!null? x)` / else branch, or by a flow
+  ; point above in this block. The innermost record wins, so an assignment
+  ; inside a narrowed block ends the narrowing there.
+  fn isNarrowed:boolean (varName:string) {
+    if (has this.flow_narrowed varName) {
+      return ((unwrap (get this.flow_narrowed varName)) == 1)
+    }
+    if (has this.automatically_unwrapped varName) {
+      return true
+    }
+    if (!null? parent) {
+      def parentCtx:RangerAppWriterContext (unwrap parent)
+      return (parentCtx.isNarrowed(varName))
+    }
+    return false
+  }
+
+  ; What the strict check accepts: narrowed, or a local copied from a field
+  ; the constructor always assigns.
+  fn isPresentForStrict:boolean (varName:string) {
+    if (has this.flow_narrowed varName) {
+      return ((unwrap (get this.flow_narrowed varName)) > 0)
+    }
+    if (has this.automatically_unwrapped varName) {
+      return true
+    }
+    if (has this.known_present varName) {
+      return true
+    }
+    if (!null? parent) {
+      def parentCtx:RangerAppWriterContext (unwrap parent)
+      return (parentCtx.isPresentForStrict(varName))
     }
     return false
   }

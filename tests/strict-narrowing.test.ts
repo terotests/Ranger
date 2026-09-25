@@ -143,3 +143,78 @@ describe("error positions", () => {
   });
 });
 
+describe("-strict: narrowing that follows the flow", () => {
+  for (const lang of ["es6", "cpp", "go", "python", "java7", "rust", "kotlin", "swift6"]) {
+    it(`accepts the else branch, early exits and assignments (${lang})`, () => {
+      const output = compileStrict("strict_flow_narrowing.rgr", lang);
+      expect(output).not.toContain(UNWRAP_ERROR);
+      expect(output).not.toContain("[FAIL]");
+    });
+  }
+
+  it("runs the narrowed paths", () => {
+    let js = "";
+    compileStrict("strict_flow_narrowing.rgr", "es6", (dir) => {
+      js = readAll(dir);
+    });
+    const file = path.join(os.tmpdir(), `strict-flow-${process.pid}.js`);
+    fs.writeFileSync(file, js);
+    try {
+      const r = spawnSync(process.execPath, [file], { encoding: "utf8" });
+      expect(r.stdout.trim().split("\n")).toEqual([
+        "AA", "nobody", "B", "AB", "missing", "found", "A", "B", "no friend", "BB", "new",
+      ]);
+    } finally {
+      fs.rmSync(file, { force: true });
+    }
+  });
+
+  it("still rejects reads before the check, partial exits, &&, the else of !null? and reassignment", () => {
+    const output = compileStrict("strict_flow_narrowing_rejects.rgr", "es6");
+    const lines = [...output.matchAll(/strict_flow_narrowing_rejects\.rgr:(\d+):\d+\s+\[FAIL\] Optional automatically/g)].map(
+      (m) => Number(m[1]),
+    );
+    expect(lines).toEqual([9, 21, 27, 33, 41]);
+  });
+
+  // The narrowing after `if (null? p) { return }` is read by the strict check
+  // and by `def q:T p` only: a read above the check (compiled without
+  // -strict) is not unwrapped in the generated code.
+  it("does not unwrap reads above the check in generated C++", () => {
+    const src = [
+      "class Person {",
+      '  def name:string ""',
+      "}",
+      "class AboveMain {",
+      "  fn f:string (p@(optional):Person) {",
+      "    def before:string p.name",
+      "    if (null? p) {",
+      '      return ""',
+      "    }",
+      "    return (before + p.name)",
+      "  }",
+      "  sfn main@(main):void () {",
+      '    print "x"',
+      "  }",
+      "}",
+    ].join("\n");
+    const file = path.join(FIXTURES, `.strict_above_${process.pid}.rgr`);
+    fs.writeFileSync(file, src);
+    const out = fs.mkdtempSync(path.join(os.tmpdir(), "strict-above-"));
+    let cpp = "";
+    try {
+      spawnSync(process.execPath, ["dist/rgrc.js", "-l=cpp", file, `-d=${out}`, "-o=out"], {
+        cwd: ROOT,
+        encoding: "utf8",
+      });
+      cpp = readAll(out);
+    } finally {
+      fs.rmSync(file, { force: true });
+      fs.rmSync(out, { recursive: true, force: true });
+    }
+    expect(cpp).toContain("if (!p.has_value())");
+    // the writers' own narrowing spells an unwrapped read `(p.value())`
+    expect(cpp).not.toContain("(p.value())");
+  });
+});
+

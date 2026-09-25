@@ -168,7 +168,7 @@ extension RangerFlowParser {
     if (cnt == 1) {
       name = (itemAt n.ns 0)
     }
-    if ((ctx.isAutomaticallyUnwrapped(name)) == false) {
+    if ((ctx.isNarrowed(name)) == false) {
       return false
     }
     return (this.isOptionalPath(n ctx))
@@ -328,7 +328,7 @@ extension RangerFlowParser {
               if(classRefName.hasFlag("optional")) {
                 if(ctx.hasCompilerFlag('strict')) {
                   ; `if (!null? x)` narrowed it for the block
-                  if((false == (ctx.isTryBlock())) && (false == (ctx.isAutomaticallyUnwrapped(strname))) && (false == (ctx.isKnownPresent(strname))) && (false == (this.isConstructorAssignedField(classRef obj ctx)))) {
+                  if((false == (ctx.isTryBlock())) && (false == (ctx.isPresentForStrict(strname))) && (false == (this.isConstructorAssignedField(classRef obj ctx)))) {
                     ctx.addError( obj "Optional automatically unwrapped outside try block" )
                   }
                 }
@@ -367,7 +367,7 @@ extension RangerFlowParser {
                         narrowedPath = (narrowedPath + pathPart)
                       }
                     }
-                    if((false == (ctx.isTryBlock())) && (false == (ctx.isAutomaticallyUnwrapped(narrowedPath))) && (false == (this.isConstructorAssignedField(variableDesc obj ctx)))) {
+                    if((false == (ctx.isTryBlock())) && (false == (ctx.isPresentForStrict(narrowedPath))) && (false == (this.isConstructorAssignedField(variableDesc obj ctx)))) {
                       ctx.addError( obj "Optional automatically unwrapped outside try block" )
                     }
                   }

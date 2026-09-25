@@ -38,8 +38,6 @@ class CmdParams  {
   };
 }
 class test_cmdparams  {
-  constructor() {
-  }
   run () {
     const prms = new CmdParams();
     prms.collect();
@@ -345,8 +343,6 @@ class RangerDocBlock  {
   };
 }
 class RangerDocReader  {
-  constructor() {
-  }
   wordAt (node, idx) {
     if ( idx >= node.chlen() ) {
       return "";
@@ -982,8 +978,6 @@ class RangerApiBuilder  {
   };
 }
 class RangerApiPackageWriter  {
-  constructor() {
-  }
   settingOr (ctx, key, fallback) {
     if ( ctx.hasCompilerSetting(key) ) {
       return ctx.getCompilerSetting(key);
@@ -1500,8 +1494,6 @@ class RangerApiPackageWriter  {
   };
 }
 class RangerApiArtifactWriter  {
-  constructor() {
-  }
   jsonEscape (value) {
     let out = "";
     let i = 0;
@@ -2950,8 +2942,6 @@ RangerDocCommentWriter.lookupFn = function(ctx, name) {
   return new RangerAppFunctionDesc();
 };
 class RangerParamEventHandler  {
-  constructor() {
-  }
   callback (param) {
   };
 }
@@ -5939,8 +5929,6 @@ CodeNode.blockFromList = function(list) {
   return newNode;
 };
 class TTypeRegistry  {
-  constructor() {
-  }
 }
 TTypeRegistry.scalarPrimitiveNames = function() {
   let names = [];
@@ -6281,6 +6269,7 @@ class RangerAppWriterContext  {
     this.op_list = {};
     this.automatically_unwrapped = {};
     this.known_present = {};
+    this.flow_narrowed = {};
     this.auto_unwrap_suppression = 0;
     this.reservedWords = undefined;
     this.intRootCounter = 1;     /* note: unused */
@@ -6385,6 +6374,38 @@ class RangerAppWriterContext  {
     if ( (typeof(this.parent) !== "undefined" && this.parent != null )  ) {
       const parentCtx = this.parent;
       return parentCtx.isKnownPresent(varName);
+    }
+    return false;
+  };
+  setFlowNarrowed (varName, state) {
+    this.flow_narrowed[varName] = state;
+  };
+  isNarrowed (varName) {
+    if ( ( typeof(this.flow_narrowed[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.flow_narrowed, varName) ) ) {
+      return ( Object.prototype.hasOwnProperty.call(this.flow_narrowed, varName) ? this.flow_narrowed[varName] : undefined ) == 1;
+    }
+    if ( ( typeof(this.automatically_unwrapped[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.automatically_unwrapped, varName) ) ) {
+      return true;
+    }
+    if ( (typeof(this.parent) !== "undefined" && this.parent != null )  ) {
+      const parentCtx = this.parent;
+      return parentCtx.isNarrowed(varName);
+    }
+    return false;
+  };
+  isPresentForStrict (varName) {
+    if ( ( typeof(this.flow_narrowed[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.flow_narrowed, varName) ) ) {
+      return ( Object.prototype.hasOwnProperty.call(this.flow_narrowed, varName) ? this.flow_narrowed[varName] : undefined ) > 0;
+    }
+    if ( ( typeof(this.automatically_unwrapped[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.automatically_unwrapped, varName) ) ) {
+      return true;
+    }
+    if ( ( typeof(this.known_present[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.known_present, varName) ) ) {
+      return true;
+    }
+    if ( (typeof(this.parent) !== "undefined" && this.parent != null )  ) {
+      const parentCtx = this.parent;
+      return parentCtx.isPresentForStrict(varName);
     }
     return false;
   };
@@ -8441,8 +8462,6 @@ class SourceMapBuilder  {
   };
 }
 class RangerSourceFormat  {
-  constructor() {
-  }
 }
 RangerSourceFormat.defaultWidthFor = function(ext) {
   if ( ext == "js" ) {
@@ -11497,8 +11516,6 @@ RangerLispParser.normalizeLineEndings = function(src) {
   return s.split("\r").join("\n");
 };
 class TTypes  {
-  constructor() {
-  }
 }
 TTypes.nameToValue = function(name) {
   const regType = TTypeRegistry.nameToNodeType(name);
@@ -12644,8 +12661,6 @@ DictNode.createEmptyObject = function() {
   return v;
 };
 class RangerImmutableExtension  {
-  constructor() {
-  }
   typeDefOf (p) {
     const nn = p.nameNode;
     if ( p.value_type == 6 ) {
@@ -12716,8 +12731,6 @@ class RangerImmutableExtension  {
   };
 }
 class RangerProcessLifecycle  {
-  constructor() {
-  }
   emitInvokeMethods (cl, ctx, wr, regName) {
     wr.out("fn __rangerInvokeStart:void () {", true);
     wr.indent(1);
@@ -12779,8 +12792,6 @@ class RangerProcessLifecycle  {
   };
 }
 class RangerProcessClass  {
-  constructor() {
-  }
   emitAssignProcessId (wr) {
     wr.out("def __rgrIdReg (ProcessIdRegistry.__singleton())", true);
     wr.out("def __rgrNewId ( __rgrIdReg.allocate() )", true);
@@ -13084,8 +13095,6 @@ class RangerProcessClass  {
   };
 }
 class RangerProcessProcSend  {
-  constructor() {
-  }
 }
 RangerProcessProcSend.isReservedHandler = function(name) {
   if ( name == "start" ) {
@@ -13332,8 +13341,6 @@ RangerProcessProcSend.transform = function(parser, node, ctx, wr) {
   return true;
 };
 class RangerProcessProcStartCheck  {
-  constructor() {
-  }
 }
 RangerProcessProcStartCheck.validate = function(parser, node, ctx, wr) {
   const childCnt = node.children.length;
@@ -13359,8 +13366,6 @@ RangerProcessProcStartCheck.validate = function(parser, node, ctx, wr) {
   return true;
 };
 class RangerProcessCodegen  {
-  constructor() {
-  }
   validateProcessNewSite (node, newCl, ctx) {
     if ( newCl.is_process == false ) {
       return;
@@ -13535,8 +13540,6 @@ class RangerAppOperatorDesc  extends RangerAppParamDesc {
   };
 }
 class TFiles  {
-  constructor() {
-  }
 }
 TFiles.searchEnv = function(env, paths, fileName) {
   // Loop start
@@ -13730,8 +13733,6 @@ PkgJRead.strOf = function(obj, key) {
   return "";
 };
 class PkgImport  {
-  constructor() {
-  }
 }
 PkgImport.isPkg = function(spec) {
   if ( spec.length < 4 ) {
@@ -16580,6 +16581,27 @@ class RangerFlowParser  {
         ctx.addError(node, "Can not assign optional to non-optional type");
       }
     }
+    if ( n1_1.expression == false && n1_1.vref.length > 0 ) {
+      let target_2 = n1_1.vref;
+      if ( n1_1.ns.length == 1 ) {
+        target_2 = n1_1.ns[0];
+      }
+      let valuePresent = false == n2_1.hasFlag("optional");
+      if ( n2_1.expression == false && n2_1.vref.length > 0 ) {
+        let source = n2_1.vref;
+        if ( n2_1.ns.length == 1 ) {
+          source = n2_1.ns[0];
+        }
+        if ( ctx.isPresentForStrict(source) ) {
+          valuePresent = true;
+        }
+      }
+      if ( valuePresent ) {
+        ctx.setFlowNarrowed(target_2, 2);
+      } else {
+        ctx.setFlowNarrowed(target_2, 0);
+      }
+    }
     this.stdParamMatch(node, ctx, wr, true);
     this.convertToUnion(n1_1.eval_type_name, n2_1, ctx, wr);
     this.shouldBeEqualTypes(n1_1, n2_1, ctx, "Can not assign variable.");
@@ -16695,7 +16717,7 @@ class RangerFlowParser  {
     this.WalkNodeChildren(fnBody, subCtx, wr);
     subCtx.unsetInMethod();
     const methodName = m.nameNode;
-    if ( fnBody.didReturnAtIndex == -1 ) {
+    if ( fnBody.didReturnAtIndex == -1 && false == this.blockAlwaysExits(fnBody) ) {
       if ( methodName.type_name != "void" ) {
         if ( false == ctx.getFlag("in_task") ) {
           ctx.addError(methodName, "Function does not return any values!");
@@ -18049,6 +18071,102 @@ class RangerFlowParser  {
       }
     }
   };
+  collectNullNames (condition, out) {
+    let c = condition;
+    while (c.expression && c.children.length == 1) {
+      c = c.getFirst();
+    };
+    if ( c.children.length == 0 ) {
+      return;
+    }
+    const head = c.getVRefAt(0);
+    if ( head == "null?" ) {
+      if ( c.children.length > 1 ) {
+        let n = c.children[1];
+        while (n.expression && n.children.length == 1) {
+          n = n.getFirst();
+        };
+        if ( n.expression == false && n.vref.length > 0 ) {
+          let name = n.vref;
+          if ( n.ns.length == 1 ) {
+            name = n.ns[0];
+          }
+          out.push(name);
+        }
+      }
+      return;
+    }
+    if ( head == "||" || head == "or" ) {
+      // Loop start
+      for ( let i = 0; i < c.children.length; i++) {
+        var part = c.children[i];
+        if ( i > 0 ) {
+          this.collectNullNames(part, out);
+        }
+      }
+      return;
+    }
+    if ( c.children.length == 3 ) {
+      const mid = c.children[1];
+      if ( mid.vref == "||" || mid.vref == "or" ) {
+        this.collectNullNames(c.children[0], out);
+        this.collectNullNames(c.children[2], out);
+      }
+    }
+  };
+  collectPresentNames (condition, ctx, out) {
+    const probe = ctx.fork();
+    this.markNotNullNarrowing(condition, probe);
+    // Loop start
+    for ( let i = 0; i < probe.getListOfAutomaticallyUnwrapped().length; i++) {
+      var name = probe.getListOfAutomaticallyUnwrapped()[i];
+      out.push(name);
+    }
+  };
+  blockAlwaysExits (block) {
+    const cnt = block.children.length;
+    if ( cnt == 0 ) {
+      return false;
+    }
+    let st = block.children[(cnt - 1)];
+    while ((st.expression && st.children.length == 1) && st.getFirst().expression) {
+      st = st.getFirst();
+    };
+    let head = st.vref;
+    if ( st.expression ) {
+      head = st.getVRefAt(0);
+    }
+    if ( ((head == "return" || head == "throw") || head == "break") || head == "continue" ) {
+      return true;
+    }
+    if ( (st.expression && head == "if") && st.children.length == 4 ) {
+      return this.blockAlwaysExits(st.children[2]) && this.blockAlwaysExits(st.children[3]);
+    }
+    return false;
+  };
+  narrowAfterIf (callArgs, inCtx) {
+    const cnt = callArgs.children.length;
+    if ( cnt < 3 ) {
+      return;
+    }
+    const condition = callArgs.children[1];
+    const thenExits = this.blockAlwaysExits(callArgs.children[2]);
+    let elseExits = false;
+    if ( cnt > 3 ) {
+      elseExits = this.blockAlwaysExits(callArgs.children[3]);
+    }
+    let names = [];
+    if ( thenExits && elseExits == false ) {
+      this.collectNullNames(condition, names);
+    }
+    if ( elseExits && thenExits == false ) {
+      this.collectPresentNames(condition, inCtx, names);
+    }
+    // Loop start
+    for ( const name of names) {
+      inCtx.setFlowNarrowed(name, 1);
+    }
+  };
   stdParamMatch (callArgs, inCtx, wr, require_all_match) {
     this.stdCommands = inCtx.getStdCommands();
     const callFnName = callArgs.getFirst();
@@ -18203,6 +18321,14 @@ class RangerFlowParser  {
                 if ( i == 1 && (callFnName.vref == "if" && callArgs.children.length > 2) ) {
                   this.markNotNullNarrowing(callArgs.children[1], tmpCtx_1);
                 }
+                if ( i == 2 && (callFnName.vref == "if" && callArgs.children.length > 3) ) {
+                  let absentWhenTrue = [];
+                  this.collectNullNames(callArgs.children[1], absentWhenTrue);
+                  // Loop start
+                  for ( const elseName of absentWhenTrue) {
+                    tmpCtx_1.setAutomaticallyUnwrapped(elseName);
+                  }
+                }
                 this.WalkNode(callArg, tmpCtx_1, wr);
               }
               last_was_block = true;
@@ -18263,6 +18389,9 @@ class RangerFlowParser  {
         }
         const all_matched = match.matchArguments(args, callArgs, ctx, 1);
         if ( all_matched ) {
+          if ( fc.vref == "if" && inCtx.expressionLevel() == 0 ) {
+            this.narrowAfterIf(callArgs, inCtx);
+          }
           const expr_level = ctx.expressionLevel();
           let is_last = false;
           if ( (typeof(callArgs.parent) !== "undefined" && callArgs.parent != null )  ) {
@@ -22229,7 +22358,7 @@ class RangerFlowParser  {
     if ( cnt == 1 ) {
       name = n.ns[0];
     }
-    if ( ctx.isAutomaticallyUnwrapped(name) == false ) {
+    if ( ctx.isNarrowed(name) == false ) {
       return false;
     }
     return this.isOptionalPath(n, ctx);
@@ -22376,7 +22505,7 @@ class RangerFlowParser  {
               const classRefName = classRef.nameNode;
               if ( classRefName.hasFlag("optional") ) {
                 if ( ctx.hasCompilerFlag("strict") ) {
-                  if ( ((false == ctx.isTryBlock() && false == ctx.isAutomaticallyUnwrapped(strname)) && false == ctx.isKnownPresent(strname)) && false == this.isConstructorAssignedField(classRef, obj, ctx) ) {
+                  if ( (false == ctx.isTryBlock() && false == ctx.isPresentForStrict(strname)) && false == this.isConstructorAssignedField(classRef, obj, ctx) ) {
                     ctx.addError(obj, "Optional automatically unwrapped outside try block");
                   }
                 }
@@ -22412,7 +22541,7 @@ class RangerFlowParser  {
                           narrowedPath = narrowedPath + pathPart;
                         }
                       }
-                      if ( (false == ctx.isTryBlock() && false == ctx.isAutomaticallyUnwrapped(narrowedPath)) && false == this.isConstructorAssignedField(variableDesc, obj, ctx) ) {
+                      if ( (false == ctx.isTryBlock() && false == ctx.isPresentForStrict(narrowedPath)) && false == this.isConstructorAssignedField(variableDesc, obj, ctx) ) {
                         ctx.addError(obj, "Optional automatically unwrapped outside try block");
                       }
                     }
@@ -23435,8 +23564,6 @@ class RangerFlowParser  {
   };
 }
 class TFactory  {
-  constructor() {
-  }
 }
 TFactory.new_class_signature = function(node, ctx, wr) {
   const sig = node.vref;
@@ -24725,8 +24852,6 @@ class TraitInterfaceAnalysis  {
   };
 }
 class ForLoopShape  {
-  constructor() {
-  }
   treeMentions (node, name) {
     if ( node.value_type == 11 ) {
       if ( node.vref == name ) {
@@ -54637,8 +54762,6 @@ class RangerRangerClassWriter  extends RangerGenericClassWriter {
   };
 }
 class LowIRUtil  {
-  constructor() {
-  }
 }
 LowIRUtil.typeFromRanger = function(typeName) {
   switch (typeName ) { 
@@ -55658,8 +55781,6 @@ class LowIRBuilder  {
   };
 }
 class LowIRRuntimeGen  {
-  constructor() {
-  }
 }
 LowIRRuntimeGen.hasFunction = function(module, name) {
   // Loop start
@@ -69325,8 +69446,6 @@ class WATWriter  {
   };
 }
 class RangerLLVMPipeline  {
-  constructor() {
-  }
   generateModule (appCtx, wr) {
     const pass = new LowIRBuilderPass();
     const module = pass.lowerModule(appCtx);
@@ -71537,8 +71656,6 @@ class CLIConsole  {
   };
 }
 class GitSha1  {
-  constructor() {
-  }
 }
 GitSha1.mask32 = function() {
   return (65535 | (65535 << 16));
@@ -71832,8 +71949,6 @@ class GitSideband  {
   }
 }
 class GitPktIO  {
-  constructor() {
-  }
 }
 GitPktIO.hexVal = function(ch) {
   const c = ch.charCodeAt(0 );
@@ -73238,8 +73353,6 @@ class GitPack  {
   }
 }
 class GitDelta  {
-  constructor() {
-  }
 }
 GitDelta.varInt = function(data, pos) {
   let at = pos[0];
@@ -73339,8 +73452,6 @@ GitDelta.apply = function(src, delta) {
   return out;
 };
 class GitPackIO  {
-  constructor() {
-  }
 }
 GitPackIO.kindName = function(kind) {
   if ( kind == 1 ) {
@@ -74159,8 +74270,6 @@ class PkgLock  {
   }
 }
 class PkgManifestIO  {
-  constructor() {
-  }
 }
 PkgManifestIO.load = function(src) {
   const m = new PkgManifest();
@@ -74335,8 +74444,6 @@ PkgManifestIO.dumpManifest = function(m) {
   return s;
 };
 class PkgCache  {
-  constructor() {
-  }
 }
 PkgCache.lessStr = function(a, b) {
   const na = a.length;
@@ -74822,8 +74929,6 @@ PkgFetch.loadPack = function(path) {
   return GitPackIO.parse(raw);
 };
 class RangerDocGenerator  {
-  constructor() {
-  }
   writeTypeDef (item, ctx, wr) {
     if ( item.hasFlag("optional") ) {
       wr.out("<optional>", false);
@@ -80232,8 +80337,6 @@ VirtualCompiler.displayParserErrors = function(appCtx) {
   }
 };
 class CompilerInterface  {
-  constructor() {
-  }
 }
 CompilerInterface.create_env = function() {
   const env = new InputEnv();
@@ -80243,8 +80346,6 @@ CompilerInterface.create_env = function() {
   return env;
 };
 class operatorsOf  {
-  constructor() {
-  }
 }
 operatorsOf.forEach_2 = function(__self, cb) {
   // Loop start
@@ -80428,8 +80529,6 @@ operatorsOf.groupBy_49 = function(__self, cb) {
   return res_12;
 };
 class operatorsOf_5  {
-  constructor() {
-  }
 }
 operatorsOf_5.forEach_6 = function(__self, cb) {
   const list = Object.keys(__self);
@@ -80496,15 +80595,11 @@ operatorsOf_5.forEach_51 = function(__self, cb) {
   }
 };
 class operatorsOfchar_13  {
-  constructor() {
-  }
 }
 operatorsOfchar_13.isc95notc95limiter_14 = function(c) {
   return ((((c > 32 && c != (59)) && c != (41)) && c != (40)) && c != (125)) && c != (44);
 };
 class operatorsOfInputEnv_15  {
-  constructor() {
-  }
 }
 operatorsOfInputEnv_15.filec95exists_16 = function(env, path, name) {
   if ( env.use_real ) {
@@ -80521,8 +80616,6 @@ operatorsOfInputEnv_15.filec95exists_16 = function(env, path, name) {
   return r.exists(path, name);
 };
 class operatorsOf_15  {
-  constructor() {
-  }
 }
 operatorsOf_15.findc95file_16 = function(env, path, name) {
   let res_1;
@@ -80618,8 +80711,6 @@ operatorsOf_15.currentc95directory_47 = function(env) {
   return "/";
 };
 class operatorsOfRangerFlowParser_19  {
-  constructor() {
-  }
 }
 operatorsOfRangerFlowParser_19.EnterVarDef_20 = function(__self, node, ctx, wr) {
   if ( ctx.isInMethod() ) {
@@ -80887,8 +80978,6 @@ operatorsOfRangerFlowParser_19.EnterVarDef_20 = function(__self, node, ctx, wr) 
   }
 };
 class operatorsOfRangerAppWriterContext_21  {
-  constructor() {
-  }
 }
 operatorsOfRangerAppWriterContext_21.addUsage_22 = function(__self, cn) {
   const ctx = __self;
@@ -80907,8 +80996,6 @@ operatorsOfRangerAppWriterContext_21.addUsage_22 = function(__self, cn) {
   }
 };
 class operatorsOf_19  {
-  constructor() {
-  }
 }
 operatorsOf_19.EnterVarDef_20 = function(__self, node, ctx, wr) {
   if ( ctx.isInMethod() ) {
@@ -81176,8 +81263,6 @@ operatorsOf_19.EnterVarDef_20 = function(__self, node, ctx, wr) {
   }
 };
 class operatorsOf_21  {
-  constructor() {
-  }
 }
 operatorsOf_21.addUsage_22 = function(__self, cn) {
   const ctx_1 = __self;
@@ -81239,8 +81324,6 @@ operatorsOf_21.createc95var_46 = function(__self, name, usingNode) {
   return p_3;
 };
 class operatorsOfstring_27  {
-  constructor() {
-  }
 }
 operatorsOfstring_27.transactionc95depth_28 = function(name, c) {
   let t = operatorsOf_21.getActiveTransaction_29(c);
@@ -81255,8 +81338,6 @@ operatorsOfstring_27.transactionc95depth_28 = function(name, c) {
   return d;
 };
 class operatorsOf_27  {
-  constructor() {
-  }
 }
 operatorsOf_27.startc95transaction_30 = function(name, desc, c) {
   const t_1 = new ContextTransaction();
@@ -81285,8 +81366,6 @@ operatorsOf_27.transactionc95depth_28 = function(name, c) {
   return d_1;
 };
 class operatorsOfContextTransaction_33  {
-  constructor() {
-  }
 }
 operatorsOfContextTransaction_33.endc95transaction_34 = function(t) {
   const c = t.ctx;
@@ -81297,8 +81376,6 @@ operatorsOfContextTransaction_33.endc95transaction_34 = function(t) {
   t.ended = true;
 };
 class operatorsOfCodeNode_38  {
-  constructor() {
-  }
 }
 operatorsOfCodeNode_38.rc46funcdesc_39 = function(node, ctx) {
   const m = new RangerAppFunctionDesc();
@@ -81315,16 +81392,12 @@ operatorsOfCodeNode_38.rc46funcdesc_39 = function(node, ctx) {
   return m;
 };
 class operatorsOf_38  {
-  constructor() {
-  }
 }
 operatorsOf_38.rc46func_40 = function(node, ctx, wr) {
   const parser = new RangerFlowParser();
   return parser.CreateFunctionObject(node, ctx, wr);
 };
 class operatorsOfInputFSFolder_52  {
-  constructor() {
-  }
 }
 operatorsOfInputFSFolder_52.createc95file_53 = function(fs, name, data) {
   const f_2 = operatorsOf_52.createc95file_54(fs, name);
@@ -81334,8 +81407,6 @@ operatorsOfInputFSFolder_52.createc95file_53 = function(fs, name, data) {
   return f_2;
 };
 class operatorsOf_52  {
-  constructor() {
-  }
 }
 operatorsOf_52.createc95file_54 = function(fs, name) {
   let res_13;

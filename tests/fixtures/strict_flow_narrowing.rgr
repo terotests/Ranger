@@ -1,0 +1,84 @@
+; Narrowing that follows the flow: the else branch of `if (null? x)`, the
+; code after an if whose then block always exits, the code after an if whose
+; else block always exits, and after `x = <a value>`.
+class Person {
+  def name:string ""
+  def friend@(optional):Person
+}
+class FlowMain {
+  fn earlyReturn:string (p@(optional):Person) {
+    if (null? p) {
+      return "nobody"
+    }
+    def q:Person p
+    return (p.name + q.name)
+  }
+  fn elseBranch:string (p@(optional):Person) {
+    if (null? p) {
+      return "nobody"
+    } {
+      return p.name
+    }
+  }
+  fn eitherMissing:string (a@(optional):Person b@(optional):Person) {
+    if ((null? a) || (null? b)) {
+      return "missing"
+    }
+    return (a.name + b.name)
+  }
+  fn elseExits:string (p@(optional):Person) {
+    if (!null? p) {
+      print "found"
+    } {
+      return "nobody"
+    }
+    return p.name
+  }
+  fn pathReturn:string (p:Person) {
+    if (null? p.friend) {
+      return "no friend"
+    }
+    return p.friend.name
+  }
+  fn loopSkip:string (people:[Person]) {
+    def out:string ""
+    for people p:Person i {
+      if (null? p.friend) {
+        continue
+      }
+      out = (out + p.friend.name)
+    }
+    return out
+  }
+  fn assigned:string (p@(optional):Person) {
+    def x@(optional):Person p
+    x = (new Person)
+    x.name = "new"
+    return x.name
+  }
+  sfn main@(main):void () {
+    def m (new FlowMain)
+    def a (new Person)
+    a.name = "A"
+    def b (new Person)
+    b.name = "B"
+    a.friend = b
+    def oa@(optional):Person a
+    def ob@(optional):Person b
+    def none@(optional):Person
+    print (m.earlyReturn(oa))
+    print (m.earlyReturn(none))
+    print (m.elseBranch(ob))
+    print (m.eitherMissing(oa ob))
+    print (m.eitherMissing(oa none))
+    print (m.elseExits(oa))
+    print (m.pathReturn(a))
+    print (m.pathReturn(b))
+    def all:[Person]
+    push all a
+    push all b
+    push all a
+    print (m.loopSkip(all))
+    print (m.assigned(none))
+  }
+}

@@ -201,6 +201,112 @@ extension RangerFlowParser {
     }
   }
 
+  ; The names a condition proves ABSENT when it is true: `null? x`, and an
+  ; `||` of such tests (all of them are false in the else branch, so every
+  ; name is present there).
+  fn collectNullNames:void (condition:CodeNode out:[string]) {
+    def c:CodeNode condition
+    while (c.expression && ((array_length c.children) == 1)) {
+      c = (c.getFirst())
+    }
+    if ((array_length c.children) == 0) {
+      return
+    }
+    def head:string (c.getVRefAt(0))
+    if (head == "null?") {
+      if ((array_length c.children) > 1) {
+        def n:CodeNode (itemAt c.children 1)
+        while (n.expression && ((array_length n.children) == 1)) {
+          n = (n.getFirst())
+        }
+        if ((n.expression == false) && ((strlen n.vref) > 0)) {
+          def name:string n.vref
+          if ((array_length n.ns) == 1) {
+            name = (itemAt n.ns 0)
+          }
+          push out name
+        }
+      }
+      return
+    }
+    if ((head == "||") || (head == "or")) {
+      for c.children part:CodeNode i {
+        if (i > 0) {
+          this.collectNullNames(part out)
+        }
+      }
+      return
+    }
+    if ((array_length c.children) == 3) {
+      def mid:CodeNode (itemAt c.children 1)
+      if ((mid.vref == "||") || (mid.vref == "or")) {
+        this.collectNullNames((itemAt c.children 0) out)
+        this.collectNullNames((itemAt c.children 2) out)
+      }
+    }
+  }
+
+  ; The names a condition proves PRESENT when it is true -- what the then
+  ; block of `if` narrows.
+  fn collectPresentNames:void (condition:CodeNode ctx:RangerAppWriterContext out:[string]) {
+    def probe:RangerAppWriterContext (ctx.fork())
+    this.markNotNullNarrowing(condition probe)
+    for (probe.getListOfAutomaticallyUnwrapped()) name:string i {
+      push out name
+    }
+  }
+
+  ; Does the block end every path through it: its last statement is
+  ; `return`, `throw`, `break` or `continue`, or an if/else whose two blocks
+  ; both do?
+  fn blockAlwaysExits:boolean (block:CodeNode) {
+    def cnt:int (array_length block.children)
+    if (cnt == 0) {
+      return false
+    }
+    def st:CodeNode (itemAt block.children (cnt - 1))
+    while (st.expression && ((array_length st.children) == 1) && ((st.getFirst()).expression)) {
+      st = (st.getFirst())
+    }
+    def head:string st.vref
+    if st.expression {
+      head = (st.getVRefAt(0))
+    }
+    if ((head == "return") || (head == "throw") || (head == "break") || (head == "continue")) {
+      return true
+    }
+    if (st.expression && (head == "if") && ((array_length st.children) == 4)) {
+      return ((this.blockAlwaysExits((itemAt st.children 2))) && (this.blockAlwaysExits((itemAt st.children 3))))
+    }
+    return false
+  }
+
+  ; After `if cond { ...exits } rest`, the rest runs only when cond was false;
+  ; after `if cond { ... } { ...exits } rest`, only when it was true. The
+  ; names that proves present are narrowed from here to the end of the block.
+  fn narrowAfterIf:void (callArgs:CodeNode inCtx:RangerAppWriterContext) {
+    def cnt:int (array_length callArgs.children)
+    if (cnt < 3) {
+      return
+    }
+    def condition:CodeNode (itemAt callArgs.children 1)
+    def thenExits:boolean (this.blockAlwaysExits((itemAt callArgs.children 2)))
+    def elseExits:boolean false
+    if (cnt > 3) {
+      elseExits = (this.blockAlwaysExits((itemAt callArgs.children 3)))
+    }
+    def names:[string]
+    if (thenExits && (elseExits == false)) {
+      this.collectNullNames(condition names)
+    }
+    if (elseExits && (thenExits == false)) {
+      this.collectPresentNames(condition inCtx names)
+    }
+    for names name:string i {
+      inCtx.setFlowNarrowed(name 1)
+    }
+  }
+
   fn stdParamMatch:boolean (callArgs@(lives):CodeNode inCtx:RangerAppWriterContext wr:CodeWriter require_all_match:boolean) {
     stdCommands = (inCtx.getStdCommands())
     def callFnName:CodeNode (callArgs.getFirst())
@@ -383,6 +489,15 @@ extension RangerFlowParser {
                 if ((i == 1) && ((callFnName.vref == "if") && ((array_length callArgs.children) > 2))) {
                   this.markNotNullNarrowing((itemAt callArgs.children 1) tmpCtx)
                 }
+                ; the else block: every name `null? x` (or an `||` of them)
+                ; tested is present there
+                if ((i == 2) && ((callFnName.vref == "if") && ((array_length callArgs.children) > 3))) {
+                  def absentWhenTrue:[string]
+                  this.collectNullNames((itemAt callArgs.children 1) absentWhenTrue)
+                  for absentWhenTrue elseName:string ei {
+                    tmpCtx.setAutomaticallyUnwrapped(elseName)
+                  }
+                }
                 this.WalkNode(callArg tmpCtx wr)
               }
 
@@ -449,6 +564,9 @@ extension RangerFlowParser {
         def all_matched:boolean (match.matchArguments(args callArgs ctx 1))
 
         if all_matched {
+          if ((fc.vref == "if") && ((inCtx.expressionLevel()) == 0)) {
+            this.narrowAfterIf(callArgs inCtx)
+          }
 
           def expr_level (ctx.expressionLevel())
           def is_last false
