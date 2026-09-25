@@ -112,7 +112,9 @@ follow them exactly.
   they are read, so a missing check is not reported. Use `-strict` to find
   them. Every gallery entry point that compiles also compiles under `-strict`.
 - On C++ every `@(optional)` is a `std::optional<T>` (objects are
-  `std::optional<std::shared_ptr<T>>`). There is no `r_optional_primitive` any
+  `std::optional<std::shared_ptr<T>>`, JSON objects and arrays
+  `std::optional<rg_json_obj>` / `std::optional<rg_json_arr>`); an optional
+  `boolean` and `charbuffer` stay bare. There is no `r_optional_primitive` any
   more. Tests and docs that expect `NULL` checks or `r_optional_primitive`
   describe the old output.
 

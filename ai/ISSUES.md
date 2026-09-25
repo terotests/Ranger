@@ -471,9 +471,10 @@ class Main {
     }
 }
 
---> ei tehty: `@serialize` ei tällä haaralla generoi `toDictionary`-metodia
-(5d01ed9 poisti serialisoijan kytkennän FlowCollectista), joten esimerkki ei
-käänny. Palaa tähän kun serialisoija on takaisin.
+--> tehty: serialisoijan silmukka on palautettu FlowCollectiin (5d01ed9 oli
+poistanut sen; playground tarvitsee `InputEnv.fromDictionary`), ja playgroundissa
+on esimerkki "toDictionary / fromDictionary" (tests/fixtures/serialize_to_dictionary.rgr).
+Rust, Scala ja PHP on merkitty ei-tuetuiksi syineen.
 
 
 HUOM! Vanhoissa koodeissa esimerkki menee:
