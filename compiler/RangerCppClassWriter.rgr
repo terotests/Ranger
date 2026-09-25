@@ -996,6 +996,49 @@ class RangerCppClassWriter {
     return true
   }
 
+  ; `obj.all()` reaches here as `(call obj all ())` when an operator shares
+  ; the method's name. WriteVRef leaves the last segment of a path as it is,
+  ; so an optional object receiver still needs its value taken.
+  fn cppCallReceiverNeedsValue:boolean (obj:CodeNode ctx:RangerAppWriterContext) {
+    def cnt:int (array_length obj.nsp)
+    def pp@(optional):RangerAppParamDesc
+    if (cnt > 0) {
+      pp = (itemAt obj.nsp (cnt - 1))
+    } {
+      if obj.hasParamDesc {
+        pp = obj.paramDesc
+        cnt = 1
+      }
+    }
+    if (null? pp) {
+      return false
+    }
+    def p:RangerAppParamDesc (unwrap pp)
+    def pNN@(optional):CodeNode p.nameNode
+    if (null? pNN) {
+      return false
+    }
+    def pN:CodeNode (unwrap pNN)
+    if ((pN.hasFlag("optional")) == false) {
+      return false
+    }
+    if (p.isClass()) {
+      return false
+    }
+    if ((this.cppOptionalIsWrapped(p ctx)) == false) {
+      return false
+    }
+    if (cnt == 1) {
+      if ((itemAt obj.ns 0) == "this") {
+        return false
+      }
+      if (this.cppShouldAutoUnwrap(p ctx)) {
+        return false
+      }
+    }
+    return true
+  }
+
   fn cppVRefIsAssignmentTarget:boolean (node:CodeNode) {
     def parent@(optional):CodeNode node.parent
     if (null? parent) {
@@ -1348,6 +1391,9 @@ class RangerCppClassWriter {
       def args:CodeNode (itemAt node.children 3)
 
       this.writeCallReceiver(obj ctx wr)
+      if (this.cppCallReceiverNeedsValue(obj ctx)) {
+        wr.out(".value()" false)
+      }
       wr.out("->" false)
       wr.out(method.vref false)
 ;       this.WriteVRef(fc ctx wr)

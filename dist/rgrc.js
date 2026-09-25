@@ -31185,6 +31185,45 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
     }
     return true;
   };
+  cppCallReceiverNeedsValue (obj, ctx) {
+    let cnt = obj.nsp.length;
+    let pp;
+    if ( cnt > 0 ) {
+      pp = obj.nsp[(cnt - 1)];
+    } else {
+      if ( obj.hasParamDesc ) {
+        pp = obj.paramDesc;
+        cnt = 1;
+      }
+    }
+    if ( typeof(pp) === "undefined" ) {
+      return false;
+    }
+    const p = pp;
+    const pNN = p.nameNode;
+    if ( typeof(pNN) === "undefined" ) {
+      return false;
+    }
+    const pN = pNN;
+    if ( pN.hasFlag("optional") == false ) {
+      return false;
+    }
+    if ( p.isClass() ) {
+      return false;
+    }
+    if ( this.cppOptionalIsWrapped(p, ctx) == false ) {
+      return false;
+    }
+    if ( cnt == 1 ) {
+      if ( obj.ns[0] == "this" ) {
+        return false;
+      }
+      if ( this.cppShouldAutoUnwrap(p, ctx) ) {
+        return false;
+      }
+    }
+    return true;
+  };
   cppVRefIsAssignmentTarget (node) {
     const parent = node.parent;
     if ( typeof(parent) === "undefined" ) {
@@ -31496,6 +31535,9 @@ class RangerCppClassWriter  extends RangerGenericClassWriter {
       const method = node.getThird();
       const args = node.children[3];
       this.writeCallReceiver(obj, ctx, wr);
+      if ( this.cppCallReceiverNeedsValue(obj, ctx) ) {
+        wr.out(".value()", false);
+      }
       wr.out("->", false);
       wr.out(method.vref, false);
       wr.out("(", false);

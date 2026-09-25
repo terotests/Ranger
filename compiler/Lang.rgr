@@ -8982,13 +8982,29 @@ std::optional<double> cpp_get_map_string_double_value( const M & m , const K & k
          
         ; `bool` and `null` have no common type, so the generic overload's
         ; conditional does not compile for a map of booleans -- the int and the
-        ; double overloads above carry a cast for exactly this reason. Only C#
-        ; has an entry here, so every other target keeps reaching the generic
-        ; overload below.
+        ; double overloads above carry a cast for exactly this reason. Rust, C#
+        ; and C++ have entries here; every other target keeps reaching the
+        ; generic overload below.
         get             cmdGet@(optional weak):boolean          ( map:[K:boolean] key:K ) {
             templates {
                 rust ( (e 1) ".get(" (kref 2) ").cloned()" )
                 csharp ( "(" (e 1) ".ContainsKey(" (e 2) ") ? (bool?)" (e 1) "[" (e 2) "] : null)" )
+                ; An optional boolean is a bare bool on C++, so a miss reads
+                ; back as false, the value `null?` tests for.
+                cpp ( "r_map_get_bool(" (e 1) ", " (ckey 2) ")"
+(create_polyfill
+"
+template<typename M, typename K>
+bool r_map_get_bool(const M& m, const K& key) {
+    auto it = m.find(key);
+    if (it != m.end()) {
+        return it->second;
+    }
+    return false;
+}
+"
+)
+                )
             }
         }
         get             cmdGet@(optional weak):T          ( map:[K:T] key:K ) { 
