@@ -3048,6 +3048,7 @@ class RangerAppParamDesc  {
     this.isParam = undefined;     /* note: unused */
     this.paramIndex = 0;     /* note: unused */
     this.is_optional = false;
+    this.implicit_optional = false;
     this.is_mutating = false;
     this.is_set = false;     /* note: unused */
     this.is_class_variable = false;
@@ -4099,6 +4100,9 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
       } else {
         p.is_optional = true;
         if ( false == (vDef.value_type == 6 || vDef.value_type == 7) ) {
+          if ( false == vDef.hasFlag("optional") ) {
+            p.implicit_optional = true;
+          }
           vDef.setFlag("optional");
         }
       }
@@ -4114,6 +4118,43 @@ class RangerAppClassDesc  extends RangerAppParamDesc {
     } catch(e) {
       ctx.addError(node, "Could not add variable into class " + this.name);
     }
+  };
+  isAssignedInConstructor (fieldName) {
+    return this.isAssignedInConstructorBefore(fieldName, -1);
+  };
+  isAssignedInConstructorBefore (fieldName, readPos) {
+    if ( typeof(this.constructor_fn) === "undefined" ) {
+      return false;
+    }
+    const constr = this.constructor_fn;
+    if ( typeof(constr.fnBody) === "undefined" ) {
+      return false;
+    }
+    const body = constr.fnBody;
+    const thisName = "this." + fieldName;
+    // Loop start
+    for ( const st of body.children) {
+      if ( readPos >= 0 && st.ep >= readPos ) {
+        return false;
+      }
+      if ( st.children.length < 3 ) {
+        continue;
+      }
+      let target = "";
+      const c0 = st.children[0];
+      const c1 = st.children[1];
+      if ( c0.vref == "=" ) {
+        target = c1.vref;
+      } else {
+        if ( c1.vref == "=" ) {
+          target = c0.vref;
+        }
+      }
+      if ( target == fieldName || target == thisName ) {
+        return true;
+      }
+    }
+    return false;
   };
   addVariable (desc) {
     let dupField = false;
@@ -4208,6 +4249,8 @@ class SourceCode  {
     this.code = "";
     this.lines = [];
     this.filename = "";
+    this.lineStarts = [];
+    this.lineStartsReady = false;
     this.code = code_str;
     this.lines = this.code.split("\n");
   }
@@ -4217,49 +4260,52 @@ class SourceCode  {
     }
     return "";
   };
-  getLine (sp) {
-    let cnt = 0;
-    // Loop start
-    for ( let i = 0; i < this.lines.length; i++) {
-      var str = this.lines[i];
-      cnt = cnt + (str.length + 1);
-      if ( cnt > sp ) {
-        return i;
-      }
+  ensureLineStarts () {
+    if ( this.lineStartsReady ) {
+      return;
     }
-    return -1;
+    let pos = 0;
+    // Loop start
+    for ( const str of this.lines) {
+      this.lineStarts.push(pos);
+      pos = pos + (r_cb_enc.encode(str).length + 1);
+    }
+    this.lineStarts.push(pos);
+    this.lineStartsReady = true;
+  };
+  getLine (sp) {
+    this.ensureLineStarts();
+    const n = this.lines.length;
+    if ( sp < 0 || sp >= this.lineStarts[n] ) {
+      return -1;
+    }
+    let lo = 0;
+    let hi = n - 1;
+    while (lo < hi) {
+      const mid = ((((lo + hi) + 1) / 2) | 0);
+      if ( this.lineStarts[mid] <= sp ) {
+        lo = mid;
+      } else {
+        hi = mid - 1;
+      }
+    };
+    return lo;
   };
   getColumnStr (sp) {
-    let cnt = 0;
-    let last_col = 0;
-    // Loop start
-    for ( const str of this.lines) {
-      cnt = cnt + (str.length + 1);
-      if ( cnt > sp ) {
-        let ll = sp - last_col;
-        let ss = "";
-        while (ll > 0) {
-          ss = ss + " ";
-          ll = ll - 1;
-        };
-        return ss;
-      }
-      last_col = cnt;
-    }
-    return "";
+    let col = this.getColumn(sp);
+    let ss = "";
+    while (col > 0) {
+      ss = ss + " ";
+      col = col - 1;
+    };
+    return ss;
   };
   getColumn (sp) {
-    let cnt = 0;
-    let last_col = 0;
-    // Loop start
-    for ( const str of this.lines) {
-      cnt = cnt + (str.length + 1);
-      if ( cnt > sp ) {
-        return sp - last_col;
-      }
-      last_col = cnt;
+    const line = this.getLine(sp);
+    if ( line < 0 ) {
+      return -1;
     }
-    return -1;
+    return sp - this.lineStarts[line];
   };
 }
 class CodeNode  {
@@ -6234,6 +6280,7 @@ class RangerAppWriterContext  {
     this.operators = undefined;
     this.op_list = {};
     this.automatically_unwrapped = {};
+    this.known_present = {};
     this.auto_unwrap_suppression = 0;
     this.reservedWords = undefined;
     this.intRootCounter = 1;     /* note: unused */
@@ -6327,6 +6374,19 @@ class RangerAppWriterContext  {
   }
   rustMarkMoved (varName) {
     this.rust_moved_vars[varName] = true;
+  };
+  setKnownPresent (varName) {
+    this.known_present[varName] = true;
+  };
+  isKnownPresent (varName) {
+    if ( ( typeof(this.known_present[varName] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.known_present, varName) ) ) {
+      return true;
+    }
+    if ( (typeof(this.parent) !== "undefined" && this.parent != null )  ) {
+      const parentCtx = this.parent;
+      return parentCtx.isKnownPresent(varName);
+    }
+    return false;
   };
   setAutomaticallyUnwrapped (varName) {
     this.automatically_unwrapped[varName] = true;
@@ -17953,6 +18013,14 @@ class RangerFlowParser  {
     while (c.expression && c.children.length == 1) {
       c = c.getFirst();
     };
+    if ( c.expression == false && c.value_type == 11 ) {
+      if ( c.value_type == 11 && this.isOptionalPath(c, ctx) ) {
+        if ( this.optionalPathIsWrapped(c, ctx) ) {
+          this.markNotNullName(c, ctx);
+        }
+      }
+      return;
+    }
     if ( c.children.length == 0 ) {
       return;
     }
@@ -21760,6 +21828,9 @@ class RangerFlowParser  {
       } else {
         p_1.is_optional = true;
         if ( false == (vDef.value_type == 6 || vDef.value_type == 7) ) {
+          if ( false == vDef.hasFlag("optional") ) {
+            p_1.implicit_optional = true;
+          }
           vDef.setFlag("optional");
         }
       }
@@ -22120,6 +22191,146 @@ class RangerFlowParser  {
     }
     return varFnDesc;
   };
+  isConstructorAssignedField (field, obj, ctx) {
+    if ( (typeof(field.nameNode) !== "undefined" && field.nameNode != null )  ) {
+      const fieldName = field.nameNode;
+      if ( fieldName.hasFlag("late") ) {
+        return true;
+      }
+    }
+    if ( field.implicit_optional == false ) {
+      return false;
+    }
+    if ( typeof(field.propertyClass) === "undefined" ) {
+      return false;
+    }
+    const owner = field.propertyClass;
+    const currFn = ctx.getCurrentMethod();
+    if ( (typeof(currFn) !== "undefined" && currFn != null )  ) {
+      const fnU = currFn;
+      if ( fnU.name == "Constructor" ) {
+        return owner.isAssignedInConstructorBefore(field.name, obj.sp);
+      }
+    }
+    return owner.isAssignedInConstructor(field.name);
+  };
+  isNarrowedOptionalRead (n, ctx) {
+    if ( n.expression ) {
+      return false;
+    }
+    if ( n.value_type != 11 ) {
+      return false;
+    }
+    const cnt = n.ns.length;
+    if ( cnt == 0 ) {
+      return false;
+    }
+    let name = n.vref;
+    if ( cnt == 1 ) {
+      name = n.ns[0];
+    }
+    if ( ctx.isAutomaticallyUnwrapped(name) == false ) {
+      return false;
+    }
+    return this.isOptionalPath(n, ctx);
+  };
+  optionalPathIsWrapped (n, ctx) {
+    if ( n.ns.length != 1 ) {
+      return true;
+    }
+    const name = n.ns[0];
+    if ( ctx.isVarDefined(name) == false ) {
+      return true;
+    }
+    const d = ctx.getVariableDef(name);
+    if ( typeof(d.nameNode) === "undefined" ) {
+      return true;
+    }
+    const dn = d.nameNode;
+    if ( dn.value_type == 5 || dn.value_type == 15 ) {
+      return false;
+    }
+    return true;
+  };
+  isOptionalPath (n, ctx) {
+    if ( n.expression ) {
+      return false;
+    }
+    const cnt = n.ns.length;
+    if ( cnt == 0 ) {
+      return false;
+    }
+    const rootName = n.ns[0];
+    let desc;
+    let cl;
+    const start = 1;
+    if ( rootName == "this" ) {
+      cl = ctx.getCurrentClass();
+      if ( cnt < 2 ) {
+        return false;
+      }
+    } else {
+      if ( ctx.isVarDefined(rootName) == false ) {
+        return false;
+      }
+      desc = ctx.getVariableDef(rootName);
+    }
+    // Loop start
+    for ( let i = 0; i < n.ns.length; i++) {
+      var seg = n.ns[i];
+      if ( i < start ) {
+        continue;
+      }
+      if ( (typeof(desc) !== "undefined" && desc != null )  ) {
+        const d = desc;
+        if ( typeof(d.nameNode) === "undefined" ) {
+          return false;
+        }
+        const dn = d.nameNode;
+        if ( ctx.isDefinedClass(dn.type_name) == false ) {
+          return false;
+        }
+        cl = ctx.findClass(dn.type_name);
+      }
+      if ( typeof(cl) === "undefined" ) {
+        return false;
+      }
+      const c = cl;
+      desc = c.findVariable(seg);
+      if ( typeof(desc) === "undefined" ) {
+        return false;
+      }
+    }
+    if ( typeof(desc) === "undefined" ) {
+      return false;
+    }
+    const last = desc;
+    if ( typeof(last.nameNode) === "undefined" ) {
+      return false;
+    }
+    const lastName = last.nameNode;
+    return lastName.hasFlag("optional");
+  };
+  isConstructorAssignedRead (n, ctx) {
+    let v = n;
+    while (v.expression && v.children.length == 1) {
+      v = v.getFirst();
+    };
+    if ( v.expression ) {
+      return false;
+    }
+    if ( v.nsp.length > 0 ) {
+      const last = v.nsp[(v.nsp.length - 1)];
+      return this.isConstructorAssignedField(last, v, ctx);
+    }
+    if ( v.hasParamDesc ) {
+      const pdOpt = v.paramDesc;
+      if ( (typeof(pdOpt) !== "undefined" && pdOpt != null )  ) {
+        return this.isConstructorAssignedField(pdOpt, v, ctx);
+      }
+    }
+    return false;
+  };
   findParamDesc (obj, ctx, wr) {
     let varDesc;
     let set_nsp = false;
@@ -22165,7 +22376,7 @@ class RangerFlowParser  {
               const classRefName = classRef.nameNode;
               if ( classRefName.hasFlag("optional") ) {
                 if ( ctx.hasCompilerFlag("strict") ) {
-                  if ( false == ctx.isTryBlock() && false == ctx.isAutomaticallyUnwrapped(strname) ) {
+                  if ( ((false == ctx.isTryBlock() && false == ctx.isAutomaticallyUnwrapped(strname)) && false == ctx.isKnownPresent(strname)) && false == this.isConstructorAssignedField(classRef, obj, ctx) ) {
                     ctx.addError(obj, "Optional automatically unwrapped outside try block");
                   }
                 }
@@ -22201,7 +22412,7 @@ class RangerFlowParser  {
                           narrowedPath = narrowedPath + pathPart;
                         }
                       }
-                      if ( false == ctx.isTryBlock() && false == ctx.isAutomaticallyUnwrapped(narrowedPath) ) {
+                      if ( (false == ctx.isTryBlock() && false == ctx.isAutomaticallyUnwrapped(narrowedPath)) && false == this.isConstructorAssignedField(variableDesc, obj, ctx) ) {
                         ctx.addError(obj, "Optional automatically unwrapped outside try block");
                       }
                     }
@@ -53639,7 +53850,22 @@ class RangerJavaScriptClassWriter  extends RangerGenericClassWriter {
         wr.out(cl.name + "\";", true);
       }
     }
-    if ( is_react_native == false ) {
+    let ctorHasWork = cl.has_constructor || b_extd;
+    if ( cl.isSingletonClass() ) {
+      ctorHasWork = true;
+    }
+    if ( this.target_typescript == false ) {
+      if ( this.classInSealableUnion(cl, ctx) ) {
+        ctorHasWork = true;
+      }
+    }
+    // Loop start
+    for ( const ctorVar of cl.variables) {
+      if ( ctorVar.is_static == false ) {
+        ctorHasWork = true;
+      }
+    }
+    if ( is_react_native == false && ctorHasWork ) {
       wr.out("constructor(", false);
       if ( cl.has_constructor ) {
         const constr = cl.constructor_fn;
@@ -80445,6 +80671,16 @@ operatorsOfRangerFlowParser_19.EnterVarDef_20 = function(__self, node, ctx, wr) 
     node.hasVarDef = true;
     if ( node.children.length > 2 ) {
       p.init_cnt = 1;
+      if ( false == cn.hasFlag("optional") ) {
+        const initNode = node.children[2];
+        if ( __self.isNarrowedOptionalRead(initNode, ctx) ) {
+          const unwrapNode = node.newExpressionNode();
+          unwrapNode.add(node.newVRefNode("unwrap"));
+          unwrapNode.add(initNode);
+          unwrapNode.parent = node;
+          node.children[2] = unwrapNode;
+        }
+      }
       p.def_value = node.children[2];
       p.is_optional = false;
       defaultArg = node.children[2];
@@ -80454,6 +80690,15 @@ operatorsOfRangerFlowParser_19.EnterVarDef_20 = function(__self, node, ctx, wr) 
       ctx.unsetInExpr();
       if ( dArg.hasFlag("optional") ) {
         cn.setFlag("optional");
+        if ( __self.isConstructorAssignedRead(dArg, ctx) ) {
+          ctx.setKnownPresent(cn.vref);
+        } else {
+          if ( dArg.expression == false && dArg.ns.length == 1 ) {
+            if ( ctx.isKnownPresent(dArg.ns[0]) ) {
+              ctx.setKnownPresent(cn.vref);
+            }
+          }
+        }
       }
       if ( dArg.hasFlag("immutable") ) {
         cn.setFlag("immutable");
@@ -80715,6 +80960,16 @@ operatorsOf_19.EnterVarDef_20 = function(__self, node, ctx, wr) {
     node.hasVarDef = true;
     if ( node.children.length > 2 ) {
       p_1.init_cnt = 1;
+      if ( false == cn_2.hasFlag("optional") ) {
+        const initNode_1 = node.children[2];
+        if ( __self.isNarrowedOptionalRead(initNode_1, ctx) ) {
+          const unwrapNode_1 = node.newExpressionNode();
+          unwrapNode_1.add(node.newVRefNode("unwrap"));
+          unwrapNode_1.add(initNode_1);
+          unwrapNode_1.parent = node;
+          node.children[2] = unwrapNode_1;
+        }
+      }
       p_1.def_value = node.children[2];
       p_1.is_optional = false;
       defaultArg_1 = node.children[2];
@@ -80724,6 +80979,15 @@ operatorsOf_19.EnterVarDef_20 = function(__self, node, ctx, wr) {
       ctx.unsetInExpr();
       if ( dArg_3.hasFlag("optional") ) {
         cn_2.setFlag("optional");
+        if ( __self.isConstructorAssignedRead(dArg_3, ctx) ) {
+          ctx.setKnownPresent(cn_2.vref);
+        } else {
+          if ( dArg_3.expression == false && dArg_3.ns.length == 1 ) {
+            if ( ctx.isKnownPresent(dArg_3.ns[0]) ) {
+              ctx.setKnownPresent(cn_2.vref);
+            }
+          }
+        }
       }
       if ( dArg_3.hasFlag("immutable") ) {
         cn_2.setFlag("immutable");
@@ -81101,6 +81365,13 @@ operatorsOf_52.createc95file_53 = function(fs, name, data) {
   return f_3;
 };
 
+// A charbuffer is a buffer of BYTES, so it is a Uint8Array here
+// rather than the string it used to be. One encoder and one decoder for the
+// process: constructing them per call is most of the cost of a short slice.
+const r_cb_enc = new TextEncoder();
+const r_cb_dec = new TextDecoder();
+
+
 function r_char_length(s) {
     let n = 0;
     for (let i = 0; i < s.length; i++) {
@@ -81110,13 +81381,6 @@ function r_char_length(s) {
     }
     return n;
 }
-
-
-// A charbuffer is a buffer of BYTES, so it is a Uint8Array here
-// rather than the string it used to be. One encoder and one decoder for the
-// process: constructing them per call is most of the cost of a short slice.
-const r_cb_enc = new TextEncoder();
-const r_cb_dec = new TextDecoder();
 
 
 // Running another command line program.  spawnSync resolves a bare name on
