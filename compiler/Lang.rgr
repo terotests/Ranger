@@ -4249,7 +4249,12 @@ static class RgFiles {
         unwrap       cmdUnwrap:boolean        ( arg@(optional):boolean ) {
             templates {
                 csharp ( "(" (e 1) ").Value" )
-                cpp ( (e 1) ".value()" )
+                ; an optional boolean VARIABLE is a bare `bool` on C++ (see
+                ; null?), but a map read (`get`) hands back std::optional<bool>
+                cpp ( "rg_opt_bool(" (e 1) ")" (imp "<optional>") (create_polyfill "
+inline bool rg_opt_bool(bool b) { return b; }
+inline bool rg_opt_bool(const std::optional<bool> & b) { return b.value(); }
+") )
             }
         }
 

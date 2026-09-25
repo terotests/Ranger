@@ -660,6 +660,13 @@ class RangerCppClassWriter {
           if cc.is_system {
             def sysName@(optional):string (get cc.systemNames "cpp")
             if (!null? sysName) {
+              ; an optional one is a std::optional like every other optional,
+              ; so null? / unwrap read it the same way
+              if (node.IsOptional()) {
+                wr.addImport("<optional>")
+                wr.out((("std::optional<" + (unwrap sysName)) + ">") false)
+                return
+              }
               wr.out((unwrap sysName) false)
               return
             }
@@ -888,8 +895,28 @@ class RangerCppClassWriter {
     return (this.cppIsValueClass(segCl ctx))
   }
 
+  ; Is the C++ variable of this optional a std::optional? A boolean and a
+  ; charbuffer are written bare, so there is no value to read out of them.
+  fn cppOptionalIsWrapped:boolean (p:RangerAppParamDesc ctx:RangerAppWriterContext) {
+    def pNN@(optional):CodeNode p.nameNode
+    if (null? pNN) {
+      return true
+    }
+    def pN:CodeNode (unwrap pNN)
+    if ((pN.value_type == RangerNodeType.Boolean) || (pN.value_type == RangerNodeType.CharBuffer)) {
+      return false
+    }
+    if ((pN.type_name == "boolean") || (pN.type_name == "charbuffer")) {
+      return false
+    }
+    return true
+  }
+
   fn cppShouldAutoUnwrap:boolean (p:RangerAppParamDesc ctx:RangerAppWriterContext) {
     if (ctx.autoUnwrapIsSuppressed()) {
+      return false
+    }
+    if ((this.cppOptionalIsWrapped(p ctx)) == false) {
       return false
     }
     if (ctx.isAutomaticallyUnwrapped(p.name)) {
@@ -953,6 +980,9 @@ class RangerCppClassWriter {
       return false
     }
     if (p.isClass()) {
+      return false
+    }
+    if ((this.cppOptionalIsWrapped(p ctx)) == false) {
       return false
     }
     if (index == 0) {
@@ -1042,6 +1072,9 @@ class RangerCppClassWriter {
         return false
       }
       if ((i < ((array_length node.nsp) - 1)) && p.is_optional) {
+        if ((this.cppOptionalIsWrapped(p ctx)) == false) {
+          return false
+        }
         optionalIndex = i
         break _
       }

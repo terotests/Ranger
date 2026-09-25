@@ -2235,7 +2235,14 @@ List<dynamic>? rg_json_as_arr(dynamic v) {
 }
 ")
              )
-             cpp ( "rg_json_get_obj(" (e 1) ", " (e 2) ")"
+             cpp ( "rg_json_opt(rg_json_get_obj(" (e 1) ", " (e 2) ")" ")" (imp "<optional>") (create_polyfill "
+// an absent JSON object or array is the empty pointer; as an optional it is
+// std::nullopt, so has_value() tells a missing key from a present one
+template <class P> std::optional<P> rg_json_opt(const P & p) {
+    if (p) { return p; }
+    return std::nullopt;
+}
+")
              (create_polyfill "
 #include <memory>
 #include <string>
@@ -2593,7 +2600,14 @@ List<dynamic>? rg_json_as_arr(dynamic v) {
 }
 ")
              )
-             cpp ( "rg_json_get_arr(" (e 1) ", " (e 2) ")"
+             cpp ( "rg_json_opt(rg_json_get_arr(" (e 1) ", " (e 2) ")" ")" (imp "<optional>") (create_polyfill "
+// an absent JSON object or array is the empty pointer; as an optional it is
+// std::nullopt, so has_value() tells a missing key from a present one
+template <class P> std::optional<P> rg_json_opt(const P & p) {
+    if (p) { return p; }
+    return std::nullopt;
+}
+")
              (create_polyfill "
 #include <memory>
 #include <string>
@@ -3103,7 +3117,14 @@ List<dynamic>? rg_json_as_arr(dynamic v) {
 }
 ")
             )
-            cpp ( "rg_json_as_arr(" (e 1) ")"
+            cpp ( "rg_json_opt(rg_json_as_arr(" (e 1) ")" ")" (imp "<optional>") (create_polyfill "
+// an absent JSON object or array is the empty pointer; as an optional it is
+// std::nullopt, so has_value() tells a missing key from a present one
+template <class P> std::optional<P> rg_json_opt(const P & p) {
+    if (p) { return p; }
+    return std::nullopt;
+}
+")
             (create_polyfill "
 #include <memory>
 #include <string>
