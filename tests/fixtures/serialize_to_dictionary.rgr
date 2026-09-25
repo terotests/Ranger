@@ -1,0 +1,34 @@
+; @serialize(true) writes toDictionary and fromDictionary for a class:
+; an object becomes a JSON object and back, with nested objects and arrays.
+class Point @serialize(true) {
+  def x:int 0
+  def y:int 0
+}
+class Shape @serialize(true) {
+  def name:string ""
+  def closed:boolean false
+  def points:[Point]
+}
+class Main {
+  sfn main () {
+    def s (new Shape)
+    s.name = "triangle"
+    s.closed = true
+    def a (new Point)
+    a.x = 1
+    def b (new Point)
+    b.x = 4
+    b.y = 3
+    push s.points a
+    push s.points b
+    def text:string (to_string (s.toDictionary()))
+    print text
+    ; from_string can throw on text that is not JSON
+    try {
+      def back:Shape (Shape.fromDictionary((from_string text)))
+      print ("name=" + back.name + " points=" + (array_length back.points))
+    } {
+      print "not JSON"
+    }
+  }
+}

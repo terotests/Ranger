@@ -90,7 +90,7 @@ class HudBitmapTextMeasurer {
 class GameHudBlitter {
     def layout:EVGLayout (new EVGLayout)
     def hudMeasurer:HudBitmapTextMeasurer (new HudBitmapTextMeasurer)
-    def canvas:SoftCanvas
+    def canvas@(late):SoftCanvas
 
     ; Optional per-game TrueType text. A game opts in with a { kind: "font" }
     ; resource; game_runtime then calls loadFont() here. When a font is loaded,

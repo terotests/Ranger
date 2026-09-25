@@ -265,7 +265,9 @@ def c (Config.__singleton())
 **Optionals have to be wrapped and unwrapped.** Any variable declared without a
 value is optional, and several operators — `get` on a hash above all — always
 return one. Reading the value takes `unwrap` / `!!`, or `??` for a default;
-`wrap` makes an optional out of a plain value. Forgetting this shows up as a
+`wrap` makes an optional out of a plain value. Inside `if (!null? x) { … }`
+an optional object is narrowed: `x.field` and `x.method()` need no `unwrap`
+there. Forgetting this shows up as a
 type error between `T` and `<optional>T`. See
 [Optional variables](#optional-variables).
 
@@ -601,14 +603,14 @@ Create file `hello.rgr`
 
 ```
 class Hello {
-    sfn m@(main):void () {
+    sfn main () {
         print "Hello World"
     }
 }
 ```
 
 ```
-ranger-compiler hello.rgr            ; writes dist/rgrc.js
+ranger-compiler hello.rgr            ; writes bin/hello.js
 ranger-compiler hello.rgr -o=hello.js
 ```
 
@@ -837,7 +839,7 @@ comment starts with `;`.
 ```
 ; here is a comment
 class Hello {
-    sfn main@(main):void () {
+    sfn main () {
         def o (new Hello)
         o.SomeNonStaticFn()
     }
@@ -1198,7 +1200,7 @@ class childClass {
     Extends( fatherClass )
 }
 class mainProgram {
-    sfn m@(main) {
+    sfn main () {
         ; invoke the class
         def cc (new childClass)
         cc.foo("World!")
@@ -1271,6 +1273,45 @@ return one.
         print (unwrap str)
     }
 ```
+
+Inside the then block of `if (!null? x)` an optional **object** is narrowed:
+fields and methods are read through it without `unwrap`, also under `-strict`.
+A condition narrows only when it must be true for the block to run — a single
+`!null?` or an `&&` of them, on a name or a path such as `a.friend`:
+
+```
+    fn describe:string (p@(optional):Person) {
+        if (!null? p) {
+            return (p.greet() + " " + p.name)
+        }
+        return "nobody"
+    }
+```
+
+`if p { … }` is the same test. Inside the block `def q:Person p` takes the
+value: the compiler writes one unwrap for it, the same code as
+`def q:Person (unwrap p)`.
+
+The flow narrows as well: the else branch of `if (null? p)`, the code after
+`if (null? p) { return … }` (also `throw`, `break` and `continue`), and the
+code after `p = <a value>`:
+
+```
+    fn describe:string (p@(optional):Person) {
+        if (null? p) {
+            return "nobody"
+        }
+        return p.name
+    }
+```
+
+Not narrowed: an `||` of `!null?` tests, and optional scalars — `(n + 1)` on
+an optional int still needs `(unwrap n)`.
+
+A field declared without a value is optional too. Under `-strict` it counts
+as present when the constructor assigns it at its top level, and a field that
+an attach or init method sets before use is declared `@(late)`
+(`def model@(late):SheetModel`), like Kotlin's `lateinit`.
 
 [Optional values](https://terotests.github.io/Ranger/docs/language/optionals/)
 lists the operators (`??`, `!!`, `unwrap`, `null?`, `!null?`, `wrap`,
@@ -1499,7 +1540,7 @@ class Main {
         }))
         print (join n.items " ")
     }
-    sfn hello@(main):void () {
+    sfn main () {
         def hello (new Main ())
         hello.testCollection()
     }
@@ -1634,7 +1675,7 @@ are Ranger source under `compiler/`. Changing them means compiling the compiler
 with itself:
 
 ```bash
-npm run compile      # compiler/Compiler.rgr -> dist/rgrc.js, and copies Lang.rgr to bin/
+npm run compile      # compiler/Compiler.rgr -> dist/rgrc.js, and copies Lang.rgr to dist/
 npm test             # the suite runs against the compiler you just built
 ```
 
@@ -1651,7 +1692,10 @@ Compiler is using annotation syntax for specifying some parameters for class, tr
 
 ## sfn someFn@(main)
 
-Static functions can be annotated to be the start point of compiled application using `@(main)` annotation.
+A static function named `main` is the start point of the compiled application:
+`sfn main () { … }`. A static function with another name can be made the start
+point with the `@(main)` annotation, `sfn start@(main):void ()`, which is what
+older code does.
 
 ## trait myTrait @params(...)
 

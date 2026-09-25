@@ -369,10 +369,11 @@ class EVGHTMLRenderer {
         if (el.emojiColor.isSet == false) {
             return (this.escapeHtml(text))
         }
-        if (hasFontManager == false) {
+        if (null? fontManager) {
             return (this.escapeHtml(text))
         }
-        def primary:TrueTypeFont (fontManager.getFont((el.effectiveFontFamily())))
+        def fm:FontManager (unwrap fontManager)
+        def primary:TrueTypeFont (fm.getFont((el.effectiveFontFamily())))
         if ((primary.isLoaded()) == false) {
             return (this.escapeHtml(text))
         }
@@ -386,7 +387,7 @@ class EVGHTMLRenderer {
         def i:int 0
         while (i < (array_length cps)) {
             def end:int (EVGGrapheme.clusterEnd(cps i))
-            def face:TrueTypeFont (fontManager.faceForClusterFrom(primary cps i end))
+            def face:TrueTypeFont (fm.faceForClusterFrom(primary cps i end))
             def isEmoji:boolean false
             if (face.isLoaded()) {
                 isEmoji = ((face.fontPath == primary.fontPath) == false)

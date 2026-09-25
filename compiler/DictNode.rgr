@@ -127,13 +127,14 @@ class DictNode {
     if (value_type == DictNodeType.Object) {
       def p:DictNode (new DictNode ())
       v =  (new DictNode ())
+      def objectValue:DictNode (unwrap v)
       p.value_type = DictNodeType.Object
       p.vref = key
       p.is_property = true
-      v.value_type = DictNodeType.Object
-      v.vref = key
-      v.is_property_value = true
-      p.object_value = v
+      objectValue.value_type = DictNodeType.Object
+      objectValue.vref = key
+      objectValue.is_property_value = true
+      p.object_value = objectValue
       push dict_keys key
       set objects key p
       return v
@@ -157,11 +158,12 @@ class DictNode {
   def v@(lives optional):DictNode
    if (value_type == DictNodeType.Object) {
       v = (new DictNode ())
-      v.value_type = DictNodeType.Array
-      v.vref = key
-      v.is_property = true
+      def arrayValue:DictNode (unwrap v)
+      arrayValue.value_type = DictNodeType.Array
+      arrayValue.vref = key
+      arrayValue.is_property = true
       push dict_keys key
-      set objects key (unwrap v)
+      set objects key arrayValue
       return v
     }
     return v

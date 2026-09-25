@@ -151,13 +151,17 @@ class RangerArgMatch {
       if ((arg.value_type != RangerNodeType.Hash) && (arg.value_type != RangerNodeType.Array)) {
 
         if(!null? callArg.paramDesc) {
+          def paramDesc:RangerAppParamDesc (unwrap callArg.paramDesc)
           ; TODO: lambda matching has some problems
           ; check this code and implement proper lambda matching, perhaps even parameter matching
-          if( (!null? callArg.paramDesc.nameNode) && (!null? callArg.paramDesc.nameNode.expression_value) ) {
+          if( (!null? paramDesc.nameNode) ) {
+            def nameNode:CodeNode (unwrap paramDesc.nameNode)
+            if (!null? nameNode.expression_value) {
             set matched arg.type_name ""
-            set matchedLambdas arg.type_name (unwrap callArg.paramDesc.nameNode.expression_value)
+            set matchedLambdas arg.type_name (unwrap nameNode.expression_value)
             ; return true
             continue
+            }
           }
         }
         if (callArg.eval_type == RangerNodeType.Enum) {

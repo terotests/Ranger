@@ -36,7 +36,8 @@ class RangerActiveOperators {
       clear item.list
     })
     
-    for stdCommands.children lch@(lives):CodeNode i {
+    def commands:CodeNode stdCommands
+    for commands.children lch@(lives):CodeNode i {
       def fc:CodeNode (lch.getFirst())
       if( has opHash fc.vref ) {
         def opList (unwrap (get opHash fc.vref ))
@@ -74,8 +75,9 @@ class RangerActiveOperators {
     if(null? lang) {
       return
     }
+    def languageNode:CodeNode (unwrap lang)
     def cmds:CodeNode
-    def langNodes:CodeNode (itemAt lang.children 1)
+    def langNodes:CodeNode (itemAt languageNode.children 1)
     for langNodes.children lch:CodeNode i {
       def fc:CodeNode (lch.getFirst())
       if (fc.vref == "commands") {

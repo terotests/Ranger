@@ -13,7 +13,7 @@
 ; else — the same program printing two different things.
 ;
 ; The same question for an optional int, which C++ has always carried
-; correctly (r_optional_primitive), is here so the two stay together.
+; correctly (std::optional), is here so the two stay together.
 
 class AbsentMain {
     fn report:string (label:string s@(optional):string) {

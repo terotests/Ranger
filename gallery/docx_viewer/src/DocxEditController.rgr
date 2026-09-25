@@ -1980,36 +1980,38 @@ class DocxEditController {
         if (found == false) {
             return miss
         }
-        def p:Paragraph (unwrap best.paragraphRef)
+        ; `found` says `best` was assigned
+        def bestLine:LaidLine (unwrap best)
+        def p:Paragraph (unwrap bestLine.paragraphRef)
         if (p.id <= 0) {
             return miss
         }
         def tr:UITextRenderer (unwrap layout.tr)
-        def fontPx:double best.fontSizePx
+        def fontPx:double bestLine.fontSizePx
         if (fontPx < 8.0) {
             fontPx = 8.0
         }
         ; Map x → offset within this visual line, then to document offset.
-        def localX:int (x - best.x)
+        def localX:int (x - bestLine.x)
         if (localX < 0) {
             localX = 0
         }
-        def display:string best.text
+        def display:string bestLine.text
         def prefixLen:int 0
-        if ((strlen best.listPrefix) > 0) {
-            if ((indexOf display best.listPrefix) == 0) {
-                prefixLen = (strlen best.listPrefix)
+        if ((strlen bestLine.listPrefix) > 0) {
+            if ((indexOf display bestLine.listPrefix) == 0) {
+                prefixLen = (strlen bestLine.listPrefix)
             }
         }
         if (prefixLen > 0) {
-            localX = (localX - (DocxTextMetrics.measurePlain(tr (substring display 0 prefixLen) fontPx best.bold)))
+            localX = (localX - (DocxTextMetrics.measurePlain(tr (substring display 0 prefixLen) fontPx bestLine.bold)))
             if (localX < 0) {
                 localX = 0
             }
         }
         ; Measure through the same per-span faces the painter used, so a click
         ; inside a bold run lands on the character under the pointer.
-        def docOff:int (DocxTextMetrics.offsetAtX(tr p fontPx best.docStart best.docEnd localX))
+        def docOff:int (DocxTextMetrics.offsetAtX(tr p fontPx bestLine.docStart bestLine.docEnd localX))
         def plen:int (strlen p.text)
         if (docOff > plen) {
             docOff = plen

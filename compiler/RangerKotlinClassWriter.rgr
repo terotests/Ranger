@@ -166,6 +166,24 @@ class RangerKotlinClassWriter {
     }
     return tn
   }
+  ; --- native generics: `class History<Op>`, used as `History<Int>` ---
+  fn ktClassRef:string (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    if cl.is_type_param {
+      return cl.type_param_name
+    }
+    if (ctx.isNativeGenericInstance(cl)) {
+      def res:string (cl.generic_template + "<")
+      for cl.generic_args a:string i {
+        if (i > 0) {
+          res = (res + ", ")
+        }
+        res = (res + (this.getObjectTypeString(a ctx)))
+      }
+      return (res + ">")
+    }
+    return cl.name
+  }
+
   fn getObjectTypeString:string (type_string:string ctx:RangerAppWriterContext) {
     if ((strlen type_string) >= 2) {
       if ((charAt type_string 0) == (ccode "[")) {
@@ -179,6 +197,9 @@ class RangerKotlinClassWriter {
     ; what `shape` should generate; see PLAN_SHAPES.md.)
     if (ctx.isDefinedClass(type_string)) {
       def cc:RangerAppClassDesc (ctx.findClass(type_string))
+      if (cc.is_type_param || (ctx.isNativeGenericInstance(cc))) {
+        return (this.ktClassRef(cc ctx))
+      }
       if (cc.is_union) {
         ; a union of classes is a sealed interface; anything else (the
         ; compiler's own `Any`, a union over primitives) stays the top type
@@ -668,8 +689,11 @@ class RangerKotlinClassWriter {
       }
       wr.out("." false)
       def methodName method.vref
-      if ((!null? node.fnDesc) && ((strlen node.fnDesc.compiledName) > 0)) {
-        methodName = node.fnDesc.compiledName
+      if (!null? node.fnDesc) {
+        def callFn:RangerAppFunctionDesc (unwrap node.fnDesc)
+        if ((strlen callFn.compiledName) > 0) {
+          methodName = callFn.compiledName
+        }
       }
       wr.outMapped(methodName method false method.vref)
       wr.out("(" false)
@@ -828,7 +852,8 @@ class RangerKotlinClassWriter {
       this.WriteVRef(fc ctx wr)
       wr.out("(" false)
       def givenArgs:CodeNode (node.getSecond())
-      for node.fnDesc.params arg:RangerAppParamDesc i {
+      def fnDesc:RangerAppFunctionDesc (unwrap node.fnDesc)
+      for fnDesc.params arg:RangerAppParamDesc i {
         if (i > 0) {
           wr.out(", " false)
         }
@@ -854,14 +879,14 @@ class RangerKotlinClassWriter {
   }
   fn writeNewCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.hasNewOper {
-      def cl:RangerAppClassDesc node.clDesc
+      def cl:RangerAppClassDesc (unwrap node.clDesc)
       def givenArgs:CodeNode (node.getThird())
       if (this.tryWriteProcessNewCall(node ctx wr)) {
         return
       }
       if (cl.isSingletonClass()) {
         wr.out(" " false)
-        wr.out((node.clDesc.name + ".__singleton") false)
+        wr.out((cl.name + ".__singleton") false)
         wr.out("(" false)
         for givenArgs.children n:CodeNode i {
           if (i > 0) {
@@ -875,7 +900,7 @@ class RangerKotlinClassWriter {
 
       def fc:CodeNode (node.getSecond())
       wr.out(" " false)
-      wr.out(node.clDesc.name false)
+      wr.out((this.ktClassRef(cl ctx)) false)
       wr.out("(" false)
       def constr:RangerAppFunctionDesc cl.constructor_fn
       if (!null? constr) {
@@ -946,10 +971,12 @@ class RangerKotlinClassWriter {
     }
     def ktVis:RangerDocCommentWriter (new RangerDocCommentWriter)
     wr.out((ktVis.classVisibility((unwrap cl) "" "" "internal ")) false)
+    ; a generic form is declared as the template over its parameters
+    def ktDecl:string (this.ktClassRef((unwrap cl) ctx))
     if (cl.is_extended_by_children || (cl.name == "RangerProcessBase")) {
-      wr.out(("open class " + cl.name) false)
+      wr.out(("open class " + ktDecl) false)
     } {
-      wr.out(("class " + cl.name) false)
+      wr.out(("class " + ktDecl) false)
     }
     if cl.has_constructor {
       def constr:RangerAppFunctionDesc (unwrap cl.constructor_fn)
@@ -1258,7 +1285,13 @@ class RangerKotlinClassWriter {
     wr.out("}" true)
     for cl.static_methods variant:RangerAppFunctionDesc i {
       wr.out("" true)
-      if ( (variant.nameNode.hasFlag("main")) && (variant.nameNode.code.filename == (ctx.getRootFile()))) {
+      def variantNameOpt@(optional):CodeNode variant.nameNode
+      if (!null? variantNameOpt) {
+        def variantName:CodeNode (unwrap variantNameOpt)
+        def variantCodeOpt@(optional):SourceCode variantName.code
+        if (!null? variantCodeOpt) {
+          def variantCode:SourceCode (unwrap variantCodeOpt)
+          if ((variantName.hasFlag("main")) && (variantCode.filename == (ctx.getRootFile()))) {
         ; Only main() can see the array Kotlin hands it. The shell_arg
         ; operators read __g_args, so main copies it there first -- the same
         ; shape as __g_argv on C++ and __g_args on Dart. Declared here rather
@@ -1281,6 +1314,8 @@ class RangerKotlinClassWriter {
         wr.newline()
         wr.indent(-1)
         wr.out("}" true)
+          }
+        }
       }
     }
   }

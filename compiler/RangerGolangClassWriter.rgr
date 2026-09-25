@@ -271,7 +271,36 @@ class RangerGolangClassWriter {
     if (ctx.isPrimitiveType(type_string)) {
       return (this.getObjectTypeString(type_string ctx))
     }
+    if (this.goIsTypeParam(type_string ctx)) {
+      return (this.getObjectTypeString(type_string ctx))
+    }
     return ("*" + (this.getObjectTypeString(type_string ctx)))
+  }
+
+  ; --- native generics: `type History[Op any] struct`, `*History[int64]` ---
+  fn goClassRef:string (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    if cl.is_type_param {
+      return cl.type_param_name
+    }
+    if (ctx.isNativeGenericInstance(cl)) {
+      def res:string (cl.generic_template + "[")
+      for cl.generic_args a:string i {
+        if (i > 0) {
+          res = (res + ", ")
+        }
+        res = (res + (this.goElementTypeString(a ctx)))
+      }
+      return (res + "]")
+    }
+    return (ctx.transformTypeName(cl.name))
+  }
+  ; a type parameter is written bare: no `*` in front of it
+  fn goIsTypeParam:boolean (type_string:string ctx:RangerAppWriterContext) {
+    if (ctx.isDefinedClass(type_string)) {
+      def cc:RangerAppClassDesc (ctx.findClass(type_string))
+      return cc.is_type_param
+    }
+    return false
   }
 
   fn getObjectTypeString:string (type_string:string ctx:RangerAppWriterContext) {
@@ -285,6 +314,9 @@ class RangerGolangClassWriter {
 
     if(ctx.isDefinedClass(type_string)) {
       def cc:RangerAppClassDesc (ctx.findClass(type_string))
+      if (cc.is_type_param || (ctx.isNativeGenericInstance(cc))) {
+        return (this.goClassRef(cc ctx))
+      }
 
       if(cc.is_union) {
         return (this.sealableUnionTypeOr(type_string "interface{}" ctx))
@@ -388,6 +420,9 @@ class RangerGolangClassWriter {
 
     if(ctx.isDefinedClass(type_string)) {
       def cc:RangerAppClassDesc (ctx.findClass(type_string))
+      if (cc.is_type_param || (ctx.isNativeGenericInstance(cc))) {
+        return (this.goClassRef(cc ctx))
+      }
       if(cc.is_union) {
         return (this.sealableUnionTypeOr(type_string "interface{}" ctx))
       }
@@ -452,7 +487,7 @@ class RangerGolangClassWriter {
             return
           }
         }
-        if ((write_raw_type == false) && ((ctx.isPrimitiveType(a_name)) == false) && ((this.isCollectionTypeString(a_name)) == false)) {
+        if ((write_raw_type == false) && ((ctx.isPrimitiveType(a_name)) == false) && ((this.isCollectionTypeString(a_name)) == false) && ((this.goIsTypeParam(a_name ctx)) == false)) {
           wr.out("*" false)
         }
         wr.out(((this.getObjectTypeString(a_name ctx)) + "") false)
@@ -490,8 +525,9 @@ class RangerGolangClassWriter {
 
     switch v_type {
       case RangerNodeType.ExpressionType {
-        def rv:CodeNode (itemAt node.expression_value.children 0)
-        def sec:CodeNode (itemAt node.expression_value.children 1)
+        def lambdaExpression:CodeNode (unwrap node.expression_value)
+        def rv:CodeNode (itemAt lambdaExpression.children 0)
+        def sec:CodeNode (itemAt lambdaExpression.children 1)
         def fc:CodeNode (sec.getFirst())
         wr.out("func(" false)
 
@@ -570,7 +606,7 @@ class RangerGolangClassWriter {
             }
           }
                     
-          if ((write_raw_type == false) && ((ctx.isPrimitiveType(a_name)) == false) && ((this.isCollectionTypeString(a_name)) == false)) {
+          if ((write_raw_type == false) && ((ctx.isPrimitiveType(a_name)) == false) && ((this.isCollectionTypeString(a_name)) == false) && ((this.goIsTypeParam(a_name ctx)) == false)) {
             wr.out("*" false)
           }
           wr.out(((this.getObjectTypeString(a_name ctx)) + "") , false)
@@ -593,7 +629,7 @@ class RangerGolangClassWriter {
           }
         }
 
-        if ((write_raw_type == false) && ((ctx.isPrimitiveType(a_name)) == false) && ((this.isCollectionTypeString(a_name)) == false)) {
+        if ((write_raw_type == false) && ((ctx.isPrimitiveType(a_name)) == false) && ((this.isCollectionTypeString(a_name)) == false) && ((this.goIsTypeParam(a_name ctx)) == false)) {
           wr.out("*" false)
         }
         wr.out(((this.getObjectTypeString(a_name ctx)) + "") false)
@@ -673,7 +709,7 @@ class RangerGolangClassWriter {
           }
         }
 
-        if ((write_raw_type == false) && ((node.isPrimitiveType()) == false) && (b_iface == false)) {
+        if ((write_raw_type == false) && ((node.isPrimitiveType()) == false) && (b_iface == false) && ((this.goIsTypeParam(t_name ctx)) == false)) {
           (wr.out("*" false))
         }        
 
@@ -735,10 +771,13 @@ class RangerGolangClassWriter {
           }
         }
 
-        if( (!null? p.nameNode) && (ctx.isDefinedClass(p.nameNode.type_name))) {
-          def c:RangerAppClassDesc (ctx.findClass(p.nameNode.type_name))
-          if(c.doesInherit()) {
-            next_is_gs = true
+        if (!null? p.nameNode) {
+          def parameterName:CodeNode (unwrap p.nameNode)
+          if (ctx.isDefinedClass(parameterName.type_name)) {
+            def c:RangerAppClassDesc (ctx.findClass(parameterName.type_name))
+            if(c.doesInherit()) {
+              next_is_gs = true
+            }
           }
         }        
         if (i == 0) {
@@ -906,10 +945,13 @@ class RangerGolangClassWriter {
           }
         }
 
-        if(ctx.isDefinedClass(p.nameNode.type_name)) {
-          def c:RangerAppClassDesc (ctx.findClass(p.nameNode.type_name))
-          if(c.doesInherit()) {
-            next_is_gs = true
+        if(!null? p.nameNode) {
+          def parameterName:CodeNode (unwrap p.nameNode)
+          if(ctx.isDefinedClass(parameterName.type_name)) {
+            def c:RangerAppClassDesc (ctx.findClass(parameterName.type_name))
+            if(c.doesInherit()) {
+              next_is_gs = true
+            }
           }
         }        
         if (i == 0) {
@@ -1090,8 +1132,9 @@ class RangerGolangClassWriter {
 
         def partDef:RangerAppParamDesc (ctx.getVariableDef(part))
         if(!null? partDef.nameNode) {
-          if(ctx.isDefinedClass(partDef.nameNode.type_name)) {
-            def c:RangerAppClassDesc (ctx.findClass(partDef.nameNode.type_name))
+          def partName:CodeNode (unwrap partDef.nameNode)
+          if(ctx.isDefinedClass(partName.type_name)) {
+            def c:RangerAppClassDesc (ctx.findClass(partName.type_name))
             if(c.doesInherit()) {
               next_is_gs = true
             }
@@ -1117,7 +1160,8 @@ class RangerGolangClassWriter {
         wr.out((this.adjustType(p.compiledName)) false)    
       } {
         if(left.hasParamDesc) {
-          wr.out(left.paramDesc.compiledName false)
+          def leftDesc:RangerAppParamDesc (unwrap left.paramDesc)
+          wr.out(leftDesc.compiledName false)
         } {
           wr.out((this.adjustType(part)) false)
         }
@@ -1222,11 +1266,12 @@ class RangerGolangClassWriter {
       ; obj.nsp is empty in method call context, need to check differently
       ; Check if obj has paramDesc and it's optional
       if obj.hasParamDesc {
-        def p:RangerAppParamDesc obj.paramDesc
+        def p:RangerAppParamDesc (unwrap obj.paramDesc)
         if (p.is_optional) {
           if (!null? p.nameNode) {
+            def parameterName:CodeNode (unwrap p.nameNode)
             needs_unwrap = true
-            obj_type_name = p.nameNode.type_name
+            obj_type_name = parameterName.type_name
           }
         }
       }
@@ -1315,7 +1360,8 @@ class RangerGolangClassWriter {
         if ((array_length node.children) > 2) {
           def value:CodeNode (itemAt node.children 2)
           if value.hasParamDesc {
-            def pnn:CodeNode value.paramDesc.nameNode
+            def valueDesc:RangerAppParamDesc (unwrap value.paramDesc)
+            def pnn:CodeNode (unwrap valueDesc.nameNode)
             if (pnn.hasFlag("optional")) {
               wr.out((p.compiledName + ".value = ") false)
               ctx.setInExpr()
@@ -1383,9 +1429,10 @@ class RangerGolangClassWriter {
         }
       }
 
-      def ti_ok (ctx.canUseTypeInference( (unwrap p.nameNode) ))     
-      if( (false == ti_ok ) || ( (false == (p.nameNode.hasFlag("optional"))) && ( (array_length node.children) == 2) ) ) {    
-        this.writeTypeDef2(( unwrap p.nameNode )ctx wr)
+      def parameterName:CodeNode (unwrap p.nameNode)
+      def ti_ok (ctx.canUseTypeInference(parameterName))     
+      if( (false == ti_ok ) || ( (false == (parameterName.hasFlag("optional"))) && ( (array_length node.children) == 2) ) ) {    
+        this.writeTypeDef2(parameterName ctx wr)
       } 
       if ((array_length node.children) > 2) {
         def value:CodeNode (node.getThird())
@@ -1399,25 +1446,25 @@ class RangerGolangClassWriter {
           } 
         }
         wr.out("= " false)
-        def slotType:string p.nameNode.type_name
-        if ((strlen p.nameNode.eval_type_name) > 0) {
-          slotType = p.nameNode.eval_type_name
+        def slotType:string parameterName.type_name
+        if ((strlen parameterName.eval_type_name) > 0) {
+          slotType = parameterName.eval_type_name
         }
         def wroteSlot:boolean (this.goWriteUnionValue(slotType value ctx wr))
         if (wroteSlot == false) {
           ctx.setInExpr()
-          if( p.nameNode.eval_type_name == "char") {
+          if(parameterName.eval_type_name == "char") {
             wr.out("byte(" false)
           }
           ; Handle char to int conversion - Go requires explicit cast from byte to int64
-          if( (p.nameNode.eval_type_name == "int") && (value.eval_type_name == "char")) {
+          if((parameterName.eval_type_name == "int") && (value.eval_type_name == "char")) {
             wr.out("int64(" false)
           }
           this.WalkNode(value ctx wr)
-          if( p.nameNode.eval_type_name == "char") {
+          if(parameterName.eval_type_name == "char") {
             wr.out(")" false)
           }
-          if( (p.nameNode.eval_type_name == "int") && (value.eval_type_name == "char")) {
+          if((parameterName.eval_type_name == "int") && (value.eval_type_name == "char")) {
             wr.out(")" false)
           }
           ctx.unsetInExpr()
@@ -1496,8 +1543,10 @@ class RangerGolangClassWriter {
       def givenArgs:CodeNode (node.getSecond())
       ctx.setInExpr()
       def cnt 0
-      for node.fnDesc.params arg:RangerAppParamDesc i {
-        if (arg.nameNode.hasFlag("keyword")) {
+      def fnDesc:RangerAppFunctionDesc (unwrap node.fnDesc)
+      for fnDesc.params arg:RangerAppParamDesc i {
+        def argumentName:CodeNode (unwrap arg.nameNode)
+        if (argumentName.hasFlag("keyword")) {
           continue
         }
         if (cnt > 0) {
@@ -1505,7 +1554,7 @@ class RangerGolangClassWriter {
         }
         cnt = cnt + 1
         if ((array_length givenArgs.children) <= i) {
-          def defVal@(optional):CodeNode (arg.nameNode.getFlag("default"))
+          def defVal@(optional):CodeNode (argumentName.getFlag("default"))
           if (!null? defVal) {
             def fcDef:CodeNode (defVal.vref_annotation.getFirst())
             this.WalkNode(fcDef ctx wr)
@@ -1527,7 +1576,8 @@ class RangerGolangClassWriter {
           wr.out(("." + cc.methodName) false)
           wr.out("(" false)
           ctx.setInExpr()
-          for cc.args.children arg:CodeNode i {
+          def chainArgs:CodeNode (unwrap cc.args)
+          for chainArgs.children arg:CodeNode i {
             if (i > 0) {
               wr.out(", " false)
             }
@@ -1545,9 +1595,9 @@ class RangerGolangClassWriter {
 
   fn writeNewCall:void  (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.hasNewOper {
-      def cl:RangerAppClassDesc node.clDesc
+      def cl:RangerAppClassDesc (unwrap node.clDesc)
       def fc:CodeNode (node.getSecond())
-      wr.out((("CreateNew_" + node.clDesc.name) + "(") false)
+      wr.out((("CreateNew_" + (this.goClassRef(cl ctx))) + "(") false)
       def constr:RangerAppFunctionDesc cl.constructor_fn
       def givenArgs:CodeNode (node.getThird())
       def pms (filter (givenArgs.children) {
@@ -1595,16 +1645,21 @@ class RangerGolangClassWriter {
 
     def args:CodeNode
     if( (!null? fName.expression_value) ) {
-      args  = ( itemAt fName.expression_value.children 1)      
+      def lambdaExpression:CodeNode (unwrap fName.expression_value)
+      args  = (itemAt lambdaExpression.children 1)
     } {
-      def param (ctx.getVariableDef(fName.vref))
-      args  = ( itemAt param.nameNode.expression_value.children 1)
+      def paramOpt@(optional):RangerAppParamDesc (ctx.getVariableDef(fName.vref))
+      def param:RangerAppParamDesc (unwrap paramOpt)
+      def parameterName:CodeNode (unwrap param.nameNode)
+      def lambdaExpression:CodeNode (unwrap parameterName.expression_value)
+      args  = (itemAt lambdaExpression.children 1)
     }
     ctx.setInExpr()
     this.WalkNode(fName ctx wr)
     wr.out("(" false)
     def subCtx (ctx.fork())
-    for args.children arg:CodeNode i {
+    def lambdaArgs:CodeNode (unwrap args)
+    for lambdaArgs.children arg:CodeNode i {
       def n:CodeNode (itemAt givenArgs.children i)
       if (i > 0) {
         wr.out(", " false)
@@ -1789,7 +1844,8 @@ class RangerGolangClassWriter {
         def retUnion:string ""
         def currFnRet (ctx.getCurrentMethod())
         if (!null? currFnRet.nameNode) {
-          retUnion = currFnRet.nameNode.type_name
+          def returnName:CodeNode (unwrap currFnRet.nameNode)
+          retUnion = returnName.type_name
         }
         if( (ctx.isCatchBlock()) || (ctx.isTryBlock()) ) {
           wr.out("__ex_returned = true" true)
@@ -1833,11 +1889,12 @@ class RangerGolangClassWriter {
       def catchBlock (node.getThird())
 
       def currFn (ctx.getCurrentMethod())
+      def currentName:CodeNode (unwrap currFn.nameNode)
       ; def ex1 (create_var ctx "did_throw" "boolean")
       def ex2 (create_var ctx "did_return" "boolean")
-      def ex3 (create_var ctx "ex_result" (unwrap currFn.nameNode) )
+      def ex3 (create_var ctx "ex_result" currentName )
 
-      if( currFn.nameNode.type_name == "void") {
+      if(currentName.type_name == "void") {
         wr.out( ex2.compiledName + ", _ := (func () ( __ex_returned bool,  __exReturn interface{}) {" , true)
         ; wr.out( "(func () ( __ex_returned bool, __exReturn interface{}) {" , true)
       } {
@@ -1867,12 +1924,12 @@ class RangerGolangClassWriter {
         wr.indent(-1)
       wr.out("})()" true)
 
-      if( currFn.nameNode.type_name != "void") {
+      if(currentName.type_name != "void") {
         wr.out("if " + ex2.compiledName + " {" , true)
         wr.indent(1)
           wr.out("return " + ex3.compiledName , false)
           wr.out(".(" false)
-          this.writeTypeDef((unwrap currFn.nameNode) ctx wr)
+          this.writeTypeDef(currentName ctx wr)
           wr.out(")" true)                 
           
         wr.indent(-1)
@@ -1957,8 +2014,9 @@ class RangerGolangClassWriter {
           }
           
           if(!null? partDef.nameNode) {
-            if(ctx.isDefinedClass(partDef.nameNode.type_name)) {
-              def c:RangerAppClassDesc (ctx.findClass(partDef.nameNode.type_name))
+            def partName:CodeNode (unwrap partDef.nameNode)
+            if(ctx.isDefinedClass(partName.type_name)) {
+              def c:RangerAppClassDesc (ctx.findClass(partName.type_name))
               if(c.doesInherit()) {
                 next_is_gs = true
               }
@@ -1970,7 +2028,8 @@ class RangerGolangClassWriter {
             wr.out((this.adjustType(p.compiledName)) false)    
           } {
             if(left.hasParamDesc) {
-              wr.out(left.paramDesc.compiledName false)
+              def leftDesc:RangerAppParamDesc (unwrap left.paramDesc)
+              wr.out(leftDesc.compiledName false)
             } {
               wr.out((this.adjustType(part)) false)
             }
@@ -2027,7 +2086,8 @@ class RangerGolangClassWriter {
         if( cmd == "push") {
           def pushElemType:string ""
           if left.hasParamDesc {
-            def pushNN@(optional):CodeNode left.paramDesc.nameNode
+            def leftDesc:RangerAppParamDesc (unwrap left.paramDesc)
+            def pushNN@(optional):CodeNode leftDesc.nameNode
             if (!null? pushNN) {
               def pushNode:CodeNode (unwrap pushNN)
               pushElemType = pushNode.array_type
@@ -2069,7 +2129,8 @@ class RangerGolangClassWriter {
 
         def assignSlotType:string ""
         if left.hasParamDesc {
-          def assignNN@(optional):CodeNode left.paramDesc.nameNode
+          def leftDesc:RangerAppParamDesc (unwrap left.paramDesc)
+          def assignNN@(optional):CodeNode leftDesc.nameNode
           if (!null? assignNN) {
             def assignNode:CodeNode (unwrap assignNN)
             assignSlotType = assignNode.type_name
@@ -2108,7 +2169,8 @@ class RangerGolangClassWriter {
       wr.out(" = " false)
       def assignSlotType2:string ""
       if left.hasParamDesc {
-        def assignNN2@(optional):CodeNode left.paramDesc.nameNode
+        def leftDesc:RangerAppParamDesc (unwrap left.paramDesc)
+        def assignNN2@(optional):CodeNode leftDesc.nameNode
         if (!null? assignNN2) {
           def assignNode2:CodeNode (unwrap assignNN2)
           assignSlotType2 = assignNode2.type_name
@@ -2218,10 +2280,11 @@ class RangerGolangClassWriter {
       return true
     }
     if (node.hasParamDesc) {
-      if (node.paramDesc.is_optional) {
+      def nodeDesc:RangerAppParamDesc (unwrap node.paramDesc)
+      if (nodeDesc.is_optional) {
         return true
       }
-      def pdNN@(optional):CodeNode node.paramDesc.nameNode
+      def pdNN@(optional):CodeNode nodeDesc.nameNode
       if (!null? pdNN) {
         def pdN:CodeNode (unwrap pdNN)
         if (pdN.hasFlag("optional")) {
@@ -2331,7 +2394,21 @@ class RangerGolangClassWriter {
     def declaredFunction:[string:boolean]
     def declaredIfFunction:[string:boolean]
 
-    wr.out((("type " + cl.name) + " struct { ") true)
+    ; a generic form is declared `History[Op any]` and named `History[Op]`
+    def goName:string (this.goClassRef((unwrap cl) ctx))
+    def goDecl:string cl.name
+    if cl.is_generic_form {
+      goDecl = (cl.generic_template + "[")
+      for cl.generic_args ga:string gai {
+        if (gai > 0) {
+          goDecl = (goDecl + ", ")
+        }
+        goDecl = ((goDecl + (this.goClassRef((ctx.findClass(ga)) ctx))) + " any")
+      }
+      goDecl = (goDecl + "]")
+    }
+
+    wr.out((("type " + goDecl) + " struct { ") true)
     wr.indent(1)
 
     for cl.variables pvar:RangerAppParamDesc i {
@@ -2403,7 +2480,7 @@ class RangerGolangClassWriter {
 
     thisName = "me"
     wr.out("" true)
-    wr.out((("func CreateNew_" + cl.name) + "(") false)
+    wr.out((("func CreateNew_" + goDecl) + "(") false)
     if cl.has_constructor {
       def constr:RangerAppFunctionDesc cl.constructor_fn
       ; The keyword marker of a record constructor has a name and no type; only
@@ -2421,10 +2498,10 @@ class RangerGolangClassWriter {
         this.writeTypeDef((unwrap arg.nameNode) ctx wr)
       }
     }
-    wr.out(((") *" + cl.name) + " {") true)
+    wr.out(((") *" + goName) + " {") true)
     wr.indent(1)
     wr.newline()
-    wr.out((("me := new(" + cl.name) + ")") true)
+    wr.out((("me := new(" + goName) + ")") true)
 
 
     ; write inherited vriables
@@ -2444,7 +2521,8 @@ class RangerGolangClassWriter {
             wr.out((("me." + pvar.compiledName) + " = ") false)
             def fldTypeName:string ""
             if (!null? pvar.nameNode) {
-              fldTypeName = pvar.nameNode.type_name
+              def fieldName:CodeNode (unwrap pvar.nameNode)
+              fldTypeName = fieldName.type_name
             }
             def wroteFld:boolean false
             if ((strlen fldTypeName) > 0) {
@@ -2492,7 +2570,8 @@ class RangerGolangClassWriter {
         wr.out((("me." + pvar.compiledName) + " = ") false)
         def fldTypeName2:string ""
         if (!null? pvar.nameNode) {
-          fldTypeName2 = pvar.nameNode.type_name
+          def fieldName:CodeNode (unwrap pvar.nameNode)
+          fldTypeName2 = fieldName.type_name
         }
         def wroteFld2:boolean false
         if ((strlen fldTypeName2) > 0) {
@@ -2579,7 +2658,7 @@ class RangerGolangClassWriter {
         }
         set declaredFunction variant.name true      
         set declaredFn variant.name true
-        wr.out((((("func (this *" + cl.name) + ") ") + variant.compiledName) + " (") false)
+        wr.out((((("func (this *" + goName) + ") ") + variant.compiledName) + " (") false)
         this.writeArgsDef(variant ctx wr)
         wr.out(") " false)
         if (variant.nameNode.hasFlag("optional")) {
@@ -2618,7 +2697,7 @@ class RangerGolangClassWriter {
             ; and Go refuses a method declared on the same type twice.
             set declaredFn variant.name true
 
-            wr.out((((("func (this *" + cl.name) + ") ") + variant.compiledName) + " (") false)
+            wr.out((((("func (this *" + goName) + ") ") + variant.compiledName) + " (") false)
             this.writeArgsDef(variant ctx wr)
             wr.out(") " false)
             if (variant.nameNode.hasFlag("optional")) {
@@ -2652,7 +2731,7 @@ class RangerGolangClassWriter {
 
           wr.newline()
           wr.out("// getter for variable " + p.name , true)
-          wr.out( "func (this *" + cl.name + ") " , false)
+          wr.out( "func (this *" + goName + ") " , false)
           wr.out("Get_" false)
           wr.out((p.compiledName + "() ") false)
           if (p.nameNode.hasFlag("optional")) {
@@ -2668,7 +2747,7 @@ class RangerGolangClassWriter {
 
           wr.newline()
           wr.out("// setter for variable " + p.name , true)
-          wr.out( "func (this *" + cl.name + ") " , false)
+          wr.out( "func (this *" + goName + ") " , false)
           wr.out("Set_" false)
           wr.out(p.compiledName + "( value " , false)
           if (p.nameNode.hasFlag("optional")) {
@@ -2703,7 +2782,7 @@ class RangerGolangClassWriter {
             }
             wr.newline()
             wr.out("// getter for variable " + p.name , true)
-            wr.out( "func (this *" + cl.name + ") " , false)
+            wr.out( "func (this *" + goName + ") " , false)
             wr.out("Get_" false)
             wr.out((p.compiledName + "() ") false)
             if (p.nameNode.hasFlag("optional")) {
@@ -2719,7 +2798,7 @@ class RangerGolangClassWriter {
 
             wr.newline()
             wr.out("// getter for variable " + p.name , true)
-            wr.out( "func (this *" + cl.name + ") " , false)
+            wr.out( "func (this *" + goName + ") " , false)
             wr.out("Set_" false)
             wr.out(p.compiledName + "( value " , false)
             if (p.nameNode.hasFlag("optional")) {
@@ -2741,7 +2820,9 @@ class RangerGolangClassWriter {
     }
 
     for cl.static_methods variant:RangerAppFunctionDesc i {
-      if ( (variant.nameNode.hasFlag("main")) && (variant.nameNode.code.filename == (ctx.getRootFile()))) {
+      def variantName:CodeNode (unwrap variant.nameNode)
+      def variantCode:SourceCode (unwrap variantName.code)
+      if ((variantName.hasFlag("main")) && (variantCode.filename == (ctx.getRootFile()))) {
         wr.out("func main() {" true)
         wr.indent(1)
         wr.newline()

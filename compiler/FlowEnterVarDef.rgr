@@ -14,7 +14,7 @@ operator type:RangerFlowParser all {
       ; print " DEF expr level " + (ctx.expressionLevel()) + " -> " + (node.getCode())
 
       def tName (node.getSecond())
-      
+
       self.CheckTypeAnnotationOf(tName ctx wr)
 
       ; var x = 100   --> var (= x 100)
@@ -25,9 +25,9 @@ operator type:RangerFlowParser all {
         tName.children.forEach({
           if(index == 1) {
             if( item.expression ) {
-              push node.children ( (at item.children 0 ) .copy())             
+              push node.children ( (at item.children 0 ) .copy())
             } {
-              push node.children ( item.copy())                           
+              push node.children ( item.copy())
             }
           }
           if(index > 1) {
@@ -35,7 +35,7 @@ operator type:RangerFlowParser all {
           }
         })
       }
-      
+
       if ((size node.children) > 3) {
         ctx.addError(node "invalid variable definition")
         return
@@ -48,9 +48,9 @@ operator type:RangerFlowParser all {
       cn.definedTypeClass = (TFactory.new_def_signature(cn ctx wr))
 
       if ((size node.children) == 2) {
-        if ((cn.value_type != RangerNodeType.Array) && (cn.value_type != RangerNodeType.Hash)) {       
+        if ((cn.value_type != RangerNodeType.Array) && (cn.value_type != RangerNodeType.Hash)) {
           if!(cn.hasFlag('unwrap')) {
-            cn.setFlag("optional")           
+            cn.setFlag("optional")
           }
         }
       }
@@ -65,46 +65,80 @@ operator type:RangerFlowParser all {
       node.hasVarDef = true
       if ((size node.children) > 2) {
         p.init_cnt = 1
+        ; `def y:T x` inside `if (!null? x)`: x is known to hold a value, so y
+        ; takes the value, not the optional. The initializer is written as
+        ; `(unwrap x)` for every target -- one unwrap, however the target
+        ; spells it (.value(), !, .unwrap(), ...) and never two: an explicit
+        ; `(unwrap x)` in the source is already an expression and is left as
+        ; it is.
+        if (false == (cn.hasFlag("optional"))) {
+          def initNode:CodeNode (at node.children 2)
+          if (self.isNarrowedOptionalRead(initNode ctx)) {
+            def unwrapNode@(lives):CodeNode (node.newExpressionNode())
+            unwrapNode.add((node.newVRefNode("unwrap")))
+            unwrapNode.add(initNode)
+            unwrapNode.parent = node
+            set node.children 2 unwrapNode
+          }
+        }
         p.def_value = (at node.children 2)
         p.is_optional = false
         defaultArg = (at node.children 2)
+        def dArg:CodeNode (unwrap defaultArg)
         ctx.setInExpr()
 
-        self.WalkNode( (unwrap defaultArg) ctx wr)
+        self.WalkNode(dArg ctx wr)
         ctx.unsetInExpr()
 
-        if (defaultArg.hasFlag("optional")) {
+        if (dArg.hasFlag("optional")) {
           cn.setFlag("optional")
+          ; `def u:T obj.field` where the field is one the constructor always
+          ; assigns: the local keeps the optional type, but the strict check
+          ; knows it holds a value (as inside `if (!null? u)`)
+          if (self.isConstructorAssignedRead(dArg ctx)) {
+            ctx.setKnownPresent(cn.vref)
+          } {
+            ; a copy of a local that is known to hold a value holds one too
+            if ((dArg.expression == false) && ((array_length dArg.ns) == 1)) {
+              if (ctx.isKnownPresent((itemAt dArg.ns 0))) {
+                ctx.setKnownPresent(cn.vref)
+              }
+            }
+          }
         }
-        if (defaultArg.hasFlag("immutable")) {
+        if (dArg.hasFlag("immutable")) {
           cn.setFlag("immutable")
         }
-        if( defaultArg.hasParamDesc ) {
-          def paramDesc (unwrap defaultArg.paramDesc)
+        if( dArg.hasParamDesc ) {
+          def paramDesc (unwrap dArg.paramDesc)
           if( !null? paramDesc.propertyClass) {
-            if( paramDesc.propertyClass.nameNode.hasFlag("immutable") ) {
+            def propertyClass:RangerAppClassDesc (unwrap paramDesc.propertyClass)
+            if (!null? propertyClass.nameNode) {
+              def propertyName:CodeNode (unwrap propertyClass.nameNode)
+              if(propertyName.hasFlag("immutable")) {
               ; TODO: add hash support
-              if (defaultArg.eval_type == RangerNodeType.Array || defaultArg.eval_type == RangerNodeType.Hash) {
+                if (dArg.eval_type == RangerNodeType.Array || dArg.eval_type == RangerNodeType.Hash) {
                 is_immutable = true
 ;                ctx.addError( node "creating a mutable copy of immutable array is currently not permitted")
-              }              
-            }        
+                }
+              }
+            }
           }
           if( paramDesc.is_immutable) {
             is_immutable = true
           }
         }
-        if (defaultArg.eval_type == RangerNodeType.Array) {
+        if (dArg.eval_type == RangerNodeType.Array) {
           node.op_index = 1
         }
         if (cn.value_type == RangerNodeType.Enum) {
-          cn.eval_type_name = (at defaultArg.ns 0)
+          cn.eval_type_name = (at dArg.ns 0)
         }
         if (cn.value_type == RangerNodeType.Char) {
-          if ((defaultArg.eval_type != RangerNodeType.Integer) && (defaultArg.eval_type != RangerNodeType.Char)) {
-            ctx.addError( (unwrap defaultArg) ('Char should be assigned char or integer value --> ' + (defaultArg.getCode())))
+          if ((dArg.eval_type != RangerNodeType.Integer) && (dArg.eval_type != RangerNodeType.Char)) {
+            ctx.addError(dArg ('Char should be assigned char or integer value --> ' + (dArg.getCode())))
           } {
-            defaultArg.eval_type = RangerNodeType.Char
+            dArg.eval_type = RangerNodeType.Char
           }
         }
       } {
@@ -118,23 +152,26 @@ operator type:RangerFlowParser all {
       ; simple local variable type inference
       if ((size node.children) > 2) {
           if( ( (strlen cn.type_name) == 0) && ( (strlen cn.array_type) == 0 ) ) {
-            cn.inferDefTypeFromValue( node )       
+            cn.inferDefTypeFromValue( node )
             if(cn.value_type == RangerNodeType.ExpressionType) {
               cn.eval_type = RangerNodeType.ExpressionType
-            }    
+            }
           }
-      }      
-      
+      }
+
       ctx.hadValidType(cn)
       cn.defineNodeTypeToSelf(ctx)
 
       p.name = cn.vref
       if (p.value_type == RangerNodeType.NoType) {
-        if ((0 == (strlen cn.type_name)) && (!null? defaultArg)) {
-          p.value_type = defaultArg.eval_type
-          cn.type_name = defaultArg.eval_type_name
-          cn.eval_type_name = defaultArg.eval_type_name
-          cn.value_type = defaultArg.eval_type
+        if (0 == (strlen cn.type_name)) {
+          if (!null? defaultArg) {
+            def dArg:CodeNode (unwrap defaultArg)
+            p.value_type = dArg.eval_type
+            cn.type_name = dArg.eval_type_name
+            cn.eval_type_name = dArg.eval_type_name
+            cn.value_type = dArg.eval_type
+          }
         }
       } {
         p.value_type = cn.value_type
@@ -147,18 +184,22 @@ operator type:RangerFlowParser all {
       }
       if cn.has_vref_annotation {
         ctx.log(node "ann" "At a variable -> Found has_vref_annotation annotated reference ")
-        def ann:CodeNode cn.vref_annotation
-        if ((size ann.children) > 0) {
-          def fc:CodeNode (at ann.children 0)
-          ctx.log(node 'ann' ('value of first annotation ' + fc.vref + ' and variable name ' + cn.vref))
+        if (!null? cn.vref_annotation) {
+          def ann:CodeNode (unwrap cn.vref_annotation)
+          if ((size ann.children) > 0) {
+            def fc:CodeNode (at ann.children 0)
+            ctx.log(node 'ann' ('value of first annotation ' + fc.vref + ' and variable name ' + cn.vref))
+          }
         }
       }
       if cn.has_type_annotation {
         ctx.log(node "ann" "At a variable -> Found annotated reference ")
-        def ann:CodeNode cn.type_annotation
-        if ((size ann.children) > 0) {
-          def fc:CodeNode (at ann.children 0)
-          ctx.log(node 'ann' ('value of first annotation ' + fc.vref + ' and variable name ' + cn.vref))
+        if (!null? cn.type_annotation) {
+          def ann:CodeNode (unwrap cn.type_annotation)
+          if ((size ann.children) > 0) {
+            def fc:CodeNode (at ann.children 0)
+            ctx.log(node 'ann' ('value of first annotation ' + fc.vref + ' and variable name ' + cn.vref))
+          }
         }
       }
 
@@ -169,52 +210,59 @@ operator type:RangerFlowParser all {
       node.paramDesc = p
       cn.eval_type = (cn.typeNameAsType(ctx))
       cn.eval_type_name = cn.type_name
- 
-      if ((size node.children) > 2) {        
 
-        if( has defaultArg.register_name) {
-          def rr ( ctx.getVariableDef(defaultArg.register_name) )
+      if ((size node.children) > 2) {
+        def dArg:CodeNode (unwrap defaultArg)
+
+        if( has dArg.register_name) {
+          def rr ( ctx.getVariableDef(dArg.register_name) )
           if(!null? rr.nameNode) {
-            if(!null? rr.nameNode.expression_value) {
-              cn.expression_value = ( rr.nameNode.expression_value.copy())
+            def rrName:CodeNode (unwrap rr.nameNode)
+            if(!null? rrName.expression_value) {
+              def rrExpr:CodeNode (unwrap rrName.expression_value)
+              cn.expression_value = (rrExpr.copy())
             }
           }
         }
-        if(defaultArg.eval_type == RangerNodeType.ExpressionType) {
-          if(!null? defaultArg.expression_value) {
-            cn.expression_value = (defaultArg.expression_value.copy())
+        if(dArg.eval_type == RangerNodeType.ExpressionType) {
+          if(!null? dArg.expression_value) {
+            def dExpr:CodeNode (unwrap dArg.expression_value)
+            cn.expression_value = (dExpr.copy())
           } {
-            if( defaultArg.hasParamDesc ) {
-              if( (!null? defaultArg.paramDesc.nameNode) && (!null? defaultArg.paramDesc.nameNode.expression_value) ) {
+            if(dArg.hasParamDesc) {
+              def dParam:RangerAppParamDesc (unwrap dArg.paramDesc)
+              if (!null? dParam.nameNode) {
+                def dName:CodeNode (unwrap dParam.nameNode)
+                if (!null? dName.expression_value) {
+                  def dNameExpr:CodeNode (unwrap dName.expression_value)
                 cn.eval_type = RangerNodeType.ExpressionType
-                cn.expression_value = (defaultArg.paramDesc.nameNode.expression_value.copy())
+                  cn.expression_value = (dNameExpr.copy())
+                }
               }
             }
           }
         }
-        
-        if(!null? defaultArg) {
-          self.convertToUnion( cn.eval_type_name (unwrap defaultArg) ctx wr) 
-          if(!null? defaultArg.evalTypeClass) {
-            cn.evalTypeClass = defaultArg.evalTypeClass
+
+        self.convertToUnion(cn.eval_type_name dArg ctx wr)
+        if(!null? dArg.evalTypeClass) {
+          cn.evalTypeClass = dArg.evalTypeClass
           }
-        }
         ; TODO: enable this
-        if (cn.eval_type != defaultArg.eval_type) {
-          
-          def b1 (( cn.eval_type == RangerNodeType.Char &&  defaultArg.eval_type == RangerNodeType.Integer ))
-          def b2 ( cn.eval_type == RangerNodeType.Integer &&  defaultArg.eval_type == RangerNodeType.Char )
+        if (cn.eval_type != dArg.eval_type) {
+
+          def b1 ((cn.eval_type == RangerNodeType.Char && dArg.eval_type == RangerNodeType.Integer))
+          def b2 (cn.eval_type == RangerNodeType.Integer && dArg.eval_type == RangerNodeType.Char)
           if( false == ( b1 || b2 ) )  {
             def cnTypeName:string (TTypes.valueAsString(cn.eval_type))
             if ((strlen cn.eval_type_name) > 0) {
               cnTypeName = cn.eval_type_name
             }
-            def defTypeName:string (TTypes.valueAsString(defaultArg.eval_type))
-            if ((strlen defaultArg.eval_type_name) > 0) {
-              defTypeName = defaultArg.eval_type_name
+            def defTypeName:string (TTypes.valueAsString(dArg.eval_type))
+            if ((strlen dArg.eval_type_name) > 0) {
+              defTypeName = dArg.eval_type_name
             }
             ctx.addError(node ((('Variable was assigned an incompatible type. Types were ' + cnTypeName) + ' vs ') + defTypeName))
-          }          
+          }
         }
       } {
         p.is_optional = true
@@ -232,5 +280,5 @@ operator type:RangerFlowParser all {
         self.shouldBeEqualTypes((at node.children 1) (at node.children 2) ctx "Variable was assigned an incompatible type.")
       }
     }
-  }  
+  }
 }

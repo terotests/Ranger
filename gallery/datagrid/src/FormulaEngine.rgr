@@ -1534,7 +1534,7 @@ class FormulaParser {
 ; --- dependency graph + evaluator --------------------------------------------
 
 class FormulaEngine {
-    def book:WorkbookModel
+    def book@(late):WorkbookModel
     def parser:FormulaParser (new FormulaParser)
     ; forward deps: cellKey → "depKey;depKey;..."
     def depsOf:[string:string]

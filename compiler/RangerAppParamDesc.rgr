@@ -98,6 +98,11 @@ class RangerAppParamDesc {
   def isParam:boolean
   def paramIndex:int 0
   def is_optional:boolean false
+  ; A class field declared without a value and without @(optional): it is
+  ; optional only because nothing initialised it. The strict check treats it
+  ; as present when the constructor assigns it (RangerAppClassDesc
+  ; .isAssignedInConstructor).
+  def implicit_optional:boolean false
   def is_mutating:boolean false
   def is_set:boolean false
   def is_class_variable:boolean false
@@ -182,7 +187,7 @@ class RangerAppParamDesc {
   ; before any class is written.
   def docExampleText:string ""
   def has_events:boolean false
-  def eMap:RangerParamEventMap
+  def eMap:RangerParamEventMap (new RangerParamEventMap())
 
   fn addEvent:void (name:string e@(strong lives):RangerParamEventHandler) {
     if( has_events == false ) {
@@ -275,17 +280,22 @@ class RangerAppParamDesc {
     def other_lifetime:int (target.getLifetime())
     def a_lives:boolean false
     def b_lives:boolean false
-    def tmp_var:boolean (nameNode.hasFlag("temp"))
-    if (!null? target.nameNode) {
-      if (target.nameNode.hasFlag("lives")) {
-        my_lifetime = 2
-        b_lives = true
-      }
-    }
-    if (!null? nameNode) {
-      if (nameNode.hasFlag("lives")) {
+    def ownNameNode@(optional):CodeNode nameNode
+    def tmp_var:boolean false
+    if (!null? ownNameNode) {
+      def ownName:CodeNode (unwrap ownNameNode)
+      tmp_var = (ownName.hasFlag("temp"))
+      if (ownName.hasFlag("lives")) {
         my_lifetime = 2
         a_lives = true
+      }
+    }
+    def targetNameNode@(optional):CodeNode target.nameNode
+    if (!null? targetNameNode) {
+      def targetName:CodeNode (unwrap targetNameNode)
+      if (targetName.hasFlag("lives")) {
+        my_lifetime = 2
+        b_lives = true
       }
     }
     if (other_s > 0) {
@@ -306,7 +316,8 @@ class RangerAppParamDesc {
           }
         } {
           if(! b_disable_errors) {
-            ctx.addError(nodeToMove ('Can not move immutable reference to a strong target, evald type ' + nameNode.eval_type_name))
+            def nn:CodeNode (unwrap nameNode)
+            ctx.addError(nodeToMove ('Can not move immutable reference to a strong target, evald type ' + nn.eval_type_name))
           }
         }
       }
@@ -314,7 +325,7 @@ class RangerAppParamDesc {
       if (a_lives || b_lives) {
       } {
         if ((my_lifetime < other_lifetime) && (return_cnt == 0)) {
-          if ((nameNode.hasFlag("returnvalue")) == false) {
+          if ((!null? ownNameNode) && (((unwrap ownNameNode).hasFlag("returnvalue")) == false)) {
             if(! b_disable_errors) {
               ctx.addError(nodeToMove ('Can not create a weak reference if target has longer lifetime than original, current lifetime == ' + my_lifetime))
             } 
@@ -350,7 +361,11 @@ class RangerAppParamDesc {
   fn debugRefChanges:void () {
     print (("variable " + name) + " ref history : ")
     for ownerHistory h:RangerRefForce i {
-      print (((" => change to " + h.strength) + " by ") + (h.changer.getCode()))
+      def changerOpt@(optional):CodeNode h.changer
+      if (!null? changerOpt) {
+        def changer:CodeNode (unwrap changerOpt)
+        print (((" => change to " + h.strength) + " by ") + (changer.getCode()))
+      }
     }
   }
   fn pointsToObject:boolean (ctx:RangerAppWriterContext) {
@@ -485,8 +500,11 @@ class RangerAppParamDesc {
     return ""
   }
   fn getTypeName:string () {
-    def s:string nameNode.type_name
-    return s
+    if (null? nameNode) {
+      return ""
+    }
+    def nn:CodeNode (unwrap nameNode)
+    return nn.type_name
   }
 }
 

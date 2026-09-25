@@ -61,13 +61,19 @@ extension RangerFlowParser {
       if (v.name != "__rangerProcessName") {
         continue
       }
-      if (v.def_value.value_type == RangerNodeType.String) {
-        cl.process_path = v.def_value.string_value
-        return
+      if (!null? v.def_value) {
+        def defaultValue:CodeNode (unwrap v.def_value)
+        if (defaultValue.value_type == RangerNodeType.String) {
+          cl.process_path = defaultValue.string_value
+          return
+        }
       }
-      if ((strlen v.value.string_value) > 0) {
-        cl.process_path = v.value.string_value
-        return
+      if (!null? v.value) {
+        def value:RangerAppValue (unwrap v.value)
+        if ((strlen value.string_value) > 0) {
+          cl.process_path = value.string_value
+          return
+        }
       }
     }
   }

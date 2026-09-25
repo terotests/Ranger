@@ -181,9 +181,14 @@ generic class holding another at its own parameter (`def slot:Cell@(T)`), an
 instantiation as a collection element (`def kids:[Tree@(T)]`,
 `def byName:[string:Tree@(int)]`), and a generic class naming itself.
 
-No bounds, no constraints, no variance. Each instantiation is expanded into a
-concrete class (`History_int`, `History_arr_string`) before codegen, so every
-target sees ordinary classes. Traits take `@params` the same way.
+No bounds, no constraints, no variance. Each instantiation is type checked as
+a concrete class (`History_int`, `History_arr_string`). A body that only
+stores, moves and returns its parameter values is written as ONE native
+generic class on C++, Java, C#, Kotlin, Scala, Dart, Go, TypeScript/JS, Python
+and PHP (`template <class Op> class History`, `History<int>`). Anything else,
+and every class on Rust, Swift and LLVM, keeps the concrete copies.
+`-no-native-generics` forces the copies; `-generics-report` prints the choice.
+Traits take `@params` the same way (always copies).
 
 **No static side:** `sfn` in a generic class is unreachable — only the
 instantiations exist. Put statics on a plain class beside it.
@@ -226,6 +231,19 @@ Prefix form only:
 (unwrap opt)                ; or (!! opt)
 (?? opt default)
 ```
+
+Inside `if (!null? obj) { … }` (or `if obj`, or an `&&` of `!null?` checks)
+`obj.field` and `obj.method()` need no `unwrap`, also under `-strict`, and
+`def o:T obj` takes the value. The else branch of `if (null? obj)` and the
+code after `if (null? obj) { return … }` are narrowed too. Not narrowed:
+optional int/double values.
+
+```ranger
+def model@(late):Model     ; set by attach() before use; -strict accepts reads
+```
+
+A field without a value that the constructor always assigns needs no
+`@(late)`: `-strict` sees the assignment.
 
 ## Strings
 

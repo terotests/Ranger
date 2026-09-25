@@ -3,11 +3,9 @@
 
 Import "InputFileSystem.rgr"
 Import "LiveCompiler.rgr"
-Import "ColorConsole.rgr"
-Import "CLIProgress.rgr"
+Import "./cli/CLIConsole.rgr"
 Import "PkgFetch.rgr"
 Import "DictNode.rgr"
-Import "RangerSerializeClass.rgr"
 Import "CmdParams.rgr"
 Import "RangerDocGenerator.rgr"
 Import "StaticAnalysis.rgr"
@@ -458,7 +456,7 @@ class tester {
 }
 
     `    
-    write_file '.' 'compileEnv.js' ( 'window._Ranger_compiler_environment_ = ' + (to_string (env.toDictionary())))
+    ; write_file '.' 'compileEnv.js' ( 'window._Ranger_compiler_environment_ = ' + (to_string (env.toDictionary())))
     
   }
 
@@ -555,7 +553,7 @@ class tester {
   ; is a call, not a subprocess, and `ranger-compiler` is the only thing a
   ; project needs installed. `bin/git-http.mjs` beside rgrc moves the bytes,
   ; because Node has no synchronous HTTPS.
-  fn runInstall:boolean (env:InputEnv params:CmdParams cli:CLIProgress) {
+  fn runInstall:boolean (env:InputEnv params:CmdParams cli:CLIConsole) {
     def start:string (current_directory env)
     def manDir:string (PkgImport.walkUp(env start))
     if ((strlen manDir) == 0) {
@@ -588,7 +586,7 @@ class tester {
     def params (unwrap env.commandLine)
 
     ; Initialize CLI progress (after params is defined)
-    def cli:CLIProgress (new CLIProgress())
+    def cli:CLIConsole (new CLIConsole())
     
     ; Check for --no-color flag
     if (has params.flags "no-color") {
@@ -648,6 +646,8 @@ class tester {
       'native-fast-alloc' 'Rust/C++ targets: emit a thread-local size-class freelist allocator (never returns memory to the OS; single-process benchmark/tool builds)'
       'cpp-shared-classes' 'C++ target: hold every class behind a std::shared_ptr, including records the sharing analysis proves are never aliased (the pre-value-class object model)'
       'cpp-single-thread' 'C++ target: reference-count objects WITHOUT atomics (rg_ptr). Same aliasing as std::shared_ptr and no lock-prefixed increment per copy; a pointer copied across threads corrupts the count, so single-threaded builds only'
+      'no-native-generics' 'Write every generic class as one class per argument list (History_int) also on targets that have generics of their own'
+      'generics-report' 'Print, for each generic class, whether it is written as a generic class of the target'
       'typescript' 'Writes JavaScript code with TypeScript annotations'
       'esm' 'Writes JavaScript code with ESM module syntax'
       'npm' 'Write the package.json to the output directory' 
@@ -1162,6 +1162,8 @@ class tester {
 
       flowParser.StartWalk (node appCtx (unwrap wr))
       flowParser.SolveAsyncFuncs( root appCtx (unwrap wr))
+      ; which generic classes the target can write as generics of its own
+      flowParser.checkNativeGenerics( appCtx (unwrap wr))
 
       ; The API model is built here, after the whole program is analysed and
       ; before anything is written: the language writers read docBlock off the
@@ -1321,6 +1323,9 @@ class tester {
         if(cl.is_union) {
           continue _
         }          
+        if ((appCtx.isWrittenClass((unwrap cl))) == false) {
+          continue
+        }
         if(has handledClasses cName) {
           continue
         }
@@ -1360,6 +1365,9 @@ class tester {
         def cl:RangerAppClassDesc (get appCtx.definedClasses cName)
         if(cl.is_operator_class) {
           continue 
+        }
+        if ((appCtx.isWrittenClass((unwrap cl))) == false) {
+          continue
         }
         if(cl.is_generic_instance) {
           lcc.WalkNode( (unwrap cl.classNode ) appCtx (unwrap wr))
@@ -1512,12 +1520,12 @@ class tester {
       ; and not from run() -- `too many return values, have (*CompilerResults),
       ; want ()`. The nesting below says the same thing without one; all three
       ; paths ended with the same two statements anyway.
-      if(lcc.lastProcessedNode) {
+      if(!null? lcc.lastProcessedNode) {
         print ""
         print (cli.gray("Error occurred near:"))
         print "  " + (lcc.lastProcessedNode.getLineAsString())
       } {
-        if(flowParser.lastProcessedNode) {
+        if(!null? flowParser.lastProcessedNode) {
           print ""
           print (cli.gray("Error occurred near:"))
           print "  " + (flowParser.lastProcessedNode.getLineAsString())
@@ -1533,37 +1541,27 @@ class tester {
   }
 
   ; New method with CLI formatting
-  static fn displayCompilerErrorsWithCLI:void (appCtx@(weak):RangerAppWriterContext cli:CLIProgress) {
+  static fn displayCompilerErrorsWithCLI:void (appCtx@(weak):RangerAppWriterContext cli:CLIConsole) {
     for appCtx.compilerErrors e:RangerCompilerMessage i {
-        def line_index:int (e.node.getLine())
-        def col_index:int (e.node.code.getColumn(e.node.sp))
-        def filename:string (e.node.getFilename())
-        def lineContent:string (e.node.getLineString(line_index))
+        def errorNode:CodeNode (unwrap e.node)
+        def line_index:int (errorNode.getLine())
+        def sourceCode:SourceCode (unwrap errorNode.code)
+        def col_index:int (sourceCode.getColumn(errorNode.sp))
+        def filename:string (errorNode.getFilename())
+        def lineContent:string (errorNode.getLineString(line_index))
         
         ; Get previous and next lines for context
         def prevLine:string ""
         def nextLine:string ""
         if (line_index > 0) {
-            prevLine = (e.node.getLineString((line_index - 1)))
+          prevLine = (errorNode.getLineString((line_index - 1)))
         }
-        nextLine = (e.node.getLineString((line_index + 1)))
+        nextLine = (errorNode.getLineString((line_index + 1)))
         
         cli.printCompilerError(filename (line_index + 1) col_index e.description lineContent prevLine nextLine)
     }        
   }
 
-  ; Legacy method kept for compatibility
-  static fn displayCompilerErrors:void (appCtx@(weak):RangerAppWriterContext) {
-    def cons:ColorConsole (new ColorConsole())
-
-    for appCtx.compilerErrors e:RangerCompilerMessage i {
-        def line_index:int (e.node.getLine ())                      
-        cons.out( "gray" ( (e.node.getFilename ()) + " Line: " + (1 + line_index)) ) 
-        cons.out( "gray" e.description )
-        cons.out( "gray" (e.node.getLineString(line_index)) )
-        cons.out( "" ( (e.node.getColStartString()) + "^-------" ) )
-    }        
-  }
 
   static fn displayParserErrors:void (appCtx@(weak):RangerAppWriterContext) {
     if ( (array_length appCtx.parserErrors) == 0 ) {

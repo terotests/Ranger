@@ -1,0 +1,27 @@
+; Still errors under -strict: a field set only on some constructor paths,
+; a field read in the constructor before it is assigned, and a field that
+; no constructor assigns and that is not @(late).
+class Unit {
+  def n:int 1
+}
+class Box {
+  def sometimes:Unit
+  def early:Unit
+  def never:Unit
+  Constructor (flag:boolean) {
+    if flag {
+      sometimes = (new Unit)
+    }
+    print ("" + early.n)
+    early = (new Unit)
+  }
+  fn a:int () {
+    return sometimes.n
+  }
+  fn b:int () {
+    return never.n
+  }
+  sfn main@(main):void () {
+    print "x"
+  }
+}

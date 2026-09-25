@@ -1369,11 +1369,15 @@ extension RangerRustClassWriter {
       return true
     }
     if (node.hasParamDesc) {
-      def pdNN@(optional):CodeNode node.paramDesc.nameNode
-      if (!null? pdNN) {
-        def pdN:CodeNode (unwrap pdNN)
-        if ((strlen pdN.key_type) > 0) {
-          return true
+      def paramDescOpt@(optional):RangerAppParamDesc node.paramDesc
+      if (!null? paramDescOpt) {
+        def paramDesc:RangerAppParamDesc (unwrap paramDescOpt)
+        def pdNN@(optional):CodeNode paramDesc.nameNode
+        if (!null? pdNN) {
+          def pdN:CodeNode (unwrap pdNN)
+          if ((strlen pdN.key_type) > 0) {
+            return true
+          }
         }
       }
     }
@@ -2809,8 +2813,13 @@ extension RangerRustClassWriter {
     }
     
     for cl.static_methods variant:RangerAppFunctionDesc i {
-      def nn:CodeNode (unwrap variant.nameNode)
-      if ((nn.hasFlag("main")) && (nn.code.filename == (ctx.getRootFile()))) {
+      def nnOpt@(optional):CodeNode variant.nameNode
+      if (!null? nnOpt) {
+        def nn:CodeNode (unwrap nnOpt)
+        def mainCodeOpt@(optional):SourceCode nn.code
+        if (!null? mainCodeOpt) {
+          def mainCode:SourceCode (unwrap mainCodeOpt)
+          if ((nn.hasFlag("main")) && (mainCode.filename == (ctx.getRootFile()))) {
         ; A Ranger `main:int` body ends in `return <code>`, but Rust's `fn main`
         ; returns (), so the body was emitted verbatim into a signature that
         ; could not accept it:
@@ -2866,6 +2875,8 @@ extension RangerRustClassWriter {
         wr.newline()
         wr.indent(-1)
         wr.out("}" true)
+          }
+        }
       }
     }
     ; A free `fn main` is attached to a class as an ordinary method and no
@@ -2880,7 +2891,10 @@ extension RangerRustClassWriter {
             def fmNN@(optional):CodeNode variant.nameNode
             if (!null? fmNN) {
               def fmN:CodeNode (unwrap fmNN)
-              if ((fmN.code.filename) == (ctx.getRootFile())) {
+              def fmCodeOpt@(optional):SourceCode fmN.code
+              if (!null? fmCodeOpt) {
+                def fmCode:SourceCode (unwrap fmCodeOpt)
+                if (fmCode.filename == (ctx.getRootFile())) {
                 if (this.rustLibraryMode(ctx)) {
                   continue
                 }
@@ -2894,6 +2908,7 @@ extension RangerRustClassWriter {
                 }
                 wr.indent(-1)
                 wr.out("}" true)
+                }
               }
             }
           }

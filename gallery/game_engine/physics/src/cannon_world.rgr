@@ -26,14 +26,14 @@ class CannonWorld {
     def gravity:CannonVec3 (new CannonVec3)
     def bodies:[CannonBody]
     def constraints:[CannonConstraint]
-    def broadphase:CannonNaiveBroadphase
-    def narrowphase:CannonNarrowphase
-    def solver:CannonGSSolver
-    def collisionMatrix:CannonArrayCollisionMatrix
-    def collisionMatrixPrevious:CannonArrayCollisionMatrix
-    def bodyOverlapKeeper:CannonOverlapKeeper
-    def shapeOverlapKeeper:CannonOverlapKeeper
-    def defaultContactMaterial:CannonContactMaterial
+    def broadphase@(late):CannonNaiveBroadphase
+    def narrowphase@(late):CannonNarrowphase
+    def solver@(late):CannonGSSolver
+    def collisionMatrix@(late):CannonArrayCollisionMatrix
+    def collisionMatrixPrevious@(late):CannonArrayCollisionMatrix
+    def bodyOverlapKeeper@(late):CannonOverlapKeeper
+    def shapeOverlapKeeper@(late):CannonOverlapKeeper
+    def defaultContactMaterial@(late):CannonContactMaterial
     def time:double 0.0
     def stepnumber:int 0
 

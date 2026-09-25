@@ -1,0 +1,43 @@
+; `if (!null? x)` narrows x inside the then block, so -strict accepts reading
+; through it there without an `unwrap`.
+class Person {
+  def name:string ""
+  def friend@(optional):Person
+  fn greet:string () {
+    return ("hi " + name)
+  }
+}
+class NarrowMain {
+  fn describe:string (p@(optional):Person) {
+    if (!null? p) {
+      return (p.greet())
+    }
+    return "nobody"
+  }
+  fn both:string (p@(optional):Person q@(optional):Person) {
+    if ((!null? p) && (!null? q)) {
+      return (p.name + q.name)
+    }
+    return ""
+  }
+  sfn main@(main):void () {
+    def m (new NarrowMain)
+    def a (new Person)
+    a.name = "A"
+    def b (new Person)
+    b.name = "B"
+    a.friend = b
+    def oa@(optional):Person a
+    print (m.describe(oa))
+    def ob@(optional):Person b
+    print (m.both(oa ob))
+    if (!null? a.friend) {
+      print ("friend " + a.friend.name)
+      print (a.friend.greet())
+    }
+    def n (to_int "5")
+    if (!null? n) {
+      print ("n+1=" + ((unwrap n) + 1))
+    }
+  }
+}

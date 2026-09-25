@@ -256,9 +256,6 @@ This regenerates `dist/rgrc.js` with your new language support.
 ### Step 9: Test the New Target
 
 ```bash
-# Set environment
-$env:RANGER_LIB="./compiler/Lang.rgr;./lib/stdops.rgr"
-
 # Compile a test file
 node dist/rgrc.js tests/fixtures/array_push.rgr -l=kotlin -d=tests/.output-kotlin -o=array_push.kt
 

@@ -187,6 +187,24 @@ class RangerDartClassWriter {
     return tn
   }
 
+  ; --- native generics: `class History<Op>`, used as `History<int>` ---
+  fn dartClassRef:string (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    if cl.is_type_param {
+      return cl.type_param_name
+    }
+    if (ctx.isNativeGenericInstance(cl)) {
+      def res:string (cl.generic_template + "<")
+      for cl.generic_args a:string i {
+        if (i > 0) {
+          res = (res + ", ")
+        }
+        res = (res + (this.getObjectTypeString(a ctx)))
+      }
+      return (res + ">")
+    }
+    return cl.name
+  }
+
   fn getObjectTypeString:string (type_string:string ctx:RangerAppWriterContext) {
     if ((strlen type_string) >= 2) {
       if ((charAt type_string 0) == (ccode "[")) {
@@ -198,6 +216,9 @@ class RangerDartClassWriter {
     ; of its own and stays dynamic, which the `is` narrowing can still test.
     if (ctx.isDefinedClass(type_string)) {
       def cc:RangerAppClassDesc (ctx.findClass(type_string))
+      if (cc.is_type_param || (ctx.isNativeGenericInstance(cc))) {
+        return (this.dartClassRef(cc ctx))
+      }
       if (cc.is_union) {
         if (this.unionIsSealable(cc ctx)) {
           return (this.unionInterfaceName(type_string))
@@ -328,8 +349,9 @@ class RangerDartClassWriter {
       ; lambda was declared with an EMPTY type, so `def set_async (fn:void …)`
       ; came out as a bare assignment to a name Dart had never seen.
       case RangerNodeType.ExpressionType {
-        def rv:CodeNode (itemAt node.expression_value.children 0)
-        def sec:CodeNode (itemAt node.expression_value.children 1)
+        def lambdaExpression:CodeNode (unwrap node.expression_value)
+        def rv:CodeNode (itemAt lambdaExpression.children 0)
+        def sec:CodeNode (itemAt lambdaExpression.children 1)
         this.writeTypeDef( rv ctx wr)
         wr.out(" Function(" false)
         for sec.children arg:CodeNode i {
@@ -642,8 +664,11 @@ class RangerDartClassWriter {
       }
       wr.out("." false)
       def methodName method.vref
-      if ((!null? node.fnDesc) && ((strlen node.fnDesc.compiledName) > 0)) {
-        methodName = node.fnDesc.compiledName
+      if (!null? node.fnDesc) {
+        def callFn:RangerAppFunctionDesc (unwrap node.fnDesc)
+        if ((strlen callFn.compiledName) > 0) {
+          methodName = callFn.compiledName
+        }
       }
       wr.outMapped(methodName method false method.vref)
       wr.out("(" false)
@@ -674,7 +699,7 @@ class RangerDartClassWriter {
   ; Dart program in the tests had one, which is why nothing caught it until the
   ; compiler itself was compiled for Dart -- 356 of them in one file.
   fn CreateLambda:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
-    def lambdaCtx (unwrap node.lambda_ctx)
+    def lambdaCtx:RangerAppWriterContext (unwrap node.lambda_ctx)
     def args:CodeNode (itemAt node.children 1)
     def body:CodeNode (itemAt node.children 2)
     wr.out("(" false)
@@ -705,7 +730,8 @@ class RangerDartClassWriter {
       this.WriteVRef(fc ctx wr)
       wr.out("(" false)
       def givenArgs:CodeNode (node.getSecond())
-      for node.fnDesc.params arg:RangerAppParamDesc i {
+      def fnDesc:RangerAppFunctionDesc (unwrap node.fnDesc)
+      for fnDesc.params arg:RangerAppParamDesc i {
         if (i > 0) {
           wr.out(", " false)
         }
@@ -732,14 +758,14 @@ class RangerDartClassWriter {
 
   fn writeNewCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.hasNewOper {
-      def cl:RangerAppClassDesc node.clDesc
+      def cl:RangerAppClassDesc (unwrap node.clDesc)
       def givenArgs:CodeNode (node.getThird())
       if (this.tryWriteProcessNewCall(node ctx wr)) {
         return
       }
       if (cl.isSingletonClass()) {
         wr.out(" " false)
-        wr.out((node.clDesc.name + ".__singleton") false)
+        wr.out((cl.name + ".__singleton") false)
         wr.out("(" false)
         for givenArgs.children n:CodeNode i {
           if (i > 0) {
@@ -752,7 +778,7 @@ class RangerDartClassWriter {
       }
 
       wr.out(" " false)
-      wr.out(node.clDesc.name false)
+      wr.out((this.dartClassRef(cl ctx)) false)
       wr.out("(" false)
       def constr:RangerAppFunctionDesc cl.constructor_fn
       if (!null? constr) {
@@ -825,7 +851,8 @@ class RangerDartClassWriter {
       def clDocWr:RangerDocCommentWriter (new RangerDocCommentWriter)
       clDocWr.writeDartDocForClass((unwrap cl) ctx wr)
     }
-    wr.out(("class " + cl.name) false)
+    ; a generic form is declared as the template over its parameters
+    wr.out(("class " + (this.dartClassRef((unwrap cl) ctx))) false)
     def dartUnions:[string] (this.unionInterfacesOf((unwrap cl) ctx))
     if ((array_length cl.extends_classes) > 0) {
       wr.out(" extends " false)
@@ -898,7 +925,11 @@ class RangerDartClassWriter {
     if cl.has_constructor {
       def constr:RangerAppFunctionDesc (unwrap cl.constructor_fn)
       wr.out("" true)
-      wr.out((cl.name + "(") false)
+      if cl.is_generic_form {
+        wr.out((cl.generic_template + "(") false)
+      } {
+        wr.out((cl.name + "(") false)
+      }
       this.writeArgsDef(constr ctx wr)
       wr.out(")" false)
       if ((array_length cl.extends_classes) > 0) {
@@ -1060,7 +1091,9 @@ class RangerDartClassWriter {
 
     ; Top-level main
     for cl.static_methods variant:RangerAppFunctionDesc i {
-      if ( (variant.nameNode.hasFlag("main")) && (variant.nameNode.code.filename == (ctx.getRootFile()))) {
+      def variantName:CodeNode (unwrap variant.nameNode)
+      def variantCode:SourceCode (unwrap variantName.code)
+      if ((variantName.hasFlag("main")) && (variantCode.filename == (ctx.getRootFile()))) {
         wr.out("" true)
         ; Only main() can see the list Dart hands it. The shell_arg operators
         ; read __g_args, so main copies it there first -- the same shape as

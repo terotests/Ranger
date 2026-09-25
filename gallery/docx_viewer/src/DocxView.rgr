@@ -46,7 +46,7 @@ class DocxView {
     def inkColor:EVGColor (EVGColor.rgb(20 24 32))
     def marginGuide:EVGColor (EVGColor.rgb(220 224 232))
     def pageGap:int 24
-    def docRef:RichDocument
+    def docRef@(late):RichDocument
     def caretColor:EVGColor (EVGColor.rgb(20 90 200))
     def selColor:EVGColor (EVGColor.rgb(120 170 255))
 
@@ -383,7 +383,7 @@ class DocxView {
                 ink.rect(lx ly line.width line.height (this.hexColor(line.borderColor)))
             }
             if (line.kind == (LaidLineKind.image())) {
-                def p:Paragraph line.paragraphRef
+                def p:Paragraph (unwrap line.paragraphRef)
                 if (line.imageIndex < (array_length p.images)) {
                     def dimg:DocImage (itemAt p.images line.imageIndex)
                     if ink.toList {
@@ -548,7 +548,7 @@ class DocxView {
         if (size < 8.0) {
             size = 8.0
         }
-        def p:Paragraph line.paragraphRef
+        def p:Paragraph (unwrap line.paragraphRef)
         def muteChrome:boolean false
         if ((line.kind == (LaidLineKind.header())) || (line.kind == (LaidLineKind.footer()))) {
             muteChrome = true

@@ -59,6 +59,78 @@ follow them exactly.
 - [ ] It is a **new** branch/PR, not a push to an already-merged one.
 - [ ] `git log origin/master..HEAD` shows only the commits you intend to land.
 
+## Building and running the compiler
+
+- The compiler is **`dist/rgrc.js`**, and it is committed. `npm run compile`
+  builds it from `compiler/*.rgr` with the current `dist/rgrc.js` and copies
+  `Lang.rgr` / `stdops.rgr` next to it. Nothing is written to `bin/output.js`
+  any more. `git checkout dist/rgrc.js` restores the last good build.
+- `RANGER_LIB` is not needed. `dist/rgrc.js` finds `Lang.rgr`, `stdops.rgr`
+  and `lib/` beside itself and in `../compiler/` and `../lib/`. The native
+  self-host builds (`npm run selfhost:build:*`) copy the library beside the
+  binary. Just run `node dist/rgrc.js -l=<target> file.rgr -d=<dir> -o=<name>`.
+- A user program compiled without `-d` is written to `bin/<name>.js` under the
+  current directory. That is program output, not the compiler; `bin/output.js`
+  is ignored and must not be committed.
+- `npm run selfhost:check:<target>` compiles the compiler for a target and
+  runs that target's compiler or syntax check over it (`cpp`, `go`, `java`,
+  `python`, `rust`, `llvm`, …).
+
+## Optionals
+
+- `if (!null? x) { … }` narrows `x` in the then block: `x.field` and
+  `x.method()` need no `unwrap` there, also under `-strict`. `&&` of `!null?`
+  checks narrows each one, and a path (`a.friend`) is narrowed as a whole.
+  `if x { … }` on an optional object is the same test.
+- Inside a narrowed block `def y:T x` takes the value: the compiler writes it
+  as `def y:T (unwrap x)`, so `y` is not optional and every target gets one
+  unwrap in its own spelling (`.value()`, `!`, `!!`, …). Writing
+  `(unwrap x)` yourself gives the same code; the unwrap is never doubled.
+- A class field declared without a value (`def output:Buffer`) is optional,
+  but `-strict` treats it as present when the constructor assigns it at its
+  top level (`output = …` or `this.output = …`, not inside an `if` or loop).
+  Inside the constructor that holds after the assigning statement. A local
+  copied from such a field (`def u:EVGUnit box.width`) counts as present too.
+- `def model@(late):T` is a field set by an attach / bind / init method before
+  it is read, like Kotlin's `lateinit`. `-strict` accepts reading it; the type
+  and the generated code stay optional. Use it only when the program really
+  sets it first; a field that may stay empty is `@(optional)` with checks.
+- The flow narrows too: the else branch of `if (null? x)`, the rest of the
+  block after `if (null? x) { return … }` (or `throw` / `break` / `continue`,
+  or an if/else that exits both ways), the rest after
+  `if (!null? x) { … } { return … }`, and after `x = <a value>`.
+  `(null? a) || (null? b)` narrows both. `x = <an optional>` ends it. This
+  narrowing is read by `-strict` and `def y:T x` only; generated code above
+  the check is unchanged. After `x = <a value>` only `-strict` relies on it:
+  `def y:T x` there keeps `y` optional, so an existing `(unwrap y)` still
+  compiles.
+- Not narrowed: `||` of `!null?` tests, `&&` of `null?` tests, and optional
+  `int` / `double` values (`(unwrap n)` is still needed for arithmetic).
+- A function whose body ends in an if/else that returns on both branches no
+  longer reports "Function does not return any values!".
+- Without `-strict` the compiler unwraps optionals automatically wherever
+  they are read, so a missing check is not reported. Use `-strict` to find
+  them. Every gallery entry point that compiles also compiles under `-strict`.
+- On C++ every `@(optional)` is a `std::optional<T>` (objects are
+  `std::optional<std::shared_ptr<T>>`, JSON objects and arrays
+  `std::optional<rg_json_obj>` / `std::optional<rg_json_arr>`); an optional
+  `boolean` and `charbuffer` stay bare. There is no `r_optional_primitive` any
+  more. Tests and docs that expect `NULL` checks or `r_optional_primitive`
+  describe the old output.
+
+## Generic classes
+
+- `class History @params(Op)` is type checked once per argument list
+  (`History@(int)` is the class `History_int` to the checker). On C++, Java,
+  C#, Kotlin, Scala, Dart, Go, TypeScript/JS, Python and PHP a template whose
+  body only stores, moves and returns its parameter values is written ONCE as
+  a generic class of the target (`template <class Op> class History`,
+  `History<int>`). Other templates, and every template on Rust, Swift and
+  LLVM, are written as one class per argument list.
+- `-generics-report` prints the decision per template; `-no-native-generics`
+  forces the copies. The check is `RangerFlowParser.checkNativeGenerics`; a
+  writer asks `ctx.isNativeGenericInstance(cl)` / `ctx.isWrittenClass(cl)`.
+
 ## Ranger language gotchas
 
 Ranger is **LISP / S-expression based**. Full answers with compiled output are in
@@ -85,17 +157,10 @@ Short form:
   not `([] _:T a b c)` (ISSUES.md #67). Untyped: `([] a b c)`.
 - **Integer division is `idiv`**, not `/` (real division).
 - **Elvis is prefix:** `(?? value fallback)`, not `(value ?? fallback)`.
-- **Do not name a method `toString`** — it can crash the compiler; use
-  `asString` / `getSymbol` instead (ISSUES.md).
-- **Some method names are reserved.** Defining `contains`, `startsWith`,
-  `endsWith`, `trim`, `first`, `last`, `remove`, `insert`, `write`, `read`,
-  `normalize`, `has` or `sqrt` on your own class compiles, but every call site
-  fails with `Class X does not have method …` — the compiler resolves those
-  names elsewhere. Rename (`hasSub`, `beginsWith`, `finishesWith`, `trimWs`,
-  `lowest`, `highest`, `removeNode`, `insertNode`, `toText`, `fromText`,
-  `collapse`, `mentions`, `squareRoot`). They were found one compile at a time
-  while writing `lib/evg/EVGPatch.rgr` and the Vega chart door; the list is
-  what has been hit, not what exists.
+- **Method names are not reserved any more.** `contains`, `startsWith`, `endsWith`, `trim`, `first`, `last`, `remove`, `insert`, `write`, `read`, `normalize`, `toString`, `has` and `sqrt` used to
+  compile on a class and then fail at every call site with
+  `Class X does not have method …`. They work now, with or without
+  arguments and through `this.` (checked on es6, C++, Go, Python and Rust).
 - **Arithmetic on a call result works** when the receiver is dotted:
   `(w - (Foo.bar() + 8))` parses. `(obj.method()).field` still does not — bind
   the object, then read the field.

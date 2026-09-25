@@ -29,7 +29,8 @@ held — the same verdict that gives Rust `struct Point` / `&Point`, which until
 now only the Rust writer read. A record something *does* alias keeps its
 `shared_ptr`, because that is what the language's reference semantics need.
 `@(optional)` is
-`r_optional_primitive<T>` / `r_optional_union<T>`, not `std::optional`.
+`std::optional<T>`, for objects (`std::optional<shared_ptr<T>>`), scalars
+and unions alike.
 A `shape` is `std::variant<Ok, shared_ptr<Err>>` — close, then the string
 case is a cell. A Ranger `Enum` **is** an `enum class` now, when every use in
 the program is one an `enum class` can carry. `@(weak optional)` is `r_weak<T>`
@@ -48,7 +49,7 @@ exception).
 | `for (const T& v : xs)` | `for xs v:T i` whose body ignores `i` and `xs` | exactly that |
 | `shared_ptr` alias | `def alias:Counter left` | `shared_ptr<Counter> alias = left` |
 | `weak_ptr` | `@(weak optional)` | `r_weak<T>` + `enable_shared_from_this` |
-| `std::optional<T>` | `@(optional)` | `r_optional_primitive<T>` |
+| `std::optional<T>` | `@(optional)` | exactly that |
 | `std::variant` / `std::expected` | `shape` | `std::variant<…>` (payload classes as `shared_ptr`) |
 | `enum class Color` | `Enum Color` | `enum class Color : int`, or `int` when a use does not fit |
 | `std::function<int(int)>` | `f:(fn:int (p:int))` | exactly that + `[&](int p) mutable` |
@@ -85,14 +86,14 @@ ownership[cpp] class Point -> value
 
 ### 02 — optionals and Result
 
-`str2int` → `cpp_str_to_int` returning `r_optional_primitive<int>`.
+`str2int` → `cpp_str_to_int` returning `std::optional<int>`.
 `ParseOutcome` is `std::variant<ParseOutcome_Ok, shared_ptr<ParseOutcome_Err>>`.
 `describe` uses `std::holds_alternative` / `std::get`. Not
 `std::expected<int, std::string>`.
 
 An optional `string` used to be the odd one out — a plain `std::string`, with
 `null?` an emptiness test, so a program that stored `""` read it back as
-absent. **Fixed**: it is an `r_optional_primitive<std::string>` like every
+absent. **Fixed**: it is a `std::optional<std::string>` like every
 other optional scalar, and study 11 is the study that asks.
 
 ### 03 — enums and match
@@ -140,7 +141,7 @@ the tell.
 
 ### 06 — generics
 
-`Stack_int` / `Stack_string`. `peek` needs `r_optional_primitive<int>`.
+`Stack_int` / `Stack_string`. `peek` returns `std::optional<int>`.
 The writer used to define that class only when `str2int` (or a sibling)
 appeared, so the shared source carried a `_optionalInt` helper nothing
 called. **Fixed**: the definition is emitted where the type is, and the

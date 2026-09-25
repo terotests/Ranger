@@ -468,6 +468,35 @@ public class RgJson {
 " true)
   }
 
+  ; --- native generics: `class History<Op>`, used as `History<Integer>` ---
+  fn javaClassRef:string (cl:RangerAppClassDesc ctx:RangerAppWriterContext wr:CodeWriter) {
+    if cl.is_type_param {
+      return cl.type_param_name
+    }
+    if (ctx.isNativeGenericInstance(cl)) {
+      def res:string (cl.generic_template + "<")
+      for cl.generic_args a:string i {
+        if (i > 0) {
+          res = (res + ", ")
+        }
+        res = (res + (this.getObjectTypeString2(a ctx wr)))
+      }
+      return (res + ">")
+    }
+    return cl.name
+  }
+  fn genericClassRef:string (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    ; a type argument's system import has no writer to land in here
+    def scratchWr:CodeWriter (new CodeWriter ())
+    return (this.javaClassRef(cl ctx scratchWr))
+  }
+  fn javaDeclName:string (cl:RangerAppClassDesc) {
+    if cl.is_generic_form {
+      return cl.generic_template
+    }
+    return cl.name
+  }
+
   fn getObjectTypeString2:string (type_string:string ctx:RangerAppWriterContext wr:CodeWriter) {
     ; A map whose VALUE is itself a collection arrives here in the RANGER
     ; spelling -- `[string]` for an array, `[string:int]` for a map -- because
@@ -517,6 +546,9 @@ public class RgJson {
     }
     if(ctx.isDefinedClass(type_string)) {
       def cc (ctx.findClass(type_string))
+      if (cc.is_type_param || (ctx.isNativeGenericInstance(cc))) {
+        return (this.javaClassRef(cc ctx wr))
+      }
       if(cc.is_system) {
         def current_sys (ctx)
         def sName (unwrap (get cc.systemNames "java7"))
@@ -609,8 +641,9 @@ public class RgJson {
           }
 
           if( ( has iface_created iface_name) == false ) {
-            def fnNode (itemAt node.expression_value.children 0)
-            def args (itemAt node.expression_value.children 1)
+            def lambdaExpression:CodeNode (unwrap node.expression_value)
+            def fnNode (itemAt lambdaExpression.children 0)
+            def args (itemAt lambdaExpression.children 1)
             set iface_created iface_name true
             def iface_dir "."
             if( this.isPackaged(ctx)) {
@@ -715,8 +748,9 @@ public class RgJson {
           ; wr.addImport( ((package_name) + ".interfaces.*") )
 
           if( ( has iface_created iface_name) == false ) {
-            def fnNode (itemAt node.expression_value.children 0)
-            def args (itemAt node.expression_value.children 1)
+            def lambdaExpression:CodeNode (unwrap node.expression_value)
+            def fnNode (itemAt lambdaExpression.children 0)
+            def args (itemAt lambdaExpression.children 1)
             set iface_created iface_name true
             def iface_dir "."
             if( this.isPackaged(ctx)) {
@@ -801,6 +835,10 @@ public class RgJson {
   ;        print "Type == " + t_name
           if(ctx.isDefinedClass(t_name)) {
             def cc (ctx.findClass(t_name))
+            if (cc.is_type_param || (ctx.isNativeGenericInstance(cc))) {
+              wr.out((this.javaClassRef(cc ctx wr)) false)
+              return
+            }
             if(cc.is_union) {
               wr.out("Object" false)
               b_object_set = true
@@ -844,7 +882,7 @@ public class RgJson {
     if (node.vref == "this") {
       if( ctx.inLambda() ) {
         def currC (ctx.getCurrentClass())
-        wr.out( (currC.name + ".this") false)
+        wr.out( ((this.javaDeclName((unwrap currC))) + ".this") false)
       } {
         wr.out("this" false)
       } 
@@ -879,7 +917,8 @@ public class RgJson {
 
         if (i == 0) {
           def p_captured_mutable ( (p.set_cnt > 0 ) && (p.is_captured)  && (p.is_class_variable == false)) 
-          if( p.nameNode.value_type == RangerNodeType.Hash || p.nameNode.value_type == RangerNodeType.Array ) {
+          def parameterName:CodeNode (unwrap p.nameNode)
+          if(parameterName.value_type == RangerNodeType.Hash || parameterName.value_type == RangerNodeType.Array ) {
             p_captured_mutable = false
           }
           
@@ -887,10 +926,10 @@ public class RgJson {
           if(part == "this") {
             if( ctx.inLambda() ) {
               def currC (ctx.getCurrentClass())
-              wr.out( (currC.name + ".this") false)
+              wr.out( ((this.javaDeclName((unwrap currC))) + ".this") false)
             } {
               def currC (ctx.getCurrentClass())
-              wr.out( (currC.name + ".this") false)
+              wr.out( ((this.javaDeclName((unwrap currC))) + ".this") false)
             }            
             continue
           } 
@@ -923,10 +962,11 @@ public class RgJson {
       return
     }
     if node.hasParamDesc {
-      def p:RangerAppParamDesc node.paramDesc
+      def p:RangerAppParamDesc (unwrap node.paramDesc)
+      def parameterName:CodeNode (unwrap p.nameNode)
       wr.out(p.compiledName false)
       def p_captured_mutable ( (p.set_cnt > 0 ) && (p.is_captured)  && (p.is_class_variable == false) )
-      if( p.nameNode.value_type == RangerNodeType.Hash || p.nameNode.value_type == RangerNodeType.Array ) {
+      if(parameterName.value_type == RangerNodeType.Hash || parameterName.value_type == RangerNodeType.Array ) {
         p_captured_mutable = false
       }
       if( p_captured_mutable ) {
@@ -942,7 +982,7 @@ public class RgJson {
       if(part == "this") {
         if( ctx.inLambda() ) {
           def currC (ctx.getCurrentClass())
-          wr.out( (currC.name + ".this") false)
+          wr.out( ((this.javaDeclName((unwrap currC))) + ".this") false)
           continue
         }  
       }          
@@ -1132,7 +1172,9 @@ public class RgJson {
     if (javaLoops.canIterate(node)) {
       wr.out("for ( " false)
       if item.hasParamDesc {
-        this.writeTypeDef((unwrap item.paramDesc.nameNode) ctx wr)
+        def itemDesc:RangerAppParamDesc (unwrap item.paramDesc)
+        def itemName:CodeNode (unwrap itemDesc.nameNode)
+        this.writeTypeDef(itemName ctx wr)
       } {
         this.writeTypeDef(item ctx wr)
       }
@@ -1162,7 +1204,9 @@ public class RgJson {
     wr.out("++) {" true)
     wr.indent(1)
     if item.hasParamDesc {
-      this.writeTypeDef((unwrap item.paramDesc.nameNode) ctx wr)
+      def itemDesc:RangerAppParamDesc (unwrap item.paramDesc)
+      def itemName:CodeNode (unwrap itemDesc.nameNode)
+      this.writeTypeDef(itemName ctx wr)
     } {
       this.writeTypeDef(item ctx wr)
     }
@@ -1228,19 +1272,24 @@ public class RgJson {
     def rv:CodeNode 
     def args:CodeNode
     if( (!null? fName.expression_value) ) {
-      rv  = ( itemAt fName.expression_value.children 0)
-      args  = ( itemAt fName.expression_value.children 1)      
+      def lambdaExpression:CodeNode (unwrap fName.expression_value)
+      rv  = (itemAt lambdaExpression.children 0)
+      args  = (itemAt lambdaExpression.children 1)
     } {
-      def param (ctx.getVariableDef(fName.vref))
-      rv  = ( itemAt param.nameNode.expression_value.children 0)
-      args  = ( itemAt param.nameNode.expression_value.children 1)
+      def paramOpt@(optional):RangerAppParamDesc (ctx.getVariableDef(fName.vref))
+      def param:RangerAppParamDesc (unwrap paramOpt)
+      def parameterName:CodeNode (unwrap param.nameNode)
+      def lambdaExpression:CodeNode (unwrap parameterName.expression_value)
+      rv  = (itemAt lambdaExpression.children 0)
+      args  = (itemAt lambdaExpression.children 1)
     }
 
     this.WalkNode(fName ctx wr)
 
     wr.out(".run(" false)
     ctx.setInExpr()
-    for args.children arg:CodeNode i {
+    def lambdaArgs:CodeNode (unwrap args)
+    for lambdaArgs.children arg:CodeNode i {
         def n:CodeNode (itemAt givenArgs.children i)
         if (i > 0) {
           wr.out(", " false)
@@ -1416,7 +1465,7 @@ public class RgJson {
         package_end = ".immutables"
       }
     }
-    def wr:CodeWriter (orig_wr.getFileWriter(class_dir (cl.name + ".java")))
+    def wr:CodeWriter (orig_wr.getFileWriter(class_dir ((this.javaDeclName((unwrap cl))) + ".java")))
     def package_name (ctx.getCompilerSetting("package"))
 
     if( this.isPackaged(ctx)) {
@@ -1464,7 +1513,8 @@ public class RgJson {
     this.writeJavaTraitInterfaces(ctx orig_wr)
     this.writeJavaJsonSupport(ctx orig_wr)
     wr.out("" true)
-    wr.out(("public class " + cl.name) false)
+    ; a generic form is declared as the template over its parameters
+    wr.out(("public class " + (this.javaClassRef((unwrap cl) ctx wr))) false)
     if ( ( array_length cl.extends_classes ) > 0 ) { 
       wr.out(" extends " false)
       for cl.extends_classes pName:string i {
@@ -1496,7 +1546,7 @@ public class RgJson {
     if cl.has_constructor {
       def constr:RangerAppFunctionDesc cl.constructor_fn
       wr.out("" true)
-      wr.out((cl.name + "(") false)
+      wr.out(((this.javaDeclName((unwrap cl))) + "(") false)
       this.writeArgsDef( (unwrap constr) ctx wr)
       wr.out(" ) {" true)
       wr.indent(1)
@@ -1554,10 +1604,12 @@ public class RgJson {
     }
     for cl.static_methods variant:RangerAppFunctionDesc i {
       wr.out("" true)
-      if ( (variant.nameNode.hasFlag("main")) && (variant.nameNode.code.filename != (ctx.getRootFile()))) {     
+      def variantName:CodeNode (unwrap variant.nameNode)
+      def variantCode:SourceCode (unwrap variantName.code)
+      if ((variantName.hasFlag("main")) && (variantCode.filename != (ctx.getRootFile()))) {     
         continue 
       }
-      if (variant.nameNode.hasFlag("main")) {
+      if (variantName.hasFlag("main")) {
         ctx.setCompilerSetting( 'mainclass' (cl.name) )
         this.writeJavaArgsHolder(ctx orig_wr)
         wr.out("public static void main(String [] args ) {" true)

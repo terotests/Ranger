@@ -9,6 +9,9 @@ class RangerPythonClassWriter {
   def compiler:LiveCompiler
   def thisName:string "self"
   def wrote_header:boolean false
+  ; TypeVars already declared for native generic classes
+  def pyTypeVarsWritten:[string]
+  def pyGenericImported:boolean false
 
   ; which Ranger `Enum`s survive as a Python `IntEnum` rather than a bare int.
   ; Same question Rust and C++ ask: compiler/EnumAnalysis.rgr.
@@ -471,16 +474,21 @@ class RangerPythonClassWriter {
 
     def args:CodeNode
     if( (!null? fName.expression_value) ) {
-      args = ( itemAt fName.expression_value.children 1)      
+      def lambdaExpression:CodeNode (unwrap fName.expression_value)
+      args = (itemAt lambdaExpression.children 1)
     } {
-      def param (ctx.getVariableDef(fName.vref))
-      args = ( itemAt param.nameNode.expression_value.children 1)
+      def paramOpt@(optional):RangerAppParamDesc (ctx.getVariableDef(fName.vref))
+      def param:RangerAppParamDesc (unwrap paramOpt)
+      def parameterName:CodeNode (unwrap param.nameNode)
+      def lambdaExpression:CodeNode (unwrap parameterName.expression_value)
+      args = (itemAt lambdaExpression.children 1)
     }
     ctx.setInExpr()
     this.WalkNode(fName ctx wr)
     wr.out('(' false)
 
-    for args.children arg:CodeNode i {
+    def lambdaArgs:CodeNode (unwrap args)
+    for lambdaArgs.children arg:CodeNode i {
       def n:CodeNode (itemAt givenArgs.children i)
       if (i > 0) {
         wr.out(', ' false)
@@ -757,6 +765,24 @@ class RangerPythonClassWriter {
       if cc.is_generic_instance {
         return ""
       }
+      ; native generics: `History[int]`, and a type parameter by its name
+      if cc.is_type_param {
+        return cc.type_param_name
+      }
+      if (ctx.isNativeGenericInstance(cc)) {
+        def gres:string (cc.generic_template + "[")
+        for cc.generic_args ga:string gai {
+          def gp:string (this.pyTypeNameFor(ga ctx))
+          if ((strlen gp) == 0) {
+            return cc.generic_template
+          }
+          if (gai > 0) {
+            gres = (gres + ", ")
+          }
+          gres = (gres + gp)
+        }
+        return (gres + "]")
+      }
       return tn
     }
     def eDef@(optional):RangerAppEnum ((ctx.getRoot()).getEnum(tn))
@@ -950,12 +976,14 @@ class RangerPythonClassWriter {
       wr.out("(" false)
       def givenArgs:CodeNode (node.getSecond())
       ctx.setInExpr()
-      for node.fnDesc.params arg:RangerAppParamDesc i {
+      def fnDesc:RangerAppFunctionDesc (unwrap node.fnDesc)
+      for fnDesc.params arg:RangerAppParamDesc i {
         if (i > 0) {
           wr.out(", " false)
         }
         if( (array_length givenArgs.children) <= i) {
-          def defVal@(optional):CodeNode (arg.nameNode.getFlag("default"))
+          def argumentName:CodeNode (unwrap arg.nameNode)
+          def defVal@(optional):CodeNode (argumentName.getFlag("default"))
           if (!null? defVal) {
             def fc:CodeNode (defVal.vref_annotation.getFirst())
             this.WalkNode(fc ctx wr)
@@ -977,9 +1005,14 @@ class RangerPythonClassWriter {
 
   fn writeNewCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.hasNewOper {
-      def cl:RangerAppClassDesc node.clDesc
+      def cl:RangerAppClassDesc (unwrap node.clDesc)
       def fc:CodeNode (node.getSecond())
-      wr.out(node.clDesc.name false)
+      ; every instance of a native generic class is the one class
+      if (ctx.isNativeGenericInstance(cl)) {
+        wr.out(cl.generic_template false)
+      } {
+        wr.out(cl.name false)
+      }
       wr.out("(" false)
       def constr:RangerAppFunctionDesc cl.constructor_fn
       def givenArgs:CodeNode (node.getThird())
@@ -1025,8 +1058,9 @@ class RangerPythonClassWriter {
       ; original name, so a chained `r.str(...)` called a method that does not
       ; exist. Every other writer reads compiledName here; Python did not.
       def pyMethodName:string method.vref
-      if ((!null? node.fnDesc) && ((strlen node.fnDesc.compiledName) > 0)) {
-        pyMethodName = node.fnDesc.compiledName
+      def fnDesc:RangerAppFunctionDesc (unwrap node.fnDesc)
+      if ((strlen fnDesc.compiledName) > 0) {
+        pyMethodName = fnDesc.compiledName
       }
       wr.out(pyMethodName false)
       wr.out("(" false)
@@ -1076,7 +1110,30 @@ class RangerPythonClassWriter {
     this.writePythonNativeEnums(ctx wr)
     this.writePythonTraitProtocols(ctx wr)
 
-    wr.out(("class " + cl.name) false)
+    ; a generic form is `class History(Generic[Op])`, its parameters TypeVars
+    def pyGenericBase:string ""
+    if cl.is_generic_form {
+      if (pyGenericImported == false) {
+        wr.out("from typing import Generic, TypeVar" true)
+        pyGenericImported = true
+      }
+      pyGenericBase = "Generic["
+      for cl.generic_args ga:string gai {
+        def tvName:string (this.pyTypeNameFor(ga ctx))
+        if ((indexOf pyTypeVarsWritten tvName) < 0) {
+          push pyTypeVarsWritten tvName
+          wr.out((((tvName + " = TypeVar(\"") + tvName) + "\")") true)
+        }
+        if (gai > 0) {
+          pyGenericBase = (pyGenericBase + ", ")
+        }
+        pyGenericBase = (pyGenericBase + tvName)
+      }
+      pyGenericBase = (pyGenericBase + "]")
+      wr.out(("class " + cl.generic_template) false)
+    } {
+      wr.out(("class " + cl.name) false)
+    }
     def parentClass:RangerAppClassDesc  
     if ( ( array_length cl.extends_classes ) > 0 ) { 
       wr.out("(" false)
@@ -1084,7 +1141,14 @@ class RangerPythonClassWriter {
         wr.out(pName false)
         parentClass = (ctx.findClass(pName))
       }
+      if ((strlen pyGenericBase) > 0) {
+        wr.out((", " + pyGenericBase) false)
+      }
       wr.out(")" false)
+    } {
+      if ((strlen pyGenericBase) > 0) {
+        wr.out((("(" + pyGenericBase) + ")") false)
+      }
     }    
     wr.out(":" true)
     wr.indent(1)
@@ -1114,11 +1178,12 @@ class RangerPythonClassWriter {
     wr.indent(1)
 
     def wroteSuper:boolean false
-    if(parentClass) {
+    if(!null? parentClass) {
+      def parent:RangerAppClassDesc (unwrap parentClass)
       wroteSuper = true
       ; Pass parent constructor arguments to super().__init__()
-      if (parentClass.has_constructor) {
-        def parentConstr:RangerAppFunctionDesc (unwrap parentClass.constructor_fn)
+      if (parent.has_constructor) {
+        def parentConstr:RangerAppFunctionDesc (unwrap parent.constructor_fn)
         wr.out("super().__init__(" false)
         for parentConstr.params arg:RangerAppParamDesc i {
           if (i > 0) {
@@ -1297,7 +1362,9 @@ class RangerPythonClassWriter {
     for cl.static_methods variant:RangerAppFunctionDesc i {
       ctx.disableCurrentClass()
       ctx.in_static_method = true
-      if ( (variant.nameNode.hasFlag("main")) && (variant.nameNode.code.filename == (ctx.getRootFile()))) {
+      def variantName:CodeNode (unwrap variant.nameNode)
+      def variantCode:SourceCode (unwrap variantName.code)
+      if ((variantName.hasFlag("main")) && (variantCode.filename == (ctx.getRootFile()))) {
         wr.out("# Main entry point" true)
         wr.out("def main():" true)
         wr.indent(1)

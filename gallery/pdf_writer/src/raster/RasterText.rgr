@@ -78,7 +78,7 @@ class GlyphOutline {
 
 ; Text rasterizer class
 class RasterText {
-    def font:TrueTypeFont
+    def font@(late):TrueTypeFont
     def compositor:RasterCompositor (new RasterCompositor())
 
     ; Per-glyph diagnostic logging. OFF by default: the debug prints below sit in
@@ -663,7 +663,7 @@ class RasterText {
             ; Which face draws this cluster. Without a manager the rasterizer
             ; behaves exactly as it did before and draws .notdef.
             def face:TrueTypeFont font
-            if hasFallbackManager {
+            if (!null? fallbackManager) {
                 def found:TrueTypeFont (fallbackManager.faceForClusterFrom((unwrap font) cps i end))
                 ; Nothing loaded has this codepoint: the manager says so by
                 ; handing back an UNLOADED face, and switching to it reads

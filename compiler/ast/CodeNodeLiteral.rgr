@@ -1,0 +1,27 @@
+Import "RangerAppEnums.rgr"
+
+class CodeNodeLiteral @serialize(true) {
+  def expression:boolean false
+  def vref:string ""
+  def is_block_node:boolean false
+  def type_name:string ""
+  def key_type:string ""
+  def array_type:string ""
+  def ns:[string]
+  def has_vref_annotation:boolean false
+  def vref_annotation:CodeNodeLiteral
+  def has_type_annotation:boolean false
+  def type_annotation:CodeNodeLiteral
+  def parsed_type:RangerNodeType RangerNodeType.NoType
+  def value_type:RangerNodeType RangerNodeType.NoType
+  def double_value:double 0.0
+  def string_value:string ""
+  def int_value:int 0
+  def boolean_value:boolean false
+  def expression_value:CodeNodeLiteral
+  def props:[string:CodeNodeLiteral]
+  def prop_keys:[string]
+  def comments:[CodeNodeLiteral]
+  def children:[CodeNodeLiteral]
+  def attrs:[CodeNodeLiteral]
+}

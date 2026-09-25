@@ -9,6 +9,13 @@ class SliceMain;
 
 
 
+// reads a property through an optional object, returning the property's default value when absent
+template <class O, class F> auto rg_optional_access(const O& value, F accessor) {
+  using R = decltype(accessor(value.value()));
+  if (value.has_value()) { return accessor(value.value()); }
+  return R{};
+}
+
 // header definitions
 class TextTools { 
   public :
@@ -43,7 +50,7 @@ int  TextTools::total( const std::vector<int>& xs ) {
   return acc;
 }
 std::string  TextTools::firstChar( const std::string& s ) {
-  if ( ((int)(s.length())) == 0 ) {
+  if (((int)(s.length())) == 0) {
     return std::string("");
   }
   return s.substr(0, 1 - 0);

@@ -10,13 +10,17 @@ class BuilderMain;
 
 
 
+// reads a property through an optional object, returning the property's default value when absent
+template <class O, class F> auto rg_optional_access(const O& value, F accessor) {
+  using R = decltype(accessor(value.value()));
+  if (value.has_value()) { return accessor(value.value()); }
+  return R{};
+}
+
 // header definitions
 class Request { 
   public :
-    std::string host;
-    std::string path;
-    int port;
-    /* class constructor */ 
+    std::string host;std::string path;int port;/* class constructor */ 
     Request( const std::string& host , const std::string& path , int port  );
 };
 class RequestBuild { 
@@ -31,10 +35,7 @@ class RequestBuild {
 };
 class MutRequest : public std::enable_shared_from_this<MutRequest>  { 
   public :
-    std::string host;
-    std::string path;
-    int port;
-    /* class constructor */ 
+    std::string host;std::string path;int port;/* class constructor */ 
     MutRequest( );
     /* instance methods */ 
     std::shared_ptr<MutRequest> withHost( const std::string& h );

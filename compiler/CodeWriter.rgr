@@ -776,12 +776,14 @@ class CodeFile {
     }
 
     fn getWriter@(weak optional):CodeWriter () {
-        writer.ownerFile = this
+        def fileWriter:CodeWriter (unwrap writer)
+        fileWriter.ownerFile = this
         return writer
     }
 
     fn getCode:string () {
-        return (writer.getCode())
+        def fileWriter:CodeWriter (unwrap writer)
+        return (fileWriter.getCode())
     }
 
 }
@@ -1070,7 +1072,8 @@ class CodeWriter {
             }
             return (new CodeFileSystem())
         }
-        def fs:CodeFileSystem ownerFile.fileSystem
+        def file:CodeFile (unwrap ownerFile)
+        def fs:CodeFileSystem file.fileSystem
         return (unwrap fs)       
     }
 
@@ -1082,7 +1085,8 @@ class CodeWriter {
             ; functions should be able to raise exceptions too
             ; throw "File writer not defined"
         }
-        def fs:CodeFileSystem ownerFile.fileSystem
+        def fileOwner:CodeFile (unwrap ownerFile)
+        def fs:CodeFileSystem fileOwner.fileSystem
         def file:CodeFile (fs.getFile(path fileName))
         def wr@(optional):CodeWriter (file.getWriter())
         return (unwrap wr)
@@ -1377,7 +1381,8 @@ class CodeWriter {
         currentLine = lineBefore + str
         this.advanceColumnForString(str)
         if newLine {
-            current_slice.code = current_slice.code + currentLine + nlStr
+            def slice:CodeSlice (unwrap current_slice)
+            slice.code = slice.code + currentLine + nlStr
             currentLine = ""
             lineNumber = lineNumber + 1
             columnNumber = 0

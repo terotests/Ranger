@@ -136,10 +136,12 @@ class LiveCompiler {
       }
     }
     if (!null? langWriter) {
-      langWriter.compiler = this
+      def selectedWriter:RangerGenericClassWriter (unwrap langWriter)
+      selectedWriter.compiler = this
     } {
-      langWriter = (new RangerGenericClassWriter ())
-      langWriter.compiler = this
+      def genericWriter:RangerGenericClassWriter (new RangerGenericClassWriter ())
+      langWriter = genericWriter
+      genericWriter.compiler = this
     }
   }
 fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
@@ -1083,7 +1085,18 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
             if mutTarget {
               ctx.setInLhs()
             }
+            def explicitUnwrap:boolean false
+            if ((idx == 1) && ((array_length node.children) > 0)) {
+              def opN:CodeNode (node.getFirst())
+              if (opN.vref == "unwrap") {
+                explicitUnwrap = true
+                ctx.suppressAutoUnwrap()
+              }
+            }
             this.WalkNode(arg ctx wr)
+            if explicitUnwrap {
+              ctx.restoreAutoUnwrap()
+            }
             if mutTarget {
               ctx.unsetInLhs()
             }
@@ -1579,7 +1592,8 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
               }
             } {
               if arg.hasParamDesc {
-                isRead = (arg.paramDesc.ref_cnt != 0)
+                def argDesc:RangerAppParamDesc (unwrap arg.paramDesc)
+                isRead = (argDesc.ref_cnt != 0)
               }
             }
             if (isRead == false) {
@@ -1633,7 +1647,9 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
           if ((array_length node.children) > idx) {
             def arg:CodeNode (itemAt node.children idx)
             if arg.hasParamDesc {
-              def ss:string (langWriter.getObjectTypeString(arg.paramDesc.nameNode.key_type ctx))
+              def argDesc:RangerAppParamDesc (unwrap arg.paramDesc)
+              def argumentName:CodeNode (unwrap argDesc.nameNode)
+              def ss:string (langWriter.getObjectTypeString(argumentName.key_type ctx))
               wr.out(ss false)
             } {
               def ss:string (langWriter.getObjectTypeString(arg.key_type ctx))
@@ -1646,7 +1662,9 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
           if ((array_length node.children) > idx) {
             def arg:CodeNode (itemAt node.children idx)
             if arg.hasParamDesc {
-              def ss:string (langWriter.getObjectTypeString(arg.paramDesc.nameNode.array_type ctx))
+              def argDesc:RangerAppParamDesc (unwrap arg.paramDesc)
+              def argumentName:CodeNode (unwrap argDesc.nameNode)
+              def ss:string (langWriter.getObjectTypeString(argumentName.array_type ctx))
               wr.out(ss false)
             } {
               def ss:string (langWriter.getObjectTypeString(arg.array_type ctx))
@@ -1659,7 +1677,9 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
           if ((array_length node.children) > idx) {
             def arg:CodeNode (itemAt node.children idx)
             if arg.hasParamDesc {
-              def ss:string (langWriter.getObjectTypeString(arg.paramDesc.nameNode.array_type ctx))
+              def argDesc:RangerAppParamDesc (unwrap arg.paramDesc)
+              def argumentName:CodeNode (unwrap argDesc.nameNode)
+              def ss:string (langWriter.getObjectTypeString(argumentName.array_type ctx))
               wr.out((this.typeNameToIdentifier(ss)) false)
             } {
               def ss:string (langWriter.getObjectTypeString(arg.array_type ctx))
@@ -1874,22 +1894,26 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
                 ctx.addError(obj ('Error, no description for called object: ' + strname))
                 break _
               }
+              def resolvedClassRef:RangerAppParamDesc (unwrap classRefDesc)
               if set_nsp {
-                push obj.nsp (unwrap classRefDesc)
+                push obj.nsp resolvedClassRef
               }
-              classRefDesc.ref_cnt = (1 + classRefDesc.ref_cnt)
-              classDesc = (ctx.findClass(classRefDesc.nameNode.type_name))
+              resolvedClassRef.ref_cnt = (1 + resolvedClassRef.ref_cnt)
+              def resolvedName:CodeNode (unwrap resolvedClassRef.nameNode)
+              classDesc = (ctx.findClass(resolvedName.type_name))
             }
           } {
             if (i < (cnt - 1)) {
               varDesc = (classDesc.findVariable(strname))
               if (null? varDesc) {
                 ctx.addError(obj ('Error, no description for refenced obj: ' + strname))
-              }
-              def subClass:string (varDesc.getTypeName())
-              classDesc = (ctx.findClass(subClass))
-              if set_nsp {
-                push obj.nsp (unwrap varDesc)
+              } {
+                def resolvedVar:RangerAppParamDesc (unwrap varDesc)
+                def subClass:string (resolvedVar.getTypeName())
+                classDesc = (ctx.findClass(subClass))
+                if set_nsp {
+                  push obj.nsp resolvedVar
+                }
               }
               continue _
             }
@@ -1919,12 +1943,13 @@ fn EncodeString:string (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) 
         return varDesc
       }
       varDesc = (ctx.getVariableDef(obj.vref))
-      if (!null? varDesc.nameNode) {
+      if (!null? varDesc) {
+        def resolvedVar:RangerAppParamDesc (unwrap varDesc)
+        if (!null? resolvedVar.nameNode) {
+          return varDesc
+        }
       } {
         print ('findParamDesc : description not found for ' + obj.vref)
-        if (!null? varDesc) {
-          print ('Vardesc was found though...' + varDesc.name)
-        }
         ctx.addError(obj ('Error, no description for called object: ' + obj.vref))
       }
       return varDesc

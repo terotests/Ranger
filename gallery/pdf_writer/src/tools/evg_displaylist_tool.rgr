@@ -27,7 +27,7 @@ class EVGDisplayListTool {
     def outputFile:string ""
     def pageWidth:double 595.0
     def pageHeight:double 842.0
-    def styles:EVGStyleLoader
+    def styles@(late):EVGStyleLoader
     def fontsOverride:string ""
 
     sfn m@(main):void () {

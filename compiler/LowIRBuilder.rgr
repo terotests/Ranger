@@ -211,7 +211,8 @@ class LowIRBuilderPass {
     }
     def nn (unwrap fnDesc.nameNode)
     if (nn.hasFlag("main")) {
-      if (nn.code.filename == (ctx.getRootFile())) {
+      def sourceCode:SourceCode (unwrap nn.code)
+      if (sourceCode.filename == (ctx.getRootFile())) {
         return true
       }
     }
@@ -1357,7 +1358,7 @@ class LowIRBuilderPass {
     return "int"
   }
 
-  ; The ANSI escape operators of CLIProgress. Each is a constant string; they
+  ; The ANSI escape operators of CLIConsole. Each is a constant string; they
   ; all carry a `*` template (the empty string), so they type checked here and
   ; then emitted their own name as a value. The escapes match the es6 and cpp
   ; templates rather than the empty fallback -- a native build writes to a
@@ -3009,10 +3010,11 @@ class LowIRBuilderPass {
   ; Has the block being written already ended (return / break / continue)?
   ; Everything after that in the same statement list is unreachable.
   fn blockClosed:boolean (lctx:LowIRLowerContext) {
-    if (null? lctx.builder.currentBlock) {
+    def builder:LowIRBuilder lctx.builder
+    if (null? builder.currentBlock) {
       return false
     }
-    def cur (unwrap lctx.builder.currentBlock)
+    def cur (unwrap builder.currentBlock)
     return (cur.termKind != "")
   }
 

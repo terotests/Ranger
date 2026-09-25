@@ -1991,7 +1991,8 @@ extension RangerRustClassWriter {
               wr.out("(" false)
               ; a receiverless method still takes the hidden receiver handle
               def retSelfRc:boolean (this.writeSelfRcReceiverArg(retVal retFc ctx wr))
-              for retVal.fnDesc.params arg:RangerAppParamDesc i {
+              def retFn:RangerAppFunctionDesc (unwrap retVal.fnDesc)
+              for retFn.params arg:RangerAppParamDesc i {
                 if ((i > 0) || retSelfRc) {
                   wr.out(", " false)
                 }
@@ -2378,8 +2379,9 @@ extension RangerRustClassWriter {
       ; Get the array type to check if it's a string array
       def arr_type:string ""
       if left.hasParamDesc {
-        def pp:RangerAppParamDesc left.paramDesc
-        arr_type = pp.nameNode.array_type
+        def pp:RangerAppParamDesc (unwrap left.paramDesc)
+        def parameterName:CodeNode (unwrap pp.nameNode)
+        arr_type = parameterName.array_type
       }
       
       ; …and the answer the static analysis already has: when this operand is
@@ -2979,7 +2981,8 @@ extension RangerRustClassWriter {
     if useIter {
       def needsMut:boolean false
       if item.hasParamDesc {
-        if (item.paramDesc.set_cnt > 0) {
+        def itemDesc:RangerAppParamDesc (unwrap item.paramDesc)
+        if (itemDesc.set_cnt > 0) {
           needsMut = true
         }
       }

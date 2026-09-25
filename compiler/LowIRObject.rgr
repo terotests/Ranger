@@ -524,13 +524,15 @@ extension LowIRBuilderPass {
   }
 
   fn lowerSingletonAccessor:void (cl:RangerAppClassDesc appCtx:RangerAppWriterContext) {
-    def builder@(lives):LowIRBuilder (new LowIRBuilder(this.irModule))
+    def module:LowIRModule this.irModule
+    def builder@(lives):LowIRBuilder (new LowIRBuilder(module))
     builder.reset()
     def lctx@(lives):LowIRLowerContext (new LowIRLowerContext())
     lctx.ctx = appCtx
     lctx.builder = builder
     lctx.target = (LowIRTarget.resolve(appCtx))
-    lctx.ptrType = lctx.target.ptrType
+    def target:LowIRTarget lctx.target
+    lctx.ptrType = target.ptrType
     def emptySlots:[string:string]
     lctx.slots = emptySlots
     def emptySlotTypes:[string:string]
@@ -687,7 +689,8 @@ extension LowIRBuilderPass {
             if (!null? node.fnDesc) {
               def rfd2 (unwrap node.fnDesc)
               if (!null? rfd2.container_class) {
-                def ccn:string rfd2.container_class.name
+                def containerClass:RangerAppClassDesc (unwrap rfd2.container_class)
+                def ccn:string containerClass.name
                 if (this.isObjectTypeName(ccn)) {
                   opRecvCls = ccn
                 }
@@ -991,7 +994,8 @@ extension LowIRBuilderPass {
       def fd (unwrap node.fnDesc)
       methName = fd.name
       if ((strlen className) == 0) {
-        className = fd.container_class.name
+        def containerClass:RangerAppClassDesc (unwrap fd.container_class)
+        className = containerClass.name
       }
     }
     ; Methods are NOT inherited into the derived class's emitted functions --
@@ -1007,8 +1011,9 @@ extension LowIRBuilderPass {
     if ((strlen ownerCls) == 0) {
       def missRet:string "i32"
       if (!null? node.fnDesc) {
-        if (!null? node.fnDesc.nameNode) {
-          def mrn (unwrap node.fnDesc.nameNode)
+        def fnDesc:RangerAppFunctionDesc (unwrap node.fnDesc)
+        if (!null? fnDesc.nameNode) {
+          def mrn (unwrap fnDesc.nameNode)
           missRet = (this.llvmTypeForRanger(mrn.type_name lctx.ptrType))
         }
       }
@@ -1034,8 +1039,9 @@ extension LowIRBuilderPass {
     def voidType:string "void"
     def retType:string "i32"
     if (!null? node.fnDesc) {
-      if (!null? node.fnDesc.nameNode) {
-        def rn (unwrap node.fnDesc.nameNode)
+      def fnDesc:RangerAppFunctionDesc (unwrap node.fnDesc)
+      if (!null? fnDesc.nameNode) {
+        def rn (unwrap fnDesc.nameNode)
         retType = (this.llvmTypeForRanger(rn.type_name lctx.ptrType))
       }
     } {

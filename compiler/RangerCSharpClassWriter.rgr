@@ -125,6 +125,27 @@ class RangerCSharpClassWriter {
     }
   }
 
+  ; --- native generics: `class History<Op>`, used as `History<int>` ---
+  fn csClassRef:string (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    if cl.is_type_param {
+      return cl.type_param_name
+    }
+    if (ctx.isNativeGenericInstance(cl)) {
+      def res:string (cl.generic_template + "<")
+      for cl.generic_args a:string i {
+        if (i > 0) {
+          res = (res + ", ")
+        }
+        res = (res + (this.getObjectTypeString(a ctx)))
+      }
+      return (res + ">")
+    }
+    return cl.name
+  }
+  fn genericClassRef:string (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    return (this.csClassRef(cl ctx))
+  }
+
   fn getObjectTypeString:string (type_string:string ctx:RangerAppWriterContext) {
 
     ; A collection nested inside another collection arrives here as its Ranger
@@ -139,6 +160,9 @@ class RangerCSharpClassWriter {
 
     if(ctx.isDefinedClass(type_string)) {
       def cc (ctx.findClass(type_string))
+      if (cc.is_type_param || (ctx.isNativeGenericInstance(cc))) {
+        return (this.csClassRef(cc ctx))
+      }
       if(cc.is_union) {
         if (this.unionIsSealable(cc ctx)) {
           return (this.unionInterfaceName(type_string))
@@ -388,6 +412,10 @@ class RangerCSharpClassWriter {
 
         if(ctx.isDefinedClass(t_name)) {
           def cc (ctx.findClass(t_name))
+          if (cc.is_type_param || (ctx.isNativeGenericInstance(cc))) {
+            wr.out((this.csClassRef(cc ctx)) false)
+            return
+          }
           if(cc.is_union) {
             ; a union of classes is an interface those classes implement; a
             ; union over primitives (and the compiler's own `Any`) stays dynamic
@@ -790,7 +818,8 @@ class RangerCSharpClassWriter {
         wr.out('public ' false)
       }
     }
-    wr.out(('class ' + cl.name + ' ') false )
+    ; a generic form is declared as the template over its parameters
+    wr.out(('class ' + (this.csClassRef((unwrap cl) ctx)) + ' ') false )
     def csUnions:[string] (this.unionInterfacesOf((unwrap cl) ctx))
     ; …and the behaviour-only traits this class `does` that something names as
     ; a type. Both are interfaces, and C# takes the base class first.
@@ -846,7 +875,11 @@ class RangerCSharpClassWriter {
       ; A C# member with no access modifier is private, so every class with a
       ; declared Constructor could only be instantiated from inside itself.
       wr.out("public " false)
-      wr.out((cl.name + "(") false)
+      if cl.is_generic_form {
+        wr.out((cl.generic_template + "(") false)
+      } {
+        wr.out((cl.name + "(") false)
+      }
       this.writeArgsDef(constr ctx wr)
       wr.out(' ) {' true)
       wr.indent(1)
@@ -903,15 +936,17 @@ class RangerCSharpClassWriter {
       wr.out("}" true)
     }
     for cl.static_methods variant:RangerAppFunctionDesc i {
+      def variantName:CodeNode (unwrap variant.nameNode)
+      def variantCode:SourceCode (unwrap variantName.code)
       if variant.is_doc_example {
         if ((ctx.hasCompilerFlag("keep-examples")) == false) {
           continue
         }
       }
-      if ( (variant.nameNode.hasFlag("main")) && (variant.nameNode.code.filename != (ctx.getRootFile()))) {
+      if ((variantName.hasFlag("main")) && (variantCode.filename != (ctx.getRootFile()))) {
         continue
       }
-      if (variant.nameNode.hasFlag("main")) {
+      if (variantName.hasFlag("main")) {
         wr.out('static void Main( string [] args ) {' true)
       } {
         if variant.has_doc {

@@ -188,10 +188,11 @@ class RangerJavaScriptClassWriter {
   fn writeFnCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.hasFnCall {
       def fc:CodeNode (node.getFirst())
+      def fnDesc:RangerAppFunctionDesc (unwrap node.fnDesc)
 
-      if( (!null? node.fnDesc) && (!null? node.fnDesc.nameNode) ) {
-        def fnName:CodeNode node.fnDesc.nameNode
-        if( fnName.hasFlag('async') ) {
+      if (!null? fnDesc.nameNode) {
+        def fnName:CodeNode (unwrap fnDesc.nameNode)
+        if(fnName.hasFlag('async')) {
           wr.out('await ' false)
         }
       }
@@ -201,8 +202,9 @@ class RangerJavaScriptClassWriter {
       def givenArgs:CodeNode (node.getSecond())
       ctx.setInExpr();
       def cnt 0
-      for node.fnDesc.params arg:RangerAppParamDesc i {
-        if( arg.nameNode.hasFlag('keyword')) {
+      for fnDesc.params arg:RangerAppParamDesc i {
+        def argumentName:CodeNode (unwrap arg.nameNode)
+        if(argumentName.hasFlag('keyword')) {
           continue
         }
         if (cnt > 0) {
@@ -210,9 +212,10 @@ class RangerJavaScriptClassWriter {
         }
         cnt = cnt + 1
         if( (array_length givenArgs.children) <= i) {
-          def defVal@(optional):CodeNode (arg.nameNode.getFlag("default"))
+          def defVal@(optional):CodeNode (argumentName.getFlag("default"))
           if (!null? defVal) {
-            def fc:CodeNode (defVal.vref_annotation.getFirst())
+            def defaultAnnotation:CodeNode (unwrap defVal.vref_annotation)
+            def fc:CodeNode (defaultAnnotation.getFirst())
             this.WalkNode(fc ctx wr)
           } {
             ctx.addError(node "Default argument was missing")
@@ -232,7 +235,8 @@ class RangerJavaScriptClassWriter {
           wr.out("." + cc.methodName , false)
           wr.out("(" false)
           ctx.setInExpr()
-          for cc.args.children arg:CodeNode i {
+          def chainArgs:CodeNode (unwrap cc.args)
+          for chainArgs.children arg:CodeNode i {
             if (i > 0) {
               wr.out(", " false)
             }
@@ -255,10 +259,11 @@ class RangerJavaScriptClassWriter {
       def obj:CodeNode (node.getSecond())
       def method:CodeNode (node.getThird())
       def args:CodeNode (itemAt node.children 3)
+      def fnDesc:RangerAppFunctionDesc (unwrap node.fnDesc)
 
-      if( (!null? node.fnDesc) && (!null? node.fnDesc.nameNode) ) {
-        def fnName:CodeNode node.fnDesc.nameNode
-        if( fnName.hasFlag('async') ) {
+      if (!null? fnDesc.nameNode) {
+        def fnName:CodeNode (unwrap fnDesc.nameNode)
+        if(fnName.hasFlag('async')) {
           wr.out('await ' false)
         }
       }
@@ -274,8 +279,8 @@ class RangerJavaScriptClassWriter {
         wr.out("." false)
       }
       def methodName method.vref
-      if ((!null? node.fnDesc) && ((strlen node.fnDesc.compiledName) > 0)) {
-        methodName = node.fnDesc.compiledName
+      if ((strlen fnDesc.compiledName) > 0) {
+        methodName = fnDesc.compiledName
       }
       wr.outMapped(methodName method false method.vref)
 ;       this.WriteVRef(fc ctx wr)
@@ -297,6 +302,35 @@ class RangerJavaScriptClassWriter {
   }
 
   ; typescript type 
+  ; --- native generics ------------------------------------------------------
+  ; JavaScript has one class for every instance anyway: `History`. With
+  ; -typescript it is `class History<Op>`, used as `History<number>`.
+  fn jsClassRef:string (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    if cl.is_type_param {
+      return cl.type_param_name
+    }
+    if (ctx.isNativeGenericInstance(cl)) {
+      if (target_typescript == false) {
+        return cl.generic_template
+      }
+      def res:string (cl.generic_template + "<")
+      for cl.generic_args a:string i {
+        if (i > 0) {
+          res = (res + ", ")
+        }
+        res = (res + (this.getObjectTypeString(a ctx)))
+      }
+      return (res + ">")
+    }
+    return cl.name
+  }
+  fn jsDeclName:string (cl:RangerAppClassDesc) {
+    if cl.is_generic_form {
+      return cl.generic_template
+    }
+    return cl.name
+  }
+
   fn getObjectTypeString:string (type_string:string ctx:RangerAppWriterContext) {
     if ((strlen type_string) >= 2) {
       if ((charAt type_string 0) == (ccode "[")) {
@@ -339,6 +373,9 @@ class RangerJavaScriptClassWriter {
     }
     if(ctx.isDefinedClass(type_string)) {
       def cc (ctx.findClass(type_string))
+      if (cc.is_type_param || (ctx.isNativeGenericInstance(cc))) {
+        return (this.jsClassRef(cc ctx))
+      }
       if(cc.is_system) {
         def sName ""
         if target_typescript {
@@ -476,8 +513,9 @@ class RangerJavaScriptClassWriter {
       case RangerNodeType.ExpressionType {
 
         ; (n: number) => any
-        def rv:CodeNode (itemAt node.expression_value.children 0)
-        def sec:CodeNode (itemAt node.expression_value.children 1)
+        def lambdaExpression:CodeNode (unwrap node.expression_value)
+        def rv:CodeNode (itemAt lambdaExpression.children 0)
+        def sec:CodeNode (itemAt lambdaExpression.children 1)
         def fc:CodeNode (sec.getFirst())
 
         wr.out("(" false)
@@ -595,7 +633,7 @@ class RangerJavaScriptClassWriter {
             }
           }
           def cc:RangerAppClassDesc (ctx.findClass(t_name))
-          wr.out(cc.name false)
+          wr.out((this.jsClassRef(cc ctx)) false)
           return
         }
         wr.out((this.getTypeString(t_name)) false))
@@ -976,13 +1014,13 @@ class RangerJavaScriptClassWriter {
 
   fn writeNewCall:void (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
     if node.hasNewOper {
-      def cl:RangerAppClassDesc node.clDesc
+      def cl:RangerAppClassDesc (unwrap node.clDesc)
       def givenArgs:CodeNode (node.getThird())
       if (this.tryWriteProcessNewCall(node ctx wr)) {
         return
       }
       if (cl.isSingletonClass()) {
-        wr.out((node.clDesc.name + ".__singleton") false)
+        wr.out((cl.name + ".__singleton") false)
         wr.out("(" false)
         for givenArgs.children n:CodeNode i {
           if (i > 0) {
@@ -994,7 +1032,7 @@ class RangerJavaScriptClassWriter {
         return
       }
 
-      wr.out(("new " + node.clDesc.name) false)
+      wr.out(("new " + (this.jsClassRef(cl ctx))) false)
       wr.out("(" false)
       def constr:RangerAppFunctionDesc cl.constructor_fn
       def givenArgs:CodeNode (node.getThird())
@@ -1196,7 +1234,14 @@ class RangerJavaScriptClassWriter {
               return
             }
           }
-          if(item.isNormalClass()) {
+          ; the instances of a native generic class are the one class the
+          ; generic form writes, and that is exported under its own name
+          if (item.is_generic_form && (ctx.isWrittenClass(item))) {
+              def theEndG (wr.getTag("file_end"))
+              theEndG.out( ("module.exports." + item.generic_template + " = " + item.generic_template + ";") true )
+              return
+          }
+          if ((item.isNormalClass()) && (ctx.isWrittenClass(item))) {
               def theEnd (wr.getTag("file_end"))
               theEnd.out( ("module.exports." + item.name + " = " + item.name + ";") true )
           }
@@ -1241,7 +1286,17 @@ class RangerJavaScriptClassWriter {
       }
     }
 
-    wr.out("class " + cl.name +" " , false)
+    ; a generic form is declared as the template, over its parameters with
+    ; -typescript
+    if cl.is_generic_form {
+      if target_typescript {
+        wr.out("class " + (this.jsClassRef((unwrap cl) ctx)) + " " , false)
+      } {
+        wr.out("class " + (this.jsDeclName((unwrap cl))) + " " , false)
+      }
+    } {
+      wr.out("class " + cl.name +" " , false)
+    }
     
     if is_react_native {
       wr.out(" extends Component " false)
@@ -1279,7 +1334,24 @@ class RangerJavaScriptClassWriter {
       }
     }
 
-    if(is_react_native == false) {
+    ; An empty `constructor() {}` says nothing JavaScript would not do anyway:
+    ; no parameters, no parent to call, no field to initialise, no body.
+    def ctorHasWork:boolean (cl.has_constructor || b_extd)
+    if (cl.isSingletonClass()) {
+      ctorHasWork = true
+    }
+    if (target_typescript == false) {
+      if (this.classInSealableUnion((unwrap cl) ctx)) {
+        ctorHasWork = true
+      }
+    }
+    for cl.variables ctorVar:RangerAppParamDesc ci {
+      if (ctorVar.is_static == false) {
+        ctorHasWork = true
+      }
+    }
+
+    if((is_react_native == false) && ctorHasWork) {
 
     wr.out("constructor(" false)
     
@@ -1442,8 +1514,9 @@ class RangerJavaScriptClassWriter {
           }
         }
 
-        if (variant.nameNode.hasFlag("test")) {
-          print "Found a test function, but not writing it: " + (variant.nameNode.vref)
+        def variantName:CodeNode (unwrap variant.nameNode)
+        if (variantName.hasFlag("test")) {
+          print "Found a test function, but not writing it: " + (variantName.vref)
           continue _
         } 
 
@@ -1599,11 +1672,13 @@ class RangerJavaScriptClassWriter {
             
             testFile.indent(-1)
             testFile.out('}' true)
-            print "Found a test function, but not writing it: " + (variant.nameNode.vref)
+            def variantName:CodeNode (unwrap variant.nameNode)
+            print "Found a test function, but not writing it: " + (variantName.vref)
             continue _
           }           
           def asyncKeyword ""
-          if( variant.nameNode.hasFlag('async') ) {
+          def variantName:CodeNode (unwrap variant.nameNode)
+          if(variantName.hasFlag('async')) {
             asyncKeyword = 'async '
           }
           ; Function.name / Function.length are non-writable on the constructor.
@@ -1646,10 +1721,12 @@ class RangerJavaScriptClassWriter {
     if( (ctx.hasCompilerFlag("nodemodule")) == false ) {
       for cl.static_methods variant:RangerAppFunctionDesc i {
         ctx.disableCurrentClass()
-        if ( (variant.nameNode.hasFlag("main")) && (variant.nameNode.code.filename == (ctx.getRootFile()))) {  
+        def variantName:CodeNode (unwrap variant.nameNode)
+        def variantCode:SourceCode (unwrap variantName.code)
+        if ((variantName.hasFlag("main")) && (variantCode.filename == (ctx.getRootFile()))) {
 
           def asyncKeyword ""
-          if( variant.nameNode.hasFlag('async') ) {
+          if(variantName.hasFlag('async')) {
             asyncKeyword = 'async '
           }
 
@@ -1675,89 +1752,6 @@ class RangerJavaScriptClassWriter {
       lang_parser.parse(false)
       def node@(lives):CodeNode (unwrap lang_parser.rootNode)
       return node
-  }
-
-  fn CreateServices (parser:RangerFlowParser ctx:RangerAppWriterContext orig_wr:CodeWriter) {
-
-    if(ctx.hasCompilerFlag("client")) {
-      ctx.addError( (CodeNode.blockNode()) "client service writing for target JavaScript is not implemented")
-      return
-    } 
-
-    def root (ctx.getRoot())
-
-    def serviceBlock (CodeNode.blockNode())
-
-    def wr (new CodeWriter)
-    wr.out("class test_webservice {" true)
-    wr.indent(1)
-    wr.out("fn run () {" true)
-    wr.indent(1)
-    wr.out("def www (create_web_server)" true)
-    wr.out("prepare_server www" true);
-    root.appServices.forEach({
-
-        try {
-
-          def paramList (item.getThird())
-          def param (paramList.getFirst())
-        
-          wr.out("www.post_route(\"/" + item.appGUID + "\" {" , true)
-          wr.indent(1)
-          wr.out("def obj (" + (param.type_name) +  ".fromDictionary( (from_string (get_post_data req ))) )" , true)
-          wr.out("def service (new appServices)" true)
-          wr.out("def data (service." + item.appGUID + "(obj))" , true)
-          wr.out("res.send((to_string (data.toDictionary())))" , true)
-          wr.indent(-1)
-          wr.out("})" true)
-
-          def nn (item.getSecond())
-          nn.vref = item.appGUID
-          def params (item.getThird())
-
-          def block_index 3
-          def ch_len ( ( array_length item.children ) - 1)
-          for item.children cb:CodeNode i {
-            if( i > 3 ) {
-              if( (strlen cb.vref) > 0 ) {
-                if( ( ctx.hasCompilerFlag(cb.vref) ) && ( i < ch_len ) ) {
-                  block_index = i + 1
-                }
-              }
-            }
-          }
-
-          def codeBlock (unwrap (item.getChild(block_index)) )
-          push serviceBlock.children (r.op "fn" nn params codeBlock)  
-
-
-        } {
-          ctx.addError( item "Invalid service function")
-        }
-    })
-    wr.indent(-1)
-    wr.out("www.startServer( 1777, {" , true)
-    wr.indent(1)
-      wr.out("print \"Server started\"" true)
-    wr.indent(-1)
-    wr.out("}" true)
-    wr.out("}" true)
-    wr.indent(-1)
-    wr.out("}" true)
-    
-    def codeNode (this.BuildAST( (wr.getCode() )) )
-    def serviceClassDef (r.op "class" (r.vref "appServices") serviceBlock )
-    
-    def subCtx (root.fork())
-    def theEnd (orig_wr.getTag("file_end"))
-
-    parser.WalkCollectMethods( serviceClassDef root theEnd )
-    parser.WalkCollectMethods( codeNode root theEnd )
-    parser.WalkNode( serviceClassDef root theEnd )
-    parser.WalkNode( codeNode root theEnd )
-
-    theEnd.out("(new test_webservice).run();" true)
-
   }
 
   fn writeNpmPackage ( node:CodeNode ctx:RangerAppWriterContext orig_wr:CodeWriter ) {

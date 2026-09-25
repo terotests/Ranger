@@ -1,0 +1,9 @@
+class RangerApiField {
+  def name:string ""
+  def compiledName:string ""
+  def typeName:string ""
+  def is_public:boolean false
+  def is_static:boolean false
+  def doc:RangerDocBlock
+  def has_doc:boolean false
+}

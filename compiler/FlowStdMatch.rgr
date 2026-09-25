@@ -85,7 +85,8 @@ extension RangerFlowParser {
       def lcc:LiveCompiler (new LiveCompiler())
 
       lcc.langWriter = (new RangerRangerClassWriter ())
-      lcc.langWriter.compiler = lcc
+      def langWriter:RangerGenericClassWriter (unwrap lcc.langWriter)
+      langWriter.compiler = lcc
 
       subCtx.targetLangName = "ranger"
       subCtx.restartExpressionLevel()
@@ -132,6 +133,178 @@ extension RangerFlowParser {
       }
     }
     return true
+  }
+
+  ; `if (!null? x) { ... }` narrows x inside the then block: the names the
+  ; condition proves present are marked on the block's context, so the strict
+  ; optional check accepts reading through them without an `unwrap`. Only a
+  ; condition that must be true for the block to run counts -- a bare
+  ; `!null?` or an `&&` / `and` of them.
+  fn markNotNullName:void (candidate:CodeNode ctx:RangerAppWriterContext) {
+    def n:CodeNode candidate
+    while (n.expression && ((array_length n.children) == 1)) {
+      n = (n.getFirst())
+    }
+    if n.expression {
+      return
+    }
+    def name:string n.vref
+    if ((array_length n.ns) == 1) {
+      name = (itemAt n.ns 0)
+    }
+    if ((strlen name) > 0) {
+      ctx.setAutomaticallyUnwrapped(name)
+    }
+  }
+
+  fn markNotNullNarrowing:void (condition:CodeNode ctx:RangerAppWriterContext) {
+    def c:CodeNode condition
+    while (c.expression && ((array_length c.children) == 1)) {
+      c = (c.getFirst())
+    }
+    ; `if x { ... }` on an optional is the same test as `if (!null? x)`. A
+    ; boolean `if flag` is not a presence test and narrows nothing.
+    if ((c.expression == false) && (c.value_type == RangerNodeType.VRef)) {
+      ; an optional boolean or charbuffer is a bare value on C++, with no
+      ; optional to read through
+      if ((c.value_type == RangerNodeType.VRef) && (this.isOptionalPath(c ctx))) {
+        if (this.optionalPathIsWrapped(c ctx)) {
+          this.markNotNullName(c ctx)
+        }
+      }
+      return
+    }
+    if ((array_length c.children) == 0) {
+      return
+    }
+    def head:string (c.getVRefAt(0))
+    if (head == "!null?") {
+      if ((array_length c.children) > 1) {
+        this.markNotNullName((itemAt c.children 1) ctx)
+      }
+      return
+    }
+    if ((head == "&&") || (head == "and")) {
+      for c.children part:CodeNode i {
+        if (i > 0) {
+          this.markNotNullNarrowing(part ctx)
+        }
+      }
+      return
+    }
+    if ((array_length c.children) == 3) {
+      def mid:CodeNode (itemAt c.children 1)
+      if ((mid.vref == "&&") || (mid.vref == "and")) {
+        this.markNotNullNarrowing((itemAt c.children 0) ctx)
+        this.markNotNullNarrowing((itemAt c.children 2) ctx)
+      }
+    }
+  }
+
+  ; The names a condition proves ABSENT when it is true: `null? x`, and an
+  ; `||` of such tests (all of them are false in the else branch, so every
+  ; name is present there).
+  fn collectNullNames:void (condition:CodeNode out:[string]) {
+    def c:CodeNode condition
+    while (c.expression && ((array_length c.children) == 1)) {
+      c = (c.getFirst())
+    }
+    if ((array_length c.children) == 0) {
+      return
+    }
+    def head:string (c.getVRefAt(0))
+    if (head == "null?") {
+      if ((array_length c.children) > 1) {
+        def n:CodeNode (itemAt c.children 1)
+        while (n.expression && ((array_length n.children) == 1)) {
+          n = (n.getFirst())
+        }
+        if ((n.expression == false) && ((strlen n.vref) > 0)) {
+          def name:string n.vref
+          if ((array_length n.ns) == 1) {
+            name = (itemAt n.ns 0)
+          }
+          push out name
+        }
+      }
+      return
+    }
+    if ((head == "||") || (head == "or")) {
+      for c.children part:CodeNode i {
+        if (i > 0) {
+          this.collectNullNames(part out)
+        }
+      }
+      return
+    }
+    if ((array_length c.children) == 3) {
+      def mid:CodeNode (itemAt c.children 1)
+      if ((mid.vref == "||") || (mid.vref == "or")) {
+        this.collectNullNames((itemAt c.children 0) out)
+        this.collectNullNames((itemAt c.children 2) out)
+      }
+    }
+  }
+
+  ; The names a condition proves PRESENT when it is true -- what the then
+  ; block of `if` narrows.
+  fn collectPresentNames:void (condition:CodeNode ctx:RangerAppWriterContext out:[string]) {
+    def probe:RangerAppWriterContext (ctx.fork())
+    this.markNotNullNarrowing(condition probe)
+    for (probe.getListOfAutomaticallyUnwrapped()) name:string i {
+      push out name
+    }
+  }
+
+  ; Does the block end every path through it: its last statement is
+  ; `return`, `throw`, `break` or `continue`, or an if/else whose two blocks
+  ; both do?
+  fn blockAlwaysExits:boolean (block:CodeNode) {
+    def cnt:int (array_length block.children)
+    if (cnt == 0) {
+      return false
+    }
+    def st:CodeNode (itemAt block.children (cnt - 1))
+    while (st.expression && ((array_length st.children) == 1) && ((st.getFirst()).expression)) {
+      st = (st.getFirst())
+    }
+    def head:string st.vref
+    if st.expression {
+      head = (st.getVRefAt(0))
+    }
+    if ((head == "return") || (head == "throw") || (head == "break") || (head == "continue")) {
+      return true
+    }
+    if (st.expression && (head == "if") && ((array_length st.children) == 4)) {
+      return ((this.blockAlwaysExits((itemAt st.children 2))) && (this.blockAlwaysExits((itemAt st.children 3))))
+    }
+    return false
+  }
+
+  ; After `if cond { ...exits } rest`, the rest runs only when cond was false;
+  ; after `if cond { ... } { ...exits } rest`, only when it was true. The
+  ; names that proves present are narrowed from here to the end of the block.
+  fn narrowAfterIf:void (callArgs:CodeNode inCtx:RangerAppWriterContext) {
+    def cnt:int (array_length callArgs.children)
+    if (cnt < 3) {
+      return
+    }
+    def condition:CodeNode (itemAt callArgs.children 1)
+    def thenExits:boolean (this.blockAlwaysExits((itemAt callArgs.children 2)))
+    def elseExits:boolean false
+    if (cnt > 3) {
+      elseExits = (this.blockAlwaysExits((itemAt callArgs.children 3)))
+    }
+    def names:[string]
+    if (thenExits && (elseExits == false)) {
+      this.collectNullNames(condition names)
+    }
+    if (elseExits && (thenExits == false)) {
+      this.collectPresentNames(condition inCtx names)
+    }
+    for names name:string i {
+      inCtx.setFlowNarrowed(name 1)
+    }
   }
 
   fn stdParamMatch:boolean (callArgs@(lives):CodeNode inCtx:RangerAppWriterContext wr:CodeWriter require_all_match:boolean) {
@@ -312,6 +485,19 @@ extension RangerFlowParser {
                 def tmpCtx@(lives) (ctx.fork())
                 tmpCtx.newBlock()
                 callArg.evalCtx = tmpCtx            
+                ; the then block of `if`: the condition is the argument before it
+                if ((i == 1) && ((callFnName.vref == "if") && ((array_length callArgs.children) > 2))) {
+                  this.markNotNullNarrowing((itemAt callArgs.children 1) tmpCtx)
+                }
+                ; the else block: every name `null? x` (or an `||` of them)
+                ; tested is present there
+                if ((i == 2) && ((callFnName.vref == "if") && ((array_length callArgs.children) > 3))) {
+                  def absentWhenTrue:[string]
+                  this.collectNullNames((itemAt callArgs.children 1) absentWhenTrue)
+                  for absentWhenTrue elseName:string ei {
+                    tmpCtx.setAutomaticallyUnwrapped(elseName)
+                  }
+                }
                 this.WalkNode(callArg tmpCtx wr)
               }
 
@@ -329,15 +515,20 @@ extension RangerFlowParser {
             }
             if( arg.hasFlag("mutates")) {
               if(callArg.hasParamDesc) {
-                if(callArg.paramDesc && (!null? callArg.paramDesc.propertyClass)) {
-                  if(callArg.paramDesc.propertyClass.nameNode.hasFlag("immutable")) {
-                    def propC (callArg.paramDesc.propertyClass)
+                def callArgDesc:RangerAppParamDesc (unwrap callArg.paramDesc)
+                if(!null? callArgDesc.propertyClass) {
+                  def propertyClass:RangerAppClassDesc (unwrap callArgDesc.propertyClass)
+                  if(!null? propertyClass.nameNode) {
+                    def propertyName:CodeNode (unwrap propertyClass.nameNode)
+                    if(propertyName.hasFlag("immutable")) {
+                    def propC:RangerAppClassDesc propertyClass
                     def currC (ctx.getCurrentClass())
-                    if( (unwrap currC) != (unwrap propC) ) {
+                    if( (!null? currC) && ((unwrap currC) != propC) ) {
                       ; --> skip as if error                      
                       not_enough_args = true
                       ; ctx.addError(callArg "Not possible to modify immutable class property")
                     }                 
+                    }
                   }
                 }
               }
@@ -373,12 +564,16 @@ extension RangerFlowParser {
         def all_matched:boolean (match.matchArguments(args callArgs ctx 1))
 
         if all_matched {
+          if ((fc.vref == "if") && ((inCtx.expressionLevel()) == 0)) {
+            this.narrowAfterIf(callArgs inCtx)
+          }
 
           def expr_level (ctx.expressionLevel())
           def is_last false
           
           if(!null? callArgs.parent) {
-            is_last = ( (size callArgs.parent.children) == ( 1 + ( indexOf callArgs.parent.children callArgs ) ) )
+            def parent:CodeNode (unwrap callArgs.parent)
+            is_last = ( (size parent.children) == ( 1 + ( indexOf parent.children callArgs ) ) )
           }
 
           if(  (fc.vref == 'if') && (ctx.hasCompilerFlag('voidexpr')) && ( expr_level > 0 || is_last) ) {
@@ -479,6 +674,7 @@ extension RangerFlowParser {
                   ctx.addError( args "Invalid operator: Loop condition without block ")
                   return
                 }
+                def loopBody:CodeNode (unwrap loopBlock)
 
                 def opName (index + 1)
                 def item (callArgs.children.at( (index + 1) ))
@@ -505,8 +701,8 @@ extension RangerFlowParser {
                 def realRegDesc:RangerAppParamDesc (unwrap regArg.paramDesc)
                 def realRegName ( realRegDesc.compiledName )
 
-                regArg.paramDesc.set_cnt = 1
-                regArg.paramDesc.ref_cnt = 1
+                realRegDesc.set_cnt = 1
+                realRegDesc.ref_cnt = 1
 
                 def BlockOP (ctx.getLastBlockOp())
                 BlockOP.register_expressions.push( regExpr )
@@ -522,7 +718,7 @@ extension RangerFlowParser {
                     })
                     def eval_expr@(lives) (r.expression (r.vref '=') (r.vref regName) argCopy)
 
-                    def lastOp@(lives) (at loopBlock.children ( (size loopBlock.children) - 1) )
+                    def lastOp@(lives) (at loopBody.children ((size loopBody.children) - 1))
                     ctx.lastBlockOp = eval_expr
 
                     this.WalkNode( eval_expr ctx wr )
@@ -576,8 +772,8 @@ extension RangerFlowParser {
                       def regArg (at regExpr.children 1)
                       def realRegDesc:RangerAppParamDesc (unwrap regArg.paramDesc)
                       def realRegName ( realRegDesc.compiledName )
-                      regArg.paramDesc.set_cnt = 1
-                      regArg.paramDesc.ref_cnt = 1
+                      realRegDesc.set_cnt = 1
+                      realRegDesc.ref_cnt = 1
 
                       def BlockOP (ctx.getLastBlockOp())
                       BlockOP.register_expressions.push( regExpr )
@@ -740,8 +936,9 @@ extension RangerFlowParser {
             fCtx.setInMethod()
             for m.params v@(lives):RangerAppParamDesc i {
               fCtx.defineVariable(v.name v)
-              v.nameNode.eval_type = (v.nameNode.typeNameAsType(fCtx))
-              v.nameNode.eval_type_name = v.nameNode.type_name
+              def parameterName:CodeNode (unwrap v.nameNode)
+              parameterName.eval_type = (parameterName.typeNameAsType(fCtx))
+              parameterName.eval_type_name = parameterName.type_name
             }
             this.WalkNodeChildren( bodyCopy fCtx wr)
             fCtx.unsetInMethod()
@@ -932,28 +1129,36 @@ extension RangerFlowParser {
               ctx.addError(callArgs "return outside of a function")
               return false
             }
-            if ( (activeFn.nameNode.type_name != "void") || (activeFn.nameNode.value_type == RangerNodeType.ExpressionType)) {
+            def returnName:CodeNode (unwrap activeFn.nameNode)
+            if ( (returnName.type_name != "void") || (returnName.value_type == RangerNodeType.ExpressionType)) {
               
               if ( (array_length callArgs.children) < 2 ) {
                 ctx.addError(callArgs " missing return value !!!")
               } {
                 def returnedValue:CodeNode (itemAt callArgs.children 1)
                 def validated_returnvalue false
-                if(activeFn.nameNode.value_type == RangerNodeType.ExpressionType) {
+                if(returnName.value_type == RangerNodeType.ExpressionType) {
                   validated_returnvalue = true
                   ; lambda format of the called function
-                  def fnExpr (activeFn.nameNode.expression_value)
+                  def fnExpr returnName.expression_value
                   if(null? fnExpr) {
-                    ctx.addError( (unwrap activeFn.nameNode) "returned anonymous function should have a method signature")
+                    ctx.addError(returnName "returned anonymous function should have a method signature")
                   } {
                     if( (returnedValue.value_type != RangerNodeType.ExpressionType ) &&
                         (returnedValue.eval_type != RangerNodeType.ExpressionType) ) {
                         ctx.addError(returnedValue "Function should return anonymous function!")
                     } {
                       
-                      if( returnedValue.hasParamDesc && (!null? returnedValue.paramDesc.nameNode)) {
-                        def rExpr returnedValue.paramDesc.nameNode.expression_value
+                      if( returnedValue.hasParamDesc) {
+                        def returnedDesc:RangerAppParamDesc (unwrap returnedValue.paramDesc)
+                        if (!null? returnedDesc.nameNode) {
+                        def returnedName:CodeNode (unwrap returnedDesc.nameNode)
+                        def rExpr returnedName.expression_value
                         this.matchLambdaArgs( (unwrap fnExpr) (unwrap rExpr) ctx wr )
+                        } {
+                          def rExpr returnedValue.expression_value
+                          this.matchLambdaArgs( (unwrap fnExpr) (unwrap rExpr) ctx wr )
+                        }
                       } {
                         def rExpr returnedValue.expression_value
                         this.matchLambdaArgs( (unwrap fnExpr) (unwrap rExpr) ctx wr )
@@ -963,26 +1168,26 @@ extension RangerFlowParser {
                 }
 
                 if( validated_returnvalue == false ) {
-                  if ((match.doesMatch( (unwrap activeFn.nameNode) returnedValue ctx)) == false) {
-                    if(activeFn.nameNode.ifNoTypeSetToEvalTypeOf( returnedValue)) {
+                  if ((match.doesMatch(returnName returnedValue ctx)) == false) {
+                    if(returnName.ifNoTypeSetToEvalTypeOf( returnedValue)) {
                       ; sets the type
                     } {
                       ctx.addError(returnedValue "invalid return value type!!! "  + (returnedValue.getCode()))
                       ctx.addError(returnedValue "^ code: "  + (returnedValue.getCode()))
-                      ctx.addError( (unwrap activeFn.nameNode) "^ regarding to")
+                      ctx.addError(returnName "^ regarding to")
                       if( returnedValue.eval_type == RangerNodeType.Method) {
-                        ctx.addError( (unwrap activeFn.nameNode) "^ which was a method")
+                        ctx.addError(returnName "^ which was a method")
                       }
-                      ctx.addError( (unwrap activeFn.nameNode) ( '^ value type = ' + returnedValue.eval_type) )
+                      ctx.addError(returnName ( '^ value type = ' + returnedValue.eval_type) )
                     }
                   }
                 }
                 ; C6: return Child where Parent is declared — insert widen_to_
                 ; (argument sites already do this via areEqualTypes).
-                if ((strlen activeFn.nameNode.type_name) > 0) {
-                  this.convertToUnion(activeFn.nameNode.type_name returnedValue ctx wr)
+                if ((strlen returnName.type_name) > 0) {
+                  this.convertToUnion(returnName.type_name returnedValue ctx wr)
                 }
-                def argNode:CodeNode (unwrap activeFn.nameNode)
+                def argNode:CodeNode returnName
                 if( returnedValue.hasFlag("optional")) {
                   if ( false == (argNode.hasFlag("optional")) ) {
                       ctx.addError(callArgs ( 'function return value optionality does not match, expected non-optional return value, optional given at ' + (argNode.getCode())) )      
@@ -1006,8 +1211,10 @@ extension RangerFlowParser {
             if (null? callArgs.parent) {
               ctx.addError(callArgs "did not have parent")
               print ('no parent => ' + (callArgs.getCode()))
+            } {
+              def parent:CodeNode (unwrap callArgs.parent)
+              parent.didReturnAtIndex = (indexOf parent.children callArgs)
             }
-            callArgs.parent.didReturnAtIndex = (indexOf callArgs.parent.children callArgs)
           }
           if ((nameNode.hasFlag("returns")) == false) {
             match.setRvBasedOn(nameNode callArgs)
@@ -1030,12 +1237,13 @@ extension RangerFlowParser {
           callArgs.operator_node = ch
           for args.children arg:CodeNode arg_index {
             if arg.has_vref_annotation {
-              def anns:CodeNode arg.vref_annotation
+              def anns:CodeNode (unwrap arg.vref_annotation)
               for anns.children ann:CodeNode i {
                 if (ann.vref == "mutates") {
                   def theArg:CodeNode (itemAt callArgs.children (arg_index + 1))
                   if theArg.hasParamDesc {
-                    theArg.paramDesc.set_cnt = (theArg.paramDesc.set_cnt + 1)
+                    def argumentDesc:RangerAppParamDesc (unwrap theArg.paramDesc)
+                    argumentDesc.set_cnt = (argumentDesc.set_cnt + 1)
                   }
                 }
               }

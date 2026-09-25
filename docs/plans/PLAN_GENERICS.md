@@ -11,6 +11,30 @@ rather than the request: the three sections that are still live are
 [the `Maybe<T>` warning](#the-warning-about-maybet-still-open), which is
 unfixed and now more urgent, and the two notes on scope.
 
+**Native generics (September 2026).** Monomorphisation is still what the type
+checker sees, but a target with generics of its own now gets one class per
+template when the body allows it. After the program is walked,
+`RangerFlowParser.checkNativeGenerics` expands each instantiated template once
+more with every parameter bound to an empty placeholder class
+(`__tp_History_Op`), its generic form. A body that type checks against a class
+with no fields and no methods, and applies no operator outside a short opaque
+list (push, itemAt, set, get, unwrap, return, ...) to a parameter value, is
+native. The errors of a failed check are taken back. Writers then skip the
+copies, write the generic form as `template <class Op> class History`,
+`class History<Op>`, `type History[Op any] struct`, `class History(Generic[Op])`
+and so on, and spell each instance `History<int>`.
+
+| Target | Native | Falls back to copies when |
+|---|---|---|
+| C++, Java, Kotlin, Scala, Dart, TypeScript/JS, Python, PHP | yes | the body is not opaque; C++ also when an argument is `boolean` or `charbuffer` |
+| C# | yes | also when the class has an optional `T` |
+| Go | yes | also when the class extends, or reads a `[K:T]` map (the helper is typed after the map) |
+| Rust, Swift, LLVM | no | always: Rust's per-instance ownership (value or `Rc<RefCell>`, `&str` or `String` parameters) differs between copies; Swift could not be verified here; LLVM has no generics |
+
+A template with a static method or a singleton keeps its copies everywhere.
+`-no-native-generics` turns it off; `-generics-report` prints each decision.
+Tests: `tests/compiler-native-generics.test.ts`.
+
 ---
 
 ## What was asked for, and what arrived

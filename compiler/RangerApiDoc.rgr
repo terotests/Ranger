@@ -140,7 +140,11 @@ class RangerApiBuilder {
     if (m.has_doc == false) {
       return
     }
-    def doc:RangerDocBlock m.doc
+    def docOpt@(optional):RangerDocBlock m.doc
+    if (null? docOpt) {
+      return
+    }
+    def doc:RangerDocBlock (unwrap docOpt)
     def seen:[string:boolean]
     for doc.params dp:RangerDocParam i {
       def found:boolean false
@@ -230,16 +234,17 @@ class RangerApiBuilder {
     def dn:CodeNode (unwrap fd.node)
     if (dn.has_doc_tail) {
       m.doc = (this.readDocOf(dn ctx))
+      def doc:RangerDocBlock (unwrap m.doc)
       m.has_doc = true
-      m.is_public = m.doc.is_public
-      m.returnDoc = m.doc.returns
+      m.is_public = doc.is_public
+      m.returnDoc = doc.returns
       fd.has_doc = true
-      fd.docBlock = m.doc
-      if ((strlen m.doc.description) > 0) {
-        fd.git_doc = m.doc.description
+      fd.docBlock = doc
+      if ((strlen doc.description) > 0) {
+        fd.git_doc = doc.description
       }
       for m.params ap:RangerApiParam j {
-        ap.description = (m.doc.paramText(ap.name))
+        ap.description = (doc.paramText(ap.name))
       }
     }
     return m
@@ -274,7 +279,7 @@ class RangerApiBuilder {
     ; pass one: which declared classes are API. A method can name a class the
     ; registry lists after it, so the answer has to exist before the check.
     for root.definedClassList cname:string pi {
-      def pcl:RangerAppClassDesc (get root.definedClasses cname)
+      def pcl:RangerAppClassDesc (unwrap (get root.definedClasses cname))
       if ((pcl.isNormalClass()) == false) {
         continue
       }
@@ -297,7 +302,7 @@ class RangerApiBuilder {
       }
     }
     for root.definedClassList cname:string ci {
-      def cl:RangerAppClassDesc (get root.definedClasses cname)
+      def cl:RangerAppClassDesc (unwrap (get root.definedClasses cname))
       if (cl.is_system) {
         continue
       }
@@ -322,10 +327,11 @@ class RangerApiBuilder {
         ac.node = cn
         if (cn.has_doc_tail) {
           ac.doc = (this.readDocOf(cn ctx))
+          def doc:RangerDocBlock (unwrap ac.doc)
           ac.has_doc = true
-          ac.is_public = ac.doc.is_public
+          ac.is_public = doc.is_public
           cl.has_doc = true
-          cl.docBlock = ac.doc
+          cl.docBlock = doc
         }
       }
       for cl.variables v:RangerAppParamDesc vi {
@@ -340,10 +346,11 @@ class RangerApiBuilder {
           def vd:CodeNode (unwrap vnode)
           if (vd.has_doc_tail) {
             af.doc = (this.readDocOf(vd ctx))
+            def doc:RangerDocBlock (unwrap af.doc)
             af.has_doc = true
-            af.is_public = af.doc.is_public
+            af.is_public = doc.is_public
             v.has_doc = true
-            v.docBlock = af.doc
+            v.docBlock = doc
           }
         }
         if af.is_public {
@@ -452,7 +459,7 @@ class RangerDocCommentWriter {
   sfn lookupFn:RangerAppFunctionDesc (ctx:RangerAppWriterContext name:string) {
     def root:RangerAppWriterContext (ctx.getRoot())
     for root.definedClassList cname:string ci {
-      def cl:RangerAppClassDesc (get root.definedClasses cname)
+      def cl:RangerAppClassDesc (unwrap (get root.definedClasses cname))
       def m@(optional):RangerAppFunctionDesc (cl.findStaticMethod(name))
       if ((null? m) == false) {
         return (unwrap m)

@@ -86,10 +86,11 @@ operator type:void all {
     def t@(weak) (getActiveTransaction c)
     def d 0
     while(!null? t) {
-      if( t.name == name ) {
+      def t_valid ( unwrap t)
+      if( t_valid.name == name ) {
         d = d + 1
       }
-      t = t.parent
+      t = t_valid.parent
     }
     return d
   }
@@ -136,6 +137,10 @@ class RangerAppWriterContext {
   def stdCommands:CodeNode 
   def operators:RangerActiveOperators
   def op_list:[string:RangerOperatorList]
+  def automatically_unwrapped:[string:boolean]
+  def known_present:[string:boolean]
+  def flow_narrowed:[string:int]
+  def auto_unwrap_suppression:int 0
   def reservedWords:CodeNode 
   def intRootCounter:int 1
   def targetLangName:string ""
@@ -200,6 +205,8 @@ class RangerAppWriterContext {
   def classSignatures:[string:string]
   def classToSignature:[string:string]
   def templateClasses:[string:RangerAppClassDesc]
+  def nativeGenerics:[string:boolean]
+  def genericFormUses:[string:[string]]
   def classStaticWriters@(weak):[string:CodeWriter]
   def localVariables:[string:RangerAppParamDesc]
   def localVarNames:[string]
@@ -262,6 +269,111 @@ class RangerAppWriterContext {
   ; Mark a variable as moved (value has been transferred)
   fn rustMarkMoved (varName:string) {
     set rust_moved_vars varName true
+  }
+
+  ; A local initialised from a field the constructor always assigns (or a
+  ; `@(late)` one). It keeps its optional type -- only the strict check reads
+  ; this, so nothing is unwrapped for it and it narrows nothing.
+  fn setKnownPresent (varName:string) {
+    set this.known_present varName true
+  }
+
+  fn isKnownPresent:boolean (varName:string) {
+    if (has this.known_present varName) {
+      return true
+    }
+    if (!null? parent) {
+      def parentCtx:RangerAppWriterContext (unwrap parent)
+      return (parentCtx.isKnownPresent(varName))
+    }
+    return false
+  }
+
+  ; Narrowing that holds from a point in the block onwards. The flow pass
+  ; reads it statement by statement; the writers never see it, so nothing
+  ; before the point is unwrapped in generated code.
+  ;   1  a check proved it: after `if (null? x) { return }`
+  ;   2  `x = <a value>` -- present, but only the strict check relies on it;
+  ;      `def y:T x` is not rewritten to an unwrap, so code that unwraps y
+  ;      later keeps compiling
+  ;   0  `x = <an optional>` ends either
+  fn setFlowNarrowed (varName:string state:int) {
+    set this.flow_narrowed varName state
+  }
+
+  ; Narrowed here: by an enclosing `if (!null? x)` / else branch, or by a flow
+  ; point above in this block. The innermost record wins, so an assignment
+  ; inside a narrowed block ends the narrowing there.
+  fn isNarrowed:boolean (varName:string) {
+    if (has this.flow_narrowed varName) {
+      return ((unwrap (get this.flow_narrowed varName)) == 1)
+    }
+    if (has this.automatically_unwrapped varName) {
+      return true
+    }
+    if (!null? parent) {
+      def parentCtx:RangerAppWriterContext (unwrap parent)
+      return (parentCtx.isNarrowed(varName))
+    }
+    return false
+  }
+
+  ; What the strict check accepts: narrowed, or a local copied from a field
+  ; the constructor always assigns.
+  fn isPresentForStrict:boolean (varName:string) {
+    if (has this.flow_narrowed varName) {
+      return ((unwrap (get this.flow_narrowed varName)) > 0)
+    }
+    if (has this.automatically_unwrapped varName) {
+      return true
+    }
+    if (has this.known_present varName) {
+      return true
+    }
+    if (!null? parent) {
+      def parentCtx:RangerAppWriterContext (unwrap parent)
+      return (parentCtx.isPresentForStrict(varName))
+    }
+    return false
+  }
+
+  fn setAutomaticallyUnwrapped (varName:string) {
+    set this.automatically_unwrapped varName true
+  }
+
+  fn getListOfAutomaticallyUnwrapped:[string] () {
+    def result:[string]
+    for this.automatically_unwrapped k:string {
+      result.push(k)
+    }
+    return result
+  }
+
+  fn isAutomaticallyUnwrapped:boolean (varName:string) {
+    if (has this.automatically_unwrapped varName) {
+      return true
+    }
+    if (!null? parent) {
+      return (parent.isAutomaticallyUnwrapped(varName))
+    }
+    return false
+  }
+
+  fn suppressAutoUnwrap:void () {
+    def root:RangerAppWriterContext (this.getRoot())
+    root.auto_unwrap_suppression = (root.auto_unwrap_suppression + 1)
+  }
+
+  fn restoreAutoUnwrap:void () {
+    def root:RangerAppWriterContext (this.getRoot())
+    if (root.auto_unwrap_suppression > 0) {
+      root.auto_unwrap_suppression = (root.auto_unwrap_suppression - 1)
+    }
+  }
+
+  fn autoUnwrapIsSuppressed:boolean () {
+    def root:RangerAppWriterContext (this.getRoot())
+    return (root.auto_unwrap_suppression > 0)
   }
 
   ; Check if a variable has been moved
@@ -391,8 +503,10 @@ class RangerAppWriterContext {
     if(!null? lastBlockOp) {
       return lastBlockOp
     }
-    if(!null? parent) {
-      return (this.parent.getLastBlockOp())
+    def parentOpt@(optional):RangerAppWriterContext parent
+    if(!null? parentOpt) {
+      def parentCtx:RangerAppWriterContext (unwrap parentOpt)
+      return (parentCtx.getLastBlockOp())
     }
     return lastBlockOp
   }
@@ -623,8 +737,9 @@ class RangerAppWriterContext {
       def parser:RangerLispParser (new RangerLispParser (code))
       parser.parse((this.hasCompilerFlag("no-op-transform")))
 
-      if(parser.rootNode) {
-        def root (unwrap parser.rootNode)
+      def rootNodeOpt@(optional):CodeNode parser.rootNode
+      if(!null? rootNodeOpt) {
+        def root:CodeNode (unwrap rootNodeOpt)
         push node.children root
 
 ;        def rootCtx (this.getRoot())
@@ -639,8 +754,9 @@ class RangerAppWriterContext {
       code.filename = 'dynamically_generated'
       def parser:RangerLispParser (new RangerLispParser (code))
       parser.parse((this.hasCompilerFlag("no-op-transform")))
-      if(parser.rootNode) {
-        def root (unwrap parser.rootNode)
+      def rootNodeOpt@(optional):CodeNode parser.rootNode
+      if(!null? rootNodeOpt) {
+        def root:CodeNode (unwrap rootNodeOpt)
         def myParser (new RangerFlowParser())
         def rootCtx (this.getRoot())
         myParser.CollectMethods( root rootCtx wr )
@@ -654,8 +770,9 @@ class RangerAppWriterContext {
       def parser:RangerLispParser (new RangerLispParser (code))
       parser.parse((this.hasCompilerFlag("no-op-transform")))
 
-      if(parser.rootNode) {
-        def root (unwrap parser.rootNode)
+      def rootNodeOpt@(optional):CodeNode parser.rootNode
+      if(!null? rootNodeOpt) {
+        def root:CodeNode (unwrap rootNodeOpt)
         def myParser (new RangerFlowParser())
 ;        def myParser (this.getParser())
         def rootCtx (this.getRoot())
@@ -686,7 +803,8 @@ class RangerAppWriterContext {
     if (null? parent) {
       return res
     }
-    return (parent.getViewClass(s_name))
+    def parentCtx:RangerAppWriterContext (unwrap parent)
+    return (parentCtx.getViewClass(s_name))
   }
 
   fn addOpNs ( n:string ) {
@@ -714,14 +832,16 @@ class RangerAppWriterContext {
     def res:[string:boolean]
     def cc@(optional weak) this
     while(!null? cc) {
-      cc.localVariables.forEach({
+      def current:RangerAppWriterContext (unwrap cc)
+      current.localVariables.forEach({
         if(!null? item.nameNode) {
-          set res item.nameNode.type_name true
-          set res item.nameNode.key_type true
-          set res item.nameNode.array_type true
+          def nameNode:CodeNode (unwrap item.nameNode)
+          set res nameNode.type_name true
+          set res nameNode.key_type true
+          set res nameNode.array_type true
         }
       })
-      cc = (cc.parent)
+      cc = (current.parent)
     }
     return (keys res)
   }
@@ -776,8 +896,10 @@ class RangerAppWriterContext {
     if(is_capturing) {
       return true
     }
-    if parent {
-      return (parent.isCapturing())
+    def parentOpt@(optional):RangerAppWriterContext parent
+    if (!null? parentOpt) {
+      def parentCtx:RangerAppWriterContext (unwrap parentOpt)
+      return (parentCtx.isCapturing())
     }
     return false
   }
@@ -866,8 +988,10 @@ class RangerAppWriterContext {
     if(is_capturing) {
       return false
     }
-    if(parent) {
-      return (parent.isLocalToCapture(name))
+    def parentOpt@(optional):RangerAppWriterContext parent
+    if(!null? parentOpt) {
+      def parentCtx:RangerAppWriterContext (unwrap parentOpt)
+      return (parentCtx.isLocalToCapture(name))
     }
     return false
   }
@@ -879,16 +1003,20 @@ class RangerAppWriterContext {
       }      
       return
     }
-    if(parent) {
-      parent.addCapturedVariable( name )
+    def parentOpt@(optional):RangerAppWriterContext parent
+    if(!null? parentOpt) {
+      def parentCtx:RangerAppWriterContext (unwrap parentOpt)
+      parentCtx.addCapturedVariable(name)
     }
   }
   fn getCapturedVariables@(weak):[string] () {
     if(is_capturing) {
       return captured_variables
     }
-    if(parent) {
-      def r@(weak):[string] ( parent.getCapturedVariables() )
+    def parentOpt@(optional):RangerAppWriterContext parent
+    if(!null? parentOpt) {
+      def parentCtx:RangerAppWriterContext (unwrap parentOpt)
+      def r@(weak):[string] (parentCtx.getCapturedVariables())
       return r
     }
     def res:[string]
@@ -1005,7 +1133,11 @@ class RangerAppWriterContext {
     if(!null? reservedWords) {
       return true
     }
-    def main:CodeNode langOperators
+    def mainOpt@(optional):CodeNode langOperators
+    if (null? mainOpt) {
+      return true
+    }
+    def main:CodeNode (unwrap mainOpt)
     def lang:CodeNode
     for main.children m:CodeNode i {
       def fc:CodeNode (m.getFirst())
@@ -1013,16 +1145,18 @@ class RangerAppWriterContext {
         lang = m
       }
     }
+    def language:CodeNode (unwrap lang)
     def cmds:CodeNode
-    def langNodes:CodeNode (itemAt lang.children 1)
+    def langNodes:CodeNode (itemAt language.children 1)
     def targetLang (this.getTargetLangName())
     for langNodes.children lch:CodeNode i {
       def fc:CodeNode (lch.getFirst())
       if (fc.vref == "reserved_words") {
         def n:CodeNode (lch.getSecond())
         reservedWords = (lch.getSecond())
+        def reservedWordsNode:CodeNode (unwrap reservedWords)
         ; Iterate through language blocks (* or specific language)
-        for reservedWords.children langBlock:CodeNode i {
+        for reservedWordsNode.children langBlock:CodeNode i {
           def langKey (langBlock.getFirst())
           def langKeyName langKey.vref
           ; Check if this block applies to current target language
@@ -1047,7 +1181,11 @@ class RangerAppWriterContext {
     if (null? langOperators) {
       return true
     }
-    def main:CodeNode langOperators
+    def mainOpt@(optional):CodeNode langOperators
+    if (null? mainOpt) {
+      return true
+    }
+    def main:CodeNode (unwrap mainOpt)
     def lang:CodeNode
     for main.children m:CodeNode i {
       def fc:CodeNode (m.getFirst())
@@ -1055,8 +1193,9 @@ class RangerAppWriterContext {
         lang = m
       }
     }
+    def language:CodeNode (unwrap lang)
     def cmds:CodeNode
-    def langNodes:CodeNode (itemAt lang.children 1)
+    def langNodes:CodeNode (itemAt language.children 1)
     for langNodes.children lch:CodeNode i {
       def fc:CodeNode (lch.getFirst())
       if (fc.vref == "commands") {
@@ -1203,7 +1342,8 @@ class RangerAppWriterContext {
     if(!null? node.operator_node) {
       return (unwrap node.operator_node)
     }
-    return (itemAt root.stdCommands.children node.op_index)
+    def commands:CodeNode (unwrap root.stdCommands)
+    return (itemAt commands.children node.op_index)
   }
   fn getStdCommands@(weak):CodeNode () {
     def root:RangerAppWriterContext (this.getRoot())
@@ -1221,7 +1361,11 @@ class RangerAppWriterContext {
   }
   fn findClassWithSign:RangerAppClassDesc (node:CodeNode) {
     def root:RangerAppWriterContext (this.getRoot())
-    def tplArgs:CodeNode node.vref_annotation
+    def tplArgsOpt@(optional):CodeNode node.vref_annotation
+    if (null? tplArgsOpt) {
+      return (this.findClass(node.vref))
+    }
+    def tplArgs:CodeNode (unwrap tplArgsOpt)
     def sign:string (node.vref + (tplArgs.getCode()))
     def theName:string (get root.classSignatures sign)
     return (this.findClass((unwrap theName)))
@@ -1256,10 +1400,15 @@ class RangerAppWriterContext {
     def rCtx (this.getRoot())
     m.fnCtx = (rCtx.fork())
     m.is_static = true
-    m.nameNode.ifNoTypeSetToVoid()
+    def methodNameNodeOpt@(optional):CodeNode m.nameNode
+    if (null? methodNameNodeOpt) {
+      return m
+    }
+    def methodNameNode:CodeNode (unwrap methodNameNodeOpt)
+    methodNameNode.ifNoTypeSetToVoid()
     def args:CodeNode argsNode
     m.fnBody = fnBody  
-    parser.CheckTypeAnnotationOf( (unwrap m.nameNode) rCtx wr )
+    parser.CheckTypeAnnotationOf(methodNameNode rCtx wr)
 
     ; print "---> compiled to " + m.compiledName
 
@@ -1346,7 +1495,8 @@ class RangerAppWriterContext {
 
     ; this.CheckTypeAnnotationOf( (unwrap m.nameNode) ctx wr )
 
-    def classRoot@(lives) (itemAt parser.rootNode.children 0)
+    def parsedRoot:CodeNode (unwrap parser.rootNode)
+    def classRoot@(lives) (itemAt parsedRoot.children 0)
     def classNameNode@(lives) (classRoot.getSecond())
     classNameNode.vref = str
     def new_class@(lives):RangerAppClassDesc (new RangerAppClassDesc ())
@@ -1387,7 +1537,8 @@ class RangerAppWriterContext {
     def parser:RangerLispParser (new RangerLispParser (code))
     parser.parse(false)
 
-    def classRoot@(lives) (itemAt parser.rootNode.children 0)
+    def parsedRoot:CodeNode (unwrap parser.rootNode)
+    def classRoot@(lives) (itemAt parsedRoot.children 0)
     def classNameNode@(lives) (classRoot.getSecond())
     classNameNode.vref = instanceName
     def new_class@(lives):RangerAppClassDesc (new RangerAppClassDesc ())
@@ -1419,14 +1570,21 @@ class RangerAppWriterContext {
     if(t.has_constructor) {
       ctx.addError( traitClassDef ("Can not join trait " + name + " because it has a constructor function" ))
     } {
-      def origBody:CodeNode (itemAt cl.node.children 2)
+      def classNode:CodeNode (unwrap cl.node)
+      def origBody:CodeNode (itemAt classNode.children 2)
       def match:RangerArgMatch (new RangerArgMatch ())
 
-      def params (t.node.getExpressionProperty("params"))
+      def traitNodeOpt@(optional):CodeNode t.node
+      if (null? traitNodeOpt) {
+        return res
+      }
+      def traitNode:CodeNode (unwrap traitNodeOpt)
+      def params@(optional):CodeNode (traitNode.getExpressionProperty("params"))
       def traitParams (new RangerTraitParams)
 
       if( (!null? params) ) {
-        for params.children typeName:CodeNode i {
+        def traitParamsNode:CodeNode (unwrap params)
+        for traitParamsNode.children typeName:CodeNode i {
           def set_value ""
           if( ( array_length initParams.children) > i ) {
             def pArg (itemAt initParams.children i)
@@ -1450,14 +1608,28 @@ class RangerAppWriterContext {
 
       def traitClass t
       for traitClass.variables pvar:RangerAppParamDesc i {
-        def ccopy:CodeNode (pvar.node.rebuildWithType(match true))      
+        def variableNodeOpt@(optional):CodeNode pvar.node
+        if (null? variableNodeOpt) {
+          continue
+        }
+        def variableNode:CodeNode (unwrap variableNodeOpt)
+        def ccopy:CodeNode (variableNode.rebuildWithType(match true))
         flowParser.WalkCollectMethods( ccopy ctx wr )
         push origBody.children ccopy
       }
       for traitClass.defined_variants fnVar:string i {
-        def mVs:RangerAppMethodVariants (get traitClass.method_variants fnVar)
+        def variantsOpt@(optional):RangerAppMethodVariants (get traitClass.method_variants fnVar)
+        if (null? variantsOpt) {
+          continue
+        }
+        def mVs:RangerAppMethodVariants (unwrap variantsOpt)
         for mVs.variants variant:RangerAppFunctionDesc i {
-          def ccopy:CodeNode (variant.node.rebuildWithType(match true))      
+          def variantNodeOpt@(optional):CodeNode variant.node
+          if (null? variantNodeOpt) {
+            continue
+          }
+          def variantNode:CodeNode (unwrap variantNodeOpt)
+          def ccopy:CodeNode (variantNode.rebuildWithType(match true))
           flowParser.WalkCollectMethods( ccopy ctx wr )
           push origBody.children ccopy
         }            
@@ -1554,6 +1726,12 @@ class RangerAppWriterContext {
 
     def subCtx@(lives):RangerAppWriterContext (root.fork())
     flowParser.WalkCollectMethods( instNode subCtx wr )
+    ; recorded before the body is walked: a class that names itself at its
+    ; own parameter (`Tree@(T)` inside Tree) reads these while it is walked
+    if (root.isDefinedClass(instanceName)) {
+      def made:RangerAppClassDesc (root.findClass(instanceName))
+      this.markGenericInstance(made templateName typeArgs)
+    }
     flowParser.WalkNode( instNode subCtx wr )
     if (root.isDefinedClass(instanceName)) {
       res = (root.findClass(instanceName))
@@ -1561,10 +1739,62 @@ class RangerAppWriterContext {
     return res
   }
 
+  fn markGenericInstance:void (made:RangerAppClassDesc templateName:string typeArgs:CodeNode) {
+    made.generic_template = templateName
+    clear made.generic_args
+    for typeArgs.children ta:CodeNode i {
+      push made.generic_args ta.vref
+      if ((indexOf ta.vref "__tp_") >= 0) {
+        made.generic_has_placeholder = true
+      }
+    }
+  }
+
+  ; --- native generics ------------------------------------------------------
+  ; A template is NATIVE for this compile when its generic form checked with
+  ; the parameters as opaque placeholders and the target writes generics.
+  ; RangerFlowParser.checkNativeGenerics decides; the writers only ask.
+  fn setNativeGeneric:void (templateName:string isNative:boolean) {
+    def root:RangerAppWriterContext (this.getRoot())
+    set root.nativeGenerics templateName isNative
+  }
+  fn isNativeGeneric:boolean (templateName:string) {
+    def root:RangerAppWriterContext (this.getRoot())
+    if (has root.nativeGenerics templateName) {
+      def v:boolean (unwrap (get root.nativeGenerics templateName))
+      return v
+    }
+    return false
+  }
+  ; The class is an instance of a native template: written as History<int>.
+  fn isNativeGenericInstance:boolean (cl:RangerAppClassDesc) {
+    if ((strlen cl.generic_template) == 0) {
+      return false
+    }
+    return (this.isNativeGeneric(cl.generic_template))
+  }
+  ; Whether a class is written at all. Every instance of a native template
+  ; is written through the one generic form; a placeholder instance of a
+  ; template that is not native exists only for the check.
+  fn isWrittenClass:boolean (cl:RangerAppClassDesc) {
+    if cl.is_type_param {
+      return false
+    }
+    if ((strlen cl.generic_template) == 0) {
+      return true
+    }
+    def native:boolean (this.isNativeGeneric(cl.generic_template))
+    if cl.generic_has_placeholder {
+      return (native && cl.is_generic_form)
+    }
+    return (native == false)
+  }
+
   fn createOperator:void (fromNode@(strong):CodeNode) {
     def root:RangerAppWriterContext (this.getRoot())
     if (root.initStdCommands()) {
-      push root.stdCommands.children fromNode
+      def commands:CodeNode (unwrap root.stdCommands)
+      push commands.children fromNode
 
 ;      def fc:CodeNode (itemAt fromNode.children 0)
 ;      print ":: created op"  + (fromNode.getCode())
@@ -1576,7 +1806,11 @@ class RangerAppWriterContext {
       def cl (this.findClass(cname))
       for cl.defined_variants fnVar:string i {
           if(fnVar == fname) {
-            def mVs:RangerAppMethodVariants (get cl.method_variants fnVar)
+            def variantsOpt@(optional):RangerAppMethodVariants (get cl.method_variants fnVar)
+            if (null? variantsOpt) {
+              continue
+            }
+            def mVs:RangerAppMethodVariants (unwrap variantsOpt)
             for mVs.variants variant:RangerAppFunctionDesc i {
               res = variant
               return res
@@ -1589,7 +1823,11 @@ class RangerAppWriterContext {
 
   fn getFileWriter:CodeWriter (path:string fileName:string) {
     def root:RangerAppWriterContext (this.getRoot())
-    def fs:CodeFileSystem root.fileSystem
+    def fileSystemOpt@(optional):CodeFileSystem root.fileSystem
+    if (null? fileSystemOpt) {
+      return (new CodeWriter())
+    }
+    def fs:CodeFileSystem (unwrap fileSystemOpt)
     def file:CodeFile (fs.getFile(path fileName))
     def wr:CodeWriter 
     wr = (file.getWriter())
@@ -1681,7 +1919,8 @@ class RangerAppWriterContext {
     if (null? parent) {
       return false
     }
-    return (parent.isEnumDefined(n))
+    def parentCtx:RangerAppWriterContext (unwrap parent)
+    return (parentCtx.isEnumDefined(n))
   }
   fn getEnum@(optional weak):RangerAppEnum (n:string) {
     def res@(optional):RangerAppEnum
@@ -1701,7 +1940,8 @@ class RangerAppWriterContext {
     if (null? parent) {
       return false
     }
-    return (parent.isVarDefined(name))
+    def parentCtx:RangerAppWriterContext (unwrap parent)
+    return (parentCtx.isVarDefined(name))
   }
 
   fn setFlag(name:string value:boolean) {
@@ -1761,7 +2001,8 @@ class RangerAppWriterContext {
     if (null? parent) {
       return ""
     }
-    return (parent.getCompilerSetting(s_name))
+    def parentCtx:RangerAppWriterContext (unwrap parent)
+    return (parentCtx.getCompilerSetting(s_name))
   }
   fn hasCompilerSetting:boolean (s_name:string) {
     if (has compilerSettings s_name) {
@@ -1770,7 +2011,8 @@ class RangerAppWriterContext {
     if (null? parent) {
       return false
     }
-    return (parent.hasCompilerSetting(s_name))
+    def parentCtx:RangerAppWriterContext (unwrap parent)
+    return (parentCtx.hasCompilerSetting(s_name))
   }
   
   fn getVariableDef:RangerAppParamDesc (name:string) {
@@ -1781,7 +2023,8 @@ class RangerAppWriterContext {
       def tmp:RangerAppParamDesc (new RangerAppParamDesc ())
       return tmp
     }
-    return (parent.getVariableDef(name))
+    def parentCtx:RangerAppWriterContext (unwrap parent)
+    return (parentCtx.getVariableDef(name))
   }
   fn findFunctionCtx:RangerAppWriterContext () {
     if is_function {
@@ -1790,7 +2033,8 @@ class RangerAppWriterContext {
     if (null? parent) {
       return this
     }
-    return (parent.findFunctionCtx())
+    def parentCtx:RangerAppWriterContext (unwrap parent)
+    return (parentCtx.findFunctionCtx())
   }
   fn getFnVarCnt:int (name:string) {
     def fnCtx:RangerAppWriterContext (this.findFunctionCtx())
@@ -1826,7 +2070,8 @@ class RangerAppWriterContext {
       ii = (unwrap (get fnCtx.defCounts name))
     }
     if (!null? fnCtx.parent) {
-      ii = (ii + (fnCtx.parent.getVarTotalCnt(name)))
+      def parentCtx:RangerAppWriterContext (unwrap fnCtx.parent)
+      ii = (ii + (parentCtx.getVarTotalCnt(name)))
     }
     if (this.isVarDefined(name )) {
         ii = ii + 1
@@ -1844,7 +2089,8 @@ class RangerAppWriterContext {
       set fnCtx.defCounts name 1
     }
     if (!null? fnCtx.parent) {
-      ii = (ii + (fnCtx.parent.getFnVarCnt2(name)))
+      def parentCtx:RangerAppWriterContext (unwrap fnCtx.parent)
+      ii = (ii + (parentCtx.getFnVarCnt2(name)))
     }
 
     def scope_has:boolean (this.isVarDefined(name ))

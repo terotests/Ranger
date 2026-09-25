@@ -142,11 +142,13 @@ describe("C++ Code Generation", () => {
   });
 
   describe("Optional/Nullable Types", () => {
-    it("should handle null values with NULL", () => {
+    it("should check optional values with std::optional::has_value", () => {
       const result = getGeneratedCppCode(`${FIXTURES_DIR}/optional_values.rgr`);
       expect(result.success, `Failed: ${result.error}`).toBe(true);
-      // C++ uses NULL for null checks
-      expect(result.code).toContain("NULL");
+      // an optional object is a std::optional, checked with has_value()
+      expect(result.code).toMatch(/std::optional<std::shared_ptr<Person>>/);
+      expect(result.code).toContain("maybePerson.has_value()");
+      expect(result.code).not.toContain("!= NULL");
     });
   });
 

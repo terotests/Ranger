@@ -258,4 +258,7 @@ compiler/bin/api.ts
 /*.ll
 /*.zip
 /bin/test_*
+# The compiler is dist/rgrc.js. The old bin/output.js build of it is gone and
+# must not come back into version control.
+/bin/output.*
 /rustc_errors.txt

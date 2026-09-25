@@ -1,0 +1,20 @@
+; SPDX-License-Identifier: MIT
+
+; The API model (ApiIR) built from the declarations of a program and their
+; `doc { … }` tails, the validation that keeps it honest, and the writers that
+; turn it into artifacts. See PLAN_API_DOCS.md.
+;
+; The model names a LOGICAL module and no namespace: a namespace, package,
+; assembly and directory are four different things and the targets disagree
+; about how many of them there even are. Physical names belong to the platform
+; emitter, not here.
+
+Import "./RangerApiParam.rgr"
+Import "./RangerApiMethod.rgr"
+Import "./RangerApiField.rgr"
+Import "./RangerApiClass.rgr"
+Import "./RangerApiModel.rgr"
+Import "./RangerApiBuilder.rgr"
+Import "./RangerApiPackageWriter.rgr"
+Import "./RangerApiArtifactWriter.rgr"
+Import "./RangerDocCommentWriter.rgr"

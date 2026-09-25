@@ -4,12 +4,12 @@
 Import "stdlib.rgr"
 Import "RangerAppMessages.rgr"
 Import "RangerDocBlock.rgr"
-Import "RangerApiDoc.rgr"
+Import "./apidoc/RangerApiDoc.rgr"
 Import "RangerAppParamDesc.rgr"
 Import "RangerAppFunctionDesc.rgr"
 Import "RangerAppClassDesc.rgr"
 Import "RangerTypeClass.rgr"
-Import "CodeNode.rgr"
+Import "./ast/CodeNode.rgr"
 Import "RangerAppWriterContext.rgr"
 Import "CodeWriter.rgr"
 Import "RangerLispParser.rgr"
@@ -125,6 +125,9 @@ class RangerFlowParser {
   def lastProcessedNode@(weak):CodeNode
   def collectWalkAtEnd:[CodeNode]
   def walkAlso@(weak):[CodeNode]
+  ; placeholder classes and generic forms made by checkNativeGenerics; held
+  ; here because nothing else in the tree owns them
+  def genericCheckNodes:[CodeNode]
   def serializedClasses@(weak):[RangerAppClassDesc]
   def immutableClasses@(weak):[RangerAppClassDesc]
   def processClasses@(weak):[RangerAppClassDesc]
@@ -225,13 +228,14 @@ class RangerFlowParser {
         if is_chaining {
           def chainResult (unwrap innerNode)
           chainResult.finalizeAsCallChainRoot()
-          if last_is_assign {
-            while ( (array_length assignNode.children) > 3 ) {
-              removeLast assignNode.children
+          if (last_is_assign && (!null? assignNode)) {
+            def assignment:CodeNode (unwrap assignNode)
+            while ( (array_length assignment.children) > 3 ) {
+              removeLast assignment.children
             }
-            if ( (array_length assignNode.children) >= 3 ) {
-              removeLast assignNode.children
-              push assignNode.children chainResult
+            if ( (array_length assignment.children) >= 3 ) {
+              removeLast assignment.children
+              push assignment.children chainResult
             }
           } {
             def kept:[CodeNode]
@@ -643,11 +647,13 @@ class RangerFlowParser {
                       ctx.addError(sec ('invalid property ' + method_name))
                       return
                     }
-                    if (null? p.nameNode) {
+                    def propertyDesc:RangerAppParamDesc (unwrap p)
+                    if (null? propertyDesc.nameNode) {
                       ctx.addError(sec ('invalid property ' + method_name))
                       return
                     }
-                    classDesc = (ctx.findClass(p.nameNode.type_name))
+                    def propertyName:CodeNode (unwrap propertyDesc.nameNode)
+                    classDesc = (ctx.findClass(propertyName.type_name))
                     calledItem = (r.expression 
                                     (r.vref 'property')
                                     (calledItem.copy())
@@ -731,11 +737,12 @@ class RangerFlowParser {
             
             def mDesc (unwrap item.paramDesc)
             ;def mDesc (cast pDesc to:RangerAppFunctionDesc)
+            def methodName:CodeNode (unwrap mDesc.nameNode)
 
-            node.eval_type = mDesc.nameNode.value_type
-            node.eval_type_name = mDesc.nameNode.type_name
-            node.eval_array_type = mDesc.nameNode.array_type
-            node.eval_key_type = mDesc.nameNode.eval_key_type
+            node.eval_type = methodName.value_type
+            node.eval_type_name = methodName.type_name
+            node.eval_array_type = methodName.array_type
+            node.eval_key_type = methodName.eval_key_type
 
             node.is_direct_method_call = true
             return true
@@ -885,6 +892,7 @@ class RangerFlowParser {
             if (vNameNode.hasFlag("optional")) {
               node.setFlag("optional")
             }
+
             node.eval_type = (vNameNode.typeNameAsType(ctx))
             node.eval_type_name = vNameNode.type_name
             if (vNameNode.value_type == RangerNodeType.Array) {
@@ -983,13 +991,16 @@ class RangerFlowParser {
       ; C5: `r.identityId` where r is a shape group union → ops getter
       if (((size node.ns) == 2) && (ctx.isVarDefined(rootObjName))) {
         def rootDef:RangerAppParamDesc (ctx.getVariableDef(rootObjName))
-        if ((!null? rootDef.nameNode) && ((strlen rootDef.nameNode.type_name) > 0)) {
-          def gType:string rootDef.nameNode.type_name
+        if (!null? rootDef.nameNode) {
+          def rootName:CodeNode (unwrap rootDef.nameNode)
+          if ((strlen rootName.type_name) > 0) {
+          def gType:string rootName.type_name
           def fieldName:string (at node.ns 1)
           if (this.shapeGroupHasField(gType fieldName)) {
             def recv:CodeNode (node.newVRefNode(rootObjName))
             this.rewriteToGroupFieldGet(node recv fieldName gType ctx wr)
             return
+          }
           }
         }
       }
@@ -1060,9 +1071,13 @@ class RangerFlowParser {
         } {
 
           ctx.addError(node ('WriteVREF -> Undefined variable ' + node.vref + ' in class ' + desc.name + ' node : ' + (node.getCode())))
-          ctx.addError(node ('WriteVREF -> Undefined variable ' + rootObjName + ' in class ' + desc.name + ' node : ' + (node.parent.getCode())))
-          if(!null? node.parent.parent) {
-            ctx.addError(node ('WriteVREF -> Undefined variable ' + rootObjName + ' in class ' + desc.name + ' node : ' + (node.parent.parent.getCode())))
+          if (!null? node.parent) {
+            def parent:CodeNode (unwrap node.parent)
+            ctx.addError(node ('WriteVREF -> Undefined variable ' + rootObjName + ' in class ' + desc.name + ' node : ' + (parent.getCode())))
+            if(!null? parent.parent) {
+              def grandparent:CodeNode (unwrap parent.parent)
+              ctx.addError(node ('WriteVREF -> Undefined variable ' + rootObjName + ' in class ' + desc.name + ' node : ' + (grandparent.getCode())))
+            }
           }
         }
 
@@ -1265,11 +1280,12 @@ class RangerFlowParser {
       }
       for ctorFn.params param:RangerAppParamDesc i {
         def has_default:boolean false
-        if (param.nameNode.hasFlag('default')) {
+        def parameterName:CodeNode (unwrap param.nameNode)
+        if (parameterName.hasFlag('default')) {
           has_default = true
         }
 
-        if( param.nameNode.hasFlag('keyword')) {
+        if( parameterName.hasFlag('keyword')) {
           continue
         }
 
@@ -1278,16 +1294,21 @@ class RangerFlowParser {
             continue _
           }
           ctx.addError(node 'Missing arguments for function')
-          ctx.addError( (unwrap param.nameNode) 'To fix the previous error: Check original function declaration')
+          ctx.addError(parameterName 'To fix the previous error: Check original function declaration')
         }
 
         def argNode:CodeNode (at params.children i)
 
-        if (false == (this.areEqualTypes( (unwrap param.nameNode) argNode ctx wr))) {
-          ctx.addError(argNode ('ERROR, invalid argument type for ' + currC.name + ' constructor '))
+        if (false == (this.areEqualTypes(parameterName argNode ctx wr))) {
+          def className:string ""
+          if (!null? currC) {
+            def currentClass:RangerAppClassDesc (unwrap currC)
+            className = currentClass.name
+          }
+          ctx.addError(argNode ('ERROR, invalid argument type for ' + className + ' constructor '))
         }
 
-        def pNode:CodeNode (unwrap param.nameNode)
+        def pNode:CodeNode parameterName
         if( pNode.hasFlag("optional")) {
           ;if ( false == (argNode.hasFlag("optional")) ) {
           ;    ctx.addError(node ( 'new parameter optionality does not match, expected optional parameter' + (argNode.getCode())) )          
@@ -1438,9 +1459,10 @@ class RangerFlowParser {
           wr.out(`if(className == '` + item.name +`') {` , true)
           wr.indent(1)
           item.variables.forEach({
+            def variableName:CodeNode (unwrap item.nameNode)
             wr.out('def f (new RTTIClassField)' true)
             wr.out('f.name = `' + item.compiledName +  '`' , true)
-            wr.out('f.type_name = `' + item.nameNode.type_name +  '`' , true)
+            wr.out('f.type_name = `' + variableName.type_name +  '`' , true)
             wr.out('push fields f' true)
           })
             ; -->
@@ -1571,8 +1593,9 @@ class RangerFlowParser {
               def paramClassDef (ctx.findClass(itemCopy.eval_array_type))
               def chNode item
               rootClassDef.variables.forEach({
+                def variableName:CodeNode (unwrap item.nameNode)
                 ; --> comparing, are the same class ?? 
-                if( match.areEqualATypes(item.nameNode.array_type itemCopy.eval_array_type ctx)) {                      ; if(item.nameNode.array_type == itemCopy.eval_array_type) {
+                if( match.areEqualATypes(variableName.array_type itemCopy.eval_array_type ctx)) {                      ; if(item.nameNode.array_type == itemCopy.eval_array_type) {
                   def t (r.vref 'tmp')
                   t.setFlag('temp')
                   push opBody.children (r.expression (r.vref 'forEach' ) (theNode.copy()) 
@@ -1594,7 +1617,8 @@ class RangerFlowParser {
             def chNode item
             ; find the variable which has this class as array...
             rootClassDef.variables.forEach({
-              if( match.areEqualATypes(item.nameNode.array_type chNode.vref ctx)) {                      
+              def variableName:CodeNode (unwrap item.nameNode)
+              if( match.areEqualATypes(variableName.array_type chNode.vref ctx)) {                      
                 ; if(item.nameNode.array_type == itemCopy.eval_array_type) {
               ; if(item.nameNode.array_type == chNode.vref) {
                 ; found the variable...
@@ -1690,8 +1714,9 @@ class RangerFlowParser {
       this.markCalledFromMain( item ctx)
     })
     if( !null? f.container_class) {
-      if(!null? f.container_class.constructor_fn) {
-        this.markCalledFromMain( (unwrap f.container_class.constructor_fn) ctx)
+      def containerClass:RangerAppClassDesc (unwrap f.container_class)
+      if(!null? containerClass.constructor_fn) {
+        this.markCalledFromMain( (unwrap containerClass.constructor_fn) ctx)
       }
     }
   }
@@ -1802,7 +1827,9 @@ class RangerFlowParser {
         def cl item
         for cl.static_methods variant@(lives):RangerAppFunctionDesc i {
           ctx.disableCurrentClass()
-          if ( (variant.nameNode.hasFlag("main")) && (variant.nameNode.code.filename == (ctx.getRootFile()))) {  
+            def variantName:CodeNode (unwrap variant.nameNode)
+            def variantSource:SourceCode (unwrap variantName.code)
+            if ( (variantName.hasFlag("main")) && (variantSource.filename == (ctx.getRootFile()))) {  
             mainFn = variant
             mainFn.addClassUsage( cl ctx )
           }
@@ -1963,7 +1990,8 @@ class RangerFlowParser {
     this.WalkNode( obj ctx wr ) 
 
     if ( (ctx.isDefinedClass(obj.eval_type_name) == false) && (!null? obj.clDesc) ) {
-      obj.eval_type_name = obj.clDesc.name
+      def objectClass:RangerAppClassDesc (unwrap obj.clDesc)
+      obj.eval_type_name = objectClass.name
     }
 
     ctx.setInExpr()
@@ -1977,10 +2005,13 @@ class RangerFlowParser {
       def m@(optional):RangerAppFunctionDesc
       if (cl.hasMethod(method.vref)) {
         def mVs@(optional):RangerAppMethodVariants (get cl.method_variants method.vref)
-        if ((!null? mVs) && ((size mVs.variants) > 0)) {
+        if (!null? mVs) {
+          def variants:RangerAppMethodVariants (unwrap mVs)
+          if ((size variants.variants) > 0) {
           m = (this.matchMethodCall(cl method.vref callArgs ctx wr node))
           if (null? m) {
             return false
+          }
           }
         }
       }
@@ -1991,19 +2022,20 @@ class RangerFlowParser {
         }
       }
       if(!null? m) {
+        def methodDesc:RangerAppFunctionDesc (unwrap m)
+        def nn:CodeNode (unwrap methodDesc.nameNode)
         node.has_call = true
-        node.fnDesc = m
+        node.fnDesc = methodDesc
 
         def currM (ctx.getCurrentMethod())
-        currM.addCallTo( (unwrap m) )
-        def nn:CodeNode m.nameNode
+        currM.addCallTo(methodDesc)
         node.eval_type = (nn.typeNameAsType(ctx))
         node.eval_type_name = nn.type_name
         node.eval_array_type = nn.array_type
         node.eval_key_type = nn.key_type
-        if(m.nameNode.hasFlag("throws")) {
+        if(nn.hasFlag("throws")) {
           if(false == (ctx.isTryBlock()) ) {
-            ctx.addError(obj ('The method ' + m.name + " potentially throws an exception, try { } block is required"))
+            ctx.addError(obj ('The method ' + methodDesc.name + " potentially throws an exception, try { } block is required"))
           }
         }              
         if(nn.value_type == RangerNodeType.ExpressionType) {
@@ -2291,7 +2323,8 @@ class RangerFlowParser {
             }
             arg.forTree({
               if(!null? item.lambdaFnDesc) {
-                item.lambdaFnDesc.insideFn = currM
+                def nestedLambda:RangerAppFunctionDesc (unwrap item.lambdaFnDesc)
+                nestedLambda.insideFn = currM
               }
               if(!null? item.fnDesc) {
                 if(!null? arg.lambdaFnDesc) {
@@ -2448,19 +2481,21 @@ class RangerFlowParser {
     ; TODO: first lambda call check comes here... continue to other variants later
     if (ctx.isVarDefined(fnNode.vref)) {
         def d (ctx.getVariableDef(fnNode.vref))
+        def lambdaName:CodeNode (unwrap d.nameNode)
 
         d.ref_cnt = (1 + d.ref_cnt)
 
-        if( d.nameNode.hasFlag('optional')) {
+        if( lambdaName.hasFlag('optional')) {
           ctx.addError( node 'Can not call optional lambda function, unwrap the function first!')
         }
 
-        if(d.nameNode.value_type == RangerNodeType.ExpressionType) {
+        if(lambdaName.value_type == RangerNodeType.ExpressionType) {
 
           def cnNode1 (at node.children 0)
           this.WalkNode(cnNode1 ctx wr)
 
-          def lambdaDefArgs (at d.nameNode.expression_value.children 1)
+          def lambdaExpr:CodeNode (unwrap lambdaName.expression_value)
+          def lambdaDefArgs (at lambdaExpr.children 1)
           def callParams:CodeNode (at node.children 1)
           
           for callParams.children arg:CodeNode i {
@@ -2469,9 +2504,9 @@ class RangerFlowParser {
             ctx.unsetInExpr()
           }
 
-          this.testLambdaCallArgs( (unwrap d.nameNode.expression_value) callParams ctx wr)
+          this.testLambdaCallArgs(lambdaExpr callParams ctx wr)
 
-          def lambdaDef (at d.nameNode.expression_value.children 0)
+          def lambdaDef (at lambdaExpr.children 0)
           node.has_lambda_call = true
           node.eval_type = (lambdaDef.typeNameAsType(ctx))
           node.eval_type_name = lambdaDef.type_name
@@ -2641,7 +2676,8 @@ class RangerFlowParser {
               ctx.addError(sec ('invalid property ' + item))
               return
             }
-            classDesc = (ctx.findClass(pDesc.nameNode.type_name))
+            def propertyName:CodeNode (unwrap pDesc.nameNode)
+            classDesc = (ctx.findClass(propertyName.type_name))
           } {
             ctx.addError(sec ('invalid property ' + item ))
           }
@@ -2798,8 +2834,10 @@ class RangerFlowParser {
       def gRoot:string (at target.ns 0)
       def gField:string (at target.ns 1)
       def gRootDef:RangerAppParamDesc (ctx.getVariableDef(gRoot))
-      if ((!null? gRootDef.nameNode) && ((strlen gRootDef.nameNode.type_name) > 0)) {
-        def gType:string gRootDef.nameNode.type_name
+      if (!null? gRootDef.nameNode) {
+        def rootName:CodeNode (unwrap gRootDef.nameNode)
+        if ((strlen rootName.type_name) > 0) {
+        def gType:string rootName.type_name
         if (this.shapeGroupHasField(gType gField)) {
           if (has shapeGroupAllValue gType) {
             if (unwrap (get shapeGroupAllValue gType)) {
@@ -2825,6 +2863,7 @@ class RangerFlowParser {
           node.getChildrenFrom(callNode)
           this.WalkNode(node ctx wr)
           return
+        }
         }
       }
     }
@@ -2857,17 +2896,22 @@ class RangerFlowParser {
 
     ; immutable check which denies assigent operation
     if(target.hasParamDesc) {
-      if( !null? target.paramDesc.propertyClass) {
-        def nn (unwrap target.paramDesc.propertyClass.nameNode)
+      def targetDesc:RangerAppParamDesc (unwrap target.paramDesc)
+      if( !null? targetDesc.propertyClass) {
+        def propertyClass:RangerAppClassDesc (unwrap targetDesc.propertyClass)
+        def nn (unwrap propertyClass.nameNode)
         if(nn.hasFlag("immutable")) {
 
           def do_transform false
-          def propC (target.paramDesc.propertyClass)
+          def propC:RangerAppClassDesc propertyClass
           def currC (ctx.getCurrentClass())
-          if( (unwrap currC) == (unwrap propC) ) {
-            if( (at target.ns 0) == "this" ) {
-              ; ctx.addError( node "Assigment to immutable class this variable")            
-              do_transform = true
+          if (!null? currC) {
+            def currentClass:RangerAppClassDesc (unwrap currC)
+            if( currentClass == propC ) {
+              if( (at target.ns 0) == "this" ) {
+                ; ctx.addError( node "Assigment to immutable class this variable")            
+                do_transform = true
+              }
             }
           } {
             ; ctx.addError( node "Assigment to immutable class node")
@@ -2910,19 +2954,43 @@ class RangerFlowParser {
     }
     ctx.unsetInExpr()
     if n1.hasParamDesc {
-      n1.paramDesc.ref_cnt = (n1.paramDesc.ref_cnt + 1)
-      n1.paramDesc.set_cnt = (n1.paramDesc.set_cnt + 1)
+      def targetDesc:RangerAppParamDesc (unwrap n1.paramDesc)
+      targetDesc.ref_cnt = (targetDesc.ref_cnt + 1)
+      targetDesc.set_cnt = (targetDesc.set_cnt + 1)
       ; The walk above counted the assignment TARGET as a mention. It is a
       ; write, not a read, so take it back out: `x = 1` alone must leave
       ; read_cnt at zero, while `x = x + 1` leaves it at one.
-      n1.paramDesc.read_cnt = (n1.paramDesc.read_cnt - 1)
+      targetDesc.read_cnt = (targetDesc.read_cnt - 1)
     }
     if n2.hasParamDesc {
-      n2.paramDesc.ref_cnt = (n2.paramDesc.ref_cnt + 1)
+      def valueDesc:RangerAppParamDesc (unwrap n2.paramDesc)
+      valueDesc.ref_cnt = (valueDesc.ref_cnt + 1)
     }
     if (n2.hasFlag("optional")) {
       if (false == (n1.hasFlag("optional"))) {
         ctx.addError(node "Can not assign optional to non-optional type")
+      }
+    }
+    ; `x = <a value>` narrows x from here on, `x = <an optional>` ends it
+    if ((n1.expression == false) && ((strlen n1.vref) > 0)) {
+      def target:string n1.vref
+      if ((array_length n1.ns) == 1) {
+        target = (itemAt n1.ns 0)
+      }
+      def valuePresent:boolean (false == (n2.hasFlag("optional")))
+      if ((n2.expression == false) && ((strlen n2.vref) > 0)) {
+        def source:string n2.vref
+        if ((array_length n2.ns) == 1) {
+          source = (itemAt n2.ns 0)
+        }
+        if (ctx.isPresentForStrict(source)) {
+          valuePresent = true
+        }
+      }
+      if valuePresent {
+        ctx.setFlowNarrowed(target 2)
+      } {
+        ctx.setFlowNarrowed(target 0)
       }
     }
     this.stdParamMatch(node ctx wr true)
@@ -2968,8 +3036,9 @@ class RangerFlowParser {
         ctx.unsetInExpr()
       }
       p.is_class_variable = true
-      p.nameNode.eval_type = (p.nameNode.typeNameAsType(ctx))
-      p.nameNode.eval_type_name = p.nameNode.type_name
+      def variableName:CodeNode (unwrap p.nameNode)
+      variableName.eval_type = (variableName.typeNameAsType(ctx))
+      variableName.eval_type_name = variableName.type_name
     }
 
     for cBody.children fNode:CodeNode i {
@@ -3028,34 +3097,37 @@ class RangerFlowParser {
       if( false == (subCtx.isVarDefined(v.name)) ) {
         subCtx.defineVariable(v.name v)
       }
-      v.nameNode.eval_type = (v.nameNode.typeNameAsType(subCtx))
-      v.nameNode.eval_type_name = v.nameNode.type_name
-      ctx.hadValidType( (unwrap v.nameNode) )
+      def parameterName:CodeNode (unwrap v.nameNode)
+      parameterName.eval_type = (parameterName.typeNameAsType(subCtx))
+      parameterName.eval_type_name = parameterName.type_name
+      ctx.hadValidType(parameterName)
 
-      if( (ctx.isDefinedClass(v.nameNode.type_name)) ) {
-        def cl (ctx.findClass(v.nameNode.type_name))
+      if( (ctx.isDefinedClass(parameterName.type_name)) ) {
+        def cl (ctx.findClass(parameterName.type_name))
         m.addClassUsage( cl ctx )
       }
-      if( (ctx.isDefinedClass(v.nameNode.array_type)) ) {
-        def cl (ctx.findClass(v.nameNode.array_type))
+      if( (ctx.isDefinedClass(parameterName.array_type)) ) {
+        def cl (ctx.findClass(parameterName.array_type))
         m.addClassUsage( cl ctx )
       }      
     }
     subCtx.setInMethod()
     this.WalkNodeChildren(fnBody subCtx wr)
     subCtx.unsetInMethod()
-    if (fnBody.didReturnAtIndex == -1) {
-      if (m.nameNode.type_name != "void") {
+    def methodName:CodeNode (unwrap m.nameNode)
+    ; an if/else whose two blocks both return also ends every path
+    if ((fnBody.didReturnAtIndex == -1) && (false == (this.blockAlwaysExits(fnBody)))) {
+      if (methodName.type_name != "void") {
           if( false == (ctx.getFlag("in_task")) ) {
-            ctx.addError( (unwrap m.nameNode) "Function does not return any values!")
+            ctx.addError(methodName "Function does not return any values!")
           }
       }
     } {
-      if( (m.nameNode.type_name == "void") || ( (has m.nameNode.type_name) == false ) && ( (has m.nameNode.array_type) == false )  ) {
+      if( (methodName.type_name == "void") || ( (has methodName.type_name) == false ) && ( (has methodName.array_type) == false )  ) {
         if( false == (ctx.getFlag("in_task")) ) {
           def rvNode ( at fnBody.children fnBody.didReturnAtIndex)
           if( (size rvNode.children ) > 1) {
-            ctx.addError( (unwrap m.nameNode) "No return value type defined for a function which returns value")
+            ctx.addError(methodName "No return value type defined for a function which returns value")
             ctx.addError( rvNode "Returning value from a function without set return value")
           }
         }
@@ -3266,8 +3338,8 @@ class RangerFlowParser {
                 ; not inside a parenthesised receiver.
                 def realRegDesc:RangerAppParamDesc (unwrap regArg.paramDesc)
                 def realRegName ( realRegDesc.compiledName )
-                regArg.paramDesc.set_cnt = 1
-                regArg.paramDesc.ref_cnt = 1
+                realRegDesc.set_cnt = 1
+                realRegDesc.ref_cnt = 1
 
                 def BlockOP (ctx.getLastBlockOp())
                 BlockOP.register_expressions.push( regExpr )
@@ -3709,8 +3781,8 @@ class RangerFlowParser {
                   def regArg (at regExpr.children 1)
                   def realRegDesc:RangerAppParamDesc (unwrap regArg.paramDesc)
                   def realRegName ( realRegDesc.compiledName )
-                  regArg.paramDesc.set_cnt = 1
-                  regArg.paramDesc.ref_cnt = 1
+                  realRegDesc.set_cnt = 1
+                  realRegDesc.ref_cnt = 1
                   
                   if use_delta {
                     push newRNodes regExpr
@@ -3824,8 +3896,8 @@ class RangerFlowParser {
             def regArg (at regExpr.children 1)
             def realRegDesc:RangerAppParamDesc (unwrap regArg.paramDesc)
             def realRegName ( realRegDesc.compiledName )
-            regArg.paramDesc.set_cnt = 1
-            regArg.paramDesc.ref_cnt = 1
+            realRegDesc.set_cnt = 1
+            realRegDesc.ref_cnt = 1
 
             def BlockOP (ctx.getLastBlockOp())
             if(! (ctx.isTestCompile() ) ) {
@@ -4181,6 +4253,314 @@ class RangerFlowParser {
       tstr = ((tstr + "_") + part)
     }
     return (baseName + tstr)
+  }
+
+  ; --- native generics ------------------------------------------------------
+  ;
+  ; Every `History@(int)` is still expanded into `History_int` and type
+  ; checked as a class of its own: that is what the call sites are checked
+  ; against. A target that has generics of its own can instead be handed ONE
+  ; class, `History<Op>`, when the body is the same for every argument.
+  ;
+  ; That is decided here, once per template, after the whole program has been
+  ; walked. The template is expanded one more time with each parameter bound
+  ; to an empty placeholder class (`__tp_History_Op`), its GENERIC FORM. A
+  ; body that only stores, moves and returns its parameter values checks
+  ; cleanly against a class with no fields and no methods; anything that
+  ; needs to know what the value is -- arithmetic, `+` on strings, a method,
+  ; a comparison -- either fails to check or uses an operator outside the
+  ; list below, and the template keeps its expanded copies. The errors of a
+  ; failed check are taken back: they describe the check, not the program.
+  fn nativeGenericsTarget:boolean (ctx:RangerAppWriterContext) {
+    if (ctx.hasCompilerFlag("no-native-generics")) {
+      return false
+    }
+    def lang:string (ctx.getTargetLangName())
+    def langs:[string] ([] _:string ( "cpp" "java7" "go" "es6" "python" "php" "csharp" "dart" "kotlin" "scala" ))
+    return ((indexOf langs lang) >= 0)
+  }
+
+  ; Operators that treat a value of a parameter type as an opaque value.
+  ; Go writes a map read through a helper named and typed after the map
+  ; (`r_get_string_int`), which a type parameter cannot be.
+  fn genericOpaqueOperator:boolean (name:string ctx:RangerAppWriterContext) {
+    def lang:string (ctx.getTargetLangName())
+    if ((lang == "go") && (name == "get")) {
+      return false
+    }
+    def ok:[string] ([] _:string ( "push" "clear" "itemAt" "at" "set_at" "remove_index" "removeLast" "insert" "last" "first" "array_length" "size" "set" "get" "has" "unwrap" "=" "def" "let" "var" "return" "null?" "!null?" "??" "call" "new" ))
+    return ((indexOf ok name) >= 0)
+  }
+
+  ; What the target can not write generically whatever the body says. Go
+  ; gives a class that extends an interface of its own, spelled after the
+  ; class name.
+  ; C# spells an optional int `int?` and an optional class bare, and an
+  ; unconstrained type parameter has neither, so an optional one is not
+  ; written generically there.
+  fn genericFormFitsTarget:boolean (form:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    def lang:string (ctx.getTargetLangName())
+    if (lang == "go") {
+      if ((array_length form.extends_classes) > 0) {
+        return false
+      }
+    }
+    if (lang == "csharp") {
+      def fnOpt@(optional):CodeNode form.classNode
+      if (!null? fnOpt) {
+        if (this.genericUsesOptionalParam((unwrap fnOpt))) {
+          return false
+        }
+      }
+    }
+    return true
+  }
+
+  fn genericUsesOptionalParam:boolean (node:CodeNode) {
+    if (node.hasFlag("optional")) {
+      if (((indexOf node.type_name "__tp_") >= 0) || ((indexOf node.eval_type_name "__tp_") >= 0)) {
+        return true
+      }
+    }
+    for node.children c:CodeNode i {
+      if (this.genericUsesOptionalParam(c)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  fn genericTypeIsPlaceholder:boolean (n:CodeNode) {
+    if ((indexOf n.eval_type_name "__tp_") >= 0) {
+      return true
+    }
+    if ((indexOf n.eval_array_type "__tp_") >= 0) {
+      return true
+    }
+    if ((indexOf n.eval_key_type "__tp_") >= 0) {
+      return true
+    }
+    return false
+  }
+
+  ; True when the generic form uses a parameter value only opaquely.
+  fn genericBodyIsOpaque:boolean (node:CodeNode ctx:RangerAppWriterContext) {
+    def cnt:int (array_length node.children)
+    if (node.expression && (cnt > 1)) {
+      def fc:CodeNode (node.getFirst())
+      def opName:string fc.vref
+      if ((strlen opName) > 0) {
+        if (((array_length fc.ns) <= 1) && ((this.genericOpaqueOperator(opName ctx)) == false)) {
+          def ops:[CodeNode] (ctx.getOperators(opName))
+          if ((array_length ops) > 0) {
+            for node.children ch:CodeNode i {
+              if (i == 0) {
+                continue
+              }
+              if (this.genericTypeIsPlaceholder(ch)) {
+                return false
+              }
+            }
+          }
+        }
+      }
+    }
+    for node.children c:CodeNode ci {
+      if ((this.genericBodyIsOpaque(c ctx)) == false) {
+        return false
+      }
+    }
+    return true
+  }
+
+  fn makeGenericPlaceholder:string (templateName:string paramName:string ctx:RangerAppWriterContext wr:CodeWriter) {
+    def cname:string ((("__tp_" + templateName) + "_") + paramName)
+    if (ctx.isDefinedClass(cname)) {
+      return cname
+    }
+    def theCode:string (("class " + cname) + " {\n}\n")
+    def code:SourceCode (new SourceCode(theCode))
+    code.filename = ("generic parameter " + paramName)
+    def parser:RangerLispParser (new RangerLispParser(code))
+    parser.parse((ctx.hasCompilerFlag("no-op-transform")))
+    def rn@(lives):CodeNode (unwrap parser.rootNode)
+    push genericCheckNodes rn
+    this.WalkCollectMethods(rn ctx wr)
+    this.WalkNode(rn ctx wr)
+    if (ctx.isDefinedClass(cname)) {
+      def pc:RangerAppClassDesc (ctx.findClass(cname))
+      pc.is_type_param = true
+      pc.type_param_name = paramName
+    }
+    return cname
+  }
+
+  ; C++ writes a parameter bound to boolean or charbuffer differently from
+  ; the same type written out: an optional one of those is a bare value
+  ; there, and std::optional<T> in a template.
+  fn genericArgsFitTarget:boolean (templateName:string ctx:RangerAppWriterContext) {
+    def lang:string (ctx.getTargetLangName())
+    def root:RangerAppWriterContext (ctx.getRoot())
+    for root.definedClassList cn:string i {
+      def cl:RangerAppClassDesc (root.findClass(cn))
+      if (cl.generic_template != templateName) {
+        continue
+      }
+      for cl.generic_args a:string ai {
+        if (lang == "cpp") {
+          if ((a == "boolean") || (a == "charbuffer")) {
+            return false
+          }
+        }
+      }
+    }
+    return true
+  }
+
+  fn checkNativeGenerics:void (ctx:RangerAppWriterContext wr:CodeWriter) {
+    if ((this.nativeGenericsTarget(ctx)) == false) {
+      return
+    }
+    def root:RangerAppWriterContext (ctx.getRoot())
+    if ((array_length root.compilerErrors) > 0) {
+      return
+    }
+    def checked:[string:boolean]
+    ; template -> the classes its generic form brought into being
+    def madeBy:[string:[string]]
+    def progress:boolean true
+    while progress {
+      progress = false
+      def todo:[string]
+      for root.definedClassList cn:string i {
+        def cl:RangerAppClassDesc (root.findClass(cn))
+        def tn:string cl.generic_template
+        if ((strlen tn) == 0) {
+          continue
+        }
+        if (has checked tn) {
+          continue
+        }
+        if ((indexOf todo tn) < 0) {
+          push todo tn
+        }
+      }
+      for todo tpl:string ti {
+        set checked tpl true
+        progress = true
+        def native:boolean (this.checkGenericForm(tpl ctx wr))
+        root.setNativeGeneric(tpl native)
+        if (ctx.hasCompilerFlag("generics-report")) {
+          def nv:string "no"
+          if native {
+            nv = "yes"
+          }
+          print ((("generic " + tpl) + " native=") + nv)
+        }
+      }
+    }
+    ; a generic form naming another template's placeholder instance
+    ; (`Slot<T>` inside Holder) is only as native as that template
+    def changed:boolean true
+    while changed {
+      changed = false
+      for root.definedClassList cn:string i {
+        def cl:RangerAppClassDesc (root.findClass(cn))
+        if ((cl.generic_has_placeholder == false) || cl.is_generic_form) {
+          continue
+        }
+        if (root.isNativeGeneric(cl.generic_template)) {
+          continue
+        }
+        ; this placeholder instance is not native: every template whose
+        ; generic form uses it falls back too
+        for root.templateClassList owner:string oi {
+          if ((root.isNativeGeneric(owner)) == false) {
+            continue
+          }
+          def ownerForm:string ("__gf_" + owner)
+          if (has root.genericFormUses ownerForm) {
+            def uses:[string] (unwrap (get root.genericFormUses ownerForm))
+            if ((indexOf uses cn) >= 0) {
+              root.setNativeGeneric(owner false)
+              changed = true
+            }
+          }
+        }
+      }
+    }
+  }
+
+  ; Expand `tpl` at its own placeholders and answer whether it is native.
+  fn checkGenericForm:boolean (tpl:string ctx:RangerAppWriterContext wr:CodeWriter) {
+    def root:RangerAppWriterContext (ctx.getRoot())
+    if ((root.hasTemplateNode(tpl)) == false) {
+      return false
+    }
+    def tplNode:CodeNode (root.findTemplateNode(tpl))
+    def paramsOpt@(optional):CodeNode (tplNode.getExpressionProperty("params"))
+    if (null? paramsOpt) {
+      return false
+    }
+    def params:CodeNode (unwrap paramsOpt)
+    ; a parameter spelled like a type the program already has would shadow
+    ; it inside the generic class on every target
+    for params.children pn:CodeNode pi {
+      if ((root.isDefinedType(pn.vref)) || (root.hasTemplateNode(pn.vref))) {
+        return false
+      }
+    }
+    if ((this.genericArgsFitTarget(tpl ctx)) == false) {
+      return false
+    }
+    def typeArgs:CodeNode (tplNode.newExpressionNode())
+    def formName:string tpl
+    for params.children pn:CodeNode pi {
+      def ph:string (this.makeGenericPlaceholder(tpl pn.vref ctx wr))
+      typeArgs.add((tplNode.newVRefNode(ph)))
+      formName = ((formName + "_") + ph)
+    }
+    push genericCheckNodes typeArgs
+    def errBefore:int (array_length root.compilerErrors)
+    def classesBefore:int (array_length root.definedClassList)
+    def made@(optional):RangerAppClassDesc (ctx.createGenericClassInstance(tpl formName typeArgs this wr))
+    def ok:boolean ((array_length root.compilerErrors) == errBefore)
+    while ((array_length root.compilerErrors) > errBefore) {
+      removeLast root.compilerErrors
+    }
+    if (null? made) {
+      return false
+    }
+    def form:RangerAppClassDesc (unwrap made)
+    form.is_generic_form = true
+    ; a static of a generic class has no instance to take its parameter from,
+    ; and none can be called (FlowTypes says so), so a template carrying one
+    ; keeps its copies
+    if ((array_length form.static_methods) > 0) {
+      ok = false
+    }
+    if ((this.genericFormFitsTarget(form ctx)) == false) {
+      ok = false
+    }
+    if (form.isSingletonClass()) {
+      ok = false
+    }
+    def uses:[string]
+    def classesAfter:int (array_length root.definedClassList)
+    def k:int classesBefore
+    while (k < classesAfter) {
+      push uses (itemAt root.definedClassList k)
+      k = (k + 1)
+    }
+    set root.genericFormUses ("__gf_" + tpl) uses
+    if (ok == false) {
+      return false
+    }
+    def formNodeOpt@(optional):CodeNode form.classNode
+    if (null? formNodeOpt) {
+      return false
+    }
+    return (this.genericBodyIsOpaque((unwrap formNodeOpt) ctx))
   }
 
   ; A type argument as a piece of an identifier. `[string]` and `[string:int]`

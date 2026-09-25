@@ -81,7 +81,7 @@ class RangerDocBlock {
     if ((this.hasTargetView(name)) == false) {
       return this
     }
-    def ov:RangerDocBlock (get targets name)
+    def ov@(optional):RangerDocBlock (get targets name)
     def merged:RangerDocBlock (new RangerDocBlock)
     merged.is_public = is_public
     merged.is_internal = is_internal
@@ -109,18 +109,23 @@ class RangerDocBlock {
     for exampleRefs r:string i {
       push merged.exampleRefs r
     }
-    for ov.attrs a:string i {
-      push merged.attrs a
+
+    if( ( !null? ov)) {
+      def ovs ( unwrap ov )
+      for ovs.attrs a:string i {
+        push merged.attrs a
+      }
+      if ((strlen ovs.description) > 0) {
+        merged.description = ovs.description
+      }
+      if ((strlen ovs.returns) > 0) {
+        merged.returns = ov.returns
+      }
+      for ovs.params p:RangerDocParam i {
+        push merged.params p
+      }
     }
-    if ((strlen ov.description) > 0) {
-      merged.description = ov.description
-    }
-    if ((strlen ov.returns) > 0) {
-      merged.returns = ov.returns
-    }
-    for ov.params p:RangerDocParam i {
-      push merged.params p
-    }
+    
     return merged
   }
 }
@@ -245,9 +250,8 @@ class RangerDocReader {
             ; `param x int "…"` — a restated type. The compiler already knows
             ; it, and a restated type is a type that will disagree with the
             ; signature. PLAN_API_DOCS.md §3.
-            def third:CodeNode
             if (argc > 2) {
-              third = (at item.children 2)
+              def third:CodeNode (at item.children 2)
               if (third.value_type != RangerNodeType.String) {
                 ctx.addError(item ("param `" + p.name + "` restates a type. The compiler already knows it: write `param " + p.name + " \"…\"`."))
               }
@@ -272,9 +276,8 @@ class RangerDocReader {
           ; `example "…"` is a literal; `example name` names a function. The
           ; two are told apart by the node, not by looking at the text: a
           ; literal that happens to be one word is still a literal.
-          def first:CodeNode
           if (argc > 1) {
-            first = (at item.children 1)
+            def first:CodeNode (at item.children 1)
             if (first.value_type == RangerNodeType.String) {
               push doc.examples (this.textFrom(item 1))
             } {

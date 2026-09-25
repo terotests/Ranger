@@ -1,8 +1,6 @@
 ; SPDX-License-Identifier: MIT
 
 
-Import "CodeNode.rgr"
-
 operator type:void all {
 
   fn is_not_limiter:boolean (c:char) {
@@ -67,6 +65,7 @@ class RangerLispParser {
     code = code_module
     len = (length (( unwrap buff)))
     rootNode = (new CodeNode(( unwrap code) 0 0))
+    def root:CodeNode (unwrap rootNode)
     ; V8 gives a field the representation of the first value stored in it, and
     ; the CodeNode constructor stores the integer 0 in double_value and in
     ; int_value, so both begin as small integers. The first fractional literal
@@ -77,14 +76,14 @@ class RangerLispParser {
     ; values once, here, moves the change to a point where one node exists.
     ; JavaScript only: the sum is past a 32-bit int on the other targets.
     if_javascript {
-      rootNode.double_value = 0.5
-      rootNode.int_value = (1073741824 + 1073741824)
-      rootNode.double_value = 0.0
-      rootNode.int_value = 0
+      root.double_value = 0.5
+      root.int_value = (1073741824 + 1073741824)
+      root.double_value = 0.0
+      root.int_value = 0
     }
-    rootNode.is_block_node = true
-    rootNode.expression = true
-    curr_node = rootNode
+    root.is_block_node = true
+    root.expression = true
+    curr_node = root
     push parents ( unwrap curr_node)
     paren_cnt = 1
   }
@@ -277,15 +276,17 @@ class RangerLispParser {
     }
     removeLast parents
     if ((!null? curr_node)) {
-      curr_node.ep = i
-      curr_node.infix_operator = false
+      def current:CodeNode (unwrap curr_node)
+      current.ep = i
+      current.infix_operator = false
     }
     if (((array_length parents)) > 0 ) {
       curr_node = (itemAt parents (((array_length parents)) - 1))
     } {
       curr_node = rootNode
     }
-    curr_node.infix_operator = false
+    def active:CodeNode (unwrap curr_node)
+    active.infix_operator = false
     return true
   }
   
@@ -704,15 +705,17 @@ class RangerLispParser {
   ; when it folded; the new group is left in `last_call_group`.
   fn insertCallOrNode:boolean ( p_node@(strong lives):CodeNode) {
     def push_target@(optional weak lives):CodeNode curr_node
-    if (curr_node.infix_operator) {
-      push_target = curr_node.infix_node
+    def current:CodeNode (unwrap curr_node)
+    if (current.infix_operator) {
+      push_target = current.infix_node
       if (push_target.to_the_right) {
         push_target = push_target.right_node
         p_node.parent = push_target
       }
     }
-    def cnt:int (array_length push_target.children)
-    def inside_args:boolean push_target.is_call_args
+    def target:CodeNode (unwrap push_target)
+    def cnt:int (array_length target.children)
+    def inside_args:boolean target.is_call_args
     def may_fold:boolean (cnt > 1)
     if (inside_args && (cnt == 1)) {
       may_fold = true
@@ -731,12 +734,12 @@ class RangerLispParser {
       }
     }
     if (may_fold) {
-      def callee:CodeNode (itemAt push_target.children (cnt - 1))
+      def callee:CodeNode (itemAt target.children (cnt - 1))
       if ((cnt > 2) && (this.isChainTailCallee(callee i))) {
-        def prevGroup:CodeNode (itemAt push_target.children (cnt - 2))
+        def prevGroup:CodeNode (itemAt target.children (cnt - 2))
         def continues:boolean (this.isCallChainOnNode(prevGroup))
         if (continues && (callee.sp == prevGroup.ep)) {
-          def movedTail:CodeNode (array_extract push_target.children (cnt - 1))
+          def movedTail:CodeNode (array_extract target.children (cnt - 1))
           movedTail.parent = prevGroup
           p_node.parent = prevGroup
           p_node.is_call_args = true
@@ -749,19 +752,19 @@ class RangerLispParser {
       if (this.isPlainDotCallee(callee i)) {
         def callGroup@(temp lives):CodeNode (new CodeNode(( unwrap code) callee.sp i))
         callGroup.expression = true
-        callGroup.parent = push_target
-        def moved:CodeNode (array_extract push_target.children (cnt - 1))
+        callGroup.parent = target
+        def moved:CodeNode (array_extract target.children (cnt - 1))
         moved.parent = callGroup
         p_node.parent = callGroup
         push callGroup.children moved
         push callGroup.children p_node
         p_node.is_call_args = true
         last_call_group = callGroup
-        push push_target.children callGroup
+        push target.children callGroup
         return true
       }
     }
-    if (push_target.is_block_node) {
+    if (target.is_block_node) {
       this.attachPendingComments(p_node)
     }
     ; Not folded, but still an argument list when the name in front of it is a
@@ -769,51 +772,55 @@ class RangerLispParser {
     ; `recv.method(`). Marking it is what lets a bare call nested inside those
     ; arguments fold.
     if (cnt == 1) {
-      def onlyCh:CodeNode (itemAt push_target.children 0)
+      def onlyCh:CodeNode (itemAt target.children 0)
       if (this.isPlainDotCallee(onlyCh i)) {
         p_node.is_call_args = true
       }
     }
-    push push_target.children p_node
+    push target.children p_node
     return false
   }
 
   fn tryCloseCallArgParenBeforeInfix:boolean () {
-    def pr@(optional weak):CodeNode curr_node.parent
+    def current:CodeNode (unwrap curr_node)
+    def pr@(optional weak):CodeNode current.parent
     if (null? pr) {
       return false
     }
-    if ((array_length curr_node.children) < 1) {
+    def parentNode:CodeNode (unwrap pr)
+    if ((array_length current.children) < 1) {
       return false
     }
-    def prCnt:int (array_length pr.children)
+    def prCnt:int (array_length parentNode.children)
     if (prCnt < 2) {
       return false
     }
-    def prevCh:CodeNode (itemAt pr.children (prCnt - 2))
+    def prevCh:CodeNode (itemAt parentNode.children (prCnt - 2))
     if ((this.isDotVRef(prevCh)) == false) {
       return false
     }
     paren_cnt = paren_cnt - 1
     removeLast parents
-    curr_node.ep = i
-    curr_node = pr
+    current.ep = i
+    curr_node = parentNode
     return true
   }
   
   fn insert_node:void ( p_node@(strong lives):CodeNode) {
     def push_target@(optional weak lives):CodeNode curr_node
-    if (curr_node.infix_operator) {
-      push_target = curr_node.infix_node
+    def current:CodeNode (unwrap curr_node)
+    if (current.infix_operator) {
+      push_target = current.infix_node
       if (push_target.to_the_right) {
         push_target = push_target.right_node
         p_node.parent = push_target
       }
     }
-    if (push_target.is_block_node) {
+    def target:CodeNode (unwrap push_target)
+    if (target.is_block_node) {
       this.attachPendingComments(p_node)
     }
-    push push_target.children p_node
+    push target.children p_node
   }
 
   ; Move leading block comments onto the statement that follows them.
@@ -883,14 +890,14 @@ class RangerLispParser {
       ; parse attribute node...
       if( c == (ccode "{")) {
 
-        def cNode@(lives) curr_node
+        def cNode@(lives):CodeNode (unwrap curr_node)
 
         def new_attr@(lives):CodeNode (new CodeNode(( unwrap code) sp ep))
         new_attr.value_type = RangerNodeType.XMLAttr
         new_attr.parsed_type = new_attr.value_type
         new_attr.vref = (substring s an_sp (an_ep + 1))
         new_attr.string_value = (substring s sp ep)
-        push curr_node.attrs new_attr
+        push cNode.attrs new_attr
         
         curr_node = new_attr
 
@@ -924,7 +931,10 @@ class RangerLispParser {
           new_attr.parsed_type = new_attr.value_type
           new_attr.vref = (substring s an_sp (an_ep + 1))
           new_attr.string_value = (substring s sp ep)
-          push curr_node.attrs new_attr
+          if (!null? curr_node) {
+            def current:CodeNode (unwrap curr_node)
+            push current.attrs new_attr
+          }
         }
         i = (1 + i)
       }
@@ -1025,7 +1035,17 @@ class RangerLispParser {
         tag_depth = tag_depth  + 1
         ep = i
         def new_tag:string (substring s sp ep)
-        if (null? curr_node) {
+        if (!null? curr_node) {
+          def current:CodeNode (unwrap curr_node)
+          def new_node:CodeNode (new CodeNode(( unwrap code) sp ep))
+          new_node.vref = new_tag
+          new_node.value_type = RangerNodeType.XMLNode
+          new_node.parsed_type = new_node.value_type
+          push current.children new_node
+          new_node.parent = current
+          push parents new_node
+          curr_node = new_node
+        } {
           def new_rnode:CodeNode (new CodeNode(( unwrap code) sp ep))
           new_rnode.vref = new_tag
           new_rnode.value_type = RangerNodeType.XMLNode
@@ -1033,15 +1053,6 @@ class RangerLispParser {
           rootNode = new_rnode
           push parents new_rnode
           curr_node = new_rnode
-        } {
-          def new_node:CodeNode (new CodeNode(( unwrap code) sp ep))
-          new_node.vref = new_tag
-          new_node.value_type = RangerNodeType.XMLNode
-          new_node.parsed_type = new_node.value_type
-          push curr_node.children new_node
-          new_node.parent = curr_node
-          push parents new_node
-          curr_node = new_node
         }        
         if (this.parse_attributes(s)) {
           removeLast parents
@@ -1189,13 +1200,17 @@ class RangerLispParser {
             break
           }
           new_node = (new CodeNode(( unwrap code) sp i))
-          new_node.parsed_type = RangerNodeType.Comment
-          new_node.value_type = RangerNodeType.Comment
-          new_node.string_value = (substring s sp i)
-          if (curr_node.is_block_node) {
-            push pending_comments ( unwrap new_node)
-          } {
-            push curr_node.comments ( unwrap new_node)
+          def commentNode:CodeNode (unwrap new_node)
+          commentNode.parsed_type = RangerNodeType.Comment
+          commentNode.value_type = RangerNodeType.Comment
+          commentNode.string_value = (substring s sp i)
+          if (!null? curr_node) {
+            def current:CodeNode (unwrap curr_node)
+            if (current.is_block_node) {
+              push pending_comments commentNode
+            } {
+              push current.comments commentNode
+            }
           }
           continue 
         }
@@ -1207,10 +1222,11 @@ class RangerLispParser {
           if ((c == 40) || (c == ((ccode "{"))) ) {
             paren_cnt = paren_cnt + 1
             if ((null? curr_node) ) {
-              rootNode = (new CodeNode(( unwrap code) i i))
-              curr_node = rootNode
-              curr_node.expression = true
-              push parents ( unwrap curr_node)
+              def newRoot:CodeNode (new CodeNode(( unwrap code) i i))
+              rootNode = newRoot
+              curr_node = newRoot
+              newRoot.expression = true
+              push parents newRoot
             } {
               def new_qnode@(lives):CodeNode (new CodeNode(( unwrap code) i i))
               new_qnode.expression = true
@@ -1226,10 +1242,11 @@ class RangerLispParser {
               push parents new_qnode
               curr_node = new_qnode
             }
+            def current:CodeNode (unwrap curr_node)
             if (c == ((ccode "{"))) {
-              curr_node.is_block_node = true
+              current.is_block_node = true
             }
-            def closedNode@(optional weak):CodeNode curr_node
+            def closedNode@(optional weak):CodeNode current
             def closedWasCall:boolean did_fold_call
             i = 1 + i
             this.parseBuf(s disable_ops_set)
@@ -1440,13 +1457,16 @@ class RangerLispParser {
               def ch1:CodeNode (itemAt a_node2.children 0)
               use_first = (ch1.isPrimitive())
             }
-            if (use_first ) {
-              def theNode:CodeNode (array_extract a_node2.children 0)
-              set curr_node.props a_name theNode
-            } {
-              set curr_node.props a_name a_node2
+            if (!null? curr_node) {
+              def current:CodeNode (unwrap curr_node)
+              if (use_first ) {
+                def theNode:CodeNode (array_extract a_node2.children 0)
+                set current.props a_name theNode
+              } {
+                set current.props a_name a_node2
+              }
+              push current.prop_keys a_name
             }
-            push curr_node.prop_keys a_name
             continue 
           }
         }
@@ -1470,7 +1490,8 @@ class RangerLispParser {
           ; be stale here (the guard condition above deliberately re-reads
           ; `charAt s i` alongside it), and a leftover dot from an earlier token
           ; would reject innocent lines.
-          if ((curr_node.is_block_node == true) && (((charAt s i)) == ((ccode ".")))) {
+          def current:CodeNode (unwrap curr_node)
+          if ((current.is_block_node == true) && (((charAt s i)) == ((ccode ".")))) {
             ; ISSUES.md #76, the PARENTHESISED spelling of the same store:
             ;
             ;     (b.at(0)).name = "x"
@@ -1534,8 +1555,8 @@ class RangerLispParser {
                     }
                   }
                 }
-                if (isAssign65 && ((fp_ep - fp_sp) > 1) && (((array_length curr_node.children)) > 0)) {
-                  def blk65@(optional weak):CodeNode curr_node
+                if (isAssign65 && ((fp_ep - fp_sp) > 1) && (((array_length current.children)) > 0)) {
+                  def blk65:CodeNode current
                   def recv65:CodeNode (array_extract blk65.children (((array_length blk65.children)) - 1))
                   recv_tmp_count = recv_tmp_count + 1
                   def tmp65:string ("__rgr_recv_" + (to_string recv_tmp_count))
@@ -1601,12 +1622,12 @@ class RangerLispParser {
             had_error = true
             break
           }
-          if (curr_node.is_block_node == true) {
+          if (current.is_block_node == true) {
             def new_expr_node:CodeNode (new CodeNode(( unwrap code) sp ep))
             this.attachPendingComments(new_expr_node)
-            new_expr_node.parent = curr_node
+            new_expr_node.parent = current
             new_expr_node.expression = true
-            push curr_node.children new_expr_node
+            push current.children new_expr_node
             curr_node = new_expr_node
             push parents new_expr_node
             paren_cnt = 1 + paren_cnt
@@ -1696,7 +1717,8 @@ class RangerLispParser {
               new_expr_node.vref_annotation = vref_ann_node
               new_expr_node.has_vref_annotation = true
             }
-            push curr_node.children new_expr_node
+            def current:CodeNode (unwrap curr_node)
+            push current.children new_expr_node
             continue 
           }
           if (c == ((ccode "["))) {
@@ -1753,8 +1775,9 @@ class RangerLispParser {
                 new_hash_node.type_annotation = vann_hash
                 new_hash_node.has_type_annotation = true
               }
-              new_hash_node.parent = curr_node
-              push curr_node.children new_hash_node
+              def current:CodeNode (unwrap curr_node)
+              new_hash_node.parent = current
+              push current.children new_hash_node
               i = 1 + i
               continue 
             } {
@@ -1766,8 +1789,9 @@ class RangerLispParser {
               new_arr_node.parsed_type = RangerNodeType.Array              
               new_arr_node.value_type = RangerNodeType.Array
               new_arr_node.array_type = type_name
-              new_arr_node.parent = curr_node
-              push curr_node.children new_arr_node
+              def current:CodeNode (unwrap curr_node)
+              new_arr_node.parent = current
+              push current.children new_arr_node
               if (vref_had_type_ann) {
                 new_arr_node.vref_annotation = vref_ann_node
                 new_arr_node.has_vref_annotation = true
@@ -1804,12 +1828,13 @@ class RangerLispParser {
             new_ref_node.parsed_type = RangerNodeType.VRef
             new_ref_node.value_type = RangerNodeType.VRef
             new_ref_node.type_name = (substring s vt_sp vt_ep)
-            new_ref_node.parent = curr_node
+            def current:CodeNode (unwrap curr_node)
+            new_ref_node.parent = current
             if (vref_had_type_ann) {
               new_ref_node.vref_annotation = vref_ann_node
               new_ref_node.has_vref_annotation = true
             }
-            push curr_node.children new_ref_node
+            push current.children new_ref_node
             if (had_type_ann) {
               def vann:CodeNode (this.parse_raw_annotation())
               new_ref_node.type_annotation = vann
@@ -1824,10 +1849,11 @@ class RangerLispParser {
             new_vref_node.parsed_type = RangerNodeType.VRef
             new_vref_node.value_type = RangerNodeType.VRef
             new_vref_node.ns = ns_list
-            new_vref_node.parent = curr_node
+            def current:CodeNode (unwrap curr_node)
+            new_vref_node.parent = current
             def op_pred:int (this.getOperatorPred(new_vref_node.vref disable_ops_set))
             if (new_vref_node.vref == ",") {
-              curr_node.infix_operator = false
+              current.infix_operator = false
               continue 
             }
             if (this.isComparisonOpPred(op_pred)) {
@@ -1839,17 +1865,16 @@ class RangerLispParser {
             ; would tear `name` and `args` apart. Folding the pair into one
             ; node first is what makes `(this.helper() + 1)` mean what it
             ; reads as, instead of needing the call bound to a local.
-            if ((this.isFoldableInfixPred(op_pred)) && (false == curr_node.infix_operator)) {
-              def cn@(lives):CodeNode (unwrap curr_node)
-              if (this.isDotCallPairOnNode(cn)) {
-                (this.foldDotCallPairToGroup(cn))
+            if ((this.isFoldableInfixPred(op_pred)) && (false == current.infix_operator)) {
+              if (this.isDotCallPairOnNode(current)) {
+                (this.foldDotCallPairToGroup(current))
               } {
-                (this.foldCallChainToGroup(cn))
+                (this.foldCallChainToGroup(current))
               }
             }
-            def pTarget@(optional weak):CodeNode curr_node
-            if (curr_node.infix_operator) {
-              def iNode@(optional):CodeNode curr_node.infix_node
+            def pTarget@(optional weak):CodeNode current
+            if (current.infix_operator) {
+              def iNode@(optional):CodeNode current.infix_node
               if ((op_pred > 0) || (iNode.to_the_right == false) ) {
                 pTarget = iNode
               } {
@@ -1996,38 +2021,39 @@ class RangerLispParser {
                 }
               }
             }
-            push pTarget.children new_vref_node
+            def insertionTarget:CodeNode (unwrap pTarget)
+            push insertionTarget.children new_vref_node
             if (vref_had_type_ann) {
               new_vref_node.vref_annotation = vref_ann_node
               new_vref_node.has_vref_annotation = true
             }
             if ( (i + 1) < len ) {
               if ((((charAt s (i + 1))) == ((ccode "("))) || (((charAt s (i + 0))) == ((ccode "(")))) {
-                if ((0 == op_pred) && curr_node.infix_operator && (1 == ((array_length curr_node.children)))) {
+                if ((0 == op_pred) && current.infix_operator && (1 == ((array_length current.children)))) {
                 }
               }
             }
 
-            if (((op_pred > 0) && curr_node.infix_operator) || ((op_pred > 0) && (((array_length curr_node.children)) >= 2))) {
-              if ((op_pred == 3) && (2 == ((array_length curr_node.children))) ) {
-                def n_ch:CodeNode (array_extract curr_node.children 0)
-                push curr_node.children n_ch
+            if (((op_pred > 0) && current.infix_operator) || ((op_pred > 0) && (((array_length current.children)) >= 2))) {
+              if ((op_pred == 3) && (2 == ((array_length current.children))) ) {
+                def n_ch:CodeNode (array_extract current.children 0)
+                push current.children n_ch
               } {
-                if (false == curr_node.infix_operator) {
+                if (false == current.infix_operator) {
                   def if_node@(temp lives):CodeNode (new CodeNode(( unwrap code) sp ep))
-                  curr_node.infix_node = if_node
-                  curr_node.infix_operator = true
+                  current.infix_node = if_node
+                  current.infix_operator = true
                   if_node.infix_subnode = true
-                  curr_node.value_type = RangerNodeType.NoType
-                  curr_node.parsed_type = curr_node.value_type
-                  curr_node.expression = true
+                  current.value_type = RangerNodeType.NoType
+                  current.parsed_type = current.value_type
+                  current.expression = true
                   if_node.expression = true
-                  def ch_cnt:int (array_length curr_node.children)
+                  def ch_cnt:int (array_length current.children)
                   def ii:int 0
                   def start_from:int ch_cnt - 2
                   def keep_nodes:CodeNode (new CodeNode(( unwrap code) sp ep))
                   while (ch_cnt > 0) {
-                    def n_ch:CodeNode (array_extract curr_node.children 0)
+                    def n_ch:CodeNode (array_extract current.children 0)
                     def p_target:CodeNode if_node
                     if ((ii < start_from) || n_ch.infix_subnode) {
                       p_target = keep_nodes
@@ -2037,11 +2063,11 @@ class RangerLispParser {
                     ii = 1 + ii
                   }
                   for keep_nodes.children keep:CodeNode i2 {
-                    push curr_node.children keep
+                    push current.children keep
                   }
-                  push curr_node.children if_node
+                  push current.children if_node
                 }
-                def ifNode@(optional lives):CodeNode curr_node.infix_node
+                def ifNode@(optional lives):CodeNode current.infix_node
                 def new_op_node@(temp):CodeNode (new CodeNode(( unwrap code) sp ep))
                 new_op_node.expression = true
                 new_op_node.parent = ifNode
@@ -2089,11 +2115,15 @@ class RangerLispParser {
 
         ; 
         if (   (c == 41) || (c == ((ccode "}")))) {
-          if (curr_node.is_block_node) {
-            this.attachPendingComments((unwrap curr_node))
-          }
-          if ((c == ((ccode "}"))) && is_block_parent && (((array_length curr_node.children)) > 0)) {
-            this.end_expression(false)
+          if (!null? curr_node) {
+            def current:CodeNode (unwrap curr_node)
+            if (current.is_block_node) {
+              this.attachPendingComments(current)
+            }
+            if ((c == ((ccode "}"))) && is_block_parent && (((array_length current.children)) > 0)) {
+              this.end_expression(false)
+            }
+            current.ep = (i + 1)
           }
           i = 1 + i
           paren_cnt = paren_cnt - 1
@@ -2101,9 +2131,6 @@ class RangerLispParser {
             break
           }
           removeLast parents
-          if ((!null? curr_node)) {
-            curr_node.ep = i
-          }
           if (((array_length parents)) > 0 ) {
             curr_node = (itemAt parents (((array_length parents)) - 1))
           } {

@@ -8,10 +8,70 @@ Import "ForLoopAnalysis.rgr"
   Extends ( RangerGenericClassWriter )
   def compiler:LiveCompiler
   def init_done false
+  ; --- native generics: `class History[Op]`, used as `History[Int]` ---
+  fn scClassRef:string (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    if cl.is_type_param {
+      return cl.type_param_name
+    }
+    if (ctx.isNativeGenericInstance(cl)) {
+      def res:string (cl.generic_template + "[")
+      for cl.generic_args a:string i {
+        if (i > 0) {
+          res = (res + ", ")
+        }
+        res = (res + (this.getObjectTypeString(a ctx)))
+      }
+      return (res + "]")
+    }
+    return cl.name
+  }
+  fn genericClassRef:string (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    return (this.scClassRef(cl ctx))
+  }
+
+  ; "[string]" or "[string:[int]]", the Ranger spelling of a nested
+  ; collection, as the Scala collection it stands for. It used to be written
+  ; through unchanged: `ArrayBuffer[[string]]`.
+  fn collectionTypeStringToScala:string (type_string:string ctx:RangerAppWriterContext) {
+    def n:int (strlen type_string)
+    def inner:string (substring type_string 1 (n - 1))
+    def il:int (strlen inner)
+    def depth:int 0
+    def sep:int (0 - 1)
+    def i:int 0
+    while (i < il) {
+      def c:int (charAt inner i)
+      if (c == (ccode "[")) {
+        depth = depth + 1
+      }
+      if (c == (ccode "]")) {
+        depth = depth - 1
+      }
+      if ((c == (ccode ":")) && (depth == 0)) {
+        sep = i
+      }
+      i = i + 1
+    }
+    if (sep >= 0) {
+      def kt:string (substring inner 0 sep)
+      def vt:string (substring inner (sep + 1) il)
+      return (((("collection.mutable.HashMap[" + (this.getObjectTypeString(kt ctx))) + ", ") + (this.getObjectTypeString(vt ctx))) + "]")
+    }
+    return (("collection.mutable.ArrayBuffer[" + (this.getObjectTypeString(inner ctx))) + "]")
+  }
+
   fn getObjectTypeString:string (type_string:string ctx:RangerAppWriterContext) {
 
+    if ((strlen type_string) >= 2) {
+      if ((charAt type_string 0) == (ccode "[")) {
+        return (this.collectionTypeStringToScala(type_string ctx))
+      }
+    }
     if(ctx.isDefinedClass(type_string)) {
       def cc (ctx.findClass(type_string))
+      if (cc.is_type_param || (ctx.isNativeGenericInstance(cc))) {
+        return (this.scClassRef(cc ctx))
+      }
       if(cc.is_union) {
         return "Any"
       }
@@ -98,8 +158,9 @@ Import "ForLoopAnalysis.rgr"
     switch v_type {
 
       case RangerNodeType.ExpressionType {
-        def rv:CodeNode (itemAt node.expression_value.children 0)
-        def sec:CodeNode (itemAt node.expression_value.children 1)
+        def lambdaExpression:CodeNode (unwrap node.expression_value)
+        def rv:CodeNode (itemAt lambdaExpression.children 0)
+        def sec:CodeNode (itemAt lambdaExpression.children 1)
         def fc:CodeNode (sec.getFirst())
 ;        this.import_lib("<functional>" ctx wr)
         def is_void false
@@ -184,6 +245,13 @@ Import "ForLoopAnalysis.rgr"
         }
         if(ctx.isDefinedClass(t_name)) {
           def scTC:RangerAppClassDesc (ctx.findClass(t_name))
+          if (scTC.is_type_param || (ctx.isNativeGenericInstance(scTC))) {
+            wr.out((this.scClassRef(scTC ctx)) false)
+            if (node.hasFlag("optional")) {
+              wr.out("]" false)
+            }
+            return
+          }
           if scTC.is_trait {
             if ((scalaTraits.isInterface(t_name ctx)) == false) {
               ctx.addError(node (("the Scala target writes a `trait` as a mixin, so `" + t_name) + "` is not a type it can name. A trait that declares only METHODS becomes a Scala trait and can be used as a type; this one carries fields, which its consumers each hold their own copy of. Use a class with subclasses, or give the parameter a concrete type."))
@@ -205,8 +273,9 @@ Import "ForLoopAnalysis.rgr"
     switch v_type {
 
       case RangerNodeType.ExpressionType {
-        def rv:CodeNode (itemAt node.expression_value.children 0)
-        def sec:CodeNode (itemAt node.expression_value.children 1)
+        def lambdaExpression:CodeNode (unwrap node.expression_value)
+        def rv:CodeNode (itemAt lambdaExpression.children 0)
+        def sec:CodeNode (itemAt lambdaExpression.children 1)
         def fc:CodeNode (sec.getFirst())
         def is_void false
         if(rv.type_name == "void" || rv.eval_type_name == "void") {
@@ -275,6 +344,13 @@ Import "ForLoopAnalysis.rgr"
         if (node.type_name == "void") {
           wr.out("Unit" false)
           return
+        }
+        if(ctx.isDefinedClass(node.type_name)) {
+          def scNC:RangerAppClassDesc (ctx.findClass(node.type_name))
+          if (scNC.is_type_param || (ctx.isNativeGenericInstance(scNC))) {
+            wr.out((this.scClassRef(scNC ctx)) false)
+            return
+          }
         }
         wr.out((this.getTypeString(node.type_name)) false)
       }
@@ -374,17 +450,18 @@ Import "ForLoopAnalysis.rgr"
         ctx.unsetInExpr()
       } {
         def b_inited:boolean false
-        if (p.nameNode.value_type == RangerNodeType.Array) {
+        def parameterName:CodeNode (unwrap p.nameNode)
+        if (parameterName.value_type == RangerNodeType.Array) {
           b_inited = true
           wr.out("= new collection.mutable.ArrayBuffer()" false)
         }
-        if (p.nameNode.value_type == RangerNodeType.Hash) {
+        if (parameterName.value_type == RangerNodeType.Hash) {
           b_inited = true
           wr.out("= new collection.mutable.HashMap()" false)
         }
-        if (p.nameNode.hasFlag("optional")) {
+        if (parameterName.hasFlag("optional")) {
           wr.out(" = Option.empty[" false)
-          this.writeTypeDefNoOption( ( unwrap p.nameNode ) ctx wr)
+          this.writeTypeDefNoOption(parameterName ctx wr)
           wr.out("]" false)
         } {
           if (b_inited == false) {
@@ -815,7 +892,8 @@ Import "ForLoopAnalysis.rgr"
         }
       }
       
-      wr.out((("class " + cl.name) + " ") false)
+      ; a generic form is declared as the template over its parameters
+      wr.out((("class " + (this.scClassRef((unwrap cl) ctx))) + " ") false)
       if cl.has_constructor {
         wr.out("(" false)
         def constr:RangerAppFunctionDesc (unwrap cl.constructor_fn)
@@ -885,12 +963,14 @@ Import "ForLoopAnalysis.rgr"
           wr.out((variant.name + "(") false)
           this.writeArgsDef(variant ctx wr)
           wr.out(") : " false)
-          this.writeTypeDef(( unwrap variant.nameNode ) ctx wr)
+          def variantName:CodeNode (unwrap variant.nameNode)
+          this.writeTypeDef(variantName ctx wr)
           wr.out(" = " false)
 
           def return_cnt 0 
-          def line_cnt (array_length variant.fnBody.children)
-          variant.fnBody.forTree({
+          def variantBody:CodeNode (unwrap variant.fnBody)
+          def line_cnt (array_length variantBody.children)
+          variantBody.forTree({
             if(item.isFirstVref('return')) {
               return_cnt = return_cnt + 1
             }

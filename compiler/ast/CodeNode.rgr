@@ -1,104 +1,9 @@
 ; SPDX-License-Identifier: MIT
 
-Import "stdlib.rgr"
-
-; Import "Collection.rgr"
-
-; Import "TFactory.rgr"
-Import "TNodeFactory.rgr"
+Import "../lib/stdlib.rgr"
+Import "../TNodeFactory.rgr"
 Import "RangerAppEnums.rgr"
-
-class SourceCode {
-    def code:string ""
-    def lines:[string]
-    def filename:string ""
-    Constructor (code_str@(optional):string ) {
-        def str:string ""
-        if (!null? code_str) {
-            str = ( unwrap code_str )
-        }
-        this.code = str
-        lines = (strsplit this.code "\n")
-    }
-    
-    fn getLineString:string (line_index:int) {
-        if (> (array_length lines) line_index) {
-            return (itemAt lines line_index)
-        }
-        return ""
-    }                
-    ; `sp` is a position the parser produced by indexing `code`, so these
-    ; three walk the same units it counted in. That is deliberate: the answer
-    ; has to line up with `sp`, not with a count of characters, and `@(units)`
-    ; says so out loud. docs/plans/PLAN_STRING_INDEXING.md 3.3.
-    fn getLine@(units):int (sp:int) {
-        def cnt:int 0
-        for lines str:string i {
-            cnt = (+ cnt (+ (strlen str) 1)))
-            if (> cnt sp) {
-              return i
-            } 
-        }
-        return -1
-    } 
-    fn getColumnStr@(units):string (sp:int) {
-        def cnt:int 0
-        def last_col:int 0
-        for lines str:string i {
-            cnt = (+ cnt (+ (strlen str) 1)))
-            if (> cnt sp) {
-              def ll:int (sp - last_col)
-              def ss:string ""
-              while (ll > 0) {
-                ss = ss + " "
-                ll = ll - 1
-              }
-              return ss
-            } 
-            last_col = cnt
-        }
-        return ""
-    } 
-    fn getColumn@(units):int (sp:int) {
-        def cnt:int 0
-        def last_col:int 0
-        for lines str:string i {
-            cnt = (+ cnt (+ (strlen str) 1)))
-            if (> cnt sp) {
-              return (sp - last_col)
-            } 
-            last_col = cnt
-        }
-        return -1
-    } 
-}
-
-
-class CodeNodeLiteral @serialize(true) {
-  def expression:boolean false
-  def vref:string ""
-  def is_block_node:boolean false
-  def type_name:string ""
-  def key_type:string ""
-  def array_type:string ""
-  def ns:[string]
-  def has_vref_annotation:boolean false
-  def vref_annotation:CodeNodeLiteral
-  def has_type_annotation:boolean false
-  def type_annotation:CodeNodeLiteral
-  def parsed_type:RangerNodeType RangerNodeType.NoType
-  def value_type:RangerNodeType RangerNodeType.NoType
-  def double_value:double 0.0
-  def string_value:string ""
-  def int_value:int 0
-  def boolean_value:boolean false
-  def expression_value:CodeNodeLiteral
-  def props:[string:CodeNodeLiteral]
-  def prop_keys:[string]
-  def comments:[CodeNodeLiteral]
-  def children:[CodeNodeLiteral]
-  def attrs:[CodeNodeLiteral]
-}
+Import "SourceCode.rgr"
 
 operator type:void all {
   fn toLiteral:CodeNodeLiteral ( node:CodeNode ) {
@@ -293,10 +198,11 @@ class CodeNode {
       return true
     }
     if(node.hasParamDesc) {
-      def p:RangerAppParamDesc node.paramDesc
-      if (null? p) {
+      def pOpt@(optional):RangerAppParamDesc node.paramDesc
+      if (null? pOpt) {
         return false
       }
+      def p:RangerAppParamDesc (unwrap pOpt)
       if(p.is_optional) {
         return true
       }
@@ -480,8 +386,10 @@ class CodeNode {
       }
       callback( left right i)
       if( (!null? left) && (!null? right)) {
-        if(has left.children) {
-          left.parallelTree( (unwrap right) callback)
+        def leftNode:CodeNode (unwrap left)
+        def rightNode:CodeNode (unwrap right)
+        if(has leftNode.children) {
+          leftNode.parallelTree(rightNode callback)
         }
       }
       i = i + 1
@@ -498,11 +406,13 @@ class CodeNode {
   }    
 
   fn getParsedString:string () {
-    return (substring code.code sp ep)
+    def source:SourceCode (unwrap code)
+    return (substring source.code sp ep)
   }
 
   fn getFilename:string () {
-    return code.filename
+    def source:SourceCode (unwrap code)
+    return source.filename
   }
   fn getFlag@(optional weak):CodeNode (flagName:string) {
 
@@ -510,7 +420,8 @@ class CodeNode {
     if (false == has_vref_annotation) {
       return res 
     }
-    for vref_annotation.children ch:CodeNode i {
+    def ann:CodeNode (unwrap vref_annotation)
+    for ann.children ch:CodeNode i {
       if (ch.vref == flagName) {
         res = ch
         return res
@@ -522,7 +433,8 @@ class CodeNode {
     if (false == has_vref_annotation) {
       return false
     }
-    for vref_annotation.children ch:CodeNode i {
+    def ann:CodeNode (unwrap vref_annotation)
+    for ann.children ch:CodeNode i {
       if (ch.vref == flagName) {
         return true
       }
@@ -546,7 +458,8 @@ class CodeNode {
     flag.vref = flagName
     flag.value_type = RangerNodeType.VRef
     flag.parsed_type = flag.value_type
-    push vref_annotation.children flag
+    def ann:CodeNode (unwrap vref_annotation)
+    push ann.children flag
     has_vref_annotation = true
   }
 
@@ -558,7 +471,7 @@ class CodeNode {
     if (null? flag) { return defaultValue }
     def uflag:CodeNode (unwrap flag)
     if (uflag.has_vref_annotation) {
-      def ann:CodeNode uflag.vref_annotation
+      def ann:CodeNode (unwrap uflag.vref_annotation)
       for ann.children ch:CodeNode i {
         if (ch.vref == paramName) {
           ; Next child is the value
@@ -592,8 +505,9 @@ class CodeNode {
   ; In this case, GET and "/path" are siblings in vref_annotation.children
   fn getFlagSiblingString:string (flagName:string defaultValue:string) {
     if (false == has_vref_annotation) { return defaultValue }
+    def ann:CodeNode (unwrap vref_annotation)
     def foundFlag:boolean false
-    for vref_annotation.children ch:CodeNode i {
+    for ann.children ch:CodeNode i {
       if foundFlag {
         ; This is the sibling after the flag - return its value
         if ((strlen ch.string_value) > 0) {
@@ -619,7 +533,11 @@ class CodeNode {
     if (null? flag) { return false }
     def uflag:CodeNode (unwrap flag)
     if (uflag.has_vref_annotation) {
-      def ann:CodeNode uflag.vref_annotation
+      def annOpt@(optional):CodeNode uflag.vref_annotation
+      if (null? annOpt) {
+        return false
+      }
+      def ann:CodeNode (unwrap annOpt)
       for ann.children ch:CodeNode i {
         if (ch.vref == paramName) {
           return true
@@ -663,30 +581,52 @@ class CodeNode {
   }
   fn getLine:int () {
     def lnSp:int sp
-    return (code.getLine(lnSp))
+    def sourceOpt@(optional):SourceCode code
+    if (null? sourceOpt) {
+      return -1
+    }
+    def source:SourceCode (unwrap sourceOpt)
+    return (source.getLine(lnSp))
   }
   fn getLineString:string (line_index:int) {
-    return (code.getLineString(line_index))
+    def sourceOpt@(optional):SourceCode code
+    if (null? sourceOpt) {
+      return ""
+    }
+    def source:SourceCode (unwrap sourceOpt)
+    return (source.getLineString(line_index))
   }
   fn getColStartString:string () {
     def colSp:int sp
-    return (code.getColumnStr(colSp))
+    def sourceOpt@(optional):SourceCode code
+    if (null? sourceOpt) {
+      return ""
+    }
+    def source:SourceCode (unwrap sourceOpt)
+    return (source.getColumnStr(colSp))
   }
   fn getLineAsString:string () {
     def idx:int (this.getLine())
     def line_name_idx:int (idx + 1)
-    return ((this.getFilename()) + ", line " + line_name_idx + " : " + (code.getLineString(idx)))
+    def sourceOpt@(optional):SourceCode code
+    if (null? sourceOpt) {
+      return ""
+    }
+    def source:SourceCode (unwrap sourceOpt)
+    return ((this.getFilename()) + ", line " + line_name_idx + " : " + (source.getLineString(idx)))
   }
   fn getSource:string () {
     if (ep > sp)  {
+      def source:SourceCode (unwrap code)
       def start:int sp
       def end:int ep
-      return (substring code.code start end)
+      return (substring source.code start end)
     }
     return ""
   }
   fn getPositionalString:string () {
     if ((ep > sp) && ((ep - sp) < 50)) {
+      def source:SourceCode (unwrap code)
       def start:int sp
       def end:int ep
       start = (start - 100)
@@ -694,10 +634,10 @@ class CodeNode {
       if (start < 0) {
         start = 0
       }
-      if (end >= (strlen code.code)) {
-        end = ((strlen code.code) - 1)
+      if (end >= (strlen source.code)) {
+        end = ((strlen source.code) - 1)
       }
-      return (substring code.code start end)
+      return (substring source.code start end)
     }
     return ""
   }
@@ -888,7 +828,8 @@ class CodeNode {
     return false
   }
   fn getString:string () {
-    return (substring code.code sp ep)
+    def source:SourceCode (unwrap code)
+    return (substring source.code sp ep)
   }
 
 
@@ -904,7 +845,8 @@ class CodeNode {
     if expression {
       print "("
     } {
-      print (substring code.code sp ep)
+      def source:SourceCode (unwrap code)
+      print (substring source.code sp ep)
     }
     for children item:CodeNode i {
       item.walk()

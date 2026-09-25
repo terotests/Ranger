@@ -1,6 +1,7 @@
 #include  <memory>
 #include  <string>
 #include  <vector>
+#include  <optional>
 #include  <iostream>
 
 // define classes here to avoid compiler errors
@@ -29,12 +30,17 @@ template <class T> class r_weak {
     bool operator!=(std::nullptr_t) const { return !w.expired(); }
 };
 
+// reads a property through an optional object, returning the property's default value when absent
+template <class O, class F> auto rg_optional_access(const O& value, F accessor) {
+  using R = decltype(accessor(value.value()));
+  if (value.has_value()) { return accessor(value.value()); }
+  return R{};
+}
+
 // header definitions
 class Point { 
   public :
-    int x;
-    int y;
-    /* class constructor */ 
+    int x;int y;/* class constructor */ 
     Point( int x , int y  );
 };
 class PointOps { 
@@ -47,8 +53,7 @@ class PointOps {
 };
 class Counter { 
   public :
-    int value;
-    /* class constructor */ 
+    int value;/* class constructor */ 
     Counter( );
     /* instance methods */ 
     int reading();
@@ -56,10 +61,7 @@ class Counter {
 };
 class TreeNode : public std::enable_shared_from_this<TreeNode>  { 
   public :
-    std::string name;
-    std::vector<std::shared_ptr<TreeNode>> kids;
-    r_weak<TreeNode> parent;
-    /* class constructor */ 
+    std::string name;std::vector<std::shared_ptr<TreeNode>> kids;std::optional<r_weak<TreeNode>> parent;/* class constructor */ 
     TreeNode( );
     /* instance methods */ 
     void adopt( std::shared_ptr<TreeNode> c );
@@ -85,11 +87,11 @@ PointOps::PointOps( ) {
 }
 int  PointOps::manhattan( const Point& p ) {
   int ax = p.x;
-  if ( ax < 0 ) {
+  if (ax < 0) {
     ax = 0 - ax;
   }
   int ay = p.y;
-  if ( ay < 0 ) {
+  if (ay < 0) {
     ay = 0 - ay;
   }
   return ax + ay;
@@ -135,10 +137,10 @@ int main(int argc, char* argv[]) {
   leaf->name = std::string("leaf");
   root->adopt(leaf);
   std::cout << std::string("kids ") + std::to_string(root->childCount()) << std::endl;
-  if ( leaf->parent == NULL ) {
+  if ( !leaf->parent.has_value() ) {
     std::cout << std::string("parent missing") << std::endl;
   } else {
-    std::shared_ptr<TreeNode> back = leaf->parent;
+    std::shared_ptr<TreeNode> back = leaf->parent.value();
     std::cout << std::string("parent ") + back->name << std::endl;
   }
   return 0;

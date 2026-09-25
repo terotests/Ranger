@@ -63,6 +63,22 @@ class RangerAppClassDesc {
   def is_generic_instance false
   def is_union false
 
+  ; A class made from `class History @params(Op)`. generic_template names the
+  ; template, generic_args the type arguments as Ranger spells them ("int",
+  ; "[string]", "NamedThing", or a placeholder). A writer that emits native
+  ; generics spells this class `History<int>` when the template is native.
+  def generic_template:string ""
+  def generic_args:[string]
+  ; An argument is a placeholder, so this class only exists for the
+  ; generic-form check and is written, if at all, as the template itself.
+  def generic_has_placeholder:boolean false
+  ; The generic form: every argument is the template's own placeholder.
+  def is_generic_form:boolean false
+  ; The stand-in for a type parameter while the generic form is checked.
+  ; type_param_name is the parameter's own name, `Op`.
+  def is_type_param:boolean false
+  def type_param_name:string ""
+
   def is_used_by_main false
   def is_not_used false
 
@@ -174,28 +190,30 @@ class RangerAppClassDesc {
   }
 
   fn isNormalClass:boolean () {
-    def special ( is_operator_class || is_trait || is_system || is_generic_instance || is_system_union || is_union )
+    def special ( is_operator_class || is_trait || is_system || is_generic_instance || is_system_union || is_union || is_type_param || generic_has_placeholder )
     return (special == false)
   }
   
   ; Check if this class has a systemclass annotation (like @(HttpServer))
   ; Returns the systemclass name if found, empty string otherwise
   fn getSystemclassType:string () {
-    if (null? nameNode) {
+    def classNameNodeOpt@(optional):CodeNode nameNode
+    if (null? classNameNodeOpt) {
       return ""
     }
+    def classNameNode:CodeNode (unwrap classNameNodeOpt)
     ; Check common systemclass annotations
     ; These are classes that can be used as type markers
-    if (nameNode.hasFlag("HttpServer")) {
+    if (classNameNode.hasFlag("HttpServer")) {
       return "HttpServer"
     }
-    if (nameNode.hasFlag("HttpRequest")) {
+    if (classNameNode.hasFlag("HttpRequest")) {
       return "HttpRequest"
     }
-    if (nameNode.hasFlag("HttpResponse")) {
+    if (classNameNode.hasFlag("HttpResponse")) {
       return "HttpResponse"
     }
-    if (nameNode.hasFlag("SSEClient")) {
+    if (classNameNode.hasFlag("SSEClient")) {
       return "SSEClient"
     }
     return ""
@@ -203,10 +221,12 @@ class RangerAppClassDesc {
   
   ; Check if this class IS a specific systemclass type via annotation
   fn isSystemclassType:boolean (typeName:string) {
-    if (null? nameNode) {
+    def classNameNodeOpt@(optional):CodeNode nameNode
+    if (null? classNameNodeOpt) {
       return false
     }
-    return (nameNode.hasFlag(typeName))
+    def classNameNode:CodeNode (unwrap classNameNodeOpt)
+    return (classNameNode.hasFlag(typeName))
   }
   
   fn hasTrait@(optional weak):RangerAppClassDesc (class_name:string ctx@(weak):RangerAppWriterContext) {
@@ -326,7 +346,8 @@ Tests if the `class name` is either
     def pc:int (size fnDesc.params)
     sig = (to_string pc)
     for fnDesc.params p:RangerAppParamDesc i {
-      def tn:string (p.nameNode.type_name)
+      def pn:CodeNode (unwrap p.nameNode)
+      def tn:string pn.type_name
       if ((strlen tn) == 0) {
         tn = "?"
       }
@@ -357,15 +378,20 @@ Tests if the `class name` is either
     if (has defined_methods m_name) {
       return true
     }
+    def classCtxOpt@(optional):RangerAppWriterContext ctx
+    if (null? classCtxOpt) {
+      return false
+    }
+    def classCtx:RangerAppWriterContext (unwrap classCtxOpt)
     for extends_classes cname:string i {
       ; A base class the program never declares (a missing Import, a typo):
       ; findClass answers nothing, and only JavaScript survives calling a
       ; method on that nothing. The error is reported where the Extends is
       ; collected; here the base simply has nothing to contribute.
-      if ((ctx.isDefinedClass(cname)) == false) {
+      if ((classCtx.isDefinedClass(cname)) == false) {
         continue
       }
-      def cDesc:RangerAppClassDesc (ctx.findClass(cname))
+      def cDesc:RangerAppClassDesc (classCtx.findClass(cname))
       ; asking the parent twice doubles the work at every hop, so a chain
       ; of depth d cost 2^d lookups. The answer is already in hand.
       if (cDesc.hasMethod(m_name)) {
@@ -385,15 +411,20 @@ Tests if the `class name` is either
       res = (itemAt list.variants 0)
       return res
     }
+    def classCtxOpt@(optional):RangerAppWriterContext ctx
+    if (null? classCtxOpt) {
+      return res
+    }
+    def classCtx:RangerAppWriterContext (unwrap classCtxOpt)
     for extends_classes cname:string i {
       ; A base class the program never declares (a missing Import, a typo):
       ; findClass answers nothing, and only JavaScript survives calling a
       ; method on that nothing. The error is reported where the Extends is
       ; collected; here the base simply has nothing to contribute.
-      if ((ctx.isDefinedClass(cname)) == false) {
+      if ((classCtx.isDefinedClass(cname)) == false) {
         continue
       }
-      def cDesc:RangerAppClassDesc (ctx.findClass(cname))
+      def cDesc:RangerAppClassDesc (classCtx.findClass(cname))
       if (cDesc.hasMethod(f_name)) {
         return (cDesc.findMethod(f_name))
       }
@@ -409,15 +440,20 @@ Tests if the `class name` is either
         return res
       }
     }
+    def classCtxOpt@(optional):RangerAppWriterContext ctx
+    if (null? classCtxOpt) {
+      return res
+    }
+    def classCtx:RangerAppWriterContext (unwrap classCtxOpt)
     for extends_classes cname:string i {
       ; A base class the program never declares (a missing Import, a typo):
       ; findClass answers nothing, and only JavaScript survives calling a
       ; method on that nothing. The error is reported where the Extends is
       ; collected; here the base simply has nothing to contribute.
-      if ((ctx.isDefinedClass(cname)) == false) {
+      if ((classCtx.isDefinedClass(cname)) == false) {
         continue
       }
-      def cDesc:RangerAppClassDesc (ctx.findClass(cname))
+      def cDesc:RangerAppClassDesc (classCtx.findClass(cname))
       def found@(optional weak):RangerAppFunctionDesc (cDesc.findMethodByCompiledName(compiled))
       if (null? found) {
       } {
@@ -433,13 +469,17 @@ Tests if the `class name` is either
     if (is_singleton) {
       return true
     }
-    if ((null? nameNode) == false) {
-      if (nameNode.hasFlag("singleton")) {
+    def classNameNodeOpt@(optional):CodeNode nameNode
+    if (!null? classNameNodeOpt) {
+      def classNameNode:CodeNode (unwrap classNameNodeOpt)
+      if (classNameNode.hasFlag("singleton")) {
         return true
       }
     }
-    if ((null? classNode) == false) {
-      if (classNode.hasBooleanProperty("singleton")) {
+    def classNodeOpt@(optional):CodeNode classNode
+    if (!null? classNodeOpt) {
+      def classNodeValue:CodeNode (unwrap classNodeOpt)
+      if (classNodeValue.hasBooleanProperty("singleton")) {
         return true
       }
     }
@@ -501,15 +541,20 @@ Tests if the `class name` is either
         return e
       }
     }
+    def classCtxOpt@(optional):RangerAppWriterContext ctx
+    if (null? classCtxOpt) {
+      return e
+    }
+    def classCtx:RangerAppWriterContext (unwrap classCtxOpt)
     for extends_classes cname:string i {
       ; A base class the program never declares (a missing Import, a typo):
       ; findClass answers nothing, and only JavaScript survives calling a
       ; method on that nothing. The error is reported where the Extends is
       ; collected; here the base simply has nothing to contribute.
-      if ((ctx.isDefinedClass(cname)) == false) {
+      if ((classCtx.isDefinedClass(cname)) == false) {
         continue
       }
-      def cDesc:RangerAppClassDesc (ctx.findClass(cname))
+      def cDesc:RangerAppClassDesc (classCtx.findClass(cname))
       if (cDesc.hasStaticMethod(f_name)) {
         return (cDesc.findStaticMethod(f_name))
       }
@@ -526,15 +571,20 @@ Tests if the `class name` is either
         return e
       }
     }
+    def classCtxOpt@(optional):RangerAppWriterContext ctx
+    if (null? classCtxOpt) {
+      return e
+    }
+    def classCtx:RangerAppWriterContext (unwrap classCtxOpt)
     for extends_classes cname:string i {
       ; A base class the program never declares (a missing Import, a typo):
       ; findClass answers nothing, and only JavaScript survives calling a
       ; method on that nothing. The error is reported where the Extends is
       ; collected; here the base simply has nothing to contribute.
-      if ((ctx.isDefinedClass(cname)) == false) {
+      if ((classCtx.isDefinedClass(cname)) == false) {
         continue
       }
-      def cDesc:RangerAppClassDesc (ctx.findClass(cname))
+      def cDesc:RangerAppClassDesc (classCtx.findClass(cname))
       return (cDesc.findVariable(f_name))
     }
     return e
@@ -547,7 +597,12 @@ Tests if the `class name` is either
 
     try {
 
-      def parser (ctx.getParser())
+      def parserOpt@(optional weak):RangerFlowParser (ctx.getParser())
+      if (null? parserOpt) {
+        ctx.addError(node "Could not add variable without a flow parser")
+        return
+      }
+      def parser:RangerFlowParser (unwrap parserOpt)
       def s:string (node.getVRefAt(1))
       def vDef@(lives):CodeNode (itemAt node.children 1)
       def p@(temp):RangerAppParamDesc (new RangerAppParamDesc ())
@@ -643,16 +698,17 @@ Tests if the `class name` is either
         p.init_cnt = 1
         p.def_value = (itemAt node.children 2)
         p.is_optional = false
-        if(p.def_value.value_type == RangerNodeType.String) {
+        def defValue:CodeNode (unwrap p.def_value)
+        if(defValue.value_type == RangerNodeType.String) {
           vDef.type_name = "string"
         }
-        if(p.def_value.value_type == RangerNodeType.Integer) {
+        if(defValue.value_type == RangerNodeType.Integer) {
           vDef.type_name = "int"
         }
-        if(p.def_value.value_type == RangerNodeType.Double) {
+        if(defValue.value_type == RangerNodeType.Double) {
           vDef.type_name = "double"
         }
-        if(p.def_value.value_type == RangerNodeType.Boolean) {
+        if(defValue.value_type == RangerNodeType.Boolean) {
           vDef.type_name = "boolean"
         }
         def valueNode (itemAt node.children 2)
@@ -666,17 +722,70 @@ Tests if the `class name` is either
       } {
         p.is_optional = true
         if (false == ((vDef.value_type == RangerNodeType.Array) || (vDef.value_type == RangerNodeType.Hash))) {         
+          if (false == (vDef.hasFlag("optional"))) {
+            p.implicit_optional = true
+          }
           vDef.setFlag("optional")
         }
       }
       currC.addVariable(p)
-      def subCtx:RangerAppWriterContext currC.ctx
+      def subCtxOpt@(optional):RangerAppWriterContext currC.ctx
+      if (null? subCtxOpt) {
+        ctx.addError(node "Could not add variable without a class context")
+        return
+      }
+      def subCtx:RangerAppWriterContext (unwrap subCtxOpt)
       subCtx.defineVariable(p.name p)
       p.is_class_variable = true
 ;      print "^^^^ added variable " + p.name + " to class " + currC.name
     } {
       ctx.addError( node ('Could not add variable into class ' + this.name) )
     }
+  }
+
+  ; Does the constructor assign the field on every path? Only a statement at
+  ; the top level of the constructor body counts -- `name = value` or
+  ; `this.name = value` -- not one inside an if, a loop or a lambda.
+  fn isAssignedInConstructor:boolean (fieldName:string) {
+    return (this.isAssignedInConstructorBefore(fieldName -1))
+  }
+
+  ; The same, for a read inside the constructor at source offset `readPos`:
+  ; the assignment has to be a top-level statement that ends before the
+  ; statement holding the read begins. A negative `readPos` means "after the
+  ; constructor has run".
+  fn isAssignedInConstructorBefore:boolean (fieldName:string readPos:int) {
+    if (null? constructor_fn) {
+      return false
+    }
+    def constr:RangerAppFunctionDesc (unwrap constructor_fn)
+    if (null? constr.fnBody) {
+      return false
+    }
+    def body:CodeNode (unwrap constr.fnBody)
+    def thisName:string ("this." + fieldName)
+    for body.children st:CodeNode i {
+      if ((readPos >= 0) && (st.ep >= readPos)) {
+        return false
+      }
+      if ((array_length st.children) < 3) {
+        continue
+      }
+      def target:string ""
+      def c0:CodeNode (itemAt st.children 0)
+      def c1:CodeNode (itemAt st.children 1)
+      if (c0.vref == "=") {
+        target = c1.vref
+      } {
+        if (c1.vref == "=") {
+          target = c0.vref
+        }
+      }
+      if ((target == fieldName) || (target == thisName)) {
+        return true
+      }
+    }
+    return false
   }
 
   fn addVariable:void (desc@(strong):RangerAppParamDesc) {
@@ -691,7 +800,11 @@ Tests if the `class name` is either
       }
     }
     if dupField {
-      this.ctx.addError( (unwrap desc.node) ("Duplicate class property '" + desc.name + "' in class " + this.name) )
+      def classCtxOpt@(optional):RangerAppWriterContext this.ctx
+      if (!null? classCtxOpt) {
+        def classCtx:RangerAppWriterContext (unwrap classCtxOpt)
+        classCtx.addError((unwrap desc.node) ("Duplicate class property '" + desc.name + "' in class " + this.name))
+      }
     }
     push variables desc
     desc.propertyClass = this
@@ -722,15 +835,23 @@ Tests if the `class name` is either
     push static_methods desc
 
     if(desc.name == "main") {
-      def nn (desc.nameNode)
+      def nnOpt@(optional):CodeNode desc.nameNode
+      if (null? nnOpt) {
+        return
+      }
+      def nn:CodeNode (unwrap nnOpt)
       if(nn.has_vref_annotation == false) {
-        def vAnn (node.newExpressionNode())
+        def vAnn:CodeNode (nn.newExpressionNode())
         nn.has_vref_annotation = true
         nn.vref_annotation = vAnn
       } 
       ; the new node first: pushing INTO the annotation while reading it for
       ; the value borrows one object two ways in a single statement
-      def mainAnn:CodeNode nn.vref_annotation
+      def mainAnnOpt@(optional):CodeNode nn.vref_annotation
+      if (null? mainAnnOpt) {
+        return
+      }
+      def mainAnn:CodeNode (unwrap mainAnnOpt)
       def mainRef:CodeNode (mainAnn.newVRefNode("main"))
       push mainAnn.children mainRef
 

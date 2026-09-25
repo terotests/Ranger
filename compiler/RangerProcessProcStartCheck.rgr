@@ -2,7 +2,7 @@
 
 
 Import "RangerAppClassDesc.rgr"
-Import "CodeNode.rgr"
+Import "./ast/CodeNode.rgr"
 Import "RangerAppWriterContext.rgr"
 Import "CodeWriter.rgr"
 Import "RangerLispParser.rgr"

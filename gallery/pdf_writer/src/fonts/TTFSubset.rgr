@@ -40,7 +40,7 @@ class TTFSubset {
         return (sub.run(font usedGids))
     }
 
-    def font:TrueTypeFont
+    def font@(late):TrueTypeFont
     def glyfOffset:int 0
     def glyfLength:int 0
     def locaOffset:int 0

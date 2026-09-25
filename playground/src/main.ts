@@ -44,6 +44,7 @@ const LANGUAGE_OPTIONS: {
   highlight: () => Extension;
 }[] = [
   { value: "es6", label: "JavaScript", highlight: () => javascript() },
+  { value: "typescript", label: "TypeScript", highlight: () => javascript({ typescript: true }) },
   { value: "python", label: "Python", highlight: () => StreamLanguage.define(python) },
   { value: "go", label: "Go", highlight: () => StreamLanguage.define(go) },
   { value: "rust", label: "Rust", highlight: () => StreamLanguage.define(rust) },

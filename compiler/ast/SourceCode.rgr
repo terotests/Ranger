@@ -1,0 +1,73 @@
+class SourceCode {
+    def code:string ""
+    def lines:[string]
+    def filename:string ""
+    Constructor (code_str:string ) {
+      this.code = code_str
+        lines = (strsplit this.code "\n")
+    }
+    
+    fn getLineString:string (line_index:int) {
+        if (> (array_length lines) line_index) {
+            return (itemAt lines line_index)
+        }
+        return ""
+    }                
+    ; `sp` is a position the parser produced by indexing the UTF-8 bytes of
+    ; `code` (RangerLispParser reads `to_charbuffer`), so these three count
+    ; bytes too. Counting with `strlen` gave UTF-16 units on JavaScript and
+    ; code points on Python: every multibyte character before a node -- an em
+    ; dash in a comment is enough -- moved its reported line and column, and
+    ; errors pointed at the wrong line. docs/plans/PLAN_STRING_INDEXING.md 3.3.
+    def lineStarts:[int]
+    def lineStartsReady:boolean false
+
+    fn ensureLineStarts:void () {
+      if lineStartsReady {
+        return
+      }
+      def pos:int 0
+      for lines str:string i {
+        push lineStarts pos
+        pos = (pos + ((length (to_charbuffer str)) + 1))
+      }
+      push lineStarts pos
+      lineStartsReady = true
+    }
+
+    ; The index of the line holding byte offset `sp`, -1 past the end.
+    fn getLine@(units):int (sp:int) {
+      this.ensureLineStarts()
+      def n:int (array_length lines)
+      if ((sp < 0) || (sp >= (itemAt lineStarts n))) {
+        return -1
+      }
+      def lo:int 0
+      def hi:int (n - 1)
+      while (lo < hi) {
+        def mid:int (idiv (lo + hi + 1) 2)
+        if ((itemAt lineStarts mid) <= sp) {
+          lo = mid
+        } {
+          hi = (mid - 1)
+        }
+      }
+      return lo
+    }
+    fn getColumnStr@(units):string (sp:int) {
+      def col:int (this.getColumn(sp))
+      def ss:string ""
+      while (col > 0) {
+        ss = ss + " "
+        col = col - 1
+      }
+      return ss
+    }
+    fn getColumn@(units):int (sp:int) {
+      def line:int (this.getLine(sp))
+      if (line < 0) {
+        return -1
+      }
+      return (sp - (itemAt lineStarts line))
+    }
+}

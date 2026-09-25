@@ -1,0 +1,46 @@
+; Not narrowed: reads before the check, after a then block that does not
+; always exit, after `&&` of null tests, the else branch of `!null?`, and
+; after the narrowed variable is given an optional again.
+class Person {
+  def name:string ""
+}
+class FlowRejects {
+  fn before:string (p@(optional):Person) {
+    def early:string p.name
+    if (null? p) {
+      return "nobody"
+    }
+    return early
+  }
+  fn notAlways:string (p@(optional):Person flag:boolean) {
+    if (null? p) {
+      if flag {
+        return "x"
+      }
+    }
+    return p.name
+  }
+  fn both:string (a@(optional):Person b@(optional):Person) {
+    if ((null? a) && (null? b)) {
+      return "none"
+    }
+    return a.name
+  }
+  fn elseOfPresent:string (p@(optional):Person) {
+    if (!null? p) {
+      return "yes"
+    } {
+      return p.name
+    }
+  }
+  fn reassigned:string (p@(optional):Person q@(optional):Person) {
+    if (null? p) {
+      return "nobody"
+    }
+    p = q
+    return p.name
+  }
+  sfn main@(main):void () {
+    print "x"
+  }
+}

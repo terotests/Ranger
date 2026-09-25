@@ -10346,7 +10346,7 @@ class ComponentEngine {
                     ; Read and write through the scope the reference named, not
                     ; through whatever is nearest now.
                     if preScopeValid {
-                        def owner:EvalContext preScope
+                        def owner:EvalContext (unwrap preScope)
                         def ownCur:EvHandle (owner.lookup(varName))
                         ; D-TDZ: the binding exists but is not initialised yet.
                         if (ownCur.isHole()) {
