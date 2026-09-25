@@ -1285,7 +1285,24 @@ class RangerJavaScriptClassWriter {
       }
     }
 
-    if(is_react_native == false) {
+    ; An empty `constructor() {}` says nothing JavaScript would not do anyway:
+    ; no parameters, no parent to call, no field to initialise, no body.
+    def ctorHasWork:boolean (cl.has_constructor || b_extd)
+    if (cl.isSingletonClass()) {
+      ctorHasWork = true
+    }
+    if (target_typescript == false) {
+      if (this.classInSealableUnion((unwrap cl) ctx)) {
+        ctorHasWork = true
+      }
+    }
+    for cl.variables ctorVar:RangerAppParamDesc ci {
+      if (ctorVar.is_static == false) {
+        ctorHasWork = true
+      }
+    }
+
+    if((is_react_native == false) && ctorHasWork) {
 
     wr.out("constructor(" false)
     
