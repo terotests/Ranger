@@ -1198,6 +1198,12 @@ class EVGElement {
     ; hears, and this tree has no document to hold ids in. A control with no
     ; description says nothing, which is what an absent attribute means.
     def a11yDescription:string ""
+    ; `aria-describedby` as a REFERENCE: the id of the element in this tree
+    ; that carries the sentence — a field's visible error message. A host that
+    ; has a document (the DOM mirror) points at that element, so a reader hears
+    ; the message it can also walk to; `a11yDescription` keeps the resolved
+    ; text for hosts that have no ids.
+    def a11yDescribedBy:string ""
     ; `aria-haspopup`: "menu", "listbox", "dialog". The one thing a reader
     ; cannot see about a trigger — that pressing it opens something — and a
     ; select's closed trigger is a box with a word in it without it.
@@ -3507,6 +3513,7 @@ class EVGElement {
         a11yReadOnly = other.a11yReadOnly
         a11yRoleDescription = other.a11yRoleDescription
         a11yDescription = other.a11yDescription
+        a11yDescribedBy = other.a11yDescribedBy
         a11yHasPopup = other.a11yHasPopup
         a11yRowCount = other.a11yRowCount
         a11yRowIndex = other.a11yRowIndex
@@ -3897,6 +3904,10 @@ class EVGElement {
         }
         if ((name == "aria-describedby") || (name == "a11yDescription")) {
             a11yDescription = value
+            return
+        }
+        if (name == "a11yDescribedBy") {
+            a11yDescribedBy = value
             return
         }
         if ((name == "aria-roledescription") || (name == "a11yRoleDescription")) {
