@@ -35,6 +35,10 @@
 - Issue #82 (fixed): the `es6` keyword table added in #76 renamed METHOD and PROPERTY names as well as bindings, so `EvHandle.null()` -- the constructor three suites and every JavaScript consumer of the engine module call -- became `EvHandle._null()`. JavaScript reserves its keywords only where a name may stand: `const null = 1` is a syntax error, `obj.null` and `static null() {}` are not. `transformWord` now splits into a binding transform and a member transform. Found by CI, not locally: `runtime-conformance.test.ts` rebuilt the engine module only when a `.rgr` under `migrate/src/` was newer, so after a COMPILER change it measured the engine built by the previous compiler and reported green. The compiler is in that dependency list now (September 2026)
 
 ### Still Open
+- Issue #101: Go folds a float literal expression exactly. `print (to_string (0.1 + 0.2))` prints `0.3` on Go and `0.30000000000000004` on JavaScript, Python and C++ (and in Rust), because the Go writer emits `0.1 + 0.2` as an untyped constant expression, which Go evaluates in arbitrary precision. The same sum of two variables prints the same everywhere. Found by the Rust-syntax prelude tests (September 2026)
+- Issue #100: on Python, integer `%` and `idiv` round toward negative infinity; on every other target they truncate toward zero, which is what `SPEC_SEMANTICS.md` §2.1 says. `(-7 % 3)` is `2` on Python and `-1` elsewhere; `(idiv -7 2)` is `-4` on Python and `-3` elsewhere. The Python templates emit `%` and `//` directly. `lib/rust/RsPrelude.rgr` works around it with `rs_rem` / `rs_div` (September 2026)
+- Issue #99: a field of a generic class whose type is the type parameter and that has no initial value is optional, so an instantiation with a primitive reads it as an optional primitive. With `class Pair @params(A B) { def f0:A … }` and `def p:Pair@(int string)`, `(to_string p.f0)` fails with "Could not match argument types for to_string", and `def a:int p.f0` makes `a` optional too; only `(unwrap p.f0)` works. The Rust-syntax lowering generates concrete classes (monomorphizes) instead of using generic classes for this reason (September 2026)
+- Issue #98: a STATIC method whose name is also an operator name cannot be called. `sfn find:int (a:int)` on `class Mod` compiles, and `Mod.find(1)` fails with "Class Mod does not have method find". Found by probing: `find`, `filter`, `map`, `get`, `set`, `push`, `keys`, `remove`, `insert`, `contains`, `sort`, `reverse`, `join`, `trim`, `max`, `count`, `first`, `last`, `size`, `length`, `print`, `clone`, `has`, `at`, `to_string` and `unwrap` all fail; the same names work as INSTANCE methods (`p.find(1)`), as AGENTS.md says (September 2026)
 - Issue #97: `strfromcode` truncates a code point above U+FFFF on JavaScript/TypeScript, and every code point above its target's char width on C#, Kotlin, Scala and PHP. `(strfromcode 128512)` (U+1F600, 😀) comes out as U+F600 on JavaScript, because the default template is `String.fromCharCode`; C# casts to `(char)`, Kotlin and Scala call `.toChar()`, which keep 16 bits; PHP's `chr` keeps one byte. Java, Go, Python, C++ and Swift 6 build the full character. Found by the Rust lexer (`compiler/frontend/rust/lexer/RustLexer.rgr`, PLAN_RUST_SYNTAX.md): its JavaScript build decodes the escape `'\u{1F600}'` to the wrong character, so the golden fixture `tests/fixtures/rust_syntax/literals.rs` leaves that case out until the operator is fixed (September 2026)
 - Issue #96: a `for` whose body APPENDS to the collection it is walking answers differently on Rust than on every other target. `for xs v:int i { if (n < 2) { push xs v } ... }` over a three-element list runs five times on JavaScript, Python, Go, C++, Java, Kotlin, C#, Dart and Swift, and three times on Rust: the Rust writer reads the bound into a local before the loop (`let __n_i = (xs.len() as i64);`), deliberately, because a range expression that borrows the collection keeps that borrow alive for the whole loop and a body that borrows it mutably then cannot run. So the divergence is a consequence of a fix, not an oversight, and closing it needs the bound re-read without re-borrowing rather than a one-line change. `tests/fixtures/loops_native.rgr` has the program; nothing asserts the answers across targets yet, because the cross-target gate in `gallery/friendly` does not carry a growing-collection study. Found while giving every target its own loop form (September 2026)
 - Issue #95: on C++, `read_file` hands back BYTES where every other target hands back code points, so `strlen` / `charAt` / `substring` index a different string than `SPEC_SEMANTICS.md` defines ("`strlen`, `charAt` / `at`, and `substring` operate on Unicode code points … on every supported target"). A file holding `em dash — and ellipsis …` reads back as `strlen 96` with bytes `226 128 148 226 128 166` on C++, and `strlen 92` with code points `8212 8230` on JavaScript. The C++ WRITER is not the problem: a non-ASCII literal in the source is emitted correctly and the binary prints it correctly — it is the reading side. Where it shows is the selfhost build: the C++ build of the compiler reads the compiler's own sources and writes each byte of a multi-byte character back as its own character, so 34 hunks of its output differ from the Node build's, every one of them a `—`, `…` or `✓` inside a message the compiler prints. Not a regression — it is there on every commit checked — and it does not stop the build: the binary compiles the compiler and the compiler it produces reproduces itself. Reduced to a nine-line repro; the fix belongs with the conformance suite of Track 1 in `docs/plans/PLAN_LANGUAGE_IMPROVEMENTS.md`, because it is the Issue #57 class on a different target (September 2026)
@@ -4339,6 +4343,79 @@ fixture and decodes correctly, because it never goes through `strfromcode`.
 `String(Character.toChars(x))` on Kotlin, `new String(Character.toChars(x))` on
 Scala, `mb_chr(x, 'UTF-8')` on PHP. Then put `'\u{1F600}'` back into
 `literals.rs` and regenerate its dump.
+
+### Status
+
+Open (September 2026).
+
+## Issue #98: a static method named like an operator cannot be called
+
+### Reproduction
+
+```ranger
+class Mod {
+  sfn find:int (a:int) {
+    return a
+  }
+  sfn main:void () {
+    print (to_string (Mod.find(1)))
+  }
+}
+```
+
+`[FAIL] Class Mod does not have method find`. Renaming the method to `findIdx`
+compiles and runs.
+
+A probe over common names, each declared as both a static and an instance
+method, failed for the static call only: `find`, `filter`, `map`, `get`,
+`set`, `push`, `keys`, `remove`, `insert`, `contains`, `sort`, `reverse`,
+`join`, `trim`, `max`, `count`, `first`, `last`, `size`, `length`, `print`,
+`clone`, `has`, `at`, `to_string`, `unwrap`. `len`, `min`, `abs`, `sum`,
+`new`, `parse`, `format`, `apply`, `call`, `next`, `pop` and others passed.
+
+### Workaround in the Rust-syntax lowering
+
+The operator declarations in `compiler/Lang.rgr` vary too much in shape to
+extract their names precisely, so the lowering over-approximates: every
+identifier that starts a line in `Lang.rgr` or `lib/stdops.rgr`, the Ranger
+keywords, and the names found by the probe count as possible collisions, and a
+static function with such a name is written with a trailing `_`. Renaming a
+harmless name costs nothing; missing a real collision breaks the build.
+
+### Status
+
+Open (September 2026).
+
+## Issue #99: a type-parameter field without a default reads as optional
+
+### Reproduction
+
+```ranger
+class Pair @params(A B) {
+  def f0:A
+  def f1:B
+  Constructor (a:A b:B) {
+    f0 = a
+    f1 = b
+  }
+}
+; …
+def p:Pair@(int string) (new Pair@(int string) (1 "a"))
+print ((to_string p.f0) + p.f1)        ; Could not match argument types for to_string
+def a:int p.f0
+print (to_string a)                    ; the same: `a` is optional as well
+def b:int (unwrap p.f0)                ; works
+```
+
+A field declared without a value is optional (AGENTS.md, "Optionals"), and a
+field typed by a type parameter cannot be given a value, because no literal
+fits every argument. The constructor assigns both fields at its top level,
+which `-strict` counts as present for an ordinary field, but not here.
+
+### Consequence
+
+The Rust-syntax lowering writes a concrete class per tuple type and per
+generic-struct instantiation instead of a Ranger generic class.
 
 ### Status
 
