@@ -2882,6 +2882,23 @@ class RangerRustClassWriter {
         if ((local_needs_rc_wrap && (init_rc_state == 0)) && (optInitPassthrough == false)) {
           wr.out("Rc::new(RefCell::new(" false)
         }
+        ; …and one cell more where the local is the trait object of a
+        ; RE-ENTRANT family: the trait is implemented for `Rc<RefCell<C>>`,
+        ; so the trait object holds a handle, as for the field assignment in
+        ; RustOperators. docs/plans/PLAN_RUST_REENTRANCY.md.
+        def initReentrantCell:boolean false
+        if ((local_needs_rc_wrap && (init_rc_state == 0)) && (optInitPassthrough == false)) {
+          if (this.rustTypeIsOwnHandle(nameN.type_name ctx)) {
+            def irCls@(optional):RangerAppClassDesc (ctx.findClass(nameN.type_name))
+            if (!null? irCls) {
+              def irC:RangerAppClassDesc (unwrap irCls)
+              if irC.rust_trait_reentrant {
+                initReentrantCell = true
+                wr.out("Rc::new(RefCell::new(" false)
+              }
+            }
+          }
+        }
 
 
         def wroteUnionInit:boolean false
@@ -2926,6 +2943,9 @@ class RangerRustClassWriter {
         }
 
         ; Close Rc::new(RefCell::new(...)) if we opened it
+        if initReentrantCell {
+          wr.out("))" false)
+        }
         if (local_needs_rc_wrap && (optInitPassthrough == false)) {
           if (init_rc_state == 0) {
             wr.out("))" false)

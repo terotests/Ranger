@@ -36074,6 +36074,19 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         if ( (local_needs_rc_wrap && init_rc_state == 0) && optInitPassthrough == false ) {
           wr.out("Rc::new(RefCell::new(", false);
         }
+        let initReentrantCell = false;
+        if ( (local_needs_rc_wrap && init_rc_state == 0) && optInitPassthrough == false ) {
+          if ( this.rustTypeIsOwnHandle(nameN.type_name, ctx) ) {
+            const irCls = ctx.findClass(nameN.type_name);
+            if ( (typeof(irCls) !== "undefined" && irCls != null )  ) {
+              const irC = irCls;
+              if ( irC.rust_trait_reentrant ) {
+                initReentrantCell = true;
+                wr.out("Rc::new(RefCell::new(", false);
+              }
+            }
+          }
+        }
         let wroteUnionInit = false;
         if ( local_is_union_slot ) {
           wroteUnionInit = this.rustWriteUnionValue(
@@ -36109,6 +36122,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
               }
             }
           }
+        }
+        if ( initReentrantCell ) {
+          wr.out("))", false);
         }
         if ( local_needs_rc_wrap && optInitPassthrough == false ) {
           if ( init_rc_state == 0 ) {
@@ -42540,10 +42556,66 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         } else {
           wr.out(".unwrap()", false);
         }
+        if ( this.rustUnwrapIsRefCellField(arg_3, ctx) ) {
+          wr.out(".into_inner()", false);
+        }
       }
       ctx.unsetInExpr();
       return;
     }
+  };
+  rustUnwrapIsRefCellField (arg, ctx) {
+    if ( arg.hasParamDesc == false ) {
+      return false;
+    }
+    const pp = arg.paramDesc;
+    if ( typeof(pp.nameNode) === "undefined" ) {
+      return false;
+    }
+    const nn = pp.nameNode;
+    if ( nn.hasFlag("optional") == false ) {
+      return false;
+    }
+    if ( nn.array_type.length > 0 || nn.key_type.length > 0 ) {
+      return false;
+    }
+    if ( ctx.isDefinedClass(nn.type_name) == false ) {
+      return false;
+    }
+    const ftc = ctx.findClass(nn.type_name);
+    if ( ftc.is_extended_by_children ) {
+      return false;
+    }
+    if ( this.rustClassIsShared(nn.type_name, ctx) ) {
+      return false;
+    }
+    let owner = pp.propertyClass;
+    if ( typeof(owner) === "undefined" ) {
+      if ( pp.is_class_variable ) {
+        owner = ctx.getCurrentClass();
+      }
+    }
+    if ( typeof(owner) === "undefined" ) {
+      return false;
+    }
+    const oc = owner;
+    if ( oc.name == nn.type_name ) {
+      return false;
+    }
+    if ( oc.is_extended_by_children ) {
+      return true;
+    }
+    // Loop start
+    for ( const pName of oc.extends_classes) {
+      const pc = ctx.findClass(pName);
+      if ( (typeof(pc) !== "undefined" && pc != null )  ) {
+        const pcd = pc;
+        if ( pcd.is_extended_by_children ) {
+          return true;
+        }
+      }
+    }
+    return false;
   };
   rustWriteOperand (arg, ctx, wr) {
     if ( arg.rust_use_tmpvar.length > 0 ) {

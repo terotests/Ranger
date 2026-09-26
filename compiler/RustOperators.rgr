@@ -2615,10 +2615,73 @@ extension RangerRustClassWriter {
         } {
           wr.out(".unwrap()" false)
         }
+        ; an optional object field of a trait-related class is declared
+        ; Option<RefCell<T>> (writeTypeDef): the unwrap hands out the cell,
+        ; and the value a `def x:T (unwrap o.f)` binds is what is inside it
+        if (this.rustUnwrapIsRefCellField(arg ctx)) {
+          wr.out(".into_inner()" false)
+        }
       }
       ctx.unsetInExpr()
       return
     }
+  }
+
+  ; The same question writeTypeDef answers with needs_refcell_wrap, asked of
+  ; the field an unwrap reads: optional, of a class type that is neither a
+  ; trait family nor shared, and owned by a class that is trait-related.
+  ; Weak and self-referential (Box) fields are answered before this is asked.
+  fn rustUnwrapIsRefCellField:boolean (arg:CodeNode ctx:RangerAppWriterContext) {
+    if (arg.hasParamDesc == false) {
+      return false
+    }
+    def pp:RangerAppParamDesc arg.paramDesc
+    if (null? pp.nameNode) {
+      return false
+    }
+    def nn:CodeNode (unwrap pp.nameNode)
+    if ((nn.hasFlag("optional")) == false) {
+      return false
+    }
+    if (((strlen nn.array_type) > 0) || ((strlen nn.key_type) > 0)) {
+      return false
+    }
+    if ((ctx.isDefinedClass(nn.type_name)) == false) {
+      return false
+    }
+    def ftc:RangerAppClassDesc (ctx.findClass(nn.type_name))
+    if ftc.is_extended_by_children {
+      return false
+    }
+    if (this.rustClassIsShared(nn.type_name ctx)) {
+      return false
+    }
+    def owner@(optional):RangerAppClassDesc pp.propertyClass
+    if (null? owner) {
+      if pp.is_class_variable {
+        owner = (ctx.getCurrentClass())
+      }
+    }
+    if (null? owner) {
+      return false
+    }
+    def oc:RangerAppClassDesc (unwrap owner)
+    if (oc.name == nn.type_name) {
+      return false
+    }
+    if oc.is_extended_by_children {
+      return true
+    }
+    for oc.extends_classes pName:string pi {
+      def pc@(optional):RangerAppClassDesc (ctx.findClass(pName))
+      if (!null? pc) {
+        def pcd:RangerAppClassDesc (unwrap pc)
+        if pcd.is_extended_by_children {
+          return true
+        }
+      }
+    }
+    return false
   }
 
 }
