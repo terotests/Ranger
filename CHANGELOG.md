@@ -22,6 +22,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   links itself back in at `gallery/evg/livebuild`; both link paths are
   ignored here.
 
+### Fixed
+
+- **A document's `theme` now turns on its `.theme-<name> .class` rules.**
+  `EVGLayout` applied a document's stylesheet with an empty theme, so every
+  theme-scoped rule was dead in the live page, `measure` and every other
+  layout path: `{"theme":"dark"}` on the root parsed, round-tripped, and
+  styled nothing. The UI kit's `.theme-dark` rules for every piece now
+  apply. `evg:json:test` covers it.
+- **UI kit `bars`: the bars sit in their row.** `.ui-bar-col` had
+  `justify-content: flex-end`, and a content-sized column with that laid its
+  bar and label out one column-height above itself, over the card's title.
+  `measure` did not report it, because nothing clips there.
+
 ### Added
 
 - **Dashboard pieces in the UI kit.** `ui_kit.mjs add` builds `tabbar`,

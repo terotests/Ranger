@@ -144,7 +144,11 @@ class EVGLayout {
         ; leave a property marked as the sheet's forever, and the document
         ; would stop writing down a value it is the only record of.
         EVGLayout.clearCssMarks(root)
-        sheet.applyTree(root "")
+        ; The root's `theme` turns on the sheet's `.theme-<name> .class`
+        ; rules. Passing "" here made every theme-scoped rule in a document
+        ; dead: `{"theme":"dark"}` on the root parsed, round-tripped, and
+        ; styled nothing.
+        sheet.applyTree(root root.theme)
     }
 
     sfn clearCssMarks:void (el:EVGElement) {

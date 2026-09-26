@@ -418,8 +418,12 @@
   display: flex; flex-direction: row; align-items: flex-end; justify-content: space-between;
   gap: 8px; height: 98px; min-height: 98px;
 }
+/* No justify-content: flex-end here. The row already puts each column on
+   its floor (align-items: flex-end), and flex-end inside a column sized to
+   its content lays the bar and its label out one column-height ABOVE it —
+   over the card's title. */
 .ui-bar-col {
-  display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
+  display: flex; flex-direction: column; align-items: center;
   flex-grow: 1; gap: 6px;
 }
 .ui-bar { width: 100%; border-radius: 8px; background-color: #ef9587; min-height: 8px; }
