@@ -7,10 +7,14 @@
 # compiler, the layout, the controllers, the oracles. None of it opens a
 # browser, which is what makes it fast enough to run on every change.
 #
-# These four do open one, and until this script existed they were run by hand —
+# These do open one, and until this script existed they were run by hand —
 # which is how `mod.EVGReconcile is not a constructor` survived on the demo page
 # from the day it was written. The bundle BUILT, so the editor gate was happy;
 # nothing loaded it.
+#
+# The demo page's own browser suites (ui:demo:page, ui:demo:frame,
+# ui:demo:a11y) moved with the demos to https://github.com/terotests/EVGUI and
+# run there (scripts/gate.sh).
 #
 #   bash scripts/run-gallery-browser-tests.sh
 #
@@ -20,17 +24,9 @@ set -u
 cd "$(dirname "$0")/.."
 
 SUITES=(
-  # The page itself: does it load, and does every demo draw?
-  ui:demo:page
-  # One frame, looked at as pixels: a surface effect must draw OVER the page
-  # and not instead of it. The page check cannot see this — the frame it would
-  # have to catch is the first rippling one, and it is gone before a live page
-  # can be photographed.
-  ui:demo:frame
   # The two sides of the conformance harness, and axe over both trees.
   ui:conformance
   ui:a11y
-  ui:demo:a11y
 )
 
 failed=()

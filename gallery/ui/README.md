@@ -173,10 +173,17 @@ npm run ui:conformance:install   # react + @radix-ui + esbuild + playwright-core
 
 ## Trying it in a browser
 
-Live, from these sources: **[the gallery](https://terotests.github.io/Ranger/ui/)**
-(`/ui/demo/`) and the **[conformance playground](https://terotests.github.io/Ranger/ui/web/)**
-beside it. `/ui/` itself redirects to the demos and keeps `?demo=`, so
-`?demo=dashboard` still opens the dashboard.
+The demos (`demo/`), the conformance playground (`web/`) and the benches
+(`bench/`) moved to **[terotests/EVGUI](https://github.com/terotests/EVGUI)**,
+which builds them against this checkout and publishes them at
+**[terotests.github.io/EVGUI](https://terotests.github.io/EVGUI/)**
+(`/demo/`, `/web/`). The old `/ui/` URLs redirect there and keep `?demo=`.
+The controllers, the theme, the kit and the conformance harness stay here;
+EVGUI carries its own copy of `src/` and `theme/` (taken at the move) and
+uses the conformance harness from here. Ranger apps built from these
+controllers (RealTrainer, Rave, Firesim, M-Files…) keep using this copy until
+they move over.
+The rest of this section describes the demos as they are in that repository.
 
 One of them is not a control at all: **`?demo=effects`** is the surface
 effects, declared in `effects.css` and nowhere else — a starfield that drifts,

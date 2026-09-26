@@ -5,7 +5,8 @@
 //
 //   node gallery/ui/conformance/oracle/flexgrow_oracle.mjs
 //
-// Writes `flexgrow.json` beside this file. `flexgrow_check.mjs` gates it.
+// Writes `flexgrow.json` beside this file. `demo/flexgrow_check.mjs` in terotests/EVGUI gates it
+// (it runs the answers against the controls demo).
 //
 // WHY. The controls demo's stepper drew its four steps down the page on top of
 // one another. The cause was not the stepper: `flex-grow` was NOT A PROPERTY
