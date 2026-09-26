@@ -178,7 +178,11 @@ The demos (`demo/`), the conformance playground (`web/`) and the benches
 which builds them against this checkout and publishes them at
 **[terotests.github.io/EVGUI](https://terotests.github.io/EVGUI/)**
 (`/demo/`, `/web/`). The old `/ui/` URLs redirect there and keep `?demo=`.
-The controllers, the theme, the kit and the conformance harness stay here.
+The controllers, the theme, the kit and the conformance harness stay here;
+EVGUI carries its own copy of `src/` and `theme/` (taken at the move) and
+uses the conformance harness from here. Ranger apps built from these
+controllers (RealTrainer, Rave, Firesim, M-Files…) keep using this copy until
+they move over.
 The rest of this section describes the demos as they are in that repository.
 
 One of them is not a control at all: **`?demo=effects`** is the surface

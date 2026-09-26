@@ -35,10 +35,9 @@ const TREE = `${FIXTURES}/tree_literal.rgr`;
  * `addColumn`, which share no base class and no shape.
  */
 // The menubar, toolbar and sortable demos these blocks compile moved to
-// https://github.com/terotests/EVGUI. They run when that repository's demo/
-// is placed at gallery/ui/demo (its scripts/run.mjs does that) and are
-// skipped otherwise.
-const HAS_DEMOS = fs.existsSync("gallery/ui/demo/MenubarDemo.rgr");
+// https://github.com/terotests/EVGUI. They run when that repository is
+// cloned to gallery/evgui (they import its src/) and are skipped otherwise.
+const HAS_DEMOS = fs.existsSync("gallery/evgui/demo/MenubarDemo.rgr");
 
 describe("tree literals", () => {
   const UI = "root(a:hello b:literal badge:tero)";
@@ -94,7 +93,7 @@ describe("tree literals", () => {
    * what the ergonomics argument rests on.
    */
   describe.skipIf(!HAS_DEMOS)("the menubar demo", () => {
-    const DEMO = "gallery/ui/demo/MenubarDemo.rgr";
+    const DEMO = "gallery/evgui/demo/MenubarDemo.rgr";
 
     it("builds the whole structure, with state visible in it", () => {
       const run = expectOutput(DEMO, "mb-root");
@@ -130,8 +129,8 @@ describe("tree literals", () => {
    * a screen-reader user is pressing empty space and nobody sighted can see it.
    */
   describe.skipIf(!HAS_DEMOS)("the demo answers the pointer and the reader from one tree", () => {
-    const CSS_FILE = "gallery/ui/demo/menubar.css";
-    const OUT = "gallery/ui/bin";
+    const CSS_FILE = "gallery/evgui/demo/menubar.css";
+    const OUT = "gallery/evgui/bin";
     let Demo: any;
     let css = "";
     const checked = ["Always Show Full URLs"];
@@ -139,7 +138,7 @@ describe("tree literals", () => {
     beforeAll(() => {
       execSync(
         "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node dist/rgrc.js -es6 -nodemodule " +
-          `./gallery/ui/demo/MenubarDemo.rgr -d=./${OUT} -o=MenubarDemo.cjs`,
+          `./gallery/evgui/demo/MenubarDemo.rgr -d=./${OUT} -o=MenubarDemo.cjs`,
         { cwd: process.cwd(), stdio: "pipe" },
       );
       const req = createRequire(path.join(process.cwd(), "package.json"));
@@ -249,7 +248,7 @@ describe("tree literals", () => {
    * factory's business, in one repository.
    */
   describe.skipIf(!HAS_DEMOS)("the toolbar demo", () => {
-    const DEMO = "gallery/ui/demo/ToolbarDemo.rgr";
+    const DEMO = "gallery/evgui/demo/ToolbarDemo.rgr";
 
     it("builds two groups with different selection rules", () => {
       const run = expectOutput(DEMO, "tb-root");
@@ -266,12 +265,12 @@ describe("tree literals", () => {
     it("says what a toggle is, in the word a reader uses for it", () => {
       execSync(
         "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node dist/rgrc.js -es6 -nodemodule " +
-          "./gallery/ui/demo/ToolbarDemo.rgr -d=./gallery/ui/bin -o=ToolbarDemo.cjs",
+          "./gallery/evgui/demo/ToolbarDemo.rgr -d=./gallery/evgui/bin -o=ToolbarDemo.cjs",
         { cwd: process.cwd(), stdio: "pipe" },
       );
       const req = createRequire(path.join(process.cwd(), "package.json"));
-      const T = req("./gallery/ui/bin/ToolbarDemo.cjs").ToolbarDemo;
-      const css = fs.readFileSync("gallery/ui/demo/toolbar.css", "utf8");
+      const T = req("./gallery/evgui/bin/ToolbarDemo.cjs").ToolbarDemo;
+      const css = fs.readFileSync("gallery/evgui/demo/toolbar.css", "utf8");
       const args = [css, true, false, false, "center", "Edited 2 hours ago"] as const;
       expect(T.a11yProblems(...args)).toEqual([]);
       const byId: Record<string, any> = Object.fromEntries(
@@ -304,7 +303,7 @@ describe("tree literals", () => {
    * anything to `Menubar` or `Toolbar`.
    */
   describe.skipIf(!HAS_DEMOS)("the sortable demo", () => {
-    const DEMO = "gallery/ui/demo/SortableDemo.rgr";
+    const DEMO = "gallery/evgui/demo/SortableDemo.rgr";
 
     it("builds a row out of the parts the reference has", () => {
       const run = expectOutput(DEMO, "sr-list");
@@ -327,12 +326,12 @@ describe("tree literals", () => {
     it("reorders by being rebuilt, and says which row is carried", () => {
       execSync(
         "RANGER_LIB=./compiler/Lang.rgr:./lib/stdops.rgr node dist/rgrc.js -es6 -nodemodule " +
-          "./gallery/ui/demo/SortableDemo.rgr -d=./gallery/ui/bin -o=SortableDemo.cjs",
+          "./gallery/evgui/demo/SortableDemo.rgr -d=./gallery/evgui/bin -o=SortableDemo.cjs",
         { cwd: process.cwd(), stdio: "pipe" },
       );
       const req = createRequire(path.join(process.cwd(), "package.json"));
-      const S = req("./gallery/ui/bin/SortableDemo.cjs").SortableDemo;
-      const css = fs.readFileSync("gallery/ui/demo/sortable.css", "utf8");
+      const S = req("./gallery/evgui/bin/SortableDemo.cjs").SortableDemo;
+      const css = fs.readFileSync("gallery/evgui/demo/sortable.css", "utf8");
       const order = ["demo", "spec", "video", "audio", "extra"];
       const rows = (o: string[], dragging: string) =>
         JSON.parse(S.a11yJson(css, o, dragging, 1, "")).nodes.filter((n: any) =>
@@ -370,8 +369,8 @@ describe("tree literals", () => {
 
     it("carries no accessible weight for the drawings", () => {
       const req = createRequire(path.join(process.cwd(), "package.json"));
-      const S = req("./gallery/ui/bin/SortableDemo.cjs").SortableDemo;
-      const css = fs.readFileSync("gallery/ui/demo/sortable.css", "utf8");
+      const S = req("./gallery/evgui/bin/SortableDemo.cjs").SortableDemo;
+      const css = fs.readFileSync("gallery/evgui/demo/sortable.css", "utf8");
       const order = ["demo", "spec", "video", "audio", "extra"];
       const tree = JSON.parse(S.a11yJson(css, order, "", 1, ""));
       // A grip and an icon are decoration: they say nothing, and a reader
