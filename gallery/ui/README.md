@@ -93,7 +93,7 @@ npm run ui:kit add row --title "Wi-Fi" --control switch --checked \
 
 The machine flips the key with two guarded alternatives — the first whose
 guard passes wins, so those two lines are a toggle — and the switch moves.
-`livebuild:app` checks that whole chain: the kit writes it, a press flips it,
+The live-build harness ([EvgHarness](https://github.com/terotests/EvgHarness), `app-check.mjs`) checks that whole chain: the kit writes it, a press flips it,
 the render shows the other state.
 
 Two things had to change for that to be true. `EvgAppTool` bound `{key}` in

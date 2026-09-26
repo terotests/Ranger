@@ -47,12 +47,33 @@ const AGENT = path.join(root, "lib", "evg", "bin", "evg_agent.js");
 
 const read = (p) => JSON.parse(fs.readFileSync(p, "utf8"));
 
+function hostLooksLive() {
+  if (!fs.existsSync(HOST)) return false;
+  const src = path.join(here, "..", "src", "UiHost.rgr");
+  if (fs.existsSync(src) && fs.statSync(src).mtimeMs > fs.statSync(HOST).mtimeMs) return false;
+  try {
+    const resolved = require.resolve(HOST);
+    delete require.cache[resolved];
+    const M = require(HOST);
+    const probe = new M.UiHost();
+    return typeof probe.plainTreeJson === "function" && typeof probe.addButton === "function";
+  } catch {
+    return false;
+  }
+}
+
 function ensureHost() {
-  if (fs.existsSync(HOST)) return;
+  if (hostLooksLive()) return;
   const built = spawnSync("npm", ["run", "ui:build"], { cwd: root, encoding: "utf8" });
-  if (!fs.existsSync(HOST)) {
+  try {
+    const resolved = require.resolve(HOST);
+    delete require.cache[resolved];
+  } catch {
+    /* not loaded yet */
+  }
+  if (!hostLooksLive()) {
     process.stderr.write((built.stdout || "") + (built.stderr || ""));
-    throw new Error("the compiled host is missing and `npm run ui:build` did not make one");
+    throw new Error("the compiled host is missing addButton/plainTreeJson and `npm run ui:build` did not fix it");
   }
 }
 
@@ -344,7 +365,7 @@ const PATTERNS = {
   },
 
   card: {
-    summary: "A rounded panel of rows with a line between them — a settings list.",
+    summary: "A settings list of rows. Not a dashboard — use tiles / bars / banner for those.",
     props: {
       title: { type: "string", note: "the small caption over the card" },
       row: { type: "repeated", note: "--row \"Title|Subtitle|control\", once per row; control is switch:on, value:5 GHz, chevron or nothing" },
@@ -401,6 +422,27 @@ const PATTERNS = {
     },
   },
 
+  tabbar: {
+    summary: "A four-tab bottom nav — Home · Search · Alerts · You.",
+    props: {
+      tab: { type: "repeated", note: '--tab "Home|⌂|nav.home": label, glyph, id' },
+      active: { type: "string", note: "id or label of the selected tab" },
+    },
+    build(props) {
+      const tabs = asList(props.tab).map((spec) => {
+        const [label = "", glyph = "•", id = ""] = String(spec).split("|");
+        const selected = props.active && (id === props.active || label === props.active);
+        const item = n("div", "ui-tab-item", null, [
+          text("ui-tab-icon", glyph),
+          text(selected ? "ui-tab-label ui-tab-label-active" : "ui-tab-label", label),
+        ]);
+        if (id) item.id = id;
+        return item;
+      });
+      return n("div", "ui-tabbar", null, tabs);
+    },
+  },
+
   // The row of CTAs at the bottom of a screen. It is here because it is what
   // people were drawing by hand: two pills side by side, each a `div` with a
   // radius and a colour, neither of them pressable and neither restyleable.
@@ -423,6 +465,91 @@ const PATTERNS = {
         props.align || "center"
       ] || "center";
       return n("div", "ui-actions", { "justify-content": where }, list);
+    },
+  },
+
+  pills: {
+    summary: "A segmented Day / Week / Month row — text pills, not icon chips.",
+    props: {
+      pill: { type: "repeated", note: '--pill "Week" or --pill "Week|week": label, optional id' },
+      active: { type: "string", note: "label or id of the selected pill" },
+    },
+    build(props) {
+      const pills = asList(props.pill).map((spec) => {
+        const [label = "", id = ""] = String(spec).split("|");
+        const selected = props.active && (id === props.active || label === props.active);
+        const item = n("div", selected ? "ui-pill ui-pill-active" : "ui-pill", null, null, label);
+        if (id) item.id = id;
+        return item;
+      });
+      return n("div", "ui-pills", null, pills);
+    },
+  },
+
+  tiles: {
+    summary: "A 2×2 of metric tiles — a big number, not a SettingsRow.",
+    props: {
+      tile: { type: "repeated", note: '--tile "Sleep Avg|7h 38m|Quality 84%|☾": label, value, sub, icon' },
+    },
+    build(props) {
+      const tiles = asList(props.tile).map((spec) => {
+        const [label = "", value = "", sub = "", icon = ""] = String(spec).split("|");
+        return n("div", "ui-tile", null, [
+          icon ? text("ui-tile-icon", icon) : null,
+          text("ui-tile-label", label),
+          text("ui-tile-value", value),
+          text("ui-tile-sub", sub),
+        ]);
+      });
+      return n("div", "ui-tiles", null, tiles);
+    },
+  },
+
+  bars: {
+    summary: "A trend card: title, a big number, and a row of coloured bars.",
+    props: {
+      title: { type: "string" },
+      value: { type: "string", note: "the headline figure" },
+      badge: { type: "string", note: "the small chip, +12% vs last week" },
+      bar: { type: "repeated", note: '--bar "M|62|#805754": label, height 0–100, optional hex' },
+    },
+    build(props) {
+      const bars = asList(props.bar).map((spec) => {
+        const [label = "", pctRaw = "50", color = ""] = String(spec).split("|");
+        const pct = Math.max(8, Math.min(100, Number(pctRaw) || 50));
+        // Row is 98px: 80 fill + 6 gap + 12 label. An 88px row lets the fill
+        // spill upward into the title (measure count stays 0 — overflow is up).
+        const h = Math.round((pct / 100) * 80);
+        const fill = { height: `${h}px` };
+        if (color) fill["background-color"] = color;
+        return n("div", "ui-bar-col", null, [n("div", "ui-bar", fill), text("ui-bar-label", label)]);
+      });
+      return n("div", "ui-bars", null, [
+        n("div", "ui-bars-head", null, [
+          text("ui-bars-title", props.title ?? ""),
+          props.badge ? text("ui-bars-badge", props.badge) : null,
+        ]),
+        text("ui-bars-value", props.value),
+        n("div", "ui-bars-row", { height: "98px", "min-height": "98px" }, bars),
+      ]);
+    },
+  },
+
+  banner: {
+    summary: "A highlight strip — milestone, promo, alert. Not a settings row.",
+    props: {
+      title: { type: "string" },
+      sub: { type: "string" },
+      eyebrow: { type: "string", note: "the small line above, Milestone Unlocked" },
+      icon: { type: "string" },
+    },
+    build(props) {
+      return n("div", "ui-banner", null, [
+        props.icon ? text("ui-banner-icon", props.icon) : null,
+        text("ui-banner-eyebrow", props.eyebrow),
+        text("ui-banner-title", props.title ?? ""),
+        text("ui-banner-sub", props.sub),
+      ]);
     },
   },
 
@@ -527,7 +654,8 @@ function listText() {
     lines.push(`    ${name.padEnd(14)} ${PATTERNS[name].summary}`);
   }
   lines.push("");
-  lines.push("  e.g.  ./evg-ui add card --title \"NETWORK\" \\");
+  lines.push("  e.g.  ./evg-ui add tiles --tile \"Sleep Avg|7h 38m|Quality 84%|☾\" --into doc.evg.json");
+  lines.push("        ./evg-ui add card --title \"NETWORK\" \\");
   lines.push("          --row \"Signal strength|Excellent|value:Excellent\" \\");
   lines.push("          --row \"Share network|Others can connect|switch:on\" --into doc.evg.json");
   lines.push("");
@@ -581,8 +709,41 @@ function sampleProps(name) {
   }
   if (name === "appbar") return { title: "Network details", action: "✎" };
   if (name === "chips") return { chip: ["Forget|✕|net.forget", "Share|▦|net.share"] };
+  if (name === "tabbar") {
+    return {
+      tab: ["Home|⌂|nav.home", "Search|⌕|nav.search", "Alerts|⚑|nav.alerts", "You|☺|nav.you"],
+      active: "nav.home",
+    };
+  }
   if (name === "actions") return { button: ["Add to plan|primary|plan.add", "Update plan|secondary|plan.update"] };
   if (name === "field") return { label: "Email", placeholder: "name@example.com", help: "We only use it to sign you in." };
+  if (name === "pills") return { pill: ["Day", "Week", "Month", "Year"], active: "Week" };
+  if (name === "tiles") {
+    return {
+      tile: [
+        "Sleep Average|7h 38m|Quality 84%|☾",
+        "Resting HR|64 BPM|−3 BPM|♡",
+        "Hydration|2.3 L/d|92% of target|💧",
+        "Net Burn|2,350 kcal|kcal / day|⚡",
+      ],
+    };
+  }
+  if (name === "bars") {
+    return {
+      title: "Steps & Calories Trend",
+      value: "Avg 9,240 steps/day",
+      badge: "+12% vs last week",
+      bar: ["M|55|#805754", "T|78|#EF9587", "W|62|#524247", "T|90|#AAB4F8", "F|96|#AAB4F8", "S|80|#F0D77B", "S|84|#EF9587"],
+    };
+  }
+  if (name === "banner") {
+    return {
+      eyebrow: "Milestone Unlocked",
+      title: "100k Steps in 10 Days",
+      sub: "Top 5% of active users this month",
+      icon: "🏆",
+    };
+  }
   return {};
 }
 

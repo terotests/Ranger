@@ -1,7 +1,7 @@
 # Compiler output. Every file here is produced from a `.rgr` under
-# gallery/evg by an npm script that compiles before it runs — `livebuild`,
-# `livebuild:test`, `livebuild:agents`, `livebuild:serve` — so a fresh clone
-# builds them and never needs them committed.
+# gallery/evg by the script that needs it — the EvgHarness live-build tools
+# (evg_livebuild.js, evg_app.js) are built by its `npm run setup` — so a
+# fresh clone builds them and never needs them committed.
 #
 # Same rule as lib/evg/bin, gallery/ui/bin, gallery/vela/bin, gallery/book/bin
 # and gallery/css/bin.

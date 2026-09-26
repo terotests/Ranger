@@ -167,6 +167,7 @@ class EVGJsonTest {
         this.testEveryNumberIsANumber()
         this.testLetterSpacing()
         this.testParagraphSpacing()
+        this.testDocumentTheme()
         print ""
         print ("passed = " + (to_string passed) + "  failed = " + (to_string failed))
         if (failed > 0) {
@@ -358,6 +359,23 @@ class EVGJsonTest {
         def j5:string (this.listOf(pair))
         this.has("gradient-from/to needs no interpretation" j5 "\"c2\":[200,210,220,1.00]")
         this.has("and carries its own direction" j5 "\"gd\":1")
+    }
+
+    ; A document's `theme` turns on its `.theme-<name> .class` rules. The
+    ; layout applied the sheet with no theme at all, so every scoped rule —
+    ; the UI kit ships one per piece for a dark screen — styled nothing.
+    fn testDocumentTheme:void () {
+        print "-- a document's theme"
+        def root (new EVGElement())
+        root.setAttribute("width" "100px")
+        root.setAttribute("height" "50px")
+        root.documentCss = ".x { background-color: #ff0000; height: 20px }\n.theme-dark .x { background-color: #00ff00 }"
+        def kid (new EVGElement())
+        kid.setAttribute("class-name" "x")
+        root.addChild(kid)
+        this.has("without a theme the plain rule paints" (this.listOf(root)) "\"c\":[255,0,0,1.00]")
+        root.setAttribute("theme" "dark")
+        this.has("with theme dark the scoped rule wins" (this.listOf(root)) "\"c\":[0,255,0,1.00]")
     }
 
     ; The other half of the same rule: a flat fill must NOT claim a gradient,

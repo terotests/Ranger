@@ -13,8 +13,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   [terotests/Erazer](https://github.com/terotests/Erazer).** `gallery/erazer`,
   its `erazer*` npm scripts, the CI layout-lab step, and the `/evg/erazer/`
   page and its checks in the Pages deploy are gone from this repository.
+  The compiled `gallery/erazer/bin/*.js` that the removal left tracked are
+  deleted too.
+- **The EVG live-build harness moved to its own repository,
+  [terotests/EvgHarness](https://github.com/terotests/EvgHarness).**
+  `gallery/evg/livebuild` and its `livebuild*` npm scripts are gone. The
+  harness clones Ranger and Erazer (or uses `RANGER_DIR` / `ERAZER_DIR`) and
+  links itself back in at `gallery/evg/livebuild`; both link paths are
+  ignored here.
+
+### Fixed
+
+- **A document's `theme` now turns on its `.theme-<name> .class` rules.**
+  `EVGLayout` applied a document's stylesheet with an empty theme, so every
+  theme-scoped rule was dead in the live page, `measure` and every other
+  layout path: `{"theme":"dark"}` on the root parsed, round-tripped, and
+  styled nothing. The UI kit's `.theme-dark` rules for every piece now
+  apply. `evg:json:test` covers it.
+- **UI kit `bars`: the bars sit in their row.** `.ui-bar-col` had
+  `justify-content: flex-end`, and a content-sized column with that laid its
+  bar and label out one column-height above itself, over the card's title.
+  `measure` did not report it, because nothing clips there.
 
 ### Added
+
+- **Dashboard pieces in the UI kit.** `ui_kit.mjs add` builds `tabbar`,
+  `pills`, `tiles`, `bars` and `banner` as whole pieces with their rules in
+  `gallery/ui/theme/base.css`, beside `row`, `card`, `appbar`, `chips` and
+  `field`.
 
 - **Native generic classes on Rust.** A generic class whose body only stores,
   moves and returns its parameter values is written as `struct History<Op>`
