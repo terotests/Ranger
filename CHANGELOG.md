@@ -24,6 +24,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`flex-grow` in a column leaves room for content-sized siblings.** The
+  free space a growing child took was computed with every auto-height
+  sibling counted as 0 px, so a spacer between a card and a tab bar grew by
+  the card's height and pushed the tab bar off the page. Those siblings are
+  now measured with a trial layout first (only when something grows).
+  `evg:flexrules:test` covers it.
 - **A document's `theme` now turns on its `.theme-<name> .class` rules.**
   `EVGLayout` applied a document's stylesheet with an empty theme, so every
   theme-scoped rule was dead in the live page, `measure` and every other

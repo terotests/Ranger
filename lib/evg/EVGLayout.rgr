@@ -1499,6 +1499,17 @@ class EVGLayout {
             def fixedHeight:double 0.0
             def totalFlexC:double 0.0
             def flowCountC:int 0
+            ; Is there anything to grow? Only then does an auto-height sibling
+            ; need its real height below, which costs a trial layout.
+            def growsC:boolean false
+            def jp:int 0
+            while (jp < childCount) {
+                def cp:EVGElement (parent.getChild(jp))
+                if ((cp.height.isSet == false) && (cp.flex > 0.0)) {
+                    growsC = true
+                }
+                jp = (jp + 1)
+            }
             def jc:int 0
             while (jc < childCount) {
                 def c:EVGElement (parent.getChild(jc))
@@ -1514,8 +1525,37 @@ class EVGLayout {
                             totalFlexC = (totalFlexC + c.flex)
                             fixedHeight = (fixedHeight + mAxis)
                         } {
-                            ; auto-height non-flex child: 0 main-axis basis estimate
-                            fixedHeight = (fixedHeight + mAxis)
+                            ; An auto-height sibling of a growing child takes its
+                            ; content height out of the free space. Counting it as
+                            ; 0 gave the grower everything below it, so a spacer
+                            ; between a card and a tab bar pushed the tab bar off
+                            ; the page by the card's height. Measured with a trial
+                            ; layout at the width it will get, then reset: the real
+                            ; pass lays it out again where it lands.
+                            if growsC {
+                                def availT:double ((innerWidth - c.box.marginLeftPx) - c.box.marginRightPx)
+                                def wT:double (this.estimateChildWidth(c availT (this.crossShrinksUnder(parent))))
+                                if c.width.isSet {
+                                    if (c.width.pixels >= innerWidth) {
+                                        wT = availT
+                                    } {
+                                        wT = c.width.pixels
+                                    }
+                                }
+                                def wasRowT:boolean layingOutAlongRow
+                                def wasShrinkT:boolean columnCrossShrinks
+                                layingOutAlongRow = false
+                                columnCrossShrinks = (this.crossShrinksUnder(parent))
+                                this.layoutElement(c 0.0 0.0 wT innerHeight)
+                                layingOutAlongRow = wasRowT
+                                columnCrossShrinks = wasShrinkT
+                                fixedHeight = ((fixedHeight + c.calculatedHeight) + mAxis)
+                                c.resetLayoutState()
+                                c.inheritProperties(parent)
+                                c.resolveUnits(innerWidth innerHeight)
+                            } {
+                                fixedHeight = (fixedHeight + mAxis)
+                            }
                         }
                     }
                 }

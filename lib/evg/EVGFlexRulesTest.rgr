@@ -301,6 +301,35 @@ class FlexRulesCheck {
         def l15 (this.lay(r15))
         this.ok("and a document it understands says nothing" ((l15.warningCount()) == 0))
 
+        ; --- a grower beside content-sized siblings ---------------------------
+        print ""
+        print "-- a growing child in a column leaves room for siblings sized by their content"
+        def col (EVGElement.createDiv())
+        col.setAttribute("display" "flex")
+        col.setAttribute("flex-direction" "column")
+        col.setAttribute("width" "390px")
+        col.setAttribute("height" "844px")
+        col.setAttribute("gap" "12px")
+        col.setAttribute("padding-top" "16px")
+        col.setAttribute("padding-bottom" "16px")
+        def card (EVGElement.createDiv())
+        card.setAttribute("padding-top" "20px")
+        card.setAttribute("padding-bottom" "20px")
+        def inner (EVGElement.createDiv())
+        inner.setAttribute("height" "32px")
+        card.addChild(inner)
+        col.addChild(card)
+        def spacer (EVGElement.createDiv())
+        spacer.setAttribute("flex-grow" "1")
+        col.addChild(spacer)
+        def bar (EVGElement.createDiv())
+        bar.setAttribute("height" "56px")
+        col.addChild(bar)
+        def lc (this.lay(col))
+        this.near("the content-sized card keeps its height" card.calculatedHeight 72.0)
+        this.near("the spacer takes only what is left" spacer.calculatedHeight 660.0)
+        this.near("so the bar ends on the padding, not past the page" (bar.calculatedY + bar.calculatedHeight) 828.0)
+
         print ""
         print ((("Passed: " + (to_string passed)) + "  Failed: ") + (to_string failed))
         if (failed > 0) {
