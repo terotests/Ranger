@@ -115,7 +115,7 @@ prints on a cold checkout.
 - [Documentation site](https://terotests.github.io/Ranger/docs/) — install, first program, types, optionals, and the **generated operator reference** (838 operators, compiled from the sources of the commit that publishes the site, so it cannot drift)
 - [The front page](https://terotests.github.io/Ranger/) — what Ranger is, the targets, the platforms and the gallery (`landing/`)
 - [Online playground](https://terotests.github.io/Ranger/playground/) — try Ranger in the browser (`playground/`, Vite + current compiler)
-- [UI gallery](https://terotests.github.io/Ranger/ui/) — EVG controllers measured against Radix (`gallery/ui/`: dashboard, forms, calendar, menus)
+- [UI gallery](https://terotests.github.io/EVGUI/) — EVG controllers measured against Radix (controllers in `gallery/ui/`; the demos live in [terotests/EVGUI](https://github.com/terotests/EVGUI))
 - `README.md` - language overview, installation, and syntax notes
 - [`gallery/README.md`](gallery/README.md) - index of the application stack (AGPL): EVG, Office, DataGrid, parsers, games, and `@process` host apps
 - [`LICENSING.md`](LICENSING.md) - MIT compiler vs AGPL gallery

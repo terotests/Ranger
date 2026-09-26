@@ -72,7 +72,7 @@ These are the forms that survived this study.
 | “Display” | `fn asString:string ()` | an ordinary method, not `impl Display` |
 | `Result` | a `shape` with `Ok` / `Err` cases | a generated enum — **not** `Result<T, E>` |
 | map / filter | a `for` loop that `push`es | an index `for` over `&[T]` |
-| generic type | `class Stack @params(T)` then `Stack@(int)` | `struct Stack_int` / `Stack_string` |
+| generic type | `class Stack @params(T)` then `Stack@(int)` | `struct Stack<T>`, used as `Stack<i64>` |
 
 `@(optional)` in a parameter list is fine now (study 10). `try` / `throw` and a
 `trait` used as a type are compile errors on this target rather than traps. Do
@@ -299,17 +299,19 @@ Source: [`../src/06_generics.rgr`](../src/06_generics.rgr)
 I wanted `struct Stack<T>` and `fn peek(&self) -> Option<&T>`.
 
 `class Stack @params(T)` plus `Stack@(int)` / `Stack@(string)` compiles. The
-Rust is two structs, `Stack_int` and `Stack_string`. `peek` is
-`Option<i64>` / `Option<String>` — owned, not borrowed. `put` on the string
-stack takes `&str` and `to_string()`s it, which is reasonable.
+Rust is one `struct Stack<T>` with `impl<T: Clone> Stack<T>`, used as
+`Stack<i64>` and `Stack<String>`. `put` takes `item: T` by value, so the
+string stack is called with `"ada".to_string()`. `peek` is `Option<T>`,
+owned, not borrowed.
 
 A free generic function does not exist. [`attempts/06_generic_function.rgr`](attempts/06_generic_function.rgr)
 is rejected (`Undefined variable x`, `Undefined variable identity`). There
 are no bounds, no `where`, no lifetime on the peek.
 
-**Could it be done?** The monomorphized class is the Ranger idiom and it
-works. It is not a Rust generic library. Anyone who wanted one
-`Stack<T>` in the `.rs` cannot get it from Ranger source.
+**Could it be done?** The generic struct is there. A body that does
+arithmetic on `T`, calls a method on it or puts it in a string still becomes
+one struct per argument (`Sum_int`), because Ranger has no bounds to write
+`T: Add` from.
 
 ### 07 — slices and strings
 
@@ -525,10 +527,9 @@ out to be a reroute rather than new machinery.
    `.iter().map(…).collect()` when the body is a pure expression. The
    language already has those methods on the stdlib array class.
 
-6. **Generic functions, and keep `@params` in the Rust.**
-   `fn identity@params(T):T (x:T)` should compile. Emitting `struct Stack<T>`
-   instead of `Stack_int` / `Stack_string` would make the output a library
-   someone might depend on.
+6. **Generic functions.**
+   `fn identity@params(T):T (x:T)` should compile. (`struct Stack<T>` is
+   emitted now.)
 
 7. **By-value `self` and borrowed returns.** A method that returns `this`
    after mutating it wants `fn with_host(mut self, h: String) -> Self`. A

@@ -72,16 +72,18 @@ Declare the class with `@params(...)` and give the arguments with `@(...)`.
 The compiler checks `History@(int)` and `History@(string)` as two separate
 classes. What it writes depends on the class and the target:
 
-- On C++, Java, C#, Kotlin, Scala, Dart, Go, TypeScript, JavaScript, Python
-  and PHP the class is written once, as a generic class of that language:
+- On C++, Java, C#, Kotlin, Scala, Dart, Go, TypeScript, JavaScript, Python,
+  PHP and Rust the class is written once, as a generic class of that language:
   `template <class Op> class History` on C++, `class History<Op>` on Java,
   `type History[Op any] struct` on Go, `class History(Generic[Op])` on Python.
   Each use is spelled with its argument: `History<int>`, `*History[int64]`.
 - This needs a body that only stores, moves and returns its parameter values.
   A class that does arithmetic on a parameter, calls a method on it or puts it
   in a string is written as one class per argument list instead:
-  `History_int` and `History_string`. So is every class on Rust, Swift and
-  LLVM.
+  `History_int` and `History_string`. So is every class on Swift and LLVM.
+- Rust writes `struct History<Op>` and `impl<Op: Clone> History<Op>`, and a
+  use is `History<i64>`. A parameter of type `Op` is taken by value there
+  (`op: Op`), and a call site passes an owned value (`"a".to_string()`).
 - A few target rules also keep the copies. On Go, a class that extends another
   class, or that reads a `[K:T]` map, is written as copies. On C#, a class with
   an optional `T` is written as copies. On C++, a class used with `boolean` or

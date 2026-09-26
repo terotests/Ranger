@@ -6,7 +6,8 @@
 //
 //   node gallery/ui/conformance/oracle/pctflex_oracle.mjs
 //
-// Writes `pctflex.json` beside this file. `pctflex_check.mjs` gates it.
+// Writes `pctflex.json` beside this file. `demo/pctflex_check.mjs` in terotests/EVGUI gates it
+// (it runs the answers against the controls demo).
 //
 // WHY. Every chart on the showcase's generated chart pages hung off the LEFT
 // edge of the paper. The charts were fine; `.chartBox { width: 100% }` was

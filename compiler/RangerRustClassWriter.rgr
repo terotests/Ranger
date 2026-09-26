@@ -951,6 +951,9 @@ class RangerRustClassWriter {
     def typeClass@(optional):RangerAppClassDesc (ctx.findClass(type_string))
     if (!null? typeClass) {
       def tc:RangerAppClassDesc (unwrap typeClass)
+      if (tc.is_type_param || (ctx.isNativeGenericInstance(tc))) {
+        return (this.rustClassRef(tc ctx))
+      }
       ; D-UNION: a union of classes is a Rust enum with one variant per member
       ; (PLAN_SHAPES.md S5). Anything else — the compiler's own `Any`, a union
       ; over primitives — has no Rust type of its own and falls back to the
@@ -976,6 +979,47 @@ class RangerRustClassWriter {
     }
     return type_string
   }
+  ; --- native generics: `struct History<Op>`, `History<i64>` ---------------
+  ; A type parameter is spelled by its own name; an instance of a template
+  ; written natively is the template at its arguments, each spelled as the
+  ; element it is held as (a shared class through its Rc).
+  fn rustClassRef:string (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    if cl.is_type_param {
+      return cl.type_param_name
+    }
+    if (ctx.isNativeGenericInstance(cl)) {
+      return (((cl.generic_template + "<") + (this.rustGenericArgs(cl ctx))) + ">")
+    }
+    return cl.name
+  }
+  fn rustGenericArgs:string (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    def res:string ""
+    for cl.generic_args a:string i {
+      if (i > 0) {
+        res = (res + ", ")
+      }
+      res = (res + (this.rustElementTypeString(a ctx)))
+    }
+    return res
+  }
+  fn rustClassIsTypeParam:boolean (type_string:string ctx:RangerAppWriterContext) {
+    if ((strlen type_string) == 0) {
+      return false
+    }
+    if (ctx.isDefinedClass(type_string)) {
+      def cc:RangerAppClassDesc (ctx.findClass(type_string))
+      return cc.is_type_param
+    }
+    return false
+  }
+  ; `History::<i64>` where the type is named in expression position
+  fn rustClassPath:string (cl:RangerAppClassDesc ctx:RangerAppWriterContext) {
+    if ((cl.is_type_param == false) && (ctx.isNativeGenericInstance(cl))) {
+      return (((cl.generic_template + "::<") + (this.rustGenericArgs(cl ctx))) + ">")
+    }
+    return (this.rustClassRef(cl ctx))
+  }
+
   fn getTypeString:string (type_string:string) {
     switch type_string {
       case "int" {

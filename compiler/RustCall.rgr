@@ -2252,7 +2252,7 @@ extension RangerRustClassWriter {
     if node.hasNewOper {
       def cl:RangerAppClassDesc (unwrap node.clDesc)
       def fc:CodeNode (node.getSecond())
-      wr.out(cl.name false)
+      wr.out((this.rustClassPath(cl ctx)) false)
       wr.out("::new(" false)
       def constr@(optional):RangerAppFunctionDesc cl.constructor_fn
       def givenArgs:CodeNode (node.getThird())

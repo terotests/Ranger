@@ -4276,7 +4276,7 @@ class RangerFlowParser {
       return false
     }
     def lang:string (ctx.getTargetLangName())
-    def langs:[string] ([] _:string ( "cpp" "java7" "go" "es6" "python" "php" "csharp" "dart" "kotlin" "scala" ))
+    def langs:[string] ([] _:string ( "cpp" "java7" "go" "es6" "python" "php" "csharp" "dart" "kotlin" "scala" "rust" ))
     return ((indexOf langs lang) >= 0)
   }
 
@@ -4298,8 +4298,16 @@ class RangerFlowParser {
   ; C# spells an optional int `int?` and an optional class bare, and an
   ; unconstrained type parameter has neither, so an optional one is not
   ; written generically there.
+  ; Rust: the copies are named `Box_string`; the generic class would be
+  ; `Box` itself and hide the prelude type the writer uses for closures.
   fn genericFormFitsTarget:boolean (form:RangerAppClassDesc ctx:RangerAppWriterContext) {
     def lang:string (ctx.getTargetLangName())
+    if (lang == "rust") {
+      def prelude:[string] ([] _:string ( "Box" "Vec" "Option" "Result" "String" "Rc" "RefCell" "Weak" "Cell" "HashMap" "HashSet" "Some" "None" "Ok" "Err" "Self" ))
+      if ((indexOf prelude form.generic_template) >= 0) {
+        return false
+      }
+    }
     if (lang == "go") {
       if ((array_length form.extends_classes) > 0) {
         return false

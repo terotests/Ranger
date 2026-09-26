@@ -18535,7 +18535,7 @@ class RangerFlowParser  {
       return false;
     }
     const lang = ctx.getTargetLangName();
-    const langs = ["cpp", "java7", "go", "es6", "python", "php", "csharp", "dart", "kotlin", "scala"];
+    const langs = ["cpp", "java7", "go", "es6", "python", "php", "csharp", "dart", "kotlin", "scala", "rust"];
     return langs.indexOf(lang) >= 0;
   };
   genericOpaqueOperator (name, ctx) {
@@ -18548,6 +18548,12 @@ class RangerFlowParser  {
   };
   genericFormFitsTarget (form, ctx) {
     const lang = ctx.getTargetLangName();
+    if ( lang == "rust" ) {
+      const prelude = ["Box", "Vec", "Option", "Result", "String", "Rc", "RefCell", "Weak", "Cell", "HashMap", "HashSet", "Some", "None", "Ok", "Err", "Self"];
+      if ( prelude.indexOf(form.generic_template) >= 0 ) {
+        return false;
+      }
+    }
     if ( lang == "go" ) {
       if ( form.extends_classes.length > 0 ) {
         return false;
@@ -34617,6 +34623,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     const typeClass = ctx.findClass(type_string);
     if ( (typeof(typeClass) !== "undefined" && typeClass != null )  ) {
       const tc = typeClass;
+      if ( tc.is_type_param || ctx.isNativeGenericInstance(tc) ) {
+        return this.rustClassRef(tc, ctx);
+      }
       if ( tc.is_union ) {
         if ( this.unionIsSealable(tc, ctx) ) {
           return this.unionInterfaceName(type_string);
@@ -34634,6 +34643,43 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       }
     }
     return type_string;
+  };
+  rustClassRef (cl, ctx) {
+    if ( cl.is_type_param ) {
+      return cl.type_param_name;
+    }
+    if ( ctx.isNativeGenericInstance(cl) ) {
+      return ((cl.generic_template + "<") + this.rustGenericArgs(cl, ctx)) + ">";
+    }
+    return cl.name;
+  };
+  rustGenericArgs (cl, ctx) {
+    let res = "";
+    // Loop start
+    for ( let i = 0; i < cl.generic_args.length; i++) {
+      var a = cl.generic_args[i];
+      if ( i > 0 ) {
+        res = res + ", ";
+      }
+      res = res + this.rustElementTypeString(a, ctx);
+    }
+    return res;
+  };
+  rustClassIsTypeParam (type_string, ctx) {
+    if ( type_string.length == 0 ) {
+      return false;
+    }
+    if ( ctx.isDefinedClass(type_string) ) {
+      const cc = ctx.findClass(type_string);
+      return cc.is_type_param;
+    }
+    return false;
+  };
+  rustClassPath (cl, ctx) {
+    if ( cl.is_type_param == false && ctx.isNativeGenericInstance(cl) ) {
+      return ((cl.generic_template + "::<") + this.rustGenericArgs(cl, ctx)) + ">";
+    }
+    return this.rustClassRef(cl, ctx);
   };
   getTypeString (type_string) {
     switch (type_string ) { 
@@ -39905,7 +39951,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     if ( node.hasNewOper ) {
       const cl = node.clDesc;
       const fc = node.getSecond();
-      wr.out(cl.name, false);
+      wr.out(this.rustClassPath(cl, ctx), false);
       wr.out("::new(", false);
       const constr = cl.constructor_fn;
       const givenArgs = node.getThird();
@@ -42310,7 +42356,15 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         const parameterName = pp_2.nameNode;
         arr_type = parameterName.array_type;
       }
-      const moved_here = right_1.rg_moved_here;
+      let moved_here = right_1.rg_moved_here;
+      if ( right_1.value_type == 11 && right_1.hasParamDesc ) {
+        const gp = right_1.paramDesc;
+        if ( gp.varType == 4 && gp.rust_borrow_type == 0 ) {
+          if ( gp.ref_cnt <= 1 && this.rustClassIsTypeParam(arr_type, ctx) ) {
+            moved_here = true;
+          }
+        }
+      }
       let needs_clone = false;
       if ( right_1.value_type == 11 ) {
         if ( right_1.hasParamDesc ) {
@@ -43512,6 +43566,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       return false;
     }
     const tc = typeClass;
+    if ( tc.is_type_param ) {
+      return false;
+    }
     if ( tc.is_union ) {
       return false;
     }
@@ -44627,7 +44684,26 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         wr.out("#[derive(Clone)]", true);
       }
     }
-    wr.out(((this.rustPubPrefix(ctx) + "struct ") + cl.name) + " {", true);
+    let structDecl = cl.name;
+    let implHead = "impl " + cl.name;
+    if ( cl.is_generic_form ) {
+      let tps = "";
+      let tpb = "";
+      // Loop start
+      for ( let gai = 0; gai < cl.generic_args.length; gai++) {
+        var ga = cl.generic_args[gai];
+        if ( gai > 0 ) {
+          tps = tps + ", ";
+          tpb = tpb + ", ";
+        }
+        const gan = this.rustClassRef(ctx.findClass(ga), ctx);
+        tps = tps + gan;
+        tpb = (tpb + gan) + ": Clone";
+      }
+      structDecl = ((cl.generic_template + "<") + tps) + ">";
+      implHead = ((((("impl<" + tpb) + "> ") + cl.generic_template) + "<") + tps) + ">";
+    }
+    wr.out(((this.rustPubPrefix(ctx) + "struct ") + structDecl) + " {", true);
     wr.indent(1);
     // Loop start
     for ( const pvar of allStructVars) {
@@ -44636,7 +44712,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     }
     wr.indent(-1);
     wr.out("}", true);
-    wr.out(("impl " + cl.name) + " {", true);
+    wr.out(implHead + " {", true);
     wr.indent(1);
     this.thisName = "me";
     wr.out("pub fn new(", false);
@@ -78750,6 +78826,9 @@ class StaticAnalyzer  {
     if ( cl.rust_needs_ref_semantics ) {
       return;
     }
+    if ( cl.is_type_param ) {
+      return;
+    }
     cl.rust_needs_ref_semantics = true;
     cl.rust_ref_reason = reason;
   };
@@ -79446,6 +79525,11 @@ class StaticAnalyzer  {
     }
     if ( cl.is_generic_instance ) {
       return false;
+    }
+    if ( (typeof(this.ctx) !== "undefined" && this.ctx != null )  ) {
+      if ( this.ctx.isNativeGenericInstance(cl) ) {
+        return false;
+      }
     }
     if ( cl.extends_classes.length > 0 ) {
       return false;
@@ -80964,6 +81048,124 @@ class StaticAnalyzer  {
       }
     }
   };
+  settleRustNativeGenerics () {
+    if ( typeof(this.ctx) === "undefined" ) {
+      return;
+    }
+    const root = this.ctx.getRoot();
+    // Loop start
+    for ( let ti = 0; ti < root.templateClassList.length; ti++) {
+      var tpl = root.templateClassList[ti];
+      if ( root.isNativeGeneric(tpl) == false ) {
+        continue;
+      }
+      let form;
+      let members = [];
+      for( var ci in root.definedClasses) {
+        if(root.definedClasses.hasOwnProperty(ci)) {
+          var cl = root.definedClasses[ci] 
+          if ( cl.generic_template != tpl ) {
+            continue;
+          }
+          if ( cl.is_generic_form ) {
+            form = cl;
+          }
+          members.push(cl);
+        }
+      };
+      if ( typeof(form) === "undefined" ) {
+        root.setNativeGeneric(tpl, false);
+        continue;
+      }
+      const f = form;
+      if ( this.rustGenericFormFits(f, members) == false ) {
+        root.setNativeGeneric(tpl, false);
+        if ( this.ctx.hasCompilerFlag("generics-report") ) {
+          console.log(("generic " + tpl) + " native=no (rust: inheritance, a trait or a self handle)");
+        }
+        continue;
+      }
+      // Loop start
+      for ( const m of members) {
+        // Loop start
+        for ( const v of m.variables) {
+          v.rust_static_str = false;
+        }
+        let k = 0;
+        while (k < f.methods.length) {
+          const fm = f.methods[k];
+          const im = m.methods[k];
+          this.rustSettleGenericParams(fm, im);
+          k = k + 1;
+        };
+      }
+    }
+  };
+  rustGenericFormFits (f, members) {
+    // Loop start
+    for ( const m of members) {
+      if ( m.extends_classes.length > 0 ) {
+        return false;
+      }
+      if ( m.is_extended_by_children ) {
+        return false;
+      }
+      if ( m.consumes_traits.length > 0 ) {
+        return false;
+      }
+      if ( m.methods.length != f.methods.length ) {
+        return false;
+      }
+      // Loop start
+      for ( let mmi = 0; mmi < m.methods.length; mmi++) {
+        var mm = m.methods[mmi];
+        if ( mm.rust_needs_self_rc ) {
+          return false;
+        }
+        const fmm = f.methods[mmi];
+        if ( mm.name != fmm.name || mm.params.length != fmm.params.length ) {
+          return false;
+        }
+      }
+    }
+    return true;
+  };
+  rustParamNamesTypeParam (p) {
+    if ( typeof(p.nameNode) === "undefined" ) {
+      return false;
+    }
+    const n = p.nameNode;
+    if ( n.type_name.indexOf("__tp_") >= 0 ) {
+      return true;
+    }
+    if ( n.array_type.indexOf("__tp_") >= 0 ) {
+      return true;
+    }
+    if ( n.key_type.indexOf("__tp_") >= 0 ) {
+      return true;
+    }
+    return false;
+  };
+  rustSettleGenericParams (fm, im) {
+    // Loop start
+    for ( let pi = 0; pi < fm.params.length; pi++) {
+      var fp = fm.params[pi];
+      const ip = im.params[pi];
+      fp.rust_static_str = false;
+      ip.rust_static_str = false;
+      if ( this.rustParamNamesTypeParam(fp) ) {
+        fp.rust_borrow_type = 0;
+        fp.needs_cpp_reference = false;
+        fp.rust_needs_rc_wrap = false;
+        ip.rust_borrow_type = 0;
+        ip.needs_cpp_reference = false;
+      } else {
+        ip.rust_borrow_type = fp.rust_borrow_type;
+        ip.needs_cpp_reference = fp.needs_cpp_reference;
+        ip.rust_needs_rc_wrap = fp.rust_needs_rc_wrap;
+      }
+    }
+  };
   applyOwnershipToRustBorrows () {
     if ( typeof(this.ctx) === "undefined" ) {
       return;
@@ -81675,6 +81877,7 @@ class VirtualCompiler  {
             ownAnalyzer.applySharedClassRcWrap();
             ownAnalyzer.computeSelfRcNeeds();
           }
+          ownAnalyzer.settleRustNativeGenerics();
         }
       }
       cli.step(4, "Generating code");

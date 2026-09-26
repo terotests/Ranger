@@ -108,6 +108,7 @@ class EVGA11yFromTree {
         if (name == "switch")           { return (EVGA11yRole.switchControl()) }
         if (name == "radiogroup")       { return (EVGA11yRole.radioGroup()) }
         if (name == "slider")           { return (EVGA11yRole.slider()) }
+        if (name == "spinbutton")       { return (EVGA11yRole.spinButton()) }
         if (name == "progressbar")      { return (EVGA11yRole.progressBar()) }
         if (name == "tree")             { return (EVGA11yRole.tree()) }
         if (name == "treeitem")         { return (EVGA11yRole.treeItem()) }
@@ -229,6 +230,7 @@ class EVGA11yFromTree {
             n.name = (this.nameOf(el))
             n.roleDescription = el.a11yRoleDescription
             n.description = el.a11yDescription
+            n.describedBy = el.a11yDescribedBy
             n.hasPopup = el.a11yHasPopup
             n.rowCount = el.a11yRowCount
             n.rowIndex = el.a11yRowIndex

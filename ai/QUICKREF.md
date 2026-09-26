@@ -184,9 +184,10 @@ instantiation as a collection element (`def kids:[Tree@(T)]`,
 No bounds, no constraints, no variance. Each instantiation is type checked as
 a concrete class (`History_int`, `History_arr_string`). A body that only
 stores, moves and returns its parameter values is written as ONE native
-generic class on C++, Java, C#, Kotlin, Scala, Dart, Go, TypeScript/JS, Python
-and PHP (`template <class Op> class History`, `History<int>`). Anything else,
-and every class on Rust, Swift and LLVM, keeps the concrete copies.
+generic class on C++, Java, C#, Kotlin, Scala, Dart, Go, TypeScript/JS, Python,
+PHP and Rust (`template <class Op> class History`, `History<int>`,
+`struct History<Op>`). Anything else, and every class on Swift and LLVM, keeps
+the concrete copies.
 `-no-native-generics` forces the copies; `-generics-report` prints the choice.
 Traits take `@params` the same way (always copies).
 

@@ -8,8 +8,8 @@
 ;   }
 ;   fn identity<T>(x: T) -> T { x }
 ;
-; Ranger `@params` expands each instantiation to a concrete class
-; (`Stack_int`, `Stack_string`) before codegen. There is no generic
+; Ranger checks each instantiation as a concrete class (`Stack_int`,
+; `Stack_string`) and writes `struct Stack<T>` for Rust. There is no generic
 ; function, no bounds, and no lifetime on the peek return.
 
 class Stack @params(T) {

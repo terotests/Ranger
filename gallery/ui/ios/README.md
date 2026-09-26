@@ -175,7 +175,7 @@ here, and the repository-root names are aliases in the same file.
 | `ranger/ui_ios.rgr` | The name the Swift imports — one line, `class UiIos extends UiWindowHost` |
 | `../src/UiWindowHost.rgr` | The facade, shared with Android: the *viewport*, and the only page-facing Ranger a port writes |
 | `ranger/build_ios.rgr` | **The build**, as a Ranger program: compiler, SDK, plist, swiftc, codesign, simctl |
-| `ranger/check_ios.rgr` | The port, driven off-device. 82 checks, no Mac |
+| `ranger/check_ios.rgr` | Moved to [terotests/EVGUI](https://github.com/terotests/EVGUI) (`ios/ranger/check_ios.rgr`, `ui:ios:verify`) with the dashboard demo it drives |
 | `ios/DashboardView.swift` | The `UIView`: touches, the pinch, the fling, the key table |
 | `ios/AppDelegate.swift` | One asset in, one view on screen. No storyboard |
 | `ios/main.swift` | `UIApplicationMain`, written out rather than left to `@main` |

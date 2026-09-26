@@ -104,13 +104,13 @@ const NATIVE: NativeTarget[] = [
   { lang: "dart", file: "main.dart", decl: "class History<Op>", use: "History<int>" },
   { lang: "kotlin", file: "main.kt", decl: "class History<Op>", use: "History<Int>" },
   { lang: "scala", file: "main.scala", decl: "class History[Op]", use: "History[Int]" },
+  { lang: "rust", file: "main.rs", decl: "impl<Op: Clone> History<Op> {", use: "History::<i64>::new()" },
 ];
 
-// The targets that keep the expanded copies: Rust and Swift pass arguments
-// and hold instances in ways that differ between copies of one template, and
-// LLVM has no generics.
+// The targets that keep the expanded copies: Swift passes arguments and holds
+// instances in ways that differ between copies of one template, and LLVM has
+// no generics. (Rust makes the copies agree: settleRustNativeGenerics.)
 const COPIES: { lang: string; file: string; flags?: string[] }[] = [
-  { lang: "rust", file: "main.rs" },
   { lang: "swift6", file: "main.swift" },
   { lang: "llvm", file: "main.ll", flags: ["-target=native-linux-gnu"] },
 ];
@@ -178,6 +178,16 @@ describe("native generics", () => {
         expect(text).not.toContain("Box_string");
       });
     }
+
+    // `Box` is a Rust prelude type; a generic class of that name would hide
+    // it, so on Rust even Box keeps its copy.
+    it("rust (Box is a prelude name)", () => {
+      const text = allText(compile(FALLBACK, "rust", "main.rs"));
+      for (const copy of ["Sum_int", "Greeter_Named", "Show_int", "Box_string"]) {
+        expect(text, `${copy} should stay a class of its own`).toContain(copy);
+      }
+      expect(text).not.toContain("__tp_");
+    });
 
     it("and still runs (es6)", () => {
       const dir = compile(FALLBACK, "es6", "main.js");

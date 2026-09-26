@@ -264,3 +264,8 @@ compiler/bin/api.ts
 # live in their own repositories.
 /gallery/evg/livebuild
 /gallery/erazer
+
+# The UI demos, the Radix-vs-Ranger playground and the benches live in
+# https://github.com/terotests/EVGUI, which is cloned (or copied by its
+# scripts) to gallery/evgui to build against this checkout.
+gallery/evgui/

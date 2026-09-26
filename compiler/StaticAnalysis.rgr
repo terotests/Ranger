@@ -2349,6 +2349,10 @@ class StaticAnalyzer {
     if cl.rust_needs_ref_semantics {
       return
     }
+    ; a type parameter of a generic form is held as what it is bound to
+    if cl.is_type_param {
+      return
+    }
     cl.rust_needs_ref_semantics = true
     cl.rust_ref_reason = reason
   }
@@ -3148,6 +3152,12 @@ class StaticAnalyzer {
     }
     if cl.is_generic_instance {
       return false
+    }
+    ; `History<i64>` has no literal of the copy's name to fold into
+    if (!null? ctx) {
+      if ((unwrap ctx).isNativeGenericInstance(cl)) {
+        return false
+      }
     }
     ; a parent's fields are not in the literal this pass would build
     if ((array_length cl.extends_classes) > 0) {
@@ -4926,6 +4936,132 @@ class StaticAnalyzer {
     for fn.params param:RangerAppParamDesc i {
       if (this.rustBorrowedObjectParam(cl param)) {
         param.rust_borrow_type = 1
+      }
+    }
+  }
+
+  ; --- Rust native generics ---------------------------------------------------
+  ; `History<Op>` is written once from its generic form, but every call site
+  ; is written against an expanded copy (`History_string.record`), and the
+  ; passes above decided each copy's parameters on their own: `op: &str` in
+  ; one, `op: i64` in another, `op: &[String]` in a third. The one generic
+  ; signature can not be all of those. A parameter whose type names a type
+  ; parameter is taken by value (`op: Op`), every other parameter is taken as
+  ; the form's analysis says, and every copy is made to agree, so that the
+  ; call sites pass what the generic method takes.
+  ;
+  ; What the one body can not express is taken back to the copies: a class
+  ; that extends or is extended (the trait family), a class that `does` a
+  ; trait, and a method that needs its own handle (`__self_rc`).
+  fn settleRustNativeGenerics:void () {
+    if (null? ctx) {
+      return
+    }
+    def root:RangerAppWriterContext ((unwrap ctx).getRoot())
+    for root.templateClassList tpl:string ti {
+      if ((root.isNativeGeneric(tpl)) == false) {
+        continue
+      }
+      def form@(optional):RangerAppClassDesc
+      def members:[RangerAppClassDesc]
+      for root.definedClasses cl:RangerAppClassDesc ci {
+        if (cl.generic_template != tpl) {
+          continue
+        }
+        if cl.is_generic_form {
+          form = cl
+        }
+        push members cl
+      }
+      if (null? form) {
+        root.setNativeGeneric(tpl false)
+        continue
+      }
+      def f:RangerAppClassDesc (unwrap form)
+      if ((this.rustGenericFormFits(f members)) == false) {
+        root.setNativeGeneric(tpl false)
+        if ((unwrap ctx).hasCompilerFlag("generics-report")) {
+          print (("generic " + tpl) + " native=no (rust: inheritance, a trait or a self handle)")
+        }
+        continue
+      }
+      for members m:RangerAppClassDesc mi {
+        for m.variables v:RangerAppParamDesc vi {
+          v.rust_static_str = false
+        }
+        def k:int 0
+        while (k < (array_length f.methods)) {
+          def fm:RangerAppFunctionDesc (itemAt f.methods k)
+          def im:RangerAppFunctionDesc (itemAt m.methods k)
+          this.rustSettleGenericParams(fm im)
+          k = (k + 1)
+        }
+      }
+    }
+  }
+
+  fn rustGenericFormFits:boolean (f:RangerAppClassDesc members:[RangerAppClassDesc]) {
+    for members m:RangerAppClassDesc mi {
+      if ((array_length m.extends_classes) > 0) {
+        return false
+      }
+      if m.is_extended_by_children {
+        return false
+      }
+      if ((array_length m.consumes_traits) > 0) {
+        return false
+      }
+      if ((array_length m.methods) != (array_length f.methods)) {
+        return false
+      }
+      for m.methods mm:RangerAppFunctionDesc mmi {
+        if mm.rust_needs_self_rc {
+          return false
+        }
+        def fmm:RangerAppFunctionDesc (itemAt f.methods mmi)
+        if ((mm.name != fmm.name) || ((array_length mm.params) != (array_length fmm.params))) {
+          return false
+        }
+      }
+    }
+    return true
+  }
+
+  fn rustParamNamesTypeParam:boolean (p:RangerAppParamDesc) {
+    if (null? p.nameNode) {
+      return false
+    }
+    def n:CodeNode (unwrap p.nameNode)
+    if ((indexOf n.type_name "__tp_") >= 0) {
+      return true
+    }
+    if ((indexOf n.array_type "__tp_") >= 0) {
+      return true
+    }
+    if ((indexOf n.key_type "__tp_") >= 0) {
+      return true
+    }
+    return false
+  }
+
+  ; `im` is the copy's method, `fm` the form's; the form's params decide
+  fn rustSettleGenericParams:void (fm:RangerAppFunctionDesc im:RangerAppFunctionDesc) {
+    for fm.params fp:RangerAppParamDesc pi {
+      def ip:RangerAppParamDesc (itemAt im.params pi)
+      fp.rust_static_str = false
+      ip.rust_static_str = false
+      if (this.rustParamNamesTypeParam(fp)) {
+        ; taken by value; a shared class argument arrives as its handle,
+        ; which the copy's own rust_needs_rc_wrap keeps telling the caller
+        fp.rust_borrow_type = 0
+        fp.needs_cpp_reference = false
+        fp.rust_needs_rc_wrap = false
+        ip.rust_borrow_type = 0
+        ip.needs_cpp_reference = false
+      } {
+        ip.rust_borrow_type = fp.rust_borrow_type
+        ip.needs_cpp_reference = fp.needs_cpp_reference
+        ip.rust_needs_rc_wrap = fp.rust_needs_rc_wrap
       }
     }
   }

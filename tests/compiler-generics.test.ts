@@ -50,11 +50,6 @@ function readCase(name: string, skipRun?: Record<string, string>): Case {
 const CASES: Case[] = [
   readCase("generic_class"),
   readCase("generic_class_kernel", {
-    // ISSUES #74: a method whose only statement is a mutating call on a field
-    // object is emitted `&self`, so the output does not compile. Nothing to do
-    // with generics — twenty lines of ordinary Ranger reproduce it — but
-    // `Holder@(T)` holding a `Slot@(T)` is exactly that shape.
-    rust: "ISSUES #74 — statement-position field mutation is analysed as &self",
     // ISSUES #73: `[string:[string:int]]` segfaults on LLVM once the inner map
     // holds a second entry. Also nothing to do with generics — the same
     // twenty lines with the type written out crash identically — but
