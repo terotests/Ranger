@@ -34,6 +34,12 @@ const TREE = `${FIXTURES}/tree_literal.rgr`;
  * same syntax: a display tree with `addKid`, and a SQL select with
  * `addColumn`, which share no base class and no shape.
  */
+// The menubar, toolbar and sortable demos these blocks compile moved to
+// https://github.com/terotests/EVGUI. They run when that repository's demo/
+// is placed at gallery/ui/demo (its scripts/run.mjs does that) and are
+// skipped otherwise.
+const HAS_DEMOS = fs.existsSync("gallery/ui/demo/MenubarDemo.rgr");
+
 describe("tree literals", () => {
   const UI = "root(a:hello b:literal badge:tero)";
   const SQL = "select id, title from documents";
@@ -87,7 +93,7 @@ describe("tree literals", () => {
    * rot: it is the only non-toy use of the feature in the repository, and it is
    * what the ergonomics argument rests on.
    */
-  describe("the menubar demo", () => {
+  describe.skipIf(!HAS_DEMOS)("the menubar demo", () => {
     const DEMO = "gallery/ui/demo/MenubarDemo.rgr";
 
     it("builds the whole structure, with state visible in it", () => {
@@ -123,7 +129,7 @@ describe("tree literals", () => {
    * centre of that rectangle has to reach that row. If they ever disagree,
    * a screen-reader user is pressing empty space and nobody sighted can see it.
    */
-  describe("the demo answers the pointer and the reader from one tree", () => {
+  describe.skipIf(!HAS_DEMOS)("the demo answers the pointer and the reader from one tree", () => {
     const CSS_FILE = "gallery/ui/demo/menubar.css";
     const OUT = "gallery/ui/bin";
     let Demo: any;
@@ -242,7 +248,7 @@ describe("tree literals", () => {
    * plain EVGElements. That is the whole claim about tag resolution being the
    * factory's business, in one repository.
    */
-  describe("the toolbar demo", () => {
+  describe.skipIf(!HAS_DEMOS)("the toolbar demo", () => {
     const DEMO = "gallery/ui/demo/ToolbarDemo.rgr";
 
     it("builds two groups with different selection rules", () => {
@@ -297,7 +303,7 @@ describe("tree literals", () => {
    * OF — Grip, Icon, Title, Subtitle, Badge, Size — and none of them mean
    * anything to `Menubar` or `Toolbar`.
    */
-  describe("the sortable demo", () => {
+  describe.skipIf(!HAS_DEMOS)("the sortable demo", () => {
     const DEMO = "gallery/ui/demo/SortableDemo.rgr";
 
     it("builds a row out of the parts the reference has", () => {

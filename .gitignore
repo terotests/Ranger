@@ -259,3 +259,10 @@ compiler/bin/api.ts
 # must not come back into version control.
 /bin/output.*
 /rustc_errors.txt
+
+# The UI demos, the Radix-vs-Ranger playground and the benches live in
+# https://github.com/terotests/EVGUI. Its scripts copy them here
+# (gallery/ui/{demo,web,bench}) to build against this checkout.
+gallery/ui/demo/
+gallery/ui/web/
+gallery/ui/bench/
