@@ -33,11 +33,46 @@
 
 ### 3.1 Code units vs code points
 
-**Rule (Issue #57 generalization):** `strlen`, `charAt` / `at`, and `substring` operate on **Unicode code points** (user-perceived characters), not raw UTF-8 bytes or UTF-16 code units, on every supported target.
+**Current rule (PLAN_STRING_INDEXING.md, stages 1, 2, 4 and 5 done):** a
+`string` is text in the target's own encoding. `strlen`, `charAt` / `at`,
+`substring` and `indexOf` count **the target's native unit**, so they stay
+O(1) and agree with each other on one target. They agree across targets
+only on ASCII.
 
-- `"é"` has `strlen` 1 even when encoded as multiple bytes in UTF-8.
-- Indexing is zero-based on code points.
-- `substring s start end` returns the half-open range `[start, end)` in code-point indices.
+| Targets | Unit of `strlen` / `charAt` / `substring` |
+| --- | --- |
+| JavaScript / TypeScript, Java, Kotlin, C#, Dart, Swift 6 | UTF-16 code unit |
+| Python | Unicode code point |
+| Rust, Go, C++, PHP | UTF-8 byte |
+
+Measured on this checkout for `"aé😀b"` (4 code points, 5 UTF-16 units,
+8 UTF-8 bytes):
+
+| | ES6 | Python | Rust | Go | C++ |
+| --- | --- | --- | --- | --- | --- |
+| `strlen s` | 5 | 4 | 8 | 8 | 8 |
+| `charAt s 1` | 233 | 233 | 195 | 195 | 195 |
+| `substring s 1 2` | `é` | `é` | `é` | half of `é` | half of `é` |
+| `array_length (to_chars s)` | 4 | 4 | 4 | 4 | 4 |
+| `length (to_charbuffer s)` | 8 | 8 | 8 | 8 | 8 |
+
+The portable views:
+
+- `to_chars s` → `[int]` of **Unicode code points**, the same on every target.
+  Use it (or iterate it) for any text that may leave ASCII.
+- `to_charbuffer s` → `charbuffer` of **UTF-8 bytes**, the same on every target.
+  A `charbuffer` is bytes; its `length` and `charAt` count octets.
+
+A program that indexes a `string` with non-ASCII text is **not portable**
+under this rule; `-strict-strings` prints every `charAt` / `substring` on a
+`string` that is not an ASCII literal. The older text of this section said `strlen` counted code
+points everywhere; no target except Python ever did that, and the
+`string_codepoint_index` fixture only uses ASCII, so it could not catch it.
+
+**Planned:** code points become the one meaning of a string's length and
+iteration, reached through `chars()` iteration instead of O(n) indexing, and
+direct indexing of a `string` leaves the portable surface. See
+[PLAN_RUST_SYNTAX.md §5](PLAN_RUST_SYNTAX.md#5-strings-d7).
 
 ### 3.2 Line endings in source
 
@@ -77,8 +112,13 @@
 
 ## 6. Optional and nullable types
 
-- `?` suffix marks optional/nullable types where the target supports them.
-- Unwrapping and default initialization follow per-target lowering documented in class writers.
+- `@(optional)` marks an optional value (`def maybe@(optional):string`). A class
+  field declared without a value is optional too.
+- `if (!null? x)` narrows `x` inside the block; `-strict` reports optional reads
+  that no check narrows. The full narrowing rules are in `AGENTS.md`
+  ("Optionals").
+- Each target lowers optionals to its own form (`std::optional<T>` on C++,
+  `Option<T>` on Rust, a nullable reference elsewhere).
 
 ## 7. Conformance
 
@@ -91,7 +131,7 @@ Seeded fixtures cover:
 |---------|----------------|
 | `math_ops` | Operator spacing, arithmetic |
 | `int_division_to_double` | #4 floating division |
-| `string_codepoint_index` | #57 code-point indexing |
+| `string_codepoint_index` | `at` / `strlen` on ASCII text (does not exercise non-ASCII, see §3.1) |
 | `while_loop` | Control flow codegen |
 | `lf_line_endings` | #12 LF-only sources |
 | `array_param_mutate` | #58 array reference semantics (ES6; Go skipped — slice pass-by-value) |
