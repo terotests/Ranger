@@ -22960,6 +22960,13 @@ class RangerFlowParser  {
     }
     if ( node.isFirstVref("trait") ) {
       const s = node.getVRefAt(1);
+      if ( ctx.hasClass(s) ) {
+        const existingTr = ctx.findClass(s);
+        if ( existingTr.is_collected && existingTr.is_trait ) {
+          find_more = false;
+          return;
+        }
+      }
       const classNameNode = node.getSecond();
       const new_class_2 = new RangerAppClassDesc();
       new_class_2.name = s;
@@ -22972,6 +22979,7 @@ class RangerFlowParser  {
       new_class_2.classNode = node;
       new_class_2.node = node;
       new_class_2.is_trait = true;
+      new_class_2.is_collected = true;
     }
     if ( (node.isFirstVref("CreateClass") || node.isFirstVref("class")) || node.isFirstVref("record") ) {
       if ( node.children.length < 3 ) {

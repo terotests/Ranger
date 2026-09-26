@@ -867,6 +867,16 @@ extension RangerFlowParser {
     }
     if (node.isFirstVref("trait")) {
       def s:string (node.getVRefAt(1))
+      ; Already collected (the same file imported twice), as for a class:
+      ; addClass keeps the first desc, so the new one would be owned by
+      ; nothing and a weak currentClass (Rust) is empty for the whole body.
+      if (ctx.hasClass(s)) {
+        def existingTr:RangerAppClassDesc (ctx.findClass(s))
+        if (existingTr.is_collected && existingTr.is_trait) {
+          find_more = false
+          return
+        }
+      }
       def classNameNode@(lives):CodeNode (node.getSecond())
       def new_class@(lives):RangerAppClassDesc (new RangerAppClassDesc ())
       new_class.name = s
@@ -879,6 +889,7 @@ extension RangerFlowParser {
       new_class.classNode = node
       new_class.node = node
       new_class.is_trait = true
+      new_class.is_collected = true
     }
 
     if ((node.isFirstVref("CreateClass")) || (node.isFirstVref("class")) || (node.isFirstVref("record"))) {
