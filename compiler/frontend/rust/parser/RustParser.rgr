@@ -187,7 +187,7 @@ class RustParser {
 
   fn eatOp:boolean (s:string) {
     if (this.isOp(s)) {
-      pos = pos + (strlen s)
+      pos = pos + (char_length s)
       return true
     }
     return false
@@ -1752,7 +1752,7 @@ class RustParser {
       if ((op == "..=") || (op == "...") || (op == "..")) {
         def r:RustNode (this.nodeAt("pat_range" p))
         r.name = op
-        pos = pos + (strlen op)
+        pos = pos + (char_length op)
         r.add(p)
         if (this.startsRangeEnd()) {
           r.add((this.parsePatternAtom()))
@@ -1795,7 +1795,7 @@ class RustParser {
       }
       def r:RustNode (this.node("pat_range"))
       r.name = op
-      pos = pos + (strlen op)
+      pos = pos + (char_length op)
       r.add((this.none()))
       r.add((this.parsePatternAtom()))
       return (this.done(r))
@@ -2147,7 +2147,7 @@ class RustParser {
   fn parseAssignRest:RustNode (left:RustNode) {
     def op:string (this.glued())
     if (RustParser.assignOp(op)) {
-      pos = pos + (strlen op)
+      pos = pos + (char_length op)
       def a:RustNode (this.nodeAt("assign" left))
       a.name = op
       a.add(left)
@@ -2162,7 +2162,7 @@ class RustParser {
     if ((op == "..") || (op == "..=")) {
       def r:RustNode (this.node("range"))
       r.name = op
-      pos = pos + (strlen op)
+      pos = pos + (char_length op)
       r.add((this.none()))
       if (this.startsExpr()) {
         r.add((this.parseBin(2)))
@@ -2180,7 +2180,7 @@ class RustParser {
     if ((op2 == "..") || (op2 == "..=")) {
       def r2:RustNode (this.nodeAt("range" lo))
       r2.name = op2
-      pos = pos + (strlen op2)
+      pos = pos + (char_length op2)
       r2.add(lo)
       if (this.startsExpr()) {
         r2.add((this.parseBin(2)))
@@ -2267,7 +2267,7 @@ class RustParser {
       if ((prec < 0) || (prec < minPrec)) {
         break
       }
-      pos = pos + (strlen op)
+      pos = pos + (char_length op)
       def right:RustNode (this.parseBin((prec + 1)))
       def b:RustNode (this.nodeAt("bin" left))
       b.name = op

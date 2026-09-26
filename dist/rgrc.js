@@ -82156,7 +82156,7 @@ class RustParser  {
   };
   eatOp (s) {
     if ( this.isOp(s) ) {
-      this.pos = this.pos + s.length;
+      this.pos = this.pos + r_char_length(s);
       return true;
     }
     return false;
@@ -83620,7 +83620,7 @@ class RustParser  {
       if ( (op == "..=" || op == "...") || op == ".." ) {
         const r = this.nodeAt("pat_range", p);
         r.name = op;
-        this.pos = this.pos + op.length;
+        this.pos = this.pos + r_char_length(op);
         r.add(p);
         if ( this.startsRangeEnd() ) {
           r.add(this.parsePatternAtom());
@@ -83661,7 +83661,7 @@ class RustParser  {
       }
       const r = this.node("pat_range");
       r.name = op;
-      this.pos = this.pos + op.length;
+      this.pos = this.pos + r_char_length(op);
       r.add(this.none());
       r.add(this.parsePatternAtom());
       return this.done(r);
@@ -83984,7 +83984,7 @@ class RustParser  {
   parseAssignRest (left) {
     const op = this.glued();
     if ( RustParser.assignOp(op) ) {
-      this.pos = this.pos + op.length;
+      this.pos = this.pos + r_char_length(op);
       const a = this.nodeAt("assign", left);
       a.name = op;
       a.add(left);
@@ -83998,7 +83998,7 @@ class RustParser  {
     if ( op == ".." || op == "..=" ) {
       const r = this.node("range");
       r.name = op;
-      this.pos = this.pos + op.length;
+      this.pos = this.pos + r_char_length(op);
       r.add(this.none());
       if ( this.startsExpr() ) {
         r.add(this.parseBin(2));
@@ -84015,7 +84015,7 @@ class RustParser  {
     if ( op2 == ".." || op2 == "..=" ) {
       const r2 = this.nodeAt("range", lo);
       r2.name = op2;
-      this.pos = this.pos + op2.length;
+      this.pos = this.pos + r_char_length(op2);
       r2.add(lo);
       if ( this.startsExpr() ) {
         r2.add(this.parseBin(2));
@@ -84066,7 +84066,7 @@ class RustParser  {
       if ( prec < 0 || prec < minPrec ) {
         break;
       }
-      this.pos = this.pos + op.length;
+      this.pos = this.pos + r_char_length(op);
       const right = this.parseBin((prec + 1));
       const b = this.nodeAt("bin", left);
       b.name = op;
