@@ -16,6 +16,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Native generic classes on Rust.** A generic class whose body only stores,
+  moves and returns its parameter values is written as `struct History<Op>`
+  with `impl<Op: Clone> History<Op>`, and used as `History<i64>` /
+  `History::<i64>::new()`. A parameter typed by the type parameter is taken by
+  value (`op: Op`) and the call sites pass owned values. A class that extends,
+  is extended or `does` a trait, a method that needs its own handle, and a
+  template named like a Rust prelude type (`Box`, `Vec`, …) keep the copies.
+
 - **Native generic classes.** A `class History @params(Op)` whose body only
   stores, moves and returns its parameter values is written once, as a
   generic class of the target: `template <class Op> class History` on C++,

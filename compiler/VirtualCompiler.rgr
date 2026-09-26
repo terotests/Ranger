@@ -1240,6 +1240,9 @@ class tester {
             ownAnalyzer.applySharedClassRcWrap()
             ownAnalyzer.computeSelfRcNeeds()
           }
+          ; one signature per native generic class, which every copy's call
+          ; sites follow (or the template goes back to its copies)
+          ownAnalyzer.settleRustNativeGenerics()
         }
       }
 

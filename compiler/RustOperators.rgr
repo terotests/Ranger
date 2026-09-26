@@ -2389,6 +2389,17 @@ extension RangerRustClassWriter {
       ; here on and every copy below would be a copy nobody reads.
       ; StaticAnalyzer.storeIsLocalMove set the flag; see CodeNode.rg_moved_here.
       def moved_here:boolean right.rg_moved_here
+      ; …and a parameter of a native generic class typed by its type
+      ; parameter arrives by value (settleRustNativeGenerics): read once, it
+      ; is moved into the Vec
+      if ((right.value_type == RangerNodeType.VRef) && right.hasParamDesc) {
+        def gp:RangerAppParamDesc right.paramDesc
+        if ((gp.varType == RangerContextVarType.FunctionParameter) && (gp.rust_borrow_type == 0)) {
+          if ((gp.ref_cnt <= 1) && (this.rustClassIsTypeParam(arr_type ctx))) {
+            moved_here = true
+          }
+        }
+      }
 
       ; Check if the pushed value might be used after this (needs cloning)
       def needs_clone:boolean false

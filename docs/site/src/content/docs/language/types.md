@@ -191,12 +191,15 @@ the target depends on the body:
   with generics of their own get one generic class: `template <class Op>
   class History` on C++, `class History<Op>` on Java, C#, Kotlin, Dart and
   TypeScript, `class History[Op]` on Scala, `type History[Op any] struct` on
-  Go, `class History(Generic[Op])` on Python, and one `History` class on
-  JavaScript and PHP. A use is spelled `History<int>`, `*History[int64]`, and
-  so on.
+  Go, `class History(Generic[Op])` on Python, `struct History<Op>` with
+  `impl<Op: Clone> History<Op>` on Rust, and one `History` class on
+  JavaScript and PHP. A use is spelled `History<int>`, `*History[int64]`,
+  `History<i64>`, and so on.
 - When the body needs to know what its parameter is (arithmetic, a method call
-  on it, a string concatenation), and on Rust, Swift and LLVM, each set of
+  on it, a string concatenation), and on Swift and LLVM, each set of
   arguments is written as a class of its own: `History_int`, `History_string`.
+  On Rust a class that extends or is extended, `does` a trait, or is named
+  like a prelude type (`Box`, `Vec`, `Option`, …) is written that way too.
 
 `-no-native-generics` turns the first case off. `-generics-report` prints what
 the compiler chose for each generic class.

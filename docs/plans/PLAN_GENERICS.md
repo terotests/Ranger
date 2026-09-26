@@ -29,7 +29,8 @@ and so on, and spell each instance `History<int>`.
 | C++, Java, Kotlin, Scala, Dart, TypeScript/JS, Python, PHP | yes | the body is not opaque; C++ also when an argument is `boolean` or `charbuffer` |
 | C# | yes | also when the class has an optional `T` |
 | Go | yes | also when the class extends, or reads a `[K:T]` map (the helper is typed after the map) |
-| Rust, Swift, LLVM | no | always: Rust's per-instance ownership (value or `Rc<RefCell>`, `&str` or `String` parameters) differs between copies; Swift could not be verified here; LLVM has no generics |
+| Rust | yes | also when the class extends, is extended or `does` a trait, a method needs `__self_rc`, or the template is named like a prelude type (`Box`, `Vec`, …). Each copy's ownership (`&str` vs `String`, `&[T]` vs `Vec<T>`) is made to agree with the form by `StaticAnalyzer.settleRustNativeGenerics`: a parameter typed by the type parameter is taken by value |
+| Swift, LLVM | no | always: Swift could not be verified here; LLVM has no generics |
 
 A template with a static method or a singleton keeps its copies everywhere.
 `-no-native-generics` turns it off; `-generics-report` prints each decision.
