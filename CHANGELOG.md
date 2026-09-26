@@ -13,8 +13,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   [terotests/Erazer](https://github.com/terotests/Erazer).** `gallery/erazer`,
   its `erazer*` npm scripts, the CI layout-lab step, and the `/evg/erazer/`
   page and its checks in the Pages deploy are gone from this repository.
+  The compiled `gallery/erazer/bin/*.js` that the removal left tracked are
+  deleted too.
+- **The EVG live-build harness moved to its own repository,
+  [terotests/EvgHarness](https://github.com/terotests/EvgHarness).**
+  `gallery/evg/livebuild` and its `livebuild*` npm scripts are gone. The
+  harness clones Ranger and Erazer (or uses `RANGER_DIR` / `ERAZER_DIR`) and
+  links itself back in at `gallery/evg/livebuild`; both link paths are
+  ignored here.
 
 ### Added
+
+- **Dashboard pieces in the UI kit.** `ui_kit.mjs add` builds `tabbar`,
+  `pills`, `tiles`, `bars` and `banner` as whole pieces with their rules in
+  `gallery/ui/theme/base.css`, beside `row`, `card`, `appbar`, `chips` and
+  `field`.
 
 - **Native generic classes.** A `class History @params(Op)` whose body only
   stores, moves and returns its parameter values is written once, as a

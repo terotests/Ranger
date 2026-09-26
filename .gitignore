@@ -259,3 +259,8 @@ compiler/bin/api.ts
 # must not come back into version control.
 /bin/output.*
 /rustc_errors.txt
+
+# Linked in by EvgHarness (`npm run setup`): the live-build harness and Erazer
+# live in their own repositories.
+/gallery/evg/livebuild
+/gallery/erazer

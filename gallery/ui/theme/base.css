@@ -345,11 +345,98 @@
 .ui-chip-dot:hover { background-color: #e2e8f0; }
 .ui-chip-label { color: #334155; font-size: 12px; height: 16px; }
 
+/* Four-tab bottom nav. Author CSS may restyle .ui-tabbar; Export keeps the class. */
+.ui-tabbar {
+  display: flex; flex-direction: row; justify-content: space-around; align-items: center;
+  height: 56px; min-height: 56px;
+  border-radius: 16px;
+  background-color: #ffffff;
+  padding: 4px 8px;
+}
+.ui-tab-item { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.ui-tab-icon { height: 22px; font-size: 18px; color: #64748b; }
+.ui-tab-label { font-size: 11px; color: #64748b; font-weight: 500; height: 14px; }
+.ui-tab-label-active { color: #2563eb; font-weight: 700; }
+
 /* A labelled field, which is the form's row. */
 .ui-field { display: flex; flex-direction: column; gap: 6px; }
 .ui-field-label { color: #0f172a; font-size: 13px; height: 18px; }
 .ui-field-help { color: #64748b; font-size: 12px; height: 16px; }
 .ui-field-error { color: #dc2626; font-size: 12px; height: 16px; }
+
+/* Segmented Day / Week / Month — text pills, not the icon-chip row. */
+.ui-pills {
+  display: flex; flex-direction: row; flex-wrap: nowrap;
+  justify-content: space-around; align-items: center;
+  gap: 8px; padding: 8px 4px;
+}
+.ui-pill {
+  display: flex; flex-direction: row; align-items: center; justify-content: center;
+  height: 36px; min-height: 36px; flex-grow: 1;
+  border-radius: 18px;
+  color: #64748b; font-size: 12px; font-weight: 600;
+}
+.ui-pill-active { background-color: #ef9587; color: #17181b; }
+
+/* 2×2 of metric tiles — a big number, not a settings row. */
+.ui-tiles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.ui-tile {
+  display: flex; flex-direction: column; align-items: flex-start;
+  gap: 4px;
+  border-radius: 20px;
+  background-color: #ffffff;
+  padding: 14px 16px;
+}
+.ui-tile-icon { color: #64748b; font-size: 14px; height: 18px; }
+.ui-tile-label { color: #64748b; font-size: 11px; height: 14px; letter-spacing: 0.4px; }
+.ui-tile-value { color: #0f172a; font-size: 22px; font-weight: bold; height: 28px; }
+.ui-tile-sub { color: #94a3b8; font-size: 11px; height: 14px; }
+
+/* Trend card: title, headline, a row of bars. */
+.ui-bars {
+  display: flex; flex-direction: column; gap: 8px;
+  border-radius: 20px;
+  background-color: #ffffff;
+  padding: 14px 16px;
+}
+.ui-bars-head {
+  display: flex; flex-direction: row; justify-content: space-between; align-items: center;
+  gap: 8px;
+}
+.ui-bars-title { color: #64748b; font-size: 11px; height: 14px; letter-spacing: 0.4px; }
+.ui-bars-badge {
+  color: #334155; font-size: 10px; height: 16px;
+  border-radius: 10px; background-color: #eef1f6;
+  padding: 2px 8px;
+}
+.ui-bars-value { color: #0f172a; font-size: 22px; font-weight: bold; height: 28px; }
+.ui-bars-row {
+  display: flex; flex-direction: row; align-items: flex-end; justify-content: space-between;
+  gap: 8px; height: 98px; min-height: 98px;
+}
+.ui-bar-col {
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
+  flex-grow: 1; gap: 6px;
+}
+.ui-bar { width: 100%; border-radius: 8px; background-color: #ef9587; min-height: 8px; }
+.ui-bar-label { color: #94a3b8; font-size: 10px; height: 12px; }
+
+/* Highlight strip — milestone, promo, alert. */
+.ui-banner {
+  display: flex; flex-direction: column; align-items: flex-start;
+  gap: 4px;
+  border-radius: 20px;
+  background-color: #aab4f8;
+  padding: 16px 18px;
+}
+.ui-banner-icon { font-size: 16px; height: 20px; color: #17181b; }
+.ui-banner-eyebrow { color: #334155; font-size: 11px; height: 14px; letter-spacing: 0.4px; }
+.ui-banner-title { color: #0f172a; font-size: 18px; font-weight: bold; height: 24px; }
+.ui-banner-sub { color: #334155; font-size: 13px; height: 18px; }
 
 .theme-dark .ui-card { background-color: #111c31; }
 .theme-dark .ui-card-title { color: #94a3b8; }
@@ -362,8 +449,26 @@
 .theme-dark .ui-appbar-btn { color: #e2e8f0; }
 .theme-dark .ui-chip-dot { background-color: #1e293b; color: #e2e8f0; }
 .theme-dark .ui-chip-label { color: #cbd5e1; }
+.theme-dark .ui-tabbar { background-color: #111c31; }
+.theme-dark .ui-tab-icon,
+.theme-dark .ui-tab-label { color: #94a3b8; }
+.theme-dark .ui-tab-label-active { color: #93c5fd; }
 .theme-dark .ui-field-label { color: #e2e8f0; }
 .theme-dark .ui-field-help { color: #94a3b8; }
+.theme-dark .ui-pill { color: #94a3b8; }
+.theme-dark .ui-pill-active { background-color: #ef9587; color: #17181b; }
+.theme-dark .ui-tile { background-color: #22242a; }
+.theme-dark .ui-tile-icon,
+.theme-dark .ui-tile-label,
+.theme-dark .ui-tile-sub { color: #94a3b8; }
+.theme-dark .ui-tile-value { color: #f5f3ef; }
+.theme-dark .ui-bars { background-color: #22242a; }
+.theme-dark .ui-bars-title,
+.theme-dark .ui-bar-label { color: #94a3b8; }
+.theme-dark .ui-bars-badge { background-color: #2b2d34; color: #e2e8f0; }
+.theme-dark .ui-bars-value { color: #f5f3ef; }
+.theme-dark .ui-banner { background-color: #aab4f8; }
+.theme-dark .ui-banner-title { color: #17181b; }
 
 /* --- calendar -------------------------------------------------------------- */
 

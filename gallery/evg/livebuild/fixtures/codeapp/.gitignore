@@ -1,3 +1,0 @@
-# Compiler output. `npm run livebuild:codeapp` and the workspace shim build
-# these from App.rgr, so a clone builds them and never needs them committed.
-bin/

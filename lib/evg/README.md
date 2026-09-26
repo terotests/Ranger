@@ -1184,9 +1184,8 @@ npm run evg:blur:oracle
 npm run showcase                # the gallery -> showcase/dist/index.html
 npm run evg:responsive:web:serve   # the live responsive page
 npm run evg:trace:web:serve        # the live bitmap tracer
-npm run livebuild:serve            # seed a phone; Follow up streams display lists over SSE
-npm run livebuild:withcursor       # same page, local Cursor Agent CLI (agent login)
-# Export copies one .ranger.json (ui + css + machine) onto the clipboard.
+# the live-build harness (an agent designs a screen, streamed as display lists)
+# moved to https://github.com/terotests/EvgHarness — `npm start` there.
 
 # one document, three targets
 npm run evgpdf:test             # -> PDF
