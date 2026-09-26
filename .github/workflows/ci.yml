@@ -254,7 +254,9 @@ jobs:
   #
   #   check_rt_ios      42 assertions   RealTrainer, mode 0 with a safe area
   #   check_rt_android  40              the same class, insets at zero
-  #   check_ios         82              the dashboard, modes 1 and 2
+  #
+  # (check_ios, the dashboard in modes 1 and 2, moved with the dashboard demo
+  # to terotests/EVGUI and runs there as ui:ios:verify.)
   #
   # `rt:node` is the same app driven headlessly: the loader, adding a workout,
   # the scroll physics, the themes, the clock, the keys, and the stylesheet
