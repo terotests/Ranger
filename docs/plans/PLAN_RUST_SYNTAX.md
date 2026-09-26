@@ -309,11 +309,11 @@ exempt. It exists for fast feedback; it does not replace `cargo check`.
 | Parser: items, attributes, statements, expressions with Rust precedence, patterns, types, macro invocations | `compiler/frontend/rust/parser/RustParser.rgr` |
 | Span check: children ordered and inside their parent, nothing dropped between list elements | `compiler/frontend/rust/parser/RustSpanCheck.rgr` |
 | Command line driver `rustparse [-dump] [-check] files…` | `compiler/frontend/rust/cli/RustParseMain.rgr` |
-| Doc comment reader (§4) → `RangerDocBlock` | R2, `compiler/frontend/rust/doc/` |
+| Doc comment reader (§4) → `RangerDocBlock` | R5, `compiler/frontend/rust/doc/` |
 | Lowering Rust AST → CodeNode, subset checks (§3.4), block-expression lowering (§6) | R1, `compiler/frontend/rust/lower/` |
 | Move check (§7) | R3, `compiler/frontend/rust/check/` |
 | Prelude crate `ranger` (generated operator layer, `Map`, attribute macros) | R4, `runtime/rust/ranger/` |
-| Rust module output for `import_rgr!` | R5 |
+| Rust module output for `import_rgr!` | R6 |
 
 The parser reads **full Rust syntax**, not only the subset: the subset is
 enforced at lowering, where the message can name the construct and the
@@ -322,15 +322,65 @@ worse errors.
 
 ## 9. Stages
 
+Two ordering rules. The parity harness (every target's output equals the
+rustc build's, D8) comes first, before any lowering, so each step is measured
+from its first commit. The first fixtures use plain Rust types (`i64`,
+`String`, `Vec`) and no prelude, so the harness does not wait for the prelude
+crate.
+
 | Stage | Content | Done when |
 | --- | --- | --- |
-| R0 | Lexer and parser for Rust syntax, AST dump | parses every `.rs` file in the repository (hand-written and Ranger-generated) without error; golden dumps for a fixture set |
-| R1 | Lowering to CodeNode for the core subset (items, `let`, expressions, `if` / `while` / `for` / `match`, structs, impls, enums, block expressions) | fixtures give the same output as their `rustc` build on es6, go, python, cpp |
-| R2 | rustdoc reading (§4) | `-apidoc` output for a `.rs` module equals the one for its `.rgr` twin |
-| R3 | Move check | positive and negative fixtures |
-| R4 | Prelude crate, `Map`, strings per §5 | the §5 table gives Rust's answers on every target |
-| R5 | `import_rgr!`, Rust module output, `.rgr` ↔ `.rs` imports, `Cargo.toml` packages | a mixed crate builds with `cargo build` and with `rgrc` for es6 and cpp |
-| R6 | Attributes and macros (`weak`, `late`, `serialize`, `target`, `tree!`, `native!`) | the gallery feature set is expressible |
+| R0 | Lexer and parser for Rust syntax, AST dump, span check | **done**, §9.1 |
+| R1 | Parity harness; `.rs` accepted by `rgrc`; lowering of the core subset | the core fixtures print what their rustc build prints on es6, go, python, cpp |
+| R2 | The rest of the subset: data enums, traits, generics, closures, `Result` / `?`, `HashMap` | a fixture per feature passes the harness; every construct outside the subset gets a named message |
+| R3 | Move and borrow check (§7, §3.4) | a negative fixture per rule gives the same verdict as rustc |
+| R4 | Prelude crate `ranger`: type names, ordered `Map`, the operator layer, strings per §5 | fixtures that `use ranger::prelude::*` build with cargo; the §5 table gives Rust's answers on every target |
+| R5 | rustdoc reading (§4) | `-apidoc` output for a `.rs` module equals the one for its `.rgr` twin |
+| R6 | Mixed programs: `import_rgr!`, Rust module output, `.rgr` ↔ `.rs` imports, `Cargo.toml` packages, the §2.3 boundary | a crate with both forms builds with `cargo build` and with `rgrc` for es6 and cpp, with the same output |
+| R7 | Attributes and macros: `weak`, `late`, `serialize`, `target`, `tree!`, `native!` | each has a fixture on every target |
+| R8 | A real module: port one self-contained `lib/` or gallery module to `.rs`; `cargo check` of all strict fixtures in CI | the ported module replaces its `.rgr` original and its tests pass on the targets they ran on before |
+
+### R1 in steps
+
+1. **Harness.** `tests/fixtures/rust_strict/*.rs` programs, each with a
+   `main`. The test builds each with `rustc`, runs it, and records the output;
+   then compiles the same file with `rgrc` for es6, go, python and cpp and
+   compares. Without a Rust toolchain the test uses checked-in expected
+   output.
+2. **Entry into `rgrc`.** The parser is picked by extension where source is
+   read: the entry file and `Import` in `FlowImport.rgr` (today
+   `new RangerLispParser`). `.rs` goes to `RustParser` and then to the lowering,
+   whose result is the same CodeNode tree the Lisp parser builds.
+3. **Lowering** (`compiler/frontend/rust/lower/`): `fn` and `impl` → class
+   with fields, methods and static methods (a method without `self` is
+   static); `struct` literal → constructor; `let` / assignment / compound
+   assignment; arithmetic with `/` chosen by the operand types; comparisons and
+   logic; `if` / `while` / `loop` / `break` / `continue`; `for` over a range,
+   `iter()`, `iter().enumerate()` and `chars()`; `match` on integers and on
+   enums without data; `Option` with `Some` / `None` / `if let` → optionals;
+   `Vec` and `String` methods through the §6 rename table; `println!` /
+   `format!` with `{}`.
+4. **Block expressions** (§6): hoisting `if`, `match`, block and `loop` values
+   into temporaries, and a final expression into a `return`.
+5. **Subset check** (§3.4): every node kind the lowering does not handle is
+   refused with the construct's name and line, never dropped.
+6. **Self-host.** The compiler now imports the frontend, so
+   `npm run selfhost:check:<target>` must stay green on every target it
+   passed on before.
+
+### Later stages, what each needs first
+
+- R2: data enums lower onto `shape` / `case` (PLAN_SHAPES), traits onto
+  Ranger traits, generics onto `@params`; `Result` / `?` onto `try` / `throw`
+  where the target has exceptions and a tagged value where it has not.
+- R3: the flow pass's narrowing state (`setFlowNarrowed`) gets a moved /
+  maybe-moved / live state beside it; borrow rules are checked at call sites.
+  The negative fixtures are run through rustc too, so both verdicts are
+  compared.
+- R4: the operator layer is generated from the `rust` templates in
+  `Lang.rgr`, so it cannot drift from what the Rust target writes.
+- R6: needs a Rust *module* output mode from the Rust writer (no `fn main`,
+  `pub` items) before `import_rgr!` can work.
 
 ### 9.1 R0 results
 
@@ -354,8 +404,8 @@ Measured outside the test suite:
 The same tool compiled to Go and Python gives byte-identical dumps.
 
 `'\u{…}'` escapes above U+FFFF decode wrongly on the JavaScript build, because
-`strfromcode` uses `String.fromCharCode` there; the golden fixture leaves that
-case out until the operator is fixed.
+`strfromcode` uses `String.fromCharCode` there (ISSUES.md #97); the golden
+fixture leaves that case out until the operator is fixed.
 
 ## 10. Open questions
 

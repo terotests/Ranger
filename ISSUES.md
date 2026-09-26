@@ -35,6 +35,7 @@
 - Issue #82 (fixed): the `es6` keyword table added in #76 renamed METHOD and PROPERTY names as well as bindings, so `EvHandle.null()` -- the constructor three suites and every JavaScript consumer of the engine module call -- became `EvHandle._null()`. JavaScript reserves its keywords only where a name may stand: `const null = 1` is a syntax error, `obj.null` and `static null() {}` are not. `transformWord` now splits into a binding transform and a member transform. Found by CI, not locally: `runtime-conformance.test.ts` rebuilt the engine module only when a `.rgr` under `migrate/src/` was newer, so after a COMPILER change it measured the engine built by the previous compiler and reported green. The compiler is in that dependency list now (September 2026)
 
 ### Still Open
+- Issue #97: `strfromcode` truncates a code point above U+FFFF on JavaScript/TypeScript, and every code point above its target's char width on C#, Kotlin, Scala and PHP. `(strfromcode 128512)` (U+1F600, 😀) comes out as U+F600 on JavaScript, because the default template is `String.fromCharCode`; C# casts to `(char)`, Kotlin and Scala call `.toChar()`, which keep 16 bits; PHP's `chr` keeps one byte. Java, Go, Python, C++ and Swift 6 build the full character. Found by the Rust lexer (`compiler/frontend/rust/lexer/RustLexer.rgr`, PLAN_RUST_SYNTAX.md): its JavaScript build decodes the escape `'\u{1F600}'` to the wrong character, so the golden fixture `tests/fixtures/rust_syntax/literals.rs` leaves that case out until the operator is fixed (September 2026)
 - Issue #96: a `for` whose body APPENDS to the collection it is walking answers differently on Rust than on every other target. `for xs v:int i { if (n < 2) { push xs v } ... }` over a three-element list runs five times on JavaScript, Python, Go, C++, Java, Kotlin, C#, Dart and Swift, and three times on Rust: the Rust writer reads the bound into a local before the loop (`let __n_i = (xs.len() as i64);`), deliberately, because a range expression that borrows the collection keeps that borrow alive for the whole loop and a body that borrows it mutably then cannot run. So the divergence is a consequence of a fix, not an oversight, and closing it needs the bound re-read without re-borrowing rather than a one-line change. `tests/fixtures/loops_native.rgr` has the program; nothing asserts the answers across targets yet, because the cross-target gate in `gallery/friendly` does not carry a growing-collection study. Found while giving every target its own loop form (September 2026)
 - Issue #95: on C++, `read_file` hands back BYTES where every other target hands back code points, so `strlen` / `charAt` / `substring` index a different string than `SPEC_SEMANTICS.md` defines ("`strlen`, `charAt` / `at`, and `substring` operate on Unicode code points … on every supported target"). A file holding `em dash — and ellipsis …` reads back as `strlen 96` with bytes `226 128 148 226 128 166` on C++, and `strlen 92` with code points `8212 8230` on JavaScript. The C++ WRITER is not the problem: a non-ASCII literal in the source is emitted correctly and the binary prints it correctly — it is the reading side. Where it shows is the selfhost build: the C++ build of the compiler reads the compiler's own sources and writes each byte of a multi-byte character back as its own character, so 34 hunks of its output differ from the Node build's, every one of them a `—`, `…` or `✓` inside a message the compiler prints. Not a regression — it is there on every commit checked — and it does not stop the build: the binary compiles the compiler and the compiler it produces reproduces itself. Reduced to a nine-line repro; the fix belongs with the conformance suite of Track 1 in `docs/plans/PLAN_LANGUAGE_IMPROVEMENTS.md`, because it is the Issue #57 class on a different target (September 2026)
 - Issue #92: `on_keypress` on Go emits a package-level `syscall.NewLazyDLL("msvcrt.dll")`, which exists only on Windows, so ANY Ranger program using the operator produces Go that does not build on Linux or macOS (`undefined: syscall.NewLazyDLL`). The polyfill has the right `runtime.GOOS != "windows"` guard inside its functions and none around the declarations. The compiler reports success; `go build` is where it stops. Found by compiling a terminal program to Go (September 2026)
@@ -4299,3 +4300,46 @@ the EVG layout engine) compiled clean on the first attempt.
 ### Status
 
 Fixed (August 2026).
+
+## Issue #97: `strfromcode` truncates code points above the target's char width
+
+### Reproduction
+
+```ranger
+class M {
+    sfn main:void () {
+        print (strfromcode 233)
+        print (strfromcode 128512)
+    }
+}
+```
+
+Every target should print `é` and `😀`.
+
+| Target | Template in `compiler/Lang.rgr` (`strfromcode cmdStrFromCode:string ( code:int )`) | `128512` gives |
+| --- | --- | --- |
+| JavaScript / TypeScript | `String.fromCharCode(x)` (the `*` default) | U+F600, the low 16 bits |
+| C# | `((char)x).ToString()` | the low 16 bits |
+| Kotlin | `x.toChar().toString()` | the low 16 bits |
+| Scala | `(x.toChar)` | the low 16 bits |
+| PHP | `chr(x)` | one byte |
+| Java, Go, Python, C++, Swift 6 | full code point | `😀` |
+
+### Where it showed
+
+The Rust lexer resolves `\u{…}` escapes with `strfromcode`. On its JavaScript
+build `'\u{1F600}'` decoded to U+F600. The golden fixture
+`tests/fixtures/rust_syntax/literals.rs` leaves that escape out, with a comment,
+until the operator is fixed; the literal `'😀'` written directly is in the
+fixture and decodes correctly, because it never goes through `strfromcode`.
+
+### Fix
+
+`String.fromCodePoint(x)` on JavaScript, `char.ConvertFromUtf32(x)` on C#,
+`String(Character.toChars(x))` on Kotlin, `new String(Character.toChars(x))` on
+Scala, `mb_chr(x, 'UTF-8')` on PHP. Then put `'\u{1F600}'` back into
+`literals.rs` and regenerate its dump.
+
+### Status
+
+Open (September 2026).
