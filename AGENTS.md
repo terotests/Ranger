@@ -125,11 +125,18 @@ follow them exactly.
 
 - `class History @params(Op)` is type checked once per argument list
   (`History@(int)` is the class `History_int` to the checker). On C++, Java,
-  C#, Kotlin, Scala, Dart, Go, TypeScript/JS, Python and PHP a template whose
-  body only stores, moves and returns its parameter values is written ONCE as
-  a generic class of the target (`template <class Op> class History`,
-  `History<int>`). Other templates, and every template on Rust, Swift and
-  LLVM, are written as one class per argument list.
+  C#, Kotlin, Scala, Dart, Go, TypeScript/JS, Python, PHP and Rust a template
+  whose body only stores, moves and returns its parameter values is written
+  ONCE as a generic class of the target (`template <class Op> class History`,
+  `History<int>`, `struct History<Op>` + `impl<Op: Clone> History<Op>`).
+  Other templates, and every template on Swift and LLVM, are written as one
+  class per argument list.
+- Rust: `StaticAnalyzer.settleRustNativeGenerics` runs after the ownership
+  passes. A parameter typed by the type parameter is taken by value (`op: Op`)
+  in the form and in every copy, so the call sites agree with the one
+  signature. A template that extends, is extended, `does` a trait, has a
+  method needing `__self_rc`, or is named like a prelude type (`Box`, `Vec`,
+  …) keeps its copies.
 - `-generics-report` prints the decision per template; `-no-native-generics`
   forces the copies. The check is `RangerFlowParser.checkNativeGenerics`; a
   writer asks `ctx.isNativeGenericInstance(cl)` / `ctx.isWrittenClass(cl)`.

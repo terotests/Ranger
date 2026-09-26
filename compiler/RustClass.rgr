@@ -695,6 +695,10 @@ extension RangerRustClassWriter {
       return false
     }
     def tc:RangerAppClassDesc (unwrap typeClass)
+    ; a type parameter is held as whatever it is bound to
+    if tc.is_type_param {
+      return false
+    }
     ; A union itself is Rc<dyn Any> already — never wrap it again. Its MEMBERS
     ; are marked shared by StaticAnalyzer.analyzeClassSharing, so they arrive
     ; here through rust_needs_ref_semantics like any other shared class.
@@ -1282,9 +1286,9 @@ extension RangerRustClassWriter {
   ; all. Everything the mode needs beyond that — no unused runtime helpers
   ; (**G**), native traits (**I**) — is already the default.
   ;
-  ; What it does NOT do, and the README says so: preserve `@params` as Rust
-  ; generics (the monomorphised `Stack_int` stays), or emit modules. Those are
-  ; separate items.
+  ; What it does NOT do, and the README says so: emit modules. `@params`
+  ; classes are Rust generics where the body allows it (native generics,
+  ; StaticAnalyzer.settleRustNativeGenerics), in either mode.
   fn rustLibraryMode:boolean (ctx:RangerAppWriterContext) {
     return (ctx.hasCompilerFlag("rust-library"))
   }
@@ -2119,7 +2123,27 @@ extension RangerRustClassWriter {
         wr.out("#[derive(Clone)]" true)
       }
     }
-    wr.out((((this.rustPubPrefix(ctx)) + "struct ") + cl.name + " {") true)
+    ; a generic form is declared `struct History<Op>` and implemented
+    ; `impl<Op: Clone> History<Op>`: reading a value out of a field hands
+    ; back a clone of it, as the copies do
+    def structDecl:string cl.name
+    def implHead:string ("impl " + cl.name)
+    if cl.is_generic_form {
+      def tps:string ""
+      def tpb:string ""
+      for cl.generic_args ga:string gai {
+        if (gai > 0) {
+          tps = (tps + ", ")
+          tpb = (tpb + ", ")
+        }
+        def gan:string (this.rustClassRef((ctx.findClass(ga)) ctx))
+        tps = (tps + gan)
+        tpb = ((tpb + gan) + ": Clone")
+      }
+      structDecl = (((cl.generic_template + "<") + tps) + ">")
+      implHead = (((((("impl<" + tpb) + "> ") + cl.generic_template) + "<") + tps) + ">")
+    }
+    wr.out((((this.rustPubPrefix(ctx)) + "struct ") + structDecl + " {") true)
     wr.indent(1)
     for allStructVars pvar:RangerAppParamDesc i {
       def pnode:CodeNode (unwrap pvar.node)
@@ -2127,7 +2151,7 @@ extension RangerRustClassWriter {
     }
     wr.indent(-1)
     wr.out("}" true)
-    wr.out((("impl " + cl.name) + " {") true)
+    wr.out((implHead + " {") true)
     wr.indent(1)
     thisName = "me"
     ; ...and no indented blank line between the `impl` and its first method:
