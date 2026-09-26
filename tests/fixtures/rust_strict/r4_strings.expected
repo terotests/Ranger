@@ -1,0 +1,18 @@
+"aé😀b": 4 chars, 8 bytes
+"": 0 chars, 0 bytes
+"ÅÄÖ": 3 chars, 6 bytes
+codes [97, 233, 128512, 98]
+second é third 128512 count 4
+nth Some('😀')
+rev b😀éa
+bytes [97, 195, 169, 240, 159, 152, 128, 98]
+byte 1 195
+comma at byte 9
+head [päivää] tail [world]
+world at 11 -> world
+emoji at Some(3)
+starts true ends true contains true
+a-ñ-b 5
+ababab
+["a", "b", "c"]
+upper STRASSE

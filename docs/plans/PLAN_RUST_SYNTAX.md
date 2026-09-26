@@ -1,8 +1,10 @@
 # PLAN_RUST_SYNTAX — strict Rust modules beside `.rgr` modules
 
-> **Status: stage R0 (lexer and parser) done, see §9.1; R1 onwards is
-> design.** Measurements in §5 and the rustc checks in §2 were run on this
-> checkout with rustc 1.94.1; the rest is a decision or a proposal.
+> **Status: stages R0–R4 done (§9.1, §9.2): `rgrc file.rs` compiles a strict
+> module, its output equals the rustc build's on es6, python, go and cpp, move
+> and borrow errors are reported, and the `ranger` prelude crate exists. R5
+> onwards is design.** Measurements in §5 and the rustc checks in §2 were run
+> on this checkout with rustc 1.94.1.
 
 Ranger gets a second source form: **`.rs` files that are valid Rust**. They
 compile with `rustc` / `cargo` against a small `ranger` prelude crate, so the
@@ -171,8 +173,11 @@ fn main() {
 
 Ranger refuses, with a message naming the alternative:
 
-- lifetime parameters on types and functions (`struct V<'a>`, `fn f<'a>`);
-  elided lifetimes on parameters are fine
+- lifetime parameters on types (`struct V<'a>`) and references stored in
+  struct fields; lifetimes on functions (`fn f<'a>(x: &'a str) -> &'a str`)
+  are accepted and ignored
+- functions returning closures (`-> impl Fn…`, `-> Box<dyn Fn…>`): Ranger
+  has no function-typed return values yet (ISSUES.md #103)
 - `unsafe`, raw pointers, `asm!`, `extern` blocks
 - `impl Trait` in argument position, associated types, GATs, trait objects
   other than `dyn Fn…` and `dyn Trait` behind `Box` / `Rc`
@@ -311,8 +316,9 @@ exempt. It exists for fast feedback; it does not replace `cargo check`.
 | Command line driver `rustparse [-dump] [-check] files…` | `compiler/frontend/rust/cli/RustParseMain.rgr` |
 | Doc comment reader (§4) → `RangerDocBlock` | R5, `compiler/frontend/rust/doc/` |
 | Lowering Rust AST → CodeNode, subset checks (§3.4), block-expression lowering (§6) | R1, `compiler/frontend/rust/lower/` |
-| Move check (§7) | R3, `compiler/frontend/rust/check/` |
-| Prelude crate `ranger` (generated operator layer, `Map`, attribute macros) | R4, `runtime/rust/ranger/` |
+| Move and borrow check (§7) | R3, in the lowering (`lower/RustLower.rgr`, the "moves" and "borrows" sections) |
+| Runtime operators the lowering writes (`rs_div`, `rs_fmt`, byte offsets, …) | `lib/rust/RsPrelude.rgr` |
+| Prelude crate `ranger` (generated operator layer, `Map`, attribute macros) | R4, `runtime/rust/ranger/`; `scripts/gen-rust-prelude-ops.js` |
 | Rust module output for `import_rgr!` | R6 |
 
 The parser reads **full Rust syntax**, not only the subset: the subset is
@@ -331,10 +337,10 @@ crate.
 | Stage | Content | Done when |
 | --- | --- | --- |
 | R0 | Lexer and parser for Rust syntax, AST dump, span check | **done**, §9.1 |
-| R1 | Parity harness; `.rs` accepted by `rgrc`; lowering of the core subset | the core fixtures print what their rustc build prints on es6, go, python, cpp |
-| R2 | The rest of the subset: data enums, traits, generics, closures, `Result` / `?`, `HashMap` | a fixture per feature passes the harness; every construct outside the subset gets a named message |
-| R3 | Move and borrow check (§7, §3.4) | a negative fixture per rule gives the same verdict as rustc |
-| R4 | Prelude crate `ranger`: type names, ordered `Map`, the operator layer, strings per §5 | fixtures that `use ranger::prelude::*` build with cargo; the §5 table gives Rust's answers on every target |
+| R1 | Parity harness; `.rs` accepted by `rgrc`; lowering of the core subset | **done**, §9.2 |
+| R2 | The rest of the subset: data enums, traits, generics, closures, `Result` / `?`, `HashMap` | **done**, §9.2 |
+| R3 | Move and borrow check (§7, §3.4) | **done**, §9.2 |
+| R4 | Prelude crate `ranger`: type names, ordered `Map`, the operator layer, strings per §5 | **done**, §9.2 |
 | R5 | rustdoc reading (§4) | `-apidoc` output for a `.rs` module equals the one for its `.rgr` twin |
 | R6 | Mixed programs: `import_rgr!`, Rust module output, `.rgr` ↔ `.rs` imports, `Cargo.toml` packages, the §2.3 boundary | a crate with both forms builds with `cargo build` and with `rgrc` for es6 and cpp, with the same output |
 | R7 | Attributes and macros: `weak`, `late`, `serialize`, `target`, `tree!`, `native!` | each has a fixture on every target |
@@ -406,6 +412,74 @@ The same tool compiled to Go and Python gives byte-identical dumps.
 `'\u{…}'` escapes above U+FFFF decode wrongly on the JavaScript build, because
 `strfromcode` uses `String.fromCharCode` there (ISSUES.md #97); the golden
 fixture leaves that case out until the operator is fixed.
+
+### 9.2 R1–R4 results
+
+`rgrc` picks the parser by extension: an entry file or an `Import` ending in
+`.rs` goes through `RustParser` and the lowering (`compiler/frontend/rust/
+lower/`), which writes Ranger source for the rest of the compiler.
+`-rust-show-rgr` prints that source. `rust2rgr` (`cli/RustLowerMain.rgr`)
+does the same as a standalone tool.
+
+`tests/rust-strict.test.ts` builds each `tests/fixtures/rust_strict/*.rs`
+with rustc, checks the recorded output, then compiles and runs the same file
+for es6, python, go and cpp:
+
+| Fixture | Covers |
+| --- | --- |
+| r1_arith, r1_control, r1_structs, r1_collections | integer and float arithmetic with Rust's truncation and printing, `if` / `match` / loops as expressions, structs, `impl`, `Vec`, `Option` |
+| r2_enums, r2_traits, r2_closures, r2_results, r2_maps | data enums (as `shape` / `case`), traits and `dyn Trait`, generics (monomorphized), closures and iterator chains, `Result` / `?`, `HashMap` / `BTreeMap` / sets |
+| r3_moves | programs rustc accepts with moves, clones and `&mut` parameters of value types (boxed and written back) |
+| r4_prelude, r4_strings, r4_helpers | the prelude's type names, `Map`, operator functions; the §5 table; char tests, float methods, padded `{:>8}` / `{:05}` formatting |
+
+`errors/` holds constructs outside the subset and `borrow/` holds programs
+rustc rejects (use after move, a move in one branch or in a loop, moving out
+of `self` or an index, two `&mut` borrows, `&mut` with `&`, pushing while
+iterating, using a value after a method took `self` by value). Each must be
+refused by `rgrc` with the recorded message, and rustc must reject every
+`borrow/` file too.
+
+How the lowering maps what Ranger has no direct form for:
+
+- `Result<T, E>` is a generated class `{ok, v, e}` and `?` an early return;
+  `panic!` writes stderr and exits with 101 (`rs_panic`), because a Ranger
+  `throw` needs a `try` in every caller.
+- Tuples and generic structs are one class per instantiation. A generic
+  field with no default would be optional in Ranger (ISSUES.md #99).
+- A `&mut` parameter of a value type (a number, a String, a Vec on Go) is
+  passed in an `RsBox_T` and written back by the caller.
+- Names Ranger reserves (operators, keywords of any target) are renamed, and
+  a method named like a field becomes `name_m` (ISSUES.md #98).
+
+R3 runs in the lowering: each local carries a moved flag and position, set
+where a non-Copy value is moved (by-value argument, assignment, return),
+joined over `if` / `match` branches, checked for moves carried into the next
+loop iteration, and cleared by assignment. At a call, two `&mut` borrows of
+one place, or a `&mut` with a shared borrow of it, are errors; so is changing
+a Vec inside a `for` over it.
+
+R4 adds `runtime/rust/ranger`:
+
+- `prelude`: `int`, `double`, `string`, `boolean`; `Map<K, V>`, which keeps
+  insertion order (a `Vec` of entries plus a `HashMap` index, `entry()` API,
+  `Index`, `Debug` as `HashMap` prints); the operator functions; the
+  attributes `weak`, `late`, `serialize`, `doc`, `target` (a proc-macro crate,
+  `macros/`, with no dependencies); `import_rgr!`.
+- `ops.rs` is generated by `scripts/gen-rust-prelude-ops.js` from the
+  `rust` templates of `compiler/Lang.rgr`: operators with one signature over
+  int / double / boolean / string and a plain-text template, 40 of them. Each
+  generated function is compiled with rustc and dropped if rustc rejects it.
+  `strlen` and `rawbytechar` are left out, as their unit is the target's
+  (D7). The same script writes `lower/RustPreludeOps.rgr`, from which the
+  lowering turns `sqrt(x)` into the operator `(sqrt x)`, so each target runs
+  its own template. `--check` fails when either file is stale.
+- The lowering writes a `Map` as a class with the key order beside the map
+  (`RsOMap_K_V`): Ranger's map on Go iterates in random order. `HashMap`
+  stays a plain map, as Rust leaves its order unspecified.
+- Strings follow §5 on every target: `chars()` and `.chars().count()` are
+  code points, `bytes()`, `as_bytes()[i]` and `.as_bytes().len()` are UTF-8
+  bytes, and `find` / `&s[a..b]` use byte offsets. `to_uppercase` applies
+  Rust's special casing of ß on Go and C++ too.
 
 ## 10. Open questions
 

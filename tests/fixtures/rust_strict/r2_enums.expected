@@ -1,0 +1,16 @@
+circle 6.750
+rect 6.000
+square 4.000
+triangle 6.000
+empty 0.000
+Rect { w: 4.0, h: 6.0 }
+Circle(1.5)
+true
+true
+East true
+skip x
+eval 12
+circle of radius 2
+1 a odd-a
+2 b even
+3 c odd

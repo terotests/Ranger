@@ -1,0 +1,12 @@
+ok 42
+ok 7
+error: empty input
+error: not a number: x1
+error: negative: -5
+true
+sum failed: not a number: oops
+3
+-1
+err division by zero
+p = (3, -4)
+(3, -4) 7

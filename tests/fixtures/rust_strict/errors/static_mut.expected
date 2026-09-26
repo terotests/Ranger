@@ -1,0 +1,1 @@
+`static mut` is not in the Ranger subset of Rust

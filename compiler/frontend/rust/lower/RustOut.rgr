@@ -1,0 +1,48 @@
+; SPDX-License-Identifier: MIT
+
+; A buffer of Ranger source lines with indentation, for the Rust lowering.
+; Expression lowering may emit statements (temporaries) ahead of the statement
+; it belongs to; `capture` lets a caller collect those separately when they
+; must not run unconditionally (the right side of `&&`, a later `match` arm,
+; a `while` condition).
+
+class RustOut {
+  def lines:[string]
+  def ind:string ""
+
+  fn line:void (s:string) {
+    push lines (ind + s)
+  }
+
+  fn indent:void () {
+    ind = ind + "  "
+  }
+
+  fn dedent:void () {
+    if ((strlen ind) >= 2) {
+      ind = (substring ind 2 (strlen ind))
+    }
+  }
+
+  fn addAll:void (other:[string]) {
+    for other l:string i {
+      push lines l
+    }
+  }
+
+  ; Lines of another buffer re-indented under this one's current level.
+  fn addIndented:void (other:[string] baseInd:string) {
+    def n:int (strlen baseInd)
+    for other l:string i {
+      if ((n > 0) && ((strlen l) >= n) && ((substring l 0 n) == baseInd)) {
+        push lines (ind + (substring l n (strlen l)))
+      } {
+        push lines (ind + l)
+      }
+    }
+  }
+
+  fn text:string () {
+    return (join lines "\n")
+  }
+}

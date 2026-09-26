@@ -1,0 +1,1 @@
+returns a closure: a Ranger function cannot return a function value

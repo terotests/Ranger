@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: MIT
+#
+# The `ranger` prelude crate (docs/plans/PLAN_RUST_SYNTAX.md §3.2, stage R4).
+# A strict `.rs` module starts with `use ranger::prelude::*;` and builds with
+# cargo against this crate; Ranger reads the same file and writes the other
+# targets from it.
+
+[package]
+name = "ranger"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Prelude for strict Rust modules compiled by Ranger"
+
+[dependencies]
+ranger-macros = { path = "macros", version = "0.1.0" }
+
+[workspace]
+members = [".", "macros"]

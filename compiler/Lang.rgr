@@ -10000,7 +10000,7 @@ static <T> ArrayList<T> r_sort_copy(ArrayList<T> list, java.util.Comparator<T> c
                 swift3 ( (e 1) ".sorted(by: { (" (e 2) ")($0, $1) < 0 })" )
                 swift6 ( (e 1) ".sorted(by: { (" (e 2) ")($0, $1) < 0 })" )
                 go ( "(func(list " (typeof 1) ") " (typeof 1) " {" nl 
-                    I "sort.Slice(" (e 1) ", func(i, j int) bool { " nl
+                    I "sort.SliceStable(" (e 1) ", func(i, j int) bool { " nl
                     I "sortfn := " (e 2) nl
                       "sortval := sortfn(" (e 1)"[i], " (e 1)"[j])" nl
                       "return (sortval < 0)" nl i

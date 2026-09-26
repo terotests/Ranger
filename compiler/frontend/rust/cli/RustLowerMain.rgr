@@ -1,0 +1,34 @@
+; SPDX-License-Identifier: MIT
+
+; Command line driver for the Rust lowering (PLAN_RUST_SYNTAX.md, stage R1).
+;
+;   rust2rgr <file.rs>
+;
+; Prints the Ranger source a Rust module lowers to, or its errors (and exits
+; with status 1).
+
+Import "../lower/RustLower.rgr"
+
+class RustLowerMain {
+  sfn main:void () {
+    if ((shell_arg_cnt) < 1) {
+      print "usage: rust2rgr <file.rs>"
+      exit 1
+    }
+    def path:string (shell_arg 0)
+    def src@(optional):string (read_file_sync "" path)
+    if (null? src) {
+      print ("cannot read " + path)
+      exit 1
+    }
+    def lw:RustLower (new RustLower())
+    def text:string (lw.translate((unwrap src) path))
+    if ((array_length lw.errors) > 0) {
+      for lw.errors e:string i {
+        print e
+      }
+      exit 1
+    }
+    print text
+  }
+}

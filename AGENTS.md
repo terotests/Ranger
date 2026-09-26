@@ -75,7 +75,12 @@ follow them exactly.
 - New compiler code goes into a category folder with subcategories, not the
   flat `compiler/` directory (as `compiler/apidoc/` and `compiler/ast/`
   already are). Example: the Rust frontend is `compiler/frontend/rust/` with
-  `lexer/`, `ast/`, `parser/` and `cli/` below it.
+  `lexer/`, `ast/`, `parser/`, `lower/` and `cli/` below it.
+- `.rs` files are strict Rust modules (docs/plans/PLAN_RUST_SYNTAX.md):
+  `rgrc` lowers them to Ranger, and `tests/rust-strict.test.ts` checks each
+  target's output against rustc's. After changing a `rust` template in
+  `Lang.rgr`, run `node scripts/gen-rust-prelude-ops.js` to regenerate the
+  prelude crate's `runtime/rust/ranger/src/ops.rs`.
 - `npm run selfhost:check:<target>` compiles the compiler for a target and
   runs that target's compiler or syntax check over it (`cpp`, `go`, `java`,
   `python`, `rust`, `llvm`, …).

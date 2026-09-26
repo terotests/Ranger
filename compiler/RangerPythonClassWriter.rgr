@@ -472,30 +472,51 @@ class RangerPythonClassWriter {
     def fName:CodeNode (itemAt node.children 0)
     def givenArgs:CodeNode (itemAt node.children 1)
 
-    def args:CodeNode
+    ; The lambda's own parameter list, when it can be found: a local that
+    ; holds a lambda (`def bump (fn:… ) … bump(2)`) has no expression_value
+    ; on its name node, and reading it crashed the writer. Without the list
+    ; every given argument is written.
+    def argsOpt@(optional):CodeNode
     if( (!null? fName.expression_value) ) {
       def lambdaExpression:CodeNode (unwrap fName.expression_value)
-      args = (itemAt lambdaExpression.children 1)
+      argsOpt = (itemAt lambdaExpression.children 1)
     } {
       def paramOpt@(optional):RangerAppParamDesc (ctx.getVariableDef(fName.vref))
-      def param:RangerAppParamDesc (unwrap paramOpt)
-      def parameterName:CodeNode (unwrap param.nameNode)
-      def lambdaExpression:CodeNode (unwrap parameterName.expression_value)
-      args = (itemAt lambdaExpression.children 1)
+      if (!null? paramOpt) {
+        def param:RangerAppParamDesc (unwrap paramOpt)
+        if (!null? param.nameNode) {
+          def parameterName:CodeNode (unwrap param.nameNode)
+          if (!null? parameterName.expression_value) {
+            def lambdaExpression2:CodeNode (unwrap parameterName.expression_value)
+            if ((array_length lambdaExpression2.children) > 1) {
+              argsOpt = (itemAt lambdaExpression2.children 1)
+            }
+          }
+        }
+      }
     }
     ctx.setInExpr()
     this.WalkNode(fName ctx wr)
     wr.out('(' false)
 
-    def lambdaArgs:CodeNode (unwrap args)
-    for lambdaArgs.children arg:CodeNode i {
-      def n:CodeNode (itemAt givenArgs.children i)
-      if (i > 0) {
-        wr.out(', ' false)
+    if (null? argsOpt) {
+      for givenArgs.children ga:CodeNode gi {
+        if (gi > 0) {
+          wr.out(', ' false)
+        }
+        this.WalkNode(ga ctx wr)
       }
-      if(arg.value_type != RangerNodeType.NoType) {
-        this.WalkNode(n ctx wr)
-      }        
+    } {
+      def lambdaArgs:CodeNode (unwrap argsOpt)
+      for lambdaArgs.children arg:CodeNode i {
+        def n:CodeNode (itemAt givenArgs.children i)
+        if (i > 0) {
+          wr.out(', ' false)
+        }
+        if(arg.value_type != RangerNodeType.NoType) {
+          this.WalkNode(n ctx wr)
+        }
+      }
     }
     ctx.unsetInExpr()
     wr.out(")" false)

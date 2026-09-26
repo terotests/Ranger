@@ -130,6 +130,16 @@ class RangerGolangClassWriter {
     return ""
   }
 
+  ; The declared type name of an assignment target, "" when unknown.
+  fn goOptTargetType:string (p:RangerAppParamDesc) {
+    def nn@(optional):CodeNode p.nameNode
+    if (null? nn) {
+      return ""
+    }
+    def n:CodeNode (unwrap nn)
+    return n.type_name
+  }
+
   fn goUnionHasMember:boolean (ucl:RangerAppClassDesc memberName:string) {
     return ((indexOf ucl.is_union_of memberName) >= 0)
   }
@@ -1378,10 +1388,15 @@ class RangerGolangClassWriter {
               return
             } {
               wr.out((p.compiledName + ".value = ") false)
-              ctx.setInExpr()
               def value:CodeNode (node.getThird())
-              this.WalkNode(value ctx wr)
-              ctx.unsetInExpr()
+              ; a case stored into an optional union must be wrapped into
+              ; the union, as a plain assignment does, or unwrapping it
+              ; later panics: "interface {} is *Shape_Circle, not union_Shape"
+              if (false == (this.goWriteUnionValue((this.goOptTargetType((unwrap p))) value ctx wr))) {
+                ctx.setInExpr()
+                this.WalkNode(value ctx wr)
+                ctx.unsetInExpr()
+              }
               wr.out(";" true)
               wr.out((p.compiledName + ".has_value = true;") true)
               return
@@ -1389,10 +1404,12 @@ class RangerGolangClassWriter {
           } {
             if (value.hasNewOper || (false == (value.hasFlag("optional")))) {
               wr.out((p.compiledName + ".value = ") false)
-              ctx.setInExpr()
               def value:CodeNode (node.getThird())
-              this.WalkNode(value ctx wr)
-              ctx.unsetInExpr()
+              if (false == (this.goWriteUnionValue((this.goOptTargetType((unwrap p))) value ctx wr))) {
+                ctx.setInExpr()
+                this.WalkNode(value ctx wr)
+                ctx.unsetInExpr()
+              }
               wr.out(";" true)
               wr.out((p.compiledName + ".has_value = true;") true)
               return
