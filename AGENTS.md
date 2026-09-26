@@ -72,6 +72,10 @@ follow them exactly.
 - A user program compiled without `-d` is written to `bin/<name>.js` under the
   current directory. That is program output, not the compiler; `bin/output.js`
   is ignored and must not be committed.
+- New compiler code goes into a category folder with subcategories, not the
+  flat `compiler/` directory (as `compiler/apidoc/` and `compiler/ast/`
+  already are). Example: the Rust frontend is `compiler/frontend/rust/` with
+  `lexer/`, `ast/`, `parser/` and `cli/` below it.
 - `npm run selfhost:check:<target>` compiles the compiler for a target and
   runs that target's compiler or syntax check over it (`cpp`, `go`, `java`,
   `python`, `rust`, `llvm`, …).

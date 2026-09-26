@@ -1,0 +1,267 @@
+(file
+  (fn patterns
+    (generics)
+    (params
+      (param
+        (pat_ident p)
+        (ref_type
+          (tuple_type
+            (path_type
+              (path
+                (seg u8)))
+            (array_type
+              (path_type
+                (path
+                  (seg u8)))
+              (lit 2 "2" [int]))))))
+    (ret)
+    (where)
+    (block
+      (expr_stmt
+        (match
+          (path_expr
+            (path
+              (seg p)))
+          (arm
+            (pat_ref
+              (pat_tuple
+                (pat_range ..=
+                  (pat_lit
+                    (lit 0 "0" [int]))
+                  (pat_lit
+                    (lit 9 "9" [int])))
+                (pat_slice
+                  (pat_ident a)
+                  (pat_rest)
+                  (pat_ident b))))
+            (none)
+            (block))
+          (arm
+            (pat_tuple
+              (pat_ident r [ref]
+                (pat_range ..
+                  (pat_lit
+                    (lit 10 "10" [int]))
+                  (none)))
+              (pat_wild))
+            (none)
+            (block))
+          (arm
+            (pat_tuple
+              (pat_ident x
+                (pat_paren
+                  (pat_or
+                    (pat_lit
+                      (lit 1 "1" [int]))
+                    (pat_lit
+                      (lit 2 "2" [int])))))
+              (pat_slice
+                (pat_wild)
+                (pat_wild)))
+            (none)
+            (block))
+          (arm
+            (pat_struct [..]
+              (path
+                (seg Foo)
+                (seg Bar))
+              (pat_field x
+                (pat_ident x))
+              (pat_field y
+                (pat_tuple_struct
+                  (path
+                    (seg Some))
+                  (pat_ident z))))
+            (none)
+            (block))
+          (arm
+            (pat_tuple_struct
+              (path
+                (seg Tuple))
+              (pat_ident first)
+              (pat_ident rest
+                (pat_rest)))
+            (none)
+            (block))
+          (arm
+            (pat_or
+              (pat_range ..=
+                (pat_lit
+                  (lit 'a' "a" [char]))
+                (pat_lit
+                  (lit 'z' "z" [char])))
+              (pat_lit
+                (lit b'0' "0" [byte]))
+              (pat_lit
+                (lit "\"s\"" "s" [str]))
+              (pat_lit
+                (unary -
+                  (lit 5 "5" [int])))
+              (pat_lit
+                (lit true "true" [bool])))
+            (none)
+            (block))
+          (arm
+            (pat_box
+              (pat_ident inner))
+            (none)
+            (block))
+          (arm
+            (pat_macro m "tokens" [(])
+            (none)
+            (block))))))
+  (fn types
+    (generics)
+    (params
+      (param
+        (pat_ident a)
+        (ref_type 'static
+          (path_type
+            (path
+              (seg str)))))
+      (param
+        (pat_ident b)
+        (ptr_type [const]
+          (path_type
+            (path
+              (seg u8)))))
+      (param
+        (pat_ident c)
+        (ptr_type [mut]
+          (slice_type
+            (path_type
+              (path
+                (seg u8))))))
+      (param
+        (pat_ident d)
+        (fn_type
+          (path_type
+            (path
+              (seg u8)))
+          (path_type
+            (path
+              (seg i32)))
+          (ret
+            (path_type
+              (path
+                (seg bool))))))
+      (param
+        (pat_ident e)
+        (fn_type "C" [unsafe extern]
+          (ret)))
+      (param
+        (pat_ident f)
+        (impl_type
+          (path_type
+            (path
+              (seg Fn
+                (fn_args
+                  (ref_type
+                    (path_type
+                      (path
+                        (seg str))))
+                  (ret
+                    (path_type
+                      (path
+                        (seg String))))))))
+          (path_type
+            (path
+              (seg Send)))))
+      (param
+        (pat_ident g)
+        (path_type
+          (path
+            (seg Box
+              (args
+                (dyn_type
+                  (path_type [for<>]
+                    #(lifetime_param 'a
+                      (bounds))
+                    (path
+                      (seg FnMut
+                        (fn_args
+                          (ref_type 'a
+                            (path_type
+                              (path
+                                (seg u8))))
+                          (ret)))))
+                  (lifetime 'static)))))))
+      (param
+        (pat_ident h)
+        (tuple_type
+          (path_type
+            (path
+              (seg u8)))
+          (tuple_type)
+          (array_type
+            (path_type
+              (path
+                (seg String)))
+            (lit 3 "3" [int]))))
+      (param
+        (pat_ident i)
+        (path_type
+          (qpath
+            (path_type
+              (path
+                (seg Vec
+                  (args
+                    (path_type
+                      (path
+                        (seg u8)))))))
+            (path
+              (seg IntoIterator))
+            (seg Item))))
+      (param
+        (pat_ident j)
+        (path_type
+          (path
+            (seg Option
+              (args
+                (path_type
+                  (path
+                    (seg Result
+                      (args
+                        (path_type
+                          (path
+                            (seg Vec
+                              (args
+                                (path_type
+                                  (path
+                                    (seg HashMap
+                                      (args
+                                        (path_type
+                                          (path
+                                            (seg String)))
+                                        (path_type
+                                          (path
+                                            (seg i64)))))))))))
+                        (tuple_type))))))))))
+      (param
+        (pat_ident k)
+        (never_type))
+      (param
+        (pat_ident l)
+        (infer_type)))
+    (ret)
+    (where
+      (where_pred [for<>]
+        #(lifetime_param 'b
+          (bounds))
+        (path_type
+          (path
+            (seg F)))
+        (bounds
+          (path_type
+            (path
+              (seg Fn
+                (fn_args
+                  (ref_type 'b
+                    (path_type
+                      (path
+                        (seg u8))))
+                  (ret)))))))
+      (where_lt 'x
+        (bounds
+          (lifetime 'y))))
+    (block)))

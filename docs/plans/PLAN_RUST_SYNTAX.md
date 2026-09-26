@@ -1,20 +1,18 @@
-# PLAN_RUST_SYNTAX — Ranger written in Rust syntax, with Rust's move semantics
+# PLAN_RUST_SYNTAX — strict Rust modules beside `.rgr` modules
 
-> **Status: design. Nothing here is implemented.** The string measurements in
-> §5 were taken on this checkout; everything else is a decision or a proposal.
+> **Status: stage R0 (lexer and parser) done, see §9.1; R1 onwards is
+> design.** Measurements in §5 and the rustc checks in §2 were run on this
+> checkout with rustc 1.94.1; the rest is a decision or a proposal.
 
-Ranger's S-expression syntax is the main source of friction for people and for
-agents: almost every entry under "Ranger language gotchas" in `AGENTS.md` is a
-parser pitfall (bare vs parenthesised calls, one statement per line,
-parenthesised receivers, typed array literal groups, prefix Elvis). This plan
-replaces the surface syntax with Rust's, and adopts Rust's **move semantics**
-for values. The type checker, the operator system in `Lang.rgr`, the flow
-analysis and the twelve writers stay.
+Ranger gets a second source form: **`.rs` files that are valid Rust**. They
+compile with `rustc` / `cargo` against a small `ranger` prelude crate, so the
+real borrow checker validates them and the native Rust build is the reference
+output. Ranger reads the same files and writes C++, JavaScript, Go and the
+other targets from them.
 
-The files are not meant to compile with `rustc`. They parse as Rust, so
-tree-sitter highlighting and `rustfmt` work on them, but the semantics are
-Ranger's: no lifetimes, no full borrow checker, and a `string` with a defined
-cross-target meaning.
+`.rgr` files stay as they are: S-expression syntax, reference semantics, the
+easy imperative form. A program may mix both: strict modules where ownership
+matters, `.rgr` modules for everything else.
 
 ---
 
@@ -22,30 +20,91 @@ cross-target meaning.
 
 | # | Decision |
 | --- | --- |
-| D1 | The surface syntax is a subset of Rust's grammar. Ranger-only features use Rust's extension points: attributes, `name!(…)` invocations, `#[cfg(…)]`. |
-| D2 | **Rust move semantics.** `let b = a;` moves `a` unless its type is `Copy`; a later read or write of `a` is a compile error. `.clone()` is the explicit copy. |
-| D3 | **Second-class references.** `&T` / `&mut T` are allowed on parameters (and locals bound from them), never stored in a field or returned. No lifetimes. |
-| D4 | Shared ownership is explicit: `Rc<T>`, `Rc<RefCell<T>>`, `Weak<T>`. |
-| D5 | Rust's expression-oriented blocks are supported and lowered for statement-only targets. |
-| D6 | The standard-library surface is the Ranger operator set, reached through method or function syntax. It grows over time; Rust std is not the reference. |
-| D7 | A `string`'s length and iteration are in **Unicode code points**; bytes are explicit. No O(n) indexing hidden behind `s[i]`. |
-| D8 | Both syntaxes coexist during migration, chosen by file extension, and can import each other. |
+| D1 | Two source forms, chosen by **file extension**: `.rgr` (old syntax, reference semantics) and `.rs` (strict Rust). |
+| D2 | A `.rs` module must compile with `rustc` against the `ranger` prelude crate. Ranger accepts a **subset** of Rust (§3.4); what it accepts means what Rust means. |
+| D3 | Rust move semantics and borrowing, **checked by rustc**. Ranger adds its own cheap move check so errors appear without a Rust toolchain; rustc stays the authority (`cargo check` in CI). |
+| D4 | References are not stored in structs (no lifetime parameters on types). Shared data is `Rc<T>` / `Rc<RefCell<T>>` / `Weak<T>`. |
+| D5 | Rust's expression-oriented blocks are lowered for statement-only targets. |
+| D6 | Ranger-only information uses `#[ranger::…]` attributes from the prelude crate; `#[cfg_attr(ranger, …)]` is the zero-dependency fallback. |
+| D7 | Strings follow Rust: `chars()` is code points, bytes are explicit. `s.len()` is refused by Ranger's subset so that length is always written as the unit it counts. |
+| D8 | Every target's output must match the native Rust run. Anything whose Rust behaviour a target cannot reproduce (map order, overflow) is fixed in the prelude or in the spec. |
+
+The earlier idea of a third form (Rust syntax with Ranger semantics, not
+accepted by rustc) is dropped: it would be a language nobody's tools check.
 
 ---
 
-## 2. Syntax
+## 2. Files, markers and imports
 
-### 2.1 Example
+### 2.1 Telling the forms apart
 
-The `ai/QUICKREF.md` file-shape example:
+The extension decides. rustc accepts any extension (`#[path = "x.rug"] mod x;`
+compiles), but rust-analyzer, rustfmt and editors only treat `.rs` as Rust,
+and that tooling is half the point, so strict modules are `.rs`.
+
+A strict module starts with `use ranger::prelude::*;`. It is needed anyway (it
+brings `int`, `string`, `Map` and the operators into scope), and it doubles as
+the marker: a `.rs` file reached from a Ranger import without it gets a clear
+error instead of a stream of unknown-name errors.
+
+Checked with rustc 1.94.1:
+
+| Marker | Result |
+| --- | --- |
+| `#![ranger]` | error: cannot find attribute `ranger` |
+| `#![register_tool(ranger)]` | error E0658: experimental (nightly only) |
+| `#[cfg_attr(ranger, weak)]` on a field | compiles; rustc drops it. Cargo's check-cfg warns unless `Cargo.toml` declares `check-cfg = ['cfg(ranger)']` |
+| `#[ranger::weak]` | compiles once the prelude crate exports an attribute macro that returns its input unchanged |
+| `use ranger::prelude::*;` | ordinary Rust |
+
+### 2.2 Imports
+
+| From → to | How |
+| --- | --- |
+| `.rs` → `.rs` | Rust's own rules. `mod geometry;` loads `geometry.rs` or `geometry/mod.rs` relative to the declaring file; `use crate::geometry::Point;` resolves names; `pub` is visibility, enforced by rustc. |
+| `.rs` → `.rgr` | `mod legacy { ranger::import_rgr!("legacy"); }`. For rustc the macro expands to `include!(concat!(env!("OUT_DIR"), "/legacy.rs"))`, and `build.rs` runs `rgrc -l=rust` on `legacy.rgr` into `OUT_DIR`. Ranger reads the invocation as `Import "legacy.rgr"`. (The expansion was tested with a stand-in generated file.) |
+| `.rgr` → `.rs` | `Import "geometry.rs"`; the extension picks the parser. |
+| packages | `pkg:evg` is a Cargo path dependency; `use evg::EVGElement;`. `Cargo.toml` is the manifest for `.rs` code, `ranger.json` for `.rgr`, both naming the same directories. |
+
+```
+myapp/
+  Cargo.toml        [dependencies] ranger = { path = "…/runtime/rust/ranger" }, evg = { path = … }
+  build.rs          only if .rgr modules are imported
+  src/main.rs       use ranger::prelude::*; mod geometry; mod legacy { ranger::import_rgr!("legacy"); }
+  src/geometry.rs   strict Rust
+  src/legacy.rgr    old syntax
+```
+
+`import_rgr!` needs one new compiler output: a **Rust module** — no `fn main`,
+`pub` items, no crate-level attributes — instead of today's whole-program file.
+
+### 2.3 The boundary between the forms
+
+A `.rgr` class has reference semantics, so strict code always sees it as a
+handle, `Rc<RefCell<T>>`, never a plain struct, regardless of what the Rust
+backend's sharing analysis would choose inside the `.rgr` module. The module
+output of §2.2 exposes exactly that.
+
+In the other direction a `.rgr` function calling into `.rs` code follows the
+`.rs` signature: `&T` / `&mut T` parameters are borrows, `T` parameters take
+the value, and Ranger checks that the `.rgr` caller does not use a moved value
+afterwards (the existing ownership inference, `-strict-ownership`, already
+classifies the `.rgr` side).
+
+---
+
+## 3. What a strict module looks like
+
+### 3.1 Example
 
 ```rust
-use other_file;
+use ranger::prelude::*;
 
+#[derive(Clone, Copy, PartialEq)]
 enum Color { Red, Green, Blue }
 
-#[derive(Clone, Copy)]
-struct Point { x: int = 0, y: int = 0 }
+#[derive(Clone, Copy, Default)]
+struct Point { x: int, y: int }
 
 struct App {
     items: Vec<string>,
@@ -54,175 +113,124 @@ struct App {
 impl App {
     fn new() -> App { App { items: vec![] } }
 
-    fn greet(&self, name: string) -> string {
-        "hello " + name
+    fn greet(&self, name: &str) -> string {
+        format!("hello {}", name)
     }
 }
 
 fn main() {
-    print(App::new().greet("world"));
+    let app = App::new();
+    println!("{}", app.greet("world"));
 }
 ```
 
-### 2.2 Mapping
+### 3.2 The prelude crate `ranger`
 
-| Ranger today | Rust syntax |
+- `type int = i64; type double = f64; type string = String; type boolean = bool;`
+  (the old names keep reading naturally; `i64` etc. are equally accepted).
+- `Map<K, V>`: an **insertion-ordered** map. Rust's `HashMap` iterates in a
+  random order — two runs of the same six inserts printed `b d e a c f` and
+  `e f c b d a` — while JavaScript and Python iterate in insertion order.
+- The Ranger operators as Rust functions and extension traits, generated from
+  the `rust` templates in `compiler/Lang.rgr`.
+- Attribute macros that return their input unchanged: `weak`, `late`,
+  `serialize`, `doc`, `target`.
+- `import_rgr!`, `tree!`, `native!`.
+
+### 3.3 Mapping from the old syntax
+
+| `.rgr` | `.rs` |
 | --- | --- |
-| `def x:int 10` | `let x: int = 10;` |
-| `def counter@(mutable):int 0` | `let mut counter = 0;` |
-| `def maybe@(optional):string` | `let maybe: Option<string>;` |
-| `if (!null? x) { … }` | `if let Some(x) = x { … }`; `if x.is_some()` narrows too |
+| `def x:int 10` / `def x@(mutable):int 10` | `let x: int = 10;` / `let mut x = 10;` |
+| `def maybe@(optional):string` | `let maybe: Option<string> = None;` |
+| `if (!null? x) { … }` | `if let Some(x) = &x { … }` |
 | `(?? v fallback)` | `v.unwrap_or(fallback)` |
 | `(? c a b)` | `if c { a } else { b }` |
-| `fn` / `sfn` | method with / without a `self` parameter |
-| `Constructor (…)`, `new Foo(x)` | `fn new(…) -> Foo`, `Foo::new(x)`; struct literal `Foo { x: 1 }` |
-| `record Point { … }` | `struct Point { … }` (`#[derive(Copy)]` to make it `Copy`) |
-| `Extends(Base)` | `#[extends(Base)] struct Foo` (§2.4) |
-| `class History @params(Op)` | `struct History<Op>`; bounds are accepted and ignored |
+| `fn` / `sfn` | method with / without `self` |
+| `Constructor`, `new Foo(x)` | `fn new(…) -> Foo`, `Foo::new(x)`, `Foo { x: 1 }` |
+| `record` | `#[derive(Clone)] struct` (`Copy` when all fields are) |
+| `Extends(Base)` | not available in `.rs`: a Rust attribute macro sees only its own item, not `Base`'s fields. Traits and composition; inheritance stays in `.rgr`. |
+| `@params(T)` | `struct History<T>`; the bounds rustc needs are ignored by Ranger |
 | trait / `does` | `trait` / `impl Trait for X` |
-| `shape` / `case` / `match` | `enum` with struct variants / `match` |
-| `Enum Color ( … )` | `enum Color { … }` |
-| `switch v { case … }` | `match v { … }` |
-| `for list item:T i { }` | `for (i, item) in list.iter().enumerate() { }`, `for item in list { }` |
-| `while`, `break`, `continue`, `return` | same |
-| `(idiv a b)` / `(a / b)` | `a / b`, integer or real division by the operand types |
-| `push arr x` | `arr.push(x)` or `push(arr, x)` (§6) |
+| `shape` / `case` / `match` | `enum` with data / `match` |
+| `switch` | `match` |
+| `for list item:T i` | `for (i, item) in list.iter().enumerate()` |
+| `(idiv a b)` / `(a / b)` | `a / b`, by the operand types |
+| `push arr x` | `arr.push(x)` |
 | `[T]`, `[K:V]` | `Vec<T>`, `Map<K, V>` |
-| lambdas `fn:T (p:T)` | closures `\|p: T\| -> T { … }`, type `Fn(T) -> T` |
-| `try { } { }` / `throw` | open question, §9 |
-| `Import "x.rgr"`, `pkg:evg/X.rgr` | `mod x;` / `use evg::X;` |
-| `@(weak)`, `@(late)`, `@serialize` | `#[weak]`, `#[late]`, `#[derive(Serialize)]` |
-| `if_rust { … }` | `#[cfg(target = "rust")] { … }` |
-| `doc { public since "1.2" example f }` | `///` text + `#[doc(public, since = "1.2", example = f)]` |
-| `(tree Name (Tag …))` | `tree! { Name { Tag { … } } }` |
+| lambdas | closures; `Box<dyn Fn(T) -> U>` as a stored type |
+| `try` / `throw` | `Result<T, E>` and `?`, lowered to exceptions where the target has them |
+| `print x` | `println!("{}", x)`; Ranger understands `format!` / `println!` with `{}` and `{:?}` |
+| `@(weak)` | `Weak<T>` in the type (plus `#[ranger::weak]` only where the intent is not visible in the type) |
+| `@(late)` | `#[ranger::late]` on an `Option` field |
+| `@serialize` | `#[ranger::serialize]` |
+| `if_rust { … }` | `#[ranger::target(rust)] { … }` / `ranger::native!` |
+| `doc { … }` | rustdoc, §4 |
 
-Types keep Ranger's names (`int`, `double`, `string`, `boolean`, `char`,
-`charbuffer`); the grammar only sees paths. `i64` / `f64` / `bool` / `String`
-can be accepted as aliases.
+### 3.4 The subset
 
-`x: int = 0` in a struct is the default-field-values syntax, which newer Rust
-grammar accepts. If the formatter or highlighter in use rejects it, the
-fallback is `#[default(0)] x: int`.
+Ranger refuses, with a message naming the alternative:
 
-### 2.3 Extension points
+- lifetime parameters on types and functions (`struct V<'a>`, `fn f<'a>`);
+  elided lifetimes on parameters are fine
+- `unsafe`, raw pointers, `asm!`, `extern` blocks
+- `impl Trait` in argument position, associated types, GATs, trait objects
+  other than `dyn Fn…` and `dyn Trait` behind `Box` / `Rc`
+- iterator chains (`map` / `filter` / `collect` …) until the §6 lowering has
+  them; `iter()`, `iter_mut()`, `enumerate()`, `chars()`, `bytes()` in a `for`
+  are accepted from the start
+- `s.len()` on a string (D7)
+- macros other than the known ones (`println!`, `print!`, `format!`, `vec!`,
+  `panic!`, `assert!`, `assert_eq!`, the prelude's)
 
-| Rust mechanism | Used for |
+Anything else rustc accepts and Ranger has no lowering for is reported as
+"not in the Ranger subset", never silently translated.
+
+### 3.5 Integer overflow
+
+Rust panics on overflow in debug builds and wraps in release builds. D8 needs
+one answer; the proposal is **wrapping**, written into `SPEC_SEMANTICS.md` §2.3,
+and `overflow-checks = false` in the example `Cargo.toml` so debug builds agree.
+
+---
+
+## 4. Documentation
+
+The `doc { … }` tail (`compiler/RangerDocBlock.rgr`, PLAN_API_DOCS.md) has a
+direct rustdoc idiom for almost every entry, and PLAN_API_DOCS §8 already
+writes those forms when the output is Rust. Reading `.rs`, the same mapping
+runs backwards:
+
+| `doc` entry | rustdoc idiom read from `.rs` |
 | --- | --- |
-| `#[attr]` on items and fields | `extends`, `weak`, `late`, `serialize`, `doc(…)`, `main` |
-| `#[cfg(target = "…")]` on items, statements, blocks | today's `if_rust` / per-target code |
-| `name! { … }` / `name!( … )` | `tree!`, `native!` (a verbatim target snippet), later additions |
+| `description` | the `///` text before the first `#` heading (Markdown kept as is) |
+| `param id "…"` | `# Parameters` or `# Arguments` section, `` * `id` - text `` bullets |
+| `returns "…"` | `# Returns` section |
+| `throws` | `# Errors` section (and `# Panics`) |
+| `see Node` | intra-doc links ``[`Node`]`` anywhere in the text |
+| `example f` | `# Examples` section: each ```` ``` ```` block is a **doctest**, which `cargo test` compiles and runs, and Ranger parses as an example body and type-checks, as it does for `example f` today |
+| `example "literal"` | a ```` ```text ```` block |
+| `deprecated { since use description }` | `#[deprecated(since = "2.0", note = "…")]` (built into Rust); `use` → `#[ranger::doc(replaced_by = "find")]` |
+| `public` | `pub` on the item (and reachable from the crate root) |
+| `internal` | not `pub`, or `pub(crate)`; `#[doc(hidden)]` for `pub` items kept out of the docs |
+| `experimental` | `# Stability` section, or `#[ranger::doc(experimental)]` |
+| `since "1.2"` | `#[ranger::doc(since = "1.2")]` — rustdoc has no stable `since` for user crates |
+| `category`, `platform` | `#[ranger::doc(category = "…", platform = "…")]` |
+| `target <lang> { … }` views, `attr` | `#[ranger::doc(target = "kotlin", …)]`; rare, later |
+| module / crate docs | `//!` |
 
-A `name!` body is any balanced token tree, so a new construct never needs a
-grammar change.
-
-### 2.4 Inheritance
-
-Rust has no inheritance; the gallery uses it. `#[extends(Base)]` keeps
-`Extends` with today's meaning: fields and methods of `Base` are inherited,
-`impl` blocks override. New code should prefer traits.
-
----
-
-## 3. Moves (D2)
-
-### 3.1 Rules
-
-The move checker is a per-variable state carried through the same
-statement-by-statement flow pass that already does optional narrowing
-(`setFlowNarrowed` in `RangerAppWriterContext.rgr`, driven from
-`RangerFlowParser.rgr` / `FlowStdMatch.rgr`).
-
-| Situation | Result |
-| --- | --- |
-| `let b = a;`, `x = a;`, `f(a)` with a `T` parameter, `a` returned, `a` pushed into a collection | `a` is **moved** |
-| read or write of a moved variable | error, pointing at the move |
-| `a = <value>` | `a` is live again |
-| moved in one branch of an `if` / `match` only | **maybe-moved** after the join; any use is an error |
-| moved inside a loop body and not reassigned before the end of the body | error at the move |
-| `let b = self.x;` / `let b = obj.field;` on a non-`Copy` type | error; use `take(&mut self.x)`, `replace(&mut self.x, v)`, or `.clone()` |
-| `move \|…\| { … }` | captured variables are moved |
-| `self` parameter by value (`fn into_x(self)`) | receiver is moved |
-| `Copy` types: `int`, `double`, `boolean`, `char`, data-less enums, `#[derive(Copy)]` structs | never moved |
-
-The existing flow pass already joins branch states and understands branches
-that exit (`return`, `break`, `continue`, `throw`), which is exactly what the
-maybe-moved join needs.
-
-### 3.2 References (D3)
-
-- `&T` and `&mut T` may appear on parameters, and on locals initialised from a
-  parameter or from `&x` / `&mut x`.
-- A reference may not be stored in a field, captured by a closure that
-  escapes, put into a collection, or returned.
-- At every call: no `&mut` argument may overlap another argument's path.
-  `self` counts as an argument, so `self.f(&mut self.x)` is refused when `f`
-  takes `&self` or `&mut self`.
-- A variable may not be moved or assigned while a reference to it is live in
-  the same function.
-
-These restrictions make lifetime inference unnecessary. It is the model of
-Swift's `inout`, Mojo and Hylo.
-
-### 3.3 Shared ownership (D4)
-
-Graph-shaped data (parent pointers, observers, caches) uses `Rc<T>` for shared
-immutable, `Rc<RefCell<T>>` for shared mutable, `Weak<T>` for back-pointers.
-`.borrow()` / `.borrow_mut()` are operators; the Rust target emits them as is,
-the other targets drop them.
-
-### 3.4 Lowering per target
-
-| Target group | Move | `.clone()` | `&T` / `&mut T` | `Rc<RefCell<T>>` | `Weak<T>` |
-| --- | --- | --- | --- | --- | --- |
-| JS/TS, Python, Java, Kotlin, C#, Dart, Scala, PHP, Go, Swift | plain assignment (source is dead) | generated deep copy | the reference itself (Go: pointer for `&mut` on value types) | the reference | today's `@(weak)` lowering |
-| C++ | `std::move` | copy constructor | `const T&` / `T&` | `std::shared_ptr<T>` | `std::weak_ptr<T>` |
-| Rust | as written | as written | as written | as written | as written |
-| LLVM | ownership transfer, no refcount | deep copy | borrowed pointer | refcounted | weak |
-
-On the reference targets, a move being a plain assignment is sound because the
-checker proved the source is never used again: the aliasing a reference target
-would create is never observable. Explicit `.clone()` needs a generated
-`clone` method per class, which the Rust and C++ writers partly have already.
-
-For the Rust writer this removes most of the work described in
-`RUST_ISSUES.md`, `PLAN_RUST_OWNERSHIP.md` and `PLAN_CODEGEN_OWNERSHIP.md`:
-ownership is read from the source instead of inferred. The `-rust-shared-classes`
-analysis stays for code in the old syntax.
+The rule: rustdoc Markdown carries the prose, rustdoc's standard section
+headings and Rust's own `#[deprecated]` carry what they can, and
+`#[ranger::doc(…)]` carries only what Rust has no idiom for. `cargo doc`
+therefore renders a strict module correctly with no Ranger tool involved.
 
 ---
 
-## 4. Expression-oriented blocks (D5)
+## 5. Strings
 
-Rust allows a block, `if`, `match` or `loop` as an expression, and a block's
-last expression without `;` as its value (including a function body's return
-value).
-
-A lowering pass runs after parsing and before the flow pass:
-
-```rust
-let v = if c { a } else { let t = f(); t + 1 };
-```
-
-becomes, for every target that lacks block expressions:
-
-```text
-def v:T
-if c { v = a } { def t (f()) ; v = (t + 1) }
-```
-
-`break value` from `loop` lowers the same way. A function whose body ends in an
-expression gets an explicit `return`. Targets that have expression forms
-(Rust, Kotlin, Scala, Swift for `if`) may keep them later as an idiom pass;
-the first version lowers everywhere except Rust.
-
----
-
-## 5. Strings (D7)
-
-### 5.1 What happens today
-
-Measured on this checkout for `"aé😀b"` (4 code points, 5 UTF-16 units,
-8 UTF-8 bytes):
+Today a `.rgr` `string` is indexed in the target's own unit
+(`SPEC_SEMANTICS.md` §3.1). Measured for `"aé😀b"` (4 code points, 5 UTF-16
+units, 8 UTF-8 bytes):
 
 | | ES6 | Python | Rust | Go | C++ |
 | --- | --- | --- | --- | --- | --- |
@@ -232,152 +240,130 @@ Measured on this checkout for `"aé😀b"` (4 code points, 5 UTF-16 units,
 | `to_chars s` (length) | 4 | 4 | 4 | 4 | 4 |
 | `to_charbuffer s` (length) | 8 | 8 | 8 | 8 | 8 |
 
-`strlen` / `charAt` / `substring` count the target's native unit
-(PLAN_STRING_INDEXING.md, `SPEC_SEMANTICS.md` §3.1). That was chosen to keep
-scanners O(1) per step; the cost is that a non-ASCII string means different
-things on different targets.
+In a strict module strings mean what Rust says, and every target reproduces it:
 
-### 5.2 The rule in the new syntax
-
-| Syntax | Meaning | Cost everywhere |
+| Rust | Meaning | Cost on every target |
 | --- | --- | --- |
 | `for c in s.chars()` | code points | O(1) per step |
 | `s.chars().count()` | length in code points | O(n) |
-| `s.chars().collect::<Vec<char>>()`, `to_chars(s)` | code points, random access | O(n) once, then O(1) |
-| `s.bytes()`, `s.as_bytes()` | UTF-8 bytes (`charbuffer`) | O(1) index |
-| `s.as_bytes().len()` | length in UTF-8 bytes | O(1) on UTF-8 targets, O(n) on UTF-16 ones |
-| `s.find(p)` | code-point index of `p` (or `None`) | O(n) |
-| `s.slice(a, b)` | code points `[a, b)` | O(n) |
-| `s.len()` | **refused**: a Rust reader expects bytes, a Ranger reader characters | — |
-| `s[i]` | **refused**, as in Rust | — |
+| `s.chars().collect::<Vec<char>>()` | code points with random access | O(n) once |
+| `s.bytes()`, `s.as_bytes()`, `s.as_bytes().len()` | UTF-8 bytes | O(1) on UTF-8 targets |
+| `s.find(p)`, `&s[a..b]` | **byte** offsets, as in Rust; slicing off a char boundary panics | O(n) on UTF-16 targets |
+| `s.len()` | refused by the subset (D7) | — |
+| `s[i]` | not Rust | — |
 
-Every text operation then means code points on every target, the byte view is
-explicit, and nothing looks O(1) while being O(n): a loop that needs random
-access says so with `to_chars`.
-
-The per-target work is the `chars()` iterator: `for (const c of s)` on JS,
-`s.codePoints()` on Java/Kotlin/Scala, `EnumerateRunes()` on C#, `runes` on
-Dart, `unicodeScalars` on Swift, `range` over a Go string, a UTF-8 decoder on
-C++, `mb_str_split` on PHP. The `to_chars` templates already contain most of
-these.
-
-### 5.3 The old syntax
-
-`charAt` / `substring` / `strlen` on a `string` keep their native-unit meaning
-in `.rgr` files until the compiler's own scanners, the JSON and XML parsers and
-`lib/evg` are moved to iteration or `to_chars` (`-strict-strings` lists the
-sites). After that, PLAN_STRING_INDEXING §4.4 can be closed by removing
-string indexing from the portable surface.
+Byte offsets from `find` feeding a slice are consistent with each other, which
+is the property whose absence cut text on Go and C++ (the `substring` row
+above). The UTF-16 targets need a byte-offset helper in their runtime; a
+program that only iterates never pays for it.
 
 ---
 
-## 6. Standard-library surface (D6)
+## 6. Expression-oriented blocks
 
-A method or function call resolves in this order:
+A block, `if`, `match` or `loop` can be an expression, and a block's last
+expression without `;` is its value. A lowering pass after parsing hoists them
+into a temporary for targets without block expressions:
 
-1. A method of the receiver's class or trait.
-2. A Ranger operator whose name matches, with the receiver as the first
-   argument: `arr.push(x)` → `(push arr x)`, `s.trim()` → `(trim s)`.
-3. A rename table from Rust spelling to Ranger operator name, kept next to the
-   parser: `len` on `Vec` → `array_length`, `is_empty` → `array_length == 0`,
-   `contains_key` → `has`, `unwrap_or` → `??`, `to_string` → `to_string`, …
+```rust
+let v = if c { a } else { let t = f(); t + 1 };
+```
 
-Operator matching stays type-directed, as it is now, so `push` on a `Vec` and
-on a `charbuffer` pick different templates. Anything not found is an ordinary
-"no such method" error listing the nearest operators. The table grows as code
-needs it.
+```text
+def v:T
+if c { v = a } { def t (f()) ; v = (t + 1) }
+```
 
-Iterator chains (`map`, `filter`, `sum`, `collect`) are not in the first
-version. They lower to loops later, in the §4 pass.
+`break value` from `loop` and a function body ending in an expression lower the
+same way. The same pass later turns the accepted iterator chains into loops.
 
 ---
 
-## 7. Implementation
+## 7. Moves and borrows on the other targets
 
-### 7.1 Parser
+rustc has proved the program; the writers only need the lowering.
 
-`compiler/RangerRustParser.rgr` beside `RangerLispParser.rgr` (2 147 lines):
-a tokenizer for Rust tokens (including raw strings, lifetimes rejected, `///`
-doc comments kept) and a precedence-climbing parser for items, statements,
-expressions, patterns and types. It produces **the same CodeNode tree** the
-Lisp parser does, so everything after parsing is shared. Estimated 3 000 –
-5 000 lines.
+| Target group | Move | `.clone()` | `&T` / `&mut T` | `Rc<RefCell<T>>` | `Weak<T>` |
+| --- | --- | --- | --- | --- | --- |
+| JS/TS, Python, Java, Kotlin, C#, Dart, Scala, PHP, Go, Swift | plain assignment (the source is dead) | generated deep copy | the reference (Go: pointer for `&mut` of a value type) | the reference | today's `@(weak)` lowering |
+| C++ | `std::move` | copy constructor | `const T&` / `T&` | `std::shared_ptr<T>` | `std::weak_ptr<T>` |
+| Rust | the module as written (plus the prelude) | | | | |
+| LLVM | ownership transfer | deep copy | borrowed pointer | refcounted | weak |
 
-Source positions must map to the Rust-syntax file so errors point at it.
+On the reference targets a move being a plain assignment is sound because the
+source is never used again, so the aliasing is never observable.
 
-### 7.2 Passes added
+Ranger's own move check (D3) runs in the flow pass beside optional narrowing
+(`setFlowNarrowed`, `RangerAppWriterContext.rgr`): moved / maybe-moved / live
+per variable, joined at branches, reset by assignment, with `Copy` types
+exempt. It exists for fast feedback; it does not replace `cargo check`.
 
-| Pass | Where | Section |
-| --- | --- | --- |
-| block-expression lowering | after parsing, before the flow pass | §4 |
-| move state (moved / maybe-moved / live) | in the flow pass, beside narrowing | §3.1 |
-| reference escape and call-site overlap check | in the flow pass | §3.2 |
-| method → operator resolution and rename table | in call matching | §6 |
-| `clone` generation per class | in the writers that lack it | §3.4 |
+---
 
-Moves and references only apply to files in the new syntax (D8); old-syntax
-files keep reference semantics.
+## 8. Implementation
 
-### 7.3 Interop between the two syntaxes
-
-A new-syntax function calling an old-syntax one passes a value into a world
-with reference semantics. The old function's parameter ownership, from the
-existing inference (`-strict-ownership`: borrowed / moved / shared / owned),
-decides what the call means:
-
-| Old parameter | Treated as |
+| Piece | Where |
 | --- | --- |
-| borrowed | `&T` |
-| moved, owned | `T` (the argument is moved) |
-| shared | `Rc<RefCell<T>>` is required |
-| unknown | `T` (moved), conservative |
+| Lexer: Rust tokens (raw strings, byte and C strings, char vs lifetime, nested block comments, doc comments kept as tokens) | `compiler/frontend/rust/lexer/RustLexer.rgr` |
+| Rust AST (one node class, fixed child slots per kind) and its S-expression dump | `compiler/frontend/rust/ast/RustAst.rgr` |
+| Parser: items, attributes, statements, expressions with Rust precedence, patterns, types, macro invocations | `compiler/frontend/rust/parser/RustParser.rgr` |
+| Span check: children ordered and inside their parent, nothing dropped between list elements | `compiler/frontend/rust/parser/RustSpanCheck.rgr` |
+| Command line driver `rustparse [-dump] [-check] files…` | `compiler/frontend/rust/cli/RustParseMain.rgr` |
+| Doc comment reader (§4) → `RangerDocBlock` | R2, `compiler/frontend/rust/doc/` |
+| Lowering Rust AST → CodeNode, subset checks (§3.4), block-expression lowering (§6) | R1, `compiler/frontend/rust/lower/` |
+| Move check (§7) | R3, `compiler/frontend/rust/check/` |
+| Prelude crate `ranger` (generated operator layer, `Map`, attribute macros) | R4, `runtime/rust/ranger/` |
+| Rust module output for `import_rgr!` | R5 |
 
----
-
-## 8. Migration
-
-1. **Converter.** A writer that emits the new syntax, modelled on
-   `RangerRangerClassWriter.rgr` (the Ranger-to-Ranger writer, 370 lines) and
-   the Rust writer. It uses the ownership inference to choose between
-   `&T`, `T` and `Rc<RefCell<T>>` for each parameter and field; what it cannot
-   classify becomes `Rc<RefCell<T>>` with a `// review:` comment.
-2. **Verification.** For every converted file, both versions compile to every
-   target and the outputs are diffed; the test suite and the selfhost parity
-   checks run on the converted tree.
-3. **Order.** `tests/` fixtures, then `lib/`, then `gallery/`, then the
-   compiler.
-4. **Self-hosting.** `RangerRustParser.rgr` is written in the old syntax. When
-   the compiler converts and passes `npm run selfhost:check:*`, it is switched
-   over; `dist/rgrc.js` remains the bootstrap.
-5. `Lang.rgr` stays in S-expressions: it is template data, not user code.
-
----
+The parser reads **full Rust syntax**, not only the subset: the subset is
+enforced at lowering, where the message can name the construct and the
+alternative. A parser that stops at the first unknown construct would give
+worse errors.
 
 ## 9. Stages
 
 | Stage | Content | Done when |
 | --- | --- | --- |
-| R0 | Parser for items, `let`, operators with precedence, calls, `if` / `while` / `for` / `match`, structs, impls, enums | `tests/fixtures` programs written by hand in the new syntax give the same output as their `.rgr` versions on es6, rust, go, python, cpp |
-| R1 | Block-expression lowering | an expression-heavy fixture runs on all targets |
-| R2 | Move checker | positive and negative fixtures for every row of §3.1 |
-| R3 | References and call-site overlap check | fixtures for §3.2, including `self` overlap |
-| R4 | Strings per §5.2 | the §5.1 table gives 4 / code points on every target in the new syntax |
-| R5 | Attributes and macros: `extends`, `weak`, `late`, `serialize`, `doc`, `cfg`, `tree!`, `native!` | the gallery feature set is expressible |
-| R6 | Converter and interop | `lib/` converted and passing |
-| R7 | Gallery, then compiler | selfhost parity on the converted compiler |
+| R0 | Lexer and parser for Rust syntax, AST dump | parses every `.rs` file in the repository (hand-written and Ranger-generated) without error; golden dumps for a fixture set |
+| R1 | Lowering to CodeNode for the core subset (items, `let`, expressions, `if` / `while` / `for` / `match`, structs, impls, enums, block expressions) | fixtures give the same output as their `rustc` build on es6, go, python, cpp |
+| R2 | rustdoc reading (§4) | `-apidoc` output for a `.rs` module equals the one for its `.rgr` twin |
+| R3 | Move check | positive and negative fixtures |
+| R4 | Prelude crate, `Map`, strings per §5 | the §5 table gives Rust's answers on every target |
+| R5 | `import_rgr!`, Rust module output, `.rgr` ↔ `.rs` imports, `Cargo.toml` packages | a mixed crate builds with `cargo build` and with `rgrc` for es6 and cpp |
+| R6 | Attributes and macros (`weak`, `late`, `serialize`, `target`, `tree!`, `native!`) | the gallery feature set is expressible |
 
----
+### 9.1 R0 results
+
+The parser is not wired into `rgrc` yet; `RustParseMain.rgr` compiles to a
+standalone tool. `tests/rust-parser.test.ts` covers it:
+
+- golden trees for `tests/fixtures/rust_syntax/*.rs` (items, expressions,
+  statements, patterns and types, every literal form, the §3.1 example);
+- every `.rs` file tracked in the repository parses and passes the span
+  check. The one exception, `legacy/rust_compiler/src/parsers/mod.rs`, is not
+  valid Rust: rustfmt rejects it at the same lines;
+- invalid input is reported.
+
+Measured outside the test suite:
+
+| Corpus | Files | Result |
+| --- | --- | --- |
+| the compiler compiled to Rust (`-l=rust Compiler.rgr`) | 1 (121 781 lines) | parses in about 2 s under node |
+| crates.io sources: syn 2 and 3, serde, regex, tokio, rayon, nom, itertools, anyhow and their dependencies | 2 172 | 2 170 parse with the span check; the 2 others are syn test inputs that rustfmt also rejects |
+
+The same tool compiled to Go and Python gives byte-identical dumps.
+
+`'\u{…}'` escapes above U+FFFF decode wrongly on the JavaScript build, because
+`strfromcode` uses `String.fromCharCode` there; the golden fixture leaves that
+case out until the operator is fixed.
 
 ## 10. Open questions
 
-- **File extension.** `.rgs` is proposed; `.rs` would make editors run
-  rust-analyzer, which reports errors on code that is not valid Rust.
-- **Errors.** `try` / `catch` is not Rust grammar. Either `Result<T, E>` with
-  `?`, lowered to exceptions on targets that have them, or `try! { … }
-  catch!(e) { … }`. `Result` fits the rest of the design better.
-- **Integer types.** `int` is 64-bit today. Accept `i32` / `u8` / `usize`, or
-  only `int` and `double`? `u8` is useful for `charbuffer` work.
-- **Inheritance.** Keep `#[extends]` permanently, or only for migrated code.
-- **Records and `Copy`.** Should a `record` be `Copy` by default?
-- **Tooling.** A tree-sitter grammar for the subset gives highlighting; a
-  language server can come from the existing VS Code extension.
+- Should a `.rs` module be allowed to `impl` a trait for a `.rgr` class?
+- `u8` / `i32` / `usize`: accept them (`usize` is what `len()` and indexing
+  return in Rust) and map to `int` everywhere but Rust, or require casts?
+- Generated deep copy for `.clone()` on classes that hold `Rc`: Rust clones the
+  `Rc` (shallow). The other targets must do the same, so `clone` generation
+  follows the field types, not "deep" everywhere.
+- A tree-sitter grammar is not needed (tree-sitter-rust works); an LSP for the
+  subset messages can come from the existing VS Code extension.

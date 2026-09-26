@@ -1,0 +1,38 @@
+fn exprs() {
+    let a = -x.y as u32 * 2 + 1 << 3 == 4 && b || !c;
+    let b = a & 1 | 2 ^ 3;
+    let r = 1..=n;
+    let r2 = ..n;
+    let r3 = a..;
+    let full = ..;
+    let v: Vec<Vec<u8>> = x.iter().map(|a| a + 1).collect::<Vec<_>>();
+    let s = S { a: 1, b, ..Default::default() };
+    let t = (1,);
+    let u = ();
+    let p = (a + b) * c;
+    let arr = [1, 2, 3];
+    let rep = [0u8; 16];
+    let c = move |x: i32, (a, b): (u8, u8)| -> i32 { x };
+    let d = || 42;
+    let e = async move { 1 };
+    let f = x?.await;
+    let g = &mut *x;
+    let h = &raw const x;
+    let i = Vec::<u8>::with_capacity(4);
+    let j = <T as Trait>::CONST;
+    let k = obj.field.0.1;
+    let l = a[i][j];
+    let m = f(1)(2);
+    a += b >> 2;
+    a = b = c;
+    x.y.z = 1;
+    let n = if a { 1 } else { 2 };
+    let o = match x { _ => 0 };
+    let q = unsafe { *p };
+    let w = loop { break 7; };
+    let label = 'a: { break 'a 1; };
+    println!("{} {:?}", a, b);
+    let v = vec![0; n];
+    let fmt = format!("{x}");
+    let unparsed = quote!(some tokens #here);
+}

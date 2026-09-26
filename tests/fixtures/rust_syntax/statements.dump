@@ -1,0 +1,216 @@
+(file
+  (fn statements
+    (generics)
+    (params
+      (param
+        (pat_ident v)
+        (path_type
+          (path
+            (seg Option
+              (args
+                (path_type
+                  (path
+                    (seg u8)))))))))
+    (ret
+      (path_type
+        (path
+          (seg u8))))
+    (where)
+    (block
+      (let
+        (pat_tuple_struct
+          (path
+            (seg Some))
+          (pat_ident x))
+        (none)
+        (path_expr
+          (path
+            (seg v)))
+        (block
+          (expr_stmt
+            (return
+              (lit 0 "0" [int])))))
+      (let
+        (pat_tuple
+          (pat_ident a)
+          (pat_ident b [mut]))
+        (tuple_type
+          (path_type
+            (path
+              (seg u8)))
+          (path_type
+            (path
+              (seg u8))))
+        (none)
+        (none))
+      (let
+        (pat_wild)
+        (none)
+        (path_expr
+          (path
+            (seg x)))
+        (none))
+      (expr_stmt
+        (if
+          (bin &&
+            (let_cond
+              (pat_tuple_struct
+                (path
+                  (seg Some))
+                (pat_ident y))
+              (path_expr
+                (path
+                  (seg v))))
+            (bin >
+              (path_expr
+                (path
+                  (seg y)))
+              (lit 1 "1" [int])))
+          (block
+            (expr_stmt [;]
+              (assign =
+                (path_expr
+                  (path
+                    (seg b)))
+                (path_expr
+                  (path
+                    (seg y))))))
+          (if
+            (bin ==
+              (path_expr
+                (path
+                  (seg a)))
+              (lit 0 "0" [int]))
+            (block
+              (expr_stmt [;]
+                (assign =
+                  (path_expr
+                    (path
+                      (seg b)))
+                  (lit 1 "1" [int]))))
+            (block
+              (expr_stmt [;]
+                (assign =
+                  (path_expr
+                    (path
+                      (seg b)))
+                  (lit 2 "2" [int])))))))
+      (expr_stmt
+        (if
+          (bin ==
+            (path_expr
+              (path
+                (seg x)))
+            (path_expr
+              (path
+                (seg S))))
+          (block)
+          (none)))
+      (expr_stmt
+        (match
+          (path_expr
+            (path
+              (seg v)))
+          (arm
+            (pat_or
+              (pat_tuple_struct
+                (path
+                  (seg Some))
+                (pat_lit
+                  (lit 0 "0" [int])))
+              (pat_ident None))
+            (none)
+            (block))
+          (arm
+            (pat_lit
+              (unary -
+                (lit 1 "1" [int])))
+            (none)
+            (lit 2 "2" [int]))
+          (arm
+            (pat_tuple_struct
+              (path
+                (seg Some))
+              (pat_ident n))
+            (bin >
+              (path_expr
+                (path
+                  (seg n)))
+              (lit 3 "3" [int]))
+            (block
+              (expr_stmt
+                (path_expr
+                  (path
+                    (seg n))))))
+          (arm
+            (pat_wild)
+            (none)
+            (return
+              (lit 1 "1" [int])))))
+      (expr_stmt
+        (for 'outer
+          (pat_tuple
+            (pat_ident i)
+            (pat_ident c))
+          (method enumerate
+            (method chars
+              (lit "\"aé\"" "aé" [str])
+              (args))
+            (args))
+          (block
+            (expr_stmt
+              (while
+                (let_cond
+                  (pat_tuple_struct
+                    (path
+                      (seg Some))
+                    (pat_ident t))
+                  (method next
+                    (path_expr
+                      (path
+                        (seg it)))
+                    (args)))
+                (block
+                  (expr_stmt [;]
+                    (continue 'outer))))))))
+      (expr_stmt
+        (loop
+          (block
+            (expr_stmt [;]
+              (break)))))
+      (expr_stmt [;]
+        (method min
+          (match
+            (path_expr
+              (path
+                (seg x)))
+            (arm
+              (pat_ident a)
+              (none)
+              (path_expr
+                (path
+                  (seg a)))))
+          (args)
+          (lit 3 "3" [int])))
+      (expr_stmt
+        (block
+          (expr_stmt
+            (lit 1 "1" [int]))))
+      (expr_stmt [;]
+        (unary -
+          (lit 1 "1" [int])))
+      (fn local
+        (generics)
+        (params)
+        (ret)
+        (where)
+        (block))
+      (struct Local
+        (generics)
+        (where)
+        (fields_unit))
+      (empty)
+      (expr_stmt
+        (path_expr
+          (path
+            (seg b)))))))

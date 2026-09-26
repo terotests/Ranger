@@ -1,0 +1,76 @@
+; SPDX-License-Identifier: MIT
+
+; Command line driver for the Rust parser (PLAN_RUST_SYNTAX.md, stage R0).
+;
+;   rustparse [-dump] [-check] <file.rs> …
+;
+; Parses each file and prints `ok <file>` or its errors; `-dump` prints the
+; tree instead, `-check` also runs RustSpanCheck and reports its problems as
+; errors. Exits with status 1 when any file had an error.
+
+Import "../parser/RustParser.rgr"
+Import "../parser/RustSpanCheck.rgr"
+
+class RustParseMain {
+  sfn main:void () {
+    def dump:boolean false
+    def spans:boolean false
+    def files:[string]
+    def n:int (shell_arg_cnt)
+    def i:int 0
+    while (i < n) {
+      def a:string (shell_arg i)
+      if (a == "-dump") {
+        dump = true
+      } {
+        if (a == "-check") {
+          spans = true
+        } {
+          push files a
+        }
+      }
+      i = i + 1
+    }
+    def failed:int 0
+    for files path:string fi {
+      def src@(optional):string (read_file_sync "" path)
+      if (null? src) {
+        print ("cannot read " + path)
+        failed = failed + 1
+        continue
+      }
+      def text:string (unwrap src)
+      def p:RustParser (new RustParser(text))
+      def tree:RustNode (p.parseFile())
+      if (dump) {
+        print (tree.dump(""))
+      }
+      if (spans && ((array_length p.errors) == 0)) {
+        def sc:RustSpanCheck (new RustSpanCheck(p))
+        sc.check(tree)
+        for sc.problems sp:string si {
+          push p.errors sp
+        }
+      }
+      if ((array_length p.errors) > 0) {
+        failed = failed + 1
+        print ((("FAIL " + path) + " ") + (to_string (array_length p.errors)))
+        def shown:int 0
+        for p.errors e:string ei {
+          if (shown < 5) {
+            print ("  " + e)
+          }
+          shown = shown + 1
+        }
+      } {
+        if (false == dump) {
+          print ("ok " + path)
+        }
+      }
+    }
+    if (failed > 0) {
+      print ((to_string failed) + " file(s) failed")
+      exit 1
+    }
+  }
+}

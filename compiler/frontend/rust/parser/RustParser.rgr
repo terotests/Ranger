@@ -1,0 +1,2999 @@
+; SPDX-License-Identifier: MIT
+
+; Parser for Rust source (PLAN_RUST_SYNTAX.md, stage R0).
+;
+; Recursive descent over the tokens of RustLexer, producing RustNode trees
+; (the shapes are listed in RustAst.rgr). It reads the full Rust grammar of the
+; 2024 edition, not only the Ranger subset: the subset is checked when the tree
+; is lowered, where a message can name the construct and its alternative.
+;
+; Expression precedence, loosest first (the Rust reference):
+;   assignment and compound assignment (right)   ..  ..=   ||   &&
+;   == != < > <= >=   |   ^   &   << >>   + -   * / %   as   unary   postfix
+;
+; Punctuation arrives one character per token; `glued` joins adjacent (joint)
+; tokens into the longest operator, so `>>` is a shift in an expression and two
+; closing brackets in `Vec<Vec<T>>`.
+
+Import "../lexer/RustLexer.rgr"
+Import "../ast/RustAst.rgr"
+
+class RustParser {
+  def lx:RustLexer
+  def toks:[RustToken]
+  def pos:int 0
+  def limit:int 0
+  def errors:[string]
+  ; no struct literal directly in an `if` / `while` / `match` / `for` head:
+  ; `if x == S { … }` is a comparison followed by a block
+  def noStruct:boolean false
+  def eofTok:RustToken (new RustToken ())
+
+  Constructor (source:string) {
+    lx = (new RustLexer(source))
+    toks = (lx.tokenize())
+    limit = (array_length toks) - 1
+    eofTok.kind = "eof"
+    for lx.errors e:string i {
+      push errors e
+    }
+  }
+
+  ; ---------------------------------------------------------------- tokens
+
+  fn tok:RustToken () {
+    if (pos < limit) {
+      def t:RustToken (itemAt toks pos)
+      return t
+    }
+    return (this.eofAt(pos))
+  }
+
+  fn peek:RustToken (k:int) {
+    def p:int (pos + k)
+    if (p < limit) {
+      def t:RustToken (itemAt toks p)
+      return t
+    }
+    return (this.eofAt(p))
+  }
+
+  ; The eof of a sub-range (a macro body) sits where the range ends, so an
+  ; error there points at the closing delimiter.
+  fn eofAt:RustToken (p:int) {
+    def n:int (array_length toks)
+    def idx:int limit
+    if (idx >= n) {
+      idx = n - 1
+    }
+    def last:RustToken (itemAt toks idx)
+    eofTok.start = last.start
+    eofTok.end = last.start
+    eofTok.line = last.line
+    eofTok.col = last.col
+    return eofTok
+  }
+
+  fn tokText:string () {
+    def t:RustToken (this.tok())
+    return t.text
+  }
+
+  fn tokKind:string () {
+    def t:RustToken (this.tok())
+    return t.kind
+  }
+
+  fn tokValue:string () {
+    def t:RustToken (this.tok())
+    return t.value
+  }
+
+  fn peekKind:string (k:int) {
+    def t:RustToken (this.peek(k))
+    return t.kind
+  }
+
+  fn atEnd:boolean () {
+    return (pos >= limit)
+  }
+
+  fn isP:boolean (s:string) {
+    def t:RustToken (this.tok())
+    return ((t.kind == "punct") && (t.text == s))
+  }
+
+  fn isPAt:boolean (k:int s:string) {
+    def t:RustToken (this.peek(k))
+    return ((t.kind == "punct") && (t.text == s))
+  }
+
+  fn isKw:boolean (s:string) {
+    def t:RustToken (this.tok())
+    return ((t.kind == "ident") && (t.text == s))
+  }
+
+  fn isKwAt:boolean (k:int s:string) {
+    def t:RustToken (this.peek(k))
+    return ((t.kind == "ident") && (t.text == s))
+  }
+
+  static fn isKnownOp:boolean (s:string) {
+    def ops:[string] ([] _:string ("<<=" ">>=" "..." "..=" "::" "->" "=>" "==" "!=" "<=" ">=" "&&" "||" "+=" "-=" "*=" "/=" "%=" "^=" "&=" "|=" "<<" ">>" ".."))
+    for ops o:string i {
+      if (o == s) {
+        return true
+      }
+    }
+    return false
+  }
+
+  ; The longest operator starting at token pos+k, built from joint punct.
+  fn gluedAt:string (k:int) {
+    def t:RustToken (this.peek(k))
+    if (t.kind != "punct") {
+      return ""
+    }
+    def s1:string t.text
+    if (false == t.joint) {
+      return s1
+    }
+    def t2:RustToken (this.peek((k + 1)))
+    if (t2.kind != "punct") {
+      return s1
+    }
+    def s2:string (s1 + t2.text)
+    if (t2.joint) {
+      def t3:RustToken (this.peek((k + 2)))
+      if (t3.kind == "punct") {
+        def s3:string (s2 + t3.text)
+        if (RustParser.isKnownOp(s3)) {
+          return s3
+        }
+      }
+    }
+    if (RustParser.isKnownOp(s2)) {
+      return s2
+    }
+    return s1
+  }
+
+  fn glued:string () {
+    return (this.gluedAt(0))
+  }
+
+  fn isOp:boolean (s:string) {
+    return ((this.glued()) == s)
+  }
+
+  ; Consumes the operator `s` even where the glued reading is longer:
+  ; `>` out of `>>` closes a generic list, `&` out of `&&` starts a reference.
+  fn eatPrefix:boolean (s:string) {
+    def n:int (strlen s)
+    def k:int 0
+    while (k < n) {
+      def t:RustToken (this.peek(k))
+      if ((t.kind != "punct") || (t.text != (substring s k (k + 1)))) {
+        return false
+      }
+      if ((k < (n - 1)) && (false == t.joint)) {
+        return false
+      }
+      k = k + 1
+    }
+    pos = pos + n
+    return true
+  }
+
+  fn eatOp:boolean (s:string) {
+    if (this.isOp(s)) {
+      pos = pos + (strlen s)
+      return true
+    }
+    return false
+  }
+
+  fn eatP:boolean (s:string) {
+    if (this.isP(s)) {
+      pos = pos + 1
+      return true
+    }
+    return false
+  }
+
+  fn eatKw:boolean (s:string) {
+    if (this.isKw(s)) {
+      pos = pos + 1
+      return true
+    }
+    return false
+  }
+
+  fn error:void (msg:string) {
+    def t:RustToken (this.tok())
+    def got:string t.text
+    if (t.kind == "eof") {
+      got = "end of input"
+    }
+    push errors (((((("line " + (to_string t.line)) + ":") + (to_string t.col)) + ": ") + msg) + ((", found '" + got) + "'"))
+  }
+
+  fn expectP:void (s:string) {
+    if (false == (this.eatP(s))) {
+      this.error(("expected '" + s) + "'")
+    }
+  }
+
+  fn expectOp:void (s:string) {
+    if (false == (this.eatPrefix(s))) {
+      this.error(("expected '" + s) + "'")
+    }
+  }
+
+  fn expectKw:void (s:string) {
+    if (false == (this.eatKw(s))) {
+      this.error(("expected '" + s) + "'")
+    }
+  }
+
+  fn node:RustNode (kind:string) {
+    def t:RustToken (this.tok())
+    def n:RustNode (new RustNode(kind))
+    n.start = t.start
+    n.end = t.start
+    n.line = t.line
+    n.col = t.col
+    return n
+  }
+
+  fn nodeAt:RustNode (kind:string from:RustNode) {
+    def n:RustNode (new RustNode(kind))
+    n.start = from.start
+    n.end = from.end
+    n.line = from.line
+    n.col = from.col
+    return n
+  }
+
+  fn done:RustNode (n:RustNode) {
+    if (pos > 0) {
+      def idx:int (pos - 1)
+      if (idx >= (array_length toks)) {
+        idx = (array_length toks) - 1
+      }
+      def prev:RustToken (itemAt toks idx)
+      if (prev.end > n.start) {
+        n.end = prev.end
+      }
+    }
+    return n
+  }
+
+  fn none:RustNode () {
+    return (new RustNode("none"))
+  }
+
+  fn identText:string () {
+    def t:RustToken (this.tok())
+    if (t.kind == "ident") {
+      pos = pos + 1
+      return t.value
+    }
+    this.error("expected an identifier")
+    return ""
+  }
+
+  ; Skips to the end of a balanced group starting at pos (which must be an
+  ; opening delimiter) and returns the index just past the closing one.
+  fn matchingClose:int (from:int) {
+    def depth:int 0
+    def p:int from
+    while (p < limit) {
+      def t:RustToken (itemAt toks p)
+      if (t.kind == "punct") {
+        if ((t.text == "(") || (t.text == "[") || (t.text == "{")) {
+          depth = depth + 1
+        }
+        if ((t.text == ")") || (t.text == "]") || (t.text == "}")) {
+          depth = depth - 1
+          if (depth == 0) {
+            return (p + 1)
+          }
+        }
+      }
+      p = p + 1
+    }
+    return limit
+  }
+
+  ; Source text of the tokens [a, b).
+  fn textOf:string (a:int b:int) {
+    if (b <= a) {
+      return ""
+    }
+    def ta:RustToken (itemAt toks a)
+    def tb:RustToken (itemAt toks (b - 1))
+    return (lx.text(ta.start tb.end))
+  }
+
+  ; --------------------------------------------------------------- file
+
+  fn parseFile:RustNode () {
+    def f:RustNode (this.node("file"))
+    this.innerAttrs(f)
+    while (false == (this.atEnd())) {
+      def before:int pos
+      def it:RustNode (this.parseItem())
+      if (false == (it.isNone())) {
+        f.add(it)
+      }
+      if (pos == before) {
+        this.error("expected an item")
+        pos = pos + 1
+      }
+    }
+    return (this.done(f))
+  }
+
+  ; `#![…]` and `//!` at the start of a file, module or block.
+  fn innerAttrs:void (owner:RustNode) {
+    while true {
+      def t:RustToken (this.tok())
+      if ((t.kind == "doc") && (t.suffix == "inner")) {
+        def d:RustNode (this.node("attr"))
+        d.name = "doc"
+        d.value = t.value
+        d.addMod("inner")
+        d.addMod("sugared")
+        pos = pos + 1
+        push owner.attrs (this.done(d))
+        continue
+      }
+      if ((this.isP("#")) && (this.isPAt(1 "!")) && (this.isPAt(2 "["))) {
+        def a:RustNode (this.parseAttr())
+        a.addMod("inner")
+        push owner.attrs a
+        continue
+      }
+      break
+    }
+  }
+
+  fn outerAttrs:[RustNode] () {
+    def list:[RustNode]
+    while true {
+      def t:RustToken (this.tok())
+      if ((t.kind == "doc") && (t.suffix == "outer")) {
+        def d:RustNode (this.node("attr"))
+        d.name = "doc"
+        d.value = t.value
+        d.addMod("sugared")
+        pos = pos + 1
+        push list (this.done(d))
+        continue
+      }
+      if ((t.kind == "doc") && (t.suffix == "inner")) {
+        ; an inner doc comment in item position is an error in rustc; keep it
+        this.error("inner doc comment must come before the items")
+        pos = pos + 1
+        continue
+      }
+      if ((this.isP("#")) && (this.isPAt(1 "["))) {
+        push list (this.parseAttr())
+        continue
+      }
+      break
+    }
+    return list
+  }
+
+  ; `#[path args]` / `#![path args]`; args kept as text.
+  fn parseAttr:RustNode () {
+    def a:RustNode (this.node("attr"))
+    this.expectP("#")
+    this.eatP("!")
+    if (false == (this.isP("["))) {
+      this.error("expected '['")
+      return a
+    }
+    def close:int (this.matchingClose(pos))
+    pos = pos + 1
+    def ps:int pos
+    while (pos < (close - 1)) {
+      if ((this.isP("(")) || (this.isP("[")) || (this.isP("{")) || ((this.isP("=")) && (false == (this.isOp("=="))))) {
+        break
+      }
+      pos = pos + 1
+    }
+    a.name = (this.textOf(ps pos))
+    a.value = (this.textOf(pos (close - 1)))
+    pos = close
+    return (this.done(a))
+  }
+
+  ; --------------------------------------------------------------- items
+
+  fn parseVis:string () {
+    if (false == (this.isKw("pub"))) {
+      return ""
+    }
+    pos = pos + 1
+    if (this.isP("(")) {
+      ; pub(crate) pub(self) pub(super) pub(in path) -- but not the start of
+      ; a tuple field type `pub (A, B)`
+      def k1:RustToken (this.peek(1))
+      if ((k1.text == "crate") || (k1.text == "self") || (k1.text == "super") || (k1.text == "in")) {
+        def close:int (this.matchingClose(pos))
+        def v:string ("pub" + (this.textOf(pos close)))
+        pos = close
+        return v
+      }
+    }
+    return "pub"
+  }
+
+  fn isItemStart:boolean () {
+    def t:RustToken (this.tok())
+    if (t.kind != "ident") {
+      return false
+    }
+    def w:string t.text
+    if ((w == "fn") || (w == "struct") || (w == "enum") || (w == "trait") || (w == "impl") || (w == "mod") || (w == "use") || (w == "type") || (w == "pub") || (w == "static")) {
+      if ((w == "static") && ((this.isPAt(1 "|")) || (this.isKwAt(1 "move")))) {
+        return false
+      }
+      return true
+    }
+    if (w == "extern") {
+      return true
+    }
+    if (w == "const") {
+      ; `const {` is a const block expression
+      return (false == (this.isPAt(1 "{")))
+    }
+    if (w == "unsafe") {
+      def n1:RustToken (this.peek(1))
+      return ((n1.text == "fn") || (n1.text == "impl") || (n1.text == "trait") || (n1.text == "extern") || (n1.text == "auto") || (n1.text == "mod"))
+    }
+    if (w == "async") {
+      def a1:RustToken (this.peek(1))
+      return ((a1.text == "fn") || (a1.text == "unsafe"))
+    }
+    if ((w == "union") || (w == "auto")) {
+      def u1:RustToken (this.peek(1))
+      return ((u1.kind == "ident") && (u1.text != "="))
+    }
+    if (w == "default") {
+      def d1:RustToken (this.peek(1))
+      return ((d1.text == "fn") || (d1.text == "impl") || (d1.text == "type") || (d1.text == "const") || (d1.text == "unsafe") || (d1.text == "async"))
+    }
+    if (w == "macro_rules") {
+      return (this.isPAt(1 "!"))
+    }
+    return false
+  }
+
+  fn parseItem:RustNode () {
+    def attrs:[RustNode] (this.outerAttrs())
+    def it:RustNode (this.parseItemNoAttrs())
+    for attrs a:RustNode i {
+      push it.attrs a
+    }
+    return it
+  }
+
+  fn parseItemNoAttrs:RustNode () {
+    def start:RustNode (this.node("x"))
+    def vis:string (this.parseVis())
+    def it:RustNode (this.parseItemKind())
+    it.start = start.start
+    it.line = start.line
+    it.col = start.col
+    if (vis != "") {
+      push it.mods vis
+    }
+    return it
+  }
+
+  fn parseItemKind:RustNode () {
+    def quals:[string]
+    def abi:string ""
+    ; qualifiers of fn / impl / trait / mod
+    while true {
+      if ((this.isKw("default")) && (false == (this.isPAt(1 "!")))) {
+        push quals "default"
+        pos = pos + 1
+        continue
+      }
+      if ((this.isKw("const")) && ((this.isKwAt(1 "fn")) || (this.isKwAt(1 "unsafe")) || (this.isKwAt(1 "async")) || (this.isKwAt(1 "extern")))) {
+        push quals "const"
+        pos = pos + 1
+        continue
+      }
+      if ((this.isKw("async")) && ((this.isKwAt(1 "fn")) || (this.isKwAt(1 "unsafe")))) {
+        push quals "async"
+        pos = pos + 1
+        continue
+      }
+      if ((this.isKw("unsafe")) && (false == (this.isPAt(1 "{")))) {
+        push quals "unsafe"
+        pos = pos + 1
+        continue
+      }
+      if ((this.isKw("safe")) && ((this.isKwAt(1 "fn")) || (this.isKwAt(1 "static")))) {
+        push quals "safe"
+        pos = pos + 1
+        continue
+      }
+      if ((this.isKw("extern")) && (false == (this.isKwAt(1 "crate")))) {
+        def e1:RustToken (this.peek(1))
+        if (e1.kind == "str") {
+          abi = e1.value
+          pos = pos + 2
+        } {
+          pos = pos + 1
+          abi = "C"
+        }
+        push quals "extern"
+        if (this.isP("{")) {
+          return (this.parseExternBlock(abi))
+        }
+        continue
+      }
+      if (this.isKw("auto")) {
+        push quals "auto"
+        pos = pos + 1
+        continue
+      }
+      break
+    }
+    def it:RustNode (this.parseItemDispatch())
+    if (it.isNone()) {
+      if (((this.tokKind()) == "ident") || (this.isOp("::"))) {
+        ; a macro invocation in item position: `thread_local! { … }`
+        def save:int pos
+        def p:RustNode (this.parsePath(false))
+        if ((this.isP("!")) && (false == (this.isOp("!=")))) {
+          it = (this.parseMacroCall(p))
+          if ((it.hasMod("(")) || (it.hasMod("["))) {
+            this.expectP(";")
+          }
+          it.kind = "macro_item"
+          return (this.done(it))
+        }
+        pos = save
+      }
+      if ((array_length quals) == 0) {
+        this.error("expected an item")
+      }
+      return it
+    }
+    for quals q:string i {
+      it.addMod(q)
+    }
+    if (abi != "") {
+      it.value = abi
+    }
+    return it
+  }
+
+  fn parseItemDispatch:RustNode () {
+    if (this.isKw("fn")) {
+      return (this.parseFn())
+    }
+    if ((this.isKw("struct")) || ((this.isKw("union")) && ((this.peekKind(1)) == "ident"))) {
+      return (this.parseStruct())
+    }
+    if (this.isKw("enum")) {
+      return (this.parseEnum())
+    }
+    if (this.isKw("trait")) {
+      return (this.parseTrait())
+    }
+    if (this.isKw("impl")) {
+      return (this.parseImpl())
+    }
+    if (this.isKw("mod")) {
+      return (this.parseMod())
+    }
+    if (this.isKw("use")) {
+      return (this.parseUse())
+    }
+    if (this.isKw("type")) {
+      return (this.parseTypeAlias())
+    }
+    if (this.isKw("const")) {
+      return (this.parseConstStatic("const"))
+    }
+    if (this.isKw("static")) {
+      return (this.parseConstStatic("static"))
+    }
+    if ((this.isKw("extern")) && (this.isKwAt(1 "crate"))) {
+      return (this.parseExternCrate())
+    }
+    if ((this.isKw("macro_rules")) && (this.isPAt(1 "!"))) {
+      return (this.parseMacroRules())
+    }
+    return (this.none())
+  }
+
+  fn parseFn:RustNode () {
+    def f:RustNode (this.node("fn"))
+    this.expectKw("fn")
+    f.name = (this.identText())
+    f.add((this.parseGenerics()))
+    f.add((this.parseParams()))
+    def ret:RustNode (this.node("ret"))
+    if (this.eatOp("->")) {
+      ; `-> impl Iterator<Item = T> + '_` takes bounds in an fn item
+      ret.add((this.parseType()))
+    }
+    f.add((this.done(ret)))
+    f.add((this.parseWhere()))
+    if (this.eatP(";")) {
+      f.add((this.none()))
+    } {
+      f.add((this.parseBlock()))
+    }
+    return (this.done(f))
+  }
+
+  fn parseParams:RustNode () {
+    def ps:RustNode (this.node("params"))
+    this.expectP("(")
+    while ((false == (this.isP(")"))) && (false == (this.atEnd()))) {
+      def before:int pos
+      def attrs:[RustNode] (this.outerAttrs())
+      def p:RustNode (this.parseParam())
+      for attrs a:RustNode i {
+        push p.attrs a
+      }
+      ps.add(p)
+      if (false == (this.eatP(","))) {
+        break
+      }
+      if (pos == before) {
+        pos = pos + 1
+      }
+    }
+    this.expectP(")")
+    return (this.done(ps))
+  }
+
+  fn parseParam:RustNode () {
+    ; self, mut self, &self, &mut self, &'a self, &'a mut self, self: T
+    def k:int 0
+    def isSelf:boolean false
+    if (this.isP("&")) {
+      k = 1
+      if ((this.peek(k)).kind == "lifetime") {
+        k = k + 1
+      }
+      if (this.isKwAt(k "mut")) {
+        k = k + 1
+      }
+      isSelf = (this.isKwAt(k "self"))
+    } {
+      if (this.isKw("mut")) {
+        k = 1
+      }
+      isSelf = ((this.isKwAt(k "self")) && (false == (this.isPAt((k + 1) ":") && (this.isPAt((k + 2) ":")))))
+    }
+    if (isSelf) {
+      def s:RustNode (this.node("self_param"))
+      if (this.eatP("&")) {
+        s.addMod("&")
+        if ((this.tokKind()) == "lifetime") {
+          s.name = (this.tokText())
+          pos = pos + 1
+        }
+      }
+      if (this.eatKw("mut")) {
+        s.addMod("mut")
+      }
+      this.expectKw("self")
+      if ((this.isP(":")) && (false == (this.isOp("::")))) {
+        pos = pos + 1
+        s.add((this.parseType()))
+      } {
+        s.add((this.none()))
+      }
+      return (this.done(s))
+    }
+    if (this.isOp("...")) {
+      def v:RustNode (this.node("variadic"))
+      pos = pos + 3
+      return (this.done(v))
+    }
+    def p:RustNode (this.node("param"))
+    p.add((this.parsePatternNoAlt()))
+    if (this.eatP(":")) {
+      if (this.isOp("...")) {
+        def v2:RustNode (this.node("variadic"))
+        pos = pos + 3
+        p.add((this.done(v2)))
+      } {
+        p.add((this.parseType()))
+      }
+    } {
+      p.add((this.none()))
+    }
+    return (this.done(p))
+  }
+
+  fn parseGenerics:RustNode () {
+    def g:RustNode (this.node("generics"))
+    if (false == (this.isP("<"))) {
+      return g
+    }
+    pos = pos + 1
+    while ((false == (this.isP(">"))) && (false == (this.atEnd()))) {
+      def before:int pos
+      def attrs:[RustNode] (this.outerAttrs())
+      def gp:RustNode (this.none())
+      if ((this.tokKind()) == "lifetime") {
+        gp = (this.node("lifetime_param"))
+        gp.name = (this.tokText())
+        pos = pos + 1
+        def lb:RustNode (this.node("bounds"))
+        if (this.eatP(":")) {
+          while ((this.tokKind()) == "lifetime") {
+            def lt:RustNode (this.node("lifetime"))
+            lt.name = (this.tokText())
+            pos = pos + 1
+            lb.add((this.done(lt)))
+            if (false == (this.eatP("+"))) {
+              break
+            }
+          }
+        }
+        gp.add((this.done(lb)))
+      } {
+        if (this.eatKw("const")) {
+          gp = (this.node("const_param"))
+          gp.name = (this.identText())
+          this.expectP(":")
+          gp.add((this.parseType()))
+          if (this.eatP("=")) {
+            gp.add((this.parseConstArg()))
+          } {
+            gp.add((this.none()))
+          }
+        } {
+          gp = (this.node("type_param"))
+          gp.name = (this.identText())
+          if ((this.isP(":")) && (false == (this.isOp("::")))) {
+            pos = pos + 1
+            gp.add((this.parseBounds()))
+          } {
+            gp.add((this.node("bounds")))
+          }
+          if (this.eatP("=")) {
+            gp.add((this.parseType()))
+          } {
+            gp.add((this.none()))
+          }
+        }
+      }
+      for attrs a:RustNode i {
+        push gp.attrs a
+      }
+      g.add((this.done(gp)))
+      if (false == (this.eatP(","))) {
+        break
+      }
+      if (pos == before) {
+        pos = pos + 1
+      }
+    }
+    this.expectOp(">")
+    return (this.done(g))
+  }
+
+  fn parseWhere:RustNode () {
+    def w:RustNode (this.node("where"))
+    if (false == (this.eatKw("where"))) {
+      return w
+    }
+    while true {
+      if ((this.isP("{")) || (this.isP(";")) || (this.atEnd()) || ((this.isP("=")) && (false == (this.isOp("=="))))) {
+        break
+      }
+      def before:int pos
+      if ((this.tokKind()) == "lifetime") {
+        def wl:RustNode (this.node("where_lt"))
+        wl.name = (this.tokText())
+        pos = pos + 1
+        this.expectP(":")
+        def lb:RustNode (this.node("bounds"))
+        while ((this.tokKind()) == "lifetime") {
+          def lt:RustNode (this.node("lifetime"))
+          lt.name = (this.tokText())
+          pos = pos + 1
+          lb.add((this.done(lt)))
+          if (false == (this.eatP("+"))) {
+            break
+          }
+        }
+        wl.add((this.done(lb)))
+        w.add((this.done(wl)))
+      } {
+        def wp:RustNode (this.node("where_pred"))
+        if (this.isKw("for")) {
+          pos = pos + 1
+          def hr:RustNode (this.parseGenerics())
+          wp.addMod("for<>")
+          wp.attrs = hr.kids
+        }
+        wp.add((this.parseType()))
+        this.expectP(":")
+        wp.add((this.parseBounds()))
+        w.add((this.done(wp)))
+      }
+      if (false == (this.eatP(","))) {
+        break
+      }
+      if (pos == before) {
+        pos = pos + 1
+      }
+    }
+    return (this.done(w))
+  }
+
+  fn parseStruct:RustNode () {
+    def kind:string "struct"
+    if (this.isKw("union")) {
+      kind = "union"
+    }
+    def s:RustNode (this.node(kind))
+    pos = pos + 1
+    s.name = (this.identText())
+    s.add((this.parseGenerics()))
+    if (this.isP("(")) {
+      ; tuple struct: the where clause follows the fields
+      def tf:RustNode (this.parseTupleFields())
+      s.add((this.parseWhere()))
+      s.add(tf)
+      this.expectP(";")
+      return (this.done(s))
+    }
+    s.add((this.parseWhere()))
+    if (this.eatP(";")) {
+      s.add((this.node("fields_unit")))
+    } {
+      s.add((this.parseNamedFields()))
+    }
+    return (this.done(s))
+  }
+
+  fn parseNamedFields:RustNode () {
+    def fs:RustNode (this.node("fields_named"))
+    this.expectP("{")
+    while ((false == (this.isP("}"))) && (false == (this.atEnd()))) {
+      def before:int pos
+      def attrs:[RustNode] (this.outerAttrs())
+      def f:RustNode (this.node("field"))
+      def vis:string (this.parseVis())
+      if (vis != "") {
+        f.addMod(vis)
+      }
+      if (this.eatKw("unsafe")) {
+        f.addMod("unsafe")
+      }
+      f.name = (this.identText())
+      this.expectP(":")
+      f.add((this.parseType()))
+      ; default field values (`x: int = 0`, RFC 3681)
+      if (this.eatP("=")) {
+        f.add((this.parseExpr()))
+      }
+      for attrs a:RustNode i {
+        push f.attrs a
+      }
+      fs.add((this.done(f)))
+      if (false == (this.eatP(","))) {
+        break
+      }
+      if (pos == before) {
+        pos = pos + 1
+      }
+    }
+    this.expectP("}")
+    return (this.done(fs))
+  }
+
+  fn parseTupleFields:RustNode () {
+    def fs:RustNode (this.node("fields_tuple"))
+    this.expectP("(")
+    def idx:int 0
+    while ((false == (this.isP(")"))) && (false == (this.atEnd()))) {
+      def before:int pos
+      def attrs:[RustNode] (this.outerAttrs())
+      def f:RustNode (this.node("field"))
+      def vis:string (this.parseVis())
+      if (vis != "") {
+        f.addMod(vis)
+      }
+      f.name = (to_string idx)
+      f.add((this.parseType()))
+      for attrs a:RustNode i {
+        push f.attrs a
+      }
+      fs.add((this.done(f)))
+      idx = idx + 1
+      if (false == (this.eatP(","))) {
+        break
+      }
+      if (pos == before) {
+        pos = pos + 1
+      }
+    }
+    this.expectP(")")
+    return (this.done(fs))
+  }
+
+  fn parseEnum:RustNode () {
+    def e:RustNode (this.node("enum"))
+    this.expectKw("enum")
+    e.name = (this.identText())
+    e.add((this.parseGenerics()))
+    e.add((this.parseWhere()))
+    this.expectP("{")
+    while ((false == (this.isP("}"))) && (false == (this.atEnd()))) {
+      def before:int pos
+      def attrs:[RustNode] (this.outerAttrs())
+      def v:RustNode (this.node("variant"))
+      def vis:string (this.parseVis())
+      if (vis != "") {
+        v.addMod(vis)
+      }
+      v.name = (this.identText())
+      if (this.isP("{")) {
+        v.add((this.parseNamedFields()))
+      } {
+        if (this.isP("(")) {
+          v.add((this.parseTupleFields()))
+        } {
+          v.add((this.node("fields_unit")))
+        }
+      }
+      if (this.eatP("=")) {
+        v.add((this.parseExpr()))
+      } {
+        v.add((this.none()))
+      }
+      for attrs a:RustNode i {
+        push v.attrs a
+      }
+      e.add((this.done(v)))
+      if (false == (this.eatP(","))) {
+        break
+      }
+      if (pos == before) {
+        pos = pos + 1
+      }
+    }
+    this.expectP("}")
+    return (this.done(e))
+  }
+
+  fn parseTrait:RustNode () {
+    def t:RustNode (this.node("trait"))
+    this.expectKw("trait")
+    t.name = (this.identText())
+    t.add((this.parseGenerics()))
+    if ((this.isP(":")) && (false == (this.isOp("::")))) {
+      pos = pos + 1
+      t.add((this.parseBounds()))
+    } {
+      t.add((this.node("bounds")))
+    }
+    if (this.eatP("=")) {
+      ; trait alias `trait A = B + C;`
+      t.addMod("alias")
+      t.add((this.parseWhere()))
+      t.add((this.parseBounds()))
+      this.expectP(";")
+      return (this.done(t))
+    }
+    t.add((this.parseWhere()))
+    this.parseAssocItems(t)
+    return (this.done(t))
+  }
+
+  fn parseImpl:RustNode () {
+    def im:RustNode (this.node("impl"))
+    this.expectKw("impl")
+    ; `impl<T>` generics -- but `impl <T as X>::Y` is not a generic list;
+    ; rustc resolves the same ambiguity by looking at the next tokens
+    if ((this.isP("<")) && (false == (this.looksLikeQPathAfterImpl()))) {
+      im.add((this.parseGenerics()))
+    } {
+      im.add((this.node("generics")))
+    }
+    this.eatKw("const")
+    def neg:boolean (this.eatP("!"))
+    ; the self type may be a trait object with bounds: `impl X for dyn A + '_`
+    def first:RustNode (this.parseType())
+    if (this.eatKw("for")) {
+      if (neg) {
+        im.addMod("!")
+      }
+      im.add(first)
+      im.add((this.parseType()))
+    } {
+      im.add((this.none()))
+      im.add(first)
+    }
+    im.add((this.parseWhere()))
+    this.parseAssocItems(im)
+    return (this.done(im))
+  }
+
+  fn looksLikeQPathAfterImpl:boolean () {
+    ; `impl <` followed by `>` or a lifetime/ident and then `,` `:` `=` `>`
+    ; is a generic parameter list
+    def t1:RustToken (this.peek(1))
+    if ((t1.kind == "punct") && ((t1.text == ">") || (t1.text == "#"))) {
+      return false
+    }
+    if (t1.kind == "lifetime") {
+      return false
+    }
+    if ((t1.kind == "ident") && (t1.text == "const")) {
+      return false
+    }
+    def t2:RustToken (this.peek(2))
+    if (t2.kind == "punct") {
+      if ((t2.text == ",") || (t2.text == ">") || (t2.text == "=")) {
+        return false
+      }
+      ; `T: Bound` (also `T: ::path::Bound`) but not `T::Assoc`
+      if ((t2.text == ":") && ((this.gluedAt(2)) == ":")) {
+        return false
+      }
+    }
+    return true
+  }
+
+  fn parseAssocItems:void (owner:RustNode) {
+    this.expectP("{")
+    this.innerAttrs(owner)
+    while ((false == (this.isP("}"))) && (false == (this.atEnd()))) {
+      def before:int pos
+      def it:RustNode (this.parseItem())
+      if (false == (it.isNone())) {
+        owner.add(it)
+      }
+      if (pos == before) {
+        this.error("expected an associated item")
+        pos = pos + 1
+      }
+    }
+    this.expectP("}")
+  }
+
+  fn parseMod:RustNode () {
+    def m:RustNode (this.node("mod"))
+    this.expectKw("mod")
+    m.name = (this.identText())
+    if (this.eatP(";")) {
+      return (this.done(m))
+    }
+    m.addMod("inline")
+    this.expectP("{")
+    this.innerAttrs(m)
+    while ((false == (this.isP("}"))) && (false == (this.atEnd()))) {
+      def before:int pos
+      def it:RustNode (this.parseItem())
+      if (false == (it.isNone())) {
+        m.add(it)
+      }
+      if (pos == before) {
+        this.error("expected an item")
+        pos = pos + 1
+      }
+    }
+    this.expectP("}")
+    return (this.done(m))
+  }
+
+  fn parseUse:RustNode () {
+    def u:RustNode (this.node("use"))
+    this.expectKw("use")
+    u.add((this.parseUseTree()))
+    this.expectP(";")
+    return (this.done(u))
+  }
+
+  fn parseUseTree:RustNode () {
+    def start:RustNode (this.node("x"))
+    def path:string ""
+    if (this.eatOp("::")) {
+      path = "::"
+    }
+    while true {
+      if (this.isP("*")) {
+        pos = pos + 1
+        def g:RustNode (this.nodeAt("use_glob" start))
+        g.name = path
+        return (this.done(g))
+      }
+      if (this.isP("{")) {
+        pos = pos + 1
+        def grp:RustNode (this.nodeAt("use_group" start))
+        grp.name = path
+        while ((false == (this.isP("}"))) && (false == (this.atEnd()))) {
+          def before:int pos
+          grp.add((this.parseUseTree()))
+          if (false == (this.eatP(","))) {
+            break
+          }
+          if (pos == before) {
+            pos = pos + 1
+          }
+        }
+        this.expectP("}")
+        return (this.done(grp))
+      }
+      def seg:string (this.identText())
+      if ((path != "") && (path != "::")) {
+        path = path + "::"
+      }
+      path = path + seg
+      if (this.eatOp("::")) {
+        continue
+      }
+      def nm:RustNode (this.nodeAt("use_name" start))
+      nm.name = path
+      if (this.eatKw("as")) {
+        if (this.eatKw("_")) {
+          nm.value = "_"
+        } {
+          nm.value = (this.identText())
+        }
+      }
+      return (this.done(nm))
+    }
+    return (this.none())
+  }
+
+  fn parseTypeAlias:RustNode () {
+    def t:RustNode (this.node("type_alias"))
+    this.expectKw("type")
+    t.name = (this.identText())
+    t.add((this.parseGenerics()))
+    if ((this.isP(":")) && (false == (this.isOp("::")))) {
+      pos = pos + 1
+      t.add((this.parseBounds()))
+    } {
+      t.add((this.node("bounds")))
+    }
+    def w:RustNode (this.parseWhere())
+    if (this.eatP("=")) {
+      def ty:RustNode (this.parseType())
+      ; a where clause may also follow the type (associated type defaults)
+      def w2:RustNode (this.parseWhere())
+      if ((array_length w2.kids) > 0) {
+        w = w2
+      }
+      t.add(w)
+      t.add(ty)
+    } {
+      t.add(w)
+      t.add((this.none()))
+    }
+    this.expectP(";")
+    return (this.done(t))
+  }
+
+  fn parseConstStatic:RustNode (kind:string) {
+    def c:RustNode (this.node(kind))
+    pos = pos + 1
+    if (this.eatKw("mut")) {
+      c.addMod("mut")
+    }
+    if (this.eatKw("_")) {
+      c.name = "_"
+    } {
+      c.name = (this.identText())
+    }
+    ; generic consts (`const X<T>: …`) are unstable; skip a list if present
+    if (this.isP("<")) {
+      c.add((this.parseGenerics()))
+    }
+    if (this.eatP(":")) {
+      c.add((this.parseType()))
+    } {
+      c.add((this.none()))
+    }
+    if (this.eatP("=")) {
+      c.add((this.parseExpr()))
+    } {
+      c.add((this.none()))
+    }
+    this.expectP(";")
+    return (this.done(c))
+  }
+
+  fn parseExternCrate:RustNode () {
+    def c:RustNode (this.node("extern_crate"))
+    pos = pos + 2
+    c.name = (this.identText())
+    if (this.eatKw("as")) {
+      c.value = (this.identText())
+    }
+    this.expectP(";")
+    return (this.done(c))
+  }
+
+  fn parseExternBlock:RustNode (abi:string) {
+    def b:RustNode (this.node("extern_block"))
+    b.value = abi
+    this.parseAssocItems(b)
+    return (this.done(b))
+  }
+
+  fn parseMacroRules:RustNode () {
+    def m:RustNode (this.node("macro_rules"))
+    pos = pos + 2
+    m.name = (this.identText())
+    if ((this.isP("(")) || (this.isP("[")) || (this.isP("{"))) {
+      def open:string (this.tokText())
+      def close:int (this.matchingClose(pos))
+      m.value = (this.textOf((pos + 1) (close - 1)))
+      pos = close
+      if (open != "{") {
+        this.expectP(";")
+      }
+    } {
+      this.error("expected a macro body")
+    }
+    return (this.done(m))
+  }
+
+  ; ---------------------------------------------------------------- types
+
+  fn parseType:RustNode () {
+    return (this.parseTypeImpl(true))
+  }
+
+  fn parseTypeNoBounds:RustNode () {
+    return (this.parseTypeImpl(false))
+  }
+
+  fn parseTypeImpl:RustNode (allowPlus:boolean) {
+    def t:RustToken (this.tok())
+    if (t.kind == "lifetime") {
+      def lt:RustNode (this.node("lifetime"))
+      lt.name = t.text
+      pos = pos + 1
+      return (this.done(lt))
+    }
+    if (this.isP("(")) {
+      def tt:RustNode (this.node("tuple_type"))
+      pos = pos + 1
+      def count:int 0
+      def trailingComma:boolean false
+      while ((false == (this.isP(")"))) && (false == (this.atEnd()))) {
+        tt.add((this.parseType()))
+        count = count + 1
+        trailingComma = false
+        if (false == (this.eatP(","))) {
+          break
+        }
+        trailingComma = true
+      }
+      this.expectP(")")
+      if ((count == 1) && (false == trailingComma)) {
+        tt.kind = "paren_type"
+        ; `(Trait + Send)` or `(dyn A) + B`
+        if (allowPlus && (this.isP("+"))) {
+          return (this.continueBounds(tt))
+        }
+      }
+      return (this.done(tt))
+    }
+    if (this.isP("!")) {
+      def nv:RustNode (this.node("never_type"))
+      pos = pos + 1
+      return (this.done(nv))
+    }
+    if (this.isKw("_")) {
+      def inf:RustNode (this.node("infer_type"))
+      pos = pos + 1
+      return (this.done(inf))
+    }
+    if (this.isP("&")) {
+      def r:RustNode (this.node("ref_type"))
+      pos = pos + 1
+      if ((this.tokKind()) == "lifetime") {
+        r.name = (this.tokText())
+        pos = pos + 1
+      }
+      if (this.eatKw("mut")) {
+        r.addMod("mut")
+      }
+      r.add((this.parseTypeNoBounds()))
+      return (this.done(r))
+    }
+    if (this.isP("*")) {
+      def pt:RustNode (this.node("ptr_type"))
+      pos = pos + 1
+      if (this.eatKw("mut")) {
+        pt.addMod("mut")
+      } {
+        this.expectKw("const")
+        pt.addMod("const")
+      }
+      pt.add((this.parseTypeNoBounds()))
+      return (this.done(pt))
+    }
+    if (this.isP("[")) {
+      def st:RustNode (this.node("slice_type"))
+      pos = pos + 1
+      st.add((this.parseType()))
+      if (this.eatP(";")) {
+        st.kind = "array_type"
+        def save:boolean noStruct
+        noStruct = false
+        st.add((this.parseExpr()))
+        noStruct = save
+      }
+      this.expectP("]")
+      return (this.done(st))
+    }
+    if ((this.isKw("fn")) || (this.isKw("unsafe")) || (this.isKw("extern"))) {
+      return (this.parseFnType())
+    }
+    if (this.isKw("for")) {
+      ; for<'a> fn(&'a T) or for<'a> Trait<'a>
+      def fs:RustNode (this.node("x"))
+      pos = pos + 1
+      def hr:RustNode (this.parseGenerics())
+      def inner:RustNode (this.parseTypeImpl(allowPlus))
+      inner.addMod("for<>")
+      for hr.kids h:RustNode i {
+        push inner.attrs h
+      }
+      return inner
+    }
+    if (this.isKw("impl")) {
+      def it:RustNode (this.node("impl_type"))
+      pos = pos + 1
+      it.kids = (this.parseBoundList(allowPlus))
+      return (this.done(it))
+    }
+    if ((this.isKw("dyn")) && (false == (this.isOpAtPath(1)))) {
+      def dt:RustNode (this.node("dyn_type"))
+      pos = pos + 1
+      dt.kids = (this.parseBoundList(allowPlus))
+      return (this.done(dt))
+    }
+    if (this.isP("?")) {
+      ; `?Sized` only appears in bounds, but accept it here too
+      pos = pos + 1
+      def q:RustNode (this.parseTypeNoBounds())
+      q.addMod("?")
+      return q
+    }
+    if ((this.isP("<")) || (t.kind == "ident") || (this.isOp("::"))) {
+      def pth:RustNode (this.node("path_type"))
+      def p:RustNode (this.parsePath(true))
+      if ((this.isP("!")) && (false == (this.isOp("!=")))) {
+        def mc:RustNode (this.parseMacroCall(p))
+        mc.kind = "macro_type"
+        return mc
+      }
+      pth.add(p)
+      this.done(pth)
+      if (allowPlus && (this.isP("+"))) {
+        return (this.continueBounds(pth))
+      }
+      return pth
+    }
+    this.error("expected a type")
+    return (this.none())
+  }
+
+  fn isOpAtPath:boolean (k:int) {
+    ; `dyn::foo` would be a path named dyn (2015 edition); treat `dyn` as a
+    ; keyword unless followed by `::`
+    return ((this.isPAt(k ":")) && (this.isPAt((k + 1) ":")))
+  }
+
+  ; `A + B + 'a` after a first bound has been parsed: a bare trait object.
+  fn continueBounds:RustNode (first:RustNode) {
+    def d:RustNode (this.nodeAt("dyn_type" first))
+    d.addMod("bare")
+    d.add(first)
+    while (this.eatP("+")) {
+      if ((this.isP(">")) || (this.isP(",")) || (this.isP(")")) || (this.isP("{")) || (this.isP("=")) || (this.isP(";"))) {
+        break
+      }
+      d.add((this.parseBound()))
+    }
+    return (this.done(d))
+  }
+
+  fn parseFnType:RustNode () {
+    def f:RustNode (this.node("fn_type"))
+    if (this.eatKw("unsafe")) {
+      f.addMod("unsafe")
+    }
+    if (this.eatKw("extern")) {
+      f.addMod("extern")
+      if ((this.tokKind()) == "str") {
+        f.value = (this.tokValue())
+        pos = pos + 1
+      }
+    }
+    this.expectKw("fn")
+    this.expectP("(")
+    while ((false == (this.isP(")"))) && (false == (this.atEnd()))) {
+      def before:int pos
+      this.outerAttrs()
+      if (this.isOp("...")) {
+        pos = pos + 3
+        f.add((this.node("variadic")))
+      } {
+        ; optional parameter name: `fn(x: i32)`
+        def t0:RustToken (this.tok())
+        if (((t0.kind == "ident") || (t0.text == "_")) && (this.isPAt(1 ":")) && (false == (this.isPAt(2 ":")))) {
+          pos = pos + 2
+        }
+        f.add((this.parseType()))
+      }
+      if (false == (this.eatP(","))) {
+        break
+      }
+      if (pos == before) {
+        pos = pos + 1
+      }
+    }
+    this.expectP(")")
+    def ret:RustNode (this.node("ret"))
+    if (this.eatOp("->")) {
+      ret.add((this.parseTypeNoBounds()))
+    }
+    f.add((this.done(ret)))
+    return (this.done(f))
+  }
+
+  fn parseBounds:RustNode () {
+    def b:RustNode (this.node("bounds"))
+    b.kids = (this.parseBoundList(true))
+    return (this.done(b))
+  }
+
+  fn parseBoundList:[RustNode] (allowPlus:boolean) {
+    def list:[RustNode]
+    while true {
+      if ((this.isP(">")) || (this.isP(",")) || (this.isP(")")) || (this.isP("{")) || (this.isP(";")) || (this.isP("]")) || (this.atEnd()) || ((this.isP("=")) && (false == (this.isOp("=="))))) {
+        break
+      }
+      if (this.isKw("where")) {
+        break
+      }
+      push list (this.parseBound())
+      if (false == allowPlus) {
+        break
+      }
+      if (false == (this.eatP("+"))) {
+        break
+      }
+    }
+    return list
+  }
+
+  fn parseBound:RustNode () {
+    if ((this.tokKind()) == "lifetime") {
+      def lt:RustNode (this.node("lifetime"))
+      lt.name = (this.tokText())
+      pos = pos + 1
+      return (this.done(lt))
+    }
+    def paren:boolean (this.eatP("("))
+    def mods:[string]
+    ; ?Sized  ~const Trait  const Trait  async Fn  for<'a> Trait  use<'a, T>
+    while true {
+      if (this.eatP("?")) {
+        push mods "?"
+        continue
+      }
+      if ((this.isP("~")) && (this.isKwAt(1 "const"))) {
+        pos = pos + 2
+        push mods "~const"
+        continue
+      }
+      if ((this.isKw("const")) || (this.isKw("async"))) {
+        push mods (this.tokText())
+        pos = pos + 1
+        continue
+      }
+      break
+    }
+    def b:RustNode (this.none())
+    if (this.isKw("use")) {
+      ; precise capturing `use<'a, T>`
+      b = (this.node("use_bound"))
+      pos = pos + 1
+      def uargs:RustNode (this.parseGenericArgs())
+      b.kids = uargs.kids
+      this.done(b)
+    } {
+      if (this.isKw("for")) {
+        pos = pos + 1
+        def hr:RustNode (this.parseGenerics())
+        b = (this.parseTypeNoBounds())
+        b.addMod("for<>")
+        for hr.kids h:RustNode i {
+          push b.attrs h
+        }
+      } {
+        b = (this.parseTypeNoBounds())
+      }
+    }
+    for mods m:string i {
+      b.addMod(m)
+    }
+    if (paren) {
+      this.expectP(")")
+    }
+    return b
+  }
+
+  ; ---------------------------------------------------------------- paths
+
+  ; A path in type position (`inType`: `<` opens generic args, `(` is Fn
+  ; sugar) or expression position (generic args need `::<`).
+  fn parsePath:RustNode (inType:boolean) {
+    if (this.isP("<")) {
+      return (this.parseQPath(inType))
+    }
+    def p:RustNode (this.node("path"))
+    if (this.eatOp("::")) {
+      p.addMod("::")
+    }
+    while true {
+      def seg:RustNode (this.node("seg"))
+      def t:RustToken (this.tok())
+      if (t.kind != "ident") {
+        this.error("expected a path segment")
+        break
+      }
+      seg.name = t.value
+      pos = pos + 1
+      if (inType) {
+        if ((this.isP("<")) && (false == (this.isOp("<=")))) {
+          seg.add((this.parseGenericArgs()))
+        } {
+          if ((this.isOp("::")) && (this.isPAt(2 "<"))) {
+            pos = pos + 2
+            seg.add((this.parseGenericArgs()))
+          } {
+            if ((this.isP("(")) && (this.isFnSugarSegment(seg.name))) {
+              seg.add((this.parseFnSugarArgs()))
+            }
+          }
+        }
+      } {
+        if ((this.isOp("::")) && (this.isPAt(2 "<"))) {
+          pos = pos + 2
+          seg.add((this.parseGenericArgs()))
+        }
+      }
+      p.add((this.done(seg)))
+      if ((this.isOp("::")) && (false == (this.isPAt(2 "<"))) && (false == (this.isPAt(2 "{"))) && (false == (this.isPAt(2 "*")))) {
+        def nt:RustToken (this.peek(2))
+        if (nt.kind == "ident") {
+          pos = pos + 2
+          continue
+        }
+      }
+      break
+    }
+    return (this.done(p))
+  }
+
+  ; In type position any segment followed by `(` is Fn sugar (`Fn(A) -> B`,
+  ; `FnMut()`, `impl Fn(…)`), matching rustc, which accepts it on every path
+  ; segment and rejects non-Fn traits later.
+  fn isFnSugarSegment:boolean (name:string) {
+    return true
+  }
+
+  fn parseFnSugarArgs:RustNode () {
+    def a:RustNode (this.node("fn_args"))
+    this.expectP("(")
+    while ((false == (this.isP(")"))) && (false == (this.atEnd()))) {
+      a.add((this.parseType()))
+      if (false == (this.eatP(","))) {
+        break
+      }
+    }
+    this.expectP(")")
+    def ret:RustNode (this.node("ret"))
+    if (this.eatOp("->")) {
+      ret.add((this.parseTypeNoBounds()))
+    }
+    a.add((this.done(ret)))
+    return (this.done(a))
+  }
+
+  fn parseQPath:RustNode (inType:boolean) {
+    def q:RustNode (this.node("qpath"))
+    this.expectP("<")
+    q.add((this.parseType()))
+    if (this.eatKw("as")) {
+      q.add((this.parsePath(true)))
+    } {
+      q.add((this.none()))
+    }
+    this.expectOp(">")
+    while (this.eatOp("::")) {
+      def seg:RustNode (this.node("seg"))
+      seg.name = (this.identText())
+      if (inType && (this.isP("<"))) {
+        seg.add((this.parseGenericArgs()))
+      } {
+        if ((this.isOp("::")) && (this.isPAt(2 "<"))) {
+          pos = pos + 2
+          seg.add((this.parseGenericArgs()))
+        }
+      }
+      q.add((this.done(seg)))
+    }
+    return (this.done(q))
+  }
+
+  fn parseGenericArgs:RustNode () {
+    def a:RustNode (this.node("args"))
+    this.expectP("<")
+    while ((false == (this.isP(">"))) && (false == (this.atEnd()))) {
+      def before:int pos
+      def t:RustToken (this.tok())
+      if (t.kind == "lifetime") {
+        def lt:RustNode (this.node("lifetime"))
+        lt.name = t.text
+        pos = pos + 1
+        a.add((this.done(lt)))
+      } {
+        ; `Item = T`, `Item: Bound`, `Item<'a> = T`
+        def isBinding:boolean false
+        if (t.kind == "ident") {
+          if ((this.isPAt(1 "=")) && (false == (this.isPAt(2 "=")))) {
+            isBinding = true
+          }
+          if ((this.isPAt(1 ":")) && (false == (this.isPAt(2 ":")))) {
+            isBinding = true
+          }
+        }
+        if (isBinding) {
+          def bn:RustNode (this.node("binding"))
+          bn.name = t.value
+          pos = pos + 1
+          if (this.eatP("=")) {
+            bn.add((this.parseTypeOrConst()))
+          } {
+            pos = pos + 1
+            bn.kind = "constraint"
+            bn.add((this.parseBounds()))
+          }
+          a.add((this.done(bn)))
+        } {
+          a.add((this.parseTypeOrConst()))
+        }
+      }
+      if (false == (this.eatP(","))) {
+        break
+      }
+      if (pos == before) {
+        pos = pos + 1
+      }
+    }
+    this.expectOp(">")
+    return (this.done(a))
+  }
+
+  fn parseTypeOrConst:RustNode () {
+    def t:RustToken (this.tok())
+    if ((t.kind == "int") || (t.kind == "float") || (t.kind == "str") || (t.kind == "char") || (this.isP("{")) || (this.isP("-")) || (this.isKw("true")) || (this.isKw("false"))) {
+      return (this.parseConstArg())
+    }
+    return (this.parseType())
+  }
+
+  fn parseConstArg:RustNode () {
+    if (this.isP("{")) {
+      return (this.parseBlock())
+    }
+    if (this.isP("-")) {
+      def u:RustNode (this.node("unary"))
+      u.name = "-"
+      pos = pos + 1
+      u.add((this.parseLiteral()))
+      return (this.done(u))
+    }
+    def t:RustToken (this.tok())
+    if (t.kind == "ident") {
+      if ((t.text == "true") || (t.text == "false")) {
+        return (this.parseLiteral())
+      }
+      def pe:RustNode (this.node("path_expr"))
+      pe.add((this.parsePath(false)))
+      return (this.done(pe))
+    }
+    return (this.parseLiteral())
+  }
+
+  ; ------------------------------------------------------------- patterns
+
+  fn parsePattern:RustNode () {
+    def start:RustNode (this.node("pat_or"))
+    this.eatP("|")
+    def first:RustNode (this.parsePatternNoAlt())
+    if ((this.isP("|")) && (false == (this.isOp("||")))) {
+      start.add(first)
+      while ((this.isP("|")) && (false == (this.isOp("||")))) {
+        pos = pos + 1
+        start.add((this.parsePatternNoAlt()))
+      }
+      return (this.done(start))
+    }
+    return first
+  }
+
+  fn parsePatternNoAlt:RustNode () {
+    def p:RustNode (this.parsePatternAtom())
+    ; range patterns: `a..=b`, `a..b`, `a..`
+    if ((p.kind == "pat_lit") || (p.kind == "pat_path") || ((p.kind == "pat_ident") && ((array_length p.mods) == 0) && ((array_length p.kids) == 0))) {
+      def op:string (this.glued())
+      if ((op == "..=") || (op == "...") || (op == "..")) {
+        def r:RustNode (this.nodeAt("pat_range" p))
+        r.name = op
+        pos = pos + (strlen op)
+        r.add(p)
+        if (this.startsRangeEnd()) {
+          r.add((this.parsePatternAtom()))
+        } {
+          r.add((this.none()))
+        }
+        return (this.done(r))
+      }
+    }
+    return p
+  }
+
+  fn startsRangeEnd:boolean () {
+    def t:RustToken (this.tok())
+    if ((t.kind == "int") || (t.kind == "float") || (t.kind == "char") || (t.kind == "str")) {
+      return true
+    }
+    if (this.isP("-")) {
+      return true
+    }
+    if ((t.kind == "ident") && (t.text != "if")) {
+      return true
+    }
+    return ((this.isOp("::")) || (this.isP("<")))
+  }
+
+  fn parsePatternAtom:RustNode () {
+    def t:RustToken (this.tok())
+    if (this.isKw("_")) {
+      def w:RustNode (this.node("pat_wild"))
+      pos = pos + 1
+      return (this.done(w))
+    }
+    def op:string (this.glued())
+    if ((op == "..") || (op == "..=") || (op == "...")) {
+      if ((op == "..") && (false == (this.startsRangeEndAfter(2)))) {
+        def rest:RustNode (this.node("pat_rest"))
+        pos = pos + 2
+        return (this.done(rest))
+      }
+      def r:RustNode (this.node("pat_range"))
+      r.name = op
+      pos = pos + (strlen op)
+      r.add((this.none()))
+      r.add((this.parsePatternAtom()))
+      return (this.done(r))
+    }
+    if (this.isP("&")) {
+      def pr:RustNode (this.node("pat_ref"))
+      pos = pos + 1
+      if (this.eatKw("mut")) {
+        pr.addMod("mut")
+      }
+      pr.add((this.parsePatternNoAlt()))
+      return (this.done(pr))
+    }
+    if (this.isP("(")) {
+      def tp:RustNode (this.node("pat_tuple"))
+      pos = pos + 1
+      def count:int 0
+      def trailing:boolean false
+      while ((false == (this.isP(")"))) && (false == (this.atEnd()))) {
+        def before:int pos
+        tp.add((this.parsePattern()))
+        count = count + 1
+        trailing = false
+        if (false == (this.eatP(","))) {
+          break
+        }
+        trailing = true
+        if (pos == before) {
+          pos = pos + 1
+        }
+      }
+      this.expectP(")")
+      if ((count == 1) && (false == trailing)) {
+        tp.kind = "pat_paren"
+      }
+      return (this.done(tp))
+    }
+    if (this.isP("[")) {
+      def sp:RustNode (this.node("pat_slice"))
+      pos = pos + 1
+      while ((false == (this.isP("]"))) && (false == (this.atEnd()))) {
+        def before2:int pos
+        sp.add((this.parsePattern()))
+        if (false == (this.eatP(","))) {
+          break
+        }
+        if (pos == before2) {
+          pos = pos + 1
+        }
+      }
+      this.expectP("]")
+      return (this.done(sp))
+    }
+    if ((t.kind == "int") || (t.kind == "float") || (t.kind == "str") || (t.kind == "char") || (this.isP("-")) || (this.isKw("true")) || (this.isKw("false"))) {
+      def pl:RustNode (this.node("pat_lit"))
+      if (this.eatP("-")) {
+        def neg:RustNode (this.node("unary"))
+        neg.name = "-"
+        neg.add((this.parseLiteral()))
+        pl.add((this.done(neg)))
+      } {
+        pl.add((this.parseLiteral()))
+      }
+      return (this.done(pl))
+    }
+    if (this.isKw("box")) {
+      def bx:RustNode (this.node("pat_box"))
+      pos = pos + 1
+      bx.add((this.parsePatternNoAlt()))
+      return (this.done(bx))
+    }
+    if ((this.isKw("ref")) || (this.isKw("mut"))) {
+      def pi:RustNode (this.node("pat_ident"))
+      if (this.eatKw("ref")) {
+        pi.addMod("ref")
+      }
+      if (this.eatKw("mut")) {
+        pi.addMod("mut")
+      }
+      pi.name = (this.identText())
+      if (this.eatP("@")) {
+        pi.add((this.parsePatternNoAlt()))
+      }
+      return (this.done(pi))
+    }
+    if ((t.kind == "ident") || (this.isOp("::")) || (this.isP("<"))) {
+      ; a plain identifier is a binding (or a unit variant / constant, which
+      ; name resolution tells apart later); anything path-shaped is a path
+      def simple:boolean ((t.kind == "ident") && (false == (this.isOpAt1Path())) && (false == (this.isPAt(1 "("))) && (false == (this.isPAt(1 "{"))) && (false == (this.isPAt(1 "!"))))
+      if (simple && (t.text != "self") && (t.text != "Self") && (t.text != "crate") && (t.text != "super")) {
+        def id:RustNode (this.node("pat_ident"))
+        id.name = t.value
+        pos = pos + 1
+        if (this.eatP("@")) {
+          id.add((this.parsePatternNoAlt()))
+        }
+        return (this.done(id))
+      }
+      def start:RustNode (this.node("x"))
+      def path:RustNode (this.parsePath(false))
+      if ((this.isP("!")) && (false == (this.isOp("!=")))) {
+        def mc:RustNode (this.parseMacroCall(path))
+        mc.kind = "pat_macro"
+        return mc
+      }
+      if (this.isP("(")) {
+        def ts:RustNode (this.nodeAt("pat_tuple_struct" start))
+        ts.add(path)
+        pos = pos + 1
+        while ((false == (this.isP(")"))) && (false == (this.atEnd()))) {
+          def before3:int pos
+          ts.add((this.parsePattern()))
+          if (false == (this.eatP(","))) {
+            break
+          }
+          if (pos == before3) {
+            pos = pos + 1
+          }
+        }
+        this.expectP(")")
+        return (this.done(ts))
+      }
+      if (this.isP("{")) {
+        def ps:RustNode (this.nodeAt("pat_struct" start))
+        ps.add(path)
+        pos = pos + 1
+        while ((false == (this.isP("}"))) && (false == (this.atEnd()))) {
+          def before4:int pos
+          def fattrs:[RustNode] (this.outerAttrs())
+          if (this.isOp("..")) {
+            pos = pos + 2
+            ps.addMod("..")
+            break
+          }
+          def pf:RustNode (this.node("pat_field"))
+          def ft:RustToken (this.tok())
+          if (((ft.kind == "ident") || (ft.kind == "int")) && (this.isPAt(1 ":")) && (false == (this.isPAt(2 ":")))) {
+            pf.name = ft.text
+            pos = pos + 2
+            pf.add((this.parsePattern()))
+          } {
+            ; shorthand: `x`, `ref x`, `mut x`, `box x`
+            def sh:RustNode (this.parsePatternAtom())
+            pf.name = sh.name
+            pf.add(sh)
+          }
+          for fattrs fa:RustNode fi {
+            push pf.attrs fa
+          }
+          ps.add((this.done(pf)))
+          if (false == (this.eatP(","))) {
+            break
+          }
+          if (pos == before4) {
+            pos = pos + 1
+          }
+        }
+        this.expectP("}")
+        return (this.done(ps))
+      }
+      def pp:RustNode (this.nodeAt("pat_path" start))
+      pp.add(path)
+      return (this.done(pp))
+    }
+    this.error("expected a pattern")
+    pos = pos + 1
+    return (this.none())
+  }
+
+  fn isOpAt1Path:boolean () {
+    return ((this.isPAt(1 ":")) && (this.isPAt(2 ":")))
+  }
+
+  fn startsRangeEndAfter:boolean (k:int) {
+    def t:RustToken (this.peek(k))
+    if ((t.kind == "int") || (t.kind == "float") || (t.kind == "char")) {
+      return true
+    }
+    if ((t.kind == "punct") && (t.text == "-")) {
+      return true
+    }
+    return false
+  }
+
+  ; ---------------------------------------------------------- statements
+
+  fn parseBlock:RustNode () {
+    def b:RustNode (this.node("block"))
+    if (false == (this.eatP("{"))) {
+      this.error("expected '{'")
+      return b
+    }
+    def save:boolean noStruct
+    noStruct = false
+    this.innerAttrs(b)
+    while ((false == (this.isP("}"))) && (false == (this.atEnd()))) {
+      def before:int pos
+      def st:RustNode (this.parseStatement())
+      if (false == (st.isNone())) {
+        b.add(st)
+      }
+      if (pos == before) {
+        this.error("expected a statement")
+        pos = pos + 1
+      }
+    }
+    this.expectP("}")
+    noStruct = save
+    return (this.done(b))
+  }
+
+  fn parseStatement:RustNode () {
+    if (this.isP(";")) {
+      def em:RustNode (this.node("empty"))
+      pos = pos + 1
+      return (this.done(em))
+    }
+    def attrs:[RustNode] (this.outerAttrs())
+    def st:RustNode (this.parseStatementNoAttrs())
+    for attrs a:RustNode i {
+      push st.attrs a
+    }
+    return st
+  }
+
+  fn parseStatementNoAttrs:RustNode () {
+    if (this.isKw("let")) {
+      return (this.parseLet())
+    }
+    if (this.isItemStart()) {
+      return (this.parseItemNoAttrs())
+    }
+    if ((this.isKw("macro_rules")) && (this.isPAt(1 "!"))) {
+      return (this.parseMacroRules())
+    }
+    def es:RustNode (this.node("expr_stmt"))
+    if (this.startsBlockLike()) {
+      ; `if … {} - 1` is two statements: a block-like expression in statement
+      ; position ends at its closing brace, except for `.method()` and `?`
+      def e:RustNode (this.parseBlockLike())
+      if ((this.isP(".")) || (this.isP("?"))) {
+        e = (this.parsePostfix(e))
+        e = (this.continueBinary(e))
+      }
+      es.add(e)
+      if (this.eatP(";")) {
+        es.addMod(";")
+      }
+      return (this.done(es))
+    }
+    es.add((this.parseExpr()))
+    if (this.eatP(";")) {
+      es.addMod(";")
+    } {
+      if ((false == (this.isP("}"))) && (false == (this.atEnd()))) {
+        def last:RustNode (es.kid(0))
+        ; a macro invocation with braces ends like a block
+        if ((last.kind != "macro_call") || (false == (last.hasMod("{")))) {
+          this.error("expected ';'")
+        }
+      }
+    }
+    return (this.done(es))
+  }
+
+  ; After `x.method()` on a block-like statement, the rest of a binary
+  ; expression: `match x { … }.len() + 1`.
+  fn continueBinary:RustNode (left:RustNode) {
+    def e:RustNode (this.parseBinRest(left 0))
+    return (this.parseAssignRest(e))
+  }
+
+  fn parseLet:RustNode () {
+    def l:RustNode (this.node("let"))
+    this.expectKw("let")
+    l.add((this.parsePattern()))
+    if ((this.isP(":")) && (false == (this.isOp("::")))) {
+      pos = pos + 1
+      l.add((this.parseType()))
+    } {
+      l.add((this.none()))
+    }
+    if ((this.isP("=")) && (false == (this.isOp("==")))) {
+      pos = pos + 1
+      l.add((this.parseExpr()))
+      if (this.eatKw("else")) {
+        l.add((this.parseBlock()))
+      } {
+        l.add((this.none()))
+      }
+    } {
+      l.add((this.none()))
+      l.add((this.none()))
+    }
+    this.expectP(";")
+    return (this.done(l))
+  }
+
+  fn startsBlockLike:boolean () {
+    def t:RustToken (this.tok())
+    if (this.isP("{")) {
+      return true
+    }
+    if (t.kind == "lifetime") {
+      return ((this.isPAt(1 ":")) && (false == (this.isPAt(2 ":"))))
+    }
+    if (t.kind != "ident") {
+      return false
+    }
+    def w:string t.text
+    if ((w == "if") || (w == "match") || (w == "loop") || (w == "while") || (w == "for")) {
+      return true
+    }
+    if ((w == "unsafe") || (w == "const")) {
+      return (this.isPAt(1 "{"))
+    }
+    if (w == "async") {
+      return ((this.isPAt(1 "{")) || ((this.isKwAt(1 "move")) && (this.isPAt(2 "{"))))
+    }
+    return false
+  }
+
+  ; ---------------------------------------------------------- expressions
+
+  fn parseExpr:RustNode () {
+    return (this.parseAssign())
+  }
+
+  fn parseExprNoStruct:RustNode () {
+    def save:boolean noStruct
+    noStruct = true
+    def e:RustNode (this.parseExpr())
+    noStruct = save
+    return e
+  }
+
+  static fn assignOp:boolean (op:string) {
+    if ((op == "=") || (op == "+=") || (op == "-=") || (op == "*=") || (op == "/=") || (op == "%=")) {
+      return true
+    }
+    return ((op == "^=") || (op == "&=") || (op == "|=") || (op == "<<=") || (op == ">>="))
+  }
+
+  fn parseAssign:RustNode () {
+    def left:RustNode (this.parseRange())
+    return (this.parseAssignRest(left))
+  }
+
+  fn parseAssignRest:RustNode (left:RustNode) {
+    def op:string (this.glued())
+    if (RustParser.assignOp(op)) {
+      pos = pos + (strlen op)
+      def a:RustNode (this.nodeAt("assign" left))
+      a.name = op
+      a.add(left)
+      a.add((this.parseAssign()))
+      return (this.done(a))
+    }
+    return left
+  }
+
+  fn parseRange:RustNode () {
+    def op:string (this.glued())
+    if ((op == "..") || (op == "..=")) {
+      def r:RustNode (this.node("range"))
+      r.name = op
+      pos = pos + (strlen op)
+      r.add((this.none()))
+      if (this.startsExpr()) {
+        r.add((this.parseBin(2)))
+      } {
+        r.add((this.none()))
+      }
+      return (this.done(r))
+    }
+    def lo:RustNode (this.parseBin(2))
+    return (this.parseRangeRest(lo))
+  }
+
+  fn parseRangeRest:RustNode (lo:RustNode) {
+    def op2:string (this.glued())
+    if ((op2 == "..") || (op2 == "..=")) {
+      def r2:RustNode (this.nodeAt("range" lo))
+      r2.name = op2
+      pos = pos + (strlen op2)
+      r2.add(lo)
+      if (this.startsExpr()) {
+        r2.add((this.parseBin(2)))
+      } {
+        r2.add((this.none()))
+      }
+      return (this.done(r2))
+    }
+    return lo
+  }
+
+  ; Whether the current token can begin an expression (for the optional
+  ; operand of `..`, `return`, `break`).
+  fn startsExpr:boolean () {
+    def t:RustToken (this.tok())
+    if (t.kind == "eof") {
+      return false
+    }
+    if (t.kind == "punct") {
+      def s:string t.text
+      if ((s == "(") || (s == "[") || (s == "-") || (s == "!") || (s == "*") || (s == "&") || (s == "|") || (s == "<")) {
+        return true
+      }
+      if (s == "{") {
+        return (false == noStruct)
+      }
+      if ((s == ":") && (this.isOp("::"))) {
+        return true
+      }
+      if ((s == ".") && (this.isOp(".."))) {
+        return true
+      }
+      return false
+    }
+    if (t.kind == "ident") {
+      if ((t.text == "as") || (t.text == "else")) {
+        return false
+      }
+    }
+    return true
+  }
+
+  static fn binPrec:int (op:string) {
+    if ((op == "*") || (op == "/") || (op == "%")) {
+      return 10
+    }
+    if ((op == "+") || (op == "-")) {
+      return 9
+    }
+    if ((op == "<<") || (op == ">>")) {
+      return 8
+    }
+    if (op == "&") {
+      return 7
+    }
+    if (op == "^") {
+      return 6
+    }
+    if (op == "|") {
+      return 5
+    }
+    if ((op == "==") || (op == "!=") || (op == "<") || (op == ">") || (op == "<=") || (op == ">=")) {
+      return 4
+    }
+    if (op == "&&") {
+      return 3
+    }
+    if (op == "||") {
+      return 2
+    }
+    return -1
+  }
+
+  fn parseBin:RustNode (minPrec:int) {
+    def left:RustNode (this.parseCast())
+    return (this.parseBinRest(left minPrec))
+  }
+
+  fn parseBinRest:RustNode (left0:RustNode minPrec:int) {
+    def left:RustNode left0
+    while true {
+      def op:string (this.glued())
+      def prec:int (RustParser.binPrec(op))
+      if ((prec < 0) || (prec < minPrec)) {
+        break
+      }
+      pos = pos + (strlen op)
+      def right:RustNode (this.parseBin((prec + 1)))
+      def b:RustNode (this.nodeAt("bin" left))
+      b.name = op
+      b.add(left)
+      b.add(right)
+      left = (this.done(b))
+    }
+    return left
+  }
+
+  fn parseCast:RustNode () {
+    def e:RustNode (this.parseUnary())
+    while (this.isKw("as")) {
+      pos = pos + 1
+      def c:RustNode (this.nodeAt("cast" e))
+      c.add(e)
+      c.add((this.parseTypeNoBounds()))
+      e = (this.done(c))
+    }
+    return e
+  }
+
+  fn parseUnary:RustNode () {
+    if ((this.isP("-")) || (this.isP("!")) || (this.isP("*"))) {
+      def u:RustNode (this.node("unary"))
+      u.name = (this.tokText())
+      pos = pos + 1
+      u.add((this.parseUnary()))
+      return (this.done(u))
+    }
+    if (this.isP("&")) {
+      def r:RustNode (this.node("unary"))
+      pos = pos + 1
+      r.name = "&"
+      if ((this.isKw("raw")) && ((this.isKwAt(1 "const")) || (this.isKwAt(1 "mut")))) {
+        pos = pos + 1
+        r.name = "&raw " + (this.tokText())
+        pos = pos + 1
+      } {
+        if (this.eatKw("mut")) {
+          r.name = "&mut"
+        }
+      }
+      r.add((this.parseUnary()))
+      return (this.done(r))
+    }
+    def p:RustNode (this.parsePrimary())
+    return (this.parsePostfix(p))
+  }
+
+  fn parsePostfix:RustNode (e0:RustNode) {
+    def e:RustNode e0
+    while true {
+      if (this.isP("?")) {
+        def tr:RustNode (this.nodeAt("try" e))
+        pos = pos + 1
+        tr.add(e)
+        e = (this.done(tr))
+        continue
+      }
+      if ((this.glued()) == ".") {
+        pos = pos + 1
+        def t:RustToken (this.tok())
+        if (t.kind == "int") {
+          def tf:RustNode (this.nodeAt("field" e))
+          tf.name = t.text
+          pos = pos + 1
+          tf.add(e)
+          e = (this.done(tf))
+          continue
+        }
+        if (t.kind == "float") {
+          ; `x.0.1` lexed as a float by a lexer that did not see the dot
+          def tf2:RustNode (this.nodeAt("field" e))
+          tf2.name = t.text
+          pos = pos + 1
+          tf2.add(e)
+          e = (this.done(tf2))
+          continue
+        }
+        if ((t.kind == "ident") && (t.text == "await") && (false == t.raw)) {
+          def aw:RustNode (this.nodeAt("await" e))
+          pos = pos + 1
+          aw.add(e)
+          e = (this.done(aw))
+          continue
+        }
+        def name:string (this.identText())
+        def targs:RustNode (this.node("args"))
+        if ((this.isOp("::")) && (this.isPAt(2 "<"))) {
+          pos = pos + 2
+          targs = (this.parseGenericArgs())
+        }
+        if (this.isP("(")) {
+          def m:RustNode (this.nodeAt("method" e))
+          m.name = name
+          m.add(e)
+          m.add(targs)
+          this.parseCallArgs(m)
+          e = (this.done(m))
+          continue
+        }
+        def f:RustNode (this.nodeAt("field" e))
+        f.name = name
+        f.add(e)
+        e = (this.done(f))
+        continue
+      }
+      if (this.isP("(")) {
+        def c:RustNode (this.nodeAt("call" e))
+        c.add(e)
+        this.parseCallArgs(c)
+        e = (this.done(c))
+        continue
+      }
+      if (this.isP("[")) {
+        def ix:RustNode (this.nodeAt("index" e))
+        pos = pos + 1
+        ix.add(e)
+        def save:boolean noStruct
+        noStruct = false
+        ix.add((this.parseExpr()))
+        noStruct = save
+        this.expectP("]")
+        e = (this.done(ix))
+        continue
+      }
+      break
+    }
+    return e
+  }
+
+  fn parseCallArgs:void (owner:RustNode) {
+    this.expectP("(")
+    def save:boolean noStruct
+    noStruct = false
+    while ((false == (this.isP(")"))) && (false == (this.atEnd()))) {
+      def before:int pos
+      this.outerAttrs()
+      owner.add((this.parseExpr()))
+      if (false == (this.eatP(","))) {
+        break
+      }
+      if (pos == before) {
+        pos = pos + 1
+      }
+    }
+    noStruct = save
+    this.expectP(")")
+  }
+
+  fn parseLiteral:RustNode () {
+    def t:RustToken (this.tok())
+    def l:RustNode (this.node("lit"))
+    l.name = t.text
+    l.value = t.value
+    if (t.kind == "ident") {
+      if ((t.text == "true") || (t.text == "false")) {
+        l.addMod("bool")
+        pos = pos + 1
+        return (this.done(l))
+      }
+      this.error("expected a literal")
+      return l
+    }
+    def k:string t.kind
+    if ((k == "str") && (t.suffix == "b")) {
+      k = "bytestr"
+    }
+    if ((k == "str") && (t.suffix == "c")) {
+      k = "cstr"
+    }
+    if ((k == "char") && (t.suffix == "b")) {
+      k = "byte"
+    }
+    if ((k != "int") && (k != "float") && (k != "str") && (k != "char") && (k != "bytestr") && (k != "cstr") && (k != "byte")) {
+      this.error("expected a literal")
+      return l
+    }
+    l.addMod(k)
+    if (((k == "int") || (k == "float")) && (t.suffix != "")) {
+      l.addMod(t.suffix)
+    }
+    pos = pos + 1
+    return (this.done(l))
+  }
+
+  fn parseBlockLike:RustNode () {
+    def t:RustToken (this.tok())
+    def label:string ""
+    if (t.kind == "lifetime") {
+      label = t.text
+      pos = pos + 2
+    }
+    def e:RustNode (this.parseBlockLikeInner())
+    if (label != "") {
+      e.name = label
+      e.start = t.start
+      e.line = t.line
+      e.col = t.col
+    }
+    return e
+  }
+
+  fn parseBlockLikeInner:RustNode () {
+    if (this.isKw("if")) {
+      return (this.parseIf())
+    }
+    if (this.isKw("match")) {
+      return (this.parseMatch())
+    }
+    if (this.isKw("loop")) {
+      def lp:RustNode (this.node("loop"))
+      pos = pos + 1
+      lp.add((this.parseBlock()))
+      return (this.done(lp))
+    }
+    if (this.isKw("while")) {
+      def wh:RustNode (this.node("while"))
+      pos = pos + 1
+      wh.add((this.parseCond()))
+      wh.add((this.parseBlock()))
+      return (this.done(wh))
+    }
+    if (this.isKw("for")) {
+      def fr:RustNode (this.node("for"))
+      pos = pos + 1
+      fr.add((this.parsePattern()))
+      this.expectKw("in")
+      fr.add((this.parseExprNoStruct()))
+      fr.add((this.parseBlock()))
+      return (this.done(fr))
+    }
+    def mods:[string]
+    while true {
+      if (this.eatKw("unsafe")) {
+        push mods "unsafe"
+        continue
+      }
+      if (this.eatKw("async")) {
+        push mods "async"
+        continue
+      }
+      if (this.eatKw("const")) {
+        push mods "const"
+        continue
+      }
+      if (this.eatKw("move")) {
+        push mods "move"
+        continue
+      }
+      break
+    }
+    def e:RustNode (this.parseBlock())
+    e.mods = mods
+    return e
+  }
+
+  fn parseIf:RustNode () {
+    def n:RustNode (this.node("if"))
+    this.expectKw("if")
+    n.add((this.parseCond()))
+    n.add((this.parseBlock()))
+    if (this.eatKw("else")) {
+      if (this.isKw("if")) {
+        n.add((this.parseIf()))
+      } {
+        n.add((this.parseBlock()))
+      }
+    } {
+      n.add((this.none()))
+    }
+    return (this.done(n))
+  }
+
+  ; `if` / `while` conditions: `let` bindings joined by `&&` (let chains), or
+  ; an ordinary expression, never a struct literal.
+  fn parseCond:RustNode () {
+    def save:boolean noStruct
+    noStruct = true
+    def c:RustNode (this.parseCondOr())
+    noStruct = save
+    return c
+  }
+
+  fn parseCondOr:RustNode () {
+    def left:RustNode (this.parseCondAnd())
+    while (this.isOp("||")) {
+      pos = pos + 2
+      def b:RustNode (this.nodeAt("bin" left))
+      b.name = "||"
+      b.add(left)
+      b.add((this.parseCondAnd()))
+      left = (this.done(b))
+    }
+    return left
+  }
+
+  fn parseCondAnd:RustNode () {
+    def left:RustNode (this.parseCondAtom())
+    while (this.isOp("&&")) {
+      pos = pos + 2
+      def b:RustNode (this.nodeAt("bin" left))
+      b.name = "&&"
+      b.add(left)
+      b.add((this.parseCondAtom()))
+      left = (this.done(b))
+    }
+    return left
+  }
+
+  fn parseCondAtom:RustNode () {
+    if (this.isKw("let")) {
+      def l:RustNode (this.node("let_cond"))
+      pos = pos + 1
+      l.add((this.parsePattern()))
+      this.expectP("=")
+      l.add((this.parseBin(4)))
+      return (this.done(l))
+    }
+    def e:RustNode (this.parseBin(4))
+    ; a range or an assignment in a condition is legal if unusual
+    e = (this.parseRangeRest(e))
+    return e
+  }
+
+  fn parseMatch:RustNode () {
+    def m:RustNode (this.node("match"))
+    this.expectKw("match")
+    m.add((this.parseExprNoStruct()))
+    this.expectP("{")
+    def save:boolean noStruct
+    noStruct = false
+    this.innerAttrs(m)
+    while ((false == (this.isP("}"))) && (false == (this.atEnd()))) {
+      def before:int pos
+      def attrs:[RustNode] (this.outerAttrs())
+      def arm:RustNode (this.node("arm"))
+      arm.add((this.parsePattern()))
+      if (this.eatKw("if")) {
+        arm.add((this.parseCondOr()))
+      } {
+        arm.add((this.none()))
+      }
+      this.expectOp("=>")
+      def blockLike:boolean (this.startsBlockLike())
+      def body:RustNode (this.none())
+      if (blockLike) {
+        body = (this.parseBlockLike())
+        if ((this.isP(".")) || (this.isP("?"))) {
+          body = (this.parsePostfix(body))
+          body = (this.continueBinary(body))
+          blockLike = false
+        }
+      } {
+        body = (this.parseExpr())
+      }
+      arm.add(body)
+      for attrs a:RustNode i {
+        push arm.attrs a
+      }
+      m.add((this.done(arm)))
+      if (false == (this.eatP(","))) {
+        if ((false == blockLike) && (false == (this.isP("}")))) {
+          this.error("expected ',' after a match arm")
+        }
+      }
+      if (pos == before) {
+        pos = pos + 1
+      }
+    }
+    this.expectP("}")
+    noStruct = save
+    return (this.done(m))
+  }
+
+  fn parseClosure:RustNode () {
+    def c:RustNode (this.node("closure"))
+    while true {
+      if (this.eatKw("move")) {
+        c.addMod("move")
+        continue
+      }
+      if (this.eatKw("async")) {
+        c.addMod("async")
+        continue
+      }
+      if (this.eatKw("static")) {
+        c.addMod("static")
+        continue
+      }
+      break
+    }
+    def ps:RustNode (this.node("closure_params"))
+    if (this.isOp("||")) {
+      pos = pos + 2
+    } {
+      this.expectP("|")
+      while ((false == (this.isP("|"))) && (false == (this.atEnd()))) {
+        def before:int pos
+        this.outerAttrs()
+        def p:RustNode (this.node("param"))
+        p.add((this.parsePatternNoAlt()))
+        if (this.eatP(":")) {
+          p.add((this.parseTypeNoBounds()))
+        } {
+          p.add((this.none()))
+        }
+        ps.add((this.done(p)))
+        if (false == (this.eatP(","))) {
+          break
+        }
+        if (pos == before) {
+          pos = pos + 1
+        }
+      }
+      this.expectP("|")
+    }
+    c.add((this.done(ps)))
+    if (this.eatOp("->")) {
+      c.add((this.parseTypeNoBounds()))
+      c.add((this.parseBlock()))
+    } {
+      c.add((this.none()))
+      c.add((this.parseExpr()))
+    }
+    return (this.done(c))
+  }
+
+  fn parsePrimary:RustNode () {
+    def t:RustToken (this.tok())
+    def k:string t.kind
+    if ((k == "int") || (k == "float") || (k == "str") || (k == "char")) {
+      return (this.parseLiteral())
+    }
+    if (k == "lifetime") {
+      if ((this.isPAt(1 ":")) && (false == (this.isPAt(2 ":")))) {
+        return (this.parseBlockLike())
+      }
+      this.error("unexpected lifetime")
+      pos = pos + 1
+      return (this.none())
+    }
+    if (k == "punct") {
+      if (this.isP("(")) {
+        def tp:RustNode (this.node("tuple"))
+        pos = pos + 1
+        def save:boolean noStruct
+        noStruct = false
+        def count:int 0
+        def trailing:boolean false
+        while ((false == (this.isP(")"))) && (false == (this.atEnd()))) {
+          def before:int pos
+          this.outerAttrs()
+          tp.add((this.parseExpr()))
+          count = count + 1
+          trailing = false
+          if (false == (this.eatP(","))) {
+            break
+          }
+          trailing = true
+          if (pos == before) {
+            pos = pos + 1
+          }
+        }
+        noStruct = save
+        this.expectP(")")
+        if ((count == 1) && (false == trailing)) {
+          tp.kind = "paren"
+        }
+        return (this.done(tp))
+      }
+      if (this.isP("[")) {
+        def ar:RustNode (this.node("array"))
+        pos = pos + 1
+        def save2:boolean noStruct
+        noStruct = false
+        if (false == (this.isP("]"))) {
+          def first:RustNode (this.parseExpr())
+          ar.add(first)
+          if (this.eatP(";")) {
+            ar.kind = "array_repeat"
+            ar.add((this.parseExpr()))
+          } {
+            while (this.eatP(",")) {
+              if (this.isP("]")) {
+                break
+              }
+              ar.add((this.parseExpr()))
+            }
+          }
+        }
+        noStruct = save2
+        this.expectP("]")
+        return (this.done(ar))
+      }
+      if (this.isP("{")) {
+        return (this.parseBlock())
+      }
+      if ((this.isP("|")) || (this.isOp("||"))) {
+        return (this.parseClosure())
+      }
+      if ((this.isP("<")) || (this.isOp("::"))) {
+        return (this.parsePathExpr())
+      }
+      this.error("expected an expression")
+      pos = pos + 1
+      return (this.none())
+    }
+    if (k == "ident") {
+      def w:string t.text
+      if (t.raw) {
+        return (this.parsePathExpr())
+      }
+      if ((w == "true") || (w == "false")) {
+        return (this.parseLiteral())
+      }
+      if ((w == "if") || (w == "match") || (w == "loop") || (w == "while") || (w == "for")) {
+        return (this.parseBlockLike())
+      }
+      if (((w == "unsafe") || (w == "const")) && (this.isPAt(1 "{"))) {
+        return (this.parseBlockLike())
+      }
+      if (w == "async") {
+        if ((this.isPAt(1 "{")) || ((this.isKwAt(1 "move")) && (this.isPAt(2 "{")))) {
+          return (this.parseBlockLike())
+        }
+        return (this.parseClosure())
+      }
+      if ((w == "move") || ((w == "static") && ((this.isPAt(1 "|")) || (this.isKwAt(1 "move")) || (this.isKwAt(1 "async"))))) {
+        return (this.parseClosure())
+      }
+      if (w == "return") {
+        def r:RustNode (this.node("return"))
+        pos = pos + 1
+        if (this.startsExpr()) {
+          r.add((this.parseExpr()))
+        }
+        return (this.done(r))
+      }
+      if ((w == "break") || (w == "continue")) {
+        def bk:RustNode (this.node(w))
+        pos = pos + 1
+        if ((this.tokKind()) == "lifetime") {
+          bk.name = (this.tokText())
+          pos = pos + 1
+        }
+        if ((w == "break") && (this.startsExpr())) {
+          bk.add((this.parseExpr()))
+        }
+        return (this.done(bk))
+      }
+      if ((w == "yield") || (w == "become")) {
+        def y:RustNode (this.node(w))
+        pos = pos + 1
+        if (this.startsExpr()) {
+          y.add((this.parseExpr()))
+        }
+        return (this.done(y))
+      }
+      if ((w == "_") && (false == (this.isOpAt1Path()))) {
+        def us:RustNode (this.node("underscore"))
+        pos = pos + 1
+        return (this.done(us))
+      }
+      if (w == "let") {
+        ; `let` in expression position outside a condition (let chains in
+        ; `matches!`-like contexts); parse it and let lowering reject it
+        def lc:RustNode (this.node("let_cond"))
+        pos = pos + 1
+        lc.add((this.parsePattern()))
+        this.expectP("=")
+        lc.add((this.parseBin(4)))
+        return (this.done(lc))
+      }
+      return (this.parsePathExpr())
+    }
+    this.error("expected an expression")
+    pos = pos + 1
+    return (this.none())
+  }
+
+  fn parsePathExpr:RustNode () {
+    def start:RustNode (this.node("path_expr"))
+    def p:RustNode (this.parsePath(false))
+    if ((this.isP("!")) && (false == (this.isOp("!=")))) {
+      return (this.parseMacroCall(p))
+    }
+    if ((this.isP("{")) && (false == noStruct)) {
+      return (this.parseStructLit(p start))
+    }
+    start.add(p)
+    return (this.done(start))
+  }
+
+  fn parseStructLit:RustNode (p:RustNode start:RustNode) {
+    def s:RustNode (this.nodeAt("struct_lit" start))
+    s.add(p)
+    pos = pos + 1
+    def save:boolean noStruct
+    noStruct = false
+    def base:RustNode (this.none())
+    while ((false == (this.isP("}"))) && (false == (this.atEnd()))) {
+      def before:int pos
+      def attrs:[RustNode] (this.outerAttrs())
+      if (this.isOp("..")) {
+        pos = pos + 2
+        if (this.isP("}")) {
+          ; `..` alone: default field values (RFC 3681)
+          base = (this.node("default_rest"))
+        } {
+          base = (this.parseExpr())
+        }
+        break
+      }
+      def fi:RustNode (this.node("field_init"))
+      def ft:RustToken (this.tok())
+      fi.name = ft.value
+      if (ft.kind == "int") {
+        fi.name = ft.text
+      }
+      pos = pos + 1
+      if (this.eatP(":")) {
+        fi.add((this.parseExpr()))
+      } {
+        fi.addMod("shorthand")
+      }
+      for attrs a:RustNode i {
+        push fi.attrs a
+      }
+      s.add((this.done(fi)))
+      if (false == (this.eatP(","))) {
+        break
+      }
+      if (pos == before) {
+        pos = pos + 1
+      }
+    }
+    s.add(base)
+    noStruct = save
+    this.expectP("}")
+    return (this.done(s))
+  }
+
+  static fn isExprMacro:boolean (name:string) {
+    def known:[string] ([] _:string ("println" "print" "eprintln" "eprint" "format" "write" "writeln" "panic" "assert" "assert_eq" "assert_ne" "debug_assert" "debug_assert_eq" "debug_assert_ne" "vec" "unreachable" "todo" "unimplemented" "dbg" "format_args" "include_str" "include_bytes" "concat" "env" "stringify" "line" "column" "file" "cfg" "import_rgr" "native"))
+    for known k:string i {
+      if (k == name) {
+        return true
+      }
+    }
+    return false
+  }
+
+  ; `path!( … )` / `path![ … ]` / `path!{ … }`. The body is kept as text; the
+  ; known expression macros also get it parsed as comma-separated expressions
+  ; (and `vec![x; n]` as array_repeat) when it parses cleanly.
+  fn parseMacroCall:RustNode (p:RustNode) {
+    def m:RustNode (this.node("macro_call"))
+    m.start = p.start
+    m.line = p.line
+    m.col = p.col
+    def names:[string]
+    for p.kids s:RustNode i {
+      push names s.name
+    }
+    m.name = (join names "::")
+    this.expectP("!")
+    if ((false == (this.isP("("))) && (false == (this.isP("["))) && (false == (this.isP("{")))) {
+      this.error("expected a macro body")
+      return m
+    }
+    m.addMod((this.tokText()))
+    def open:int pos
+    def close:int (this.matchingClose(pos))
+    m.value = (this.textOf((open + 1) (close - 1)))
+    def last:string ""
+    if ((array_length names) > 0) {
+      last = (itemAt names ((array_length names) - 1))
+    }
+    if (RustParser.isExprMacro(last)) {
+      this.tryParseMacroArgs(m (open + 1) (close - 1))
+    }
+    pos = close
+    return (this.done(m))
+  }
+
+  fn tryParseMacroArgs:void (m:RustNode a:int b:int) {
+    def savePos:int pos
+    def saveLimit:int limit
+    def saveErrs:int (array_length errors)
+    def saveNo:boolean noStruct
+    pos = a
+    limit = b
+    noStruct = false
+    def args:[RustNode]
+    def repeat:boolean false
+    while ((pos < limit) && (false == (this.atEnd()))) {
+      def before:int pos
+      push args (this.parseExpr())
+      if ((this.isP(";")) && ((array_length args) == 1)) {
+        pos = pos + 1
+        repeat = true
+        push args (this.parseExpr())
+        break
+      }
+      if (false == (this.eatP(","))) {
+        break
+      }
+      if (pos == before) {
+        break
+      }
+    }
+    def ok:boolean ((pos == b) && ((array_length errors) == saveErrs))
+    ; drop any errors of the attempt: an unparsed body is not an error
+    while ((array_length errors) > saveErrs) {
+      removeLast errors
+    }
+    pos = savePos
+    limit = saveLimit
+    noStruct = saveNo
+    if (ok) {
+      m.kids = args
+      if (repeat) {
+        m.addMod("repeat")
+      }
+    }
+  }
+}
