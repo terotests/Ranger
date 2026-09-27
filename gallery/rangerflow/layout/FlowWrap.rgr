@@ -112,6 +112,22 @@ class FlowWrap {
         return (sum / (to_double (g.nodeCount())))
     }
 
+    ; The widest edge name, estimated from its length: this runs before
+    ; anything is measured, and a name is a short run of text.
+    sfn widestLabel:double (g:FlowGraph) {
+        def w:double 0.0
+        def i:int 0
+        while (i < (g.edgeCount())) {
+            def e:FlowEdge (g.edgeAt(i))
+            def est:double ((to_double (strlen e.label)) * 7.0)
+            if (est > w) {
+                w = est
+            }
+            i = (i + 1)
+        }
+        return w
+    }
+
     ; ------------------------------------------------------------------
     ; The plan: which column and which height each row goes to
     ; ------------------------------------------------------------------
@@ -241,8 +257,19 @@ class FlowWrap {
             return false
         }
         def u:double (FlowWrap.unit(g))
-        gap = (u * 1.8)
-        rowGap = (u * 1.2)
+        ; The gutter carries the edges between columns, and their names: it
+        ; is at least as wide as the widest name plus room either side, so a
+        ; name on a gutter run does not sit on a box. Rows get the same
+        ; consideration for the names on the edges between them.
+        def label:double (FlowWrap.widestLabel(g))
+        gap = (u * 2.6)
+        if ((label + (u * 1.2)) > gap) {
+            gap = (label + (u * 1.2))
+        }
+        rowGap = (u * 1.6)
+        if (label > 0.0) {
+            rowGap = (u * 2.0)
+        }
         this.measure(g rowOf)
         def best:int 1
         def bestFit:double (this.fitFor(1 aspect))
@@ -283,8 +310,8 @@ class FlowWrap {
             push lanes 0
             c = (c + 1)
         }
-        def lane:double (u * 0.3)
-        def out:double (u * 0.6)
+        def lane:double (u * 0.45)
+        def out:double (u * 0.8)
         def e:int 0
         while (e < (g.edgeCount())) {
             def ed:FlowEdge (g.edgeAt(e))
