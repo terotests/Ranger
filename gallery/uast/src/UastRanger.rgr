@@ -279,7 +279,8 @@ class UastRanger {
     fn spanOfNode:UastSpan (nn:CodeNode) {
         def file:string ""
         def line:int nn.row
-        def col:int nn.col
+        ; CodeNode keeps no column field; the source answers it
+        def col:int 0
         if (null? nn.code) {
             file = ""
         } {
@@ -291,6 +292,10 @@ class UastRanger {
             def fromSp:int (src.getLine(nn.sp))
             if (fromSp >= 0) {
                 line = fromSp
+            }
+            def colSp:int (src.getColumn(nn.sp))
+            if (colSp >= 0) {
+                col = colSp
             }
         }
         return (UastSpan.ofBytes(file nn.sp nn.ep line col))

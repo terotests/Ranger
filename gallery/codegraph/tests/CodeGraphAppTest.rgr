@@ -644,7 +644,9 @@ class CodeGraphAppTest {
                     print "  FAIL resolver SheetView contents"
                     failed = (failed + 1)
                 }
-                if ((indexOf svText "def model:SpreadsheetModel") < 0) {
+                ; the field is `def model@(late):SpreadsheetModel` since the
+                ; datagrid compiles under -strict
+                if (((indexOf svText "def model") < 0) || ((indexOf svText ":SpreadsheetModel") < 0)) {
                     print "  FAIL resolver missed SheetView.model"
                     failed = (failed + 1)
                 }
