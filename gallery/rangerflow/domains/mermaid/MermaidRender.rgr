@@ -56,6 +56,7 @@ Import "MermaidRailroadReader.rgr"
 Import "MermaidInfoReader.rgr"
 Import "../../core/FlowView.rgr"
 Import "../../core/FlowStyleSheet.rgr"
+Import "../../layout/FlowWrap.rgr"
 
 ; What came back. `ok` false with a `kind` set means "recognised, and nothing
 ; here draws one yet" — which is a different answer from "that is not Mermaid"
@@ -348,9 +349,25 @@ class MermaidRender {
     }
 
     sfn sceneStyled:FlowScene (text:string style:FlowStyle maxWidth:double padding:double) {
+        return (MermaidRender.sceneWrappedStyled(text style maxWidth padding 0.0))
+    }
+
+    ; The same, with a long top-to-bottom flow cut into columns so it fits a
+    ; space of `aspect` (width / height) — see `FlowWrap`. An aspect of 0, or
+    ; a flow too short or with groups, is drawn as it was laid out.
+    sfn sceneWrapped:FlowScene (text:string styleName:string maxWidth:double padding:double aspect:double) {
+        def style:FlowStyle (FlowStyle.named(styleName))
+        return (MermaidRender.sceneWrappedStyled(text style maxWidth padding aspect))
+    }
+
+    sfn sceneWrappedStyled:FlowScene (text:string style:FlowStyle maxWidth:double padding:double aspect:double) {
         def drawing:MermaidDrawing (MermaidRender.draw(text style))
         if (! drawing.ok) {
             return (new FlowScene)
+        }
+        if (aspect > 0.0) {
+            def wrap (new FlowWrap())
+            wrap.apply(drawing.graph aspect 6)
         }
         def v:FlowView (FlowView.of(drawing.graph))
         v.notation = drawing.notation

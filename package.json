@@ -799,6 +799,7 @@
     "rangerflow:web": "bash gallery/rangerflow/web/standalone/build.sh",
     "rangerflow:web:serve": "bash gallery/rangerflow/web/standalone/build.sh && node gallery/rangerflow/web/standalone/serve.mjs",
     "rangerflow:web:test": "bash gallery/rangerflow/web/standalone/build.sh && node gallery/rangerflow/web/standalone/smoke.mjs --all",
+    "rangerflow:wrap:test": "node dist/rgrc.js -es6 ./gallery/rangerflow/tests/FlowWrapTest.rgr -d=./gallery/rangerflow/bin -o=FlowWrapTest.js -nodecli && node ./gallery/rangerflow/bin/FlowWrapTest.js",
     "rangerforms:bench": "npm run rangerforms:bench:build && node gallery/rangerforms/bench/bench.mjs",
     "rangerforms:bench:build": "node dist/rgrc.js -es6 -nodemodule ./gallery/rangerforms/bench/BenchRunner.rgr -d=./gallery/rangerforms/bin -o=bench_runner.cjs",
     "rangerforms:conformance": "bash scripts/rangerforms-conformance.sh",
