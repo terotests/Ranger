@@ -55,6 +55,7 @@ class PptxWriterTest {
         this.testFlipRoundTrip()
         this.testNotesRoundTrip()
         this.testNotesOverExistingDeck()
+        this.testNotesAfterASlideWithout()
         this.testDefaultTheme()
         this.testThemeInFile()
         this.testSaveOver()
@@ -817,6 +818,45 @@ class PptxWriterTest {
         def s2:PptxSlide (itemAt back.slides 1)
         this.check("a slide with none has none" ((s2.notesText()) == ""))
         this.check("and no part for them" ((strlen s2.notesPart) == 0))
+        p2.close()
+    }
+
+    ; Only slides with notes get a notes part, so the n-th part is not the
+    ; n-th slide's. Linked by position, the notes of slide 2 pointed at
+    ; slide 1, and Keynote refused the file.
+    fn testNotesAfterASlideWithout:void () {
+        print "--- notes on a slide after one without ---"
+        def pres (new PptxPresentation())
+        def k:int 0
+        while (k < 3) {
+            def sl (new PptxSlide())
+            sl.width = 720.0
+            sl.height = 540.0
+            push pres.slides sl
+            k = (k + 1)
+        }
+        def ed (new PptxEditor())
+        ed.attach(pres)
+        ed.gotoSlide(1)
+        ed.setNotes("Only the middle one")
+        def writer (new PptxWriter())
+        writer.save(pres "gallery/pptx/bin" "notes-middle.pptx")
+        def p2 (new PptxParser())
+        def ok:boolean (p2.openParts("gallery/pptx/bin" "notes-middle.pptx"))
+        this.check("the deck opens" ok)
+        if (ok == false) {
+            return
+        }
+        def rels:string (p2.pkg.readXml("ppt/notesSlides/_rels/notesSlide2.xml.rels"))
+        this.check("the notes point at the slide they belong to" ((indexOf rels "Target=\"../slides/slide2.xml\"") >= 0))
+        this.check("and at a notes master" ((indexOf rels "../notesMasters/notesMaster1.xml") >= 0))
+        this.check("which is in the package" (p2.pkg.hasPart("ppt/notesMasters/notesMaster1.xml")))
+        this.check("and has a theme of its own" (p2.pkg.hasPart("ppt/theme/theme2.xml")))
+        def presXml:string (p2.pkg.readXml("ppt/presentation.xml"))
+        this.check("the presentation lists it" ((indexOf presXml "<p:notesMasterIdLst>") >= 0))
+        def back:PptxPresentation ((new PptxResolver()).resolvePresentation((p2.parsePresentation())))
+        this.check("the notes came back on slide 2" (((itemAt back.slides 1).notesText()) == "Only the middle one"))
+        this.check("and not on slide 1" (((itemAt back.slides 0).notesText()) == ""))
         p2.close()
     }
 
