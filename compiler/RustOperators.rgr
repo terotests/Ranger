@@ -2082,6 +2082,10 @@ extension RangerRustClassWriter {
         if (node.rust_is_tail_return == false) {
           wr.out("return " false)
         }
+        ; a lambda literal returned from a function is an owned closure
+        if retVal.has_lambda {
+          rust_lambda_boxed = true
+        }
         ; PLAN_SHAPES S5: the slot is a Rust enum, so a member value returned
         ; from a function of the family is wrapped in its variant here
         ; rustWriteUnionValue manages the expression context itself; wrapping it

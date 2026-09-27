@@ -17634,7 +17634,8 @@ class RangerFlowParser  {
         }
       }
     } else {
-      if ( methodName.type_name == "void" || (methodName.type_name.length > 0) == false && (methodName.array_type.length > 0) == false ) {
+      const fnTypedReturn = ((typeof(methodName.expression_value) !== "undefined" && methodName.expression_value != null ) ) || methodName.value_type == 20;
+      if ( false == fnTypedReturn && (methodName.type_name == "void" || (methodName.type_name.length > 0) == false && (methodName.array_type.length > 0) == false) ) {
         if ( false == ctx.getFlag("in_task") ) {
           const rvNode = fnBody.children[fnBody.didReturnAtIndex];
           if ( rvNode.children.length > 1 ) {
@@ -33938,6 +33939,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     this.rust_path_head_mut = false;
     this.rust_field_call_mut_ready = false;
     this.rust_writing_field_type = false;
+    this.rust_lambda_boxed = false;
     this.compiler = undefined;     /* note: unused */
     this.thisName = "self";
     this.rustFnReturnsUnion = "";
@@ -34372,7 +34374,13 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     const lambdaCtx = node.lambda_ctx;
     const args = node.children[1];
     const body = node.children[2];
-    wr.out("&mut |", false);
+    const boxed = this.rust_lambda_boxed;
+    this.rust_lambda_boxed = false;
+    if ( boxed ) {
+      wr.out("Box::new(move |", false);
+    } else {
+      wr.out("&mut |", false);
+    }
     // Loop start
     for ( let i = 0; i < args.children.length; i++) {
       var arg = args.children[i];
@@ -34392,6 +34400,80 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     wr.newline();
     wr.indent(-1);
     wr.out("}", false);
+    if ( boxed ) {
+      wr.out(")", false);
+    }
+  };
+  rustIsFnTyped (n) {
+    return ((typeof(n.expression_value) !== "undefined" && n.expression_value != null ) ) || n.value_type == 20;
+  };
+  rustWriteBoxedFnType (n, ctx, wr) {
+    const prev = this.rust_writing_field_type;
+    this.rust_writing_field_type = true;
+    this.writeRustLambdaType(n.expression_value, ctx, wr);
+    this.rust_writing_field_type = prev;
+  };
+  rustBodyReturnsName (body, name) {
+    if ( body.isFirstVref("return") && body.children.length > 1 ) {
+      const rv = body.children[1];
+      if ( rv.vref == name ) {
+        return true;
+      }
+    }
+    // Loop start
+    for ( const ch of body.children) {
+      if ( this.rustBodyReturnsName(ch, name) ) {
+        return true;
+      }
+    }
+    return false;
+  };
+  rustLocalFnEscapes (name, ctx) {
+    const mOpt = ctx.getCurrentMethod();
+    if ( typeof(mOpt) === "undefined" ) {
+      return false;
+    }
+    const m = mOpt;
+    if ( (typeof(m.nameNode) === "undefined") || (typeof(m.fnBody) === "undefined") ) {
+      return false;
+    }
+    if ( false == this.rustIsFnTyped(m.nameNode) ) {
+      return false;
+    }
+    return this.rustBodyReturnsName(m.fnBody, name);
+  };
+  rustCallReturnsFn (init, ctx) {
+    let n = init;
+    if ( (typeof(n.fnDesc) === "undefined") && n.children.length == 1 ) {
+      n = n.children[0];
+    }
+    if ( typeof(n.fnDesc) === "undefined" ) {
+      if ( n.children.length == 2 ) {
+        const callee = n.children[0];
+        if ( callee.vref.length > 0 ) {
+          const vOpt = ctx.getVariableDef(callee.vref);
+          if ( (typeof(vOpt) !== "undefined" && vOpt != null )  ) {
+            const v = vOpt;
+            if ( (typeof(v.nameNode) !== "undefined" && v.nameNode != null )  ) {
+              const vn = v.nameNode;
+              if ( (typeof(vn.expression_value) !== "undefined" && vn.expression_value != null )  ) {
+                const sig = vn.expression_value;
+                if ( sig.children.length > 0 ) {
+                  const ret = sig.children[0];
+                  return this.rustIsFnTyped(ret);
+                }
+              }
+            }
+          }
+        }
+      }
+      return false;
+    }
+    const fd = n.fnDesc;
+    if ( typeof(fd.nameNode) === "undefined" ) {
+      return false;
+    }
+    return this.rustIsFnTyped(fd.nameNode);
   };
   writeRustLambdaType (expression_value, ctx, wr) {
     const rv = expression_value.children[0];
@@ -34422,6 +34504,14 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
       }
     }
     wr.out(")", false);
+    if ( this.rustIsFnTyped(rv) && ((typeof(rv.expression_value) !== "undefined" && rv.expression_value != null ) ) ) {
+      wr.out(" -> ", false);
+      this.rustWriteBoxedFnType(rv, ctx, wr);
+      if ( this.rust_writing_field_type ) {
+        wr.out(">", false);
+      }
+      return;
+    }
     if ( rv.type_name == "void" || rv.eval_type_name == "void" ) {
     } else {
       wr.out(" -> ", false);
@@ -35482,6 +35572,11 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
   writeRustFnClose (variant, ctx, wr) {
     wr.out(")", false);
     const fcnn = variant.nameNode;
+    if ( this.rustIsFnTyped(fcnn) && ((typeof(fcnn.expression_value) !== "undefined" && fcnn.expression_value != null ) ) ) {
+      wr.out(" -> ", false);
+      this.rustWriteBoxedFnType(fcnn, ctx, wr);
+      return;
+    }
     if ( fcnn.array_type.length == 0 && fcnn.key_type.length == 0 ) {
       if ( fcnn.type_name == "void" ) {
         return;
@@ -35889,6 +35984,39 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     }
   };
   writeVarDef (node, ctx, wr) {
+    if ( node.hasParamDesc && node.children.length > 2 ) {
+      const fnn = node.children[1];
+      if ( this.rustIsFnTyped(fnn) && ((typeof(fnn.expression_value) !== "undefined" && fnn.expression_value != null ) ) ) {
+        const finit = node.getThird();
+        const fp = fnn.paramDesc;
+        const fname = this.adjustType(fp.compiledName);
+        if ( finit.has_lambda && this.rustLocalFnEscapes(fnn.vref, ctx) ) {
+          wr.out(("let mut " + fname) + ": ", false);
+          this.rustWriteBoxedFnType(fnn, ctx, wr);
+          wr.out(" = ", false);
+          this.rust_lambda_boxed = true;
+          ctx.setInExpr();
+          this.WalkNode(finit, ctx, wr);
+          ctx.unsetInExpr();
+          this.rust_lambda_boxed = false;
+          wr.out(";", true);
+          return;
+        }
+        if ( this.rustCallReturnsFn(finit, ctx) ) {
+          wr.out(("let mut " + fname) + "__box: ", false);
+          this.rustWriteBoxedFnType(fnn, ctx, wr);
+          wr.out(" = ", false);
+          ctx.setInExpr();
+          this.WalkNode(finit, ctx, wr);
+          ctx.unsetInExpr();
+          wr.out(";", true);
+          wr.out(("let " + fname) + ": ", false);
+          this.writeRustLambdaType(fnn.expression_value, ctx, wr);
+          wr.out((" = &mut *" + fname) + "__box;", true);
+          return;
+        }
+      }
+    }
     if ( node.rg_init_fold ) {
       if ( node.hasParamDesc ) {
         if ( this.rustFoldedInitIsWritable(node, ctx) ) {
@@ -42116,6 +42244,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
         }
         if ( node.rust_is_tail_return == false ) {
           wr.out("return ", false);
+        }
+        if ( retVal.has_lambda ) {
+          this.rust_lambda_boxed = true;
         }
         if ( this.rustFnReturnsUnion.length > 0 ) {
           if ( this.rustWriteUnionValue(this.rustFnReturnsUnion, retVal, ctx, wr) ) {
@@ -52867,30 +52998,44 @@ class RangerPHPClassWriter  extends RangerGenericClassWriter {
   CreateLambdaCall (node, ctx, wr) {
     const fName = node.children[0];
     const givenArgs = node.children[1];
-    let args;
+    let argsOpt;
     if ( (typeof(fName.expression_value) !== "undefined" && fName.expression_value != null )  ) {
       const lambdaExpression = fName.expression_value;
-      args = lambdaExpression.children[1];
+      argsOpt = lambdaExpression.children[1];
     } else {
       const paramOpt = ctx.getVariableDef(fName.vref);
-      const param = paramOpt;
-      const parameterName = param.nameNode;
-      const lambdaExpression_1 = parameterName.expression_value;
-      args = lambdaExpression_1.children[1];
+      if ( (typeof(paramOpt) !== "undefined" && paramOpt != null )  ) {
+        const param = paramOpt;
+        if ( (typeof(param.nameNode) !== "undefined" && param.nameNode != null )  ) {
+          const parameterName = param.nameNode;
+          if ( (typeof(parameterName.expression_value) !== "undefined" && parameterName.expression_value != null )  ) {
+            const lambdaExpression2 = parameterName.expression_value;
+            if ( lambdaExpression2.children.length > 1 ) {
+              argsOpt = lambdaExpression2.children[1];
+            }
+          }
+        }
+      }
     }
     ctx.setInExpr();
     wr.out("call_user_func(", false);
     this.WalkNode(fName, ctx, wr);
-    const lambdaArgs = args;
-    // Loop start
-    for ( let i = 0; i < lambdaArgs.children.length; i++) {
-      var arg = lambdaArgs.children[i];
-      const n = givenArgs.children[i];
-      if ( i >= 0 ) {
+    if ( typeof(argsOpt) === "undefined" ) {
+      // Loop start
+      for ( const ga of givenArgs.children) {
         wr.out(", ", false);
+        this.WalkNode(ga, ctx, wr);
       }
-      if ( arg.value_type != 0 ) {
-        this.WalkNode(n, ctx, wr);
+    } else {
+      const lambdaArgs = argsOpt;
+      // Loop start
+      for ( let i = 0; i < lambdaArgs.children.length; i++) {
+        var arg = lambdaArgs.children[i];
+        const n = givenArgs.children[i];
+        wr.out(", ", false);
+        if ( arg.value_type != 0 ) {
+          this.WalkNode(n, ctx, wr);
+        }
       }
     }
     ctx.unsetInExpr();
@@ -58889,6 +59034,9 @@ class LowIRBuilderPass  {
     return ptrType;
   };
   varTypeName (nameNode) {
+    if ( ((typeof(nameNode.expression_value) !== "undefined" && nameNode.expression_value != null ) ) || nameNode.value_type == 20 ) {
+      return "__closure";
+    }
     if ( nameNode.type_name.length > 0 ) {
       return nameNode.type_name;
     }
@@ -63903,7 +64051,7 @@ class LowIRBuilderPass  {
       const fnDesc = node.fnDesc;
       if ( (typeof(fnDesc.nameNode) !== "undefined" && fnDesc.nameNode != null )  ) {
         const rn = fnDesc.nameNode;
-        retType = this.llvmTypeForRanger(rn.type_name, lctx.ptrType);
+        retType = this.llvmTypeForRanger(this.varTypeName(rn), lctx.ptrType);
       }
     }
     let args = [];
@@ -66359,7 +66507,7 @@ class LowIRBuilderPass  {
       const fnDesc_1 = node.fnDesc;
       if ( (typeof(fnDesc_1.nameNode) !== "undefined" && fnDesc_1.nameNode != null )  ) {
         const rn = fnDesc_1.nameNode;
-        retType = this.llvmTypeForRanger(rn.type_name, lctx.ptrType);
+        retType = this.llvmTypeForRanger(this.varTypeName(rn), lctx.ptrType);
       }
     } else {
       if ( ((methName == "push" || methName == "put") || methName == "putAt") || methName == "storeI32" ) {
@@ -69031,6 +69179,9 @@ class LowIRBuilderPass  {
     let ret = "void";
     if ( node.eval_type_name.length > 0 ) {
       ret = this.llvmTypeForRanger(node.eval_type_name, lctx.ptrType);
+    }
+    if ( ((typeof(node.expression_value) !== "undefined" && node.expression_value != null ) ) || node.eval_type == 20 ) {
+      ret = lctx.ptrType;
     }
     sig = sig + (":" + ret);
     this.addLambdaSig(sig);
@@ -87683,10 +87834,6 @@ class RustLower  {
           name = "rs_dbg";
         }
       }
-    }
-    if ( fret.kind == "fn" ) {
-      this.err(node, ("`" + f.name) + "` returns a closure: a Ranger function cannot return a function value");
-      return "";
     }
     let retText = this.rtype(fret);
     if ( retText == "" ) {

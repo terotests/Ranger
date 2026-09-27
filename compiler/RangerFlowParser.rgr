@@ -3123,7 +3123,9 @@ class RangerFlowParser {
           }
       }
     } {
-      if( (methodName.type_name == "void") || ( (has methodName.type_name) == false ) && ( (has methodName.array_type) == false )  ) {
+      ; a function-typed return `sfn mk:(fn:int (x:int)) …` has no type_name
+      def fnTypedReturn:boolean ((!null? methodName.expression_value) || (methodName.value_type == RangerNodeType.ExpressionType))
+      if( (false == fnTypedReturn) && ((methodName.type_name == "void") || ( (has methodName.type_name) == false ) && ( (has methodName.array_type) == false ))  ) {
         if( false == (ctx.getFlag("in_task")) ) {
           def rvNode ( at fnBody.children fnBody.didReturnAtIndex)
           if( (size rvNode.children ) > 1) {

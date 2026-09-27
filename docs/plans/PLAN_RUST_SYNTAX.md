@@ -176,8 +176,6 @@ Ranger refuses, with a message naming the alternative:
 - lifetime parameters on types (`struct V<'a>`) and references stored in
   struct fields; lifetimes on functions (`fn f<'a>(x: &'a str) -> &'a str`)
   are accepted and ignored
-- functions returning closures (`-> impl Fn…`, `-> Box<dyn Fn…>`): Ranger
-  has no function-typed return values yet (ISSUES.md #103)
 - `unsafe`, raw pointers, `asm!`, `extern` blocks
 - `impl Trait` in argument position, associated types, GATs, trait objects
   other than `dyn Fn…` and `dyn Trait` behind `Box` / `Rc`
@@ -428,7 +426,7 @@ for es6, python, go and cpp:
 | Fixture | Covers |
 | --- | --- |
 | r1_arith, r1_control, r1_structs, r1_collections | integer and float arithmetic with Rust's truncation and printing, `if` / `match` / loops as expressions, structs, `impl`, `Vec`, `Option` |
-| r2_enums, r2_traits, r2_closures, r2_results, r2_maps | data enums (as `shape` / `case`), traits and `dyn Trait`, generics (monomorphized), closures and iterator chains, `Result` / `?`, `HashMap` / `BTreeMap` / sets |
+| r2_enums, r2_traits, r2_closures, r2_closure_return, r2_results, r2_maps | data enums (as `shape` / `case`), traits and `dyn Trait`, generics (monomorphized), closures, functions returning closures and iterator chains, `Result` / `?`, `HashMap` / `BTreeMap` / sets |
 | r3_moves | programs rustc accepts with moves, clones and `&mut` parameters of value types (boxed and written back) |
 | r4_prelude, r4_strings, r4_helpers | the prelude's type names, `Map`, operator functions; the §5 table; char tests, float methods, padded `{:>8}` / `{:05}` formatting |
 

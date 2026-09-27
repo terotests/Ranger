@@ -92,6 +92,10 @@ class RangerRustClassWriter {
   ; lifetime to sit in a struct, and the struct has none; an owned one does
   ; not. A parameter keeps the borrow, which is what call sites pass.
   def rust_writing_field_type:boolean false
+  ; set just before a lambda literal that leaves its function (returned, or
+  ; held by a returned local): CreateLambda writes `Box::new(move |…| …)`
+  ; instead of borrowing it (ISSUES.md #103)
+  def rust_lambda_boxed:boolean false
 
   Extends (RangerGenericClassWriter)
   def compiler:LiveCompiler
@@ -615,7 +619,15 @@ class RangerRustClassWriter {
     ; goes in as a mutable borrow. Without it rustc has no expected type to
     ; infer the closure's own parameters from — "type annotations needed" on
     ; every `item`.
-    wr.out("&mut |" false)
+    ; consumed here, so a lambda nested in this one is written as usual
+    def boxed:boolean rust_lambda_boxed
+    rust_lambda_boxed = false
+    if boxed {
+      ; it outlives the call that made it: owned, and its captures copied in
+      wr.out("Box::new(move |" false)
+    } {
+      wr.out("&mut |" false)
+    }
     for args.children arg:CodeNode i {
       if (i > 0) {
         wr.out(", " false)
@@ -636,6 +648,91 @@ class RangerRustClassWriter {
     wr.newline()
     wr.indent(-1)
     wr.out("}" false)
+    if boxed {
+      wr.out(")" false)
+    }
+  }
+
+  ; A name whose type is a function: `f:(fn:int (x:int))`.
+  fn rustIsFnTyped:boolean (n:CodeNode) {
+    return ((!null? n.expression_value) || (n.value_type == RangerNodeType.ExpressionType))
+  }
+
+  ; The owned closure type, `Box<dyn FnMut(…) -> R>`, of a function-typed name.
+  fn rustWriteBoxedFnType:void (n:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    def prev:boolean rust_writing_field_type
+    rust_writing_field_type = true
+    this.writeRustLambdaType((unwrap n.expression_value) ctx wr)
+    rust_writing_field_type = prev
+  }
+
+  ; Does `body` hold a `return <name>` anywhere?
+  fn rustBodyReturnsName:boolean (body:CodeNode name:string) {
+    if ((body.isFirstVref("return")) && ((array_length body.children) > 1)) {
+      def rv:CodeNode (itemAt body.children 1)
+      if (rv.vref == name) {
+        return true
+      }
+    }
+    for body.children ch:CodeNode i {
+      if (this.rustBodyReturnsName(ch name)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  ; A local that the current method returns, when the method returns a
+  ; function: its closure has to be owned.
+  fn rustLocalFnEscapes:boolean (name:string ctx:RangerAppWriterContext) {
+    def mOpt@(optional):RangerAppFunctionDesc (ctx.getCurrentMethod())
+    if (null? mOpt) {
+      return false
+    }
+    def m:RangerAppFunctionDesc (unwrap mOpt)
+    if ((null? m.nameNode) || (null? m.fnBody)) {
+      return false
+    }
+    if (false == (this.rustIsFnTyped((unwrap m.nameNode)))) {
+      return false
+    }
+    return (this.rustBodyReturnsName((unwrap m.fnBody) name))
+  }
+
+  ; A call of a function that returns a function hands back a Box.
+  fn rustCallReturnsFn:boolean (init:CodeNode ctx:RangerAppWriterContext) {
+    def n:CodeNode init
+    if ((null? n.fnDesc) && ((array_length n.children) == 1)) {
+      n = (itemAt n.children 0)
+    }
+    if (null? n.fnDesc) {
+      ; `mk(2)` where the local `mk` holds a lambda that returns a function
+      if ((array_length n.children) == 2) {
+        def callee:CodeNode (itemAt n.children 0)
+        if ((strlen callee.vref) > 0) {
+          def vOpt@(optional):RangerAppParamDesc (ctx.getVariableDef(callee.vref))
+          if (!null? vOpt) {
+            def v:RangerAppParamDesc (unwrap vOpt)
+            if (!null? v.nameNode) {
+              def vn:CodeNode (unwrap v.nameNode)
+              if (!null? vn.expression_value) {
+                def sig:CodeNode (unwrap vn.expression_value)
+                if ((array_length sig.children) > 0) {
+                  def ret:CodeNode (itemAt sig.children 0)
+                  return (this.rustIsFnTyped(ret))
+                }
+              }
+            }
+          }
+        }
+      }
+      return false
+    }
+    def fd:RangerAppFunctionDesc (unwrap n.fnDesc)
+    if (null? fd.nameNode) {
+      return false
+    }
+    return (this.rustIsFnTyped((unwrap fd.nameNode)))
   }
 
   ; The type of a name that holds a lambda. Rust has no bare function type,
@@ -676,6 +773,15 @@ class RangerRustClassWriter {
       }
     }
     wr.out(")" false)
+    if ((this.rustIsFnTyped(rv)) && (!null? rv.expression_value)) {
+      ; a lambda that returns a function returns it owned
+      wr.out(" -> " false)
+      this.rustWriteBoxedFnType(rv ctx wr)
+      if rust_writing_field_type {
+        wr.out(">" false)
+      }
+      return
+    }
     if ((rv.type_name == "void") || (rv.eval_type_name == "void")) {
     } {
       wr.out(" -> " false)
@@ -2067,6 +2173,12 @@ class RangerRustClassWriter {
   fn writeRustFnClose:void (variant:RangerAppFunctionDesc ctx:RangerAppWriterContext wr:CodeWriter) {
     wr.out(")" false)
     def fcnn:CodeNode (unwrap variant.nameNode)
+    if ((this.rustIsFnTyped(fcnn)) && (!null? fcnn.expression_value)) {
+      ; a returned function is an owned closure (ISSUES.md #103)
+      wr.out(" -> " false)
+      this.rustWriteBoxedFnType(fcnn ctx wr)
+      return
+    }
     if (((strlen fcnn.array_type) == 0) && ((strlen fcnn.key_type) == 0)) {
       if (fcnn.type_name == "void") {
         return
@@ -2603,6 +2715,42 @@ class RangerRustClassWriter {
   }
 
   fn writeVarDef (node:CodeNode ctx:RangerAppWriterContext wr:CodeWriter) {
+    if (node.hasParamDesc && ((array_length node.children) > 2)) {
+      def fnn:CodeNode (itemAt node.children 1)
+      if ((this.rustIsFnTyped(fnn)) && (!null? fnn.expression_value)) {
+        def finit:CodeNode (node.getThird())
+        def fp:RangerAppParamDesc fnn.paramDesc
+        def fname:string (this.adjustType(fp.compiledName))
+        if (finit.has_lambda && (this.rustLocalFnEscapes(fnn.vref ctx))) {
+          ; returned by this function: an owned closure from the start
+          wr.out((("let mut " + fname) + ": ") false)
+          this.rustWriteBoxedFnType(fnn ctx wr)
+          wr.out(" = " false)
+          rust_lambda_boxed = true
+          ctx.setInExpr()
+          this.WalkNode(finit ctx wr)
+          ctx.unsetInExpr()
+          rust_lambda_boxed = false
+          wr.out(";" true)
+          return
+        }
+        if (this.rustCallReturnsFn(finit ctx)) {
+          ; the Box the call returns is kept, and the name borrows it, so
+          ; every use reads as it does for any other closure local
+          wr.out((("let mut " + fname) + "__box: ") false)
+          this.rustWriteBoxedFnType(fnn ctx wr)
+          wr.out(" = " false)
+          ctx.setInExpr()
+          this.WalkNode(finit ctx wr)
+          ctx.unsetInExpr()
+          wr.out(";" true)
+          wr.out((("let " + fname) + ": ") false)
+          this.writeRustLambdaType((unwrap fnn.expression_value) ctx wr)
+          wr.out(((" = &mut *" + fname) + "__box;") true)
+          return
+        }
+      }
+    }
     if node.rg_init_fold {
       if node.hasParamDesc {
         if (this.rustFoldedInitIsWritable(node ctx)) {

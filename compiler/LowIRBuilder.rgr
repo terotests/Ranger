@@ -325,6 +325,11 @@ class LowIRBuilderPass {
   }
 
   fn varTypeName:string (nameNode:CodeNode) {
+    ; a function-typed name (`sfn mk:(fn:int (x:int)) …`) holds a closure
+    ; handle, a pointer like any object. Its type_name can read "void".
+    if ((!null? nameNode.expression_value) || (nameNode.value_type == RangerNodeType.ExpressionType)) {
+      return "__closure"
+    }
     if ((strlen nameNode.type_name) > 0) {
       return nameNode.type_name
     }
