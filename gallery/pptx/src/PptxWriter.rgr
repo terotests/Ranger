@@ -1384,9 +1384,29 @@ class PptxWriter {
         return (out + "</p:sp></p:spTree></p:cSld></p:notes>")
     }
 
-    sfn notesRelsXml:string (slidePath:string) {
+    ; A notes slide names the slide it belongs to and the notes master it
+    ; follows. The master is not optional: ECMA-376 requires it, and Keynote
+    ; refuses a package whose notes slides have none ("the file format is
+    ; invalid") where PowerPoint quietly repairs it.
+    sfn notesRelsXml:string (slidePath:string masterPath:string) {
         def target:string (PptxWriter.relTargetFrom("ppt/notesSlides" slidePath))
-        return ("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rIdSlide\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide\" Target=\"" + target + "\"/></Relationships>")
+        def out:string ("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rIdSlide\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide\" Target=\"" + target + "\"/>")
+        if ((strlen masterPath) > 0) {
+            out = (out + "<Relationship Id=\"rIdMaster\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesMaster\" Target=\"" + (PptxWriter.relTargetFrom("ppt/notesSlides" masterPath)) + "\"/>")
+        }
+        return (out + "</Relationships>")
+    }
+
+    ; A blank notes master, written only when some slide has notes.
+    sfn notesMasterXml:string () {
+        def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<p:notesMaster xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\"><p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id=\"1\" name=\"\"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/></p:spTree></p:cSld>"
+        out = (out + "<p:clrMap bg1=\"lt1\" tx1=\"dk1\" bg2=\"lt2\" tx2=\"dk2\" accent1=\"accent1\" accent2=\"accent2\" accent3=\"accent3\" accent4=\"accent4\" accent5=\"accent5\" accent6=\"accent6\" hlink=\"hlink\" folHlink=\"folHlink\"/>")
+        return (out + "</p:notesMaster>")
+    }
+
+    ; A master owns its theme, so the notes master gets a copy of the deck's.
+    sfn notesMasterRelsXml:string () {
+        return "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme\" Target=\"../theme/theme2.xml\"/></Relationships>"
     }
 
     fn noteSlide:void (slide:PptxSlide path:string) {
@@ -1750,7 +1770,11 @@ class PptxWriter {
     }
 
     fn presentationXml:string (pres:PptxPresentation) {
-        def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<p:presentation xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\"><p:sldMasterIdLst><p:sldMasterId id=\"2147483648\" r:id=\"rId1\"/></p:sldMasterIdLst><p:sldIdLst>"
+        def out:string "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<p:presentation xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\"><p:sldMasterIdLst><p:sldMasterId id=\"2147483648\" r:id=\"rId1\"/></p:sldMasterIdLst>"
+        if ((array_length notesPaths) > 0) {
+            out = (out + "<p:notesMasterIdLst><p:notesMasterId r:id=\"rIdNotesMaster\"/></p:notesMasterIdLst>")
+        }
+        out = (out + "<p:sldIdLst>")
         def ids:[int] (PptxWriter.slideIdsFor(pres (array_length pres.slides)))
         def i:int 0
         while (i < (array_length pres.slides)) {
@@ -1771,6 +1795,9 @@ class PptxWriter {
         }
         def themeRid:string ("rId" + (to_string ((array_length pres.slides) + 2)))
         out = (out + "<Relationship Id=\"" + themeRid + "\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme\" Target=\"theme/theme1.xml\"/>")
+        if ((array_length notesPaths) > 0) {
+            out = (out + "<Relationship Id=\"rIdNotesMaster\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesMaster\" Target=\"notesMasters/notesMaster1.xml\"/>")
+        }
         return (out + "</Relationships>")
     }
 
@@ -1794,6 +1821,10 @@ class PptxWriter {
         while (n < (array_length notesPaths)) {
             out = (out + "<Override PartName=\"/" + (itemAt notesPaths n) + "\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml\"/>")
             n = (n + 1)
+        }
+        if ((array_length notesPaths) > 0) {
+            out = (out + "<Override PartName=\"/ppt/notesMasters/notesMaster1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.notesMaster+xml\"/>")
+            out = (out + "<Override PartName=\"/ppt/theme/theme2.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.theme+xml\"/>")
         }
         return (out + "</Types>")
     }
@@ -1901,11 +1932,18 @@ class PptxWriter {
         ; turned out to use.
         def slideBodies:[string]
         def slideRels:[string]
+        ; The slide each notes part belongs to. Only slides WITH notes get a
+        ; part, so the n-th part is not the n-th slide's.
+        def notesOwners:[string]
         def i:int 0
         while (i < (array_length pres.slides)) {
             def slide:PptxSlide (itemAt pres.slides i)
             push slideBodies (this.slideXml(slide))
+            def hadNotes:int (array_length notesPaths)
             this.noteSlide(slide ("ppt/notesSlides/notesSlide" + (to_string (i + 1)) + ".xml"))
+            if ((array_length notesPaths) > hadNotes) {
+                push notesOwners ("ppt/slides/slide" + (to_string (i + 1)) + ".xml")
+            }
             def keep:[OpcRelationship]
             push slideRels (this.slideRelsXmlFor("../slideLayouts/slideLayout1.xml" keep))
             i = (i + 1)
@@ -1940,8 +1978,13 @@ class PptxWriter {
         while (n < (array_length notesPaths)) {
             def npath:string (itemAt notesPaths n)
             this.addXml(npath (itemAt notesBodies n))
-            this.addXml((OpcPackage.relsPathFor(npath)) (PptxWriter.notesRelsXml(("ppt/slides/slide" + (to_string (n + 1)) + ".xml"))))
+            this.addXml((OpcPackage.relsPathFor(npath)) (PptxWriter.notesRelsXml((itemAt notesOwners n) "ppt/notesMasters/notesMaster1.xml")))
             n = (n + 1)
+        }
+        if ((array_length notesPaths) > 0) {
+            this.addXml("ppt/notesMasters/notesMaster1.xml" (PptxWriter.notesMasterXml()))
+            this.addXml("ppt/notesMasters/_rels/notesMaster1.xml.rels" (PptxWriter.notesMasterRelsXml()))
+            this.addXml("ppt/theme/theme2.xml" (PptxWriter.themeXml(pres.theme)))
         }
         this.addXml("[Content_Types].xml" (this.contentTypesXml(pres)))
     }
@@ -2210,7 +2253,7 @@ class PptxWriter {
                     owner = (itemAt slidePaths nwi)
                 }
             }
-            this.addXml(nrels (PptxWriter.notesRelsXml(owner)))
+            this.addXml(nrels (PptxWriter.notesRelsXml(owner (PptxWriter.notesMasterOf(pkg)))))
             set written nrels true
             nwi = (nwi + 1)
         }
@@ -2572,6 +2615,15 @@ class PptxWriter {
             pi = (pi + 1)
         }
         return (out + "</Types>")
+    }
+
+    ; The notes master an opened package already has, or nothing.
+    sfn notesMasterOf:string (pkg:OpcPackage) {
+        def found:[string] (pkg.partsOfContentType("application/vnd.openxmlformats-officedocument.presentationml.notesMaster+xml"))
+        if ((array_length found) > 0) {
+            return (itemAt found 0)
+        }
+        return ""
     }
 
     sfn contentTypeOf:string (part:string) {
