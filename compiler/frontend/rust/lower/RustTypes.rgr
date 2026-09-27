@@ -199,6 +199,12 @@ class RsFn {
   ; generics of the impl block the method is in
   def ownerGenerics:[string]
   def node@(optional):RustNode
+  ; the module the function is declared in ("" for the crate root,
+  ; `geometry`, `shapes::round`) and the class its free functions go to
+  def modKey:string ""
+  def modCls:string ""
+  ; the constructor of a `.rgr` class: `Counter::new(…)` is `new Counter(…)`
+  def rgrCtor:boolean false
 }
 
 class RsVariant {
@@ -218,6 +224,9 @@ class RsStruct {
   def methods:[RsFn]
   def traits:[string]
   def node@(optional):RustNode
+  ; a class of a `.rgr` file included with `ranger::import_rgr!` (R6): known
+  ; to the lowering, written by the `.rgr` import
+  def rgr:boolean false
 
   fn derivesTrait:boolean (t:string) {
     for derives d:string i {
@@ -312,6 +321,8 @@ class RsConst {
   def name:string ""
   def ty:RsType (new RsType("unknown"))
   def node@(optional):RustNode
+  def modKey:string ""
+  def modCls:string ""
 }
 
 ; A local variable in scope during the lowering of one function.

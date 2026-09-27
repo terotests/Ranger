@@ -1290,7 +1290,7 @@ extension RangerRustClassWriter {
   ; classes are Rust generics where the body allows it (native generics,
   ; StaticAnalyzer.settleRustNativeGenerics), in either mode.
   fn rustLibraryMode:boolean (ctx:RangerAppWriterContext) {
-    return (ctx.hasCompilerFlag("rust-library"))
+    return ((ctx.hasCompilerFlag("rust-library")) || (ctx.hasCompilerFlag("rust-module")))
   }
 
   fn rustPubPrefix:string (ctx:RangerAppWriterContext) {
@@ -1491,6 +1491,7 @@ extension RangerRustClassWriter {
     ; template writes a `use` line ahead of the class content. Written here they
     ; ended up after that line and rustc rejected the file.
     if (fileHeaderWritten == false) {
+      rustModuleOut = (ctx.hasCompilerFlag("rust-module"))
       def header:CodeWriter (wr.getTag("before_imports"))
       ; the name set the snake_case collision guard consults; adjustType is
       ; called from places with no ctx to build it from

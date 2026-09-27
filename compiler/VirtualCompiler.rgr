@@ -787,7 +787,23 @@ class tester {
     if (RustLower.isRustFile(the_file)) {
       rustOriginal = mainSource
       def rl:RustLower (new RustLower())
-      mainSource = (rl.translate(mainSource the_file))
+      ; `mod x;` reads x.rs or x/mod.rs beside the declaring file (R6)
+      rl.begin(mainSource the_file)
+      while (rl.hasPendingModule()) {
+        def modFiles:[string] (rl.nextModuleFiles())
+        def modFound:boolean false
+        for modFiles modFile:string mfi {
+          if ((modFound == false) && (file_exists env theFilePath modFile)) {
+            def modSrc:string (read_file env theFilePath modFile)
+            rl.addModule(modFile (unwrap modSrc))
+            modFound = true
+          }
+        }
+        if (modFound == false) {
+          rl.moduleNotFound()
+        }
+      }
+      mainSource = (rl.finish())
       if ((array_length rl.errors) > 0) {
         cli.printHeader()
         for rl.errors rerr:string ri {

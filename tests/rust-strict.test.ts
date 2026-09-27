@@ -3,7 +3,8 @@
 // rustc build prints (PLAN_RUST_SYNTAX.md, D8 and stages R1–R4).
 // ============================================================================
 //
-// Every tests/fixtures/rust_strict/<name>.rs is a Rust program with a `main`.
+// Every tests/fixtures/rust_strict/<name>.rs is a Rust program with a `main`,
+// and so is every crates/<name>/main.rs with the modules it declares.
 // <name>.expected holds its output, recorded from rustc. When rustc is on the
 // PATH the test also rebuilds the program natively and checks the recording
 // is still what rustc prints, so a stale .expected cannot hide a divergence.
@@ -177,16 +178,24 @@ function compileAndRun(file: string, name: string, target: string) {
   return { ok: true, out: run(bin, []).stdout };
 }
 
-const programs = fs.existsSync(DIR)
-  ? fs.readdirSync(DIR).filter((f) => f.endsWith(".rs")).sort()
-  : [];
+// A program is a single file, or a crate of several (R6): crates/<name>/
+// with main.rs, its modules and main.expected.
+const CRATES = path.join(DIR, "crates");
+const programs: { name: string; file: string; expectedFile: string }[] = [
+  ...(fs.existsSync(DIR) ? fs.readdirSync(DIR).filter((f) => f.endsWith(".rs")).sort() : []).map((f) => {
+    const name = f.replace(/\.rs$/, "");
+    return { name, file: path.join(DIR, f), expectedFile: path.join(DIR, `${name}.expected`) };
+  }),
+  ...(fs.existsSync(CRATES) ? fs.readdirSync(CRATES).sort() : []).map((name) => ({
+    name,
+    file: path.join(CRATES, name, "main.rs"),
+    expectedFile: path.join(CRATES, name, "main.expected"),
+  })),
+];
 
 describe("Rust-syntax modules: output equals rustc's", () => {
   fs.mkdirSync(OUT, { recursive: true });
-  for (const f of programs) {
-    const name = f.replace(/\.rs$/, "");
-    const file = path.join(DIR, f);
-    const expectedFile = path.join(DIR, `${name}.expected`);
+  for (const { name, file, expectedFile } of programs) {
 
     const needsCargo = fs.readFileSync(file, "utf8").includes("use ranger::prelude");
     it.skipIf(!HAS_RUSTC || (needsCargo && !HAS_CARGO))(`${name}: the recorded output is rustc's`, () => {
@@ -201,6 +210,42 @@ describe("Rust-syntax modules: output equals rustc's", () => {
         const r = compileAndRun(file, name, target);
         expect(r.ok, r.out).toBe(true);
         expect(r.out).toBe(expected);
+      }, 180000);
+    }
+  }
+});
+
+// R6: a crate with both source forms. cargo builds it -- build.rs writes
+// each `.rgr` module as a Rust module with `rgrc -rust-module`, and
+// `ranger::import_rgr!` includes it -- and its output is expected.txt; rgrc
+// compiles src/main.rs, which reads the `.rs` modules and imports the `.rgr`
+// ones, for every other target.
+const MIXED = path.join(ROOT, "tests", "fixtures", "rust_mixed");
+const mixedCrates = fs.existsSync(MIXED) ? fs.readdirSync(MIXED).sort() : [];
+
+describe("Rust-syntax modules: crates mixing .rs and .rgr", () => {
+  for (const name of mixedCrates) {
+    const dir = path.join(MIXED, name);
+    const expectedFile = path.join(dir, "expected.txt");
+    it.skipIf(!HAS_CARGO)(`${name}: cargo run prints expected.txt`, () => {
+      const r = run("cargo", [
+        "run",
+        "--offline",
+        "--quiet",
+        "--manifest-path",
+        path.join(dir, "Cargo.toml"),
+        "--target-dir",
+        path.join(OUT, "cargo-mixed"),
+      ]);
+      expect(r.status, r.stderr).toBe(0);
+      if (process.env.UPDATE_EXPECTED) fs.writeFileSync(expectedFile, r.stdout);
+      expect(r.stdout).toBe(fs.readFileSync(expectedFile, "utf8"));
+    }, 600000);
+    for (const target of Object.keys(EXT)) {
+      it.skipIf(!TOOLS[target])(`${name} on ${target}`, () => {
+        const r = compileAndRun(path.join(dir, "src", "main.rs"), `mixed_${name}`, target);
+        expect(r.ok, r.out).toBe(true);
+        expect(r.out).toBe(fs.readFileSync(expectedFile, "utf8"));
       }, 180000);
     }
   }

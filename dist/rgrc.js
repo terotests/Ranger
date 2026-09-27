@@ -24769,7 +24769,30 @@ class RangerFlowParser  {
       }
       if ( RustLower.isRustFile(import_file) ) {
         const rl = new RustLower();
-        const lowered = rl.translate(source_code, import_file);
+        const modBase = importFileDir;
+        const modName = RustLower.baseName(import_file);
+        rl.begin(source_code, modName);
+        rl.setEntryName(import_file);
+        while (rl.hasPendingModule()) {
+          const modFiles = rl.nextModuleFiles();
+          let modFound = false;
+          // Loop start
+          for ( const modFile of modFiles) {
+            if ( (modFound == false && modBase != "") && operatorsOf_17.filec95exists_18(env, modBase, modFile) ) {
+              const modSrc = operatorsOf_17.readc95file_18(
+                env,
+                modBase,
+                modFile
+              );
+              rl.addModule(modFile, modSrc);
+              modFound = true;
+            }
+          }
+          if ( modFound == false ) {
+            rl.moduleNotFound();
+          }
+        };
+        const lowered = rl.finish();
         if ( rl.errors.length > 0 ) {
           // Loop start
           for ( const rerr of rl.errors) {
@@ -34106,6 +34129,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     this.rustFnReturnNameNode = undefined;
     this.fileHeaderWritten = false;
     this.rustAllowSeen = {};
+    this.rustModuleOut = false;
     this.rustClippyNoteWritten = false;
     this.rustIdentNames = {};
     this.rustIdentNamesDone = false;
@@ -35893,6 +35917,9 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     if ( ( typeof(this.rustAllowSeen[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.rustAllowSeen, name) ) ) {
       return;
     }
+    if ( this.rustModuleMode(wr) ) {
+      return;
+    }
     if ( wr.hasTag("file_attributes") == false ) {
       return;
     }
@@ -35900,9 +35927,15 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     const naW = wr.getTag("file_attributes");
     naW.out(("#![allow(" + name) + ")]", true);
   };
+  rustModuleMode (wr) {
+    return this.rustModuleOut;
+  };
   rustNeedClippyAllow (name, wr) {
     const ncKey = "clippy::" + name;
     if ( ( typeof(this.rustAllowSeen[ncKey] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.rustAllowSeen, ncKey) ) ) {
+      return;
+    }
+    if ( this.rustModuleMode(wr) ) {
       return;
     }
     if ( wr.hasTag("file_attributes") == false ) {
@@ -44342,7 +44375,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     wr.out("}", true);
   };
   rustLibraryMode (ctx) {
-    return ctx.hasCompilerFlag("rust-library");
+    return ctx.hasCompilerFlag("rust-library") || ctx.hasCompilerFlag("rust-module");
   };
   rustPubPrefix (ctx) {
     if ( this.rustLibraryMode(ctx) ) {
@@ -44489,6 +44522,7 @@ class RangerRustClassWriter  extends RangerGenericClassWriter {
     ctx.setCurrentClass(cl);
     const wr = orig_wr;
     if ( this.fileHeaderWritten == false ) {
+      this.rustModuleOut = ctx.hasCompilerFlag("rust-module");
       const header = wr.getTag("before_imports");
       this.rustFillIdentNames(ctx);
       const helperNeeds = this.rustHeaderHelperNeeds(ctx);
@@ -79869,6 +79903,14 @@ class StaticAnalyzer  {
     }
     this.computeSharingMutations();
     const root = this.ctx.getRoot();
+    if ( this.ctx.hasCompilerFlag("rust-module") ) {
+      for( var mci in root.definedClasses) {
+        if(root.definedClasses.hasOwnProperty(mci)) {
+          var mcl = root.definedClasses[mci] 
+          this.markClassShared(mcl.name, "rust module boundary");
+        }
+      };
+    }
     for( var ci in root.definedClasses) {
       if(root.definedClasses.hasOwnProperty(ci)) {
         var cl = root.definedClasses[ci] 
@@ -85419,6 +85461,9 @@ class RsFn  {
     this.hasBody = true;
     this.ownerGenerics = [];
     this.node = undefined;
+    this.modKey = "";
+    this.modCls = "";
+    this.rgrCtor = false;
   }
 }
 class RsVariant  {
@@ -85439,6 +85484,7 @@ class RsStruct  {
     this.methods = [];
     this.traits = [];
     this.node = undefined;
+    this.rgr = false;
   }
   derivesTrait (t) {
     // Loop start
@@ -85534,6 +85580,8 @@ class RsConst  {
     this.name = "";
     this.ty = new RsType("unknown");
     this.node = undefined;
+    this.modKey = "";
+    this.modCls = "";
   }
 }
 class RsLocal  {
@@ -86350,6 +86398,298 @@ RustDocReader.tail = function(info, ind) {
   lines.push(ind + "}");
   return lines.join("\n");
 };
+class RsRgrScan  {
+  constructor() {
+    this.errors = [];     /* note: unused */
+    this.classes = [];
+  }
+  scan (src, file) {
+    const lines = src.split("\n");
+    let depth = 0;
+    let cur;
+    let classDepth = -1;
+    let ln = 0;
+    // Loop start
+    for ( const raw of lines) {
+      ln = ln + 1;
+      const line = this.stripComment(raw).trim();
+      if ( line.length == 0 ) {
+        continue;
+      }
+      if ( depth == 0 && this.startsWord(line, "class") ) {
+        const s = new RsStruct();
+        s.name = this.wordAt(line, 6);
+        s.rgr = true;
+        this.classes.push(s);
+        cur = s;
+        classDepth = 1;
+      }
+      if ( depth == classDepth && ((typeof(cur) !== "undefined" && cur != null ) ) ) {
+        const c = cur;
+        this.member(c, line, file, ln);
+      }
+      depth = depth + this.braceDelta(line);
+      if ( depth < classDepth && ((typeof(cur) !== "undefined" && cur != null ) ) ) {
+        this.defaultCtor(cur);
+      }
+      if ( depth < classDepth ) {
+        let none;
+        cur = none;
+        classDepth = -1;
+      }
+    }
+  };
+  defaultCtor (c) {
+    // Loop start
+    for ( const m of c.methods) {
+      if ( m.rgrCtor ) {
+        return;
+      }
+    }
+    const k = new RsFn();
+    k.name = "new";
+    k.rname = "new";
+    k.owner = c.name;
+    k.rgrCtor = true;
+    k.ret = RsType.named(c.name);
+    c.methods.push(k);
+  };
+  stripComment (s) {
+    let inStr = false;
+    let i = 0;
+    const n = s.length;
+    while (i < n) {
+      const c = s.charCodeAt(i );
+      if ( c == 34 ) {
+        inStr = false == inStr;
+      }
+      if ( inStr && c == 92 ) {
+        i = i + 2;
+        continue;
+      }
+      if ( false == inStr && c == 59 ) {
+        return s.substring(0, i );
+      }
+      i = i + 1;
+    };
+    return s;
+  };
+  braceDelta (s) {
+    let d = 0;
+    let inStr = false;
+    let i = 0;
+    const n = s.length;
+    while (i < n) {
+      const c = s.charCodeAt(i );
+      if ( c == 34 ) {
+        inStr = false == inStr;
+      }
+      if ( inStr && c == 92 ) {
+        i = i + 2;
+        continue;
+      }
+      if ( false == inStr ) {
+        if ( c == 123 ) {
+          d = d + 1;
+        }
+        if ( c == 125 ) {
+          d = d - 1;
+        }
+      }
+      i = i + 1;
+    };
+    return d;
+  };
+  startsWord (line, w) {
+    const n = w.length;
+    if ( line.length <= n ) {
+      return false;
+    }
+    if ( line.substring(0, n ) != w ) {
+      return false;
+    }
+    const c = line.charCodeAt(n );
+    return c == 32 || c == 9;
+  };
+  wordAt (line, from) {
+    let i = from;
+    const n = line.length;
+    while (i < n && (line.charCodeAt(i ) == 32 || line.charCodeAt(i ) == 9)) {
+      i = i + 1;
+    };
+    const start = i;
+    while (i < n) {
+      const c = line.charCodeAt(i );
+      const ok = ((c >= 48 && c <= 57 || c >= 65 && c <= 90) || c >= 97 && c <= 122) || c == 95;
+      if ( false == ok ) {
+        break;
+      }
+      i = i + 1;
+    };
+    return line.substring(start, i );
+  };
+  nameType (decl) {
+    let out = [];
+    const colon = decl.indexOf(":");
+    let name = decl;
+    let ty = "";
+    if ( colon >= 0 ) {
+      name = decl.substring(0, colon );
+      ty = decl.substring(colon + 1, decl.length );
+    }
+    let opt = "no";
+    const at = name.indexOf("@");
+    if ( at >= 0 ) {
+      if ( name.indexOf("optional") >= 0 ) {
+        opt = "yes";
+      }
+      name = name.substring(0, at );
+    }
+    out.push(name);
+    out.push(ty);
+    out.push(opt);
+    return out;
+  };
+  firstToken (s) {
+    let i = 0;
+    const n = s.length;
+    let br = 0;
+    while (i < n) {
+      const c = s.charCodeAt(i );
+      if ( c == 91 || c == 40 ) {
+        br = br + 1;
+      }
+      if ( c == 93 || c == 41 ) {
+        br = br - 1;
+      }
+      if ( br == 0 && (c == 32 || c == 9) ) {
+        return s.substring(0, i );
+      }
+      i = i + 1;
+    };
+    return s;
+  };
+  rsType (t) {
+    if ( t == "int" || t == "char" ) {
+      const it = RsType.mk("int");
+      it.name = "i64";
+      return it;
+    }
+    if ( t == "double" ) {
+      return RsType.mk("double");
+    }
+    if ( t == "string" ) {
+      const st = RsType.mk("string");
+      st.name = "String";
+      return st;
+    }
+    if ( t == "boolean" ) {
+      return RsType.mk("bool");
+    }
+    if ( t == "void" ) {
+      return RsType.mk("unit");
+    }
+    const n = t.length;
+    if ( (n >= 2 && t.charCodeAt(0 ) == 91) && t.charCodeAt(n - 1 ) == 93 ) {
+      const inner = t.substring(1, n - 1 );
+      const colon = inner.indexOf(":");
+      if ( colon >= 0 ) {
+        const m = RsType.of2(
+          "map",
+          this.rsType(inner.substring(0, colon )),
+          this.rsType(inner.substring(colon + 1, inner.length ))
+        );
+        m.name = "ordered";
+        return m;
+      }
+      return RsType.of1("vec", this.rsType(inner));
+    }
+    if ( ((n > 0 && t.charCodeAt(0 ) >= 65) && t.charCodeAt(0 ) <= 90) && t.indexOf("(") < 0 ) {
+      const nt = RsType.named(t);
+      nt.shared = true;
+      return nt;
+    }
+    return RsType.mk("unknown");
+  };
+  withOpt (t, opt) {
+    if ( opt == "yes" ) {
+      return RsType.of1("opt", t);
+    }
+    return t;
+  };
+  params (line) {
+    let list = [];
+    const open = line.indexOf("(");
+    if ( open < 0 ) {
+      return list;
+    }
+    const after = line.substring(open + 1, line.length );
+    const close = after.indexOf(")");
+    if ( close < 0 ) {
+      return list;
+    }
+    const inner = after.substring(0, close ).trim();
+    if ( inner.length == 0 ) {
+      return list;
+    }
+    const parts = inner.split(" ");
+    // Loop start
+    for ( const part of parts) {
+      const p = part.trim();
+      if ( p.length == 0 ) {
+        continue;
+      }
+      const nt = this.nameType(p);
+      const rp = new RsParam();
+      rp.name = nt[0];
+      rp.ty = this.withOpt(this.rsType(nt[1]), nt[2]);
+      list.push(rp);
+    }
+    return list;
+  };
+  member (c, line, file, ln) {
+    if ( this.startsWord(line, "def") ) {
+      const decl = this.firstToken(line.substring(4, line.length ).trim());
+      const nt = this.nameType(decl);
+      const f = new RsField();
+      f.name = nt[0];
+      f.ty = this.withOpt(this.rsType(nt[1]), nt[2]);
+      c.fields.push(f);
+      return;
+    }
+    const isFn = this.startsWord(line, "fn");
+    const isSfn = this.startsWord(line, "sfn");
+    if ( isFn || isSfn ) {
+      let skip = 3;
+      if ( isSfn ) {
+        skip = 4;
+      }
+      const rest = line.substring(skip, line.length ).trim();
+      const decl2 = this.firstToken(rest);
+      const nt2 = this.nameType(decl2);
+      const m = new RsFn();
+      m.name = nt2[0];
+      m.rname = m.name;
+      m.owner = c.name;
+      m.hasSelf = isFn;
+      m.ret = this.withOpt(this.rsType(nt2[1]), nt2[2]);
+      m.params = this.params(rest.substring(decl2.length, rest.length ));
+      c.methods.push(m);
+      return;
+    }
+    if ( this.startsWord(line, "Constructor") ) {
+      const k = new RsFn();
+      k.name = "new";
+      k.rname = "new";
+      k.owner = c.name;
+      k.hasSelf = false;
+      k.rgrCtor = true;
+      k.ret = RsType.named(c.name);
+      k.params = this.params(line);
+      c.methods.push(k);
+    }
+  };
+}
 class RustLower  {
   constructor() {
     this.errors = [];
@@ -86364,6 +86704,22 @@ class RustLower  {
     this.dynQueue = [];
     this.dynNames = {};
     this.modClass = "RsMain";
+    this.curMod = "";
+    this.modRoots = [];
+    this.modKeys = [];
+    this.modFiles = [];
+    this.modDirs = [];
+    this.modClasses = {};
+    this.modFileOf = {};
+    this.pendingKeys = [];
+    this.pendingDirs = [];
+    this.pendingNames = [];
+    this.pendingNodes = [];
+    this.pendingPos = 0;
+    this.pendingFiles = [];
+    this.rgrImports = [];
+    this.entryName = "";
+    this.fnAlias = {};
     this.preludeOps = {};
     this.preludeRets = {};
     this.preludeLoaded = false;
@@ -86519,8 +86875,16 @@ class RustLower  {
     }
   };
   translate (src, name) {
+    this.begin(src, name);
+    while (this.hasPendingModule()) {
+      this.moduleNotFound();
+    };
+    return this.finish();
+  };
+  begin (src, name) {
     this.fileName = name;
-    this.modClass = RustLower.moduleClassFor(name);
+    this.entryName = name;
+    this.modClass = RustLower.moduleClassFor(RustLower.moduleFileName(name));
     const p = new RustParser(src);
     const root = p.parseFile();
     // Loop start
@@ -86529,26 +86893,269 @@ class RustLower  {
       this.errors.push((name + ":") + e);
     }
     if ( this.errors.length > 0 ) {
-      return "";
+      return;
     }
     this.moduleDoc = RustDocReader.read(root.attrs, false);
     this.addDocExamples(root);
+    this.registerModule(root, "", name, RustLower.dirOf(name));
+  };
+  setEntryName (name) {
+    this.entryName = name;
+    this.modClass = RustLower.moduleClassFor(RustLower.moduleFileName(name));
+  };
+  registerModule (root, key, file, dir) {
+    this.modRoots.push(root);
+    this.modKeys.push(key);
+    this.modFiles.push(file);
+    this.modDirs.push(dir);
+    this.modFileOf[key] = file;
+    // Loop start
+    for ( const it of root.kids) {
+      if ( it.kind == "macro_item" && this.isImportRgr(it.name) ) {
+        const rgrName = this.macroString(it);
+        if ( rgrName == "" ) {
+          this.err(it, "ranger::import_rgr! takes the module name as a string literal");
+          continue;
+        }
+        this.pendingKeys.push(key);
+        this.pendingDirs.push(dir);
+        this.pendingNames.push(rgrName);
+        this.pendingNodes.push(it);
+        this.pendingFiles.push(RustLower.joinPath(RustLower.dirOf(file), rgrName + ".rgr"));
+        continue;
+      }
+      if ( it.kind != "mod" ) {
+        continue;
+      }
+      const sub = this.fnKey(key, it.name);
+      if ( it.hasMod("inline") ) {
+        this.registerModule(it, sub, file, RustLower.joinPath(dir, it.name));
+      } else {
+        this.pendingKeys.push(sub);
+        this.pendingDirs.push(dir);
+        this.pendingNames.push(it.name);
+        this.pendingNodes.push(it);
+        this.pendingFiles.push("");
+      }
+    }
+  };
+  isImportRgr (name) {
+    return name == "import_rgr" || name == "ranger::import_rgr";
+  };
+  macroString (m) {
+    const v = m.value.trim();
+    const n = v.length;
+    if ( (n >= 2 && v.charCodeAt(0 ) == 34) && v.charCodeAt(n - 1 ) == 34 ) {
+      return v.substring(1, n - 1 );
+    }
+    return "";
+  };
+  hasPendingModule () {
+    return this.pendingPos < this.pendingKeys.length;
+  };
+  nextModuleFiles () {
+    let list = [];
+    if ( false == this.hasPendingModule() ) {
+      return list;
+    }
+    const d = this.pendingDirs[this.pendingPos];
+    const m = this.pendingNames[this.pendingPos];
+    const rf = this.pendingFiles[this.pendingPos];
+    if ( rf != "" ) {
+      list.push(rf);
+      return list;
+    }
+    list.push(RustLower.joinPath(d, m + ".rs"));
+    list.push(RustLower.joinPath(RustLower.joinPath(d, m), "mod.rs"));
+    return list;
+  };
+  addModule (path, src) {
+    if ( false == this.hasPendingModule() ) {
+      return;
+    }
+    const key = this.pendingKeys[this.pendingPos];
+    const m = this.pendingNames[this.pendingPos];
+    const d = this.pendingDirs[this.pendingPos];
+    const rf = this.pendingFiles[this.pendingPos];
+    const at = this.pendingNodes[this.pendingPos];
+    this.pendingPos = this.pendingPos + 1;
+    if ( rf != "" ) {
+      this.addRgr(path, src, at);
+      return;
+    }
+    const p = new RustParser(src);
+    const root = p.parseFile();
+    // Loop start
+    for ( let i = 0; i < p.errors.length; i++) {
+      var e = p.errors[i];
+      this.errors.push((path + ":") + e);
+    }
+    if ( this.errors.length > 0 ) {
+      return;
+    }
+    const own = RustLower.joinPath(d, m);
+    this.registerModule(root, key, path, own);
+  };
+  addRgr (path, src, at) {
+    const sc = new RsRgrScan();
+    sc.scan(src, path);
+    // Loop start
+    for ( const c of sc.classes) {
+      if ( ( typeof(this.structs[c.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, c.name) ) || ( typeof(this.enums[c.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.enums, c.name) ) ) {
+        this.err(at, ((("`" + c.name) + "` of ") + path) + " is also declared in the Rust code");
+        continue;
+      }
+      this.structs[c.name] = c;
+    }
+    this.rgrImports.push(path);
+  };
+  moduleNotFound () {
+    if ( false == this.hasPendingModule() ) {
+      return;
+    }
+    const files = this.nextModuleFiles();
+    const at = this.pendingNodes[this.pendingPos];
+    const m = this.pendingNames[this.pendingPos];
+    const rf2 = this.pendingFiles[this.pendingPos];
+    this.pendingPos = this.pendingPos + 1;
+    if ( rf2 != "" ) {
+      this.err(at, "file not found for ranger::import_rgr!: " + rf2);
+      return;
+    }
+    this.err(at, (((("file not found for module `" + m) + "`: looked for ") + files[0]) + " and ") + files[1]);
+  };
+  finish () {
     if ( this.errors.length > 0 ) {
       return "";
     }
-    this.collect(root);
+    this.collectModules();
     if ( this.errors.length > 0 ) {
       return "";
     }
-    const camel = RustLower.moduleCamelFor(name);
+    const camel = RustLower.moduleCamelFor(RustLower.moduleFileName(this.entryName));
     if ( ((false == ( typeof(this.structs[camel] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, camel) ) && false == ( typeof(this.enums[camel] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.enums, camel) )) && false == ( typeof(this.traits[camel] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.traits, camel) )) && this.className(camel) == camel ) {
       this.modClass = camel;
+    }
+    this.modClasses[""] = this.modClass;
+    let ki = 1;
+    while (ki < this.modKeys.length) {
+      const mk = this.modKeys[ki];
+      ki = ki + 1;
+      this.modClasses[mk] = this.moduleClassOf(mk);
+    };
+    // Loop start
+    for ( const fk of this.fnOrder) {
+      const fo = ( Object.prototype.hasOwnProperty.call(this.fns, fk) ? this.fns[fk] : undefined );
+      fo.modCls = ( Object.prototype.hasOwnProperty.call(this.modClasses, fo.modKey) ? this.modClasses[fo.modKey] : undefined );
+    }
+    // Loop start
+    for ( const ck of this.constOrder) {
+      const co = ( Object.prototype.hasOwnProperty.call(this.consts, ck) ? this.consts[ck] : undefined );
+      co.modCls = ( Object.prototype.hasOwnProperty.call(this.modClasses, co.modKey) ? this.modClasses[co.modKey] : undefined );
     }
     const text = this.emitAll();
     if ( this.errors.length > 0 ) {
       return "";
     }
     return text;
+  };
+  moduleClassOf (key) {
+    const flat = key.split("::").join("_");
+    const camel = RustLower.moduleCamelFor((flat + ".rs"));
+    let used_1 = (((( typeof(this.structs[camel] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, camel) ) || ( typeof(this.enums[camel] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.enums, camel) )) || ( typeof(this.traits[camel] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.traits, camel) )) || this.className(camel) != camel) || camel == this.modClass;
+    // Loop start
+    for ( const ok of this.modKeys) {
+      if ( ok != key && ( typeof(this.modClasses[ok] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.modClasses, ok) ) ) {
+        if ( ( Object.prototype.hasOwnProperty.call(this.modClasses, ok) ? this.modClasses[ok] : undefined ) == camel ) {
+          used_1 = true;
+        }
+      }
+    }
+    if ( used_1 ) {
+      return RustLower.moduleClassFor((flat + ".rs"));
+    }
+    return camel;
+  };
+  fnKey (mod, name) {
+    if ( mod == "" ) {
+      return name;
+    }
+    return (mod + "::") + name;
+  };
+  parentMod (mod) {
+    const cut = mod.lastIndexOf("::");
+    if ( cut < 0 ) {
+      return "";
+    }
+    return mod.substring(0, cut );
+  };
+  resolveItem (segs, table) {
+    const ns = segs.length;
+    if ( ns == 0 ) {
+      return "";
+    }
+    const last = segs[(ns - 1)];
+    if ( ns == 1 ) {
+      const here = this.fnKey(this.curMod, last);
+      if ( this.hasItem(here, table) ) {
+        return here;
+      }
+      const ak = (this.curMod + "|") + last;
+      if ( ( typeof(this.fnAlias[ak] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.fnAlias, ak) ) ) {
+        const target = ( Object.prototype.hasOwnProperty.call(this.fnAlias, ak) ? this.fnAlias[ak] : undefined );
+        if ( this.hasItem(target, table) ) {
+          return target;
+        }
+      }
+      return "";
+    }
+    const rel = this.modPath(segs, this.curMod);
+    if ( rel != "?" ) {
+      const k1 = this.fnKey(rel, last);
+      if ( this.hasItem(k1, table) ) {
+        return k1;
+      }
+    }
+    const abs = this.modPath(segs, "");
+    if ( abs != "?" ) {
+      const k2 = this.fnKey(abs, last);
+      if ( this.hasItem(k2, table) ) {
+        return k2;
+      }
+    }
+    return "";
+  };
+  modPath (segs, from) {
+    let cur = from;
+    let i = 0;
+    const ns = segs.length;
+    while (i < ns - 1) {
+      const sg = segs[i];
+      i = i + 1;
+      if ( sg == "crate" ) {
+        cur = "";
+        continue;
+      }
+      if ( sg == "self" ) {
+        continue;
+      }
+      if ( sg == "super" ) {
+        cur = this.parentMod(cur);
+        continue;
+      }
+      const next = this.fnKey(cur, sg);
+      if ( false == ( typeof(this.modFileOf[next] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.modFileOf, next) ) ) {
+        return "?";
+      }
+      cur = next;
+    };
+    return cur;
+  };
+  hasItem (key, table) {
+    if ( table == "fn" ) {
+      return ( typeof(this.fns[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.fns, key) );
+    }
+    return ( typeof(this.consts[key] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.consts, key) );
   };
   deriveList (attrs) {
     let list = [];
@@ -86585,7 +87192,46 @@ class RustLower  {
     }
     return list;
   };
-  collect (root) {
+  collectModules () {
+    let mi1 = 0;
+    while (mi1 < this.modRoots.length) {
+      this.enterModule(mi1);
+      this.collectNames(this.modRoots[mi1]);
+      mi1 = mi1 + 1;
+    };
+    let mi2 = 0;
+    while (mi2 < this.modRoots.length) {
+      this.enterModule(mi2);
+      const r2 = this.modRoots[mi2];
+      // Loop start
+      for ( const it2 of r2.kids) {
+        this.collectItem(it2);
+      }
+      mi2 = mi2 + 1;
+    };
+    let mi3 = 0;
+    while (mi3 < this.modRoots.length) {
+      this.enterModule(mi3);
+      const r3 = this.modRoots[mi3];
+      // Loop start
+      for ( const ut of r3.kids) {
+        if ( ut.kind == "use" ) {
+          // Loop start
+          for ( const uk of ut.kids) {
+            this.collectUse(uk);
+          }
+        }
+      }
+      mi3 = mi3 + 1;
+    };
+    this.enterModule(0);
+    this.collectRest();
+  };
+  enterModule (i) {
+    this.curMod = this.modKeys[i];
+    this.fileName = this.modFiles[i];
+  };
+  collectNames (root) {
     // Loop start
     for ( const it of root.kids) {
       if ( it.kind == "struct" ) {
@@ -86616,19 +87262,8 @@ class RustLower  {
         this.aliases[it.name] = it.kid(3);
       }
     }
-    // Loop start
-    for ( const it2 of root.kids) {
-      this.collectItem(it2);
-    }
-    // Loop start
-    for ( const ut of root.kids) {
-      if ( ut.kind == "use" ) {
-        // Loop start
-        for ( const uk of ut.kids) {
-          this.collectUse(uk);
-        }
-      }
-    }
+  };
+  collectRest () {
     // Loop start
     for ( const sn of this.structOrder) {
       const st0 = ( Object.prototype.hasOwnProperty.call(this.structs, sn) ? this.structs[sn] : undefined );
@@ -86687,11 +87322,12 @@ class RustLower  {
     c.fromTrait = m.fromTrait;
     c.hasBody = m.hasBody;
     c.node = m.node;
+    c.modKey = m.modKey;
     return c;
   };
   collectItem (it) {
     const k = it.kind;
-    if ( k == "use" || k == "extern_crate" ) {
+    if ( (k == "use" || k == "extern_crate") || k == "mod" ) {
       return;
     }
     if ( k == "struct" ) {
@@ -86833,8 +87469,9 @@ class RustLower  {
     if ( k == "fn" ) {
       const ff = this.fnSig(it, "");
       ff.rname = this.staticName(it.name);
-      this.fns[it.name] = ff;
-      this.fnOrder.push(it.name);
+      const fk = this.fnKey(this.curMod, it.name);
+      this.fns[fk] = ff;
+      this.fnOrder.push(fk);
       return;
     }
     if ( k == "const" || k == "static" ) {
@@ -86842,14 +87479,19 @@ class RustLower  {
       c.name = it.name;
       c.node = it;
       c.ty = this.typeOf(it.kid(0));
+      c.modKey = this.curMod;
       if ( it.hasMod("mut") ) {
         this.unsupported(it, "`static mut`");
       }
-      this.consts[it.name] = c;
-      this.constOrder.push(it.name);
+      const ck = this.fnKey(this.curMod, it.name);
+      this.consts[ck] = c;
+      this.constOrder.push(ck);
       return;
     }
     if ( (k == "struct" || k == "enum") || k == "type_alias" ) {
+      return;
+    }
+    if ( k == "macro_item" && this.isImportRgr(it.name) ) {
       return;
     }
     if ( k == "macro_item" ) {
@@ -86878,6 +87520,7 @@ class RustLower  {
     f.rname = this.methodName(m.name);
     f.owner = owner;
     f.node = m;
+    f.modKey = this.curMod;
     const all = this.genericNames(m.kid(0));
     const gp = m.kid(0);
     let fnBound = {};
@@ -87929,6 +88572,15 @@ class RustLower  {
   emitAll () {
     let parts = [];
     parts.push("Import \"rust/RsPrelude.rgr\"");
+    const entryDir = RustLower.dirOf(this.entryName);
+    // Loop start
+    for ( const rip of this.rgrImports) {
+      let rel = rip;
+      if ( (entryDir != "" && rip.length > entryDir.length) && rip.substring(0, entryDir.length + 1 ) == entryDir + "/" ) {
+        rel = rip.substring(entryDir.length + 1, rip.length );
+      }
+      parts.push(("Import \"" + rel) + "\"");
+    }
     let ei = 0;
     while (ei < this.enumOrder.length) {
       const en = this.enumOrder[ei];
@@ -87943,7 +88595,7 @@ class RustLower  {
       const so = ( Object.prototype.hasOwnProperty.call(this.structs, sn) ? this.structs[sn] : undefined );
       parts.push(this.emitStruct(so));
     };
-    parts.push(this.emitModule());
+    parts.push(this.emitModules());
     let qi = 0;
     let di = 0;
     while (qi < this.structInstQueue.length || di < this.dynQueue.length) {
@@ -88032,7 +88684,17 @@ class RustLower  {
         impl.push(this.emitEnumEq(e, cname));
       }
     }
-    impl.push("}");
+    const implDoc = new RustDocInfo();
+    // Loop start
+    for ( const pm of e.methods) {
+      if ( (typeof(pm.node) !== "undefined" && pm.node != null )  ) {
+        const pmNode = pm.node;
+        if ( pmNode.hasMod("pub") ) {
+          implDoc.isPublic = true;
+        }
+      }
+    }
+    impl.push("}" + RustDocReader.tail(implDoc, ""));
     lines.push(impl.join("\n"));
     return lines.join("\n");
   };
@@ -88500,26 +89162,64 @@ class RustLower  {
     };
     return acc;
   };
-  emitModule () {
-    let lines = [];
-    lines.push(("class " + this.modClass) + " {");
+  emitModules () {
+    let parts = [];
+    let mi = 1;
+    while (mi < this.modKeys.length) {
+      const mk = this.modKeys[mi];
+      mi = mi + 1;
+      let sub = [];
+      sub.push(("class " + ( Object.prototype.hasOwnProperty.call(this.modClasses, mk) ? this.modClasses[mk] : undefined )) + " {");
+      this.emitModuleItems(mk, sub);
+      const subDoc = new RustDocInfo();
+      // Loop start
+      for ( const sfk of this.fnOrder) {
+        const sf = ( Object.prototype.hasOwnProperty.call(this.fns, sfk) ? this.fns[sfk] : undefined );
+        if ( sf.modKey == mk && ((typeof(sf.node) !== "undefined" && sf.node != null ) ) ) {
+          const sfNode = sf.node;
+          if ( sfNode.hasMod("pub") ) {
+            subDoc.isPublic = true;
+          }
+        }
+      }
+      sub.push("}" + RustDocReader.tail(subDoc, ""));
+      parts.push(sub.join("\n"));
+    };
+    parts.push(this.emitModule());
+    return parts.join("\n\n");
+  };
+  emitModuleItems (mk, lines) {
     let ci = 0;
     while (ci < this.constOrder.length) {
       const cn = this.constOrder[ci];
       ci = ci + 1;
       const c = ( Object.prototype.hasOwnProperty.call(this.consts, cn) ? this.consts[cn] : undefined );
+      if ( c.modKey != mk ) {
+        continue;
+      }
+      const saveMod = this.curMod;
+      this.curMod = mk;
       lines.push(this.emitConst(c));
+      this.curMod = saveMod;
     };
     let fi = 0;
     while (fi < this.fnOrder.length) {
       const fname = this.fnOrder[fi];
       fi = fi + 1;
       const f = ( Object.prototype.hasOwnProperty.call(this.fns, fname) ? this.fns[fname] : undefined );
+      if ( f.modKey != mk ) {
+        continue;
+      }
       if ( f.generics.length > 0 ) {
         continue;
       }
       lines.push(this.emitFn(f, ""));
     };
+  };
+  emitModule () {
+    let lines = [];
+    lines.push(("class " + this.modClass) + " {");
+    this.emitModuleItems("", lines);
     let hi = 0;
     let gi = 0;
     while (hi < this.hoistQueue.length || gi < this.fnInstQueue.length) {
@@ -88705,6 +89405,18 @@ class RustLower  {
     this.loopFlagKind = lk;
   };
   emitFn (f, owner) {
+    const saveMod = this.curMod;
+    const saveFile = this.fileName;
+    this.curMod = f.modKey;
+    if ( ( typeof(this.modFileOf[f.modKey] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.modFileOf, f.modKey) ) ) {
+      this.fileName = ( Object.prototype.hasOwnProperty.call(this.modFileOf, f.modKey) ? this.modFileOf[f.modKey] : undefined );
+    }
+    const text = this.emitFnIn(f, owner);
+    this.curMod = saveMod;
+    this.fileName = saveFile;
+    return text;
+  };
+  emitFnIn (f, owner) {
     if ( f.generics.length > 0 && this.fnNameOverride == "" ) {
       this.unsupported(f.node, ("the generic method `" + f.name) + "`");
       return "";
@@ -88910,11 +89622,13 @@ class RustLower  {
   hoistFn (st) {
     const f = this.fnSig(st, "");
     f.rname = this.staticName(st.name);
-    if ( ( typeof(this.fns[st.name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.fns, st.name) ) ) {
+    f.modCls = this.modClass;
+    const hk = this.fnKey(this.curMod, st.name);
+    if ( ( typeof(this.fns[hk] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.fns, hk) ) ) {
       this.unsupported(st, ("a nested fn named like a module fn (`" + st.name) + "`)");
       return;
     }
-    this.fns[st.name] = f;
+    this.fns[hk] = f;
     this.hoistQueue.push(f);
   };
   lowerLet (st) {
@@ -90796,6 +91510,7 @@ class RustLower  {
     return "";
   };
   collectUse (u) {
+    this.useItems("", u);
     if ( u.kind == "use_glob" ) {
       const eg = this.useEnum(u.name);
       if ( eg != "" ) {
@@ -90837,6 +91552,57 @@ class RustLower  {
       }
     }
   };
+  useItems (prefix, u) {
+    if ( u.kind == "use_name" ) {
+      const full = this.fnKey(prefix, u.name);
+      const segs = full.split("::");
+      let local = segs[(segs.length - 1)];
+      if ( u.value != "" && u.value != "_" ) {
+        local = u.value;
+      }
+      let key = this.resolveItem(segs, "fn");
+      if ( key == "" ) {
+        key = this.resolveItem(segs, "const");
+      }
+      if ( key != "" ) {
+        this.fnAlias[(this.curMod + "|") + local] = key;
+      }
+      return;
+    }
+    if ( u.kind == "use_group" ) {
+      // Loop start
+      for ( let ci = 0; ci < u.kids.length; ci++) {
+        var c = u.kids[ci];
+        this.useItems(this.fnKey(prefix, u.name), c);
+      }
+      return;
+    }
+    if ( u.kind == "use_glob" ) {
+      let gsegs = this.fnKey(prefix, u.name).split("::");
+      gsegs.push("*");
+      let m = this.modPath(gsegs, this.curMod);
+      if ( m == "?" ) {
+        m = this.modPath(gsegs, "");
+      }
+      if ( m == "?" || m == this.curMod ) {
+        return;
+      }
+      // Loop start
+      for ( const fk of this.fnOrder) {
+        const f = ( Object.prototype.hasOwnProperty.call(this.fns, fk) ? this.fns[fk] : undefined );
+        if ( f.modKey == m ) {
+          this.fnAlias[(this.curMod + "|") + f.name] = fk;
+        }
+      }
+      // Loop start
+      for ( const ck of this.constOrder) {
+        const c_1 = ( Object.prototype.hasOwnProperty.call(this.consts, ck) ? this.consts[ck] : undefined );
+        if ( c_1.modKey == m ) {
+          this.fnAlias[(this.curMod + "|") + c_1.name] = ck;
+        }
+      }
+    }
+  };
   lowerPathExpr (n, expect) {
     const p = n.kid(0);
     if ( p.kind != "path" ) {
@@ -90861,9 +91627,9 @@ class RustLower  {
       if ( name == "None" ) {
         return RsExpr.of("", RsType.mk("none"));
       }
-      if ( ( typeof(this.consts[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.consts, name) ) ) {
-        const c = ( Object.prototype.hasOwnProperty.call(this.consts, name) ? this.consts[name] : undefined );
-        return RsExpr.of((((("(" + this.modClass) + ".") + this.staticName(name)) + "())"), c.ty);
+      const ck1 = this.resolveItem(segs, "const");
+      if ( ck1 != "" ) {
+        return this.constValue(ck1);
       }
       if ( ( typeof(this.structs[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, name) ) ) {
         const s = ( Object.prototype.hasOwnProperty.call(this.structs, name) ? this.structs[name] : undefined );
@@ -90871,11 +91637,20 @@ class RustLower  {
           return RsExpr.of((("(new " + this.className(name)) + ")"), RsType.named(name));
         }
       }
-      if ( ( typeof(this.fns[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.fns, name) ) ) {
-        return this.fnValue(name, n);
+      const fk1 = this.resolveItem(segs, "fn");
+      if ( fk1 != "" ) {
+        return this.fnValue(fk1, n);
       }
       this.err(n, ("unknown name `" + name) + "`");
       return this.unit();
+    }
+    const ck2 = this.resolveItem(segs, "const");
+    if ( ck2 != "" ) {
+      return this.constValue(ck2);
+    }
+    const fk2 = this.resolveItem(segs, "fn");
+    if ( fk2 != "" ) {
+      return this.fnValue(fk2, n);
     }
     const full = segs.join("::");
     const last = segs[(ns - 1)];
@@ -90975,6 +91750,10 @@ class RustLower  {
     }
     return "";
   };
+  constValue (key) {
+    const c = ( Object.prototype.hasOwnProperty.call(this.consts, key) ? this.consts[key] : undefined );
+    return RsExpr.of((((("(" + c.modCls) + ".") + this.staticName(c.name)) + "())"), c.ty);
+  };
   fnValue (name, at) {
     const f = ( Object.prototype.hasOwnProperty.call(this.fns, name) ? this.fns[name] : undefined );
     let ps = [];
@@ -90990,7 +91769,7 @@ class RustLower  {
       i = i + 1;
     }
     ft.args.push(f.ret);
-    const call = ((((this.modClass + ".") + f.rname) + "(") + as.join(" ")) + ")";
+    const call = ((((f.modCls + ".") + f.rname) + "(") + as.join(" ")) + ")";
     let body = "return " + call;
     if ( f.ret.kind == "unit" ) {
       body = call;
@@ -91357,26 +92136,9 @@ class RustLower  {
           }
           return this.makeResult(name, args, expect, n);
         }
-        if ( ( typeof(this.fns[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.fns, name) ) ) {
-          const f = ( Object.prototype.hasOwnProperty.call(this.fns, name) ? this.fns[name] : undefined );
-          if ( f.generics.length > 0 ) {
-            const cp = callee.kid(0);
-            const lastSeg = cp.kids[(cp.kids.length - 1)];
-            return this.lowerGenericCall(f, args, lastSeg.kid(0), expect, n);
-          }
-          this.checkCallBorrows(new RustNode("none"), false, false, args, n);
-          if ( this.hasBoxed(f) ) {
-            return this.boxedCall(
-              (((this.modClass + ".") + f.rname) + "("),
-              f,
-              args,
-              RsType.mk("unknown"),
-              "",
-              n
-            );
-          }
-          const codes = this.lowerArgs(args, this.paramTypes(f));
-          return RsExpr.of((((((("(" + this.modClass) + ".") + f.rname) + "(") + codes.join(" ")) + "))"), f.ret);
+        const fk = this.resolveItem(segs, "fn");
+        if ( fk != "" ) {
+          return this.callModuleFn(fk, callee, args, expect, n);
         }
         if ( ( typeof(this.structs[name] ) != "undefined" && Object.prototype.hasOwnProperty.call(this.structs, name) ) ) {
           const s = ( Object.prototype.hasOwnProperty.call(this.structs, name) ? this.structs[name] : undefined );
@@ -91399,11 +92161,36 @@ class RustLower  {
         this.err(n, ("unknown function `" + name) + "`");
         return this.unit();
       }
+      const fkp = this.resolveItem(segs, "fn");
+      if ( fkp != "" ) {
+        return this.callModuleFn(fkp, callee, args, expect, n);
+      }
       return this.lowerPathCall(segs, args, expect, n);
     }
     const cv = this.lowerExpr(callee, RsType.mk("unknown"));
     const fname = this.bindTemp(cv, cv.ty, "f");
     return this.callValue(fname, cv.ty, args, n);
+  };
+  callModuleFn (fk, callee, args, expect, n) {
+    const f = ( Object.prototype.hasOwnProperty.call(this.fns, fk) ? this.fns[fk] : undefined );
+    if ( f.generics.length > 0 ) {
+      const cp = callee.kid(0);
+      const lastSeg = cp.kids[(cp.kids.length - 1)];
+      return this.lowerGenericCall(f, args, lastSeg.kid(0), expect, n);
+    }
+    this.checkCallBorrows(new RustNode("none"), false, false, args, n);
+    if ( this.hasBoxed(f) ) {
+      return this.boxedCall(
+        (((f.modCls + ".") + f.rname) + "("),
+        f,
+        args,
+        RsType.mk("unknown"),
+        "",
+        n
+      );
+    }
+    const codes = this.lowerArgs(args, this.paramTypes(f));
+    return RsExpr.of((((((("(" + f.modCls) + ".") + f.rname) + "(") + codes.join(" ")) + "))"), f.ret);
   };
   callValue (fname, ft, args, at) {
     if ( ft.kind != "fn" ) {
@@ -91483,6 +92270,12 @@ class RustLower  {
           return RsExpr.of((((((("(" + recv) + ".") + mf.rname) + "(") + codes0.join(" ")) + "))"), mf.ret);
         }
         const codes = this.lowerArgs(args, this.paramTypes(mf));
+        if ( mf.rgrCtor ) {
+          return RsExpr.of((((("(new " + head) + "(") + codes.join(" ")) + "))"), RsType.named(head));
+        }
+        if ( s.rgr ) {
+          return RsExpr.of((((((("(" + head) + ".") + mf.rname) + "(") + codes.join(" ")) + "))"), mf.ret);
+        }
         return RsExpr.of((((((("(" + this.className(head)) + ".") + this.staticName(name)) + "(") + codes.join(" ")) + "))"), mf.ret);
       }
       this.err(at, ((("no associated function `" + name) + "` on `") + head) + "`");
@@ -91720,6 +92513,9 @@ class RustLower  {
           const ed = this.bindTemp(rv, t, "r");
           return RsExpr.of((((("(" + this.implClass(t.name)) + ".displayOf(") + ed) + "))"), RsType.mk("string"));
         }
+      }
+      if ( (((name == "borrow" || name == "borrow_mut") || name == "as_ref") || name == "as_mut") && args.length == 0 ) {
+        return rv;
       }
       this.err(n, ((("no method `" + name) + "` on `") + t.rust()) + "`");
       return this.unit();
@@ -95045,6 +95841,9 @@ RustLower.moduleCamelFor = function(name) {
   if ( out == "" || out.charCodeAt(0 ) >= 48 && out.charCodeAt(0 ) <= 57 ) {
     return fallback;
   }
+  if ( out == "Main" ) {
+    return fallback;
+  }
   return out;
 };
 RustLower.moduleClassFor = function(name) {
@@ -95068,6 +95867,35 @@ RustLower.moduleClassFor = function(name) {
     }
   }
   return "RsMod_" + outS;
+};
+RustLower.moduleFileName = function(path) {
+  if ( RustLower.baseName(path) == "mod.rs" ) {
+    const d = RustLower.dirOf(path);
+    if ( d != "" ) {
+      return RustLower.baseName(d) + ".rs";
+    }
+  }
+  return path;
+};
+RustLower.dirOf = function(path) {
+  const slash = path.lastIndexOf("/");
+  if ( slash < 0 ) {
+    return "";
+  }
+  return path.substring(0, slash );
+};
+RustLower.baseName = function(path) {
+  const slash = path.lastIndexOf("/");
+  if ( slash < 0 ) {
+    return path;
+  }
+  return path.substring(slash + 1, path.length );
+};
+RustLower.joinPath = function(dir, name) {
+  if ( dir == "" ) {
+    return name;
+  }
+  return (dir + "/") + name;
 };
 class CompilerResults  {
   constructor() {
@@ -95304,7 +96132,27 @@ class VirtualCompiler  {
     if ( RustLower.isRustFile(the_file) ) {
       rustOriginal = mainSource;
       const rl = new RustLower();
-      mainSource = rl.translate(mainSource, the_file);
+      rl.begin(mainSource, the_file);
+      while (rl.hasPendingModule()) {
+        const modFiles = rl.nextModuleFiles();
+        let modFound = false;
+        // Loop start
+        for ( const modFile of modFiles) {
+          if ( modFound == false && operatorsOf_17.filec95exists_18(env, theFilePath, modFile) ) {
+            const modSrc = operatorsOf_17.readc95file_18(
+              env,
+              theFilePath,
+              modFile
+            );
+            rl.addModule(modFile, modSrc);
+            modFound = true;
+          }
+        }
+        if ( modFound == false ) {
+          rl.moduleNotFound();
+        }
+      };
+      mainSource = rl.finish();
       if ( rl.errors.length > 0 ) {
         cli.printHeader();
         // Loop start

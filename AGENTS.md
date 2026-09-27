@@ -81,6 +81,12 @@ follow them exactly.
   target's output against rustc's. After changing a `rust` template in
   `Lang.rgr`, run `node scripts/gen-rust-prelude-ops.js` to regenerate the
   prelude crate's `runtime/rust/ranger/src/ops.rs`.
+- A `.rs` entry file is lowered with every `mod x;` it reaches, as one
+  crate; `ranger::import_rgr!("legacy")` inside `mod legacy { … }` imports
+  `legacy.rgr`. `rgrc -l=rust -rust-module x.rgr` writes a `.rgr` file as a
+  Rust module for that macro (every class an `Rc<RefCell<T>>`, no inner
+  attributes). Fixtures: `tests/fixtures/rust_strict/crates/`,
+  `tests/fixtures/rust_mixed/` (a cargo crate with `build.rs`).
 - `npm run selfhost:check:<target>` compiles the compiler for a target and
   runs that target's compiler or syntax check over it (`cpp`, `go`, `java`,
   `python`, `rust`, `llvm`, …).

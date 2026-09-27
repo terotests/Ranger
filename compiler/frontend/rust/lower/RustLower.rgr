@@ -24,6 +24,7 @@ Import "RustOut.rgr"
 Import "RustReserved.rgr"
 Import "RustPreludeOps.rgr"
 Import "../doc/RustDocReader.rgr"
+Import "RustRgrScan.rgr"
 
 class RustLower {
   def errors:[string]
@@ -43,6 +44,28 @@ class RustLower {
   def dynQueue:[string]
   def dynNames:[string:boolean]
   def modClass:string "RsMain"
+  ; the crate's modules (R6): the entry file and every `mod` it reaches,
+  ; lowered together so helper classes and types are shared
+  def curMod:string ""
+  def modRoots:[RustNode]
+  def modKeys:[string]
+  def modFiles:[string]
+  def modDirs:[string]
+  def modClasses:[string:string]
+  def modFileOf:[string:string]
+  ; `mod x;` declarations whose file is still to be read
+  def pendingKeys:[string]
+  def pendingDirs:[string]
+  def pendingNames:[string]
+  def pendingNodes:[RustNode]
+  def pendingPos:int 0
+  ; the file itself for an `import_rgr!`, "" for a `mod x;`
+  def pendingFiles:[string]
+  ; `.rgr` files included with `ranger::import_rgr!`, for the Import lines
+  def rgrImports:[string]
+  def entryName:string ""
+  ; `use geometry::area;` inside module m: "m|area" -> "geometry::area"
+  def fnAlias:[string:string]
   def preludeOps:[string:int]
   def preludeRets:[string:string]
   def preludeLoaded:boolean false
@@ -232,6 +255,10 @@ class RustLower {
     if ((out == "") || (((charAt out 0) >= 48) && ((charAt out 0) <= 57))) {
       return fallback
     }
+    ; a class `Main` collides with the entry method `Main` on C#
+    if (out == "Main") {
+      return fallback
+    }
     return out
   }
 
@@ -258,37 +285,359 @@ class RustLower {
   }
 
   ; Parses and lowers `src`; the Ranger text, or "" with `errors` filled.
+  ; A file with `mod x;` needs the module files: use begin / addModule /
+  ; finish, which read them.
   fn translate:string (src:string name:string) {
+    this.begin(src name)
+    while (this.hasPendingModule()) {
+      this.moduleNotFound()
+    }
+    return (this.finish())
+  }
+
+  ; Parses the entry file. The `mod x;` it declares are then read one at a
+  ; time: nextModuleFiles() names the files that may hold the next one,
+  ; addModule() hands one over, moduleNotFound() reports none exists.
+  fn begin:void (src:string name:string) {
     fileName = name
-    modClass = (RustLower.moduleClassFor(name))
+    entryName = name
+    modClass = (RustLower.moduleClassFor((RustLower.moduleFileName(name))))
     def p:RustParser (new RustParser(src))
     def root:RustNode (p.parseFile())
     for p.errors e:string i {
       push errors ((name + ":") + e)
     }
     if ((array_length errors) > 0) {
-      return ""
+      return
     }
     ; rustdoc (R5): `//!` for the module class, and each `# Examples` code
     ; block of an item compiled as an example function
     moduleDoc = (RustDocReader.read(root.attrs false))
     this.addDocExamples(root)
+    this.registerModule(root "" name (RustLower.dirOf(name)))
+  }
+
+  ; The file a module class is named after: `shapes/mod.rs` is `shapes`.
+  sfn moduleFileName:string (path:string) {
+    if ((RustLower.baseName(path)) == "mod.rs") {
+      def d:string (RustLower.dirOf(path))
+      if (d != "") {
+        return ((RustLower.baseName(d)) + ".rs")
+      }
+    }
+    return path
+  }
+
+  ; The path the module class is named after, when begin() was given only
+  ; the file name.
+  fn setEntryName:void (name:string) {
+    entryName = name
+    modClass = (RustLower.moduleClassFor((RustLower.moduleFileName(name))))
+  }
+
+  sfn dirOf:string (path:string) {
+    def slash:int (lastIndexOf path "/")
+    if (slash < 0) {
+      return ""
+    }
+    return (substring path 0 slash)
+  }
+
+  sfn baseName:string (path:string) {
+    def slash:int (lastIndexOf path "/")
+    if (slash < 0) {
+      return path
+    }
+    return (substring path (slash + 1) (strlen path))
+  }
+
+  sfn joinPath:string (dir:string name:string) {
+    if (dir == "") {
+      return name
+    }
+    return ((dir + "/") + name)
+  }
+
+  ; A module's items; inline `mod m { … }` blocks are modules too, and a
+  ; `mod m;` waits for its file.
+  fn registerModule:void (root:RustNode key:string file:string dir:string) {
+    push modRoots root
+    push modKeys key
+    push modFiles file
+    push modDirs dir
+    set modFileOf key file
+    for root.kids it:RustNode i {
+      ; `ranger::import_rgr!("legacy")`: the classes of legacy.rgr, beside
+      ; the file (where build.rs finds it)
+      if ((it.kind == "macro_item") && (this.isImportRgr(it.name))) {
+        def rgrName:string (this.macroString(it))
+        if (rgrName == "") {
+          this.err(it "ranger::import_rgr! takes the module name as a string literal")
+          continue
+        }
+        push pendingKeys key
+        push pendingDirs dir
+        push pendingNames rgrName
+        push pendingNodes it
+        push pendingFiles (RustLower.joinPath((RustLower.dirOf(file)) (rgrName + ".rgr")))
+        continue
+      }
+      if (it.kind != "mod") {
+        continue
+      }
+      def sub:string (this.fnKey(key it.name))
+      if (it.hasMod("inline")) {
+        this.registerModule(it sub file (RustLower.joinPath(dir it.name)))
+      } {
+        push pendingKeys sub
+        push pendingDirs dir
+        push pendingNames it.name
+        push pendingNodes it
+        push pendingFiles ""
+      }
+    }
+  }
+
+  fn isImportRgr:boolean (name:string) {
+    return ((name == "import_rgr") || (name == "ranger::import_rgr"))
+  }
+
+  ; The string literal a macro was given: `import_rgr!("legacy")` -> legacy
+  fn macroString:string (m:RustNode) {
+    def v:string (trim m.value)
+    def n:int (strlen v)
+    if ((n >= 2) && ((charAt v 0) == 34) && ((charAt v (n - 1)) == 34)) {
+      return (substring v 1 (n - 1))
+    }
+    return ""
+  }
+
+  fn hasPendingModule:boolean () {
+    return (pendingPos < (array_length pendingKeys))
+  }
+
+  ; `mod m;` in a module whose files live in `dir` is `dir/m.rs` or
+  ; `dir/m/mod.rs`, as rustc looks for it.
+  fn nextModuleFiles:[string] () {
+    def list:[string]
+    if (false == (this.hasPendingModule())) {
+      return list
+    }
+    def d:string (itemAt pendingDirs pendingPos)
+    def m:string (itemAt pendingNames pendingPos)
+    def rf:string (itemAt pendingFiles pendingPos)
+    if (rf != "") {
+      push list rf
+      return list
+    }
+    push list (RustLower.joinPath(d (m + ".rs")))
+    push list (RustLower.joinPath((RustLower.joinPath(d m)) "mod.rs"))
+    return list
+  }
+
+  fn addModule:void (path:string src:string) {
+    if (false == (this.hasPendingModule())) {
+      return
+    }
+    def key:string (itemAt pendingKeys pendingPos)
+    def m:string (itemAt pendingNames pendingPos)
+    def d:string (itemAt pendingDirs pendingPos)
+    def rf:string (itemAt pendingFiles pendingPos)
+    def at:RustNode (itemAt pendingNodes pendingPos)
+    pendingPos = pendingPos + 1
+    if (rf != "") {
+      this.addRgr(path src at)
+      return
+    }
+    def p:RustParser (new RustParser(src))
+    def root:RustNode (p.parseFile())
+    for p.errors e:string i {
+      push errors ((path + ":") + e)
+    }
+    if ((array_length errors) > 0) {
+      return
+    }
+    ; `m/mod.rs` keeps its directory; `m.rs` puts its own modules in `m/`
+    def own:string (RustLower.joinPath(d m))
+    this.registerModule(root key path own)
+  }
+
+  ; The classes of an included `.rgr` file: known by name to the `.rs`
+  ; code, written by an ordinary Import of the file.
+  fn addRgr:void (path:string src:string at:RustNode) {
+    def sc:RsRgrScan (new RsRgrScan())
+    sc.scan(src path)
+    for sc.classes c:RsStruct ci {
+      if ((has structs c.name) || (has enums c.name)) {
+        this.err(at (((("`" + c.name) + "` of ") + path) + " is also declared in the Rust code"))
+        continue
+      }
+      set structs c.name c
+    }
+    push rgrImports path
+  }
+
+  fn moduleNotFound:void () {
+    if (false == (this.hasPendingModule())) {
+      return
+    }
+    def files:[string] (this.nextModuleFiles())
+    def at:RustNode (itemAt pendingNodes pendingPos)
+    def m:string (itemAt pendingNames pendingPos)
+    def rf2:string (itemAt pendingFiles pendingPos)
+    pendingPos = pendingPos + 1
+    if (rf2 != "") {
+      this.err(at (("file not found for ranger::import_rgr!: " + rf2)))
+      return
+    }
+    this.err(at ((((("file not found for module `" + m) + "`: looked for ") + (itemAt files 0)) + " and ") + (itemAt files 1)))
+  }
+
+  ; Lowers the entry file and its modules to one Ranger text.
+  fn finish:string () {
     if ((array_length errors) > 0) {
       return ""
     }
-    this.collect(root)
+    this.collectModules()
     if ((array_length errors) > 0) {
       return ""
     }
-    def camel:string (RustLower.moduleCamelFor(name))
+    def camel:string (RustLower.moduleCamelFor((RustLower.moduleFileName(entryName))))
     if ((false == (has structs camel)) && (false == (has enums camel)) && (false == (has traits camel)) && ((this.className(camel)) == camel)) {
       modClass = camel
+    }
+    set modClasses "" modClass
+    def ki:int 1
+    while (ki < (array_length modKeys)) {
+      def mk:string (itemAt modKeys ki)
+      ki = ki + 1
+      set modClasses mk (this.moduleClassOf(mk))
+    }
+    for fnOrder fk:string fki {
+      def fo:RsFn (unwrap (get fns fk))
+      fo.modCls = (unwrap (get modClasses fo.modKey))
+    }
+    for constOrder ck:string cki {
+      def co:RsConst (unwrap (get consts ck))
+      co.modCls = (unwrap (get modClasses co.modKey))
     }
     def text:string (this.emitAll())
     if ((array_length errors) > 0) {
       return ""
     }
     return text
+  }
+
+  ; `shapes::round` -> `ShapesRound`, unless a type has that name
+  fn moduleClassOf:string (key:string) {
+    def flat:string (join (strsplit key "::") "_")
+    def camel:string (RustLower.moduleCamelFor((flat + ".rs")))
+    def used:boolean ((has structs camel) || (has enums camel) || (has traits camel) || ((this.className(camel)) != camel) || (camel == modClass))
+    for modKeys ok:string oi {
+      if ((ok != key) && (has modClasses ok)) {
+        if ((unwrap (get modClasses ok)) == camel) {
+          used = true
+        }
+      }
+    }
+    if used {
+      return (RustLower.moduleClassFor((flat + ".rs")))
+    }
+    return camel
+  }
+
+  ; The key of a module-level item: `area` in the root, `geometry::area`
+  fn fnKey:string (mod:string name:string) {
+    if (mod == "") {
+      return name
+    }
+    return ((mod + "::") + name)
+  }
+
+  fn parentMod:string (mod:string) {
+    def cut:int (lastIndexOf mod "::")
+    if (cut < 0) {
+      return ""
+    }
+    return (substring mod 0 cut)
+  }
+
+  ; A path to a module-level function or const, as the current module sees
+  ; it: `area` (declared here or brought in by `use`), `geometry::area`,
+  ; `crate::geometry::area`, `super::area`, `self::area`. "" if none.
+  fn resolveItem:string (segs:[string] table:string) {
+    def ns:int (array_length segs)
+    if (ns == 0) {
+      return ""
+    }
+    def last:string (itemAt segs (ns - 1))
+    if (ns == 1) {
+      def here:string (this.fnKey(curMod last))
+      if (this.hasItem(here table)) {
+        return here
+      }
+      def ak:string ((curMod + "|") + last)
+      if (has fnAlias ak) {
+        def target:string (unwrap (get fnAlias ak))
+        if (this.hasItem(target table)) {
+          return target
+        }
+      }
+      return ""
+    }
+    ; relative to the current module first (Rust 2018 paths), then from the
+    ; crate root
+    def rel:string (this.modPath(segs curMod))
+    if (rel != "?") {
+      def k1:string (this.fnKey(rel last))
+      if (this.hasItem(k1 table)) {
+        return k1
+      }
+    }
+    def abs:string (this.modPath(segs ""))
+    if (abs != "?") {
+      def k2:string (this.fnKey(abs last))
+      if (this.hasItem(k2 table)) {
+        return k2
+      }
+    }
+    return ""
+  }
+
+  ; The module named by all segments but the last, starting from `from`;
+  ; "?" when a segment is not a module.
+  fn modPath:string (segs:[string] from:string) {
+    def cur:string from
+    def i:int 0
+    def ns:int (array_length segs)
+    while (i < (ns - 1)) {
+      def sg:string (itemAt segs i)
+      i = i + 1
+      if (sg == "crate") {
+        cur = ""
+        continue
+      }
+      if (sg == "self") {
+        continue
+      }
+      if (sg == "super") {
+        cur = (this.parentMod(cur))
+        continue
+      }
+      def next:string (this.fnKey(cur sg))
+      if (false == (has modFileOf next)) {
+        return "?"
+      }
+      cur = next
+    }
+    return cur
+  }
+
+  fn hasItem:boolean (key:string table:string) {
+    if (table == "fn") {
+      return (has fns key)
+    }
+    return (has consts key)
   }
 
   ; --------------------------------------------------------------- collect
@@ -327,8 +676,49 @@ class RustLower {
     return list
   }
 
-  fn collect:void (root:RustNode) {
-    ; pass 1: names, so types can refer to anything declared in the file
+  fn collectModules:void () {
+    ; pass 1: names, so types can refer to anything declared in the crate
+    def mi1:int 0
+    while (mi1 < (array_length modRoots)) {
+      this.enterModule(mi1)
+      this.collectNames((itemAt modRoots mi1))
+      mi1 = mi1 + 1
+    }
+    ; pass 2: fields, variants, signatures
+    def mi2:int 0
+    while (mi2 < (array_length modRoots)) {
+      this.enterModule(mi2)
+      def r2:RustNode (itemAt modRoots mi2)
+      for r2.kids it2:RustNode j {
+        this.collectItem(it2)
+      }
+      mi2 = mi2 + 1
+    }
+    ; `use Expr::*;` / `use Shape::{Circle, Rect}`: variants named bare;
+    ; `use geometry::area;`: a function of another module
+    def mi3:int 0
+    while (mi3 < (array_length modRoots)) {
+      this.enterModule(mi3)
+      def r3:RustNode (itemAt modRoots mi3)
+      for r3.kids ut:RustNode uj {
+        if (ut.kind == "use") {
+          for ut.kids uk:RustNode uk_i {
+            this.collectUse(uk)
+          }
+        }
+      }
+      mi3 = mi3 + 1
+    }
+    this.enterModule(0)
+    this.collectRest()
+  }
+
+  fn enterModule:void (i:int) {
+    curMod = (itemAt modKeys i)
+    fileName = (itemAt modFiles i)
+  }
+
+  fn collectNames:void (root:RustNode) {
     for root.kids it:RustNode i {
       if (it.kind == "struct") {
         def s:RsStruct (new RsStruct())
@@ -358,18 +748,9 @@ class RustLower {
         set aliases it.name (it.kid(3))
       }
     }
-    ; pass 2: fields, variants, signatures
-    for root.kids it2:RustNode j {
-      this.collectItem(it2)
-    }
-    ; `use Expr::*;` / `use Shape::{Circle, Rect}`: variants named bare
-    for root.kids ut:RustNode uj {
-      if (ut.kind == "use") {
-        for ut.kids uk:RustNode uk_i {
-          this.collectUse(uk)
-        }
-      }
-    }
+  }
+
+  fn collectRest:void () {
     ; a method named like a field of its struct is renamed: Ranger does not
     ; allow both
     for structOrder sn:string si {
@@ -427,12 +808,13 @@ class RustLower {
     c.fromTrait = m.fromTrait
     c.hasBody = m.hasBody
     c.node = m.node
+    c.modKey = m.modKey
     return c
   }
 
   fn collectItem:void (it:RustNode) {
     def k:string it.kind
-    if ((k == "use") || (k == "extern_crate")) {
+    if ((k == "use") || (k == "extern_crate") || (k == "mod")) {
       return
     }
     if (k == "struct") {
@@ -572,8 +954,9 @@ class RustLower {
     if (k == "fn") {
       def ff:RsFn (this.fnSig(it ""))
       ff.rname = (this.staticName(it.name))
-      set fns it.name ff
-      push fnOrder it.name
+      def fk:string (this.fnKey(curMod it.name))
+      set fns fk ff
+      push fnOrder fk
       return
     }
     if ((k == "const") || (k == "static")) {
@@ -581,14 +964,19 @@ class RustLower {
       c.name = it.name
       c.node = it
       c.ty = (this.typeOf((it.kid(0))))
+      c.modKey = curMod
       if (it.hasMod("mut")) {
         this.unsupported(it "`static mut`")
       }
-      set consts it.name c
-      push constOrder it.name
+      def ck:string (this.fnKey(curMod it.name))
+      set consts ck c
+      push constOrder ck
       return
     }
     if ((k == "struct") || (k == "enum") || (k == "type_alias")) {
+      return
+    }
+    if ((k == "macro_item") && (this.isImportRgr(it.name))) {
       return
     }
     if (k == "macro_item") {
@@ -619,6 +1007,7 @@ class RustLower {
     f.rname = (this.methodName(m.name))
     f.owner = owner
     f.node = m
+    f.modKey = curMod
     def all:[string] (this.genericNames((m.kid(0))))
     ; a generic bounded by an Fn trait is a function type, not a generic
     def gp:RustNode (m.kid(0))
@@ -1712,6 +2101,15 @@ class RustLower {
   fn emitAll:string () {
     def parts:[string]
     push parts "Import \"rust/RsPrelude.rgr\""
+    ; the `.rgr` modules the crate includes, relative to the entry file
+    def entryDir:string (RustLower.dirOf(entryName))
+    for rgrImports rip:string rii {
+      def rel:string rip
+      if ((entryDir != "") && ((strlen rip) > (strlen entryDir)) && ((substring rip 0 ((strlen entryDir) + 1)) == (entryDir + "/"))) {
+        rel = (substring rip ((strlen entryDir) + 1) (strlen rip))
+      }
+      push parts (("Import \"" + rel) + "\"")
+    }
     def ei:int 0
     while (ei < (array_length enumOrder)) {
       def en:string (itemAt enumOrder ei)
@@ -1726,7 +2124,7 @@ class RustLower {
       def so:RsStruct (unwrap (get structs sn))
       push parts (this.emitStruct(so))
     }
-    push parts (this.emitModule())
+    push parts (this.emitModules())
     ; instances and trait unions found while writing, until none are new
     def qi:int 0
     def di:int 0
@@ -1817,7 +2215,17 @@ class RustLower {
         push impl (this.emitEnumEq(e cname))
       }
     }
-    push impl "}"
+    ; public with the enum's public methods, as a struct's class is
+    def implDoc:RustDocInfo (new RustDocInfo())
+    for e.methods pm:RsFn pmi {
+      if (!null? pm.node) {
+        def pmNode:RustNode (unwrap pm.node)
+        if (pmNode.hasMod("pub")) {
+          implDoc.isPublic = true
+        }
+      }
+    }
+    push impl ("}" + (RustDocReader.tail(implDoc "")))
     push lines (join impl "\n")
     return (join lines "\n")
   }
@@ -2269,27 +2677,69 @@ class RustLower {
     return acc
   }
 
-  fn emitModule:string () {
-    def lines:[string]
-    push lines (("class " + modClass) + " {")
+  ; The class of each submodule's functions and consts (R6), then the root
+  ; module's class, which also holds the nested fns and generic instances.
+  fn emitModules:string () {
+    def parts:[string]
+    def mi:int 1
+    while (mi < (array_length modKeys)) {
+      def mk:string (itemAt modKeys mi)
+      mi = mi + 1
+      def sub:[string]
+      push sub (("class " + (unwrap (get modClasses mk))) + " {")
+      this.emitModuleItems(mk sub)
+      ; public when it has public functions, as the root module class is
+      def subDoc:RustDocInfo (new RustDocInfo())
+      for fnOrder sfk:string sfi {
+        def sf:RsFn (unwrap (get fns sfk))
+        if ((sf.modKey == mk) && (!null? sf.node)) {
+          def sfNode:RustNode (unwrap sf.node)
+          if (sfNode.hasMod("pub")) {
+            subDoc.isPublic = true
+          }
+        }
+      }
+      push sub ("}" + (RustDocReader.tail(subDoc "")))
+      push parts (join sub "\n")
+    }
+    push parts (this.emitModule())
+    return (join parts "\n\n")
+  }
+
+  fn emitModuleItems:void (mk:string lines:[string]) {
     def ci:int 0
     while (ci < (array_length constOrder)) {
       def cn:string (itemAt constOrder ci)
       ci = ci + 1
       def c:RsConst (unwrap (get consts cn))
+      if (c.modKey != mk) {
+        continue
+      }
+      def saveMod:string curMod
+      curMod = mk
       push lines (this.emitConst(c))
+      curMod = saveMod
     }
     def fi:int 0
     while (fi < (array_length fnOrder)) {
       def fname:string (itemAt fnOrder fi)
       fi = fi + 1
       def f:RsFn (unwrap (get fns fname))
+      if (f.modKey != mk) {
+        continue
+      }
       if ((array_length f.generics) > 0) {
         ; written per instantiation
         continue
       }
       push lines (this.emitFn(f ""))
     }
+  }
+
+  fn emitModule:string () {
+    def lines:[string]
+    push lines (("class " + modClass) + " {")
+    this.emitModuleItems("" lines)
     def hi:int 0
     def gi:int 0
     while ((hi < (array_length hoistQueue)) || (gi < (array_length fnInstQueue))) {
@@ -2489,7 +2939,21 @@ class RustLower {
   ; `fn` / `sfn` text for a function or method.
   def fnNameOverride:string ""
 
+  ; Names in a function body are looked up from the module it is in.
   fn emitFn:string (f:RsFn owner:string) {
+    def saveMod:string curMod
+    def saveFile:string fileName
+    curMod = f.modKey
+    if (has modFileOf f.modKey) {
+      fileName = (unwrap (get modFileOf f.modKey))
+    }
+    def text:string (this.emitFnIn(f owner))
+    curMod = saveMod
+    fileName = saveFile
+    return text
+  }
+
+  fn emitFnIn:string (f:RsFn owner:string) {
     if (((array_length f.generics) > 0) && (fnNameOverride == "")) {
       ; a generic method: written per instantiation of its call
       this.unsupported((unwrap f.node) (("the generic method `" + f.name) + "`"))
@@ -2698,11 +3162,14 @@ class RustLower {
   fn hoistFn:void (st:RustNode) {
     def f:RsFn (this.fnSig(st ""))
     f.rname = (this.staticName(st.name))
-    if (has fns st.name) {
+    ; written into the root module class, next to the generic instances
+    f.modCls = modClass
+    def hk:string (this.fnKey(curMod st.name))
+    if (has fns hk) {
       this.unsupported(st (("a nested fn named like a module fn (`" + st.name) + "`)"))
       return
     }
-    set fns st.name f
+    set fns hk f
     push hoistQueue f
   }
 
@@ -4727,6 +5194,7 @@ class RustLower {
   }
 
   fn collectUse:void (u:RustNode) {
+    this.useItems("" u)
     if (u.kind == "use_glob") {
       def eg:string (this.useEnum(u.name))
       if (eg != "") {
@@ -4766,6 +5234,57 @@ class RustLower {
     }
   }
 
+  ; `use geometry::area;`, `use crate::util::{f, g as h};`,
+  ; `use geometry::*;`: module-level functions and consts named bare in the
+  ; current module (R6).
+  fn useItems:void (prefix:string u:RustNode) {
+    if (u.kind == "use_name") {
+      def full:string (this.fnKey(prefix u.name))
+      def segs:[string] (strsplit full "::")
+      def local:string (itemAt segs ((array_length segs) - 1))
+      if ((u.value != "") && (u.value != "_")) {
+        local = u.value
+      }
+      def key:string (this.resolveItem(segs "fn"))
+      if (key == "") {
+        key = (this.resolveItem(segs "const"))
+      }
+      if (key != "") {
+        set fnAlias ((curMod + "|") + local) key
+      }
+      return
+    }
+    if (u.kind == "use_group") {
+      for u.kids c:RustNode ci {
+        this.useItems((this.fnKey(prefix u.name)) c)
+      }
+      return
+    }
+    if (u.kind == "use_glob") {
+      def gsegs:[string] (strsplit (this.fnKey(prefix u.name)) "::")
+      push gsegs "*"
+      def m:string (this.modPath(gsegs curMod))
+      if (m == "?") {
+        m = (this.modPath(gsegs ""))
+      }
+      if ((m == "?") || (m == curMod)) {
+        return
+      }
+      for fnOrder fk:string fi {
+        def f:RsFn (unwrap (get fns fk))
+        if (f.modKey == m) {
+          set fnAlias ((curMod + "|") + f.name) fk
+        }
+      }
+      for constOrder ck:string ci2 {
+        def c:RsConst (unwrap (get consts ck))
+        if (c.modKey == m) {
+          set fnAlias ((curMod + "|") + c.name) ck
+        }
+      }
+    }
+  }
+
   fn lowerPathExpr:RsExpr (n:RustNode expect:RsType) {
     def p:RustNode (n.kid(0))
     if (p.kind != "path") {
@@ -4791,9 +5310,9 @@ class RustLower {
       if (name == "None") {
         return (RsExpr.of("" (RsType.mk("none"))))
       }
-      if (has consts name) {
-        def c:RsConst (unwrap (get consts name))
-        return (RsExpr.of((((("(" + modClass) + ".") + (this.staticName(name))) + "())") c.ty))
+      def ck1:string (this.resolveItem(segs "const"))
+      if (ck1 != "") {
+        return (this.constValue(ck1))
       }
       if (has structs name) {
         def s:RsStruct (unwrap (get structs name))
@@ -4801,11 +5320,21 @@ class RustLower {
           return (RsExpr.of((("(new " + (this.className(name))) + ")") (RsType.named(name))))
         }
       }
-      if (has fns name) {
-        return (this.fnValue(name n))
+      def fk1:string (this.resolveItem(segs "fn"))
+      if (fk1 != "") {
+        return (this.fnValue(fk1 n))
       }
       this.err(n (("unknown name `" + name) + "`"))
       return (this.unit())
+    }
+    ; `geometry::ORIGIN`, `crate::util::area` (R6)
+    def ck2:string (this.resolveItem(segs "const"))
+    if (ck2 != "") {
+      return (this.constValue(ck2))
+    }
+    def fk2:string (this.resolveItem(segs "fn"))
+    if (fk2 != "") {
+      return (this.fnValue(fk2 n))
     }
     def full:string (join segs "::")
     def last:string (itemAt segs (ns - 1))
@@ -4907,6 +5436,11 @@ class RustLower {
     return ""
   }
 
+  fn constValue:RsExpr (key:string) {
+    def c:RsConst (unwrap (get consts key))
+    return (RsExpr.of((((("(" + c.modCls) + ".") + (this.staticName(c.name))) + "())") c.ty))
+  }
+
   ; A free function used as a value: a lambda that calls it.
   fn fnValue:RsExpr (name:string at:RustNode) {
     def f:RsFn (unwrap (get fns name))
@@ -4922,7 +5456,7 @@ class RustLower {
       i = i + 1
     }
     push ft.args f.ret
-    def call:string (((((modClass + ".") + f.rname) + "(") + (join as " ")) + ")")
+    def call:string (((((f.modCls + ".") + f.rname) + "(") + (join as " ")) + ")")
     def body:string ("return " + call)
     if (f.ret.kind == "unit") {
       body = call
@@ -5312,19 +5846,9 @@ class RustLower {
           }
           return (this.makeResult(name args expect n))
         }
-        if (has fns name) {
-          def f:RsFn (unwrap (get fns name))
-          if ((array_length f.generics) > 0) {
-            def cp:RustNode (callee.kid(0))
-            def lastSeg:RustNode (itemAt cp.kids ((array_length cp.kids) - 1))
-            return (this.lowerGenericCall(f args (lastSeg.kid(0)) expect n))
-          }
-          this.checkCallBorrows((new RustNode("none")) false false args n)
-          if (this.hasBoxed(f)) {
-            return (this.boxedCall((((modClass + ".") + f.rname) + "(") f args (RsType.mk("unknown")) "" n))
-          }
-          def codes:[string] (this.lowerArgs(args (this.paramTypes(f))))
-          return (RsExpr.of((((((("(" + modClass) + ".") + f.rname) + "(") + (join codes " ")) + "))") f.ret))
+        def fk:string (this.resolveItem(segs "fn"))
+        if (fk != "") {
+          return (this.callModuleFn(fk callee args expect n))
         }
         if (has structs name) {
           def s:RsStruct (unwrap (get structs name))
@@ -5346,11 +5870,32 @@ class RustLower {
         this.err(n (("unknown function `" + name) + "`"))
         return (this.unit())
       }
+      ; `geometry::area(…)`, `crate::util::f(…)` (R6)
+      def fkp:string (this.resolveItem(segs "fn"))
+      if (fkp != "") {
+        return (this.callModuleFn(fkp callee args expect n))
+      }
       return (this.lowerPathCall(segs args expect n))
     }
     def cv:RsExpr (this.lowerExpr(callee (RsType.mk("unknown"))))
     def fname:string (this.bindTemp(cv cv.ty "f"))
     return (this.callValue(fname cv.ty args n))
+  }
+
+  ; A call of a module-level function.
+  fn callModuleFn:RsExpr (fk:string callee:RustNode args:[RustNode] expect:RsType n:RustNode) {
+    def f:RsFn (unwrap (get fns fk))
+    if ((array_length f.generics) > 0) {
+      def cp:RustNode (callee.kid(0))
+      def lastSeg:RustNode (itemAt cp.kids ((array_length cp.kids) - 1))
+      return (this.lowerGenericCall(f args (lastSeg.kid(0)) expect n))
+    }
+    this.checkCallBorrows((new RustNode("none")) false false args n)
+    if (this.hasBoxed(f)) {
+      return (this.boxedCall((((f.modCls + ".") + f.rname) + "(") f args (RsType.mk("unknown")) "" n))
+    }
+    def codes:[string] (this.lowerArgs(args (this.paramTypes(f))))
+    return (RsExpr.of((((((("(" + f.modCls) + ".") + f.rname) + "(") + (join codes " ")) + "))") f.ret))
   }
 
   ; Calls a value of function type (a closure in a local or a field).
@@ -5436,6 +5981,13 @@ class RustLower {
           return (RsExpr.of((((((("(" + recv) + ".") + mf.rname) + "(") + (join codes0 " ")) + "))") mf.ret))
         }
         def codes:[string] (this.lowerArgs(args (this.paramTypes(mf))))
+        if mf.rgrCtor {
+          ; the constructor of a `.rgr` class
+          return (RsExpr.of((((("(new " + head) + "(") + (join codes " ")) + "))") (RsType.named(head))))
+        }
+        if s.rgr {
+          return (RsExpr.of((((((("(" + head) + ".") + mf.rname) + "(") + (join codes " ")) + "))") mf.ret))
+        }
         return (RsExpr.of((((((("(" + (this.className(head))) + ".") + (this.staticName(name))) + "(") + (join codes " ")) + "))") mf.ret))
       }
       this.err(at (((("no associated function `" + name) + "` on `") + head) + "`"))
@@ -5680,6 +6232,11 @@ class RustLower {
           def ed:string (this.bindTemp(rv t "r"))
           return (RsExpr.of((((("(" + (this.implClass(t.name))) + ".displayOf(") + ed) + "))") (RsType.mk("string"))))
         }
+      }
+      ; `c.borrow().count`, `c.borrow_mut().label = …` on an Rc<RefCell<T>>:
+      ; the object itself
+      if (((name == "borrow") || (name == "borrow_mut") || (name == "as_ref") || (name == "as_mut")) && ((array_length args) == 0)) {
+        return rv
       }
       this.err(n (((("no method `" + name) + "` on `") + (t.rust())) + "`"))
       return (this.unit())

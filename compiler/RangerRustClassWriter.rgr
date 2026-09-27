@@ -116,6 +116,8 @@ class RangerRustClassWriter {
   ; for every file whether or not it applies is a pragma that hides the
   ; backend's own regressions; this way rustc and clippy report them.
   def rustAllowSeen:[string:boolean]
+  ; `-rust-module`: the file is included into a `mod`, so no inner attributes
+  def rustModuleOut:boolean false
   def rustClippyNoteWritten:boolean false
   ; every identifier name in the program, for the snake_case collision guard.
   ; adjustType is called from 40-odd places with no ctx to hand, so the SET is
@@ -2420,6 +2422,12 @@ class RangerRustClassWriter {
     if (has rustAllowSeen name) {
       return
     }
+    ; `-rust-module` output is included into a `mod` (`ranger::import_rgr!`),
+    ; where an inner attribute is not allowed; the including file puts
+    ; `#[allow(…)]` on the module
+    if (this.rustModuleMode(wr)) {
+      return
+    }
     if ((wr.hasTag("file_attributes")) == false) {
       return
     }
@@ -2429,11 +2437,18 @@ class RangerRustClassWriter {
   }
 
 
+  fn rustModuleMode:boolean (wr:CodeWriter) {
+    return rustModuleOut
+  }
+
   ; The same for a clippy lint, with the note that says why any of them are
   ; here written before the first one.
   fn rustNeedClippyAllow:void (name:string wr:CodeWriter) {
     def ncKey:string ("clippy::" + name)
     if (has rustAllowSeen ncKey) {
+      return
+    }
+    if (this.rustModuleMode(wr)) {
       return
     }
     if ((wr.hasTag("file_attributes")) == false) {

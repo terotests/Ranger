@@ -2984,6 +2984,15 @@ class StaticAnalyzer {
     ; rules below read it through the per-function mutated-name sets
     this.computeSharingMutations()
     def root:RangerAppWriterContext ((unwrap ctx).getRoot())
+    ; `-rust-module` (PLAN_RUST_SYNTAX.md §2.3): strict Rust code sees every
+    ; class of the module as a handle, Rc<RefCell<T>>, whatever the use
+    ; inside the module would choose, so the module's API does not change
+    ; with its implementation
+    if ((unwrap ctx).hasCompilerFlag("rust-module")) {
+      for root.definedClasses mcl:RangerAppClassDesc mci {
+        this.markClassShared(mcl.name "rust module boundary")
+      }
+    }
     for root.definedClasses cl:RangerAppClassDesc ci {
       ; D-UNION: a union is written as Rc<dyn Any> on the Rust target, and only
       ; an Rc<RefCell<T>> coerces into it — so every class named by a union is

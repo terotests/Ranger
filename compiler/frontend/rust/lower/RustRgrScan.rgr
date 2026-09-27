@@ -1,0 +1,317 @@
+; SPDX-License-Identifier: MIT
+
+; The signatures of the classes in a `.rgr` file, for a strict Rust module
+; that includes it with `ranger::import_rgr!` (PLAN_RUST_SYNTAX.md §2.2, R6).
+;
+; The lowering only needs to know what the `.rs` code may name: each class,
+; its fields and their types, its methods with parameter and return types,
+; and its constructor. It reads them from the source text line by line --
+; Ranger writes one statement per line -- keeping track of brace depth, so
+; nothing in a method body is read as a member. The full `.rgr` file is
+; compiled by the ordinary import that the lowering writes for it.
+
+Import "RustTypes.rgr"
+
+class RsRgrScan {
+  def errors:[string]
+  def classes:[RsStruct]
+
+  fn scan:void (src:string file:string) {
+    def lines:[string] (strsplit src "\n")
+    def depth:int 0
+    def cur@(optional):RsStruct
+    def classDepth:int -1
+    def ln:int 0
+    for lines raw:string li {
+      ln = ln + 1
+      def line:string (trim (this.stripComment(raw)))
+      if ((strlen line) == 0) {
+        continue
+      }
+      if ((depth == 0) && (this.startsWord(line "class"))) {
+        def s:RsStruct (new RsStruct())
+        s.name = (this.wordAt(line 6))
+        s.rgr = true
+        push classes s
+        cur = s
+        classDepth = 1
+      }
+      if ((depth == classDepth) && (!null? cur)) {
+        def c:RsStruct (unwrap cur)
+        this.member(c line file ln)
+      }
+      depth = depth + (this.braceDelta(line))
+      if ((depth < classDepth) && (!null? cur)) {
+        this.defaultCtor((unwrap cur))
+      }
+      if (depth < classDepth) {
+        def none@(optional):RsStruct
+        cur = none
+        classDepth = -1
+      }
+    }
+  }
+
+  ; A class without a Constructor still has `new()` on the Rust side.
+  fn defaultCtor:void (c:RsStruct) {
+    for c.methods m:RsFn mi {
+      if (m.rgrCtor) {
+        return
+      }
+    }
+    def k:RsFn (new RsFn())
+    k.name = "new"
+    k.rname = "new"
+    k.owner = c.name
+    k.rgrCtor = true
+    k.ret = (RsType.named(c.name))
+    push c.methods k
+  }
+
+  ; Drops a `;` comment, which is not inside a string.
+  fn stripComment:string (s:string) {
+    def inStr:boolean false
+    def i:int 0
+    def n:int (strlen s)
+    while (i < n) {
+      def c:int (charAt s i)
+      if (c == 34) {
+        inStr = (false == inStr)
+      }
+      if (inStr && (c == 92)) {
+        i = i + 2
+        continue
+      }
+      if ((false == inStr) && (c == 59)) {
+        return (substring s 0 i)
+      }
+      i = i + 1
+    }
+    return s
+  }
+
+  fn braceDelta:int (s:string) {
+    def d:int 0
+    def inStr:boolean false
+    def i:int 0
+    def n:int (strlen s)
+    while (i < n) {
+      def c:int (charAt s i)
+      if (c == 34) {
+        inStr = (false == inStr)
+      }
+      if (inStr && (c == 92)) {
+        i = i + 2
+        continue
+      }
+      if (false == inStr) {
+        if (c == 123) {
+          d = d + 1
+        }
+        if (c == 125) {
+          d = d - 1
+        }
+      }
+      i = i + 1
+    }
+    return d
+  }
+
+  fn startsWord:boolean (line:string w:string) {
+    def n:int (strlen w)
+    if ((strlen line) <= n) {
+      return false
+    }
+    if ((substring line 0 n) != w) {
+      return false
+    }
+    def c:int (charAt line n)
+    return ((c == 32) || (c == 9))
+  }
+
+  ; The identifier starting at `from` (after leading blanks).
+  fn wordAt:string (line:string from:int) {
+    def i:int from
+    def n:int (strlen line)
+    while ((i < n) && (((charAt line i) == 32) || ((charAt line i) == 9))) {
+      i = i + 1
+    }
+    def start:int i
+    while (i < n) {
+      def c:int (charAt line i)
+      def ok:boolean ((((c >= 48) && (c <= 57)) || ((c >= 65) && (c <= 90)) || ((c >= 97) && (c <= 122))) || (c == 95))
+      if (false == ok) {
+        break
+      }
+      i = i + 1
+    }
+    return (substring line start i)
+  }
+
+  ; `name@(flags):Type` -> [name, Type, optional?]
+  fn nameType:[string] (decl:string) {
+    def out:[string]
+    def colon:int (indexOf decl ":")
+    def name:string decl
+    def ty:string ""
+    if (colon >= 0) {
+      name = (substring decl 0 colon)
+      ty = (substring decl (colon + 1) (strlen decl))
+    }
+    def opt:string "no"
+    def at:int (indexOf name "@")
+    if (at >= 0) {
+      if ((indexOf name "optional") >= 0) {
+        opt = "yes"
+      }
+      name = (substring name 0 at)
+    }
+    push out name
+    push out ty
+    push out opt
+    return out
+  }
+
+  ; The first whitespace-separated token of `s`, brackets kept together.
+  fn firstToken:string (s:string) {
+    def i:int 0
+    def n:int (strlen s)
+    def br:int 0
+    while (i < n) {
+      def c:int (charAt s i)
+      if ((c == 91) || (c == 40)) {
+        br = br + 1
+      }
+      if ((c == 93) || (c == 41)) {
+        br = br - 1
+      }
+      if ((br == 0) && ((c == 32) || (c == 9))) {
+        return (substring s 0 i)
+      }
+      i = i + 1
+    }
+    return s
+  }
+
+  ; A Ranger type as the lowering's type: int, double, string, boolean,
+  ; [T], [K:V], a class (a shared handle on the Rust side).
+  fn rsType:RsType (t:string) {
+    if ((t == "int") || (t == "char")) {
+      def it:RsType (RsType.mk("int"))
+      it.name = "i64"
+      return it
+    }
+    if (t == "double") {
+      return (RsType.mk("double"))
+    }
+    if (t == "string") {
+      def st:RsType (RsType.mk("string"))
+      st.name = "String"
+      return st
+    }
+    if (t == "boolean") {
+      return (RsType.mk("bool"))
+    }
+    if (t == "void") {
+      return (RsType.mk("unit"))
+    }
+    def n:int (strlen t)
+    if ((n >= 2) && ((charAt t 0) == 91) && ((charAt t (n - 1)) == 93)) {
+      def inner:string (substring t 1 (n - 1))
+      def colon:int (indexOf inner ":")
+      if (colon >= 0) {
+        def m:RsType (RsType.of2("map" (this.rsType((substring inner 0 colon))) (this.rsType((substring inner (colon + 1) (strlen inner))))))
+        m.name = "ordered"
+        return m
+      }
+      return (RsType.of1("vec" (this.rsType(inner))))
+    }
+    if ((n > 0) && ((charAt t 0) >= 65) && ((charAt t 0) <= 90) && ((indexOf t "(") < 0)) {
+      def nt:RsType (RsType.named(t))
+      nt.shared = true
+      return nt
+    }
+    return (RsType.mk("unknown"))
+  }
+
+  fn withOpt:RsType (t:RsType opt:string) {
+    if (opt == "yes") {
+      return (RsType.of1("opt" t))
+    }
+    return t
+  }
+
+  ; `(a:int b:[string])` -> parameters
+  fn params:[RsParam] (line:string) {
+    def list:[RsParam]
+    def open:int (indexOf line "(")
+    if (open < 0) {
+      return list
+    }
+    def after:string (substring line (open + 1) (strlen line))
+    def close:int (indexOf after ")")
+    if (close < 0) {
+      return list
+    }
+    def inner:string (trim (substring after 0 close))
+    if ((strlen inner) == 0) {
+      return list
+    }
+    def parts:[string] (strsplit inner " ")
+    for parts part:string pi {
+      def p:string (trim part)
+      if ((strlen p) == 0) {
+        continue
+      }
+      def nt:[string] (this.nameType(p))
+      def rp:RsParam (new RsParam())
+      rp.name = (itemAt nt 0)
+      rp.ty = (this.withOpt((this.rsType((itemAt nt 1))) (itemAt nt 2)))
+      push list rp
+    }
+    return list
+  }
+
+  fn member:void (c:RsStruct line:string file:string ln:int) {
+    if (this.startsWord(line "def")) {
+      def decl:string (this.firstToken((trim (substring line 4 (strlen line)))))
+      def nt:[string] (this.nameType(decl))
+      def f:RsField (new RsField())
+      f.name = (itemAt nt 0)
+      f.ty = (this.withOpt((this.rsType((itemAt nt 1))) (itemAt nt 2)))
+      push c.fields f
+      return
+    }
+    def isFn:boolean (this.startsWord(line "fn"))
+    def isSfn:boolean (this.startsWord(line "sfn"))
+    if (isFn || isSfn) {
+      def skip:int 3
+      if isSfn {
+        skip = 4
+      }
+      def rest:string (trim (substring line skip (strlen line)))
+      def decl2:string (this.firstToken(rest))
+      def nt2:[string] (this.nameType(decl2))
+      def m:RsFn (new RsFn())
+      m.name = (itemAt nt2 0)
+      m.rname = m.name
+      m.owner = c.name
+      m.hasSelf = isFn
+      m.ret = (this.withOpt((this.rsType((itemAt nt2 1))) (itemAt nt2 2)))
+      m.params = (this.params((substring rest (strlen decl2) (strlen rest))))
+      push c.methods m
+      return
+    }
+    if (this.startsWord(line "Constructor")) {
+      def k:RsFn (new RsFn())
+      k.name = "new"
+      k.rname = "new"
+      k.owner = c.name
+      k.hasSelf = false
+      k.rgrCtor = true
+      k.ret = (RsType.named(c.name))
+      k.params = (this.params(line))
+      push c.methods k
+    }
+  }
+}
