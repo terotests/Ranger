@@ -625,6 +625,7 @@
     "office:docs:sync-chart-api": "node gallery/office/docs/tools/sync-chart-api.mjs",
     "office:docs:sync-playground": "node gallery/office/docs/tools/sync-playground.mjs",
     "office:emoji:build": "bash scripts/rgr-suite.sh ./gallery/office/geom/tools/emoji_shapes.rgr ./gallery/office/bin emoji_shapes.js",
+    "office:export:test": "bash scripts/rgr-suite.sh ./gallery/office/export/tests/EVGListToElementsTest.rgr ./gallery/office/export/bin EVGListToElementsTest.js",
     "office:font:test": "bash gallery/office/text/tools/run_font_test.sh",
     "office:geom:test": "bash gallery/office/geom/tools/run_geom_test.sh",
     "office:history:editors:test": "bash scripts/rgr-suite.sh ./gallery/office/editor/tests/OfficeHistoryEditorsTest.rgr ./gallery/office/bin OfficeHistoryEditorsTest.js",

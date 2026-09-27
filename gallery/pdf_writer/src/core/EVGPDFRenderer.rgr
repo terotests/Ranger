@@ -2882,8 +2882,14 @@ class EVGPDFRenderer {
             fontFamily = "Helvetica"
         }
         
-        ; Wrap text to fit width using correct font
-        def lines:[string] (this.wrapText(text w fontSize fontFamily))
+        ; Wrap text to fit width using correct font — unless the element says
+        ; the line is already broken.
+        def lines:[string]
+        if (el.whiteSpace == "nowrap") {
+            push lines text
+        } {
+            lines = (this.wrapText(text w fontSize fontFamily))
+        }
         
         ; Get PDF font name
         def fontName:string (this.getPdfFontName(fontFamily))
@@ -3636,7 +3642,7 @@ class EVGPDFRenderer {
                                 ; Latin-1 has control codes and CP1252 has the
                                 ; dashes and curly quotes) and rejected the
                                 ; real codepoints for those same characters.
-                                def enc:int (Utf8.toWinAnsi(ch))
+                                def enc:int (Utf8.toWinAnsi((Utf8.winAnsiStandIn(ch))))
                                 if (enc >= 0) {
                                     ; Emitted as a PDF octal escape \NNN
                                     ; because Go strings are UTF-8 and cannot
